@@ -50,7 +50,7 @@ def _delta_contract_frame(
     *,
     additivity: Literal["additive", "semi_additive", "non_additive"] | None,
     status_time_dimension: str | None = None,
-    composition_kind: Literal["ratio", "weighted_average"] | None = None,
+    composition_kind: Literal["ratio", "weighted_mean"] | None = None,
 ) -> DeltaFrame:
     component_ref = "frame_delta_components" if composition_kind is not None else None
     composition = (
@@ -427,7 +427,7 @@ def test_delta_contract_surfaces_semi_additive_axis_condition() -> None:
     assert "exclude" in precondition.repair.action
 
 
-@pytest.mark.parametrize("composition_kind", ["ratio", "weighted_average"])
+@pytest.mark.parametrize("composition_kind", ["ratio", "weighted_mean"])
 def test_delta_contract_preserves_component_aware_attribution_exception(
     composition_kind,
 ) -> None:
@@ -457,7 +457,7 @@ def test_delta_contract_preserves_component_aware_attribution_exception(
 def test_delta_show_surfaces_direct_component_attribution() -> None:
     frame = _delta_contract_frame(
         additivity="non_additive",
-        composition_kind="weighted_average",
+        composition_kind="weighted_mean",
     )
     frame.meta.composition = {
         **(frame.meta.composition or {}),

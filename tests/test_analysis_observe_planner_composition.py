@@ -138,7 +138,7 @@ def test_frame_metas_use_composition():
 
 
 # ---------------------------------------------------------------------------
-# Task 3: _evaluate_composition_on_frame handles ratio, weighted, linear
+# Task 3: _evaluate_composition_on_frame handles derived ratio and linear
 # ---------------------------------------------------------------------------
 
 
@@ -162,48 +162,6 @@ def test_evaluate_composition_ratio():
     assert float(result_df.iloc[1]) == pytest.approx(10.0)
 
 
-def test_evaluate_composition_weighted_average_uses_value_role():
-    import ibis
-    import pandas as pd
-
-    from marivo.analysis.intents.observe import _evaluate_composition_on_frame
-
-    d = metric_details_factory(
-        metric_type="derived",
-        composition="weighted_average",
-        components=[("value", "s.rate"), ("weight", "s.sessions")],
-    )
-    metric_ir = _planned_metric(d)
-    df = pd.DataFrame({"rate": [4.0, 6.0], "sessions": [10.0, 20.0]})
-    table = ibis.memtable(df)
-    result = _evaluate_composition_on_frame(metric_ir, table)
-    result_df = result.to_pandas()
-    # value/weight = rate/sessions
-    assert float(result_df.iloc[0]) == pytest.approx(0.4)
-    assert float(result_df.iloc[1]) == pytest.approx(0.3)
-
-
-def test_evaluate_composition_weighted_average_zero_weight_is_null():
-    import numpy as np
-    import pandas as pd
-
-    from marivo.analysis.intents.observe import _evaluate_composition_on_frame
-
-    d = metric_details_factory(
-        metric_type="derived",
-        composition="weighted_average",
-        components=[("value", "s.rate"), ("weight", "s.sessions")],
-    )
-    metric_ir = _planned_metric(d)
-    df = pd.DataFrame({"rate": [4.0, 6.0, 0.0], "sessions": [10.0, 0.0, 0.0]})
-    result = _evaluate_composition_on_frame(metric_ir, df)
-    assert result.iloc[0] == pytest.approx(0.4)
-    # A present zero weight yields null, never +/-inf (6/0 and 0/0 alike).
-    assert not np.isinf(result).any()
-    assert pd.isna(result.iloc[1])
-    assert pd.isna(result.iloc[2])
-
-
 def test_zero_denominator_row_count_dispatches_on_composition_kind():
     import pandas as pd
 
@@ -219,16 +177,6 @@ def test_zero_denominator_row_count_dispatches_on_composition_kind():
     # An absent (null) denominator is a missing component, not a zero denominator.
     ratio_frame = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [0.0, None, 4.0]})
     assert _zero_denominator_row_count(ratio, ratio_frame) == 1
-
-    weighted = _planned_metric(
-        metric_details_factory(
-            metric_type="derived",
-            composition="weighted_average",
-            components=[("value", "s.rate"), ("weight", "s.sessions")],
-        )
-    )
-    weighted_frame = pd.DataFrame({"rate": [4.0, 6.0], "sessions": [0.0, 10.0]})
-    assert _zero_denominator_row_count(weighted, weighted_frame) == 1
 
     linear = _planned_metric(
         metric_details_factory(
@@ -285,7 +233,7 @@ def test_shape_ratio_and_weighted():
     )
     assert (
         attribution_output_shape(
-            SimpleNamespace(component_ref="x", composition={"kind": "weighted_average"})
+            SimpleNamespace(component_ref="x", composition={"kind": "weighted_mean"})
         )
         == "weighted_mix"
     )
@@ -307,16 +255,16 @@ def test_component_value_role_ratio_is_numerator():
     assert _component_value_role(component) == "numerator"
 
 
-def test_component_value_role_weighted_is_value():
+def test_component_value_role_weighted_mean_is_numerator():
     from marivo.analysis.intents.decompose import _component_value_role
 
     component = SimpleNamespace(
         meta=SimpleNamespace(
-            composition_kind="weighted_average",
-            components={"value": "s.rate", "weight": "s.sessions"},
+            composition_kind="weighted_mean",
+            components={"numerator": "s.rate", "weight": "s.sessions"},
         )
     )
-    assert _component_value_role(component) == "value"
+    assert _component_value_role(component) == "numerator"
 
 
 def test_component_linear_output_additive():

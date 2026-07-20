@@ -47,7 +47,7 @@ def attribution_output_shape(delta_meta: DeltaFrameMeta) -> AttributionShape:
 
     Reads the delta's own metadata only (no component-frame load): a delta with
     no component_ref decomposes to "sum"; otherwise the linked composition kind
-    ("ratio" -> "ratio_mix", "weighted_average" -> "weighted_mix") decides.
+    ("ratio" -> "ratio_mix", "weighted_mean" -> "weighted_mix") decides.
     ComponentFrameMeta.composition_kind is the authoritative source; the delta's
     composition["kind"] mirrors it for a cheap read.
     """
@@ -56,7 +56,7 @@ def attribution_output_shape(delta_meta: DeltaFrameMeta) -> AttributionShape:
     kind = (delta_meta.composition or {}).get("kind")
     if kind == "ratio":
         return "ratio_mix"
-    if kind == "weighted_average":
+    if kind == "weighted_mean":
         return "weighted_mix"
     if kind == "linear":
         return "sum"

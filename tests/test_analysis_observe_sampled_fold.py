@@ -480,7 +480,7 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
 
     assert exc_info.value._context["reason"] == "non_linear_time_fold"
     assert exc_info.value._context["recommended_path"] == (
-        "Use a component-aware derived ratio or weighted-average metric for mix "
+        "Use a component-aware ratio or weighted-mean metric for mix "
         "attribution, or attribute numerator and denominator separately and "
         "synthesize the ratio externally."
     )

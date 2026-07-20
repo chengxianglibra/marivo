@@ -66,7 +66,6 @@ from marivo.semantic.ir import (
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
-    WeightedAverageComposition,
     WhereValue,
     additivity_bucket,
     composition_components,
@@ -141,13 +140,9 @@ def _metric_preview_table(
     """
     metric = registry.metrics[ref.path]
     composition = metric.composition
-    if isinstance(composition, RatioComposition | WeightedAverageComposition):
-        if isinstance(composition, RatioComposition):
-            numerator_ref = Ref.metric(composition.numerator)
-            denominator_ref = Ref.metric(composition.denominator)
-        else:
-            numerator_ref = Ref.metric(composition.value)
-            denominator_ref = Ref.metric(composition.weight)
+    if isinstance(composition, RatioComposition):
+        numerator_ref = Ref.metric(composition.numerator)
+        denominator_ref = Ref.metric(composition.denominator)
         numerator_alias = f"{alias}__numerator"
         denominator_alias = f"{alias}__denominator"
         numerator = _metric_preview_table(
@@ -613,6 +608,8 @@ class SimpleMetricDetails(_DetailsBase):
     candidate_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
     candidate_time_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
     measure_lineage: tuple[tuple[str, Ref[SemanticKindTag]], ...] = ()
+    weighted_mean_value: Ref[SemanticKindTag] | None = None
+    weighted_mean_weight: Ref[SemanticKindTag] | None = None
 
     @property
     def metric_type(self) -> Literal["simple"]:
@@ -649,6 +646,16 @@ class SimpleMetricDetails(_DetailsBase):
             sections.append(FieldSection(label="aggregation", value=self.aggregation))
         if self.measure is not None:
             sections.append(FieldSection(label="measure", value=self.measure.key))
+        if self.weighted_mean_value is not None and self.weighted_mean_weight is not None:
+            sections.append(
+                FieldSection(
+                    label="inputs",
+                    value=(
+                        f"value={self.weighted_mean_value.key}, "
+                        f"weight={self.weighted_mean_weight.key}"
+                    ),
+                )
+            )
         if self.aggregation_target is not None and self.aggregation_target_kind != "measure":
             sections.append(
                 FieldSection(
@@ -670,14 +677,14 @@ class SimpleMetricDetails(_DetailsBase):
 class DerivedMetricDetails(_DetailsBase):
     """Details for a derived (composed) metric.
 
-    Derived metrics are declared with ``ms.ratio(...)``, ``ms.weighted_average(...)``,
-    or ``ms.linear(...)``.  They always carry a composition kind and components;
+    Derived metrics are declared with ``ms.ratio(...)``, ``ms.cumulative(...)``,
+    or ``ms.linear(...)``. They always carry a composition kind and components;
     they never have aggregation or measure.
     """
 
     entities: tuple[Ref[SemanticKindTag], ...]
     root_entity: Ref[SemanticKindTag] | None
-    composition: Literal["ratio", "weighted_average", "linear", "cumulative"]
+    composition: Literal["ratio", "linear", "cumulative"]
     components: tuple[tuple[str, Ref[SemanticKindTag]], ...]
     linear_terms: tuple[tuple[str, str], ...]
     required_relationships: tuple[Ref[SemanticKindTag], ...]
@@ -1475,6 +1482,10 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatal
         _make_ref(metric.semantic_id, SemanticKind.METRIC)
         for metric in reg.metrics.values()
         if metric.measure == m_ir.semantic_id
+        or (
+            metric.weighted_mean is not None
+            and m_ir.semantic_id in {metric.weighted_mean.value, metric.weighted_mean.weight}
+        )
     )
     details = MeasureDetails(
         ref=ref,
@@ -1536,6 +1547,20 @@ def _metric_analysis_metadata(
         if current.measure is not None:
             measure_lineage.append(
                 (role_path or "measure", _make_ref(current.measure, SemanticKind.MEASURE))
+            )
+        if current.weighted_mean is not None:
+            prefix = f"{role_path}." if role_path else ""
+            measure_lineage.extend(
+                (
+                    (
+                        f"{prefix}value",
+                        _make_ref(current.weighted_mean.value, SemanticKind.MEASURE),
+                    ),
+                    (
+                        f"{prefix}weight",
+                        _make_ref(current.weighted_mean.weight, SemanticKind.MEASURE),
+                    ),
+                )
             )
         if current.composition is None:
             return
@@ -1606,8 +1631,20 @@ def _build_metric_object(
             and r.from_entity in m_ir.entities
             and r.to_entity in m_ir.entities
         )
+    weighted_mean_refs = (
+        (
+            _make_ref(m_ir.weighted_mean.value, SemanticKind.MEASURE),
+            _make_ref(m_ir.weighted_mean.weight, SemanticKind.MEASURE),
+        )
+        if m_ir.weighted_mean is not None
+        else ()
+    )
     parents = (
-        entity_refs + component_refs + required_rels + _expression_dependency_refs(catalog, ref)
+        entity_refs
+        + component_refs
+        + weighted_mean_refs
+        + required_rels
+        + _expression_dependency_refs(catalog, ref)
     )
     dependents = tuple(
         _make_ref(m2.semantic_id, SemanticKind.METRIC)
@@ -1664,7 +1701,9 @@ def _build_metric_object(
             python_symbol=m_ir.python_symbol,
             entities=entity_refs,
             root_entity=root_entity_ref,
-            aggregation=_format_agg(m_ir.aggregation),
+            aggregation=(
+                "weighted_mean" if m_ir.weighted_mean is not None else _format_agg(m_ir.aggregation)
+            ),
             measure=_make_ref(m_ir.measure, SemanticKind.MEASURE) if m_ir.measure else None,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
             fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
@@ -1681,6 +1720,16 @@ def _build_metric_object(
             candidate_dimensions=candidate_dimensions,
             candidate_time_dimensions=candidate_time_dimensions,
             measure_lineage=measure_lineage,
+            weighted_mean_value=(
+                _make_ref(m_ir.weighted_mean.value, SemanticKind.MEASURE)
+                if m_ir.weighted_mean is not None
+                else None
+            ),
+            weighted_mean_weight=(
+                _make_ref(m_ir.weighted_mean.weight, SemanticKind.MEASURE)
+                if m_ir.weighted_mean is not None
+                else None
+            ),
         )
     return _object_from_details(MetricEntry, details, catalog)
 

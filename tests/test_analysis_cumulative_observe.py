@@ -58,7 +58,14 @@ def _bootstrap_project(tmp_path) -> None:
         "name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
+        "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
+        "us_weighted_user = ms.weighted_mean("
+        "name='us_weighted_user', value=user_id, weight=amount, filter=ms.where(region='US'))\n"
         "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=event_time)\n"
+        "cum_weighted_user = ms.cumulative("
+        "name='cum_weighted_user', base=weighted_user, over=event_time)\n"
+        "cum_us_weighted_user = ms.cumulative("
+        "name='cum_us_weighted_user', base=us_weighted_user, over=event_time)\n"
         "cum_active_users = ms.cumulative(name='cum_active_users', base=active_users, over=event_time)\n"
         "buyers = ms.aggregate(name='buyers', measure=user_id, agg='count_distinct')\n"
         "cum_buyers = ms.cumulative(name='cum_buyers', base=buyers, over=event_time)\n"
@@ -144,6 +151,53 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "2026-07-03": pytest.approx(45.0),
         "2026-07-04": pytest.approx(45.0),
         "2026-07-05": pytest.approx(56.0),
+    }
+
+
+def test_cumulative_weighted_mean_accumulates_components_before_dividing(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+
+    frame = observe(
+        make_ref("sales.cum_weighted_user", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+        session=session,
+    )
+
+    by_day = {str(row.bucket_start.date()): row.value for row in _metric_pandas(frame).itertuples()}
+    assert by_day == {
+        "2026-07-01": pytest.approx(3520.0 / 35.0),
+        "2026-07-02": pytest.approx(3520.0 / 35.0),
+        "2026-07-03": pytest.approx(4537.0 / 45.0),
+    }
+
+
+def test_weighted_mean_authored_filter_applies_to_direct_and_cumulative_observe(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+
+    direct = observe(
+        make_ref("sales.us_weighted_user", SemanticKind.METRIC),
+        session=session,
+    )
+    cumulative = observe(
+        make_ref("sales.cum_us_weighted_user", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+        session=session,
+    )
+
+    assert _metric_pandas(direct)["value"].iloc[0] == pytest.approx(2214.0 / 22.0)
+    by_day = {
+        str(row.bucket_start.date()): row.value for row in _metric_pandas(cumulative).itertuples()
+    }
+    assert by_day == {
+        "2026-07-01": pytest.approx(1500.0 / 15.0),
+        "2026-07-02": pytest.approx(1500.0 / 15.0),
+        "2026-07-03": pytest.approx(2214.0 / 22.0),
     }
 
 

@@ -6,6 +6,7 @@ Internal module: public symbols are re-exported from
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -40,6 +41,7 @@ from marivo.semantic.ir import (
     DomainIR,
     MetricIR,
     SqlProvenance,
+    WeightedMeanAggregation,
     WhereFilter,
     WhereValue,
 )
@@ -187,6 +189,60 @@ def aggregate(
         aggregation_target=measure_id,
         aggregation_target_kind="measure",
         filter=filter_pairs,
+    )
+    _push_ir(ctx, ref, metric_ir, None)
+    return ref
+
+
+def weighted_mean(
+    *,
+    name: str,
+    value: Ref[MeasureKind],
+    weight: Ref[MeasureKind],
+    filter: WhereFilter | None = None,
+    unit: str | None = None,
+    domain: Ref[DomainKind] | None = None,
+    ai_context: AiContextValue | None = None,
+) -> Ref[MetricKind]:
+    """Declare an exact tier-1 weighted mean over two row-level measures.
+
+    Marivo computes ``sum(value * weight) / sum(weight)`` over rows where both
+    inputs are non-null. A zero total weight produces null. The two measures
+    must resolve to the same entity and the weight must be additive.
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    value_id = _require_ref_id(value, parameter="value", expected=(SemanticKind.MEASURE,))
+    weight_id = _require_ref_id(weight, parameter="weight", expected=(SemanticKind.MEASURE,))
+    semantic_id = f"{resolved_domain}.{name}"
+    ref = Ref.metric(semantic_id)
+    _check_duplicate(ctx, semantic_id, MetricIR)
+    _validate_unit(unit, semantic_id)
+    filter_pairs = _resolve_filter_pairs(filter)
+    spec = WeightedMeanAggregation(value=value_id, weight=weight_id)
+    body_hash = hashlib.sha256(
+        repr((spec.kind, value_id, weight_id, filter_pairs)).encode()
+    ).hexdigest()[:16]
+    metric_ir = MetricIR(
+        semantic_id=semantic_id,
+        domain=resolved_domain,
+        name=name,
+        metric_type="simple",
+        entities=(value_id.rsplit(".", 1)[0],),
+        aggregation=None,
+        measure=None,
+        composition=None,
+        additivity=None,
+        provenance=None,
+        ai_context=_build_ai_context(ai_context),
+        body_ast_hash=body_hash,
+        python_symbol=name,
+        location=_caller_location(),
+        root_entity=value_id.rsplit(".", 1)[0],
+        unit=unit,
+        filter=filter_pairs,
+        unit_override=unit,
+        weighted_mean=spec,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref

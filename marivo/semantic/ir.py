@@ -74,7 +74,7 @@ __all__ = [
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
-    "WeightedAverageComposition",
+    "WeightedMeanAggregation",
     "is_time_bearing_format",
     "source_from_dict",
     "source_label",
@@ -534,10 +534,19 @@ class RatioComposition:
 
 
 @dataclass(frozen=True)
-class WeightedAverageComposition:
+class WeightedMeanAggregation:
+    """Two-measure physical aggregate for an exact weighted mean."""
+
     value: str
     weight: str
-    kind: Literal["weighted_average"] = "weighted_average"
+    kind: Literal["weighted_mean"] = "weighted_mean"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.value, "WeightedMeanAggregation.value")
+        _require_non_empty_str(self.weight, "WeightedMeanAggregation.weight")
+        _require_kind(
+            self.kind, field_name="WeightedMeanAggregation.kind", expected="weighted_mean"
+        )
 
 
 # Anchor payloads: the closed-kind growth the v1 anchor-in-hash commitment
@@ -611,9 +620,7 @@ class LinearComposition:
             raise ValueError("LinearComposition requires at least two terms")
 
 
-Composition = (
-    RatioComposition | WeightedAverageComposition | LinearComposition | CumulativeComposition
-)
+Composition = RatioComposition | LinearComposition | CumulativeComposition
 
 
 def additivity_bucket(
@@ -629,8 +636,6 @@ def composition_components(composition: Composition) -> dict[str, str]:
     """Role-keyed component refs for a derived metric composition."""
     if isinstance(composition, RatioComposition):
         return {"numerator": composition.numerator, "denominator": composition.denominator}
-    if isinstance(composition, WeightedAverageComposition):
-        return {"value": composition.value, "weight": composition.weight}
     if isinstance(composition, CumulativeComposition):
         return {"base": composition.base}
     return {f"term{i}": term.metric for i, term in enumerate(composition.terms)}
@@ -642,7 +647,7 @@ def composition_components(composition: Composition) -> dict[str, str]:
 class DecompositionIR:
     """Decomposition semantics for a metric (DEPRECATED: use Composition)."""
 
-    kind: Literal["sum", "ratio", "weighted_average"]
+    kind: Literal["sum", "ratio"]
     components: dict[str, str] = field(default_factory=dict)
 
 
@@ -674,6 +679,7 @@ class MetricIR:
     )
     filter: FilterIR | None = None  # tier-1 only: AND equality predicates
     unit_override: str | None = None
+    weighted_mean: WeightedMeanAggregation | None = None
 
     def __post_init__(self) -> None:
         if self.fold_override is not None and self.aggregation is None:
@@ -687,12 +693,16 @@ class MetricIR:
                 raise ValueError(
                     f"MetricIR {self.semantic_id!r}: simple metric must not carry composition"
                 )
-            tier1 = self.aggregation is not None
+            tier1 = self.aggregation is not None or self.weighted_mean is not None
             has_target = self.aggregation_target is not None
             legacy_measure_target = self.measure is not None and not has_target
-            if tier1 and not (has_target or legacy_measure_target):
+            if self.aggregation is not None and not (has_target or legacy_measure_target):
                 raise ValueError(
                     f"MetricIR {self.semantic_id!r}: tier-1 metric requires an aggregation target"
+                )
+            if self.weighted_mean is not None and (has_target or self.measure is not None):
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: weighted mean must use its value/weight inputs"
                 )
             if not tier1 and (self.measure is not None or has_target):
                 raise ValueError(
@@ -727,9 +737,13 @@ class MetricIR:
                 raise ValueError(
                     f"MetricIR {self.semantic_id!r}: derived metric requires composition"
                 )
-            if self.aggregation is not None or self.measure is not None:
+            if (
+                self.aggregation is not None
+                or self.measure is not None
+                or self.weighted_mean is not None
+            ):
                 raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: derived metric must not carry aggregation/measure"
+                    f"MetricIR {self.semantic_id!r}: derived metric must not carry physical aggregation inputs"
                 )
         else:
             raise ValueError(

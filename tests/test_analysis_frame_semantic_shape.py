@@ -99,7 +99,7 @@ def test_attribution_output_shape_ratio_mix():
 
 
 def test_attribution_output_shape_weighted_mix():
-    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_average"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_mean"})
     assert attribution_output_shape(meta) == "weighted_mix"
 
 
@@ -191,6 +191,6 @@ def test_delta_predicted_attribution_shape_ratio_mix():
 
 
 def test_delta_predicted_attribution_shape_weighted_mix():
-    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_average"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_mean"})
     frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=meta)
     assert frame.predicted_attribution_shape() == "weighted_mix"

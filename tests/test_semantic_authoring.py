@@ -6,11 +6,11 @@ Tests cover:
 - All decorator signatures (keyword-only enforcement)
 - name defaults to function __name__
 - Ref types returned by decorators
-- ms.ratio(), ms.weighted_average(), ms.linear() derived registration
+- ms.ratio(), ms.linear() derived registration; ms.weighted_mean() aggregation
 - Duplicate name detection
 - Provenance fields on metric
 - exact ``ms.Ref.<kind>()`` factories
-- Derived metric validation: ratio/weighted_average/linear
+- Derived metric validation: ratio/linear
 """
 
 from __future__ import annotations
@@ -1872,22 +1872,23 @@ def test_ratio_returns_ref_and_pushes_body_free_ir() -> None:
         _exit_ctx()
 
 
-def test_weighted_average_keeps_value_weight_keys() -> None:
+def test_weighted_mean_keeps_measure_inputs() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ms.weighted_average(
+        ms.weighted_mean(
             name="aov",
-            value=Ref.metric("sales.revenue"),
-            weight=Ref.metric("sales.order_count"),
+            value=Ref.measure("sales.orders.unit_price"),
+            weight=Ref.measure("sales.orders.quantity"),
         )
 
         ir, sidecar_entry = _pending_objects(ctx)[-1]
         assert sidecar_entry is None
-        assert ir.metric_type == "derived"
-        assert ir.composition is not None
-        assert ir.composition.kind == "weighted_average"
-        assert ir.composition.value == "sales.revenue"
-        assert ir.composition.weight == "sales.order_count"
+        assert ir.metric_type == "simple"
+        assert ir.composition is None
+        assert ir.weighted_mean is not None
+        assert ir.weighted_mean.kind == "weighted_mean"
+        assert ir.weighted_mean.value == "sales.orders.unit_price"
+        assert ir.weighted_mean.weight == "sales.orders.quantity"
     finally:
         _exit_ctx()
 
@@ -2061,10 +2062,18 @@ def test_legacy_ref_parser_and_subclass_names_are_deleted() -> None:
             "numerator",
         ),
         (
-            lambda: ms.weighted_average(
-                name="aov", value=Ref.metric("sales.revenue"), weight="sales.orders"
+            lambda: ms.weighted_mean(
+                name="aov", value=Ref.measure("sales.orders.unit_price"), weight="sales.orders"
             ),
             "weight",
+        ),
+        (
+            lambda: ms.weighted_mean(
+                name="aov",
+                value=Ref.metric("sales.revenue"),
+                weight=Ref.measure("sales.orders.requests"),
+            ),
+            "value",
         ),
         (
             lambda: ms.linear(

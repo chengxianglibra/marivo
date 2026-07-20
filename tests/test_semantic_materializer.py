@@ -1112,26 +1112,23 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
     assert result.to_pandas() == pytest.approx(1.0)
 
 
-def test_derived_metric_weighted_average(semantic_project_factory, backend_factory) -> None:
-    """Derived weighted_average metric: synthesized numerator / weight."""
+def test_weighted_mean_multiplies_and_aggregates_measures(
+    semantic_project_factory, backend_factory
+) -> None:
+    """Tier-1 weighted_mean owns multiplication, pairing, and aggregation."""
 
     derived_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders], additivity='additive', )
-        def revenue(table):
-            return table.amount.sum()
-
-        @ms.metric(entities=[orders], additivity='additive', )
-        def count_metric(table):
-            return table.count()
-
-        aov = ms.weighted_average(
+        amount = ms.measure_column(
+            name="amount", entity=orders, column="amount", additivity="additive"
+        )
+        aov = ms.weighted_mean(
             name="aov",
-            value=revenue,
-            weight=count_metric,
+            value=amount,
+            weight=amount,
         )
     """)
 
@@ -1142,11 +1139,41 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         }
     )
 
-    # aov = revenue / count = 300 / 2 = 150.0
+    # (100 * 100 + 200 * 200) / (100 + 200)
     with _patch_connection_service(project, backend_factory):
         result = _materialize_metric(project, "sales.aov")
     value = result.to_pandas()
-    assert value == pytest.approx(150.0)
+    assert value == pytest.approx(166.6666667)
+
+
+def test_weighted_mean_pairs_nulls_and_inherits_value_unit(semantic_project_factory) -> None:
+    model = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+        latency = ms.measure_column(
+            name="latency", entity=orders, column="latency",
+            additivity="non_additive", unit="ms",
+        )
+        requests = ms.measure_column(
+            name="requests", entity=orders, column="requests", additivity="additive",
+        )
+        avg_latency = ms.weighted_mean(
+            name="avg_latency", value=latency, weight=requests,
+        )
+    """)
+    project = semantic_project_factory({"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": model})
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql("CREATE TABLE orders (latency DOUBLE, requests DOUBLE)")
+    backend.raw_sql("INSERT INTO orders VALUES (10, 2), (20, NULL), (NULL, 100), (30, 1)")
+
+    with _patch_connection_service(project, lambda _: backend):
+        catalog = SemanticCatalog(project)
+        details = catalog.require(ms.Ref.metric("sales.avg_latency")).details()
+        result = catalog._semantic_resolver().metric(ms.Ref.metric("sales.avg_latency"))
+
+    assert details.unit == "ms"
+    assert result.to_pandas() == pytest.approx(50.0 / 3.0)
 
 
 def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> None:

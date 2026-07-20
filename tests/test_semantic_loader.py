@@ -747,7 +747,7 @@ def test_provenance_from_sql_requires_dialect(semantic_project_factory) -> None:
 
 
 def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None:
-    # Derived metric constructors (ms.ratio, ms.weighted_average, ms.linear)
+    # Derived metric constructors (ms.ratio, ms.linear)
     # do not accept provenance at all — the constraint is
     # enforced by construction, not by a load-time error.
     with pytest.raises(TypeError, match="provenance"):

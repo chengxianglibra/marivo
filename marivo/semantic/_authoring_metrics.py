@@ -33,7 +33,6 @@ from marivo.semantic.ir import (
     LinearTerm,
     MetricIR,
     RatioComposition,
-    WeightedAverageComposition,
 )
 from marivo.semantic.ir import (
     CumulativeComposition as CumulativeComposition,
@@ -152,8 +151,6 @@ def trailing(*, count: int, unit: str) -> Trailing:
 def _compute_composition_hash(composition: Composition) -> str:
     if isinstance(composition, RatioComposition):
         text = repr(("ratio", composition.numerator, composition.denominator))
-    elif isinstance(composition, WeightedAverageComposition):
-        text = repr(("weighted_average", composition.value, composition.weight))
     elif isinstance(composition, CumulativeComposition):
         text = repr(("cumulative", composition.base, composition.over, composition.anchor))
     else:  # LinearComposition
@@ -228,40 +225,6 @@ def ratio(
             denominator=_require_ref_id(
                 denominator,
                 parameter="denominator",
-                expected=(SemanticKind.METRIC,),
-            ),
-        ),
-        unit=unit,
-        domain=domain,
-        ai_context=ai_context,
-    )
-
-
-def weighted_average(
-    *,
-    name: str,
-    value: Ref[MetricKind],
-    weight: Ref[MetricKind],
-    unit: str | None = None,
-    domain: Ref[DomainKind] | None = None,
-    ai_context: AiContextValue | None = None,
-) -> Ref[MetricKind]:
-    """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
-
-    Roles are ``value`` / ``weight``. Components may be derived when the value
-    and weight subgraphs satisfy the weighted-average evaluator's unit, source,
-    scope, and bounded-graph contracts."""
-    return _derived(
-        name=name,
-        composition=WeightedAverageComposition(
-            value=_require_ref_id(
-                value,
-                parameter="value",
-                expected=(SemanticKind.METRIC,),
-            ),
-            weight=_require_ref_id(
-                weight,
-                parameter="weight",
                 expected=(SemanticKind.METRIC,),
             ),
         ),

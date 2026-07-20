@@ -751,7 +751,7 @@ def test_observe_persists_job_and_frame(tmp_path):
     frame_dir = s._layout.frames_dir / mf.ref
     assert (frame_dir / "data.parquet").is_file()
     persisted_meta = json.loads((frame_dir / "meta.json").read_text())
-    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v4"
+    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v5"
     assert {
         "metric_id",
         "axes",
@@ -1003,7 +1003,7 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     assert frame.meta.key_schema is not None
     assert frame.meta.source_compatibility_domain is not None
     assert frame.meta.comparable_value_semantics is not None
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v4"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v5"
 
     store = session._evidence_store()
     assert store is not None

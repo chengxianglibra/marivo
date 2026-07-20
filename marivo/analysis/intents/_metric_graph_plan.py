@@ -10,10 +10,13 @@ from marivo.analysis.intents._observe_planner_base import plan_base_observe
 from marivo.analysis.intents._observe_planner_types import (
     BaseObservePlan,
     CumulativePhysicalLeafPlanV1,
+    RawWhereKey,
 )
 from marivo.analysis.intents._runtime_metric_lowering import lower_metric_inputs
 from marivo.analysis.intents.observe_errors import (
     ObservePlanningError,
+    RepairAction,
+    RepairSafety,
     raise_observe_planning_error,
 )
 from marivo.analysis.runtime_metric import RuntimeMetricExpr
@@ -38,6 +41,7 @@ from marivo.semantic.metric_graph import (
     MetricExpressionGraphV1,
     MetricGraphNodeV1,
     SliceNodeV1,
+    WeightedMeanAggregateNodeV1,
     node_child_ids,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
@@ -99,6 +103,31 @@ class _RuntimeAggregateMetricAdapter:
     fanout_policy: str = "block"
 
 
+@dataclass(frozen=True)
+class _RuntimeWeightedMeanSpecAdapter:
+    value: str
+    weight: str
+
+
+@dataclass(frozen=True)
+class _RuntimeWeightedMeanMetricAdapter:
+    semantic_id: str
+    name: str
+    domain: str
+    root_entity: str
+    entities: tuple[str, ...]
+    weighted_mean: _RuntimeWeightedMeanSpecAdapter
+    additivity: str
+    unit: str | None
+    aggregation: None = None
+    measure: None = None
+    time_fold: None = None
+    status_time_dimension: None = None
+    metric_type: str = "simple"
+    composition: None = None
+    fanout_policy: str = "block"
+
+
 def _fold_ir(value: AggregateFoldInput) -> TimeFoldIR | None:
     if value is None:
         return None
@@ -150,6 +179,100 @@ def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: Aggreg
     )
 
 
+def _runtime_weighted_mean_adapter(
+    catalog: SemanticCatalog,
+    node_id: str,
+    node: WeightedMeanAggregateNodeV1,
+) -> _RuntimeWeightedMeanMetricAdapter:
+    registry = catalog._require_index().registry
+    value = registry.measures.get(node.value_ref.path)
+    weight = registry.measures.get(node.weight_ref.path)
+    if value is None or weight is None:
+        raise_observe_planning_error(
+            code="runtime-weighted-mean-measure-missing",
+            message="Runtime weighted_mean requires both governed measures to be loaded.",
+            candidates={
+                "value_ref": node.value_ref.to_dict(),
+                "weight_ref": node.weight_ref.to_dict(),
+            },
+            repair=[],
+        )
+    if value.entity != weight.entity:
+        weight_candidates = sorted(
+            measure.semantic_id
+            for measure in registry.measures.values()
+            if measure.entity == value.entity and measure.additivity == "additive"
+        )
+        raise_observe_planning_error(
+            code="runtime-weighted-mean-grain-mismatch",
+            message=(
+                "Runtime weighted_mean value and weight must belong to the same entity "
+                "and physical row grain."
+            ),
+            candidates={
+                "value_entity": value.entity,
+                "weight_entity": weight.entity,
+                "additive_weight_refs": weight_candidates,
+            },
+            repair=(
+                [
+                    RepairAction(
+                        action="replace_measure_ref",
+                        target="runtime_metric.weighted_mean",
+                        arg="weight",
+                        value=weight_candidates[0],
+                        safety=RepairSafety.MODELING_DECISION,
+                        why="the replacement is additive and shares the value measure's entity",
+                    )
+                ]
+                if weight_candidates
+                else []
+            ),
+        )
+    if weight.additivity != "additive":
+        weight_candidates = sorted(
+            measure.semantic_id
+            for measure in registry.measures.values()
+            if measure.entity == value.entity and measure.additivity == "additive"
+        )
+        raise_observe_planning_error(
+            code="runtime-weighted-mean-weight-non-additive",
+            message="Runtime weighted_mean weight must be additive.",
+            candidates={
+                "weight_ref": node.weight_ref.to_dict(),
+                "weight_additivity": additivity_bucket(weight.additivity),
+                "additive_weight_refs": weight_candidates,
+            },
+            repair=(
+                [
+                    RepairAction(
+                        action="replace_measure_ref",
+                        target="runtime_metric.weighted_mean",
+                        arg="weight",
+                        value=weight_candidates[0],
+                        safety=RepairSafety.MODELING_DECISION,
+                        why="weighted_mean requires an additive weight on the value entity",
+                    )
+                ]
+                if weight_candidates
+                else []
+            ),
+        )
+    return _RuntimeWeightedMeanMetricAdapter(
+        semantic_id=f"runtime.{node_id}",
+        name="runtime_value",
+        domain=value.domain,
+        root_entity=value.entity,
+        entities=(value.entity,),
+        weighted_mean=_RuntimeWeightedMeanSpecAdapter(
+            value=value.semantic_id,
+            weight=weight.semantic_id,
+        ),
+        additivity="non_additive",
+        unit=node.unit_override or value.unit,
+    )
+
+
 def _catalog_metric_adapter(catalog: SemanticCatalog, metric_id: str) -> Any:
     from marivo.analysis.intents._observe_planner_types import _planned_metric
 
@@ -181,7 +304,15 @@ def _representative_metrics(
 
     def visit(node_id: str) -> None:
         node = node_by_id[node_id]
-        if isinstance(node, (CatalogBodyLeafV1, AggregateNodeV1, CumulativeNodeV1)):
+        if isinstance(
+            node,
+            (
+                CatalogBodyLeafV1,
+                AggregateNodeV1,
+                WeightedMeanAggregateNodeV1,
+                CumulativeNodeV1,
+            ),
+        ):
             executable_ids.add(node_id)
             return
         if isinstance(node, SliceNodeV1):
@@ -231,6 +362,24 @@ def _canonical_slice_runtime_value(value: Any) -> Any:
     return value
 
 
+def _physical_node_filter(
+    node: MetricGraphNodeV1,
+    *,
+    nodes: dict[str, MetricGraphNodeV1],
+) -> dict[Any, Any]:
+    """Return authored row filters owned by one physical metric node."""
+    if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+        return {
+            RawWhereKey(column=predicate.dimension_ref.path.rsplit(".", 1)[-1]): (
+                _canonical_slice_runtime_value(predicate.value)
+            )
+            for predicate in node.filter
+        }
+    if isinstance(node, CumulativeNodeV1):
+        return _physical_node_filter(nodes[node.child_id], nodes=nodes)
+    return {}
+
+
 def _physical_targets(
     graph: MetricExpressionGraphV1,
 ) -> dict[str, tuple[str, dict[str, Any]]]:
@@ -240,28 +389,49 @@ def _physical_targets(
 
     def visit(node_id: str) -> None:
         node = nodes[node_id]
-        if isinstance(node, (CatalogBodyLeafV1, AggregateNodeV1, CumulativeNodeV1)):
-            targets.setdefault(node_id, (node_id, {}))
+        if isinstance(
+            node,
+            (
+                CatalogBodyLeafV1,
+                AggregateNodeV1,
+                WeightedMeanAggregateNodeV1,
+                CumulativeNodeV1,
+            ),
+        ):
+            targets.setdefault(
+                node_id,
+                (node_id, _physical_node_filter(node, nodes=nodes)),
+            )
             return
         if isinstance(node, SliceNodeV1):
             child = nodes[node.child_id]
-            if not isinstance(child, (CatalogBodyLeafV1, AggregateNodeV1, CumulativeNodeV1)):
+            if not isinstance(
+                child,
+                (
+                    CatalogBodyLeafV1,
+                    AggregateNodeV1,
+                    WeightedMeanAggregateNodeV1,
+                    CumulativeNodeV1,
+                ),
+            ):
                 raise_observe_planning_error(
                     code="metric-graph-slice-not-leaf",
                     message="Canonical metric slices must be attached directly to physical leaves.",
                     candidates={"node_id": node_id, "child_id": node.child_id},
                     repair=[],
                 )
+            slice_where = {
+                predicate.dimension_ref.path: _canonical_slice_runtime_value(predicate.value)
+                for predicate in node.predicates
+            }
             targets.setdefault(
                 node_id,
                 (
                     node.child_id,
-                    {
-                        predicate.dimension_ref.path: _canonical_slice_runtime_value(
-                            predicate.value
-                        )
-                        for predicate in node.predicates
-                    },
+                    _merge_leaf_where(
+                        _physical_node_filter(child, nodes=nodes),
+                        slice_where,
+                    ),
                 ),
             )
             return
@@ -274,7 +444,7 @@ def _physical_targets(
 
 
 def _merge_leaf_where(
-    global_where: dict[Any, Any] | None, local_where: dict[str, Any]
+    global_where: dict[Any, Any] | None, local_where: dict[Any, Any]
 ) -> dict[Any, Any]:
     merged = dict(global_where or {})
     for dimension_id, value in local_where.items():
@@ -531,9 +701,16 @@ def _plan_metric_expression_forest(
         value_node = node_by_id[value_node_id]
         metric_id = representatives.get(value_node_id)
         if metric_id is not None:
-            metric_ir = metric_adapters[metric_id]
+            metric_ir = (
+                registry.metrics[metric_id]
+                if isinstance(value_node, WeightedMeanAggregateNodeV1)
+                else metric_adapters[metric_id]
+            )
         elif isinstance(value_node, AggregateNodeV1):
             metric_ir = _runtime_metric_adapter(catalog, value_node_id, value_node)
+            metric_id = metric_ir.semantic_id
+        elif isinstance(value_node, WeightedMeanAggregateNodeV1):
+            metric_ir = _runtime_weighted_mean_adapter(catalog, value_node_id, value_node)
             metric_id = metric_ir.semantic_id
         else:
             raise_observe_planning_error(

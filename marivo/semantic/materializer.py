@@ -456,7 +456,7 @@ class Materializer:
 
         if metric_ir.metric_type == "derived":
             value = self._materialize_derived_metric(semantic_id, metric_ir)
-        elif metric_ir.aggregation is not None:
+        elif metric_ir.aggregation is not None or metric_ir.weighted_mean is not None:
             value = self._materialize_tier1_metric(semantic_id, metric_ir, registry)
         else:
             value = self._materialize_base_metric(semantic_id, metric_ir, registry)
@@ -471,6 +471,21 @@ class Materializer:
         registry: Registry,
     ) -> ir.Value:
         """Materialize a tier-1 metric over a measure, entity, or dimension."""
+        if metric_ir.weighted_mean is not None:
+            if not metric_ir.entities:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Weighted-mean metric {semantic_id!r} is missing its entity.",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                )
+            table = self._apply_filter(self.entity(metric_ir.entities[0]), metric_ir.filter)
+            _numerator, _weight, value = self.weighted_mean_aggregates_on(
+                metric_ir.weighted_mean.value,
+                metric_ir.weighted_mean.weight,
+                table,
+            )
+            return value
         target_kind = metric_ir.aggregation_target_kind or (
             "measure" if metric_ir.measure is not None else None
         )
@@ -588,6 +603,20 @@ class Materializer:
             backend_type=backend_type,
         )
 
+    def weighted_mean_aggregates_on(
+        self,
+        value_id: str,
+        weight_id: str,
+        table: ibis.Table,
+    ) -> tuple[ir.Value, ir.Value, ir.Value]:
+        """Return exact numerator, paired weight, and weighted mean expressions."""
+        value = self.measure_on(value_id, table)
+        weight = self.measure_on(weight_id, table)
+        valid = value.notnull() & weight.notnull()
+        numerator = (value * weight).sum()
+        weight_sum = valid.ifelse(weight, None).sum()
+        return numerator, weight_sum, numerator / weight_sum.nullif(0)
+
     def _materialize_base_metric(
         self,
         semantic_id: str,
@@ -641,6 +670,13 @@ class Materializer:
                     "got_tables": len(tables),
                 },
             )
+        if metric_ir.weighted_mean is not None:
+            _numerator, _weight, value = self.weighted_mean_aggregates_on(
+                metric_ir.weighted_mean.value,
+                metric_ir.weighted_mean.weight,
+                tables[0],
+            )
+            return value
         if metric_ir.aggregation is not None:
             datasource_id = self._resolve_single_datasource(metric_ir, registry)
             backend_type = self._backend_type_for_datasource(datasource_id, registry)
@@ -730,16 +766,11 @@ class Materializer:
         from marivo.semantic.ir import (
             LinearComposition,
             RatioComposition,
-            WeightedAverageComposition,
         )
 
         comp = metric_ir.composition
         if isinstance(comp, RatioComposition):
             return self.metric(comp.numerator) / self.metric(comp.denominator)
-        if isinstance(comp, WeightedAverageComposition):
-            # Scalar form is value/weight; the weighted mix is applied in the
-            # analysis component frame, not in the metric scalar.
-            return self.metric(comp.value) / self.metric(comp.weight)
         if isinstance(comp, LinearComposition):
             terms = list(comp.terms)
             acc = self.metric(terms[0].metric)

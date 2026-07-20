@@ -40,10 +40,11 @@ from marivo.analysis.intents.sampled_fold import (
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
+from marivo.refs import Ref
 from marivo.semantic.catalog import SemanticKind, TimeDimensionDetails
 
-_MEAN_SUM_COLUMN = "__mean_sum"
-_MEAN_COUNT_COLUMN = "__mean_count_non_null"
+_WEIGHTED_MEAN_NUMERATOR_COLUMN = "__weighted_mean_numerator"
+_WEIGHTED_MEAN_WEIGHT_COLUMN = "__weighted_mean_weight"
 
 
 def _is_lowerable_tier1_mean(metric_ir: Any) -> bool:
@@ -56,20 +57,41 @@ def _is_lowerable_tier1_mean(metric_ir: Any) -> bool:
     )
 
 
-def _mean_component_contract(metric_ir: Any) -> dict[str, Any] | None:
-    """Return the persisted lowering contract for an exact tier-1 mean."""
-    if not _is_lowerable_tier1_mean(metric_ir):
+def _is_weighted_mean_metric(metric_ir: Any) -> bool:
+    """Return whether a metric is an authored two-measure weighted mean."""
+    return (
+        getattr(metric_ir, "metric_type", None) == "simple"
+        and getattr(metric_ir, "weighted_mean", None) is not None
+        and getattr(metric_ir, "time_fold", None) is None
+    )
+
+
+def _is_component_aggregate(metric_ir: Any) -> bool:
+    return _is_lowerable_tier1_mean(metric_ir) or _is_weighted_mean_metric(metric_ir)
+
+
+def _aggregate_component_contract(metric_ir: Any) -> dict[str, Any] | None:
+    """Return the persisted numerator/weight contract for exact mean aggregates."""
+    if not _is_component_aggregate(metric_ir):
         return None
-    return {
-        "kind": "weighted_average",
+    contract: dict[str, Any] = {
+        "kind": "weighted_mean",
         "components": {
-            "value": _MEAN_SUM_COLUMN,
-            "weight": _MEAN_COUNT_COLUMN,
+            "numerator": _WEIGHTED_MEAN_NUMERATOR_COLUMN,
+            "weight": _WEIGHTED_MEAN_WEIGHT_COLUMN,
         },
-        "lowered_from": "mean",
-        "denominator_semantics": "count_non_null",
         "version": 1,
     }
+    if _is_lowerable_tier1_mean(metric_ir):
+        contract.update(
+            {
+                "lowered_from": "mean",
+                "denominator_semantics": "count_non_null",
+            }
+        )
+    else:
+        contract["denominator_semantics"] = "paired_weight_sum"
+    return contract
 
 
 def _base_aggregations(
@@ -81,6 +103,19 @@ def _base_aggregations(
     dataset_tables: dict[str, Any],
 ) -> dict[str, Any]:
     """Build the public metric value and any exact attribution components."""
+    if _is_weighted_mean_metric(metric_ir):
+        spec = metric_ir.weighted_mean
+        numerator, weight, value = resolver.weighted_mean_aggregates_on(
+            Ref.measure(spec.value),
+            Ref.measure(spec.weight),
+            dataset_tables[metric_datasets[0]],
+        )
+        return {
+            "value": value,
+            _WEIGHTED_MEAN_NUMERATOR_COLUMN: numerator,
+            _WEIGHTED_MEAN_WEIGHT_COLUMN: weight,
+        }
+
     aggregations = {
         "value": _metric_expr(
             catalog,
@@ -91,33 +126,36 @@ def _base_aggregations(
             metric_ir=metric_ir,
         )
     }
-    if not _is_lowerable_tier1_mean(metric_ir):
-        return aggregations
-
-    measure = _catalog_object(catalog, metric_ir.measure, SemanticKind.MEASURE)
-    measure_expr = resolver.measure_on(measure.ref, dataset_tables[metric_datasets[0]])
-    aggregations[_MEAN_SUM_COLUMN] = measure_expr.sum()
-    aggregations[_MEAN_COUNT_COLUMN] = measure_expr.count()
+    if _is_lowerable_tier1_mean(metric_ir):
+        measure = _catalog_object(catalog, metric_ir.measure, SemanticKind.MEASURE)
+        measure_expr = resolver.measure_on(measure.ref, dataset_tables[metric_datasets[0]])
+        aggregations[_WEIGHTED_MEAN_NUMERATOR_COLUMN] = measure_expr.sum()
+        aggregations[_WEIGHTED_MEAN_WEIGHT_COLUMN] = measure_expr.count()
     return aggregations
 
 
-def _split_mean_components(
+def _split_aggregate_components(
     result: Any,
     *,
     metric_ir: Any,
     axes: dict[str, Any],
 ) -> tuple[Any, Any | None]:
     """Detach mean components from the canonical MetricFrame payload."""
-    if not _is_lowerable_tier1_mean(metric_ir):
+    if not _is_component_aggregate(metric_ir):
         return result, None
     axis_columns = [
         axis["column"]
         for axis in axes.values()
         if isinstance(axis, dict) and isinstance(axis.get("column"), str)
     ]
-    component_df = result.df[[*axis_columns, _MEAN_SUM_COLUMN, _MEAN_COUNT_COLUMN, "value"]].rename(
-        columns={"value": metric_ir.name}
-    )
+    component_df = result.df[
+        [
+            *axis_columns,
+            _WEIGHTED_MEAN_NUMERATOR_COLUMN,
+            _WEIGHTED_MEAN_WEIGHT_COLUMN,
+            "value",
+        ]
+    ].rename(columns={"value": metric_ir.name})
     canonical_df = result.df[[*axis_columns, "value"]].copy()
     return replace(result, df=canonical_df, row_count=len(canonical_df)), component_df
 
@@ -641,5 +679,5 @@ def _execute_base(
             cache=session._connection_runtime,
             session_id=session.id,
         )
-    result, component_df = _split_mean_components(result, metric_ir=metric_ir, axes=axes)
+    result, component_df = _split_aggregate_components(result, metric_ir=metric_ir, axes=axes)
     return result, axes, semantic_kind, None, component_df

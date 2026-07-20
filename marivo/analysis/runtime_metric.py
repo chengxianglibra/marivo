@@ -179,7 +179,18 @@ class RuntimeRatioExpr:
     label: str | None = field(default=None, compare=False, hash=False)
 
 
-type RuntimeMetricExpr = RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr
+@dataclass(frozen=True)
+class RuntimeWeightedMeanExpr:
+    kind: Literal["weighted_mean"]
+    value: Ref[MeasureKind]
+    weight: Ref[MeasureKind]
+    slice_by: FrozenSliceMap
+    label: str | None = field(default=None, compare=False, hash=False)
+
+
+type RuntimeMetricExpr = (
+    RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr
+)
 
 
 def _slice_value_payload(value: FrozenSliceValue) -> object:
@@ -290,6 +301,15 @@ def replay_payload(expression: Ref[MetricKind] | RuntimeMetricExpr) -> dict[str,
             "zero_division": expression.zero_division,
             "label": expression.label,
         }
+    if isinstance(expression, RuntimeWeightedMeanExpr):
+        return {
+            "schema": "marivo.runtime_metric_expr/v1",
+            "kind": "weighted_mean",
+            "value_ref": RefPayloadV1.from_ref(expression.value).to_dict(),
+            "weight_ref": RefPayloadV1.from_ref(expression.weight).to_dict(),
+            "slice_by": _slice_map_payload(expression.slice_by),
+            "label": expression.label,
+        }
     raise TypeError(f"unsupported runtime replay expression {type(expression).__name__}")
 
 
@@ -365,6 +385,28 @@ def from_replay_payload(payload: object) -> Ref[MetricKind] | RuntimeMetricExpr:
             zero_division=cast("Literal['null', 'error']", zero_division),
             label=label,
         )
+    if kind == "weighted_mean":
+        if set(payload) != {
+            "schema",
+            "kind",
+            "value_ref",
+            "weight_ref",
+            "slice_by",
+            "label",
+        }:
+            raise ValueError("runtime replay weighted_mean fields are invalid")
+        value_ref = _decode_ref_payload(payload["value_ref"])
+        weight_ref = _decode_ref_payload(payload["weight_ref"])
+        if value_ref.kind is not SemanticKind.MEASURE:
+            raise ValueError("runtime replay weighted_mean requires a value measure ref")
+        if weight_ref.kind is not SemanticKind.MEASURE:
+            raise ValueError("runtime replay weighted_mean requires a weight measure ref")
+        return weighted_mean(
+            cast("Ref[MeasureKind]", value_ref),
+            cast("Ref[MeasureKind]", weight_ref),
+            slice_by=_slice_map_from_payload(payload.get("slice_by")),
+            label=label,
+        )
     raise ValueError(f"unknown runtime replay expression kind {kind!r}")
 
 
@@ -380,7 +422,10 @@ def _require_metric_expr(
             f"runtime metric {parameter} requires exact Ref[metric] or RuntimeMetricExpr, "
             f"got Ref[{value.kind.value}]"
         )
-    if isinstance(value, (RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr)):
+    if isinstance(
+        value,
+        (RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr, RuntimeWeightedMeanExpr),
+    ):
         return value
     raise TypeError(
         f"runtime metric {parameter} requires exact Ref[metric] or RuntimeMetricExpr, "
@@ -431,6 +476,59 @@ def aggregate(
         measure=measure,
         agg=_normalize_agg(agg),
         fold=_normalize_fold(fold),
+        slice_by=_freeze_slice_map(slice_by, required=False),
+        label=_normalize_label(label),
+    )
+
+
+def weighted_mean(
+    value: Ref[MeasureKind],
+    weight: Ref[MeasureKind],
+    *,
+    slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
+    label: str | None = None,
+) -> RuntimeWeightedMeanExpr:
+    """Construct one exact weighted mean over two governed measures.
+
+    Args:
+        value: Exact loaded ``Ref[measure]`` containing row-level values.
+        weight: Exact loaded additive ``Ref[measure]`` containing row-level weights.
+        slice_by: Optional branch-local typed slice copied into the descriptor.
+        label: Optional presentation-only label.
+
+    Returns:
+        A frozen ``RuntimeWeightedMeanExpr`` accepted by ``session.observe`` or
+        by another runtime metric constructor.
+
+    Example:
+        >>> latency = session.catalog.require(ms.Ref.measure("api.requests.latency_ms")).ref
+        >>> requests = session.catalog.require(ms.Ref.measure("api.requests.count")).ref
+        >>> observed_latency = mv.runtime_metric.weighted_mean(
+        ...     latency,
+        ...     requests,
+        ...     label="Observed latency",
+        ... )
+
+    Constraints:
+        Both refs must resolve to measures on the same entity and physical row
+        grain, and ``weight`` must be additive. Null value/weight pairs are
+        excluded together and a zero paired weight sum produces null.
+    """
+
+    if type(value) is not Ref or value.kind is not SemanticKind.MEASURE:
+        raise TypeError(
+            "runtime metric weighted_mean value requires exact Ref[measure], "
+            f"got {type(value).__name__}"
+        )
+    if type(weight) is not Ref or weight.kind is not SemanticKind.MEASURE:
+        raise TypeError(
+            "runtime metric weighted_mean weight requires exact Ref[measure], "
+            f"got {type(weight).__name__}"
+        )
+    return RuntimeWeightedMeanExpr(
+        kind="weighted_mean",
+        value=value,
+        weight=weight,
         slice_by=_freeze_slice_map(slice_by, required=False),
         label=_normalize_label(label),
     )
@@ -498,8 +596,9 @@ def ratio(
         ... )
 
     Constraints:
-        Only the closed aggregate, slice, ratio, and catalog metric-ref algebra
-        is admitted. SQL, callbacks, literals, and user-authored units are rejected.
+        Only the closed aggregate, weighted_mean, slice, ratio, and catalog
+        metric-ref algebra is admitted. SQL, callbacks, literals, and
+        user-authored units are rejected.
     """
 
     if zero_division not in {"null", "error"}:
@@ -519,7 +618,9 @@ __all__ = [
     "RuntimeMetricExpr",
     "RuntimeRatioExpr",
     "RuntimeSliceExpr",
+    "RuntimeWeightedMeanExpr",
     "aggregate",
     "ratio",
     "slice",
+    "weighted_mean",
 ]

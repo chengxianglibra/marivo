@@ -110,6 +110,17 @@ class SemanticResolver:
         ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.MEASURE,))
         return self._materializer.aggregate_measure_on(ref, table, agg)
 
+    def weighted_mean_aggregates_on(
+        self,
+        value: Ref[MeasureKind],
+        weight: Ref[MeasureKind],
+        table: ibis.Table,
+    ) -> tuple[ir.Value, ir.Value, ir.Value]:
+        """Build exact weighted-mean aggregate expressions on one governed table."""
+        value_ref = _require_kind(self.catalog, value, expected=(SemanticKind.MEASURE,))
+        weight_ref = _require_kind(self.catalog, weight, expected=(SemanticKind.MEASURE,))
+        return self._materializer.weighted_mean_aggregates_on(value_ref, weight_ref, table)
+
     def dimension_on(
         self,
         ref_value: Ref[FieldKind],

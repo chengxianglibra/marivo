@@ -16,7 +16,6 @@ from marivo.semantic.unit_algebra import (
     render_unit,
     tier1_unit,
     unit_state,
-    weighted_average_unit,
 )
 
 
@@ -86,11 +85,6 @@ def test_opaque_unit_is_authoritative_but_cannot_be_divided() -> None:
 def test_authoring_invalid_unit_is_rejected_by_algebra() -> None:
     with pytest.raises(ValueError, match="printable ASCII"):
         unit_state("CNY per request")
-
-
-def test_weighted_average_unit_keeps_value_unit() -> None:
-    assert weighted_average_unit("CNY") == "CNY"
-    assert weighted_average_unit(None) is None
 
 
 def test_linear_unit_all_same_known() -> None:

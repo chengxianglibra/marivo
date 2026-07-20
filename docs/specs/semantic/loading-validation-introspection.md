@@ -283,8 +283,8 @@ style. The mapping from error kind to agent action is mechanical:
 | `duplicate_name` | Remove the duplicate declaration or change `name=`, then reload. |
 | `missing_domain` | Add `ms.domain(...)` in `<root>/<domain>/_domain.py`, or pass an explicit `domain=`. |
 | `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.Ref.<kind>(path)`. |
-| `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.weighted_average(...)` components point to registered metrics. |
-| `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear`. |
+| `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
+| `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.linear`. |
 | `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use `md.raw_sql(...)` for ad-hoc queries outside the semantic model. |
 | `unverified_provenance` | Add `provenance=ms.from_sql(...)`, or stop and confirm the business caliber. |
 | `sql_escape_hatch` | Use `md.raw_sql(...)` for terminal raw SQL execution; raw SQL in semantic expression bodies is still rejected by the validator. |

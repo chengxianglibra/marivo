@@ -13,10 +13,10 @@ from marivo.analysis.frames.component import (
     resolve_role_columns,
 )
 
-_COMPONENT_AWARE_COMPOSITIONS = {"ratio", "weighted_average", "linear"}
+_COMPONENT_AWARE_COMPOSITIONS = {"ratio", "linear"}
 
 #: Composition kinds that divide, mapped to the role holding the denominator.
-_DIVISION_DENOMINATOR_ROLES = {"ratio": "denominator", "weighted_average": "weight"}
+_DIVISION_DENOMINATOR_ROLES = {"ratio": "denominator"}
 
 
 def _divide_null_on_zero(numerator: Any, denominator: Any) -> Any:
@@ -140,10 +140,6 @@ def _evaluate_composition_on_frame(metric_ir: Any, frame: Any) -> Any:
         num_col = _role_to_column_name(metric_ir, "numerator")
         den_col = _role_to_column_name(metric_ir, "denominator")
         return _divide_null_on_zero(frame[num_col], frame[den_col])
-    if kind == "weighted_average":
-        value_col = _role_to_column_name(metric_ir, "value")
-        weight_col = _role_to_column_name(metric_ir, "weight")
-        return _divide_null_on_zero(frame[value_col], frame[weight_col])
     if kind == "linear":
         terms = metric_ir.composition.components
         acc = None

@@ -1343,10 +1343,10 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
                     numerator=total_cache_bytes,
                     denominator=total_input_bytes,
                 )
-                weighted_cache = ms.weighted_average(
+                weighted_cache = ms.weighted_mean(
                     name="weighted_cache",
-                    value=total_cache_bytes,
-                    weight=total_input_bytes,
+                    value=cache_bytes,
+                    weight=input_bytes,
                 )
                 cache_total = ms.linear(
                     name="cache_total", add=[total_cache_bytes, total_input_bytes]
@@ -1391,8 +1391,15 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
         ("denominator", make_ref("sales.queries.input_bytes", SemanticKind.MEASURE)),
     )
 
+    weighted = catalog.require(ms.Ref.metric("sales.weighted_cache")).details()
+    assert isinstance(weighted, SimpleMetricDetails)
+    assert tuple(role for role, _ref in weighted.measure_lineage) == ("value", "weight")
+    weighted_ref = make_ref("sales.weighted_cache", SemanticKind.METRIC)
+    for measure_id in ("sales.queries.cache_bytes", "sales.queries.input_bytes"):
+        measure = catalog.require(ms.Ref.measure(measure_id)).details()
+        assert weighted_ref in measure.dependents
+
     expected_lineage_by_metric = {
-        "metric.sales.weighted_cache": ("value", "weight"),
         "metric.sales.cache_total": ("term0", "term1"),
         "metric.sales.cumulative_cache": ("base",),
         "metric.sales.nested_rate": (
@@ -2109,6 +2116,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
             "fold_override",
             "metric_type",
             "unit_override",
+            "weighted_mean",
         },
         RelationshipIR: {"location", "ai_context", "semantic_id"},
     }

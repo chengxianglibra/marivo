@@ -403,10 +403,10 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
     assert cur.meta.aggregation == "mean"
     assert cur.meta.status_time_dimension is None
     assert cur.meta.composition is not None
-    assert cur.meta.composition["kind"] == "weighted_average"
+    assert cur.meta.composition["kind"] == "weighted_mean"
     assert cur.meta.composition["lowered_from"] == "mean"
     assert cur.meta.composition["denominator_semantics"] == "count_non_null"
-    assert cur.components().to_pandas()["__mean_count_non_null"].iloc[0] == 3
+    assert cur.components().to_pandas()["__weighted_mean_weight"].iloc[0] == 3
     assert delta.meta.additivity == "non_additive"
     assert delta.meta.aggregation == "mean"
     assert delta.meta.status_time_dimension is None

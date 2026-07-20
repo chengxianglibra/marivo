@@ -203,24 +203,6 @@ class RatioEvaluationV1:
         )
 
 
-def evaluate_weighted_average_v1(value: Any, weight: Any) -> MetricEvaluationV1:
-    """Evaluate the registered weighted-average quotient contract."""
-
-    ratio = RatioEvaluationV1().evaluate(value, weight, zero_division="null")
-    return MetricEvaluationV1(
-        frame=ratio.frame,
-        key_columns=ratio.key_columns,
-        quality=MetricEvaluationQualityV1(
-            roles={
-                "value": ratio.quality.roles["numerator"],
-                "weight": ratio.quality.roles["denominator"],
-            },
-            affected_result_rows=ratio.quality.affected_result_rows,
-            zero_division_rows=ratio.quality.zero_division_rows,
-        ),
-    )
-
-
 def evaluate_linear_v1(terms: tuple[tuple[str, float, Any], ...]) -> MetricEvaluationV1:
     """Evaluate a linear node over the typed-key union of its ordered terms."""
 
@@ -264,5 +246,4 @@ __all__ = [
     "RoleQualityV1",
     "align_metric_children_v1",
     "evaluate_linear_v1",
-    "evaluate_weighted_average_v1",
 ]

@@ -188,7 +188,7 @@ component (`component-filter-*`), and versioned datasets shared across component
 must agree on version mode/anchor/predicate/mapping (`component-version-mismatch`).
 Component rows align on the union of their axis keys; a component absent on a key
 stays null and composes to a null value. Division compositions (`ratio`,
-`weighted_average`) evaluate under the fixed `zero_division="null"` policy: a
+`weighted_mean`) evaluate under the fixed `zero_division="null"` policy: a
 present zero denominator/weight yields a null value, never `+/-inf`, and the
 affected-row count is persisted as `frame.meta.zero_denominator_rows` and
 surfaced as `quality_summary.zero_denominator_rows`. The policy participates in
@@ -294,20 +294,20 @@ materialize a missing axis. `DeltaFrame.show()` surfaces the current delta's
 supported, conditional, or blocked attribution state, and `DeltaFrame.contract()`
 mirrors the same persisted boundary with typed preconditions. Unknown and ordinary
 non-additive deltas fail, semi-additive deltas surface the status-time-axis
-condition, and persisted ratio/weighted-average component paths remain available.
+condition, and persisted ratio/weighted-mean component paths remain available.
 
 | Persisted metric semantics | Axis attribution |
 | --- | --- |
 | `additive` | Supported by the sum/hierarchy paths. |
 | `semi_additive` | Supported on non-time axes; rejected when `axes` contains its `status_time_dimension`. |
-| Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
+| Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
 | `non_additive` without supported component math | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
 
 The mean lowering is runtime-only and never substitutes entity row count for
 `count_non_null(measure)`. For an unsupported metric, model explicit
-ratio/weighted-average components or attribute additive numerator and denominator
+ratio/weighted-mean components or attribute additive numerator and denominator
 metrics separately. Existing non-linear sampled-fold validation still runs first.
 
 ```python

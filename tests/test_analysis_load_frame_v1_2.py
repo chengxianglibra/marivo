@@ -298,7 +298,7 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
         session.get_frame(frame.ref)
 
 
-@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v2", "analysis-artifact/v5"])
+@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v4", "analysis-artifact/v6"])
 def test_registered_frame_rejects_every_non_current_artifact_schema(schema_version):
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(

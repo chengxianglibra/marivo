@@ -437,6 +437,15 @@ def _resolve_cumulative_over_axes(registry: Registry) -> None:
 def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
     from marivo.semantic.ir import SemiAdditive
 
+    if metric.weighted_mean is not None:
+        value = registry.measures.get(metric.weighted_mean.value)
+        weight = registry.measures.get(metric.weighted_mean.weight)
+        if value is None or weight is None:
+            return None
+        if value.entity != weight.entity or weight.additivity != "additive":
+            return None
+        return "non_additive"
+
     target_kind = metric.aggregation_target_kind or (
         "measure" if metric.measure is not None else None
     )
@@ -476,12 +485,11 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
         CumulativeComposition,
         LinearComposition,
         RatioComposition,
-        WeightedAverageComposition,
         additivity_bucket,
     )
 
     comp = metric.composition
-    if isinstance(comp, (RatioComposition, WeightedAverageComposition, CumulativeComposition)):
+    if isinstance(comp, (RatioComposition, CumulativeComposition)):
         return "non_additive"
     assert isinstance(comp, LinearComposition)
     buckets: list[str] = []
@@ -498,7 +506,11 @@ def _resolve_metric_additivity(registry: Registry) -> None:
 
     # Phase A: tier-1 simple metrics resolve from their measure dimension.
     for sid, m in list(registry.metrics.items()):
-        if m.metric_type == "simple" and m.aggregation is not None and m.additivity is None:
+        if (
+            m.metric_type == "simple"
+            and (m.aggregation is not None or m.weighted_mean is not None)
+            and m.additivity is None
+        ):
             resolved = _resolve_tier1_additivity(m, registry)
             if resolved is not None:
                 registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
@@ -518,6 +530,10 @@ def _resolve_metric_additivity(registry: Registry) -> None:
 
 def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
     from marivo.semantic.unit_algebra import tier1_unit
+
+    if metric.weighted_mean is not None:
+        value = registry.measures.get(metric.weighted_mean.value)
+        return value.unit if value is not None else None
 
     target_kind = metric.aggregation_target_kind or (
         "measure" if metric.measure is not None else None
@@ -540,12 +556,10 @@ def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
         CumulativeComposition,
         LinearComposition,
         RatioComposition,
-        WeightedAverageComposition,
     )
     from marivo.semantic.unit_algebra import (
         linear_unit,
         ratio_unit,
-        weighted_average_unit,
     )
 
     comp = metric.composition
@@ -555,9 +569,6 @@ def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
         if num is None or den is None:
             return None
         return ratio_unit(num.unit, den.unit)
-    if isinstance(comp, WeightedAverageComposition):
-        value = registry.metrics.get(comp.value)
-        return weighted_average_unit(value.unit) if value is not None else None
     if isinstance(comp, CumulativeComposition):
         base = registry.metrics.get(comp.base)
         return base.unit if base is not None else None
@@ -576,7 +587,11 @@ def _resolve_metric_unit(registry: Registry) -> None:
 
     # Phase A: tier-1 simple metrics resolve from their measure dimension.
     for sid, m in list(registry.metrics.items()):
-        if m.metric_type == "simple" and m.aggregation is not None and m.unit is None:
+        if (
+            m.metric_type == "simple"
+            and (m.aggregation is not None or m.weighted_mean is not None)
+            and m.unit is None
+        ):
             resolved = _resolve_tier1_unit(m, registry)
             if resolved is not None:
                 registry.metrics[sid] = dataclasses.replace(m, unit=resolved)

@@ -45,10 +45,10 @@ from marivo.analysis.intents._metric_graph_execute import (
 )
 from marivo.analysis.intents._metric_graph_plan import plan_metric_graph_observe
 from marivo.analysis.intents._observe_base import (  # noqa: F401
+    _aggregate_component_contract,
     _execute_base,
     _execute_sampled_base,
     _expression_source_columns,
-    _mean_component_contract,
     _prune_base_observe_projection,
     _resolve_fold_time_field,
     _time_dependency_exprs,
@@ -145,6 +145,7 @@ from marivo.analysis.runtime_metric import (
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
+    RuntimeWeightedMeanExpr,
     replay_payload,
 )
 from marivo.analysis.semantic_inputs import (
@@ -178,7 +179,6 @@ from marivo.semantic.ir import (
     CumulativeComposition,
     LinearComposition,
     RatioComposition,
-    WeightedAverageComposition,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -193,7 +193,7 @@ from marivo.semantic.metric_graph import (
     MetricKeySchemaV1,
     RatioNodeV1,
     SliceNodeV1,
-    WeightedAverageNodeV1,
+    WeightedMeanAggregateNodeV1,
     node_child_ids,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
@@ -419,7 +419,7 @@ def _evaluator_contracts(graph_plan: Any) -> tuple[str, ...]:
     contracts: set[str] = set()
     for record in graph_plan.graph.nodes:
         node = record.node
-        if isinstance(node, AggregateNodeV1 | CatalogBodyLeafV1):
+        if isinstance(node, AggregateNodeV1 | WeightedMeanAggregateNodeV1 | CatalogBodyLeafV1):
             contracts.add("aggregate-evaluation/v1")
         elif isinstance(node, CumulativeNodeV1):
             contracts.add(f"cumulative-evaluation/v{CUMULATIVE_CONTRACT_VERSION}")
@@ -427,8 +427,6 @@ def _evaluator_contracts(graph_plan: Any) -> tuple[str, ...]:
             contracts.add("slice-evaluation/v1")
         elif isinstance(node, RatioNodeV1):
             contracts.add("ratio-evaluation/v1")
-        elif isinstance(node, WeightedAverageNodeV1):
-            contracts.add("weighted-average-evaluation/v1")
         elif isinstance(node, LinearNodeV1):
             contracts.add("linear-evaluation/v1")
     return tuple(sorted(contracts))
@@ -448,8 +446,6 @@ def _catalog_cumulative_marker(catalog: Any, metric_id: str) -> dict[str, Any] |
     branches: tuple[tuple[str, str], ...]
     if isinstance(composition, RatioComposition):
         branches = (("numerator", composition.numerator), ("denominator", composition.denominator))
-    elif isinstance(composition, WeightedAverageComposition):
-        branches = (("value", composition.value), ("weight", composition.weight))
     elif isinstance(composition, LinearComposition):
         branches = tuple(
             (f"term{index}", term.metric) for index, term in enumerate(composition.terms)
@@ -526,8 +522,6 @@ def _cumulative_graph_marker(
     branches: tuple[tuple[str, str], ...]
     if isinstance(root, RatioNodeV1):
         branches = (("numerator", root.numerator_id), ("denominator", root.denominator_id))
-    elif isinstance(root, WeightedAverageNodeV1):
-        branches = (("value", root.value_id), ("weight", root.weight_id))
     elif isinstance(root, LinearNodeV1):
         branches = tuple((f"term{index}", term.child_id) for index, term in enumerate(root.terms))
     else:
@@ -638,7 +632,10 @@ def observe(
         assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
         metric_ir = _planned_metric(metric_details)
         planner_scope = _metric_planner_scope(catalog, metric_ir)
-    elif isinstance(single_metric, RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr):
+    elif isinstance(
+        single_metric,
+        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+    ):
         metric_id = "runtime.pending"
         model_name = "runtime"
         metric_name = single_metric.label or "runtime_metric"
@@ -862,9 +859,9 @@ def observe(
                     "fanouts": root_leaf_lineage.get("fanouts") or [],
                 }
             )
-            mean_component_contract = _mean_component_contract(metric_ir)
-            if mean_component_contract is not None:
-                params["component_lowering"] = mean_component_contract
+            aggregate_component_contract = _aggregate_component_contract(metric_ir)
+            if aggregate_component_contract is not None:
+                params["component_lowering"] = aggregate_component_contract
             if cumulative_meta is not None:
                 params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
                 params["cumulative"] = cumulative_meta
@@ -1173,10 +1170,10 @@ def observe(
                 persist_parent=False,
             )
         elif root_execution.aggregate_component_df is not None:
-            mean_contract = _mean_component_contract(metric_ir)
-            if mean_contract is not None:
-                mean_components = mean_contract["components"]
-                assert isinstance(mean_components, dict)
+            aggregate_contract = _aggregate_component_contract(metric_ir)
+            if aggregate_contract is not None:
+                aggregate_components = aggregate_contract["components"]
+                assert isinstance(aggregate_components, dict)
                 component = _persist_metric_component_frame(
                     session=session,
                     df=root_execution.aggregate_component_df,
@@ -1185,8 +1182,10 @@ def observe(
                     axes=root_execution.axes,
                     semantic_kind=root_execution.semantic_kind,
                     job_ref=job_ref,
-                    composition_kind="weighted_average",
-                    components={str(role): str(value) for role, value in mean_components.items()},
+                    composition_kind="weighted_mean",
+                    components={
+                        str(role): str(value) for role, value in aggregate_components.items()
+                    },
                     component_graph=component_graph,
                 )
                 frame = _attach_metric_component_ref(
@@ -1194,7 +1193,7 @@ def observe(
                     parent=frame,
                     component=component,
                     metric_ir=metric_ir,
-                    composition=mean_contract,
+                    composition=aggregate_contract,
                     persist_parent=False,
                 )
             else:
@@ -1318,7 +1317,8 @@ def _observe_metric_forest(
                 )
             normalize_metric_input(catalog, metric_input)
         elif not isinstance(
-            metric_input, RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr
+            metric_input,
+            RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
         ):
             raise SemanticKindMismatchError(
                 message=(

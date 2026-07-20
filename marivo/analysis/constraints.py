@@ -45,6 +45,7 @@ class ConstraintId(StrEnum):
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
     CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
     RUNTIME_METRIC_CLOSED_ALGEBRA = "runtime_metric_closed_algebra"
+    RUNTIME_WEIGHTED_MEAN_VALID = "runtime_weighted_mean_valid"
 
 
 _DATASOURCE_DOC = "site/src/content/docs/en/latest/concepts/semantic-layer.mdx"
@@ -285,17 +286,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "AttributionAdditivityError",
         ),
         "Axis attribution requires compatible persisted additivity: additive, semi-additive "
-        "off the status time axis, component-aware ratio/weighted-average, or a Tier-1 mean "
+        "off the status time axis, component-aware ratio/weighted-mean, or a Tier-1 mean "
         "lowered to sum/count_non_null components. If a DeltaFrame reports "
         "attribution_shape=weighted_mix lowered_from=mean, call attribute directly: its "
         "Tier-1 mean is already lowered to sum/count_non_null components, so do not manually "
         "split numerator and denominator. For other unsupported non-additive metrics, "
         "re-observe or attribute additive numerator and denominator separately.",
         "Axis-sum attribution is valid for additive metrics, semi-additive metrics away "
-        "from their status time axis, component-aware ratio or weighted-average deltas, and "
+        "from their status time axis, component-aware ratio or weighted-mean deltas, and "
         "Tier-1 means with persisted sum/count_non_null components.",
         "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
-        "weighted_average components, or attribute additive numerator and denominator separately.",
+        "weighted_mean components, or attribute additive numerator and denominator separately.",
         help_target="attribute",
     ),
     ConstraintId.ATTRIBUTION_RECONCILIATION: _constraint(
@@ -345,12 +346,23 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         (
             "runtime_metric.aggregate",
             "runtime_metric.slice",
+            "runtime_metric.weighted_mean",
             "runtime_metric.ratio",
             "RuntimeMetricExpression",
         ),
         "Runtime metrics use a closed recursive algebra over governed refs.",
         "Closed descriptors preserve typed planning, replay, lineage, units, and quality facts without creating catalog authority.",
         "Use exact Ref[measure], Ref[metric], Ref[dimension], or Ref[time_dimension] values and materialize the descriptor only through session.observe(...).",
+        help_target="runtime_metric",
+    ),
+    ConstraintId.RUNTIME_WEIGHTED_MEAN_VALID: _constraint(
+        ConstraintId.RUNTIME_WEIGHTED_MEAN_VALID,
+        "MetricShapeUnsupported",
+        "runtime",
+        ("runtime_metric.weighted_mean", "RuntimeWeightedMeanExpr"),
+        "Runtime weighted means require same-entity measures and an additive weight.",
+        "The value and weight must be evaluated on the same physical rows so null pairing and row-level multiplication remain exact.",
+        "Pass exact loaded Ref[measure] values from the same entity and choose an additive measure for weight.",
         help_target="runtime_metric",
     ),
 }

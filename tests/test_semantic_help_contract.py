@@ -54,7 +54,7 @@ def test_root_help_within_line_budget() -> None:
         "aggregate",
         "count",
         "ratio",
-        "weighted_average",
+        "weighted_mean",
         "linear",
         "relationship",
     ],

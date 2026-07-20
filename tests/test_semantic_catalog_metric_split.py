@@ -118,7 +118,7 @@ def test_help_topics_reflect_split():
     assert "ratio" in index
     assert "linear" in index
     assert "cumulative" in index
-    assert "weighted_average" in index
+    assert "weighted_mean" in index
 
     # The metric capability help must reference the constructor family
     metric_help = ms.help_text("metric")

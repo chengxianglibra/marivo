@@ -94,9 +94,13 @@ def _classify_runtime_metric(value: object) -> str | None:
         RuntimeAggregateExpr,
         RuntimeRatioExpr,
         RuntimeSliceExpr,
+        RuntimeWeightedMeanExpr,
     )
 
-    if isinstance(value, RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr):
+    if isinstance(
+        value,
+        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+    ):
         return "RuntimeMetricExpression"
     return None
 

@@ -454,7 +454,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"{self.body_label} of {self.fn_name!r} calls ms.component(), "
-                "which is no longer supported. Use ms.ratio/ms.weighted_average/ms.linear "
+                "which is no longer supported. Use ms.ratio/ms.linear "
                 "for body-free derived metric definitions.",
                 constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
             )
@@ -899,7 +899,7 @@ def _validate_cumulative_metric(
             )
         )
         return errors
-    if base.aggregation is None:
+    if base.aggregation is None and base.weighted_mean is None:
         errors.append(
             SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPOSITION,
@@ -921,16 +921,16 @@ def _validate_cumulative_metric(
             )
         )
         return errors
-    agg = base.aggregation
+    agg = "weighted_mean" if base.weighted_mean is not None else base.aggregation
     agg_name = agg[0] if isinstance(agg, tuple) else agg
-    if agg_name not in {"sum", "count", "count_distinct"}:
+    if agg_name not in {"sum", "count", "count_distinct", "weighted_mean"}:
         errors.append(
             SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPOSITION,
                 message=(
                     f"Metric {metric_id!r} cumulative base {comp.base!r} uses "
                     f"unsupported aggregation {agg_name!r}; cumulative base must "
-                    "use sum, count, or count_distinct."
+                    "use sum, count, count_distinct, or weighted_mean."
                 ),
                 refs=(metric_id, comp.base),
                 constraint_id=ConstraintId.COMPOSITION_SHAPE,
@@ -1123,6 +1123,70 @@ def assembly_validate(
             continue
         if m_ir.additivity is None:
             # Resolution failed: diagnose the tier-1 cause precisely.
+            if m_ir.weighted_mean is not None:
+                value_id = m_ir.weighted_mean.value
+                weight_id = m_ir.weighted_mean.weight
+                value = registry.measures.get(value_id)
+                weight = registry.measures.get(weight_id)
+                missing = value_id if value is None else weight_id if weight is None else None
+                if missing is not None:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.UNKNOWN_MEASURE,
+                            message=(
+                                f"Metric {m_id!r} references unknown weighted-mean measure "
+                                f"{missing!r}."
+                            ),
+                            refs=(m_id, missing),
+                            details={
+                                "metric": m_id,
+                                "measure": missing,
+                                "did_you_mean": did_you_mean(
+                                    missing, sorted(registry.measures.keys())
+                                ),
+                            },
+                        )
+                    )
+                    continue
+                assert value is not None and weight is not None
+                if value.entity != weight.entity:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
+                            message=(
+                                f"Metric {m_id!r} weighted_mean value {value_id!r} and "
+                                f"weight {weight_id!r} must belong to the same entity; got "
+                                f"{value.entity!r} and {weight.entity!r}."
+                            ),
+                            refs=(m_id, value_id, weight_id),
+                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
+                            details={
+                                "metric": m_id,
+                                "value": value_id,
+                                "weight": weight_id,
+                                "value_entity": value.entity,
+                                "weight_entity": weight.entity,
+                            },
+                        )
+                    )
+                elif weight.additivity != "additive":
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
+                            message=(
+                                f"Metric {m_id!r} weighted_mean weight {weight_id!r} must "
+                                f"be additive; got {weight.additivity!r}."
+                            ),
+                            refs=(m_id, weight_id),
+                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
+                            details={
+                                "metric": m_id,
+                                "weight": weight_id,
+                                "additivity": weight.additivity,
+                            },
+                        )
+                    )
+                continue
             if m_ir.aggregation is not None:
                 target_kind = m_ir.aggregation_target_kind or (
                     "measure" if m_ir.measure is not None else None
@@ -1300,7 +1364,11 @@ def assembly_validate(
 
     # -- Validate root-only aggregates for multi-entity base metrics ----------
     for m_id, m_ir in registry.metrics.items():
-        if m_ir.metric_type != "simple" or m_ir.aggregation is not None:
+        if (
+            m_ir.metric_type != "simple"
+            or m_ir.aggregation is not None
+            or m_ir.weighted_mean is not None
+        ):
             continue
         if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
             body = sidecar.bodies.get(Ref.metric(m_id))

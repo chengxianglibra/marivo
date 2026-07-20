@@ -294,7 +294,7 @@ def _build_registry() -> CapabilityRegistry:
         holiday_and_dow_aligned,
         window_bucket,
     )
-    from marivo.analysis.runtime_metric import aggregate, ratio, slice
+    from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
     all_artifact_families: frozenset[InputFamily] = frozenset(ARTIFACT_FAMILIES)
@@ -876,6 +876,12 @@ def _build_registry() -> CapabilityRegistry:
             "RuntimeSliceExpr",
         ),
         (
+            "runtime_metric.weighted_mean",
+            "mv.runtime_metric.weighted_mean(...) ",
+            weighted_mean,
+            "RuntimeWeightedMeanExpr",
+        ),
+        (
             "runtime_metric.ratio",
             "mv.runtime_metric.ratio(...) ",
             ratio,
@@ -891,7 +897,14 @@ def _build_registry() -> CapabilityRegistry:
                 summary="Build one frozen node in the closed runtime metric expression algebra.",
                 root_group="policies_builders",
                 root_visibility="grouped",
-                constraint_ids=("runtime_metric_closed_algebra",),
+                constraint_ids=(
+                    "runtime_metric_closed_algebra",
+                    *(
+                        ("runtime_weighted_mean_valid",)
+                        if cap_id == "runtime_metric.weighted_mean"
+                        else ()
+                    ),
+                ),
                 callable_path=_module_path_for(callable_obj),
                 output_type=output_type,
             )

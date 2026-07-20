@@ -114,6 +114,17 @@ class AggregateNodeV1:
 
 
 @dataclass(frozen=True, slots=True)
+class WeightedMeanAggregateNodeV1:
+    kind: Literal["weighted_mean"]
+    value_ref: RefPayloadV1
+    weight_ref: RefPayloadV1
+    value_dependency_fingerprint: str
+    weight_dependency_fingerprint: str
+    filter: CanonicalSlice = ()
+    unit_override: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SliceNodeV1:
     kind: Literal["slice"]
     child_id: str
@@ -151,14 +162,6 @@ class RatioNodeV1:
 
 
 @dataclass(frozen=True)
-class WeightedAverageNodeV1:
-    kind: Literal["weighted_average"]
-    value_id: str
-    weight_id: str
-    unit_override: str | None = None
-
-
-@dataclass(frozen=True)
 class LinearTermV1:
     child_id: str
     coefficient: float
@@ -174,10 +177,10 @@ class LinearNodeV1:
 type MetricGraphNodeV1 = (
     CatalogBodyLeafV1
     | AggregateNodeV1
+    | WeightedMeanAggregateNodeV1
     | SliceNodeV1
     | CumulativeNodeV1
     | RatioNodeV1
-    | WeightedAverageNodeV1
     | LinearNodeV1
 )
 
@@ -344,14 +347,12 @@ type TypedEvidenceSubject = (
 def node_child_ids(node: MetricGraphNodeV1) -> tuple[str, ...]:
     """Return ordered child ids for exhaustive graph traversal."""
     match node:
-        case CatalogBodyLeafV1() | AggregateNodeV1():
+        case CatalogBodyLeafV1() | AggregateNodeV1() | WeightedMeanAggregateNodeV1():
             return ()
         case SliceNodeV1(child_id=child_id) | CumulativeNodeV1(child_id=child_id):
             return (child_id,)
         case RatioNodeV1(numerator_id=numerator, denominator_id=denominator):
             return (numerator, denominator)
-        case WeightedAverageNodeV1(value_id=value, weight_id=weight):
-            return (value, weight)
         case LinearNodeV1(terms=terms):
             return tuple(term.child_id for term in terms)
         case _:
@@ -391,6 +392,6 @@ __all__ = [
     "SliceCanonicalizationV1",
     "SliceNodeV1",
     "TypedEvidenceSubject",
-    "WeightedAverageNodeV1",
+    "WeightedMeanAggregateNodeV1",
     "node_child_ids",
 ]
