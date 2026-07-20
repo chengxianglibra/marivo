@@ -28,11 +28,13 @@ from marivo.datasource.engines.clickhouse import PROFILE as CLICKHOUSE_PROFILE
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.engines.mysql import PROFILE as MYSQL_PROFILE
 from marivo.datasource.engines.postgres import PROFILE as POSTGRES_PROFILE
+from marivo.datasource.engines.sqlite import PROFILE as SQLITE_PROFILE
 from marivo.datasource.engines.trino import PROFILE as TRINO_PROFILE
 
 ENGINE_PROFILES: Mapping[str, EngineProfile] = MappingProxyType(
     {
         "duckdb": DUCKDB_PROFILE,
+        "sqlite": SQLITE_PROFILE,
         "trino": TRINO_PROFILE,
         "mysql": MYSQL_PROFILE,
         "postgres": POSTGRES_PROFILE,

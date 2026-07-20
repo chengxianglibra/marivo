@@ -20,7 +20,9 @@ translation layer rather than SQL rewriting.
 """
 
 import ibis
+import pytest
 
+from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.string_time import _parse_string_column
 from marivo.analysis.executor.windowing import UTC_ZONE, _window_bound_predicates
 from marivo.analysis.windows.spec import AbsoluteWindow
@@ -81,6 +83,18 @@ def test_parse_string_column_leaves_format_unchanged_for_duckdb():
     sql = ibis.to_sql(expr, dialect="duckdb")
     assert "%M" in sql
     assert "%i" not in sql
+
+
+def test_parse_string_column_rejects_sqlite_before_ibis_compilation():
+    t = ibis.table([("created_at", "string")], name="orders")
+    meta = _FakeMeta("string", "%Y-%m-%d %H:%M:%S")
+
+    with pytest.raises(WindowInvalidError, match="native temporal column"):
+        _parse_string_column(
+            t.created_at,
+            meta,
+            profile=profile_for_backend_name("sqlite"),
+        )
 
 
 def test_window_bound_predicates_translate_minute_for_trino():

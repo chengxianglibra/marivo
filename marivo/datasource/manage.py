@@ -671,9 +671,10 @@ def raw_sql(
         connection level: DuckDB and ClickHouse open in read-only mode, Postgres
         and MySQL run inside a ``READ ONLY`` transaction via the engine profile
         ``authoring_timeout`` context, and Trino runs ordinary SELECT/WITH queries
-        through a read-only subquery wrapper. The timeout is armed before the user
-        statement executes; if the profile has no enforceable timeout the function
-        fails closed with ``DatasourceRawSqlError(stage="timeout_setup")``.
+        through a read-only subquery wrapper. The timeout remains armed from before
+        the user statement executes through bounded result fetching; if the profile
+        has no enforceable timeout the function fails closed with
+        ``DatasourceRawSqlError(stage="timeout_setup")``.
         A semantic gap may use this terminal path without prior approval, but
         inferred semantics remain provisional and must be disclosed at closeout.
         The result cannot become a canonical metric or re-enter typed analysis.
@@ -735,11 +736,16 @@ def raw_sql(
         try:
             with timeout(backend, timeout_seconds):
                 cursor = backend.raw_sql(execution_sql)
+                columns, extracted_rows, types = _extract_raw_sql_frame(
+                    cursor,
+                    include_types,
+                    limit=fetch_limit,
+                )
         except DatasourceError:
             raise
         except Exception as exc:
             raise DatasourceRawSqlError(
-                message="raw_sql execution failed; no side effects were applied.",
+                message="raw_sql execution or result fetching failed; no side effects were applied.",
                 expected="a read-only diagnostic the datasource backend can execute",
                 received=str(exc),
                 location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
@@ -748,27 +754,6 @@ def raw_sql(
                     kind="reconnect",
                     canonical_id="raw_sql",
                     action="Verify the datasource connection and retry the diagnostic.",
-                ),
-            ) from exc
-        try:
-            columns, extracted_rows, types = _extract_raw_sql_frame(
-                cursor,
-                include_types,
-                limit=fetch_limit,
-            )
-        except DatasourceError:
-            raise
-        except Exception as exc:
-            raise DatasourceRawSqlError(
-                message="raw_sql result decoding failed.",
-                expected="a cursor frame decodable into columns, rows, and types",
-                received=str(exc),
-                location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
-                effect_observed=DatasourceObservedEffects(query_executed=True),
-                repair=repair(
-                    kind="retry",
-                    canonical_id="raw_sql",
-                    action="Simplify the statement or narrow columns and retry the diagnostic.",
                 ),
             ) from exc
         duration_ms = int((time.monotonic() - start) * 1000)

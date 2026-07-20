@@ -37,19 +37,20 @@ marivo = "marivo.cli:main"
 
 [project.optional-dependencies]
 duckdb = ["ibis-framework[duckdb]>=12.0.0"]
+sqlite = ["ibis-framework[sqlite]>=12.0.0"]
 trino = ["ibis-framework[trino]>=12.0.0"]
 mysql = ["ibis-framework[mysql]>=12.0.0"]
 postgres = ["ibis-framework[postgres]>=12.0.0"]
 clickhouse = ["ibis-framework[clickhouse]>=12.0.0"]
 all = [
-    "ibis-framework[duckdb,trino,mysql,postgres,clickhouse]>=12.0.0",
+    "ibis-framework[duckdb,sqlite,trino,mysql,postgres,clickhouse]>=12.0.0",
 ]
 docs = [
     "sphinx>=7",
     "pydata-sphinx-theme>=0.15",
 ]
 dev = [
-    "ibis-framework[duckdb,trino,mysql,postgres,clickhouse]>=12.0.0",
+    "ibis-framework[duckdb,sqlite,trino,mysql,postgres,clickhouse]>=12.0.0",
     "pytest>=8",
     "pytest-xdist>=3",
     "pytest-cov>=5.0",

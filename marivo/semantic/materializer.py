@@ -525,6 +525,18 @@ class Materializer:
         backend_type: str | None = None,
     ) -> ir.Value:
         agg_name = agg[0] if isinstance(agg, tuple) else agg
+        if agg_name in {"median", "percentile"}:
+            profile = (
+                require_profile_for_backend_type(backend_type) if backend_type is not None else None
+            )
+            if profile is not None and profile.name == "sqlite":
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Metric {semantic_id!r} uses {agg_name}, which is not supported by "
+                    "the SQLite backend. Use a supported aggregation or another backend.",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                )
         if agg_name == "sum":
             return column.sum()
         if agg_name == "count":
@@ -540,9 +552,6 @@ class Materializer:
         if agg_name == "median":
             return column.median()
         if agg_name == "percentile":
-            profile = (
-                require_profile_for_backend_type(backend_type) if backend_type is not None else None
-            )
             if profile is not None and profile.percentile_uses_approx_quantile:
                 return column.approx_quantile(agg[1])
             return column.quantile(agg[1])

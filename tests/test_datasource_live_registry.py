@@ -14,6 +14,7 @@ from marivo.datasource.snapshot import DiscoverySnapshot
 
 PUBLIC_CALLABLE_TARGETS = {
     "duckdb",
+    "sqlite",
     "trino",
     "mysql",
     "postgres",
@@ -61,6 +62,7 @@ def test_datasource_surface_uses_the_native_registry_without_copying() -> None:
 
 EXPECTED_EFFECTS = {
     "duckdb": AuthoringEffects(data_access="none", connection="none"),
+    "sqlite": AuthoringEffects(data_access="none", connection="none"),
     "trino": AuthoringEffects(data_access="none", connection="none"),
     "mysql": AuthoringEffects(data_access="none", connection="none"),
     "postgres": AuthoringEffects(data_access="none", connection="none"),

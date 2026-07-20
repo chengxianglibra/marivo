@@ -16,6 +16,7 @@ from marivo.datasource.authoring import (
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
+    SQLiteSpec,
     TrinoSpec,
     _ir_from_spec,
     validate_datasource_name,
@@ -29,7 +30,7 @@ from tests.test_agent_result_protocol import assert_conforms
 
 
 def _ir(
-    spec: DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
+    spec: DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
 ) -> DatasourceIR:
     return _ir_from_spec(
         spec,
@@ -47,6 +48,25 @@ def test_duckdb_spec_defaults_to_memory_path() -> None:
     assert spec.backend_type == "duckdb"
     assert ir.backend_type == "duckdb"
     assert ir.fields == {"path": ":memory:", "read_only": False}
+    assert ir.env_refs == {}
+
+
+def test_sqlite_spec_maps_path_read_only_and_type_map() -> None:
+    spec = SQLiteSpec(
+        name="app",
+        path="data/app.sqlite",
+        read_only=True,
+        type_map={"money": "float64"},
+    )
+    ir = _ir(spec)
+
+    assert spec.backend_type == "sqlite"
+    assert ir.backend_type == "sqlite"
+    assert ir.fields == {
+        "path": "data/app.sqlite",
+        "read_only": True,
+        "type_map": {"money": "float64"},
+    }
     assert ir.env_refs == {}
 
 
@@ -196,7 +216,7 @@ def test_datasource_specs_do_not_accept_description() -> None:
 
 
 def test_datasource_helpers_do_not_accept_description() -> None:
-    for helper in (md.duckdb, md.trino, md.mysql, md.postgres, md.clickhouse):
+    for helper in (md.duckdb, md.sqlite, md.trino, md.mysql, md.postgres, md.clickhouse):
         assert "description" not in inspect.signature(helper).parameters
 
     with pytest.raises(TypeError, match="description"):
@@ -251,6 +271,17 @@ def test_duckdb_help_has_signature_without_description() -> None:
     assert "description" not in signature.parameters
     assert "ai_context" in signature.parameters
     assert "duckdb" in result
+    assert "Signature:" in result
+
+
+def test_sqlite_help_exposes_typed_connection_fields() -> None:
+    signature = inspect.signature(md.sqlite)
+    result = md.help_text("sqlite")
+
+    assert {"name", "path", "read_only", "type_map", "ai_context"} <= set(signature.parameters)
+    assert "SQLite" in result
+    assert "percentile" in result
+    assert "strptime" in result
     assert "Signature:" in result
 
 

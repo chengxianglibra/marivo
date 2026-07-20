@@ -98,14 +98,23 @@ used everywhere downstream.
 | Constructor | Spec | `backend_type` | Notes |
 |---|---|---|---|
 | `md.duckdb(...)` | `DuckDBSpec` | `duckdb` | Local file / in-memory. Also the engine that reads parquet/csv/json file sources. |
+| `md.sqlite(...)` | `SQLiteSpec` | `sqlite` | Local file / in-memory SQLite tables and views; optional query-only mode and declared-type mapping. |
 | `md.trino(...)` | `TrinoSpec` | `trino` | `catalog` is the connection target; `schema` is an optional default. |
 | `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. |
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 
-`DatasourceSpec` is the closed union of these five types. Concrete engine
+`DatasourceSpec` is the closed union of these six types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.
+
+SQLite uses `md.table(...)` for tables and views. It does not consume the
+DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
+connection-level `PRAGMA query_only`; Marivo's bounded inspection and diagnostic
+reads enable the same protection internally. SQLite does not compile median or
+percentile aggregations or string `strptime` expressions in Ibis 12, so those operations
+fail through the structured Marivo contract; use a supported aggregation and a
+native temporal column instead.
 
 ### Fields, names, and context
 
