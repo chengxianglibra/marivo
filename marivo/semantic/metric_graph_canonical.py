@@ -33,7 +33,7 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     SliceCanonicalizationV1,
     SliceNodeV1,
-    WeightedAverageNodeV1,
+    WeightedMeanAggregateNodeV1,
     node_child_ids,
 )
 
@@ -341,6 +341,41 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             filter=_canonical_slice(payload["filter"], context=f"{context}.filter"),
             unit_override=_optional_string(payload, "unit_override", context=context),
         )
+    if kind == "weighted_mean":
+        _exact_fields(
+            payload,
+            {
+                "kind",
+                "value_ref",
+                "weight_ref",
+                "value_dependency_fingerprint",
+                "weight_dependency_fingerprint",
+                "filter",
+                "unit_override",
+            },
+            context=context,
+        )
+        return WeightedMeanAggregateNodeV1(
+            kind="weighted_mean",
+            value_ref=_ref_payload(
+                payload["value_ref"],
+                context=f"{context}.value_ref",
+                allowed={SemanticKind.MEASURE},
+            ),
+            weight_ref=_ref_payload(
+                payload["weight_ref"],
+                context=f"{context}.weight_ref",
+                allowed={SemanticKind.MEASURE},
+            ),
+            value_dependency_fingerprint=_required_string(
+                payload, "value_dependency_fingerprint", context=context
+            ),
+            weight_dependency_fingerprint=_required_string(
+                payload, "weight_dependency_fingerprint", context=context
+            ),
+            filter=_canonical_slice(payload["filter"], context=f"{context}.filter"),
+            unit_override=_optional_string(payload, "unit_override", context=context),
+        )
     if kind == "slice":
         _exact_fields(
             payload,
@@ -418,18 +453,6 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             numerator_id=_required_string(payload, "numerator_id", context=context),
             denominator_id=_required_string(payload, "denominator_id", context=context),
             zero_division=cast("Literal['null', 'error']", zero_division),
-            unit_override=_optional_string(payload, "unit_override", context=context),
-        )
-    if kind == "weighted_average":
-        _exact_fields(
-            payload,
-            {"kind", "value_id", "weight_id", "unit_override"},
-            context=context,
-        )
-        return WeightedAverageNodeV1(
-            kind="weighted_average",
-            value_id=_required_string(payload, "value_id", context=context),
-            weight_id=_required_string(payload, "weight_id", context=context),
             unit_override=_optional_string(payload, "unit_override", context=context),
         )
     if kind == "linear":
@@ -670,7 +693,7 @@ def validate_graph(
 
 def _canonical_child_paths(node: MetricGraphNodeV1, path: str) -> tuple[str, ...]:
     match node:
-        case CatalogBodyLeafV1() | AggregateNodeV1():
+        case CatalogBodyLeafV1() | AggregateNodeV1() | WeightedMeanAggregateNodeV1():
             return ()
         case SliceNodeV1():
             return (f"{path}.child",)
@@ -678,15 +701,13 @@ def _canonical_child_paths(node: MetricGraphNodeV1, path: str) -> tuple[str, ...
             return (f"{path}.base",)
         case RatioNodeV1():
             return (f"{path}.numerator", f"{path}.denominator")
-        case WeightedAverageNodeV1():
-            return (f"{path}.value", f"{path}.weight")
         case LinearNodeV1(terms=terms):
             return tuple(f"{path}.term[{index}]" for index in range(len(terms)))
 
 
 def _with_child_ids(node: MetricGraphNodeV1, child_ids: tuple[str, ...]) -> MetricGraphNodeV1:
     match node:
-        case CatalogBodyLeafV1() | AggregateNodeV1():
+        case CatalogBodyLeafV1() | AggregateNodeV1() | WeightedMeanAggregateNodeV1():
             if child_ids:
                 _invalid(f"leaf node {node.kind!r} received child ids")
             return node
@@ -700,8 +721,6 @@ def _with_child_ids(node: MetricGraphNodeV1, child_ids: tuple[str, ...]) -> Metr
                 numerator_id=child_ids[0],
                 denominator_id=child_ids[1],
             )
-        case WeightedAverageNodeV1():
-            return replace(node, value_id=child_ids[0], weight_id=child_ids[1])
         case LinearNodeV1(terms=terms):
             return replace(
                 node,

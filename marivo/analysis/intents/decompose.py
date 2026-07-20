@@ -158,7 +158,7 @@ def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> Compo
 
 
 _NON_LINEAR_FOLD_RECOMMENDED_PATH = (
-    "Use a component-aware derived ratio or weighted-average metric for mix "
+    "Use a component-aware ratio or weighted-mean metric for mix "
     "attribution, or attribute numerator and denominator separately and "
     "synthesize the ratio externally."
 )
@@ -190,7 +190,7 @@ def _non_linear_fold_labels(frame: DeltaFrame) -> list[str]:
 def _component_allows_non_linear_fold(component: ComponentFrame | None) -> bool:
     return component is not None and component.meta.composition_kind in {
         "ratio",
-        "weighted_average",
+        "weighted_mean",
     }
 
 
@@ -198,13 +198,13 @@ def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> N
     raise ComponentDecompositionError(
         message=(
             "decompose cannot sum non-linear sampled time fold deltas by axis; "
-            "component-aware ratio or weighted-average deltas can use mix attribution"
+            "component-aware ratio or weighted-mean deltas can use mix attribution"
         ),
         context={
             "reason": "non_linear_time_fold",
             "delta_ref": frame.ref,
             "time_folds": fold_labels,
-            "supported_component_kinds": ["ratio", "weighted_average"],
+            "supported_component_kinds": ["ratio", "weighted_mean"],
             "recommended_path": _NON_LINEAR_FOLD_RECOMMENDED_PATH,
         },
     )
@@ -329,7 +329,7 @@ def _raise_attribution_additivity_error(
             composition_kind = persisted_kind
     raise AttributionAdditivityError(
         message=message,
-        expected="an additive delta or a component-aware ratio/weighted-average delta",
+        expected="an additive delta or a component-aware ratio/weighted-mean delta",
         received=(
             f"additivity={frame.meta.additivity!r}, aggregation={frame.meta.aggregation!r}, "
             f"composition_kind={composition_kind!r}"
@@ -350,7 +350,7 @@ def _raise_attribution_additivity_error(
             "axes": axes,
             "status_time_dimension": status_time_dimension,
             "composition_kind": composition_kind,
-            "supported_component_kinds": ["ratio", "weighted_average"],
+            "supported_component_kinds": ["ratio", "weighted_mean"],
             "recommended_path": action,
         },
     )
@@ -418,7 +418,7 @@ def _component_role_column_name(component: ComponentFrame, role: str) -> str:
 def _component_measure_role(component: ComponentFrame) -> str:
     if component.meta.composition_kind == "ratio":
         return _component_role_column_name(component, "denominator")
-    if component.meta.composition_kind == "weighted_average":
+    if component.meta.composition_kind == "weighted_mean":
         return _component_role_column_name(component, "weight")
     raise ComponentDecompositionError(
         message="unsupported component composition kind",
@@ -429,12 +429,12 @@ def _component_measure_role(component: ComponentFrame) -> str:
 def _component_value_role(component: ComponentFrame) -> str:
     """Return the value-role column name for the mix math.
 
-    ratio uses 'numerator', weighted_average uses 'value'.
+    Both ratio and weighted_mean use the truthful numerator role.
     """
     if component.meta.composition_kind == "ratio":
         return "numerator"
-    if component.meta.composition_kind == "weighted_average":
-        return "value"
+    if component.meta.composition_kind == "weighted_mean":
+        return "numerator"
     raise ComponentDecompositionError(
         message="unsupported component composition kind for value role",
         context={"composition_kind": component.meta.composition_kind},
@@ -444,7 +444,7 @@ def _component_value_role(component: ComponentFrame) -> str:
 def _component_method(component: ComponentFrame) -> str:
     if component.meta.composition_kind == "ratio":
         return "ratio_mix"
-    if component.meta.composition_kind == "weighted_average":
+    if component.meta.composition_kind == "weighted_mean":
         return "weighted_mix"
     raise ComponentDecompositionError(
         message="unsupported component composition kind",

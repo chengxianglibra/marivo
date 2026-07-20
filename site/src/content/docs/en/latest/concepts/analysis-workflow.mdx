@@ -227,6 +227,11 @@ failed = mv.runtime_metric.aggregate(
     agg="sum",
     slice_by={state: "failed"},
 )
+weighted_latency = mv.runtime_metric.weighted_mean(
+    latency_measure,
+    request_count_measure,
+    label="Runtime weighted latency",
+)
 failure_rate = mv.runtime_metric.ratio(
     failed,
     requests,
@@ -243,6 +248,11 @@ one canonical graph (maximum depth 10, maximum 256 submitted pre-CSE
 occurrences) and one model/source domain. Labels affect presentation only, not
 value identity or catalog authority. Downstream operators use persisted frame
 state rather than catalog/runtime origin.
+
+`runtime_metric.weighted_mean(value, weight)` performs row-level multiplication
+and paired aggregation automatically. Both measures must have the same entity
+and physical row grain, and the weight must be additive; no precomputed
+`SUM(value * weight)` measure is required.
 
 Every observed root and mixed forest persists a recursive component graph.
 Use `frame.components()` to inspect node roles, evaluator contracts, quality,
@@ -290,7 +300,7 @@ closed instead of inheriting one side.
 
 Attribute a delta's movement across explicit axes. This is the default public
 entry point for "why did it change?" analysis.
-Component-aware ratio and weighted-average deltas use mix attribution. Plain
+Component-aware ratio and weighted-mean deltas use mix attribution. Plain
 non-linear sampled folds such as quantile, min, max, first, or last cannot be
 summed by axis unless they are part of a persisted component-aware derived
 metric delta.
@@ -301,20 +311,20 @@ is checked before Marivo replays observations to materialize a requested axis.
 `DeltaFrame.show()` states whether attribution is supported, conditional, or
 blocked, and `DeltaFrame.contract()` exposes the same boundary as a typed precondition:
 unknown and ordinary non-additive deltas fail, semi-additive deltas require axes
-that exclude the status time dimension, and persisted ratio/weighted-average
+that exclude the status time dimension, and persisted ratio/weighted-mean
 component paths remain available.
 
 | Persisted metric semantics | Axis attribution |
 | --- | --- |
 | `additive` | Supported by sum and hierarchy attribution. |
 | `semi_additive` | Supported on non-time axes; rejected on its `status_time_dimension`. |
-| Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
+| Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Automatically lowered to `sum(measure)` / `count_non_null(measure)` and supported by weighted mix attribution. |
 | Other `non_additive` metrics | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected. Re-run `observe` and `compare` before retrying. |
 
 Mean lowering uses non-null measure count, not entity row count. For rejected
-metrics, model explicit ratio/weighted-average components or attribute additive
+metrics, model explicit ratio/weighted-mean components or attribute additive
 numerator and denominator metrics separately.
 
 | Parameter | Type | Required | Default | Meaning |
@@ -330,7 +340,7 @@ attribution.show()
 
 For `joint`, contribution rows are additive and sum to the overall change. For
 `hierarchy`, parent rows repeat their descendants' total; sum only the deepest
-level when reconciling the change. Component-aware ratio and weighted-average
+level when reconciling the change. Component-aware ratio and weighted-mean
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
 Multi-axis calls have no default mode; omit `mode` for a single axis, where a
 supplied value has no effect. `attribution.attribution_mode` exposes the row

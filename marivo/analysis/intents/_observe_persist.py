@@ -41,7 +41,7 @@ def _persist_metric_component_frame(
     axes: dict[str, Any],
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
     job_ref: str,
-    composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None,
+    composition_kind: Literal["ratio", "weighted_mean", "linear"] | None = None,
     components: dict[str, str] | None = None,
     linear_terms: tuple[tuple[str, str], ...] | None = None,
     component_graph: dict[str, Any] | None = None,

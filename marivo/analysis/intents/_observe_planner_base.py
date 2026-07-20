@@ -38,7 +38,9 @@ from marivo.analysis.intents._observe_planner_types import (
     BaseObservePlan,
     JoinSafety,
     PlannedDimension,
+    PlannedPhysicalWhereField,
     PlannedWhere,
+    RawWhereKey,
     _planned_field,
 )
 from marivo.analysis.intents._observe_planner_versioning import (
@@ -125,9 +127,26 @@ def plan_base_observe(
 
     planned_where: list[PlannedWhere] = []
     root_where: dict[str, Any] = {}
+    physical_root_where: dict[str, Any] = {}
     joined_where: dict[str, Any] = {}
     raw_root_keys = set(resolved_fields.raw_root_where_keys)
     for raw_key, value in (where or {}).items():
+        if isinstance(raw_key, RawWhereKey):
+            key = raw_key.column
+            physical_root_where[key] = value
+            planned_where.append(
+                PlannedWhere(
+                    original_key=key,
+                    field=PlannedPhysicalWhereField(
+                        semantic_id=f"physical:{root}.{key}",
+                        name=key,
+                        entity=root,
+                    ),
+                    value=value,
+                    phase="root",
+                )
+            )
+            continue
         key = _input_ref_id(raw_key)
         if key in raw_root_keys:
             # Root-phase raw key: forwarded as-is so apply_slice_to_dataset
@@ -143,6 +162,8 @@ def plan_base_observe(
             root_where[field.name] = value
         else:
             joined_where[field.name] = value
+    for column, value in physical_root_where.items():
+        root_table = root_table.filter(root_table[column] == value)
     if root_where:
         root_table = apply_slice_to_dataset(root_table, root_where, dataset_ir=dataset_irs[root])
 

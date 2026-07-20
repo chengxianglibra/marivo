@@ -9,6 +9,9 @@ from marivo.analysis.runtime_metric import (
     RuntimeAggregateExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
+    RuntimeWeightedMeanExpr,
+    from_replay_payload,
+    replay_payload,
 )
 from marivo.refs import Ref
 
@@ -20,9 +23,11 @@ def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
         "RuntimeMetricExpr",
         "RuntimeRatioExpr",
         "RuntimeSliceExpr",
+        "RuntimeWeightedMeanExpr",
         "aggregate",
         "ratio",
         "slice",
+        "weighted_mean",
     ]
     assert not hasattr(mv, "observe")
     assert not hasattr(mv.Session, "compose")
@@ -77,6 +82,29 @@ def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
     assert hash(first) == hash(second)
 
 
+def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
+    value = Ref.measure("sales.orders.latency")
+    weight = Ref.measure("sales.orders.requests")
+    region = Ref.dimension("sales.orders.region")
+    source = {region: ["CN", "US"]}
+
+    expression = mv.runtime_metric.weighted_mean(
+        value,
+        weight,
+        slice_by=source,
+        label="  Observed latency  ",
+    )
+    source[region].append("DE")
+
+    assert isinstance(expression, RuntimeWeightedMeanExpr)
+    assert expression.kind == "weighted_mean"
+    assert expression.value is value
+    assert expression.weight is weight
+    assert expression.slice_by[region] == ["CN", "US"]
+    assert expression.label == "Observed latency"
+    assert from_replay_payload(replay_payload(expression)) == expression
+
+
 @pytest.mark.parametrize("bad", ["sum_all", ("percentile", 0.0), ("percentile", True)])
 def test_runtime_aggregate_rejects_invalid_closed_agg(bad) -> None:
     with pytest.raises(ValueError):
@@ -96,6 +124,16 @@ def test_runtime_constructors_reject_wrong_ref_and_operand_kinds() -> None:
         mv.runtime_metric.ratio(Ref.measure("sales.orders.amount"), Ref.metric("sales.total"))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"exact Ref\[dimension"):
         mv.runtime_metric.slice(Ref.metric("sales.revenue"), by={"country": "CN"})  # type: ignore[dict-item]
+    with pytest.raises(TypeError, match=r"weighted_mean value requires exact Ref\[measure\]"):
+        mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
+            Ref.metric("sales.revenue"),
+            Ref.measure("sales.orders.requests"),
+        )
+    with pytest.raises(TypeError, match=r"weighted_mean weight requires exact Ref\[measure\]"):
+        mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
+            Ref.measure("sales.orders.latency"),
+            Ref.metric("sales.requests"),
+        )
 
 
 def test_runtime_slice_requires_nonempty_mapping() -> None:

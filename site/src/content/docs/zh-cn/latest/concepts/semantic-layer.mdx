@@ -359,7 +359,8 @@ metric 不是一次 query 的结果，而是智能体可以安全 observe 的、
 | --- | --- | --- |
 | 需要按行级数值汇总时 | `ms.aggregate` | 从 `amount` 得到 revenue |
 | 需要计数时 | `ms.count` | 已完成订单数 |
-| 需要由已有指标计算时 | `ms.ratio`、`ms.weighted_average`、`ms.linear` | 转化率 |
+| 需要按行级 measures 计算加权均值时 | `ms.weighted_mean` | 按请求数加权的延迟 |
+| 需要由已有指标计算时 | `ms.ratio`、`ms.linear` | 转化率 |
 | 需要累计时 | `ms.cumulative` | 年初至今收入 |
 | 现有构建器无法表达时 | `@ms.metric` | 一个未被上述形式覆盖的计算 |
 
@@ -399,14 +400,30 @@ failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(stat
 `str` / `int` / `float` / `bool`）。作为 `ms.count` 或 `ms.aggregate` 的 `filter=`
 入参，用于失败率、错误率、成功率等子集指标。
 
-#### 派生 metrics —— `ms.ratio` / `ms.weighted_average` / `ms.linear`
+#### 加权均值 —— `ms.weighted_mean`
+
+`ms.weighted_mean` 接受同一 entity 上的两个 measures，由 Marivo 自动完成逐行乘权和聚合：
+
+```python
+avg_latency = ms.weighted_mean(
+    name="avg_latency",
+    value=latency,
+    weight=request_count,
+)
+```
+
+它只对 value 与 weight 都非 null 的行计算
+`SUM(value * weight) / NULLIF(SUM(weight), 0)`。weight 必须是 additive measure；
+结果继承 value measure 的 unit，并持久化精确的 `numerator` / `weight` components，
+供 `weighted_mix` 归因使用。它也接受 `filter`、`unit`、`domain` 和 `ai_context`。
+
+#### 派生 metrics —— `ms.ratio` / `ms.linear`
 
 派生 metric 由其他 metrics 组合而成，不需要 body；计算完全来自组成成分。
 
 | Builder | 必填 | 计算 |
 | --- | --- | --- |
 | `ms.ratio(name, numerator, denominator)` | 两个 ref | `numerator / denominator`（如客单价、各类比率） |
-| `ms.weighted_average(name, value, weight)` | 两个 ref | 加权平均；之后 `attribute` 拆分 mix 与 rate |
 | `ms.linear(name, add, subtract)` | `add`（共 ≥2 项） | `add` 之和减去 `subtract`（如 `net = gross - refunds`） |
 
 它们也都接受 `unit`、`domain` 和 `ai_context`。
@@ -417,14 +434,15 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
 观察（observe）时，除法按固定的 `zero_division="null"` 策略求值：某个 bucket 的分母
-（`ms.ratio`）或权重（`ms.weighted_average`）存在但为零时，结果为 null——绝不会出现
+（`ms.ratio`）或成对权重和（`ms.weighted_mean`）存在但为零时，结果为 null——绝不会出现
 `+/-inf`——受影响的行数记录在观察结果的 `meta.zero_denominator_rows` 与
 `quality_summary.zero_denominator_rows` 中。
 
 #### 累计 metrics —— `ms.cumulative`
 
 当业务问题是"截至 bucket t 累计了多少"时使用 `ms.cumulative(...)`。
-base 必须是使用 `sum`、`count` 或 `count_distinct` 的 tier-1 `ms.aggregate(...)` 或 `ms.count(...)` metric。
+base 必须是使用 `sum`、`count`、`count_distinct` 或加权组件累计的 tier-1
+`ms.aggregate(...)`、`ms.count(...)` 或 `ms.weighted_mean(...)` metric。
 `anchor` 参数选择累计形态。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |

@@ -203,13 +203,13 @@ For conditional logic, use the current ibis API (`ibis.cases(...)` or
 `value.cases(...)`) rather than the deprecated `value.case().when(...)`, which
 emits a `FutureWarning` on ibis v10+ and will be removed in a future release.
 
-**Sum vs ratio vs weighted average** — the decomposition:
+**Sum vs ratio vs weighted mean** — the decomposition:
 
 | Metric shape | Decomposition |
 |---|---|
 | Directly summable absolute quantity | `ms.aggregate(..., agg="sum")` (base metric) |
 | `numerator / denominator` (conversion/success rate) | `ms.ratio(numerator=..., denominator=...)` |
-| Segment mean needing weights to explain mix effects | `ms.weighted_average(value=..., weight=...)` |
+| Row-level value needing weighted aggregation and mix attribution | `ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>)` |
 
 If the decomposition is unclear, do not default to a sum — settle the structure
 from the business definition, source SQL, existing component metrics, or a user

@@ -32,7 +32,7 @@ Aggregation & measure helpers
    count
    linear
    ratio
-   weighted_average
+   weighted_mean
    semi_additive
    snapshot
    validity

@@ -252,7 +252,7 @@ def test_focused_help_includes_live_signature() -> None:
     assert "time_scope" in text
 
 
-@pytest.mark.parametrize("name", ["aggregate", "slice", "ratio"])
+@pytest.mark.parametrize("name", ["aggregate", "slice", "weighted_mean", "ratio"])
 def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
     target = f"runtime_metric.{name}"
     callable_obj = getattr(mv.runtime_metric, name)
@@ -269,7 +269,16 @@ def test_runtime_metric_group_help_lists_all_constructors() -> None:
     text = _text("runtime_metric")
     assert "mv.runtime_metric.aggregate(...)" in text
     assert "mv.runtime_metric.slice(...)" in text
+    assert "mv.runtime_metric.weighted_mean(...)" in text
     assert "mv.runtime_metric.ratio(...)" in text
+
+
+def test_runtime_weighted_mean_help_exposes_grain_and_additivity_contract() -> None:
+    text = _text("runtime_metric.weighted_mean")
+
+    assert "runtime_weighted_mean_valid" in text
+    assert "same-entity measures" in text
+    assert "additive weight" in text
 
 
 def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
@@ -376,7 +385,7 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "attribution_additivity_compatible" in text
     assert "compatible persisted additivity" in text
     assert "ratio" in text
-    assert "weighted-average" in text
+    assert "weighted-mean" in text
     assert "Tier-1 mean" in text
     assert "count_non_null" in text
     assert "attribution_shape=weighted_mix lowered_from=mean" in text

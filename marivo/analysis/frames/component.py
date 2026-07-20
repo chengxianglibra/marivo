@@ -45,7 +45,7 @@ class ComponentFrameMeta(BaseFrameMeta):
     component_bindings: tuple[ComponentBindingV1, ...] = ()
     axis_bindings: tuple[AxisBindingV1, ...] = ()
     metric_id: str | None = Field(default=None, exclude=True)
-    composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None
+    composition_kind: Literal["ratio", "weighted_mean", "linear"] | None = None
     components: dict[str, str] = Field(default_factory=dict, exclude=True)
     linear_terms: tuple[tuple[str, str], ...] = ()
     axes: dict[str, Any] = Field(default_factory=dict, exclude=True)

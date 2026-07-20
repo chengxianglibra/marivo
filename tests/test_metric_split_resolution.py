@@ -27,10 +27,6 @@ def test_composition_components_per_kind() -> None:
         "numerator": "d.a",
         "denominator": "d.b",
     }
-    assert ir.composition_components(ir.WeightedAverageComposition(value="d.v", weight="d.w")) == {
-        "value": "d.v",
-        "weight": "d.w",
-    }
     lin = ir.LinearComposition(terms=(ir.LinearTerm("+", "d.a"), ir.LinearTerm("-", "d.b")))
     assert ir.composition_components(lin) == {"term0": "d.a", "term1": "d.b"}
 
@@ -74,6 +70,7 @@ order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
 query_count = ms.count(entity=orders, name="query_count")
 aov = ms.ratio(name="aov", numerator=revenue, denominator=order_count)
 gross_plus = ms.linear(name="gross_plus", add=[revenue, revenue])
+weighted_price = ms.weighted_mean(name="weighted_price", value=unit_price, weight=amount)
 """
 
 
@@ -87,6 +84,42 @@ def test_resolution_fills_additivity() -> None:
         assert reg.metrics["test.query_count"].unit is None
         assert reg.metrics["test.aov"].additivity == "non_additive"
         assert reg.metrics["test.gross_plus"].additivity == "additive"
+        assert reg.metrics["test.weighted_price"].additivity == "non_additive"
+
+
+@pytest.mark.parametrize(
+    "source, expected_text",
+    [
+        (
+            """\
+import marivo.datasource as md
+import marivo.semantic as ms
+wh = ms.Ref.datasource("wh")
+o = ms.entity(name="o", datasource=wh, source=md.table("o"))
+value = ms.measure_column(name="value", entity=o, column="value", additivity="non_additive")
+weight = ms.measure_column(name="weight", entity=o, column="weight", additivity="non_additive")
+ms.weighted_mean(name="bad", value=value, weight=weight)
+""",
+            "must be additive",
+        ),
+        (
+            """\
+import marivo.datasource as md
+import marivo.semantic as ms
+wh = ms.Ref.datasource("wh")
+left = ms.entity(name="left", datasource=wh, source=md.table("left"))
+right = ms.entity(name="right", datasource=wh, source=md.table("right"))
+value = ms.measure_column(name="value", entity=left, column="value", additivity="non_additive")
+weight = ms.measure_column(name="weight", entity=right, column="weight", additivity="additive")
+ms.weighted_mean(name="bad", value=value, weight=weight)
+""",
+            "same entity",
+        ),
+    ],
+)
+def test_weighted_mean_rejects_invalid_weight_grain(source: str, expected_text: str) -> None:
+    with load_inline_semantic(source) as result:
+        assert any(expected_text in error.message for error in result.errors)
 
 
 # ---------------------------------------------------------------------------

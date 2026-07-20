@@ -210,7 +210,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.COMPOSITION_SHAPE,
         "invalid_composition",
         "decorator",
-        ("metric", "derived_metric", "sum", "ratio", "weighted_average"),
+        ("metric", "derived_metric", "sum", "ratio", "weighted_mean"),
         "Metrics need a supported composition builder.",
         "Composition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
@@ -234,7 +234,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare at least one entity.",
         "Entity-backed metrics read source rows from their declared entity arguments.",
-        "Simple metrics need entities=[...]; use ms.ratio/ms.weighted_average/ms.linear "
+        "Simple metrics need entities=[...]; use ms.ratio/ms.linear "
         "for metrics composed from other metrics.",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
@@ -243,8 +243,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ast",
         ("metric",),
         "ms.component() is no longer supported in metric bodies.",
-        "Derived metrics are body-free and declare composition through ms.ratio/ms.weighted_average/ms.linear.",
-        "Remove ms.component() calls; use ms.ratio/ms.weighted_average/ms.linear with composition metadata instead.",
+        "Derived metrics are body-free and declare composition through ms.ratio/ms.linear.",
+        "Remove ms.component() calls; use ms.ratio/ms.linear with composition metadata instead.",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
@@ -284,7 +284,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Keep the body to a single return expression. For a metric composed from "
         "other metrics, use the body-free constructors instead: "
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
-        "ms.weighted_average(value=, weight=). For conditionals, use ibis "
+        "ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>). For conditionals, use ibis "
         ".ifelse() / ibis.cases() inside the one return expression.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
@@ -445,9 +445,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_measure_aggregation",
         "assembly",
         ("metric",),
-        "sum/count aggregations are invalid on non-additive measures.",
-        "Use mean/min/max, or model the metric as a ratio/derived composition.",
-        "Change the aggregation or the measure dimension additivity.",
+        "Aggregations must match measure additivity; weighted_mean requires same-entity inputs and an additive weight.",
+        "Tier-1 aggregation correctness depends on the governed row grain and additivity contract.",
+        "Change the aggregation or measure additivity; for weighted_mean pass same-entity value/weight measures and make weight additive.",
     ),
     ConstraintId.LINEAR_UNIT_COMMENSURABLE: _constraint(
         ConstraintId.LINEAR_UNIT_COMMENSURABLE,
@@ -510,7 +510,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Derived metrics must keep fanout_policy='block'.",
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
-        "Derived metrics (ms.ratio/ms.weighted_average/ms.linear) must not declare fanout_policy; "
+        "Derived metrics (ms.ratio/ms.linear) must not declare fanout_policy; "
         "set fanout_policy on the relevant base components instead.",
     ),
     ConstraintId.ENTITY_VERSIONING_VALID: _constraint(

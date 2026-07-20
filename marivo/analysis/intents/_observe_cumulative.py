@@ -46,11 +46,55 @@ from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.refs import Ref
 from marivo.semantic.catalog import SemanticKind
 
+_WEIGHTED_MEAN_NUMERATOR = "__weighted_mean_numerator"
+_WEIGHTED_MEAN_WEIGHT = "__weighted_mean_weight"
+
 
 def _base_aggregation_name(metric_ir: Any) -> str:
     """Return the aggregation name string (e.g. 'sum', 'count_distinct')."""
+    if getattr(metric_ir, "weighted_mean", None) is not None:
+        return "weighted_mean"
     agg = getattr(metric_ir, "aggregation", None)
     return str(agg) if agg is not None else ""
+
+
+def _flow_aggregations(
+    *,
+    catalog: Any,
+    resolver: Any,
+    metric_ir: Any,
+    metric_datasets: tuple[str, ...],
+    table: Any,
+) -> dict[str, Any]:
+    """Build additive flow expressions, preserving weighted-mean components."""
+    spec = getattr(metric_ir, "weighted_mean", None)
+    if spec is None:
+        return {
+            "value": _metric_expr(
+                catalog,
+                resolver,
+                metric_ir.semantic_id,
+                metric_datasets,
+                dict.fromkeys(metric_datasets, table),
+            )
+        }
+    numerator, weight, _value = resolver.weighted_mean_aggregates_on(
+        Ref.measure(spec.value),
+        Ref.measure(spec.weight),
+        table,
+    )
+    return {
+        _WEIGHTED_MEAN_NUMERATOR: numerator,
+        _WEIGHTED_MEAN_WEIGHT: weight,
+    }
+
+
+def _weighted_mean_from_accumulated_components(df: Any) -> Any:
+    """Project accumulated numerator/weight components to one public value."""
+    denominator = df[_WEIGHTED_MEAN_WEIGHT]
+    result = df.copy()
+    result["value"] = result[_WEIGHTED_MEAN_NUMERATOR] / denominator.mask(denominator == 0)
+    return result.drop(columns=[_WEIGHTED_MEAN_NUMERATOR, _WEIGHTED_MEAN_WEIGHT])
 
 
 def _base_measure_ref(metric_ir: Any) -> str | None:
@@ -86,7 +130,10 @@ def _apply_where_to_raw_table(
         return table
     where_dict: dict[str, Any] = {}
     for entry in planned_where:
-        where_dict[entry.field.name] = entry.value
+        if getattr(entry.field, "physical", False):
+            table = table.filter(table[entry.field.name] == entry.value)
+        else:
+            where_dict[entry.field.name] = entry.value
     if not where_dict:
         return table
     return apply_slice_to_dataset(table, where_dict, dataset_ir=dataset_ir)
@@ -493,16 +540,19 @@ def _execute_trailing_additive(
         bucketed_table = bucketed_table.mutate(**dimension_exprs)
 
     # Flow aggregation per bucket over the extended range.
-    flow_dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-    flow_metric_expr = _metric_expr(
-        catalog, resolver, base_metric_ir.semantic_id, metric_datasets, flow_dataset_tables
+    flow_aggregations = _flow_aggregations(
+        catalog=catalog,
+        resolver=resolver,
+        metric_ir=base_metric_ir,
+        metric_datasets=metric_datasets,
+        table=bucketed_table,
     )
     group_names_flow = ["bucket_start", *dimension_names]
     flow_grouped = (
         bucketed_table.group_by(group_names_flow)
-        .aggregate(value=flow_metric_expr)
+        .aggregate(**flow_aggregations)
         .order_by(group_names_flow)
-        .select(*group_names_flow, "value")
+        .select(*group_names_flow, *flow_aggregations)
     )
     flow_result = execute(
         flow_grouped,
@@ -525,14 +575,38 @@ def _execute_trailing_additive(
     # The dense spine covers the extended fetch range so rolling windows at the
     # display-start boundary have their full span; the result is clipped back.
     extended_bucket_values = _bucket_date_range(extended_window)
-    dense_df = _trailing_rolling_frame(
-        flow_df=flow_df,
-        bucket_values=extended_bucket_values,
-        dimension_columns=dimension_names,
-        w_buckets=w_buckets,
-        display_start=window_start_ts,
-        display_end=window_end_ts,
-    )
+    if getattr(base_metric_ir, "weighted_mean", None) is not None:
+        numerator_df = _trailing_rolling_frame(
+            flow_df=flow_df,
+            bucket_values=extended_bucket_values,
+            dimension_columns=dimension_names,
+            w_buckets=w_buckets,
+            display_start=window_start_ts,
+            display_end=window_end_ts,
+            value_column=_WEIGHTED_MEAN_NUMERATOR,
+        )
+        weight_df = _trailing_rolling_frame(
+            flow_df=flow_df,
+            bucket_values=extended_bucket_values,
+            dimension_columns=dimension_names,
+            w_buckets=w_buckets,
+            display_start=window_start_ts,
+            display_end=window_end_ts,
+            value_column=_WEIGHTED_MEAN_WEIGHT,
+        )
+        merge_keys = ["bucket_start", *dimension_names]
+        dense_df = _weighted_mean_from_accumulated_components(
+            numerator_df.merge(weight_df, on=merge_keys, how="outer")
+        )
+    else:
+        dense_df = _trailing_rolling_frame(
+            flow_df=flow_df,
+            bucket_values=extended_bucket_values,
+            dimension_columns=dimension_names,
+            w_buckets=w_buckets,
+            display_start=window_start_ts,
+            display_end=window_end_ts,
+        )
 
     # 4. Data-start scalar query: min(over) under the same filters. Buckets
     # whose window reaches before the data start are labeled 'partial'.
@@ -997,16 +1071,19 @@ def _execute_cumulative(
     else:
         # sum / count: baseline = aggregate of events before window start.
         # Flow = aggregate of events per bucket within window.
-        flow_dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-        flow_metric_expr = _metric_expr(
-            catalog, resolver, base_metric_ir.semantic_id, metric_datasets, flow_dataset_tables
+        flow_aggregations = _flow_aggregations(
+            catalog=catalog,
+            resolver=resolver,
+            metric_ir=base_metric_ir,
+            metric_datasets=metric_datasets,
+            table=bucketed_table,
         )
         group_names_flow = ["bucket_start", *dimension_names]
         flow_grouped = (
             bucketed_table.group_by(group_names_flow)
-            .aggregate(value=flow_metric_expr)
+            .aggregate(**flow_aggregations)
             .order_by(group_names_flow)
-            .select(*group_names_flow, "value")
+            .select(*group_names_flow, *flow_aggregations)
         )
         flow_result = execute(
             flow_grouped,
@@ -1034,7 +1111,7 @@ def _execute_cumulative(
 
             window_start_ts = pd.Timestamp(resolved_window.start)
             period_start = _align_to_grain_start(window_start_ts, reset_grain)
-            baseline_df = pd.DataFrame(columns=[*dimension_names, "value"])
+            baseline_df = pd.DataFrame(columns=[*dimension_names, *flow_aggregations])
             if period_start < window_start_ts:
                 seed_table = raw_table.filter(
                     (time_expr_raw >= ibis.literal(period_start).cast(time_expr_raw.type()))
@@ -1054,24 +1131,23 @@ def _execute_cumulative(
                         for _, field_ir in resolved_dimensions
                     }
                     seed_table = seed_table.mutate(**seed_dim_exprs)
-                seed_dataset_tables = dict.fromkeys(metric_datasets, seed_table)
-                seed_metric_expr = _metric_expr(
-                    catalog,
-                    resolver,
-                    base_metric_ir.semantic_id,
-                    metric_datasets,
-                    seed_dataset_tables,
+                seed_aggregations = _flow_aggregations(
+                    catalog=catalog,
+                    resolver=resolver,
+                    metric_ir=base_metric_ir,
+                    metric_datasets=metric_datasets,
+                    table=seed_table,
                 )
                 seed_group_keys = list(dimension_names)
                 if seed_group_keys:
                     seed_grouped = (
                         seed_table.group_by(seed_group_keys)
-                        .aggregate(value=seed_metric_expr)
+                        .aggregate(**seed_aggregations)
                         .order_by(seed_group_keys)
-                        .select(*seed_group_keys, "value")
+                        .select(*seed_group_keys, *seed_aggregations)
                     )
                 else:
-                    seed_grouped = seed_table.aggregate(value=seed_metric_expr)
+                    seed_grouped = seed_table.aggregate(**seed_aggregations)
                 seed_result = execute(
                     seed_grouped,
                     datasource_name=primary_datasource,
@@ -1080,24 +1156,23 @@ def _execute_cumulative(
                 )
                 baseline_df = seed_result.df
         else:
-            baseline_dataset_tables = dict.fromkeys(metric_datasets, baseline_table)
-            baseline_metric_expr = _metric_expr(
-                catalog,
-                resolver,
-                base_metric_ir.semantic_id,
-                metric_datasets,
-                baseline_dataset_tables,
+            baseline_aggregations = _flow_aggregations(
+                catalog=catalog,
+                resolver=resolver,
+                metric_ir=base_metric_ir,
+                metric_datasets=metric_datasets,
+                table=baseline_table,
             )
             baseline_group_keys = list(dimension_names)
             if baseline_group_keys:
                 baseline_grouped = (
                     baseline_table.group_by(baseline_group_keys)
-                    .aggregate(value=baseline_metric_expr)
+                    .aggregate(**baseline_aggregations)
                     .order_by(baseline_group_keys)
-                    .select(*baseline_group_keys, "value")
+                    .select(*baseline_group_keys, *baseline_aggregations)
                 )
             else:
-                baseline_grouped = baseline_table.aggregate(value=baseline_metric_expr)
+                baseline_grouped = baseline_table.aggregate(**baseline_aggregations)
             baseline_result = execute(
                 baseline_grouped,
                 datasource_name=primary_datasource,
@@ -1108,7 +1183,43 @@ def _execute_cumulative(
 
     # Build dense spine and cumsum
     bucket_values = _bucket_date_range(resolved_window)
-    if is_grain_to_date and reset_grain is not None:
+    if getattr(base_metric_ir, "weighted_mean", None) is not None:
+        if is_grain_to_date and reset_grain is not None:
+            numerator_df = _grain_to_date_dense_frame(
+                seed_df=baseline_df,
+                flow_df=flow_df,
+                bucket_values=bucket_values,
+                dimension_columns=dimension_names,
+                reset_grain=reset_grain,
+                value_column=_WEIGHTED_MEAN_NUMERATOR,
+            )
+            weight_df = _grain_to_date_dense_frame(
+                seed_df=baseline_df,
+                flow_df=flow_df,
+                bucket_values=bucket_values,
+                dimension_columns=dimension_names,
+                reset_grain=reset_grain,
+                value_column=_WEIGHTED_MEAN_WEIGHT,
+            )
+        else:
+            numerator_df = _dense_cumulative_frame(
+                baseline_df=baseline_df,
+                flow_df=flow_df,
+                bucket_values=bucket_values,
+                dimension_columns=dimension_names,
+                value_column=_WEIGHTED_MEAN_NUMERATOR,
+            )
+            weight_df = _dense_cumulative_frame(
+                baseline_df=baseline_df,
+                flow_df=flow_df,
+                bucket_values=bucket_values,
+                dimension_columns=dimension_names,
+                value_column=_WEIGHTED_MEAN_WEIGHT,
+            )
+        dense_df = _weighted_mean_from_accumulated_components(
+            numerator_df.merge(weight_df, on=["bucket_start", *dimension_names], how="outer")
+        )
+    elif is_grain_to_date and reset_grain is not None:
         dense_df = _grain_to_date_dense_frame(
             seed_df=baseline_df,
             flow_df=flow_df,

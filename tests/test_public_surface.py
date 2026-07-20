@@ -80,7 +80,7 @@ SEMANTIC_PUBLIC = {
     "trailing",
     "typing",
     "validity",
-    "weighted_average",
+    "weighted_mean",
     "where",
 }
 

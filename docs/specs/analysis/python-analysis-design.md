@@ -173,7 +173,7 @@ given artifact come from its `contract()`.
 
 `Session.observe(...)` is the only public initial `MetricFrame` materializer.
 Its roots are exact `Ref[metric]` values or closed values built with
-`mv.runtime_metric.aggregate`, `.slice`, and `.ratio`; loaded catalog objects,
+`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, and `.ratio`; loaded catalog objects,
 generic refs, bare ids, frame arithmetic, and arbitrary formula nodes do not
 cross this boundary. A non-empty list or tuple forms one ordered mixed forest
 with one outer scope.
@@ -192,6 +192,9 @@ source, key, quality, component, replay, and comparable-semantics state—not
 catalog/runtime origin—controls downstream admission. `compare` may therefore
 compare a catalog frame and a runtime frame when their lowered value semantics
 match, while retaining ordered current/baseline identities in the delta.
+Runtime weighted means accept two governed same-entity measures, require an
+additive weight, and lower to the same paired numerator/weight leaf as catalog
+`ms.weighted_mean`; they do not require a precomputed weighted-sum measure.
 Every observed root and mixed forest persists a recursive component graph;
 `frame.components()` loads it for inspection. `component_ref` remains the
 narrower signal that the root also supports numerical decomposition.

@@ -56,7 +56,7 @@ from marivo.semantic.authoring import (
     timestamp,
     trailing,
     validity,
-    weighted_average,
+    weighted_mean,
     where,
 )
 from marivo.semantic.catalog import (
@@ -241,7 +241,7 @@ __all__ = [
     "trailing",
     "typing",
     "validity",
-    "weighted_average",
+    "weighted_mean",
     "where",
 ]
 

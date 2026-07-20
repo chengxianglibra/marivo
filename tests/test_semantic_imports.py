@@ -114,7 +114,7 @@ def test_all_list_matches_expected() -> None:
         "richness",
         "ratio",
         "strptime",
-        "weighted_average",
+        "weighted_mean",
         "snapshot",
         "timestamp",
         "trailing",

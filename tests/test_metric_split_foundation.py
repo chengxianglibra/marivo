@@ -3,7 +3,7 @@
 Covers: Additivity/SemiAdditive/AggKind types, Composition union,
 MetricIR rewrite, DimensionIR.additivity, _BaseRef.__call__ teaching
 error, and the full authoring surface (ms.semi_additive, ms.aggregate,
-@ms.metric, ms.ratio/ms.weighted_average/ms.linear,
+@ms.metric, ms.ratio/ms.linear, ms.weighted_mean,
 dimension(additivity=)).
 """
 
@@ -46,8 +46,8 @@ def test_composition_variants_carry_roles():
     r = ir.RatioComposition(numerator="d.lost", denominator="d.total")
     assert (r.kind, r.numerator, r.denominator) == ("ratio", "d.lost", "d.total")
 
-    w = ir.WeightedAverageComposition(value="d.rate", weight="d.sessions")
-    assert (w.kind, w.value, w.weight) == ("weighted_average", "d.rate", "d.sessions")
+    w = ir.WeightedMeanAggregation(value="d.e.rate", weight="d.e.sessions")
+    assert (w.kind, w.value, w.weight) == ("weighted_mean", "d.e.rate", "d.e.sessions")
 
     lin = ir.LinearComposition(terms=(ir.LinearTerm("+", "d.a"), ir.LinearTerm("-", "d.b")))
     assert lin.kind == "linear"
@@ -254,7 +254,7 @@ def test_metric_semi_additive_via_builder():
 
 
 # ---------------------------------------------------------------------------
-# Task 10: ms.ratio / ms.weighted_average / ms.linear
+# Task 10: ms.ratio / ms.weighted_mean / ms.linear
 # ---------------------------------------------------------------------------
 
 
@@ -275,14 +275,15 @@ def test_ratio_constructor_is_flat_and_derived():
     assert m.entities == () and m.aggregation is None and m.measure is None
 
 
-def test_weighted_average_keeps_public_roles():
+def test_weighted_mean_is_a_two_measure_tier1_metric():
     with authoring_session(domain="net") as sess:
-        rate = authoring.aggregate(measure=_m(sess, "net.s", "rate"), agg="mean", name="rate")
-        sess_n = authoring.aggregate(measure=_m(sess, "net.s", "n"), agg="sum", name="sessions")
-        wa = authoring.weighted_average(name="overall_rate", value=rate, weight=sess_n)
+        rate = _m(sess, "net.s", "rate")
+        sess_n = _m(sess, "net.s", "n")
+        authoring.weighted_mean(name="overall_rate", value=rate, weight=sess_n)
         m = sess.pending_metric("net.overall_rate")
-    assert isinstance(m.composition, ir.WeightedAverageComposition)
-    assert m.composition.value == "net.rate" and m.composition.weight == "net.sessions"
+    assert m.metric_type == "simple"
+    assert isinstance(m.weighted_mean, ir.WeightedMeanAggregation)
+    assert m.weighted_mean.value == "net.s.rate" and m.weighted_mean.weight == "net.s.n"
 
 
 def test_linear_signs_and_min_terms():
@@ -310,7 +311,7 @@ def test_package_exports_new_surface():
         "metric",
         "measure",
         "ratio",
-        "weighted_average",
+        "weighted_mean",
         "linear",
         "semi_additive",
     ):

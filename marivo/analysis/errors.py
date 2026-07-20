@@ -1365,7 +1365,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                 kind="inspect",
                 action=(
                     "Component frames are only available for derived ratio or "
-                    "weighted-average frames produced by component-aware observe/compare."
+                    "weighted-mean frames produced by component-aware observe/compare."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                 snippet=(

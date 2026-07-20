@@ -276,7 +276,7 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
                 "region": {"role": "dimension", "column": "region"},
             },
         ),
-        composition_kind="weighted_average",
+        composition_kind="weighted_mean",
         semantic_kind="panel",
         semantic_model="sales",
     )

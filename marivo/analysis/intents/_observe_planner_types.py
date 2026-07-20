@@ -43,6 +43,23 @@ class PlannedWhere:
 
 
 @dataclass(frozen=True)
+class RawWhereKey:
+    """Internal marker for an authored physical-column metric filter."""
+
+    column: str
+
+
+@dataclass(frozen=True)
+class PlannedPhysicalWhereField:
+    """Minimal persisted planning identity for a physical-column filter."""
+
+    semantic_id: str
+    name: str
+    entity: str
+    physical: bool = True
+
+
+@dataclass(frozen=True)
 class BaseObservePlan:
     root_entity: str
     additivity: str
@@ -262,6 +279,16 @@ class _MetricDetailsAdapter:
         return None
 
     @property
+    def weighted_mean(self) -> _WeightedMeanDetailsAdapter | None:
+        if not isinstance(self.details, SimpleMetricDetails):
+            return None
+        value = self.details.weighted_mean_value
+        weight = self.details.weighted_mean_weight
+        if value is None or weight is None:
+            return None
+        return _WeightedMeanDetailsAdapter(value=value.path, weight=weight.path)
+
+    @property
     def time_fold(self) -> Any | None:
         if self.details.fold is None:
             return None
@@ -294,6 +321,12 @@ class _TimeFoldDetailsAdapter:
 
     def label(self) -> str:
         return self.value
+
+
+@dataclass(frozen=True)
+class _WeightedMeanDetailsAdapter:
+    value: str
+    weight: str
 
 
 def _planned_metric(details: MetricDetails) -> _MetricDetailsAdapter:

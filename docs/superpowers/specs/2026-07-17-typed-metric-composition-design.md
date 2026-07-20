@@ -120,6 +120,7 @@ Introduce one expression namespace and replace the observation input contract:
 
 ```text
 mv.runtime_metric.aggregate(MeasureRef, ...) -> RuntimeAggregateExpr
+mv.runtime_metric.weighted_mean(MeasureRef, MeasureRef, ...) -> RuntimeWeightedMeanExpr
 mv.runtime_metric.slice(MetricExprInput, ...) -> RuntimeSliceExpr
 mv.runtime_metric.ratio(MetricExprInput, MetricExprInput, ...) -> RuntimeRatioExpr
 
@@ -139,6 +140,7 @@ AnalysisDimensionRef = DimensionRef | TimeDimensionRef
 
 RuntimeMetricExpr =
     RuntimeAggregateExpr
+  | RuntimeWeightedMeanExpr
   | RuntimeSliceExpr
   | RuntimeRatioExpr
 ```
@@ -470,6 +472,24 @@ breaking release narrows the current broad `str` annotation on
 All three surfaces call the same normalizer and percentile-range validation;
 values outside the closed aliases fail validation.
 
+### Weighted mean
+
+```python
+mv.runtime_metric.weighted_mean(
+    value: MeasureRef,
+    weight: MeasureRef,
+    *,
+    slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
+    label: str | None = None,
+) -> RuntimeWeightedMeanExpr
+```
+
+Both refs must resolve to the same entity, datasource, and physical row grain;
+`weight` must be additive while `value` may be non-additive. The node lowers to
+the same `WeightedMeanAggregate` contract as catalog `ms.weighted_mean`:
+paired non-null rows produce `SUM(value * weight)` and `SUM(weight)`, and a zero
+paired weight sum produces null. The result inherits the value measure's unit.
+
 ### Slice
 
 ```python
@@ -636,6 +656,14 @@ RuntimeAggregateExprV1 {
   label?: DisplayLabel
 }
 
+RuntimeWeightedMeanExprV1 {
+  kind: "weighted_mean"
+  value: MeasureRef
+  weight: MeasureRef
+  slice_by: TypedSliceMap
+  label?: DisplayLabel
+}
+
 RuntimeSliceExprV1 {
   kind: "slice"
   metric: MetricExprInput
@@ -665,10 +693,10 @@ the public runtime algebra because it must represent existing catalog behavior:
 ```text
 CatalogBodyLeaf
 Aggregate
+WeightedMeanAggregate
 Slice
 Cumulative
 Ratio
-WeightedAverage
 Linear
 ```
 
@@ -683,7 +711,7 @@ override when present. Such facts are versioned graph inputs and participate in
 the resolved semantic dependency digest. Runtime nodes cannot fabricate or
 override them.
 
-Public runtime v1 exposes only aggregate, slice, and ratio. The presence of an
+Public runtime v1 exposes only aggregate, weighted_mean, slice, and ratio. The presence of an
 internal node does not pre-authorize its public constructor.
 
 ### Shared graph ownership
@@ -712,8 +740,9 @@ Admission is checked per node:
   dimensions;
 - an aggregate consumes only an analysis-ready `MeasureRef`, not another metric
   expression;
-- cumulative, weighted-average, and linear nodes retain their own child
-  restrictions;
+- cumulative and linear nodes retain their own child restrictions;
+- weighted-mean aggregate leaves consume two same-row measure refs and expose
+  exact numerator/weight components rather than derived child metrics;
 - an operator may reject a legal graph as an immediate child without making the
   entire expression system non-recursive.
 
@@ -881,8 +910,10 @@ compile into one SQL statement:
   aggregate/fold operations, and other safely lowerable leaf work compile
   through Ibis and execute in the datasource backend;
 - only their scoped, aggregated typed-key results cross back into Marivo;
-- `Ratio`, `WeightedAverage`, and `Linear` composition nodes evaluate bottom-up
+- `Ratio` and `Linear` composition nodes evaluate bottom-up
   through registered Marivo evaluators over those aligned child results;
+- `WeightedMeanAggregate` multiplies and aggregates its two measure inputs in
+  one backend query before crossing the physical execution boundary;
 - graph execution does not create one backend round trip per composition node:
   compatible leaves/subgraphs are planned together and reused through CSE/cache;
 - catalog and runtime roots use the same placement rule.
@@ -1599,10 +1630,10 @@ Phase 0 is independently reviewable but not releasable.
   warning, error-registry entry, flatten repair, semantic spec text, and tests
   for legal nested graphs; replace genuinely illegal combinations with their
   operator-specific structured issue and repair;
-- update the public `ms.ratio`, `ms.weighted_average`, and `ms.linear` docstrings,
+- update the public `ms.ratio`, `ms.weighted_mean`, and `ms.linear` docstrings,
   semantic help, and `docs/specs/semantic/semantic-object-model.md` so catalog
   authoring/readiness no longer teaches the obsolete blanket nesting ban;
-- lower existing catalog aggregate, cumulative, ratio, weighted-average, and
+- lower existing catalog aggregate, weighted-mean, cumulative, ratio, and
   linear semantics into the internal closed graph as applicable;
 - make catalog and future runtime aggregates share `AggregateEvaluationV1`;
 - make catalog and future runtime ratios share `RatioEvaluationV1`;
@@ -1631,7 +1662,7 @@ Phase 0 is independently reviewable but not releasable.
 
 ### Phase 2 — public runtime expressions through observe
 
-- add frozen `mv.runtime_metric.aggregate`, `slice`, and `ratio` descriptors;
+- add frozen `mv.runtime_metric.aggregate`, `weighted_mean`, `slice`, and `ratio` descriptors;
 - delete the broad analysis `SemanticInput`, `MetricInput`, and `DimensionInput`
   aliases; use exact `MetricRef`, `ObserveMetricInput`, and
   `AnalysisDimensionRef` annotations and normalizers across observe, attribute,
@@ -1783,7 +1814,7 @@ semantic promotion.
   budget validator: per-root depth 10/occurrence 256 pass, depth 11/occurrence
   257 are excluded from `analysis_ready_refs` with count/limit/dependency-path
   repair facts, and multi-root observe independently enforces its forest budget;
-- `ms.ratio`, `ms.weighted_average`, and `ms.linear` docstrings plus
+- `ms.ratio`, `ms.weighted_mean`, and `ms.linear` docstrings plus
   `semantic-object-model.md` authorize admitted nested derived catalog graphs and
   retain operator-specific exclusions;
 - nested ratios plan and evaluate correctly;
@@ -1877,7 +1908,7 @@ Implementation updates together:
   shared fold normalizer and public type exports;
 - semantic validator, readiness, reader/details, errors, and help paths that
   currently publish `nested_derived_unsupported`;
-- public authoring docstrings for `ms.ratio`, `ms.weighted_average`, and
+- public authoring docstrings for `ms.ratio`, `ms.weighted_mean`, and
   `ms.linear`, plus `docs/specs/semantic/semantic-object-model.md`;
 - frame, component, delta, result, replay, coverage, quality, cache, and
   persistence schemas;
@@ -1897,7 +1928,7 @@ Implementation updates together:
 
 The design is fully delivered when:
 
-1. `mv.runtime_metric.*` builds only frozen closed aggregate, slice, and ratio
+1. `mv.runtime_metric.*` builds only frozen closed aggregate, weighted_mean, slice, and ratio
    expressions from governed typed refs.
 2. `session.observe(...)` remains the sole initial `MetricFrame` producer,
    accepts exact `MetricRef | RuntimeMetricExpr` singleton/list/tuple roots, owns

@@ -24,12 +24,12 @@ from marivo.analysis.intents._metric_evaluators import (
     RatioEvaluationV1,
     align_metric_children_v1,
     evaluate_linear_v1,
-    evaluate_weighted_average_v1,
 )
 from marivo.analysis.intents._metric_graph_plan import MetricGraphObservePlanV1
 from marivo.analysis.intents._observe_base import (
+    _aggregate_component_contract,
     _execute_base,
-    _is_lowerable_tier1_mean,
+    _is_component_aggregate,
 )
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
@@ -53,7 +53,7 @@ from marivo.semantic.metric_graph import (
     LinearNodeV1,
     RatioNodeV1,
     SliceNodeV1,
-    WeightedAverageNodeV1,
+    WeightedMeanAggregateNodeV1,
     node_child_ids,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value
@@ -64,7 +64,6 @@ from marivo.semantic.unit_algebra import (
     linear_unit,
     render_unit,
     unit_state,
-    weighted_average_unit,
 )
 
 type SemanticShapeV1 = Literal["scalar", "time_series", "segmented", "panel"]
@@ -143,7 +142,7 @@ def _can_fuse_base(left: Any, right: Any) -> bool:
         or getattr(right.metric_ir, "time_fold", None) is not None
     ):
         return False
-    if _is_lowerable_tier1_mean(left.metric_ir) or _is_lowerable_tier1_mean(right.metric_ir):
+    if _is_component_aggregate(left.metric_ir) or _is_component_aggregate(right.metric_ir):
         return False
     return _base_plan_surface(left.plan) == _base_plan_surface(right.plan) and _tables_equal(
         left.plan.table, right.plan.table
@@ -385,6 +384,18 @@ def execute_metric_graph_observe(
             )
         physical_execution_count += 1
         aggregate = AggregateEvaluationV1().evaluate(result.df)
+        quality = aggregate.quality
+        component_contract = _aggregate_component_contract(leaf.metric_ir)
+        if component_contract is not None and mean_component_df is not None:
+            component_columns = component_contract["components"]
+            assert isinstance(component_columns, dict)
+            weight_column = str(component_columns["weight"])
+            zero_weight_rows = int((mean_component_df[weight_column] == 0).sum())
+            quality = replace(
+                quality,
+                affected_result_rows=int(aggregate.frame["value"].isna().sum()),
+                zero_division_rows=zero_weight_rows,
+            )
         unit = getattr(leaf.metric_ir, "unit", None)
         result = GraphNodeExecutionV1(
             node_id=leaf.node_id,
@@ -402,7 +413,7 @@ def execute_metric_graph_observe(
                 else None
             ),
             coverage_df=coverage_df,
-            quality=aggregate.quality,
+            quality=quality,
             aggregate_component_df=mean_component_df,
         )
         _record_physical_execution(evaluated, leaf, result)
@@ -417,7 +428,15 @@ def execute_metric_graph_observe(
             raise ValueError(f"metric graph cycle reached during execution at {node_id}")
         visiting.add(node_id)
         node = graph_nodes[node_id]
-        if isinstance(node, (CatalogBodyLeafV1, AggregateNodeV1, CumulativeNodeV1)):
+        if isinstance(
+            node,
+            (
+                CatalogBodyLeafV1,
+                AggregateNodeV1,
+                WeightedMeanAggregateNodeV1,
+                CumulativeNodeV1,
+            ),
+        ):
             raise ValueError(f"metric graph physical node {node_id} was not planned")
         if isinstance(node, SliceNodeV1):
             # Slice canonicalization places predicates at physical leaves. A
@@ -470,31 +489,6 @@ def execute_metric_graph_observe(
                 additivity="non_additive",
                 fold=None,
                 coverage_df=_merge_coverage((numerator, denominator)),
-                quality=evaluation.quality,
-            )
-        elif isinstance(node, WeightedAverageNodeV1):
-            value = visit(node.value_id)
-            weight = visit(node.weight_id)
-            axes, semantic_kind = _child_contract(value, weight, node_id=node_id)
-            evaluation = evaluate_weighted_average_v1(value.frame, weight.frame)
-            resolved_unit = node.unit_override or weighted_average_unit(value.unit)
-            resolved_unit_state = unit_state(resolved_unit)
-            resolved = GraphNodeExecutionV1(
-                node_id=node_id,
-                frame=evaluation.frame,
-                key_columns=evaluation.key_columns,
-                axes=axes,
-                semantic_kind=semantic_kind,
-                unit=resolved_unit,
-                unit_state=resolved_unit_state,
-                unit_capability_issue=(
-                    "unit_unknown"
-                    if isinstance(resolved_unit_state, UnknownUnitV2)
-                    else value.unit_capability_issue
-                ),
-                additivity="non_additive",
-                fold=None,
-                coverage_df=_merge_coverage((value, weight)),
                 quality=evaluation.quality,
             )
         elif isinstance(node, LinearNodeV1):
@@ -570,8 +564,6 @@ def root_component_frame_v1(
     children: tuple[tuple[str, str], ...]
     if isinstance(node, RatioNodeV1):
         children = (("numerator", node.numerator_id), ("denominator", node.denominator_id))
-    elif isinstance(node, WeightedAverageNodeV1):
-        children = (("value", node.value_id), ("weight", node.weight_id))
     elif isinstance(node, LinearNodeV1):
         children = tuple((f"term{index}", term.child_id) for index, term in enumerate(node.terms))
     else:
@@ -626,8 +618,6 @@ def component_graph_payload_v1(
             return (("base", node.child_id),)
         if isinstance(node, RatioNodeV1):
             return (("numerator", node.numerator_id), ("denominator", node.denominator_id))
-        if isinstance(node, WeightedAverageNodeV1):
-            return (("value", node.value_id), ("weight", node.weight_id))
         if isinstance(node, LinearNodeV1):
             return tuple((f"term{index}", term.child_id) for index, term in enumerate(node.terms))
         return ()
@@ -639,8 +629,6 @@ def component_graph_payload_v1(
             return "slice-evaluation/v1"
         if isinstance(node, RatioNodeV1):
             return "ratio-evaluation/v1"
-        if isinstance(node, WeightedAverageNodeV1):
-            return "weighted-average-evaluation/v1"
         if isinstance(node, LinearNodeV1):
             return "linear-evaluation/v1"
         return "aggregate-evaluation/v1"

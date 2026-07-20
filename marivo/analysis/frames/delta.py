@@ -62,7 +62,7 @@ def _compatible_metric_semantics(
 def _supports_component_attribution(meta: DeltaFrameMeta) -> bool:
     if meta.component_ref is None or not isinstance(meta.composition, dict):
         return False
-    return meta.composition.get("kind") in {"ratio", "weighted_average"}
+    return meta.composition.get("kind") in {"ratio", "weighted_mean"}
 
 
 def _component_attribution_shape(meta: DeltaFrameMeta) -> Literal["ratio_mix", "weighted_mix"]:

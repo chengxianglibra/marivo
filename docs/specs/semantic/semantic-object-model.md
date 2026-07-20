@@ -324,6 +324,15 @@ bare `additivity="semi_additive"` metric without `status_time_dimension` is
 invalid. The status axis must be a true business as-of time (`snapshot_date`,
 `as_of_date`), not a technical write time (`created_at`, `ingest_time`).
 
+## Weighted means
+
+`ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>)` is a tier-1
+physical aggregate over two measures from the same entity. Marivo computes
+`SUM(value * weight) / NULLIF(SUM(weight), 0)` over rows where both inputs are
+non-null. The weight measure must be additive; the result is non-additive and
+inherits the value measure's unit. Observe persists exact `numerator` and
+`weight` components for weighted-mix attribution.
+
 ## Derived metrics and decomposition
 
 Derived metrics combine already-registered metrics through a canonical
@@ -333,7 +342,6 @@ component roles come entirely from the builder:
 | Builder | Component roles | Applies to |
 |---|---|---|
 | `ms.ratio(numerator=..., denominator=...)` | `numerator`, `denominator` | ratios / conversion rates |
-| `ms.weighted_average(value=..., weight=...)` | `numerator` (stores `value`), `weight` | ratio-of-sums / weighted means (ARPU) |
 | `ms.linear(terms=...)` | additive terms | sums/differences of commensurable metrics |
 
 ```python
@@ -354,7 +362,7 @@ wrapped in a base metric.
 ### Recursive derived metrics
 
 Derived metrics may consume other derived metrics. Authorization is checked at
-each node: ratio, weighted-average, linear, and cumulative retain their own
+each node: ratio, linear, and cumulative retain their own
 child, unit, source, scope, and evaluation requirements. Semantic readiness
 lowers the complete selected metric through the same graph contract used by
 analysis and blocks graphs deeper than 10 nodes or wider than 256 pre-CSE
@@ -364,7 +372,7 @@ child combination fails with the responsible dependency and occurrence path.
 ### Cumulative metrics
 
 `ms.cumulative(...)` answers "how much accumulated up to bucket *t*". The base
-must be a tier-1 `sum`/`count`/`count_distinct` metric; `over=` selects the time
+must be a tier-1 `sum`/`count`/`count_distinct`/`weighted_mean` metric; `over=` selects the time
 axis (required unless the base root entity has exactly one time dimension).
 
 ```python
@@ -416,7 +424,7 @@ Derivation rules: `sum/min/max/mean/median/percentile` preserve `measure.unit`;
 `count/count_distinct` yield `None` (author `{order}` explicitly);
 `ratio(num, denom)` uses `MetricUnitAlgebraV2`: equal known units yield `"1"`
 and unequal factorable units form a reduced quotient;
-`weighted_average` yields `value.unit`; `linear` yields the common unit and
+`weighted_mean` yields its value measure unit; `linear` yields the common unit and
 raises `INCOMMENSURABLE_LINEAR_UNITS` when terms carry ≥2 distinct known units
 (an author override cannot suppress this — the physics of addition is
 label-independent). Units never affect computed values; `None` is always valid

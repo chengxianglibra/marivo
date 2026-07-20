@@ -10,6 +10,7 @@ import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import FrameMetaInvalidError, SemanticKindMismatchError
 from marivo.analysis.intents._replay import recover_observe_replay
+from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.metric_graph import RuntimeExpressionIdentity
 from marivo.semantic.unit_algebra import UnknownUnitV2
 from tests.conftest import bootstrap_sales_project
@@ -35,6 +36,27 @@ def runtime_session(tmp_path):
         + "\n@ms.measure(entity=orders, additivity='additive', unit='USD/(request)')\n"
         + "def opaque_amount_measure(orders):\n"
         + "    return orders.amount\n"
+        + "\n@ms.measure(entity=orders, additivity='non_additive', unit='USD')\n"
+        + "def unit_price_measure(orders):\n"
+        + "    return orders.amount\n"
+        + "\n@ms.measure(entity=orders, additivity='non_additive', unit='USD')\n"
+        + "def runtime_only_value_measure(orders):\n"
+        + "    return orders.amount\n"
+        + "\n@ms.measure(entity=orders, additivity='non_additive')\n"
+        + "def user_value_measure(orders):\n"
+        + "    return orders.user_id.cast('float64')\n"
+        + "\n@ms.measure(entity=orders, additivity='additive', unit='request')\n"
+        + "def request_weight_measure(orders):\n"
+        + "    return orders.order_id.cast('float64')\n"
+        + "\n@ms.measure(entity=orders, additivity='non_additive', unit='request')\n"
+        + "def invalid_weight_measure(orders):\n"
+        + "    return orders.order_id.cast('float64')\n"
+        + "\nother_orders = ms.entity(\n"
+        + "    name='other_orders', datasource=warehouse, source=md.table('orders')\n"
+        + ")\n"
+        + "\n@ms.measure(entity=other_orders, additivity='additive', unit='request')\n"
+        + "def other_weight_measure(other_orders):\n"
+        + "    return other_orders.order_id.cast('float64')\n"
         + "\nmeasure_revenue = ms.aggregate(\n"
         + "    name='measure_revenue', measure=amount_measure, agg='sum'\n"
         + ")\n"
@@ -43,6 +65,17 @@ def runtime_session(tmp_path):
         + ")\n"
         + "\nmeasure_average = ms.ratio(\n"
         + "    name='measure_average', numerator=measure_revenue, denominator=measure_count\n"
+        + ")\n"
+        + "\ncatalog_weighted_mean = ms.weighted_mean(\n"
+        + "    name='catalog_weighted_mean',\n"
+        + "    value=unit_price_measure,\n"
+        + "    weight=request_weight_measure,\n"
+        + ")\n"
+        + "\nfiltered_catalog_weighted_mean = ms.weighted_mean(\n"
+        + "    name='filtered_catalog_weighted_mean',\n"
+        + "    value=user_value_measure,\n"
+        + "    weight=amount_measure,\n"
+        + "    filter=ms.where(region='north'),\n"
         + ")\n"
     )
     connection = connect_sales_orders()
@@ -111,6 +144,140 @@ def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) 
     assert component_graph["root_node_ids"] == [frame.meta.expression_fingerprint]
     assert component_graph["nodes"][0]["evaluator_contract"] == "aggregate-evaluation/v1"
     assert component_graph["nodes"][0]["governed_leaf_lineage"]
+
+
+def test_observe_runtime_weighted_mean_uses_exact_paired_components(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "runtime_only_value_measure")
+    weight = _named_measure_ref(runtime_session, "request_weight_measure")
+    expression = mv.runtime_metric.weighted_mean(
+        value,
+        weight,
+        label="Runtime weighted mean",
+    )
+
+    frame = runtime_session.observe(expression)
+
+    assert frame.to_pandas()[frame.value_columns[0]].iloc[0] == pytest.approx(30.0)
+    assert frame.meta.unit == "USD"
+    assert frame.meta.additivity == "non_additive"
+    assert frame.meta.composition is not None
+    assert frame.meta.composition["kind"] == "weighted_mean"
+    assert frame.meta.zero_denominator_rows == 0
+    components = frame.components().to_pandas()
+    assert components["__weighted_mean_numerator"].iloc[0] == pytest.approx(300.0)
+    assert components["__weighted_mean_weight"].iloc[0] == pytest.approx(10.0)
+
+
+def test_catalog_weighted_mean_filter_uses_authored_physical_column(runtime_session) -> None:
+    metric = runtime_session.catalog.require(
+        ms.Ref.metric("sales.filtered_catalog_weighted_mean")
+    ).ref
+
+    frame = runtime_session.observe(metric)
+
+    assert frame.to_pandas()[frame.value_columns[0]].iloc[0] == pytest.approx(15000.0 / 70.0)
+
+
+def test_runtime_weighted_mean_pairs_nulls_and_reports_zero_weight(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "runtime_only_value_measure")
+    weight = _named_measure_ref(runtime_session, "request_weight_measure")
+    expression = mv.runtime_metric.weighted_mean(value, weight)
+    backend = runtime_session._connection_runtime.get_or_create("warehouse")
+    backend.raw_sql("UPDATE orders SET amount = NULL WHERE order_id = 4")
+
+    paired = runtime_session.observe(expression)
+
+    assert paired.to_pandas()[paired.value_columns[0]].iloc[0] == pytest.approx(140.0 / 6.0)
+    paired_components = paired.components().to_pandas()
+    assert paired_components["__weighted_mean_numerator"].iloc[0] == pytest.approx(140.0)
+    assert paired_components["__weighted_mean_weight"].iloc[0] == pytest.approx(6.0)
+
+    backend.raw_sql(
+        "UPDATE orders SET amount = order_id * 10, "
+        "order_id = CASE order_id WHEN 1 THEN 1 WHEN 2 THEN -1 WHEN 3 THEN 2 ELSE -2 END"
+    )
+    zero = runtime_session.observe(expression)
+
+    assert zero.to_pandas()[zero.value_columns[0]].isna().all()
+    assert zero.meta.zero_denominator_rows == 1
+
+
+def test_runtime_weighted_mean_rejects_non_additive_weight(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "unit_price_measure")
+    weight = _named_measure_ref(runtime_session, "invalid_weight_measure")
+
+    with pytest.raises(ObservePlanningError, match=r"weight must be additive") as exc_info:
+        runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+
+    assert exc_info.value._context["code"] == "runtime-weighted-mean-weight-non-additive"
+    assert exc_info.value._context["candidates"]["additive_weight_refs"]
+    assert exc_info.value._context["repair"][0]["arg"] == "weight"
+
+
+def test_runtime_weighted_mean_rejects_cross_entity_inputs(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "unit_price_measure")
+    weight = _named_measure_ref(runtime_session, "other_weight_measure")
+
+    with pytest.raises(
+        ObservePlanningError, match="same entity and physical row grain"
+    ) as exc_info:
+        runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+
+    assert exc_info.value._context["code"] == "runtime-weighted-mean-grain-mismatch"
+    assert exc_info.value._context["candidates"]["additive_weight_refs"]
+    assert exc_info.value._context["repair"][0]["arg"] == "weight"
+
+
+def test_runtime_weighted_mean_rejects_missing_measure_with_structured_repair(
+    runtime_session,
+) -> None:
+    weight = _named_measure_ref(runtime_session, "request_weight_measure")
+
+    with pytest.raises(ObservePlanningError, match="is not loaded") as exc_info:
+        runtime_session.observe(
+            mv.runtime_metric.weighted_mean(
+                ms.Ref.measure("sales.orders.runtime_only_value_measur"),
+                weight,
+            )
+        )
+
+    assert exc_info.value._context["code"] == "runtime-weighted-mean-measure-missing"
+    assert exc_info.value._context["candidates"]["role"] == "value"
+    assert exc_info.value._context["repair"][0] == {
+        "action": "replace_measure_ref",
+        "target": "runtime_metric.weighted_mean",
+        "arg": "value",
+        "value": "sales.orders.runtime_only_value_measure",
+        "safety": "modeling_decision",
+        "why": "closest loaded measure ref to 'sales.orders.runtime_only_value_measur'",
+    }
+
+
+def test_compare_catalog_and_equivalent_runtime_weighted_mean(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "unit_price_measure")
+    weight = _named_measure_ref(runtime_session, "request_weight_measure")
+    catalog_metric = runtime_session.catalog.require(
+        ms.Ref.metric("sales.catalog_weighted_mean")
+    ).ref
+
+    catalog_frame = runtime_session.observe(catalog_metric)
+    runtime_frame = runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+    delta = runtime_session.compare(catalog_frame, runtime_frame)
+
+    assert delta.to_pandas()["delta"].iloc[0] == pytest.approx(0.0)
+
+
+def test_runtime_weighted_mean_can_feed_runtime_ratio(runtime_session) -> None:
+    value = _named_measure_ref(runtime_session, "unit_price_measure")
+    weight = _named_measure_ref(runtime_session, "request_weight_measure")
+    catalog_metric = runtime_session.catalog.require(
+        ms.Ref.metric("sales.catalog_weighted_mean")
+    ).ref
+    weighted = mv.runtime_metric.weighted_mean(value, weight)
+
+    frame = runtime_session.observe(mv.runtime_metric.ratio(weighted, catalog_metric))
+
+    assert frame.to_pandas()[frame.value_columns[0]].iloc[0] == pytest.approx(1.0)
 
 
 def test_observe_reexecutes_before_reusing_a_materialized_snapshot(runtime_session) -> None:

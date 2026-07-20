@@ -178,11 +178,6 @@ def ratio_unit(numerator_unit: str | None, denominator_unit: str | None) -> str 
     return render_unit(divide_unit_states(unit_state(numerator_unit), unit_state(denominator_unit)))
 
 
-def weighted_average_unit(value_unit: str | None) -> str | None:
-    """Weighting preserves the value unit exactly."""
-    return value_unit
-
-
 def _comparable_unit_state(unit: str | None) -> MetricUnitStateV2:
     return unit_state(unit)
 
@@ -224,5 +219,4 @@ __all__ = [
     "render_unit",
     "tier1_unit",
     "unit_state",
-    "weighted_average_unit",
 ]

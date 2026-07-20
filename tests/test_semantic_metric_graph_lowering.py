@@ -13,7 +13,7 @@ from marivo.semantic.metric_graph import (
     CumulativeNodeV1,
     LinearNodeV1,
     RatioNodeV1,
-    WeightedAverageNodeV1,
+    WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
     MetricGraphContractError,
@@ -37,6 +37,9 @@ orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity="additive", unit="CNY"
 )
+unit_price = ms.measure_column(
+    name="unit_price", entity=orders, column="amount", additivity="non_additive", unit="CNY"
+)
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="event_time", granularity="day"
 )
@@ -52,7 +55,7 @@ outer = ms.ratio(name="outer", numerator=inner, denominator=revenue)
 share = ms.ratio(
     name="share", numerator=revenue, denominator=revenue, unit="%"
 )
-weighted = ms.weighted_average(name="weighted", value=revenue, weight=order_count)
+weighted = ms.weighted_mean(name="weighted", value=unit_price, weight=amount)
 net = ms.linear(name="net", add=[revenue, revenue_alias])
 mtd_revenue = ms.cumulative(
     name="mtd_revenue",
@@ -127,7 +130,7 @@ def test_nested_catalog_ratio_lowers_recursively_without_wrapper_leaf(
 @pytest.mark.parametrize(
     ("metric_id", "node_type"),
     [
-        ("test.weighted", WeightedAverageNodeV1),
+        ("test.weighted", WeightedMeanAggregateNodeV1),
         ("test.net", LinearNodeV1),
         ("test.mtd_revenue", CumulativeNodeV1),
     ],

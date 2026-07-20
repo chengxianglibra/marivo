@@ -1,6 +1,7 @@
 """session.observe panel shape (dimensions + window grain)."""
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
@@ -154,13 +155,13 @@ def _bootstrap_failure_metrics(tmp_path):
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', )\n"
-        "def weighted_failed(orders):\n"
-        "    return ((orders.state == 'FAILED').cast('int64') * orders.weight).sum()\n"
+        "@ms.measure(entity=orders, additivity='non_additive')\n"
+        "def failure_flag(orders):\n"
+        "    return (orders.state == 'FAILED').cast('int64')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', )\n"
-        "def total_weight(orders):\n"
-        "    return orders.weight.sum()\n"
+        "@ms.measure(entity=orders, additivity='additive')\n"
+        "def request_weight(orders):\n"
+        "    return orders.weight\n"
         "\n"
         "ms.ratio(\n"
         "    name='failure_rate',\n"
@@ -168,10 +169,10 @@ def _bootstrap_failure_metrics(tmp_path):
         "    denominator=total_count,\n"
         ")\n"
         "\n"
-        "ms.weighted_average(\n"
+        "ms.weighted_mean(\n"
         "    name='weighted_failure_rate',\n"
-        "    value=weighted_failed,\n"
-        "    weight=total_weight,\n"
+        "    value=failure_flag,\n"
+        "    weight=request_weight,\n"
         ")\n"
     )
 
@@ -187,7 +188,9 @@ def _seed_failure_metrics(con):
         "(2, DATE '2026-07-01', 'SUCCEEDED', 'north', 1.0),"
         "(3, DATE '2026-07-01', 'FAILED', 'south', 3.0),"
         "(4, DATE '2026-07-02', 'SUCCEEDED', 'north', 1.0),"
-        "(5, DATE '2026-07-02', 'FAILED', 'south', 2.0)"
+        "(5, DATE '2026-07-02', 'FAILED', 'south', 2.0),"
+        "(6, DATE '2026-07-02', 'FAILED', 'zero', 1.0),"
+        "(7, DATE '2026-07-02', 'SUCCEEDED', 'zero', -1.0)"
     )
 
 
@@ -227,7 +230,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
     assert by_key[("2026-07-02", "SOUTH")].total_count == pytest.approx(1.0)
 
 
-def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
+def test_observe_panel_weighted_mean_uses_exact_components(tmp_path):
     _bootstrap_failure_metrics(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_failure_metrics(con)
@@ -242,16 +245,23 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     )
 
     components = frame.components()
-    assert components.meta.composition_kind == "weighted_average"
+    assert components.meta.composition_kind == "weighted_mean"
     assert set(frame.to_pandas().columns) == {
         "bucket_start",
         "region",
         "weighted_failure_rate",
     }
     component_df = components.to_pandas()
-    assert "total_weight" in component_df.columns
+    assert "__weighted_mean_weight" in component_df.columns
     assert "total_count" not in component_df.columns
-    by_key = {(str(row.bucket_start.date()), row.region): row for row in component_df.itertuples()}
-    assert by_key[("2026-07-01", "NORTH")].weighted_failed == pytest.approx(2.0)
-    assert by_key[("2026-07-01", "NORTH")].total_weight == pytest.approx(3.0)
-    assert by_key[("2026-07-01", "NORTH")].weighted_failure_rate == pytest.approx(2.0 / 3.0)
+    north = component_df[
+        (component_df["bucket_start"].dt.date.astype(str) == "2026-07-01")
+        & (component_df["region"] == "NORTH")
+    ].iloc[0]
+    assert north["__weighted_mean_numerator"] == pytest.approx(2.0)
+    assert north["__weighted_mean_weight"] == pytest.approx(3.0)
+    assert north["weighted_failure_rate"] == pytest.approx(2.0 / 3.0)
+    zero = component_df[component_df["region"] == "ZERO"].iloc[0]
+    assert zero["__weighted_mean_weight"] == pytest.approx(0.0)
+    assert pd.isna(zero["weighted_failure_rate"])
+    assert frame.meta.zero_denominator_rows == 1

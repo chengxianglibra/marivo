@@ -389,7 +389,8 @@ complete.
 | --- | --- | --- |
 | Sum or other direct aggregation of a row-level value | `ms.aggregate` | revenue from `amount` |
 | Count entities or rows | `ms.count` | completed orders |
-| Combine metrics | `ms.ratio`, `ms.weighted_average`, `ms.linear` | conversion rate |
+| Compute a weighted mean from row-level measures | `ms.weighted_mean` | request-weighted latency |
+| Combine metrics | `ms.ratio`, `ms.linear` | conversion rate |
 | Accumulate a time series | `ms.cumulative` | year-to-date revenue |
 | Require a custom Ibis expression | `@ms.metric` | a calculation not covered above |
 
@@ -432,7 +433,26 @@ pairs; values are `str` / `int` / `float` / `bool`). Use it as the `filter=`
 argument to `ms.count` or `ms.aggregate` for subset metrics such as failure
 rate, error rate, or success rate.
 
-#### Derived metrics — `ms.ratio` / `ms.weighted_average` / `ms.linear`
+#### Weighted means — `ms.weighted_mean`
+
+`ms.weighted_mean` accepts two measures from the same entity and owns both the
+row-level multiplication and aggregation:
+
+```python
+avg_latency = ms.weighted_mean(
+    name="avg_latency",
+    value=latency,
+    weight=request_count,
+)
+```
+
+It computes `SUM(value * weight) / NULLIF(SUM(weight), 0)` over rows where both
+inputs are non-null. `weight` must be additive. The result inherits the value
+measure's unit and persists exact `numerator` / `weight` components for
+`weighted_mix` attribution. It also accepts `filter`, `unit`, `domain`, and
+`ai_context`.
+
+#### Derived metrics — `ms.ratio` / `ms.linear`
 
 Body-free metrics composed from other metrics. The computation comes entirely from
 the components.
@@ -440,7 +460,6 @@ the components.
 | Builder | Required | Computes |
 | --- | --- | --- |
 | `ms.ratio(name, numerator, denominator)` | both refs | `numerator / denominator` (e.g. average order value, rates) |
-| `ms.weighted_average(name, value, weight)` | both refs | weighted average; `attribute` later splits mix vs rate |
 | `ms.linear(name, add, subtract)` | `add` (≥2 terms total) | sum of `add` minus `subtract` (e.g. `net = gross - refunds`) |
 
 Each also accepts `unit`, `domain`, and `ai_context`.
@@ -451,7 +470,7 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
 At observe time, division evaluates under a fixed `zero_division="null"` policy:
-a bucket whose denominator (for `ms.ratio`) or weight (for `ms.weighted_average`)
+a bucket whose denominator (for `ms.ratio`) or paired weight sum (for `ms.weighted_mean`)
 is present but zero yields a null value — never `+/-inf` — and the affected row
 count is recorded on the observed frame as `meta.zero_denominator_rows` and
 `quality_summary.zero_denominator_rows`.
@@ -459,8 +478,9 @@ count is recorded on the observed frame as `meta.zero_denominator_rows` and
 #### Cumulative metrics — `ms.cumulative`
 
 Use `ms.cumulative(...)` when the business question is "how much accumulated up to bucket t".
-The base must be a tier-1 `ms.aggregate(...)` or `ms.count(...)` metric using `sum`, `count`,
-or `count_distinct`. The `anchor` parameter selects the accumulation shape.
+The base must be a tier-1 `ms.aggregate(...)`, `ms.count(...)`, or
+`ms.weighted_mean(...)` metric using `sum`, `count`, `count_distinct`, or
+weighted-mean component accumulation. The `anchor` parameter selects the accumulation shape.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |

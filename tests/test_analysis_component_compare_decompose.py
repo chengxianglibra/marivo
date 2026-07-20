@@ -365,7 +365,7 @@ def test_compare_component_frame_metadata_mismatch_fails_closed():
                 "failure_rate": 0.10,
             }
         ],
-        composition_kind="weighted_average",
+        composition_kind="weighted_mean",
         components={"numerator": "sales.failed_count", "weight": "sales.total_count"},
     )
 
@@ -434,7 +434,7 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
     assert by_region.loc["NORTH", "value_effect"] == pytest.approx(0.075)
     assert by_region.loc["NORTH", "mix_effect"] == pytest.approx(-0.016666666666666663)
     assert by_region.loc["NORTH", "residual"] == pytest.approx(0.0)
-    # Contribution sum equals the overall weighted-average change, not the
+    # Contribution sum equals the overall weighted-mean change, not the
     # per-row delta sum.  overall_current = 75/200 = 0.375, overall_baseline = 30/150 = 0.2.
     assert df["contribution"].sum() == pytest.approx(0.175)
     assert sorted(df["rank"].tolist()) == [1, 2]
@@ -463,8 +463,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
                 "failure_rate": 0.50,
             },
         ],
-        composition_kind="weighted_average",
-        components={"value": "sales.weighted_failed", "weight": "sales.total_weight"},
+        composition_kind="weighted_mean",
+        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
     )
     baseline = _component_aware_metric(
         session,
@@ -487,8 +487,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
                 "failure_rate": 0.40,
             },
         ],
-        composition_kind="weighted_average",
-        components={"value": "sales.weighted_failed", "weight": "sales.total_weight"},
+        composition_kind="weighted_mean",
+        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
     )
     delta = session.compare(current, baseline)
 
@@ -501,13 +501,13 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
     assert "current_total_weight" in df.columns
     assert "baseline_total_weight" in df.columns
     assert "current_total_count" not in df.columns
-    # Contribution sum equals the overall weighted-average change.
+    # Contribution sum equals the overall weighted-mean change.
     assert df["contribution"].sum() == pytest.approx(0.175)
 
 
 def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
     session = session_attach.get_or_create(name="demo")
-    components = {"value": "sales.weighted_failed", "weight": "sales.total_weight"}
+    components = {"numerator": "sales.weighted_failed", "weight": "sales.total_weight"}
     current = _component_aware_metric(
         session,
         ref="frame_current_one_sided",
@@ -529,7 +529,7 @@ def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
                 "failure_rate": 0.30,
             },
         ],
-        composition_kind="weighted_average",
+        composition_kind="weighted_mean",
         components=components,
     )
     baseline = _component_aware_metric(
@@ -553,7 +553,7 @@ def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
                 "failure_rate": 0.20,
             },
         ],
-        composition_kind="weighted_average",
+        composition_kind="weighted_mean",
         components=components,
     )
     delta = session.compare(current, baseline)

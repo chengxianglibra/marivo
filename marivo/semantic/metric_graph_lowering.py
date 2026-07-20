@@ -16,7 +16,6 @@ from marivo.semantic.ir import (
     RatioComposition,
     SemiAdditive,
     TimeFoldIR,
-    WeightedAverageComposition,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -36,7 +35,7 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     SemanticDependencyDigestV1,
     SemanticDependencyEntryV1,
-    WeightedAverageNodeV1,
+    WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
     canonicalize_slices,
@@ -106,12 +105,6 @@ def _composition_value(composition: object) -> object:
             ("kind", composition.kind),
             ("numerator_ref", _ref_payload("metric", composition.numerator)),
             ("denominator_ref", _ref_payload("metric", composition.denominator)),
-        )
-    if isinstance(composition, WeightedAverageComposition):
-        return (
-            ("kind", composition.kind),
-            ("value_ref", _ref_payload("metric", composition.value)),
-            ("weight_ref", _ref_payload("metric", composition.weight)),
         )
     if isinstance(composition, CumulativeComposition):
         return (
@@ -249,6 +242,15 @@ def _entry_for(
                 ),
                 fold_override=metric.fold_override,
                 filter=metric.filter,
+                weighted_mean=(
+                    (
+                        ("kind", metric.weighted_mean.kind),
+                        ("value_ref", _ref_payload("measure", metric.weighted_mean.value)),
+                        ("weight_ref", _ref_payload("measure", metric.weighted_mean.weight)),
+                    )
+                    if metric.weighted_mean is not None
+                    else None
+                ),
                 unit_override=metric.unit_override,
             ),
         )
@@ -356,15 +358,15 @@ class _DependencyCollector:
             self.collect_measure(target_id)
         elif target_id is not None and target_kind == "entity":
             self.collect_entity(target_id)
+        if metric.weighted_mean is not None:
+            self.collect_measure(metric.weighted_mean.value)
+            self.collect_measure(metric.weighted_mean.weight)
         if isinstance(metric.additivity, SemiAdditive):
             self.collect_dimension(metric.additivity.over)
         composition = metric.composition
         if isinstance(composition, RatioComposition):
             self.collect_metric(composition.numerator)
             self.collect_metric(composition.denominator)
-        elif isinstance(composition, WeightedAverageComposition):
-            self.collect_metric(composition.value)
-            self.collect_metric(composition.weight)
         elif isinstance(composition, LinearComposition):
             for term in composition.terms:
                 self.collect_metric(term.metric)
@@ -578,7 +580,38 @@ class _CatalogGraphBuilder:
         node: MetricGraphNodeV1
 
         if metric.metric_type == "simple":
-            if metric.aggregation is None:
+            if metric.weighted_mean is not None:
+                value_id = metric.weighted_mean.value
+                weight_id = metric.weighted_mean.weight
+                value_measure = self.registry.measures[value_id]
+                node = WeightedMeanAggregateNodeV1(
+                    kind="weighted_mean",
+                    value_ref=_ref_payload("measure", value_id),
+                    weight_ref=_ref_payload("measure", weight_id),
+                    value_dependency_fingerprint=_dependency_fingerprint(
+                        self.registry,
+                        sidecar=self.sidecar,
+                        target=("measure", value_id),
+                    ),
+                    weight_dependency_fingerprint=_dependency_fingerprint(
+                        self.registry,
+                        sidecar=self.sidecar,
+                        target=("measure", weight_id),
+                    ),
+                    filter=tuple(
+                        CanonicalSliceEntryV1(
+                            dimension_ref=_dimension_payload(
+                                self.registry,
+                                dimension_id,
+                                entity_path=value_measure.entity,
+                            ),
+                            value=_freeze(value),
+                        )
+                        for dimension_id, value in (metric.filter or ())
+                    ),
+                    unit_override=metric.unit_override,
+                )
+            elif metric.aggregation is None:
                 node = CatalogBodyLeafV1(
                     kind="catalog_body_leaf",
                     metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
@@ -660,27 +693,6 @@ class _CatalogGraphBuilder:
             )
             child_paths = (numerator_path, denominator_path)
             children = (*numerator_occurrences, *denominator_occurrences)
-        elif isinstance(composition, WeightedAverageComposition):
-            value_path = f"{path}.value"
-            weight_path = f"{path}.weight"
-            value_id, value_occurrences = self.lower_metric(
-                composition.value,
-                path=value_path,
-                active=next_active,
-            )
-            weight_id, weight_occurrences = self.lower_metric(
-                composition.weight,
-                path=weight_path,
-                active=next_active,
-            )
-            node = WeightedAverageNodeV1(
-                kind="weighted_average",
-                value_id=value_id,
-                weight_id=weight_id,
-                unit_override=metric.unit_override,
-            )
-            child_paths = (value_path, weight_path)
-            children = (*value_occurrences, *weight_occurrences)
         elif isinstance(composition, LinearComposition):
             child_paths = tuple(f"{path}.term[{index}]" for index in range(len(composition.terms)))
             terms: list[LinearTermV1] = []

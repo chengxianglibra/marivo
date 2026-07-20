@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from marivo.analysis.intents.observe_errors import (
+    RepairAction,
+    RepairSafety,
+    raise_observe_planning_error,
+)
 from marivo.analysis.runtime_metric import (
     FrozenSliceMap,
     FrozenSlicePredicateV1,
@@ -12,7 +17,9 @@ from marivo.analysis.runtime_metric import (
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
+    RuntimeWeightedMeanExpr,
 )
+from marivo.introspection._fuzzy import did_you_mean
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.metric_graph import (
@@ -29,6 +36,7 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     RuntimeExpressionIdentity,
     SliceNodeV1,
+    WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
     canonicalize_slices,
@@ -175,6 +183,91 @@ class _RuntimeGraphBuilder:
                     child_paths=(child_path,),
                 ),
                 ExpressionOccurrenceV1(path=child_path, node_id=aggregate_id),
+            )
+        if isinstance(expression, RuntimeWeightedMeanExpr):
+            value_id = expression.value.path
+            weight_id = expression.weight.path
+            value = self.registry.measures.get(value_id)
+            weight = self.registry.measures.get(weight_id)
+            if value is None:
+                suggestions = did_you_mean(value_id, sorted(self.registry.measures))
+                raise_observe_planning_error(
+                    code="runtime-weighted-mean-measure-missing",
+                    message=f"Runtime weighted_mean value measure {value_id!r} is not loaded.",
+                    candidates={
+                        "role": "value",
+                        "measure_ref": value_id,
+                        "did_you_mean": suggestions,
+                    },
+                    repair=(
+                        [
+                            RepairAction(
+                                action="replace_measure_ref",
+                                target="runtime_metric.weighted_mean",
+                                arg="value",
+                                value=suggestions[0],
+                                safety=RepairSafety.MODELING_DECISION,
+                                why=f"closest loaded measure ref to {value_id!r}",
+                            )
+                        ]
+                        if suggestions
+                        else []
+                    ),
+                )
+            if weight is None:
+                suggestions = did_you_mean(weight_id, sorted(self.registry.measures))
+                raise_observe_planning_error(
+                    code="runtime-weighted-mean-measure-missing",
+                    message=f"Runtime weighted_mean weight measure {weight_id!r} is not loaded.",
+                    candidates={
+                        "role": "weight",
+                        "measure_ref": weight_id,
+                        "did_you_mean": suggestions,
+                    },
+                    repair=(
+                        [
+                            RepairAction(
+                                action="replace_measure_ref",
+                                target="runtime_metric.weighted_mean",
+                                arg="weight",
+                                value=suggestions[0],
+                                safety=RepairSafety.MODELING_DECISION,
+                                why=f"closest loaded measure ref to {weight_id!r}",
+                            )
+                        ]
+                        if suggestions
+                        else []
+                    ),
+                )
+            self.measure_dependencies.update((value_id, weight_id))
+            weighted_mean = WeightedMeanAggregateNodeV1(
+                kind="weighted_mean",
+                value_ref=RefPayloadV1.from_ref(expression.value),
+                weight_ref=RefPayloadV1.from_ref(expression.weight),
+                value_dependency_fingerprint=dependency_fingerprint_for_target(
+                    self.registry, kind="measure", semantic_id=value_id
+                ),
+                weight_dependency_fingerprint=dependency_fingerprint_for_target(
+                    self.registry, kind="measure", semantic_id=weight_id
+                ),
+                filter=(),
+                unit_override=None,
+            )
+            weighted_mean_id = self._intern(weighted_mean)
+            if not expression.slice_by:
+                return weighted_mean_id, (
+                    ExpressionOccurrenceV1(path=path, node_id=weighted_mean_id),
+                )
+            child_path = f"{path}.child"
+            sliced = self._slice_node(weighted_mean_id, expression.slice_by)
+            slice_id = self._intern(sliced)
+            return slice_id, (
+                ExpressionOccurrenceV1(
+                    path=path,
+                    node_id=slice_id,
+                    child_paths=(child_path,),
+                ),
+                ExpressionOccurrenceV1(path=child_path, node_id=weighted_mean_id),
             )
         if isinstance(expression, RuntimeSliceExpr):
             child_path = f"{path}.child"

@@ -25,6 +25,7 @@ from marivo.analysis.intents._observe_planner_catalog import (
 from marivo.analysis.intents._observe_planner_types import (
     FieldDetails,
     JoinSafety,
+    RawWhereKey,
     RelationshipInfo,
     ResolvedObserveFields,
     _planned_field,
@@ -167,6 +168,9 @@ def resolve_observe_fields(
     raw_root_where_keys: list[str] = []
     all_fields = _fields_for_entities(catalog, scoped_dataset_ids)
     for raw_key in where or {}:
+        if isinstance(raw_key, RawWhereKey):
+            raw_root_where_keys.append(raw_key.column)
+            continue
         key = _input_ref_id(raw_key)
         if "." in key:
             where_fields[key] = _planned_field(

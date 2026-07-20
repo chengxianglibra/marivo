@@ -15,7 +15,14 @@ unchanged.  Implementations live in:
 
 from __future__ import annotations
 
-from marivo.semantic._authoring_declarations import aggregate, count, domain, metric, where
+from marivo.semantic._authoring_declarations import (
+    aggregate,
+    count,
+    domain,
+    metric,
+    weighted_mean,
+    where,
+)
 from marivo.semantic._authoring_decorators import (
     dimension,
     dimension_column,
@@ -36,7 +43,6 @@ from marivo.semantic._authoring_metrics import (  # noqa: F401
     linear,
     ratio,
     trailing,
-    weighted_average,
 )
 from marivo.semantic._authoring_values import (
     ai_context,
@@ -82,6 +88,6 @@ __all__ = [
     "timestamp",
     "trailing",
     "validity",
-    "weighted_average",
+    "weighted_mean",
     "where",
 ]
