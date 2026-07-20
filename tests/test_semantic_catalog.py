@@ -1768,6 +1768,77 @@ def test_catalog_preview_metric_preserves_approximate_warning(
     assert any(w.kind == "approximate_preview" for w in preview.warnings)
 
 
+def test_catalog_preview_ratio_over_filtered_weighted_means(
+    semantic_project_factory, tmp_path, monkeypatch
+) -> None:
+    database_path = tmp_path / "warehouse.duckdb"
+    backend = ibis.duckdb.connect(str(database_path))
+    backend.raw_sql("CREATE TABLE orders (amount DOUBLE, item_count INT, status TEXT)")
+    backend.raw_sql(
+        "INSERT INTO orders VALUES (100.0, 2, 'paid'), (300.0, 3, 'paid'), (200.0, 1, 'refunded')"
+    )
+    backend.disconnect()
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            ),
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.Ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                )
+                item_count = ms.measure_column(
+                    name="item_count",
+                    entity=orders,
+                    column="item_count",
+                    additivity="additive",
+                )
+
+                @ms.measure(entity=orders, additivity="non_additive")
+                def unit_price(orders):
+                    return orders.amount / orders.item_count
+
+                all_price = ms.weighted_mean(
+                    name="all_price",
+                    value=unit_price,
+                    weight=item_count,
+                )
+                paid_price = ms.weighted_mean(
+                    name="paid_price",
+                    value=unit_price,
+                    weight=item_count,
+                    filter=ms.where(status="paid"),
+                )
+                paid_price_index = ms.ratio(
+                    name="paid_price_index",
+                    numerator=paid_price,
+                    denominator=all_price,
+                )
+            """),
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    catalog = SemanticCatalog(project)
+    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
+        scope=md.unpruned(max_rows=3, timeout_seconds=30),
+        columns=("amount", "item_count", "status"),
+    )
+
+    preview = catalog.preview(
+        catalog.require(ms.Ref.metric("sales.paid_price_index")).ref,
+        using=snapshot,
+    )
+
+    assert preview.rows == ({"value": pytest.approx(0.8)},)
+
+
 def test_catalog_preview_context_columns_rejected_for_metric(
     semantic_project_factory, tmp_path, monkeypatch
 ):
