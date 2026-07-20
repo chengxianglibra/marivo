@@ -280,6 +280,25 @@ class DuckDBSpec(_SpecBase):
 
 
 @dataclass(frozen=True, kw_only=True)
+class SQLiteSpec(_SpecBase):
+    """SQLite datasource specification."""
+
+    backend_type: ClassVar[str] = "sqlite"
+    path: str = field(
+        default=":memory:", metadata=_description("SQLite database path; defaults to in-memory.")
+    )
+    read_only: bool = field(
+        default=False, metadata=_description("Open the SQLite database in query-only mode.")
+    )
+    type_map: dict[str, str] | None = field(
+        default=None,
+        metadata=_description(
+            "Optional mapping from declared SQLite type names to Ibis type strings."
+        ),
+    )
+
+
+@dataclass(frozen=True, kw_only=True)
 class TrinoSpec(_SpecBase):
     """Trino datasource specification."""
 
@@ -382,7 +401,9 @@ class ClickHouseSpec(_SpecBase):
     )
 
 
-DatasourceSpec: TypeAlias = DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec  # noqa: UP040
+DatasourceSpec: TypeAlias = (  # noqa: UP040
+    DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec
+)
 
 
 def _storage_name(value: str | Ref[DatasourceKind]) -> str:
@@ -557,6 +578,55 @@ def duckdb(
         name=name,
         path=path,
         read_only=read_only,
+        ai_context=ai_context,
+        extra=extra,
+    )
+    _declare_if_loading(spec)
+    return spec
+
+
+def sqlite(
+    name: str,
+    *,
+    path: str = ":memory:",
+    read_only: bool = False,
+    type_map: dict[str, str] | None = None,
+    ai_context: AiContextValue | None = None,
+    extra: dict[str, JsonValue] | None = None,
+) -> SQLiteSpec:
+    """Declare a SQLite datasource.
+
+    Args:
+        name: Global datasource name; lowercase snake_case only.
+        path: SQLite database path; defaults to in-memory.
+        read_only: Open the SQLite database in query-only mode.
+        type_map: Optional mapping from declared SQLite type names to Ibis type strings.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
+        extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
+
+    Returns:
+        ``SQLiteSpec`` usable with ``md.register(...)`` or ``.ref``.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> spec = md.sqlite(name="app", path="data/app.sqlite", read_only=True)
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect(spec.ref, md.table("orders")).show()
+
+    Constraints:
+        When called while loading a datasource file, the spec is automatically
+        declared for that project. SQLite datasources support tables and views;
+        Parquet, CSV, and JSON file descriptors require DuckDB. SQLite does not
+        support median or percentile aggregation, or string strptime expressions;
+        use a supported aggregation and a native temporal column instead.
+    """
+    spec = SQLiteSpec(
+        name=name,
+        path=path,
+        read_only=read_only,
+        type_map=type_map,
         ai_context=ai_context,
         extra=extra,
     )

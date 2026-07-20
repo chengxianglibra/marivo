@@ -533,7 +533,7 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     assert err.effect_observed.query_executed is True
     assert "warehouse" in err.location
     rendered = str(err)
-    assert "raw_sql execution failed" in rendered
+    assert "raw_sql execution or result fetching failed" in rendered
     assert "Repair:" in rendered
     assert "md.help" in rendered.lower() or "raw_sql" in rendered.lower()
 

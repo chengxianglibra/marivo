@@ -569,6 +569,72 @@ def test_duckdb_percentile_aggregate_keeps_exact_quantile(
     assert metric_expr.to_pandas() == pytest.approx(195.0)
 
 
+def test_sqlite_percentile_aggregate_fails_before_ibis_compilation(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.sqlite(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/latency.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', "
+                "datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
+                "additivity='non_additive', unit='USD')\n"
+                "p95_amount = ms.aggregate(name='p95_amount', measure=amount, "
+                "agg=('percentile', 0.95), unit='USD')\n"
+            ),
+        }
+    )
+    backend = ibis.sqlite.connect()
+    backend.raw_sql("CREATE TABLE orders (amount REAL)")
+
+    try:
+        with (
+            _patch_connection_service(project, lambda _: backend),
+            pytest.raises(SemanticRuntimeError, match="not supported by the SQLite backend"),
+        ):
+            _materialize_metric(project, "sales.p95_amount")
+    finally:
+        backend.disconnect()
+
+
+def test_sqlite_median_aggregate_fails_before_ibis_compilation(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.sqlite(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/latency.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', "
+                "datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
+                "additivity='non_additive', unit='USD')\n"
+                "median_amount = ms.aggregate(name='median_amount', measure=amount, "
+                "agg='median', unit='USD')\n"
+            ),
+        }
+    )
+    backend = ibis.sqlite.connect()
+    backend.raw_sql("CREATE TABLE orders (amount REAL)")
+
+    try:
+        with (
+            _patch_connection_service(project, lambda _: backend),
+            pytest.raises(SemanticRuntimeError, match="uses median"),
+        ):
+            _materialize_metric(project, "sales.median_amount")
+    finally:
+        backend.disconnect()
+
+
 # ---------------------------------------------------------------------------
 # Column helper parity
 # ---------------------------------------------------------------------------

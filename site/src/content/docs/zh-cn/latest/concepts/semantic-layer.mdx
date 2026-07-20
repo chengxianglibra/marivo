@@ -122,7 +122,7 @@ md.duckdb(
 )
 ```
 
-每个 helper（`md.duckdb`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都共享以下参数：
+每个 helper（`md.duckdb`、`md.sqlite`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都共享以下参数：
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -135,6 +135,7 @@ md.duckdb(
 | Helper | 必填 | 可选 |
 | --- | --- | --- |
 | `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`） |
+| `md.sqlite` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、`type_map` |
 | `md.mysql` | `host`、`database` | `port`（3306）、`autocommit`、`user_env`、`password_env` |
 | `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
 | `md.trino` | `host`、`catalog` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`user_env`、`auth_env` |
@@ -145,6 +146,13 @@ ClickHouse datasource 默认关闭 clickhouse-connect 自动生成的 session id
 如果 datasource 需要临时表等 ClickHouse session state，可以显式传
 `extra={"autogenerate_session_id": True}`。`settings={...}` 用于 server/query
 settings；Ibis/clickhouse-connect client keyword arguments 放在 `extra={...}`。
+
+SQLite datasource 通过 `md.table(...)` 使用表和视图。`read_only=True` 会启用 SQLite
+连接级 query-only 模式；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite
+类型名映射为 Ibis 类型字符串。Parquet、CSV 和 JSON descriptor 仍只属于 DuckDB。
+当前 Ibis SQLite backend 不支持 median、percentile metric 或字符串 `strptime` 表达式；Marivo
+会将其报告为结构化的 unsupported-operation 错误。此时应改用受支持的聚合与原生 temporal
+列。
 
 :::caution[凭据是引用，绝不是明文]
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、

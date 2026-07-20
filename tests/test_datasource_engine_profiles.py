@@ -13,6 +13,7 @@ from marivo.datasource.authoring import (
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
+    SQLiteSpec,
     TrinoSpec,
 )
 from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
@@ -26,7 +27,14 @@ from marivo.datasource.engines import (
 
 def test_engine_registry_keys_match_supported_backend_types() -> None:
     assert tuple(ENGINE_PROFILES) == SUPPORTED_BACKEND_TYPES
-    assert set(ENGINE_PROFILES) == {"duckdb", "trino", "mysql", "postgres", "clickhouse"}
+    assert set(ENGINE_PROFILES) == {
+        "duckdb",
+        "sqlite",
+        "trino",
+        "mysql",
+        "postgres",
+        "clickhouse",
+    }
 
 
 def test_profiles_are_internal_to_datasource_public_api() -> None:
@@ -54,6 +62,7 @@ def test_every_profile_populates_required_fields() -> None:
 def test_every_profile_declares_real_authoring_capabilities() -> None:
     expected = {
         "duckdb": (True, False, True, False),
+        "sqlite": (True, False, True, False),
         "trino": (True, False, True, True),
         "mysql": (True, False, True, True),
         "postgres": (True, False, True, True),
@@ -154,7 +163,7 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
     assert hook is not None
     events: list[str] = []
 
-    if backend_type == "duckdb":
+    if backend_type in {"duckdb", "sqlite"}:
 
         class _Timer:
             def start(self) -> None:
@@ -164,10 +173,12 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
                 events.append("cleanup")
 
         monkeypatch.setattr(
-            "marivo.datasource.engines.duckdb.Timer",
+            f"marivo.datasource.engines.{backend_type}.Timer",
             lambda _seconds, _interrupt: _Timer(),
         )
-        backend_object = ibis.duckdb.connect()
+        backend_object = (
+            ibis.duckdb.connect() if backend_type == "duckdb" else ibis.sqlite.connect()
+        )
     elif backend_type == "clickhouse":
         backend_object = _ClickHouseBackend(events)
     else:
@@ -219,6 +230,7 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
     ("backend_type", "failure_statement"),
     [
         ("duckdb", None),
+        ("sqlite", None),
         ("trino", "SET SESSION query_max_run_time = '2s'"),
         ("mysql", "SET SESSION MAX_EXECUTION_TIME = 2000"),
         ("postgres", "SET LOCAL statement_timeout = '2000ms'"),
@@ -234,7 +246,7 @@ def test_authoring_timeout_setup_failure_never_enters_execution(
     hook = profile.authoring_timeout
     assert hook is not None
     events: list[str] = []
-    if backend_type == "duckdb":
+    if backend_type in {"duckdb", "sqlite"}:
 
         class _FailingTimer:
             def start(self) -> None:
@@ -245,10 +257,12 @@ def test_authoring_timeout_setup_failure_never_enters_execution(
                 events.append("cleanup")
 
         monkeypatch.setattr(
-            "marivo.datasource.engines.duckdb.Timer",
+            f"marivo.datasource.engines.{backend_type}.Timer",
             lambda _seconds, _interrupt: _FailingTimer(),
         )
-        backend_object = ibis.duckdb.connect()
+        backend_object = (
+            ibis.duckdb.connect() if backend_type == "duckdb" else ibis.sqlite.connect()
+        )
     elif backend_type == "clickhouse":
         backend_object = _ClickHouseBackend(events, fail_setup=True)
     else:
@@ -291,6 +305,7 @@ def test_aliases_are_unique_and_resolve_to_profiles() -> None:
     assert profile_for_backend_name("presto").name == "trino"
     assert profile_for_backend_name("postgresql").name == "postgres"
     assert profile_for_backend_name("redshift").name == "postgres"
+    assert profile_for_backend_name("sqlite3").name == "sqlite"
 
 
 def test_unknown_backend_name_resolves_to_generic_profile() -> None:
@@ -308,6 +323,7 @@ def test_registered_profiles_do_not_use_generic_metadata_inspector() -> None:
 def test_authoring_specs_resolve_to_profiles() -> None:
     specs = (
         DuckDBSpec(name="duck"),
+        SQLiteSpec(name="lite"),
         TrinoSpec(name="tri", host="h", catalog="c"),
         MySQLSpec(name="my", host="h", database="d"),
         PostgresSpec(name="pg", host="h", database="d"),
@@ -315,6 +331,7 @@ def test_authoring_specs_resolve_to_profiles() -> None:
     )
     assert {profile_for_backend_type(spec.backend_type).name for spec in specs} == {
         "duckdb",
+        "sqlite",
         "trino",
         "mysql",
         "postgres",

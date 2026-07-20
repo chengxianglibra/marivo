@@ -192,6 +192,16 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             produced_state="datasource.declared",
         ),
         _capability(
+            "sqlite",
+            "marivo.datasource.authoring.sqlite",
+            "Build a SQLite table/view datasource; median, percentile, and string strptime are unsupported.",
+            output="DatasourceSpec",
+            inputs=_inputs(("mapping_key", "DatasourceName")),
+            constraints=constraints["declare"],
+            example='md.sqlite(name="app", path="data/app.sqlite", read_only=True)',
+            produced_state="datasource.declared",
+        ),
+        _capability(
             "trino",
             "marivo.datasource.authoring.trino",
             "Build a Trino datasource specification.",
@@ -627,6 +637,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         {
             "declare_manage": (
                 "duckdb",
+                "sqlite",
                 "trino",
                 "mysql",
                 "postgres",
@@ -674,6 +685,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DuckDBSpec,
         MySQLSpec,
         PostgresSpec,
+        SQLiteSpec,
         TrinoSpec,
     )
     from marivo.datasource.catalog import DatasourceCatalog
@@ -728,6 +740,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
 
     spec_producers: tuple[tuple[type, str], ...] = (
         (DuckDBSpec, "duckdb"),
+        (SQLiteSpec, "sqlite"),
         (TrinoSpec, "trino"),
         (MySQLSpec, "mysql"),
         (PostgresSpec, "postgres"),

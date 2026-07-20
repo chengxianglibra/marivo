@@ -472,7 +472,7 @@ def _with_primary_key_capability_warning(metadata: TableMetadata) -> TableMetada
     DuckDB exposes primary keys via ``duckdb_constraints()`` and is left alone.
     Other backends get a single capability warning so the absence is never silent.
     """
-    if metadata.backend_type == "duckdb":
+    if metadata.backend_type in {"duckdb", "sqlite"}:
         return metadata
     if metadata.primary_keys:
         return metadata

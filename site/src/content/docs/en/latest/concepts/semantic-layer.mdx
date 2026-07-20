@@ -138,7 +138,7 @@ md.duckdb(
 )
 ```
 
-Every helper (`md.duckdb`, `md.mysql`, `md.postgres`, `md.trino`, `md.clickhouse`)
+Every helper (`md.duckdb`, `md.sqlite`, `md.mysql`, `md.postgres`, `md.trino`, `md.clickhouse`)
 shares these parameters:
 
 | Parameter | Type | Required | Default | Meaning |
@@ -152,6 +152,7 @@ Backend-specific parameters:
 | Helper | Required | Optional |
 | --- | --- | --- |
 | `md.duckdb` | — | `path` (default `":memory:"`), `read_only` (default `False`) |
+| `md.sqlite` | — | `path` (default `":memory:"`), `read_only` (default `False`), `type_map` |
 | `md.mysql` | `host`, `database` | `port` (3306), `autocommit`, `user_env`, `password_env` |
 | `md.postgres` | `host`, `database` | `port` (5432), `schema`, `autocommit`, `user_env`, `password_env` |
 | `md.trino` | `host`, `catalog` | `port` (8080), `schema`, `source`, `timezone`, `http_scheme`, `client_tags`, `session_properties`, `user_env`, `auth_env` |
@@ -163,6 +164,14 @@ without sharing a server session lock. If a datasource needs ClickHouse session
 state such as temporary tables, opt in explicitly with
 `extra={"autogenerate_session_id": True}`. Keep server/query settings in
 `settings={...}`; client keyword arguments belong in `extra={...}`.
+
+SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
+enables SQLite's connection-level query-only mode, and `type_map={...}` can map
+declared SQLite type names to Ibis type strings when affinity inference is not
+enough. Parquet, CSV, and JSON descriptors remain DuckDB-only. SQLite does not
+support median or percentile metrics, or string `strptime` expressions in the current Ibis
+backend; Marivo reports these as structured unsupported-operation errors. Use a
+supported aggregation and a native temporal column instead.
 
 :::caution[Credentials are references, never literals]
 Sensitive fields are authored as `*_env` references that name an environment
