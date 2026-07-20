@@ -37,12 +37,162 @@ if TYPE_CHECKING:
     from marivo.analysis.session._connections import AnalysisConnectionRuntime
 
 from marivo.analysis.frames.base import BaseFrameMeta
+from marivo.refs import SemanticKind, _decode_ref_payload
 
 # ---------------------------------------------------------------------------
 # Process-level current session
 # ---------------------------------------------------------------------------
 
 _CURRENT_SESSION: Session | None = None
+
+
+def _require_exact_object(value: object, *, fields: set[str], role: str) -> dict[str, Any]:
+    if type(value) is not dict or set(value) != fields:
+        raise ValueError(f"analysis job {role} must contain exactly {sorted(fields)}")
+    return value
+
+
+def _validate_metric_identity_payload(value: object, *, role: str) -> None:
+    if type(value) is not dict:
+        raise ValueError(f"analysis job {role} must be an object")
+    kind = value.get("kind")
+    if kind == "catalog":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "metric_ref"},
+            role=role,
+        )
+        ref = _decode_ref_payload(payload["metric_ref"])
+        if ref.kind is not SemanticKind.METRIC:
+            raise ValueError(f"analysis job {role}.metric_ref must be metric")
+        return
+    if kind == "runtime_expression":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "expression_schema", "expression_fingerprint"},
+            role=role,
+        )
+        if payload["expression_schema"] != "metric-expression/v1":
+            raise ValueError(
+                f"analysis job {role}.expression_schema must be 'metric-expression/v1'"
+            )
+        if (
+            type(payload["expression_fingerprint"]) is not str
+            or not payload["expression_fingerprint"]
+        ):
+            raise ValueError(f"analysis job {role}.expression_fingerprint must be non-empty")
+        return
+    raise ValueError(f"analysis job {role}.kind is invalid")
+
+
+def _validate_job_subject(value: object, *, role: str) -> None:
+    if type(value) is not dict:
+        raise ValueError(f"analysis job {role} must be an object")
+    kind = value.get("kind")
+    if kind == "catalog_metric":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "metric_ref"},
+            role=role,
+        )
+        ref = _decode_ref_payload(payload["metric_ref"])
+        if ref.kind is not SemanticKind.METRIC:
+            raise ValueError(f"analysis job {role}.metric_ref must be metric")
+        return
+    if kind == "runtime_expression":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "expression_schema", "expression_fingerprint"},
+            role=role,
+        )
+        _validate_metric_identity_payload(
+            {"kind": "runtime_expression", **payload},
+            role=role,
+        )
+        return
+    if kind == "delta_metric":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "comparison"},
+            role=role,
+        )
+        comparison = _require_exact_object(
+            payload["comparison"],
+            fields={
+                "schema",
+                "current",
+                "baseline",
+                "current_artifact_id",
+                "baseline_artifact_id",
+                "comparable_semantics_fingerprint",
+                "alignment_policy_fingerprint",
+            },
+            role=f"{role}.comparison",
+        )
+        if comparison["schema"] != "delta-comparison/v1":
+            raise ValueError(f"analysis job {role}.comparison.schema must be 'delta-comparison/v1'")
+        _validate_metric_identity_payload(comparison["current"], role=f"{role}.comparison.current")
+        _validate_metric_identity_payload(
+            comparison["baseline"], role=f"{role}.comparison.baseline"
+        )
+        for field in (
+            "current_artifact_id",
+            "baseline_artifact_id",
+            "comparable_semantics_fingerprint",
+            "alignment_policy_fingerprint",
+        ):
+            if type(comparison[field]) is not str or not comparison[field]:
+                raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
+        return
+    raise ValueError(f"analysis job {role}.kind is invalid")
+
+
+def _validate_dependency_digest_payload(value: object, *, role: str) -> None:
+    payload = _require_exact_object(
+        value,
+        fields={"schema", "entries", "digest"},
+        role=role,
+    )
+    if payload["schema"] != "marivo.semantic_dependency_digest/v1":
+        raise ValueError(
+            f"analysis job {role}.schema must be 'marivo.semantic_dependency_digest/v1'"
+        )
+    if type(payload["digest"]) is not str or not payload["digest"].startswith("sha256:"):
+        raise ValueError(f"analysis job {role}.digest must use the sha256: prefix")
+    entries = payload["entries"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"analysis job {role}.entries must be a non-empty list")
+    for index, entry_value in enumerate(entries):
+        entry = _require_exact_object(
+            entry_value,
+            fields={"ref", "body_digest", "fields", "bindings"},
+            role=f"{role}.entries[{index}]",
+        )
+        _decode_ref_payload(entry["ref"])
+        if entry["body_digest"] is not None and (
+            type(entry["body_digest"]) is not str or not entry["body_digest"]
+        ):
+            raise ValueError(f"analysis job {role}.entries[{index}].body_digest is invalid")
+        if not isinstance(entry["fields"], list):
+            raise ValueError(f"analysis job {role}.entries[{index}].fields must be a list")
+        bindings = entry["bindings"]
+        if not isinstance(bindings, list):
+            raise ValueError(f"analysis job {role}.entries[{index}].bindings must be a list")
+        for binding_index, binding_value in enumerate(bindings):
+            binding = _require_exact_object(
+                binding_value,
+                fields={"field_ref", "entity_position"},
+                role=f"{role}.entries[{index}].bindings[{binding_index}]",
+            )
+            field_ref = _decode_ref_payload(binding["field_ref"])
+            if field_ref.kind not in {
+                SemanticKind.DIMENSION,
+                SemanticKind.TIME_DIMENSION,
+                SemanticKind.MEASURE,
+            }:
+                raise ValueError(f"analysis job {role} expression binding requires a field ref")
+            if type(binding["entity_position"]) is not int or binding["entity_position"] < 0:
+                raise ValueError(f"analysis job {role} expression binding position is invalid")
 
 
 def get_process_current() -> Session | None:
@@ -309,17 +459,86 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             ``"status"``, ``"started_at"``, and optionally ``"finished_at"``
             and ``"output_frame_ref"`` or ``"output_artifact_id"``.
     """
-    write_job_record(session._layout, record)
-    finished_at = record.get("finished_at")
+    supplied_schema = record.get("schema")
+    if supplied_schema not in {None, "marivo.analysis_job/v1"}:
+        raise ValueError(
+            f"job record schema must be 'marivo.analysis_job/v1'; received {supplied_schema!r}"
+        )
+    forbidden = {"semantic_model", "semantic_anchors", "metric_id", "metric_ids"} & set(record)
+    if forbidden:
+        raise ValueError(
+            f"analysis job semantic identity must use named structured roles; got {sorted(forbidden)}"
+        )
+    fingerprint = record.get("catalog_definition_fingerprint")
+    if not isinstance(fingerprint, str) or not fingerprint:
+        raise ValueError("analysis job requires catalog_definition_fingerprint")
+    has_subject = "subject" in record
+    has_subjects = "subjects" in record
+    if has_subject == has_subjects:
+        raise ValueError("analysis job requires exactly one subject or subjects role")
+    if has_subject:
+        _validate_job_subject(record["subject"], role="subject")
+    else:
+        subjects = record["subjects"]
+        if not isinstance(subjects, list) or not subjects:
+            raise ValueError("analysis job subjects must be a non-empty list")
+        for index, subject in enumerate(subjects):
+            _validate_job_subject(subject, role=f"subjects[{index}]")
+    has_digest = "semantic_dependency_digest" in record
+    has_digests = "semantic_dependency_digests" in record
+    if has_digest == has_digests:
+        raise ValueError(
+            "analysis job requires exactly one semantic_dependency_digest or "
+            "semantic_dependency_digests role"
+        )
+    if has_digest:
+        _validate_dependency_digest_payload(
+            record["semantic_dependency_digest"],
+            role="semantic_dependency_digest",
+        )
+    else:
+        digests = record["semantic_dependency_digests"]
+        if not isinstance(digests, list) or not digests:
+            raise ValueError("analysis job semantic_dependency_digests must be non-empty")
+        for index, digest in enumerate(digests):
+            _validate_dependency_digest_payload(
+                digest,
+                role=f"semantic_dependency_digests[{index}]",
+            )
+    for field in ("dimension_refs",):
+        values = record.get(field)
+        if not isinstance(values, list):
+            raise ValueError(f"analysis job {field} must be a list")
+        for payload in values:
+            decoded = _decode_ref_payload(payload)
+            if decoded.kind is not SemanticKind.DIMENSION:
+                raise ValueError("analysis job dimension_refs entries must be dimension refs")
+    time_payload = record.get("time_dimension_ref")
+    if time_payload is not None:
+        decoded = _decode_ref_payload(time_payload)
+        if decoded.kind.value != "time_dimension":
+            raise ValueError("analysis job time_dimension_ref must be time_dimension")
+    predicates = record.get("slice_predicates")
+    if not isinstance(predicates, list):
+        raise ValueError("analysis job slice_predicates must be a list")
+    for predicate in predicates:
+        if not isinstance(predicate, dict) or set(predicate) != {"dimension_ref", "value"}:
+            raise ValueError("analysis job slice predicate fields are invalid")
+        decoded = _decode_ref_payload(predicate["dimension_ref"])
+        if decoded.kind.value not in {"dimension", "time_dimension"}:
+            raise ValueError("analysis job slice predicate requires a dimension ref")
+    persisted = {"schema": "marivo.analysis_job/v1", **record}
+    write_job_record(session._layout, persisted)
+    finished_at = persisted.get("finished_at")
     session._store.record_job(
         session_id=session.id,
-        job_id=record["id"],
-        intent=record["intent"],
-        status=record["status"],
-        started_at=record["started_at"],
+        job_id=persisted["id"],
+        intent=persisted["intent"],
+        status=persisted["status"],
+        started_at=persisted["started_at"],
         finished_at=finished_at if isinstance(finished_at, str) else None,
-        output_artifact_id=record.get("output_frame_ref") or record.get("output_artifact_id"),
+        output_artifact_id=persisted.get("output_frame_ref") or persisted.get("output_artifact_id"),
         record_path=session._layout.relative_path(
-            session._layout.jobs_dir / f"{record['id']}.json"
+            session._layout.jobs_dir / f"{persisted['id']}.json"
         ),
     )

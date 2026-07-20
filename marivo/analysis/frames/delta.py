@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
+from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactPrecondition,
@@ -16,8 +17,14 @@ from marivo.analysis.frames.base import (
     assert_semantic_shape,
 )
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import RefPayloadV1
 from marivo.render import Card
-from marivo.semantic.metric_graph import DeltaComparisonIdentityV1, MetricIdentity
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    DeltaComparisonIdentityV1,
+    MetricIdentity,
+    SemanticDependencyDigestV1,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import ArtifactContract
@@ -134,16 +141,21 @@ class DeltaFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["delta_frame"] = "delta_frame"
-    metric_id: str
+    catalog_definition_fingerprint: str
+    source_dependency_digests: tuple[SemanticDependencyDigestV1, ...]
+    axis_bindings: tuple[AxisBindingV1, ...] = ()
+    slice_predicates: tuple[SlicePredicateV1, ...] = ()
+    status_time_dimension_ref: RefPayloadV1 | None = None
+    metric_id: str = Field(default="", exclude=True)
     metric_identity: MetricIdentity | None = None
     baseline_metric_identity: MetricIdentity | None = None
-    comparison_identity: DeltaComparisonIdentityV1 | None = None
+    comparison_identity: DeltaComparisonIdentityV1
     unit: str | None = None
     source_current_ref: str
     source_baseline_ref: str
     alignment: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
-    semantic_model: str
+    semantic_model: str = Field(default="", exclude=True)
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
     composition: dict[str, Any] | None = None
@@ -151,9 +163,50 @@ class DeltaFrameMeta(BaseFrameMeta):
     component_folds: list[dict[str, Any]] = Field(default_factory=list)
     additivity: Additivity | None = None
     aggregation: str | None = None
-    status_time_dimension: str | None = None
+    status_time_dimension: str | None = Field(default=None, exclude=True)
     cumulative: dict[str, Any] | None = None
     rollup_fold: Literal["last"] | None = None
+
+    @model_validator(mode="after")
+    def _derive_semantic_displays(self) -> DeltaFrameMeta:
+        current = self.comparison_identity.current
+        baseline = self.comparison_identity.baseline
+        if self.metric_identity is not None and self.metric_identity != current:
+            raise ValueError("delta metric_identity does not match comparison current")
+        if self.baseline_metric_identity is not None and self.baseline_metric_identity != baseline:
+            raise ValueError("delta baseline identity does not match comparison baseline")
+        self.metric_identity = current
+        self.baseline_metric_identity = baseline
+
+        derived_metric_id = (
+            current.metric_ref.path
+            if isinstance(current, CatalogMetricIdentity)
+            else f"runtime:{current.expression_fingerprint}"
+        )
+        if self.metric_id and self.metric_id != derived_metric_id:
+            raise ValueError("delta metric_id display does not match comparison identity")
+        self.metric_id = derived_metric_id
+
+        catalog_paths = [
+            identity.metric_ref.path
+            for identity in (current, baseline)
+            if isinstance(identity, CatalogMetricIdentity)
+        ]
+        domains = {path.split(".", 1)[0] for path in catalog_paths if "." in path}
+        derived_model = next(iter(domains)) if len(domains) == 1 else ""
+        if self.semantic_model and derived_model and self.semantic_model != derived_model:
+            raise ValueError("delta semantic_model display does not match comparison identity")
+        self.semantic_model = derived_model
+
+        derived_status = (
+            self.status_time_dimension_ref.path
+            if self.status_time_dimension_ref is not None
+            else None
+        )
+        if self.status_time_dimension is not None and self.status_time_dimension != derived_status:
+            raise ValueError("delta status time display does not match structured ref")
+        self.status_time_dimension = derived_status
+        return self
 
 
 @dataclass(repr=False)

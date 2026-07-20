@@ -25,7 +25,7 @@ from marivo.datasource.ir import (
     source_name,
     source_to_dict,
 )
-from marivo.refs import SymbolKind
+from marivo.refs import SemanticKind
 from marivo.semantic.time_format import normalize_strptime
 
 __all__ = [
@@ -63,13 +63,13 @@ __all__ = [
     "RatioComposition",
     "RelationshipIR",
     "SampleIntervalIR",
+    "SemanticKind",
     "SemanticParse",
     "SemiAdditive",
     "SnapshotVersioningIR",
     "SourceLocation",
     "SqlProvenance",
     "StrptimeParse",
-    "SymbolKind",
     "TableSourceIR",
     "TimeFoldIR",
     "TimestampParse",
@@ -522,7 +522,7 @@ class MeasureIR:
     unit: str | None
     python_symbol: str
     location: SourceLocation
-    kind: SymbolKind = SymbolKind.MEASURE
+    kind: SemanticKind = SemanticKind.MEASURE
     body_ast_hash: str = ""
 
 

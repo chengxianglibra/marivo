@@ -1,7 +1,7 @@
 # Marivo Unified Semantic Object and Reference Design
 
-Status: accepted; implementation in progress; written-review revisions and the
-Tier-2 Semantic Expression Reference Binding Design are integrated
+Status: accepted and implemented; written-review revisions and the Tier-2
+Semantic Expression Reference Binding Design are integrated
 
 Date: 2026-07-19
 

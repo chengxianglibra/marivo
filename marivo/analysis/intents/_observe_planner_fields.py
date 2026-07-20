@@ -5,11 +5,10 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe_planner``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import ibis
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.intents._observe_planner_catalog import (
     _details,
     _entity,
@@ -37,6 +36,7 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.introspection._fuzzy import did_you_mean
+from marivo.refs import FieldKind, Ref
 from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog, SemanticKind
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
@@ -65,7 +65,7 @@ def _relationship_details_for_entity(
 ) -> tuple[RelationshipDetails, ...]:
     details = catalog._require_index().details_under(
         SemanticKind.RELATIONSHIP,
-        scope_id=f"entity.{entity_ref}",
+        scope_ref=Ref.entity(entity_ref),
     )
     return tuple(item for item in details if isinstance(item, RelationshipDetails))
 
@@ -85,7 +85,7 @@ def _resolve_field_ref(
         else _all_entity_ids(catalog),
     )
     if "." in ref_id:
-        matches = [f for f in fields if f.ref.id == ref_id]
+        matches = [f for f in fields if f.ref.path == ref_id]
         if matches and (
             allow_qualified_outside_scope or _entity_id(matches[0]) in scoped_dataset_ids
         ):
@@ -96,7 +96,7 @@ def _resolve_field_ref(
         if not matches and allow_unqualified_outside_scope:
             matches = [f for f in fields if f.name == ref_id]
     if not matches:
-        all_field_ids = sorted(f.ref.id for f in fields)
+        all_field_ids = sorted(f.ref.path for f in fields)
         pool = all_field_ids if "." in ref_id else sorted({f.name for f in fields})
         suggestions = did_you_mean(ref_id, pool)
         repair_actions: list[RepairAction] = []
@@ -134,7 +134,7 @@ def _resolve_field_ref(
         raise_observe_planning_error(
             code="field-ref-ambiguous",
             message=f"Field reference {ref_id!r} is ambiguous in observe plan scope.",
-            candidates={"fields": sorted(f.ref.id for f in matches)},
+            candidates={"fields": sorted(f.ref.path for f in matches)},
             repair=[],
         )
     return matches[0]
@@ -144,7 +144,7 @@ def resolve_observe_fields(
     catalog: SemanticCatalog,
     metric_ir: Any,
     *,
-    dimensions: list[AnalysisDimensionRef] | None,
+    dimensions: list[Ref[FieldKind]] | None,
     where: dict[Any, Any] | None,
     time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,
@@ -201,7 +201,7 @@ def resolve_observe_fields(
             raise_observe_planning_error(
                 code="field-ref-ambiguous",
                 message=f"Field reference {key!r} is ambiguous in observe plan scope.",
-                candidates={"fields": sorted(f.ref.id for f in non_root_matches)},
+                candidates={"fields": sorted(f.ref.path for f in non_root_matches)},
                 repair=[],
             )
         raw_root_where_keys.append(key)
@@ -217,7 +217,7 @@ def resolve_observe_fields(
             raise_observe_planning_error(
                 code="non-root-time-dimension",
                 message="observe time_dimension must belong to the metric root entity.",
-                candidates={"root_entity": root, "field": resolved_time_dimension_details.ref.id},
+                candidates={"root_entity": root, "field": resolved_time_dimension_details.ref.path},
                 repair=[],
             )
         resolved_time_dimension = _planned_field(resolved_time_dimension_details)
@@ -308,7 +308,7 @@ def _effective_key_semantic_ids(catalog: SemanticCatalog, dataset_id: str) -> fr
     if not col_names:
         return frozenset()
     all_dataset_fields = _fields_for_entity(catalog, dataset_id)
-    by_name = frozenset(f.ref.id for f in all_dataset_fields if f.name in col_names)
+    by_name = frozenset(f.ref.path for f in all_dataset_fields if f.name in col_names)
     if len(by_name) == len(col_names):
         return by_name
     dataset = _entity(catalog, dataset_id)
@@ -319,16 +319,16 @@ def _effective_key_semantic_ids(catalog: SemanticCatalog, dataset_id: str) -> fr
         dummy = ibis.table(schema, name=dataset_id.rsplit(".", 1)[-1])
     except Exception:
         return frozenset()
-    resolver = catalog._resolver(connections=_NoConnectionService())
+    resolver = catalog._semantic_resolver(connections=_NoConnectionService())
     result: set[str] = set()
     for field_detail in all_dataset_fields:
         try:
-            expr = resolver.dimension_on(field_detail.ref, dummy)
+            expr = resolver.dimension_on(cast("Ref[FieldKind]", field_detail.ref), dummy)
             out_name = expr.get_name()
         except Exception:
             continue
         if out_name in col_names:
-            result.add(field_detail.ref.id)
+            result.add(field_detail.ref.path)
     return frozenset(result)
 
 

@@ -11,8 +11,8 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.resolve import resolve_live_target
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import CatalogObject
+from marivo.refs import Ref, SemanticKindTag
+from marivo.semantic.catalog import CatalogEntry
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -24,8 +24,8 @@ PublicHelpTarget = (
     | type[object]
     | Session
     | BaseFrame
-    | CatalogObject[SemanticRef]
-    | SemanticRef
+    | CatalogEntry[SemanticKindTag]
+    | Ref[SemanticKindTag]
     | AnalysisError
     | None
 )
@@ -47,7 +47,7 @@ def help_text(
         instances.
     project:
         Explicit SemanticProject for semantic ref resolution. Required
-        when ``target`` is a ``SemanticRef`` and no project can be
+        when ``target`` is a semantic ``Ref`` and no project can be
         inferred from the current working directory.
 
     Returns
@@ -87,7 +87,7 @@ def help(
         instances.
     project:
         Explicit SemanticProject for semantic ref resolution. Required
-        when ``target`` is a ``SemanticRef`` and no project can be
+        when ``target`` is a semantic ``Ref`` and no project can be
         inferred from the current working directory.
 
     Returns

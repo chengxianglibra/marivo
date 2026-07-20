@@ -107,6 +107,19 @@ def test_help_resolves_type_target() -> None:
     assert "SemanticCatalog" in text
 
 
+def test_root_and_ref_help_teach_one_entry_to_ref_handoff() -> None:
+    root = ms.help_text()
+    focused = ms.help_text(ms.Ref)
+
+    assert "CatalogEntry" in root
+    assert "entry.ref" in root
+    assert "ms.Ref.<kind>(path)" in root
+    assert "entry = catalog.require(ms.Ref.metric('sales.revenue'))" in focused
+    assert "metric_ref = entry.ref" in focused
+    assert "field_ref(entity_alias)" in focused
+    assert "ms.bind" not in focused
+
+
 def test_help_resolves_error_type_target() -> None:
     from marivo.semantic.errors import SemanticLoadError
 

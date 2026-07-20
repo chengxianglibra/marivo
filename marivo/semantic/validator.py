@@ -14,10 +14,12 @@ import inspect
 import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.datasource.ir import DatasourceIR
 from marivo.introspection._fuzzy import did_you_mean
+from marivo.refs import Ref, SemanticKind
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
@@ -46,9 +48,11 @@ from marivo.semantic.ir import (
     composition_components,
 )
 
+if TYPE_CHECKING:
+    from marivo.semantic._expression_binding import CompiledExpressionSidecar
+
 __all__ = [
     "Registry",
-    "Sidecar",
     "assembly_validate",
     "validate_decorator_call",
     "validate_metric_body_ast",
@@ -71,10 +75,29 @@ class Registry:
     measures: dict[str, MeasureIR] = field(default_factory=dict)
     metrics: dict[str, MetricIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
+    _frozen: bool = field(default=False, init=False, repr=False)
 
+    def freeze(self) -> None:
+        """Freeze every registry map after successful whole-graph validation."""
+        if self._frozen:
+            return
+        for name in (
+            "domains",
+            "datasources",
+            "entities",
+            "dimensions",
+            "measures",
+            "metrics",
+            "relationships",
+        ):
+            value = dict(getattr(self, name))
+            object.__setattr__(self, name, MappingProxyType(value))
+        object.__setattr__(self, "_frozen", True)
 
-#: Maps semantic_id to the original callable (entity/dimension/metric body fn).
-Sidecar = dict[str, Callable[..., Any]]
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError("compiled semantic registry is immutable")
+        object.__setattr__(self, name, value)
 
 
 _PARTITION_TIME_COLUMN_NAMES = {
@@ -626,6 +649,83 @@ def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
     return errors
 
 
+def _validate_expression_bindings(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+) -> list[SemanticError]:
+    """Validate every compiled field binding against exact positional ownership."""
+    errors: list[SemanticError] = []
+    for owning_ref, body in sidecar.bodies.items():
+        entity_ids: tuple[str, ...]
+        if owning_ref.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            dimension = registry.dimensions.get(owning_ref.path)
+            entity_ids = () if dimension is None else (dimension.entity,)
+        elif owning_ref.kind is SemanticKind.MEASURE:
+            measure = registry.measures.get(owning_ref.path)
+            entity_ids = () if measure is None else (measure.entity,)
+        elif owning_ref.kind is SemanticKind.METRIC:
+            metric = registry.metrics.get(owning_ref.path)
+            entity_ids = () if metric is None else metric.entities
+        else:
+            continue
+        for binding in body.bindings:
+            field_ref = binding.to_ref()
+            field_body = sidecar.bodies.get(field_ref)
+            field_owner = sidecar.field_owners.get(field_ref)
+            if field_ref not in sidecar.catalog_refs or field_body is None or field_owner is None:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.BINDING_TARGET_MISSING,
+                        message=(
+                            f"Expression body {owning_ref.key!r} binds missing field "
+                            f"{field_ref.key!r}."
+                        ),
+                        refs=(owning_ref.key, field_ref.key),
+                        expected=(
+                            "a loaded dimension, time_dimension, or measure with a compiled body"
+                        ),
+                        received="missing catalog object, owner, or expression body",
+                        hint=(
+                            "Declare the field in the loaded catalog and call it as "
+                            "field_ref(entity_alias)."
+                        ),
+                    )
+                )
+                continue
+            if binding.entity_position >= len(entity_ids):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.BINDING_ENTITY_MISMATCH,
+                        message=(
+                            f"Expression body {owning_ref.key!r} binds field "
+                            f"{field_ref.key!r} to unavailable entity position "
+                            f"{binding.entity_position}."
+                        ),
+                        refs=(owning_ref.key, field_ref.key),
+                        expected=f"an entity position below {len(entity_ids)}",
+                        received=str(binding.entity_position),
+                        hint="Call the field with its exact direct entity parameter.",
+                    )
+                )
+                continue
+            expected_owner = Ref.entity(entity_ids[binding.entity_position])
+            if field_owner != expected_owner:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.BINDING_ENTITY_MISMATCH,
+                        message=(
+                            f"Field {field_ref.key!r} does not belong to entity position "
+                            f"{binding.entity_position} in {owning_ref.key!r}."
+                        ),
+                        refs=(owning_ref.key, field_ref.key, expected_owner.key),
+                        expected=expected_owner.key,
+                        received=field_owner.key,
+                        hint="Call the field with the direct parameter for its owning entity.",
+                    )
+                )
+    return errors
+
+
 def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
     func = call.func
     if not isinstance(func, ast.Attribute):
@@ -862,13 +962,13 @@ def _validate_cumulative_metric(
                     f"Metric {metric_id!r} omits over= but base root entity "
                     f"{base.root_entity!r} has {len(candidates)} time dimensions: "
                     f"{', '.join(candidate_ids)}{default_label}; "
-                    "pass over=<TimeDimensionRef> explicitly."
+                    "pass over=<Ref[time_dimension]> explicitly."
                 ),
                 refs=(metric_id, comp.base),
                 constraint_id=ConstraintId.COMPOSITION_SHAPE,
                 hint=(
                     "Entity defaults do not silently choose the business "
-                    "accumulation axis. Pass over=<TimeDimensionRef> explicitly."
+                    "accumulation axis. Pass over=<Ref[time_dimension]> explicitly."
                 ),
                 details={
                     "metric": metric_id,
@@ -925,7 +1025,7 @@ def _validate_cumulative_metric(
 
 def assembly_validate(
     registry: Registry,
-    sidecar: Sidecar | None = None,
+    sidecar: CompiledExpressionSidecar | None = None,
     *,
     loaded_models: set[str] | None = None,
 ) -> tuple[list[SemanticError], list[StructuredWarning]]:
@@ -990,6 +1090,9 @@ def assembly_validate(
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))
+
+    if sidecar is not None:
+        errors.extend(_validate_expression_bindings(registry, sidecar))
 
     # -- Validate entity refs on metrics -------------------------------------
     for m_id, m_ir in registry.metrics.items():
@@ -1200,7 +1303,8 @@ def assembly_validate(
         if m_ir.metric_type != "simple" or m_ir.aggregation is not None:
             continue
         if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
-            fn = sidecar.get(m_id)
+            body = sidecar.bodies.get(Ref.metric(m_id))
+            fn = None if body is None else body.callable
             if callable(fn):
                 offending_entity = _non_root_aggregate_entity(fn, metric_ir=m_ir)
                 if offending_entity is not None:
@@ -1436,7 +1540,12 @@ def assembly_validate(
 
     # Partition pushdown advisory warnings
     for f_id, f_ir in registry.dimensions.items():
-        if _time_dimension_pushdown_advisory(f_ir, None if sidecar is None else sidecar.get(f_id)):
+        field_ref = Ref.time_dimension(f_id) if f_ir.is_time_dimension else Ref.dimension(f_id)
+        body = None if sidecar is None else sidecar.bodies.get(field_ref)
+        if _time_dimension_pushdown_advisory(
+            f_ir,
+            None if body is None else body.callable,
+        ):
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value,
@@ -1453,8 +1562,11 @@ def assembly_validate(
 
     # Dtype/data_type mismatch advisory warnings
     for f_id, f_ir in registry.dimensions.items():
+        field_ref = Ref.time_dimension(f_id) if f_ir.is_time_dimension else Ref.dimension(f_id)
+        body = None if sidecar is None else sidecar.bodies.get(field_ref)
         inferred = _time_dimension_dtype_advisory(
-            f_ir, None if sidecar is None else sidecar.get(f_id)
+            f_ir,
+            None if body is None else body.callable,
         )
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))

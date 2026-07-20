@@ -152,6 +152,15 @@ class ErrorKind(StrEnum):
     BACKEND_FACTORY_REQUIRED = "backend_factory_required"
     INSPECT_SOURCE_REQUIRED = "inspect_source_required"
     PROJECT_NOT_LOADED = "project_not_loaded"
+    BINDING_CONTEXT_MISSING = "binding_context_missing"
+    INVALID_BINDING_REF = "invalid_binding_ref"
+    BINDING_ALIAS_NOT_DIRECT = "binding_alias_not_direct"
+    BINDING_ALIAS_AMBIGUOUS = "binding_alias_ambiguous"
+    BINDING_ENTITY_MISMATCH = "binding_entity_mismatch"
+    BINDING_NOT_DECLARED = "binding_not_declared"
+    BINDING_TARGET_MISSING = "binding_target_missing"
+    BINDING_CYCLE = "binding_cycle"
+    BINDING_RESULT_INVALID = "binding_result_invalid"
 
     # parity
     PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"

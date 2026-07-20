@@ -68,7 +68,7 @@ def test_session_backend_is_reused_until_close(
     assert created[0].disconnect_calls == 1
 
 
-def test_session_backend_accepts_canonical_datasource_id(
+def test_session_backend_rejects_legacy_kind_prefixed_string(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: list[str] = []
@@ -80,9 +80,9 @@ def test_session_backend_accepts_canonical_datasource_id(
     monkeypatch.setattr(runtime, "_build_backend_from_store", build)
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
 
-    service.session_backend("datasource.warehouse")
-
-    assert seen == ["warehouse"]
+    with pytest.raises(Exception, match="valid datasource name"):
+        service.session_backend("datasource.warehouse")
+    assert seen == []
 
 
 def test_datasource_module_exposes_runtime_service() -> None:
@@ -158,7 +158,7 @@ def test_session_backend_can_include_configured_semantic_layer_datasources(
     )
     backend = layered.session_backend("warehouse")
 
-    assert backend is layered.session_backend("datasource.warehouse")
+    assert backend is layered.session_backend("warehouse")
     layered.close_all()
 
 

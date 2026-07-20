@@ -23,7 +23,7 @@ from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.validation import ValidationIssue
-from tests.shared_fixtures import make_test_metric_contract
+from tests.shared_fixtures import make_test_delta_contract, make_test_metric_contract
 
 
 def test_validation_issue_carries_type_message_details():
@@ -117,7 +117,7 @@ def _mf(
         window=None,
         where={},
         semantic_kind=semantic_kind,
-        semantic_model="sales",
+        semantic_model=metric_id.split(".", 1)[0],
     )
     return MetricFrame(_df=df, meta=meta)
 
@@ -232,6 +232,7 @@ def _delta(
     alignment: dict | None = None,
 ) -> DeltaFrame:
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         ref="frame_d",
         session_id="s",
         project_root="/p",

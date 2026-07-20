@@ -70,11 +70,11 @@ def test_phase3_semantic_error_has_repair_field() -> None:
 
 
 def test_phase3_catalog_object_and_results_have_contract() -> None:
-    from marivo.semantic.catalog import CatalogObject, SemanticCatalog
+    from marivo.semantic.catalog import CatalogEntry, SemanticCatalog
     from marivo.semantic.dtos import VerifyResult
     from marivo.semantic.readiness import ReadinessReport
 
-    assert callable(getattr(CatalogObject, "contract", None))
+    assert callable(getattr(CatalogEntry, "contract", None))
     assert callable(getattr(SemanticCatalog, "contract", None))
     assert callable(getattr(VerifyResult, "contract", None))
     assert callable(getattr(ReadinessReport, "contract", None))

@@ -181,7 +181,7 @@ def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None
             "order_id | int64 | N | Unique order id.",
             "created_at | timestamp | ? | ",
             "suggested next calls:",
-            '- md.inspect(md.ref("datasource.wh"), md.table("orders")).partitions().show()',
+            '- md.inspect(ms.Ref.datasource("wh"), md.table("orders")).partitions().show()',
             '- md.partition({"order_date": "<value>"}, max_rows=..., timeout_seconds=...) to scope a snapshot to order_date',
             "available:",
             "- .render()",

@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AlignmentPolicyValidationError
 from marivo.analysis.policies import (
     AlignmentKind,
@@ -12,19 +13,17 @@ from marivo.analysis.policies import (
     window_bucket,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
-from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 
 
-def test_refs_are_exported_and_preserve_ids():
+def test_semantic_refs_stay_on_the_semantic_surface():
     assert mv.AlignmentKind is AlignmentKind
-    assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
-    assert make_ref("region", SemanticKind.DIMENSION).id == "region"
+    assert ms.Ref.metric("sales.revenue").path == "sales.revenue"
+    assert ms.Ref.dimension("sales.orders.region").path == "sales.orders.region"
     assert not hasattr(mv, "SemanticRef")
+    assert not hasattr(mv, "Ref")
+    assert not hasattr(mv, "SemanticKind")
     assert not hasattr(mv, "CatalogObject")
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
-    assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
-    assert make_ref("region", SemanticKind.DIMENSION).id == "region"
     assert CalendarRef("cn_holidays").id == "cn_holidays"
 
 

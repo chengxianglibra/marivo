@@ -10,7 +10,7 @@ from collections.abc import Sequence as _Sequence
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from marivo.refs import SemanticRef, SymbolKind
+from marivo.refs import DimensionKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic._authoring_context import (
     _register_authoring_file,
     _require_ref_id,
@@ -37,7 +37,6 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
     is_time_bearing_format,
 )
-from marivo.semantic.refs import DimensionRef, TimeDimensionRef, make_ref
 from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
 
@@ -128,7 +127,7 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
 
 def snapshot(
     *,
-    partition_field: DimensionRef | TimeDimensionRef,
+    partition_field: Ref[DimensionKind | TimeDimensionKind],
     grain: Literal["day"],
     timezone: str | None = None,
     format: str | None = None,
@@ -137,7 +136,7 @@ def snapshot(
     partition_ref = _require_ref_id(
         partition_field,
         parameter="partition_field",
-        expected=(DimensionRef, TimeDimensionRef),
+        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
     )
     if grain != "day":
         _raise(
@@ -165,8 +164,8 @@ def snapshot(
 
 def validity(
     *,
-    valid_from: DimensionRef | TimeDimensionRef,
-    valid_to: DimensionRef | TimeDimensionRef,
+    valid_from: Ref[DimensionKind | TimeDimensionKind],
+    valid_to: Ref[DimensionKind | TimeDimensionKind],
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -218,12 +217,12 @@ def validity(
     valid_from_ref = _require_ref_id(
         valid_from,
         parameter="valid_from",
-        expected=(DimensionRef, TimeDimensionRef),
+        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
     )
     valid_to_ref = _require_ref_id(
         valid_to,
         parameter="valid_to",
-        expected=(DimensionRef, TimeDimensionRef),
+        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
     )
     return ValidityVersioningIR(
         kind="validity",
@@ -237,12 +236,12 @@ def validity(
 
 def semi_additive(
     *,
-    over: TimeDimensionRef,
+    over: Ref[TimeDimensionKind],
     fold: AggregateFoldValue,
 ) -> SemiAdditive:
     """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 
-    ``over`` must be a ``TimeDimensionRef`` returned by ``@ms.time_dimension``.
+    ``over`` must be a ``Ref[time_dimension]`` returned by ``@ms.time_dimension``.
     Use as the ``additivity=`` value on a measure or a metric::
 
         @ms.measure(entity=inventory,
@@ -250,16 +249,16 @@ def semi_additive(
         def quantity(inventory):
             return inventory.qty
     """
-    if not isinstance(over, TimeDimensionRef):
-        received = getattr(over, "id", over)
+    if type(over) is not Ref or over.kind is not SemanticKind.TIME_DIMENSION:
+        received = getattr(over, "key", over)
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.semi_additive(...) over must be a TimeDimensionRef returned by "
-            f"@ms.time_dimension(...); got {type(over).__name__}: {received!r}.",
+            "ms.semi_additive(...) over must be Ref[time_dimension] returned by "
+            f"semantic authoring; got {type(over).__name__}: {received!r}.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
-    over_id = over.id
+    over_id = over.path
     fold_ir = _normalize_time_fold(fold, semantic_id=over_id)
     if fold_ir is None:
         _raise(
@@ -269,53 +268,6 @@ def semi_additive(
             constraint_id=ConstraintId.REF_SHAPE,
         )
     return SemiAdditive(over=over_id, fold=fold_ir)
-
-
-def ref(id: str) -> SemanticRef:
-    """Return a typed semantic ref for forward / cross-domain references.
-
-    Prefer importing refs returned by authoring calls. Use this explicit
-    fallback only for generated definitions, forward references, import cycles,
-    or protected model boundaries.
-    """
-    if not isinstance(id, str):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.ref(...) requires a string in '<kind>.<semantic_id>' format.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    kind_raw, separator, semantic_id = id.partition(".")
-    if not separator or not kind_raw or not semantic_id or ".." in semantic_id:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.ref(...) requires '<kind>.<semantic_id>', for example "
-            "'metric.sales.revenue' or 'dimension.sales.orders.region'.",
-            refs=(id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    try:
-        kind = SymbolKind(kind_raw)
-    except ValueError:
-        allowed = ", ".join(sorted(k.value for k in SymbolKind))
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"ms.ref(...) kind {kind_raw!r} is not supported; expected one of: {allowed}.",
-            refs=(id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    try:
-        return make_ref(semantic_id, kind)
-    except ValueError as exc:
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"ms.ref(...) could not build {kind.value} ref from {semantic_id!r}: {exc}",
-            refs=(id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
 
 
 def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
@@ -332,8 +284,8 @@ def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
 
 
 def join_on(
-    from_key: DimensionRef | TimeDimensionRef,
-    to_key: DimensionRef | TimeDimensionRef,
+    from_key: Ref[DimensionKind | TimeDimensionKind],
+    to_key: Ref[DimensionKind | TimeDimensionKind],
     /,
 ) -> JoinKey:
     """Build one relationship key pair for ``ms.relationship(keys=[...])``.
@@ -353,12 +305,12 @@ def join_on(
         from_key=_require_ref_id(
             from_key,
             parameter="from_key",
-            expected=(DimensionRef, TimeDimensionRef),
+            expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
         ),
         to_key=_require_ref_id(
             to_key,
             parameter="to_key",
-            expected=(DimensionRef, TimeDimensionRef),
+            expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
         ),
     )
 
@@ -491,7 +443,7 @@ def strptime(
 
 
 def hour_prefix(
-    prefix: TimeDimensionRef,
+    prefix: Ref[TimeDimensionKind],
     /,
     *,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
@@ -505,7 +457,7 @@ def hour_prefix(
     analysis time.
 
     Args:
-        prefix: The ``TimeDimensionRef`` of a day-level time dimension that
+        prefix: The ``Ref[time_dimension]`` of a day-level time dimension that
             supplies the date context for this hour column.
         sample_interval: Optional ``(count, unit)`` declaring the periodic
             sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
@@ -528,17 +480,17 @@ def hour_prefix(
         ... def hh(logs):
         ...     return logs.hh
     """
-    if not isinstance(prefix, TimeDimensionRef):
-        received = getattr(prefix, "id", prefix)
+    if type(prefix) is not Ref or prefix.kind is not SemanticKind.TIME_DIMENSION:
+        received = getattr(prefix, "key", prefix)
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.hour_prefix(...) prefix must be a TimeDimensionRef returned by "
-            f"@ms.time_dimension(...); got {type(prefix).__name__}: {received!r}.",
+            "ms.hour_prefix(...) prefix must be Ref[time_dimension] returned by "
+            f"semantic authoring; got {type(prefix).__name__}: {received!r}.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
     return HourPrefixParse(
-        prefix=prefix.id,
+        prefix=prefix.path,
         sample_interval=_normalize_sample_interval_value(
             sample_interval,
         ),

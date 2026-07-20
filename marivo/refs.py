@@ -1,18 +1,32 @@
-"""Cross-layer semantic reference base.
-
-This module sits below every other Marivo layer (datasource, semantic,
-analysis) so a single ``SemanticRef`` base can be shared by all of them
-without import cycles. It owns the ``SymbolKind`` enum for the same reason.
-"""
+"""Dependency-neutral semantic identities shared by every Marivo layer."""
 
 from __future__ import annotations
 
+import re
+import types
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Never,
+    Self,
+    SupportsIndex,
+    cast,
+    final,
+    get_args,
+    get_origin,
+)
+
+if TYPE_CHECKING:
+    from ibis.expr.types import Table as IbisTable
+    from ibis.expr.types import Value as IbisValue
 
 
-class SymbolKind(StrEnum):
-    """The kind of a semantic object. One ref subclass exists per member."""
+class SemanticKind(StrEnum):
+    """Closed runtime kind registry for every semantic identity."""
 
     DOMAIN = "domain"
     DATASOURCE = "datasource"
@@ -24,75 +38,408 @@ class SymbolKind(StrEnum):
     RELATIONSHIP = "relationship"
 
 
-class SemanticRef:
-    """Stable identity for a semantic object, shared across all layers.
+class SemanticKindTag:
+    """Private static marker base for ``Ref`` generic parameters."""
 
-    Identity (``id`` + ``kind``) is fixed at construction; ``__eq__`` /
-    ``__hash__`` are stable. This is deliberately not a frozen dataclass:
-    field-kind subclasses attach a single late-bound resolver (see
-    ``marivo.semantic.refs``). ``kind`` is normally encoded by the subclass.
-    """
+    __slots__ = ()
 
-    __slots__ = ("id", "kind")
 
-    id: str
-    kind: SymbolKind
+class DomainKind(SemanticKindTag):
+    __slots__ = ()
 
-    def __init__(self, id: str, kind: SymbolKind) -> None:
-        normalized = id.strip()
-        if not normalized:
-            raise ValueError("ref id must be non-empty")
-        object.__setattr__(self, "id", normalized)
-        object.__setattr__(self, "kind", kind)
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_resolver":
-            # Allow field refs to attach a late-bound resolver.
-            object.__setattr__(self, name, value)
-            return
-        raise AttributeError("SemanticRef instances are immutable")
+class DatasourceKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class EntityKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class DimensionKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class TimeDimensionKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class MeasureKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class MetricKind(SemanticKindTag):
+    __slots__ = ()
+
+
+class RelationshipKind(SemanticKindTag):
+    __slots__ = ()
+
+
+type FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
+
+
+_KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
+    DomainKind: frozenset({SemanticKind.DOMAIN}),
+    DatasourceKind: frozenset({SemanticKind.DATASOURCE}),
+    EntityKind: frozenset({SemanticKind.ENTITY}),
+    DimensionKind: frozenset({SemanticKind.DIMENSION}),
+    TimeDimensionKind: frozenset({SemanticKind.TIME_DIMENSION}),
+    MeasureKind: frozenset({SemanticKind.MEASURE}),
+    MetricKind: frozenset({SemanticKind.METRIC}),
+    RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
+}
+
+_SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_SEGMENT_COUNT = {
+    SemanticKind.DOMAIN: 1,
+    SemanticKind.DATASOURCE: 1,
+    SemanticKind.ENTITY: 2,
+    SemanticKind.DIMENSION: 3,
+    SemanticKind.TIME_DIMENSION: 3,
+    SemanticKind.MEASURE: 3,
+    SemanticKind.METRIC: 2,
+    SemanticKind.RELATIONSHIP: 2,
+}
+
+
+def _validate_segment(value: object, *, role: str = "semantic path segment") -> str:
+    if type(value) is not str or not _SEGMENT_RE.fullmatch(value):
+        raise ValueError(
+            f"{role} must match [a-z][a-z0-9_]*; received {value!r}. "
+            "Use a lowercase snake_case name."
+        )
+    return value
+
+
+def _validate_ref_path(kind: SemanticKind, path: object) -> str:
+    if type(kind) is not SemanticKind:
+        raise TypeError(f"ref kind must be SemanticKind; received {type(kind).__name__}")
+    if type(path) is not str:
+        raise TypeError(f"{kind.value} ref path must be str; received {type(path).__name__}")
+    if path != path.strip():
+        raise ValueError(
+            f"{kind.value} ref path must not contain surrounding whitespace; received {path!r}"
+        )
+    parts = path.split(".")
+    expected = _SEGMENT_COUNT[kind]
+    if len(parts) != expected:
+        raise ValueError(
+            f"{kind.value} ref path must contain exactly {expected} segment"
+            f"{'s' if expected != 1 else ''}; received {path!r}"
+        )
+    for part in parts:
+        _validate_segment(part, role=f"{kind.value} ref path segment")
+    return path
+
+
+@final
+class Ref[KindT: SemanticKindTag]:
+    """Sealed semantic identity created only by an exact kind factory."""
+
+    __slots__ = ("kind", "path")
+
+    kind: SemanticKind
+    path: str
+
+    def __new__(cls, *args: object, **kwargs: object) -> Self:
+        del cls, args, kwargs
+        raise TypeError(
+            "Ref has no public raw constructor; use Ref.metric(...), "
+            "Ref.dimension(...), or another exact kind factory."
+        )
+
+    def __init__(self, _sealed: Never, /) -> None:
+        raise AssertionError("Ref initialization is unreachable")
+
+    def __init_subclass__(cls, **kwargs: object) -> Never:
+        del cls, kwargs
+        raise TypeError("Ref is sealed and cannot be subclassed.")
+
+    def __setattr__(self, name: str, value: object) -> Never:
+        del name, value
+        raise AttributeError("Ref instances are immutable")
+
+    @staticmethod
+    def _create(kind: SemanticKind, path: object) -> Ref[SemanticKindTag]:
+        validated = _validate_ref_path(kind, path)
+        value: Ref[SemanticKindTag] = object.__new__(Ref)
+        object.__setattr__(value, "kind", kind)
+        object.__setattr__(value, "path", validated)
+        return value
+
+    @staticmethod
+    def domain(path: str) -> Ref[DomainKind]:
+        return cast("Ref[DomainKind]", Ref._create(SemanticKind.DOMAIN, path))
+
+    @staticmethod
+    def datasource(path: str) -> Ref[DatasourceKind]:
+        return cast("Ref[DatasourceKind]", Ref._create(SemanticKind.DATASOURCE, path))
+
+    @staticmethod
+    def entity(path: str) -> Ref[EntityKind]:
+        return cast("Ref[EntityKind]", Ref._create(SemanticKind.ENTITY, path))
+
+    @staticmethod
+    def dimension(path: str) -> Ref[DimensionKind]:
+        return cast("Ref[DimensionKind]", Ref._create(SemanticKind.DIMENSION, path))
+
+    @staticmethod
+    def time_dimension(path: str) -> Ref[TimeDimensionKind]:
+        return cast(
+            "Ref[TimeDimensionKind]",
+            Ref._create(SemanticKind.TIME_DIMENSION, path),
+        )
+
+    @staticmethod
+    def measure(path: str) -> Ref[MeasureKind]:
+        return cast("Ref[MeasureKind]", Ref._create(SemanticKind.MEASURE, path))
+
+    @staticmethod
+    def metric(path: str) -> Ref[MetricKind]:
+        return cast("Ref[MetricKind]", Ref._create(SemanticKind.METRIC, path))
+
+    @staticmethod
+    def relationship(path: str) -> Ref[RelationshipKind]:
+        return cast(
+            "Ref[RelationshipKind]",
+            Ref._create(SemanticKind.RELATIONSHIP, path),
+        )
+
+    @property
+    def key(self) -> str:
+        return f"{self.kind.value}:{self.path}"
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit(".", 1)[-1]
 
     def __str__(self) -> str:
-        return self.id
+        return self.key
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.id!r})"
+        return f"Ref[{self.kind.value}]({self.key})"
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, SemanticRef):
-            return NotImplemented
-        return type(self) is type(other) and self.id == other.id
+        if type(other) is not Ref:
+            return False
+        ref = cast("Ref[SemanticKindTag]", other)
+        return self.kind is ref.kind and self.path == ref.path
 
     def __hash__(self) -> int:
-        return hash((type(self), self.id))
+        return hash((self.kind, self.path))
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        raise TypeError(
-            f"{self.id!r} is a declared semantic object, not a decorator. "
-            "Body-free constructors (ms.ratio / ms.weighted_average / ms.linear / "
-            "ms.aggregate / ms.relationship) return a ref — assign it, e.g. "
-            "`loss_rate = ms.ratio(name=..., numerator=..., denominator=...)`. "
-            "They have no function body."
-        )
+    def __call__(self: Ref[FieldKind], entity_alias: IbisTable, /) -> IbisValue:
+        from marivo.semantic._expression_binding import apply_field_ref
+
+        return apply_field_ref(self, entity_alias)
+
+    def __copy__(self) -> Ref[KindT]:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, object]) -> Ref[KindT]:
+        memo[id(self)] = self
+        return self
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[object, tuple[object, ...]]:
+        del protocol
+        return (_restore_ref_payload, (RefPayloadV1.from_ref(self),))
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> Any:
-        """Allow ref subclasses to be used as Pydantic field types."""
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: object,
+        handler: object,
+    ) -> Any:
+        del cls, handler
         from pydantic_core import core_schema
 
-        ref_cls: type[SemanticRef] = _source_type if _source_type is not SemanticRef else cls
+        allowed_kinds = _allowed_kinds_for_annotation(source_type)
+        allowed_values = [kind.value for kind in sorted(allowed_kinds, key=lambda item: item.value)]
 
-        def validate(value: Any) -> SemanticRef:
-            if isinstance(value, ref_cls):
-                return value
-            if isinstance(value, str):
-                return ref_cls(value)  # type: ignore[call-arg]
-            raise ValueError(f"expected str or {ref_cls.__name__}, got {type(value).__name__}")
+        def validate_python(value: object) -> Ref[SemanticKindTag]:
+            if type(value) is not Ref:
+                raise ValueError(f"expected exact Ref value; received {type(value).__name__}")
+            ref = cast("Ref[SemanticKindTag]", value)
+            if ref.kind not in allowed_kinds:
+                expected = ", ".join(allowed_values)
+                raise ValueError(f"expected Ref kind in {{{expected}}}; received {ref.kind.value}")
+            return ref
 
-        return core_schema.no_info_plain_validator_function(
-            validate,
+        def validate_json(value: dict[str, object]) -> Ref[SemanticKindTag]:
+            ref = _decode_ref_payload(value)
+            if ref.kind not in allowed_kinds:
+                expected = ", ".join(allowed_values)
+                raise ValueError(f"expected Ref kind in {{{expected}}}; received {ref.kind.value}")
+            return ref
+
+        def serialize(value: Ref[SemanticKindTag], info: object) -> object:
+            mode = getattr(info, "mode", "python")
+            if mode == "json":
+                return {
+                    "schema": "marivo.semantic_ref/v1",
+                    "kind": value.kind.value,
+                    "path": value.path,
+                }
+            return value
+
+        json_payload_schema = core_schema.typed_dict_schema(
+            {
+                "schema": core_schema.typed_dict_field(
+                    core_schema.literal_schema(["marivo.semantic_ref/v1"]),
+                    required=True,
+                ),
+                "kind": core_schema.typed_dict_field(
+                    core_schema.literal_schema(allowed_values),
+                    required=True,
+                ),
+                "path": core_schema.typed_dict_field(
+                    core_schema.str_schema(),
+                    required=True,
+                ),
+            },
+            extra_behavior="forbid",
+            total=True,
+        )
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.chain_schema(
+                [
+                    json_payload_schema,
+                    core_schema.no_info_plain_validator_function(validate_json),
+                ]
+            ),
+            python_schema=core_schema.no_info_plain_validator_function(validate_python),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda v: v.id,
-                info_arg=False,
+                serialize,
+                info_arg=True,
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class RefPayloadV1:
+    """Internal versioned wire payload for one exact semantic ref."""
+
+    schema: Literal["marivo.semantic_ref/v1"]
+    kind: SemanticKind
+    path: str
+
+    def __post_init__(self) -> None:
+        if self.schema != "marivo.semantic_ref/v1":
+            raise ValueError(
+                f"ref payload schema must be 'marivo.semantic_ref/v1'; received {self.schema!r}"
+            )
+        if type(self.kind) is not SemanticKind:
+            raise TypeError(
+                f"ref payload kind must be SemanticKind; received {type(self.kind).__name__}"
+            )
+        _validate_ref_path(self.kind, self.path)
+
+    @classmethod
+    def from_ref(cls, ref: Ref[SemanticKindTag]) -> RefPayloadV1:
+        if type(ref) is not Ref:
+            raise TypeError(f"expected exact Ref value; received {type(ref).__name__}")
+        return cls(
+            schema="marivo.semantic_ref/v1",
+            kind=ref.kind,
+            path=ref.path,
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        """Return the canonical JSON object for this persisted ref."""
+        return {
+            "schema": self.schema,
+            "kind": self.kind.value,
+            "path": self.path,
+        }
+
+
+def _allowed_kinds_for_annotation(source_type: object) -> frozenset[SemanticKind]:
+    if get_origin(source_type) is not Ref:
+        raise TypeError("Ref must be parameterized with one exact semantic kind marker")
+    arguments = get_args(source_type)
+    if len(arguments) != 1:
+        raise TypeError("Ref must be parameterized with one exact semantic kind marker")
+
+    def collect(marker: object) -> set[SemanticKind]:
+        if marker in _KIND_BY_MARKER:
+            return set(_KIND_BY_MARKER[marker])
+        if get_origin(marker) is types.UnionType:
+            kinds: set[SemanticKind] = set()
+            for member in get_args(marker):
+                kinds.update(collect(member))
+            return kinds
+        raise TypeError(f"unsupported Ref kind marker {marker!r}")
+
+    allowed = frozenset(collect(arguments[0]))
+    if not allowed:
+        raise TypeError("Ref kind marker must resolve to at least one semantic kind")
+    return allowed
+
+
+_FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
+    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.domain),
+    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.datasource),
+    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.entity),
+    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.dimension),
+    SemanticKind.TIME_DIMENSION: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        Ref.time_dimension,
+    ),
+    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.measure),
+    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.metric),
+    SemanticKind.RELATIONSHIP: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        Ref.relationship,
+    ),
+}
+
+
+def _decode_ref_payload(
+    value: RefPayloadV1 | Mapping[str, object],
+) -> Ref[SemanticKindTag]:
+    if type(value) is RefPayloadV1:
+        payload = value
+    else:
+        if type(value) is not dict:
+            raise TypeError(f"ref payload must be an exact object; received {type(value).__name__}")
+        if set(value) != {"schema", "kind", "path"}:
+            raise ValueError("ref payload must contain exactly schema, kind, and path")
+        schema = value["schema"]
+        kind_value = value["kind"]
+        path = value["path"]
+        if schema != "marivo.semantic_ref/v1":
+            raise ValueError(
+                f"ref payload schema must be 'marivo.semantic_ref/v1'; received {schema!r}"
+            )
+        if type(kind_value) is not str:
+            raise TypeError(f"ref payload kind must be str; received {type(kind_value).__name__}")
+        try:
+            kind = SemanticKind(kind_value)
+        except ValueError as exc:
+            raise ValueError(f"unsupported semantic ref kind {kind_value!r}") from exc
+        if type(path) is not str:
+            raise TypeError(f"ref payload path must be str; received {type(path).__name__}")
+        payload = RefPayloadV1(
+            schema="marivo.semantic_ref/v1",
+            kind=kind,
+            path=path,
+        )
+    return _FACTORY_BY_KIND[payload.kind](payload.path)
+
+
+def _decode_ref_key(value: object) -> Ref[SemanticKindTag]:
+    if type(value) is not str:
+        raise TypeError(f"ref key must be str; received {type(value).__name__}")
+    kind_value, separator, path = value.partition(":")
+    if not separator:
+        raise ValueError("ref key must be '<kind>:<path>'")
+    try:
+        kind = SemanticKind(kind_value)
+    except ValueError as exc:
+        raise ValueError(f"unsupported semantic ref kind {kind_value!r}") from exc
+    return _FACTORY_BY_KIND[kind](path)
+
+
+def _restore_ref_payload(payload: RefPayloadV1) -> Ref[SemanticKindTag]:
+    return _decode_ref_payload(payload)

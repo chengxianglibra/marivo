@@ -28,6 +28,7 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage
 from marivo.introspection.live.model import LiveHelpTarget
+from tests.shared_fixtures import make_test_delta_contract, make_test_metric_meta_contract
 
 
 def _base_meta(kind: str, ref: str, row_count: int = 1) -> dict[str, Any]:
@@ -58,6 +59,10 @@ def _delta_contract_frame(
     return DeltaFrame(
         _df=pd.DataFrame({"delta": [1.0]}),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract(
+                "sales.revenue",
+                status_time_dimension=status_time_dimension,
+            ),
             **_base_meta("delta_frame", "frame_delta_contract"),
             metric_id="sales.revenue",
             source_current_ref="frame_current",
@@ -85,6 +90,7 @@ def _artifact_cases():
     yield MetricFrame(
         _df=pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]}),
         meta=MetricFrameMeta(
+            **make_test_metric_meta_contract("sales.revenue"),
             **_base_meta("metric_frame", "frame_metric"),
             metric_id="sales.revenue",
             axes={},
@@ -98,6 +104,7 @@ def _artifact_cases():
     yield DeltaFrame(
         _df=pd.DataFrame({"delta": [1.0]}),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             **_base_meta("delta_frame", "frame_delta"),
             metric_id="sales.revenue",
             source_current_ref="frame_current",

@@ -11,7 +11,7 @@ See also:
 
 - [overview.md](overview.md) — the three-layer picture and guidance layering.
 - [loading-validation-introspection.md](loading-validation-introspection.md) —
-  what `ms.load()`, `catalog.verify_object(...)`, scoped preview, and
+  what `ms.load()`, `catalog.verify(...)`, scoped preview, and
   `catalog.readiness(...)` return.
 - `ms.help("authoring")` / `md.help("authoring")` — the runnable checklists.
 
@@ -112,7 +112,7 @@ The per-object cycle is the registered lifecycle applied to one object. Its
 mechanical transitions — load, verify, preview, and readiness —
 and their exact inputs, effects, and preconditions are disclosed by focused
 `ms.help(<target>)` and the current object/result's `.contract()`, not restated
-here as a second runbook. `CatalogObject.contract()` exposes the exact
+here as a second runbook. `CatalogEntry.contract()` exposes the exact
 object-bound verify, preview, and readiness continuations; this is the canonical
 read point after `ms.load()`. The judgment-shaped steps, which no registry can
 perform, are:
@@ -124,14 +124,14 @@ perform, are:
   dependencies matter.
 - Ask the user only when semantic intent or business policy is still unresolved
   after the evidence pass.
-- Author exactly one semantic object in Python, reload, and navigate to its
-  typed catalog object.
+- Author exactly one semantic object in Python, reload, require its exact ref,
+  and inspect the resulting catalog entry.
 
 Authoring several objects and validating later is forbidden — each object is
 verified before the next. Verification is result-local (a current `VerifyResult`
 proves one check passed) and not a persisted gate; the skill enforces
 verify-before-preview as policy, while the runtime leaves preview mechanically
-callable from a loaded object.
+callable from an exact loaded ref.
 
 ## Datasource evidence handoff
 
@@ -156,7 +156,7 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
-`DatasourceRef`, `TableSource`, and the source constructors (`md.table(...)`,
+`Ref[datasource]`, `TableSource`, and the source constructors (`md.table(...)`,
 `md.parquet(...)`, `md.csv(...)`, `md.json(...)`) are datasource-owned. Once an
 entity is registered, do not re-supply `(datasource, source)` tuples for semantic
 object parameters — physical facts stay datasource-owned, semantic refs stay
@@ -166,13 +166,13 @@ semantic-owned.
 
 Object-to-object parameters use ref objects. Prefer refs returned by earlier
 declarations or imported from sibling semantic modules. Use
-`ms.ref("<kind>.<semantic_id>")` only for explicit forward/cross-file references,
-import cycles, or generated code:
+`ms.Ref.<kind>(path)` only for explicit forward/cross-file references or
+import cycles:
 
 ```python
 sessions_per_user = ms.ratio(
     name="sessions_per_user",
-    numerator=ms.ref("metric.marketing.sessions"),
+    numerator=ms.Ref.metric("marketing.sessions"),
     denominator=total_users,
 )
 ```
@@ -215,11 +215,11 @@ If the decomposition is unclear, do not default to a sum — settle the structur
 from the business definition, source SQL, existing component metrics, or a user
 answer.
 
-**When to use `ms.ref`** — prefer decorated object refs for static readability
-and refactoring; reserve `ms.ref("<kind>.<semantic_id>")` for forward,
-cross-domain, or generated references. Its single positional argument is
-`<kind>.<semantic_id>` (e.g. `ms.ref("metric.marketing.sessions")`,
-`ms.ref("dimension.sales.orders.user_id")`).
+**When to use `ms.Ref.<kind>`** — prefer decorated object refs for static readability
+and refactoring; reserve `ms.Ref.<kind>(path)` for forward or cross-domain
+references. Its single positional argument is the kind-relative path
+(e.g. `ms.Ref.metric("marketing.sessions")`,
+`ms.Ref.dimension("sales.orders.user_id")`).
 
 ### What to settle vs ask
 
@@ -260,17 +260,17 @@ treats any `unverified` metric (including via derived propagation) as a failure.
 
 ## Verification and readiness
 
-- **`catalog.verify_object(obj)`** is a static, zero-query per-object gate. Its
+- **`catalog.verify(ref)`** is a static, zero-query per-ref gate. Its
   result is result-local: it proves one check passed but is not persisted as a
   workflow checkpoint and is not a runtime prerequisite for preview. The skill
   enforces verify-before-preview as policy.
-- **`catalog.preview(obj, using=snapshot)`** is the explicit scoped runtime gate;
+- **`catalog.preview(ref, using=snapshot)`** is the explicit scoped runtime gate;
   multi-entity objects use an exact entity-keyed snapshot mapping.
-- **`catalog.preview(refs=report.preview_required_refs, using=...)`** is the
+- **`catalog.preview_many(report.preview_required_refs, using=...)`** is the
   canonical readiness-repair path when several already-authored objects lack
   preview evidence. It batches compatible execution plans but persists exact
   evidence per object; it does not replace the one-object authoring loop.
-- **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
+- **`catalog.readiness(refs=[ref])`** is the final zero-query closeout gate. It
   reads matching static and runtime-check evidence, reports missing or stale
   preview evidence as an advisory, and never refreshes automatically. Evidence
   age is reported through snapshot metadata but does not block readiness or

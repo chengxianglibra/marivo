@@ -8,11 +8,10 @@ from __future__ import annotations
 from typing import Any, cast
 
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
-from marivo.refs import SemanticRef
+from marivo.refs import EntityKind, FieldKind, Ref, SemanticKind
 from marivo.semantic.catalog import (
     DimensionDetails,
     EntityDetails,
-    SemanticKind,
     TimeDimensionDetails,
 )
 from marivo.semantic.ir import HourPrefixParse
@@ -83,16 +82,39 @@ class _EntityIRAdapter:
         self.fields = fields
 
 
-def _catalog_id(ref: str, kind: SemanticKind) -> str:
-    return f"{kind.value}.{ref}"
-
-
 def _catalog_kind(catalog: Any, ref: str) -> SemanticKind | None:
-    return cast("SemanticKind | None", catalog._require_index().kind_of(ref))
+    registry = catalog._require_index().registry
+    dimension = registry.dimensions.get(ref)
+    if dimension is not None:
+        return (
+            SemanticKind.TIME_DIMENSION if dimension.is_time_dimension else SemanticKind.DIMENSION
+        )
+    if ref in registry.entities:
+        return SemanticKind.ENTITY
+    if ref in registry.measures:
+        return SemanticKind.MEASURE
+    if ref in registry.metrics:
+        return SemanticKind.METRIC
+    if ref in registry.relationships:
+        return SemanticKind.RELATIONSHIP
+    return None
 
 
 def _catalog_object(catalog: Any, ref: str, kind: SemanticKind) -> Any:
-    return catalog.get(_catalog_id(ref, kind))
+    factory = {
+        SemanticKind.ENTITY: Ref.entity,
+        SemanticKind.DIMENSION: Ref.dimension,
+        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
+        SemanticKind.MEASURE: Ref.measure,
+        SemanticKind.METRIC: Ref.metric,
+        SemanticKind.RELATIONSHIP: Ref.relationship,
+    }.get(kind)
+    if factory is None:
+        raise SemanticKindMismatchError(
+            message=f"unsupported catalog kind {kind.value}",
+            context={"ref": ref, "kind": kind.value},
+        )
+    return catalog.require(factory(ref))
 
 
 def _entity_details(catalog: Any, ref: str) -> EntityDetails:
@@ -122,10 +144,10 @@ def _fields_for_entity(
     catalog: Any, entity_ref: str
 ) -> list[DimensionDetails | TimeDimensionDetails]:
     index = catalog._require_index()
-    scope_id = f"entity.{entity_ref}"
+    scope_ref = Ref.entity(entity_ref)
     details = (
-        *index.details_under(SemanticKind.DIMENSION, scope_id=scope_id),
-        *index.details_under(SemanticKind.TIME_DIMENSION, scope_id=scope_id),
+        *index.details_under(SemanticKind.DIMENSION, scope_ref=scope_ref),
+        *index.details_under(SemanticKind.TIME_DIMENSION, scope_ref=scope_ref),
     )
     return [item for item in details if isinstance(item, (DimensionDetails, TimeDimensionDetails))]
 
@@ -135,15 +157,22 @@ def _build_entity_adapter(
     resolver: Any,
     entity: EntityDetails,
 ) -> _EntityIRAdapter:
-    def _source_fn(_backend: Any, *, _ref: SemanticRef = entity.ref) -> Any:
-        return resolver.table(_ref)
+    entity_ref = cast("Ref[EntityKind]", entity.ref)
+
+    def _source_fn(_backend: Any) -> Any:
+        return resolver.table(entity_ref)
+
+    def make_field_fn(ref: Ref[FieldKind]) -> Any:
+        def field_fn(table_arg: Any) -> Any:
+            return resolver.dimension_on(ref, table_arg)
+
+        return field_fn
 
     field_adapters: dict[str, _DimensionIRAdapter] = {}
-    for field in _fields_for_entity(catalog, entity.ref.id):
+    for field in _fields_for_entity(catalog, entity.ref.path):
         field_ref = field.ref
 
-        def _field_fn(table_arg: Any, *, _ref: SemanticRef = field_ref) -> Any:
-            return resolver.dimension_on(_ref, table_arg)
+        field_fn = make_field_fn(cast("Ref[FieldKind]", field_ref))
 
         if isinstance(field, TimeDimensionDetails):
             is_time = True
@@ -152,7 +181,7 @@ def _build_entity_adapter(
             required_prefix: str | None = None
             if field.parse_kind == "hour_prefix":
                 registry = catalog._require_index().registry
-                dim_ir = registry.dimensions.get(field.ref.id)
+                dim_ir = registry.dimensions.get(field.ref.path)
                 if dim_ir is not None and isinstance(dim_ir.parse, HourPrefixParse):
                     required_prefix = dim_ir.parse.prefix
             # Resolve data_type: when the IR no longer carries data_type on
@@ -173,17 +202,17 @@ def _build_entity_adapter(
                 required_prefix=required_prefix,
                 timezone=field.timezone,
                 parse_kind=field.parse_kind,
-                semantic_id=field.ref.id,
+                semantic_id=field.ref.path,
                 name=field.name,
             )
         else:
             is_time = False
             time_meta = None
         adapter = _DimensionIRAdapter(
-            semantic_id=field.ref.id,
+            semantic_id=field.ref.path,
             name=field.name,
             dataset_name=entity.name,
-            fn=_field_fn,
+            fn=field_fn,
             is_time=is_time,
             is_default=getattr(field, "is_default", False),
             time_meta=time_meta,
@@ -193,6 +222,6 @@ def _build_entity_adapter(
     return _EntityIRAdapter(
         name=entity.name,
         fn=_source_fn,
-        datasource_name=entity.datasource.id,
+        datasource_name=entity.datasource.path,
         fields=field_adapters,
     )

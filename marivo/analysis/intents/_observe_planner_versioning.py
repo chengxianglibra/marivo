@@ -255,7 +255,7 @@ def _resolve_snapshot_as_of_root_time(
             repair=[],
         )
     target_tz = _resolved_target_timezone(snapshot_versioning)
-    time_field_fn = _field_fn(catalog, root_time_dimension.ref.id)
+    time_field_fn = _field_fn(catalog, root_time_dimension.ref.path)
     time_field_expr = time_field_fn(root_table)
     anchor_dates = _discover_anchor_dates(
         root_table=root_table,
@@ -406,7 +406,7 @@ def _resolve_validity_as_of_predicate(
         )
     valid_from_local = validity_versioning.valid_from.rsplit(".", 1)[-1]
     valid_to_local = validity_versioning.valid_to.rsplit(".", 1)[-1]
-    anchor = _field_fn(catalog, root_time_dimension.ref.id)(current_table).cast("date")
+    anchor = _field_fn(catalog, root_time_dimension.ref.path)(current_table).cast("date")
     valid_from = validity_table[valid_from_local]
     valid_to_raw = validity_table[valid_to_local]
     open_end = _validity_open_end_predicate(validity_table, validity_versioning)

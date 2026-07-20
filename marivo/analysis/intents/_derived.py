@@ -14,6 +14,7 @@ from typing import Any, cast
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import CrossSessionFrameError, SemanticKindMismatchError
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -164,7 +165,6 @@ def persist_attribution_frame(
     )
     frame = AttributionFrame(_df=df.copy(), meta=meta)
     source_ref_values = [source.meta.artifact_id or source.ref for source in sources]
-    metric_id = metric_ids[0] if metric_ids else None
     frame = cast(
         "AttributionFrame",
         commit_result(
@@ -174,8 +174,8 @@ def persist_attribution_frame(
             step_type=intent,
             inputs=CommitInputs(input_refs=source_ref_values),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_id or ""}),
-            subject=Subject(metric=metric_id, analysis_axis="decomposition"),
+            semantic_anchors=CommitSemanticAnchors.from_frames(*sources),
+            subject=Subject(analysis_axis="decomposition"),
             extractor_family="attribution_frame",
             seeding_context={"observed_window": None},
         ),
@@ -188,6 +188,7 @@ def persist_attribution_frame(
             "id": job_ref,
             "session_id": session.id,
             "intent": intent,
+            **job_semantics_from_frames(*sources),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": source_refs,
@@ -198,7 +199,6 @@ def persist_attribution_frame(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": semantic_model,
             "queries": [qe.to_dict() for qe in _captured_queries],
         },
     )

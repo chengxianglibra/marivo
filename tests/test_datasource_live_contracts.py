@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
@@ -35,7 +36,7 @@ def snapshot(tmp_path: Path) -> object:
 
     return DiscoverySnapshot(
         id="snapshot-1",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("orders"),
         scope=md.unpruned(max_rows=10, timeout_seconds=5),
         columns=("order_id",),
@@ -103,7 +104,7 @@ def test_spec_contract_exposes_only_register_transition() -> None:
     contract = spec.contract()
 
     assert contract.states == (
-        AuthoringStateRef(id="datasource.declared", subject_refs=("datasource.warehouse",)),
+        AuthoringStateRef(id="datasource.declared", subject_refs=("datasource:warehouse",)),
     )
     assert [transition.kind for transition in contract.transitions] == ["register"]
     assert contract.transitions[0].help_target == LiveHelpTarget(
@@ -119,7 +120,7 @@ def test_successful_connection_test_proves_connection_validated() -> None:
     assert (
         AuthoringStateRef(
             id="datasource.connection_validated",
-            subject_refs=("datasource.warehouse",),
+            subject_refs=("datasource:warehouse",),
         )
         in result.contract().states
     )
@@ -168,7 +169,7 @@ def test_registered_datasource_inspection_contract_binds_ref_and_requires_table(
         (requirement.role, requirement.family, requirement.subject_refs)
         for requirement in inspect.input_requirements
     ] == [
-        ("subject", "DatasourceRef", ("datasource.warehouse",)),
+        ("subject", "Ref[datasource]", ("datasource:warehouse",)),
         ("dependency", "TableSource", ()),
     ]
 

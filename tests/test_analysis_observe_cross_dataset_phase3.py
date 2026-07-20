@@ -10,7 +10,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -34,8 +34,8 @@ def _bootstrap(tmp_path: Path) -> None:
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=md.ref('datasource.warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource=ms.Ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"

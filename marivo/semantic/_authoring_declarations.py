@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Literal
 
+from marivo.refs import DomainKind, EntityKind, MeasureKind, MetricKind, Ref, SemanticKind
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -29,6 +30,7 @@ from marivo.semantic._authoring_validation import (
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -41,9 +43,7 @@ from marivo.semantic.ir import (
     WhereFilter,
     WhereValue,
 )
-from marivo.semantic.refs import DomainRef, EntityRef, MeasureRef, MetricRef
 from marivo.semantic.typing import AiContextValue
-from marivo.semantic.validator import validate_metric_body_ast
 
 
 def domain(
@@ -52,7 +52,7 @@ def domain(
     owner: str,
     default: bool = True,
     ai_context: AiContextValue | None = None,
-) -> DomainRef:
+) -> Ref[DomainKind]:
     """Declare a semantic domain namespace inside a project file.
 
     A domain groups entities, dimensions, metrics, and relationships under a single
@@ -69,7 +69,7 @@ def domain(
             agent-facing hints.
 
     Returns:
-        A ``DomainRef`` that can be passed as the ``domain=`` kwarg to other
+        A ``Ref[domain]`` that can be passed as the ``domain=`` kwarg to other
         decorators to override the default domain context.
 
     Raises:
@@ -81,6 +81,7 @@ def domain(
         >>> sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
     """
     ctx = _require_ctx()
+    ref = Ref.domain(name)
     if not isinstance(owner, str) or not owner.strip():
         _raise(
             ErrorKind.INVALID_DOMAIN_OWNER,
@@ -98,25 +99,25 @@ def domain(
         ai_context=ai_ctx,
         location=location,
     )
-    _push_ir(ctx, ir, None)
+    _push_ir(ctx, ref, ir, None)
 
     if default:
         ctx.default_domain = name
 
-    return DomainRef(semantic_id=name)
+    return ref
 
 
 def aggregate(
     *,
     name: str,
-    measure: MeasureRef,
+    measure: Ref[MeasureKind],
     agg: AggKind,
     fold: AggregateFoldInput = None,
     filter: WhereFilter | None = None,
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a tier-1 simple metric: an aggregation over a measure.
 
     The metric inherits its additivity nature from ``measure`` (resolved at load);
@@ -124,7 +125,7 @@ def aggregate(
 
     Args:
         name: Metric name (required).
-        measure: Measure to aggregate (``MeasureRef``).
+        measure: Measure to aggregate (``Ref[measure]``).
         agg: Aggregation kind: ``"sum"``, ``"count"``, ``"count_distinct"``,
             ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
             ``("percentile", q)`` for the q-th percentile across rows in each
@@ -149,10 +150,15 @@ def aggregate(
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    measure_id = _require_ref_id(measure, parameter="measure", expected=(MeasureRef,))
+    measure_id = _require_ref_id(
+        measure,
+        parameter="measure",
+        expected=(SemanticKind.MEASURE,),
+    )
     entity_id = measure_id.rsplit(".", 1)[0]
     obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
+    ref = Ref.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
     fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
@@ -182,8 +188,8 @@ def aggregate(
         aggregation_target_kind="measure",
         filter=filter_pairs,
     )
-    _push_ir(ctx, metric_ir, None)
-    return MetricRef(semantic_id)
+    _push_ir(ctx, ref, metric_ir, None)
+    return ref
 
 
 def _resolve_filter_pairs(filter: WhereFilter | None) -> tuple[tuple[str, WhereValue], ...] | None:
@@ -255,10 +261,10 @@ def where(**conditions: WhereValue) -> WhereFilter:
 def count(
     *,
     name: str,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     filter: WhereFilter | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a row-count metric for an entity.
 
     Args:
@@ -271,10 +277,10 @@ def count(
             agent-facing hints.
 
     Returns:
-        A ``MetricRef`` for the count metric.
+        A ``Ref[metric]`` for the count metric.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
         >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 
@@ -284,9 +290,10 @@ def count(
     """
     ctx = _require_ctx()
     entity_ref = _require_entity_ref(entity, parameter="entity")
-    entity_id = entity_ref.id
+    entity_id = entity_ref.path
     resolved_domain = _domain_from_ref_id(entity_id)
     semantic_id = f"{resolved_domain}.{name}"
+    ref = Ref.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -311,22 +318,22 @@ def count(
         aggregation_target_kind="entity",
         filter=filter_pairs,
     )
-    _push_ir(ctx, metric_ir, None)
-    return MetricRef(semantic_id)
+    _push_ir(ctx, ref, metric_ir, None)
+    return ref
 
 
 def metric(
     *,
     name: str | None = None,
-    entities: list[EntityRef],
+    entities: list[Ref[EntityKind]],
     additivity: Additivity,
-    root_entity: EntityRef | None = None,
+    root_entity: Ref[EntityKind] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
     provenance: SqlProvenance | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], MetricRef]:
+) -> Callable[[Callable[..., Any]], Ref[MetricKind]]:
     """Declare a metric from an ibis body. Declares ``additivity`` directly.
 
     Args:
@@ -341,7 +348,7 @@ def metric(
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``MetricRef``.
+        A decorator that returns a ``Ref[metric]``.
 
     Example:
         >>> @ms.metric(entities=[orders], additivity="additive")
@@ -351,9 +358,10 @@ def metric(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> MetricRef:
+    def decorator(fn: Callable[..., Any]) -> Ref[MetricKind]:
         obj_name = name or fn.__name__
         semantic_id = f"{resolved_domain}.{obj_name}"
+        ref = Ref.metric(semantic_id)
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
         _validate_metric_provenance(provenance)
@@ -366,11 +374,19 @@ def metric(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.METRIC_ENTITIES_REQUIRED,
             )
-        body_hash = validate_metric_body_ast(fn, "base", body_kind="metric")
+        expression_body = compile_expression_body(
+            fn,
+            owning_ref=ref,
+            ordered_entity_refs=tuple(entities),
+        )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
         root_ref = (
-            _require_ref_id(root_entity, parameter="root_entity", expected=(EntityRef,))
+            _require_ref_id(
+                root_entity,
+                parameter="root_entity",
+                expected=(SemanticKind.ENTITY,),
+            )
             if root_entity is not None
             else None
         )
@@ -396,7 +412,7 @@ def metric(
             additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
             provenance=provenance,
             ai_context=ai_ctx,
-            body_ast_hash=body_hash,
+            body_ast_hash=expression_body.body_ast_hash,
             python_symbol=fn.__name__,
             location=location,
             root_entity=root_ref,
@@ -404,8 +420,8 @@ def metric(
             unit=unit,
             unit_override=unit,
         )
-        _push_ir(ctx, metric_ir, fn)
-        return MetricRef(semantic_id)
+        _push_ir(ctx, ref, metric_ir, expression_body)
+        return ref
 
     return decorator
 

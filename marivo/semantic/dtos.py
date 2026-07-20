@@ -40,6 +40,7 @@ ReviewStatus = Literal[
 
 AuthoringObjectKind = Literal[
     "domain",
+    "datasource",
     "entity",
     "dimension",
     "time_dimension",
@@ -158,7 +159,7 @@ class VerifyResult(RenderableResult):
         else:
             card = card.listing(
                 label="Next step",
-                items=("repair this object, then re-run catalog.verify_object(ref)",),
+                items=("repair this object, then re-run catalog.verify(ref)",),
             )
         return card
 

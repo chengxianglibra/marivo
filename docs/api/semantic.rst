@@ -90,7 +90,7 @@ Refs & loading
    :toctree: api/
    :nosignatures:
 
-   ref
+   Ref
    load
 
 Discovery
@@ -102,22 +102,6 @@ Discovery
 
    help
    help_text
-
-Ref types
----------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   EntityRef
-   DimensionRef
-   MeasureRef
-   MetricRef
-   RelationshipRef
-   TimeDimensionRef
-   DomainRef
-   SemanticRef
 
 Details types
 -------------
@@ -146,15 +130,7 @@ Catalog & objects
 
    SemanticCatalog
    CatalogCollection
-   CatalogObject
-   Domain
-   Datasource
-   Entity
-   Dimension
-   TimeDimension
-   Measure
-   Metric
-   Relationship
+   CatalogEntry
    SemanticKind
 
 Sources & provenance

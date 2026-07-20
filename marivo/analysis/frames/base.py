@@ -26,7 +26,7 @@ from marivo.analysis.evidence.types import (
 from marivo.analysis.lineage import Lineage
 from marivo.render import Card, RenderableResult
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v3"] = "analysis-artifact/v3"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v4"] = "analysis-artifact/v4"
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -206,7 +206,7 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v3"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v4"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str

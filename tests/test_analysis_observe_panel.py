@@ -6,7 +6,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -79,7 +79,7 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -105,8 +105,8 @@ def test_observe_panel_multi_dimension(tmp_path):
         time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         dimensions=[
-            make_ref("region", SemanticKind.DIMENSION),
-            make_ref("channel", SemanticKind.DIMENSION),
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.channel", SemanticKind.DIMENSION),
         ],
         session=s,
     )
@@ -136,7 +136,7 @@ def _bootstrap_failure_metrics(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -201,7 +201,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
         make_ref("sales.failure_rate", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
 
@@ -237,7 +237,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
         make_ref("sales.weighted_failure_rate", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
 

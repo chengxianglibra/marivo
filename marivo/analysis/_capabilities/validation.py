@@ -69,30 +69,22 @@ def _classify_frame(value: object) -> str | None:
 
 
 def _classify_semantic_ref(value: object) -> str | None:
-    """Classify a SemanticRef or CatalogObject by its semantic kind.
+    """Classify one exact Ref by its semantic kind.
 
     Returns the family string (e.g. ``"MetricSemantic"``) or ``None`` if the
     value is not a recognized semantic object.
     """
 
-    from marivo.refs import SemanticRef
-    from marivo.semantic.catalog import CatalogObject
+    from marivo.refs import Ref, SemanticKind
 
-    # Resolve CatalogObject to its underlying kind.
-    if isinstance(value, CatalogObject):
-        kind = value._kind
-    elif isinstance(value, SemanticRef):
-        kind = value.kind
-    else:
+    if type(value) is not Ref:
         return None
-
-    from marivo.refs import SymbolKind
-
-    if kind == SymbolKind.METRIC:
+    kind = value.kind
+    if kind == SemanticKind.METRIC:
         return "MetricSemantic"
-    if kind == SymbolKind.DIMENSION:
+    if kind == SemanticKind.DIMENSION:
         return "DimensionSemantic"
-    if kind == SymbolKind.TIME_DIMENSION:
+    if kind == SemanticKind.TIME_DIMENSION:
         return "TimeDimensionSemantic"
     return None
 

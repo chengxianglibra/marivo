@@ -18,6 +18,7 @@ from marivo.analysis.evidence.types import (
     Subject,
     TestFindingValue,
 )
+from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 
 def _finding(*, key: str, value: DeltaFindingValue, committed_at: datetime) -> Finding:
@@ -27,7 +28,7 @@ def _finding(*, key: str, value: DeltaFindingValue, committed_at: datetime) -> F
         epistemic_kind="algebraic",
         artifact_id="art_compare",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="change"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="change"),
         canonical_item_key=key,
         value=value,
         derivation=DerivationRule(
@@ -50,8 +51,8 @@ def _compare_digest(findings: list[Finding]):
             artifact_family="delta_frame",
             semantic_shape="segmented",
         ),
-        subject=Subject(metric="revenue", analysis_axis="change"),
-        scope=AnalysisScope(metric_ids=("revenue",)),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="change"),
+        scope=make_test_analysis_scope("revenue"),
         findings=findings,
         quality=None,
         rows_available=True,
@@ -126,7 +127,7 @@ def test_correlation_digest_states_missing_inference_without_upgrading_it() -> N
             artifact_family="association_result",
         ),
         subject=finding.subject,
-        scope=AnalysisScope(metric_ids=("a", "b")),
+        scope=make_test_analysis_scope("a", "b"),
         findings=[finding],
         quality=None,
         rows_available=True,
@@ -162,7 +163,7 @@ def test_unregistered_operator_fails_closed() -> None:
 
 def test_digest_projection_does_not_drop_test_or_candidate_facts() -> None:
     now = datetime.now(UTC)
-    subject = Subject(metric="rate", analysis_axis="scalar")
+    subject = make_test_subject(metric_id="rate", analysis_axis="scalar")
     derivation = DerivationRule(
         rule_id="extract",
         rule_version="v2",
@@ -199,7 +200,7 @@ def test_digest_projection_does_not_drop_test_or_candidate_facts() -> None:
             artifact_family="hypothesis_test_result",
         ),
         subject=subject,
-        scope=AnalysisScope(metric_ids=("rate",)),
+        scope=make_test_analysis_scope("rate"),
         findings=[test_finding],
         quality=None,
         rows_available=True,
@@ -216,7 +217,7 @@ def test_digest_projection_does_not_drop_test_or_candidate_facts() -> None:
         epistemic_kind="candidate",
         artifact_id="art_candidates",
         session_id="sess_1",
-        subject=Subject(metric="rate", analysis_axis="anomaly"),
+        subject=make_test_subject(metric_id="rate", analysis_axis="anomaly"),
         canonical_item_key="2026-01-01",
         value=AnomalyCandidateFindingValue(
             candidate_ref="2026-01-01",
@@ -240,7 +241,7 @@ def test_digest_projection_does_not_drop_test_or_candidate_facts() -> None:
             artifact_family="candidate_set",
         ),
         subject=candidate_finding.subject,
-        scope=AnalysisScope(metric_ids=("rate",)),
+        scope=make_test_analysis_scope("rate"),
         findings=[candidate_finding],
         quality=None,
         rows_available=True,

@@ -42,7 +42,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _OBJECTS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -248,7 +248,7 @@ def test_catalog_collection_render_contains_refs_affordance(semantic_project_fac
     result = catalog.metrics
     rendered = result.render()
     assert "available:" in rendered
-    assert "- .refs()" in rendered
+    assert "- .refs" in rendered
     assert "- .get(...)" in rendered
 
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from marivo.analysis._cumulative import cumulative_compare_blocker
 from marivo.datasource import errors as _datasource_errors
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import Ref, SemanticKind
 
 DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
 DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
@@ -168,12 +169,17 @@ class MetricNotFoundError(AnalysisError):
         metric_id = self._context.get("metric_id")
         model = self._context.get("model")
         metric = self._context.get("metric")
-        available = self._context.get("available_ids")
+        structured_metric_ref = self._context.get("metric_ref")
+        available = self._context.get("available_refs")
         metric_ref: str | None = None
-        if isinstance(metric_id, str) and metric_id:
+        if type(structured_metric_ref) is Ref and structured_metric_ref.kind is SemanticKind.METRIC:
+            metric_ref = structured_metric_ref.key
+        elif isinstance(metric_id, str) and metric_id:
             metric_ref = metric_id
         elif isinstance(model, str) and model and isinstance(metric, str) and metric:
             metric_ref = f"{model}.{metric}"
+        elif isinstance(metric, str) and metric:
+            metric_ref = metric
         if not metric_ref:
             return _DerivedFields()
         candidates = _candidates_preview(available)
@@ -193,7 +199,7 @@ class MetricNotFoundError(AnalysisError):
                         "import marivo.semantic as ms\n"
                         "catalog = ms.load()\n"
                         "catalog.metrics.show()  # confirm the exact id\n"
-                        'session.observe(catalog.get("metric.<registered_metric_id>"), '
+                        'session.observe(catalog.require(ms.Ref.metric("<registered_metric_id>")).ref, '
                         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
                     ),
                     candidates=candidates,
@@ -235,7 +241,7 @@ class WindowInvalidError(AnalysisError):
                     str(fix_snippet)
                     if isinstance(fix_snippet, str) and fix_snippet
                     else (
-                        'session.observe(session.catalog.get("metric.sales.revenue"), '
+                        'session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), '
                         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
                     )
                 ),
@@ -276,7 +282,7 @@ class SliceEmptyResultError(AnalysisError):
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 snippet=(
                     "import marivo.datasource as md\n"
-                    "inspection = md.inspect(md.ref('datasource.<name>'), "
+                    "inspection = md.inspect(ms.Ref.datasource('<name>'), "
                     "md.table('<entity_table>'))\n"
                     "inspection.sample(\n"
                     "    scope=md.unpruned(max_rows=100, timeout_seconds=60),\n"
@@ -310,7 +316,7 @@ class SemanticKindMismatchError(AnalysisError):
                     action="Pass a non-empty search_space with catalog dimension refs.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
-                        'region = session.catalog.get("dimension.sales.orders.region").ref\n'
+                        'region = session.catalog.require(ms.Ref.dimension("sales.orders.region")).ref\n'
                         "session.discover.driver_axes(delta, search_space=[region])"
                     ),
                 ),
@@ -463,7 +469,7 @@ class SemanticKindMismatchError(AnalysisError):
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 ),
             )
-        # Measure-rejection shape: a measure SemanticRef was passed where a
+        # Measure-rejection shape: a measure Ref was passed where a
         # dimension group-by axis is required.
         actual_kind_raw = self._context.get("actual_kind")
         expected_kind_raw_2 = self._context.get("expected_kind")
@@ -492,7 +498,7 @@ class SemanticKindMismatchError(AnalysisError):
                 else None
             )
             return _DerivedFields(
-                expected="dimension SemanticRef or CatalogObject",
+                expected="dimension Ref or CatalogEntry",
                 received=f"measure ref {ref_text!r}",
                 location="session call dimension argument",
                 repair=AnalysisRepair(
@@ -517,12 +523,15 @@ class SemanticKindMismatchError(AnalysisError):
             and expected_kind_for_catalog
             and "got_kind" not in self._context
         ):
+            expected_type = self._context.get("expected_type")
             label = self._catalog_expected_label(argument, expected_kind_for_catalog)
-            cause = (
-                f"{argument} requires a {label} SemanticRef or CatalogObject, "
-                f"received a {actual_kind_value}."
+            exact_type = (
+                expected_type
+                if isinstance(expected_type, str) and expected_type
+                else f"Ref[{label}]"
             )
-            available = self._context.get("available_ids")
+            cause = f"{argument} requires exact {exact_type}, received a {actual_kind_value}."
+            available = self._context.get("available_refs")
             cause = _cause_with_available(cause, available)
             candidates = _candidates_preview(available)
             repair = self._context.get("repair")
@@ -532,7 +541,7 @@ class SemanticKindMismatchError(AnalysisError):
                 else None
             )
             return _DerivedFields(
-                expected=f"{label} SemanticRef or CatalogObject",
+                expected=exact_type,
                 received=actual_kind_value,
                 location=f"session call {argument} argument",
                 repair=AnalysisRepair(
@@ -577,7 +586,7 @@ class SemanticKindMismatchError(AnalysisError):
                     action="observe requires a catalog metric object or ref.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=(
-                        'session.observe(session.catalog.get("metric.sales.revenue"), '
+                        'session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), '
                         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
                     ),
                 ),
@@ -601,7 +610,7 @@ class SemanticKindMismatchError(AnalysisError):
                 action="Pass an observe result (MetricFrame) instead of a compare result (DeltaFrame).",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 snippet=(
-                    'revenue = session.catalog.get("metric.sales.revenue")\n'
+                    'revenue = session.catalog.require(ms.Ref.metric("sales.revenue"))\n'
                     'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
                     'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})\n'
                     "delta = session.compare(cur, base, alignment=mv.window_bucket())"
@@ -736,7 +745,7 @@ class TestShapeNotTestableError(AnalysisError):
                 action="mean_changed needs paired observations; re-observe with enough history.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="hypothesis_test"),
                 snippet=(
-                    'revenue = session.catalog.get("metric.sales.revenue")\n'
+                    'revenue = session.catalog.require(ms.Ref.metric("sales.revenue"))\n'
                     'cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-08-01"}, grain="day")\n'
                     'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-08-01"}, grain="day")\n'
                     "session.hypothesis_test(cur, base)"
@@ -780,7 +789,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
                 action="forecast v1 accepts only MetricFrame time_series or panel shapes.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
-                    'history = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\n'
+                    'history = session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\n'
                     "session.forecast(history, horizon=30)"
                 ),
             ),
@@ -809,7 +818,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
                 action="The time_series input has fewer training points than the selected model requires.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
-                    'history = session.observe(session.catalog.get("metric.sales.revenue"), '
+                    'history = session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), '
                     'time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")'
                 ),
             ),
@@ -1076,8 +1085,8 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                         "import marivo.semantic as ms\n"
                         "catalog = ms.load()\n"
                         "catalog.dimensions.show()  # confirm available dimensions per entity\n"
-                        'session.observe(catalog.get("metric.sales.revenue"), '
-                        'dimensions=[catalog.get("dimension.<existing_dimension>").ref])'
+                        'session.observe(catalog.require(ms.Ref.metric("sales.revenue")), '
+                        'dimensions=[catalog.require(ms.Ref.dimension("<existing_dimension>")).ref])'
                     ),
                     candidates=candidates,
                 ),
@@ -1164,7 +1173,7 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
                 snippet=(
                     f"# Choose the full catalog ref for panel dimension column {first_available!r}.\n"
-                    'axis = session.catalog.get("dimension.<domain.entity.dimension>").ref\n'
+                    'axis = session.catalog.require(ms.Ref.dimension("<domain.entity.dimension>")).ref\n'
                     "session.attribute(delta, axes=[axis])"
                 ),
                 candidates=tuple(str(a) for a in available)
@@ -1200,8 +1209,8 @@ class SegmentDimensionMismatchError(AlignmentFailedError):
                 action=cause,
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 snippet=(
-                    "metric = session.catalog.get('metric.model.metric')\n"
-                    'common_dim = session.catalog.get("dimension.model.entity.common_dim").ref\n'
+                    "metric = session.catalog.require(ms.Ref.metric('model.metric'))\n"
+                    'common_dim = session.catalog.require(ms.Ref.dimension("model.entity.common_dim")).ref\n'
                     "current = session.observe(metric, dimensions=[common_dim])\n"
                     "baseline = session.observe(metric, dimensions=[common_dim])\n"
                     "delta = session.compare(current, baseline, "
@@ -1360,7 +1369,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                 snippet=(
-                    'frame = session.observe(session.catalog.get("metric.model.derived_ratio"))\n'
+                    'frame = session.observe(session.catalog.require(ms.Ref.metric("model.derived_ratio")))\n'
                     "components = frame.components()"
                 ),
             ),

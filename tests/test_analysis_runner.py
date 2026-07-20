@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import ibis
 import pytest
 
+import marivo.semantic as ms
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis.executor.bucketing import apply_time_series_bucket
 from marivo.analysis.executor.runner import (
@@ -76,7 +77,7 @@ def _bootstrap_project(
     (semantic_dir / "definitions.py").write_text(
         f"import marivo.datasource as md\nimport marivo.semantic as ms\n"
         f"\n"
-        f"{dataset_name} = ms.entity(name='{dataset_name}', datasource=md.ref('{datasource_name}'), "
+        f"{dataset_name} = ms.entity(name='{dataset_name}', datasource=ms.Ref.datasource('{datasource_name}'), "
         f"source=md.table('{dataset_name}'))\n"
         f"\n"
         f"@ms.dimension(entity={dataset_name})\n"
@@ -103,9 +104,9 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
             raise RuntimeError(f"runner adapter test must pass backend directly for {name!r}")
 
     catalog = SemanticCatalog(sp)
-    details = catalog.get(f"entity.{dataset_semantic_id}").details()
+    details = catalog.require(ms.Ref.entity(dataset_semantic_id)).details()
     assert isinstance(details, EntityDetails)
-    resolver = catalog._resolver(connections=_NoConnectionService())
+    resolver = catalog._semantic_resolver(connections=_NoConnectionService())
     adapter = _build_entity_adapter(catalog, resolver, details)
 
     def _source_fn(backend):

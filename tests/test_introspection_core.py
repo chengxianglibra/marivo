@@ -528,9 +528,9 @@ def test_render_text_includes_fields() -> None:
 def test_family_fold_carries_label_and_members() -> None:
     from marivo.introspection.schema import Descriptor, FamilyFold
 
-    fold = FamilyFold(label="References", members=("DimensionRef", "MetricRef"))
+    fold = FamilyFold(label="References", members=("Ref[dimension]", "Ref[metric]"))
     assert fold.label == "References"
-    assert fold.members == ("DimensionRef", "MetricRef")
+    assert fold.members == ("Ref[dimension]", "Ref[metric]")
 
     descriptor = Descriptor(
         surface="test.surface",

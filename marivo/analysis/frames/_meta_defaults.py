@@ -6,8 +6,11 @@ from typing import cast
 
 import pandas as pd
 
+from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.evidence.types import AnalysisScope, JsonValue, QualitySummary
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.refs import RefPayloadV1
+from marivo.semantic.metric_graph import DeltaComparisonIdentityV1, MetricIdentity
 
 GRAIN_FREQ = {"hour": "h", "day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 
@@ -114,31 +117,29 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
 def compute_analysis_scope(frame: BaseFrame) -> AnalysisScope:
     """Derive the existing metric-shaped analysis scope from frame metadata."""
     meta = frame.meta
-    metric_ids: list[str] = []
-    segment_keys: dict[str, JsonValue] = {}
+    metric_identities: tuple[MetricIdentity, ...] = ()
+    comparison: DeltaComparisonIdentityV1 | None = None
+    axis_refs: tuple[RefPayloadV1, ...] = ()
+    segment_predicates: tuple[SlicePredicateV1, ...] = ()
     window: dict[str, JsonValue] | None = None
 
     # Use getattr to avoid importing concrete meta types which pull in
     # transitive deps that violate the analysis.evidence isolation contract.
-    metric_id = getattr(meta, "metric_id", None)
-    metric_ids_attr = getattr(meta, "metric_ids", None)
-    axes = getattr(meta, "axes", None)
     window_attr = getattr(meta, "window", None)
     alignment = getattr(meta, "alignment", None)
     forecast_window = getattr(meta, "forecast_window", None)
-    target_metric_id = getattr(meta, "target_metric_id", None)
-
-    if metric_id is not None:
-        metric_ids = [str(metric_id)]
-    elif metric_ids_attr is not None:
-        metric_ids = list(metric_ids_attr)
-    elif target_metric_id is not None:
-        metric_ids = [str(target_metric_id)]
-
-    if isinstance(axes, dict):
-        segment_keys = {
-            str(k): str(v) for k, v in axes.items() if k != "time" and isinstance(v, dict)
-        }
+    identities_attr = getattr(meta, "metric_identities", None)
+    if isinstance(identities_attr, tuple):
+        metric_identities = identities_attr
+    bindings_attr = getattr(meta, "axis_bindings", None)
+    if isinstance(bindings_attr, tuple):
+        axis_refs = tuple(binding.ref for binding in bindings_attr)
+    predicates_attr = getattr(meta, "slice_predicates", None)
+    if isinstance(predicates_attr, tuple):
+        segment_predicates = predicates_attr
+    comparison_attr = getattr(meta, "comparison_identity", None)
+    if isinstance(comparison_attr, DeltaComparisonIdentityV1):
+        comparison = comparison_attr
 
     if window_attr is not None:
         window = (
@@ -156,8 +157,10 @@ def compute_analysis_scope(frame: BaseFrame) -> AnalysisScope:
         )
 
     return AnalysisScope(
-        metric_ids=tuple(metric_ids),
-        segment_keys=segment_keys,
+        metric_identities=metric_identities,
+        comparison=comparison,
+        axis_refs=axis_refs,
+        segment_predicates=segment_predicates,
         window=window,
         assumptions=(),
     )

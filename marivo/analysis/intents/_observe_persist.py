@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
+from marivo.analysis._semantic_persistence import ComponentBindingV1
 from marivo.analysis.evidence.identity import make_component_artifact_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -16,14 +17,19 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import Subject
-from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.component import (
+    ComponentFrame,
+    ComponentFrameMeta,
+    resolve_role_column_name,
+)
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._observe_components import _composition_payload
 from marivo.analysis.intents._observe_inputs import _analysis_axis_for_kind
 from marivo.analysis.session._runtime import persist_frame, register_frame_artifact
 from marivo.analysis.session.core import Session
-from marivo.refs import SemanticRef
+from marivo.refs import Ref, RefPayloadV1
+from marivo.semantic.metric_graph import CatalogMetricIdentity, RuntimeExpressionIdentity
 
 
 def _persist_metric_component_frame(
@@ -53,7 +59,7 @@ def _persist_metric_component_frame(
     if components is None:
         assert metric_composition is not None
         resolved_components = {
-            k: (v.id if isinstance(v, SemanticRef) else str(v))
+            k: (v.path if type(v) is Ref else str(v))
             for k, v in metric_composition.components.items()
         }
     else:
@@ -63,6 +69,35 @@ def _persist_metric_component_frame(
         if linear_terms is not None
         else (metric_ir.linear_terms if resolved_kind == "linear" else ())
     )
+    assert parent.meta.metric_identity is not None
+    root_node_ids = tuple(
+        str(node_id) for node_id in (component_graph or {}).get("root_node_ids", ())
+    )
+    registry = session.catalog._require_index().registry
+    component_bindings: list[ComponentBindingV1] = []
+    for role, target in resolved_components.items():
+        column = resolve_role_column_name(resolved_components, role)
+        if target in registry.metrics:
+            component_bindings.append(
+                ComponentBindingV1(
+                    role=role,
+                    column=column,
+                    metric_identity=CatalogMetricIdentity(
+                        kind="catalog",
+                        metric_ref=RefPayloadV1.from_ref(Ref.metric(target)),
+                    ),
+                )
+            )
+        else:
+            if not root_node_ids:
+                raise ValueError("runtime component binding requires an expression graph root")
+            component_bindings.append(
+                ComponentBindingV1(
+                    role=role,
+                    column=column,
+                    expression_node_id=root_node_ids[0],
+                )
+            )
     frame_ref = make_component_artifact_id(parent.ref)
     component = ComponentFrame(
         _df=df.copy(),
@@ -77,18 +112,13 @@ def _persist_metric_component_frame(
             lineage=parent.lineage,
             parent_ref=parent.ref,
             parent_kind="metric_frame",
-            metric_id=parent.meta.metric_id,
+            metric_identity=parent.meta.metric_identity,
+            component_bindings=tuple(component_bindings),
+            axis_bindings=parent.meta.axis_bindings,
             composition_kind=resolved_kind,
-            components=resolved_components,
             linear_terms=resolved_linear_terms,
-            axes=axes,
             semantic_kind=semantic_kind,
-            semantic_model=parent.meta.semantic_model,
-            root_node_ids=(
-                tuple(str(node_id) for node_id in component_graph.get("root_node_ids", ()))
-                if component_graph is not None
-                else ()
-            ),
+            root_node_ids=root_node_ids,
             component_graph=component_graph,
         ),
     )
@@ -109,6 +139,16 @@ def _persist_metric_component_graph_frame(
     """Persist the recursive graph sidecar when no immediate decomposition exists."""
 
     frame_ref = make_component_artifact_id(parent.ref)
+    metric_identity = parent.meta.metric_identity
+    if metric_identity is None:
+        expression_fingerprint = parent.meta.expression_fingerprint
+        if not expression_fingerprint:
+            raise ValueError("multi-root component graph requires expression_fingerprint")
+        metric_identity = RuntimeExpressionIdentity(
+            kind="runtime_expression",
+            expression_schema="metric-expression/v1",
+            expression_fingerprint=expression_fingerprint,
+        )
     component = ComponentFrame(
         _df=df.copy(),
         meta=ComponentFrameMeta(
@@ -122,12 +162,10 @@ def _persist_metric_component_graph_frame(
             lineage=parent.lineage,
             parent_ref=parent.ref,
             parent_kind="metric_frame",
-            metric_id=parent.meta.metric_id,
+            metric_identity=metric_identity,
+            axis_bindings=parent.meta.axis_bindings,
             composition_kind=None,
-            components={},
-            axes=axes,
             semantic_kind=semantic_kind,
-            semantic_model=parent.meta.semantic_model,
             root_node_ids=tuple(
                 str(node_id) for node_id in component_graph.get("root_node_ids", ())
             ),
@@ -310,13 +348,6 @@ def _commit_observe_metric_frame(
     carry the full metric list while the commit subject keeps ``metric=None``
     — the extractor reads per-measure subjects from ``meta.measures``.
     """
-    anchors: dict[str, Any]
-    if semantic_anchors is not None:
-        anchors = dict(semantic_anchors)
-    elif metric_ids is not None:
-        anchors = {"metrics": metric_ids, "models": models or [model_name]}
-    else:
-        anchors = {"metric_id": metric_id, "model": model_name}
     result = cast(
         "MetricFrame",
         commit_result(
@@ -326,10 +357,8 @@ def _commit_observe_metric_frame(
             step_type=step_type,
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values=anchors),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
             subject=Subject(
-                metric=metric_id,
-                slice=stored_where or {},
                 grain=subject_grain,
                 analysis_axis=_analysis_axis_for_kind(semantic_kind),
             ),
@@ -371,15 +400,20 @@ def _metric_semantics_payload(
     metric_ir: Any,
     *,
     force_additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, object]:
     """Return output metric semantics that participate in artifact identity."""
     additivity = (
         force_additivity
         if force_additivity is not None
         else _meta_additivity(getattr(metric_ir, "additivity", None))
     )
+    status_path = getattr(metric_ir, "status_time_dimension", None)
     return {
         "additivity": additivity,
         "aggregation": _meta_aggregation(getattr(metric_ir, "aggregation", None)),
-        "status_time_dimension": getattr(metric_ir, "status_time_dimension", None),
+        "status_time_dimension_ref": (
+            RefPayloadV1.from_ref(Ref.time_dimension(status_path)).to_dict()
+            if isinstance(status_path, str)
+            else None
+        ),
     }

@@ -7,7 +7,7 @@ unchanged.  Implementations live in:
 
 - ``_authoring_context``      — loader-context integration, ref/location plumbing
 - ``_authoring_validation``   — pure parameter validation and normalization
-- ``_authoring_values``       — value-object constructors (ai_context, parse, ref, ...)
+- ``_authoring_values``       — value-object constructors (ai_context, parse, ...)
 - ``_authoring_declarations`` — top-level domain and tier-1 metric declarations
 - ``_authoring_decorators``   — entity-scoped field decorators
 - ``_authoring_metrics``      — derived-metric compositions and cumulative anchors
@@ -44,7 +44,6 @@ from marivo.semantic._authoring_values import (
     from_sql,
     hour_prefix,
     join_on,
-    ref,
     semi_additive,
     snapshot,
     strptime,
@@ -52,12 +51,10 @@ from marivo.semantic._authoring_values import (
     validity,
 )
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
-from marivo.semantic.refs import DomainRef
 
 __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
-    "DomainRef",
     "aggregate",
     "ai_context",
     "count",
@@ -76,7 +73,6 @@ __all__ = [
     "measure_column",
     "metric",
     "ratio",
-    "ref",
     "relationship",
     "semi_additive",
     "snapshot",

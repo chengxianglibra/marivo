@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from marivo.config import (
     AUTHORING_CHECK_DIR,
@@ -17,7 +17,6 @@ from marivo.config import (
     AUTHORING_SNAPSHOT_DIR,
     STATE_DIR,
 )
-from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.evidence import TIME_RULE_IDS
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.snapshot import (
@@ -28,13 +27,12 @@ from marivo.datasource.snapshot import (
     SnapshotCoverage,
 )
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource, UnprunedScope
-from marivo.refs import SemanticRef
+from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 
 if TYPE_CHECKING:
-    from marivo.semantic.preview_checks import PreviewCheck
+    from marivo.semantic.preview_checks import PreviewCheckV1
 
 EVIDENCE_FORMAT_VERSION = 1
-CHECK_FORMAT_VERSION = 1
 SNAPSHOT_TTL = timedelta(hours=24)
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
@@ -80,8 +78,8 @@ def _utc_now() -> datetime:
 
 
 def _normalize_json(value: object) -> JsonValue:
-    if isinstance(value, SemanticRef):
-        return value.id
+    if type(value) is Ref:
+        return cast("JsonValue", RefPayloadV1.from_ref(value).to_dict())
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise TypeError("authoring evidence timestamps must be UTC-aware")
@@ -141,14 +139,6 @@ def _scope_payload(scope: AuthoringScope) -> dict[str, object]:
     }
     if isinstance(scope, PartitionScope):
         payload["partition"] = scope.values
-    return payload
-
-
-def preview_check_scope_payload(scope: AuthoringScope) -> dict[str, JsonValue]:
-    """Return the row-free PreviewCheck representation for one validated scope."""
-    payload = _normalize_json(scope)
-    if not isinstance(payload, dict):
-        raise TypeError("preview check scope must normalize to a mapping")
     return payload
 
 
@@ -578,7 +568,7 @@ class AuthoringStore:
         self,
         *,
         snapshot_id: str,
-        datasource: DatasourceRef,
+        datasource: Ref[DatasourceKind],
         datasource_fingerprint: str,
         source: TableSource,
         scope: AuthoringScope,
@@ -589,7 +579,7 @@ class AuthoringStore:
         return {
             "evidence_format_version": EVIDENCE_FORMAT_VERSION,
             "id": snapshot_id,
-            "datasource": datasource.id,
+            "datasource": datasource.path,
             "datasource_fingerprint": datasource_fingerprint,
             "source": source.to_dict(),
             "scope": _scope_payload(scope),
@@ -598,12 +588,12 @@ class AuthoringStore:
             "persist_values": persist_values,
         }
 
-    def _has_related_snapshot(self, datasource: DatasourceRef) -> bool:
+    def _has_related_snapshot(self, datasource: Ref[DatasourceKind]) -> bool:
         if not self.snapshot_dir.is_dir():
             return False
         for path in self.snapshot_dir.glob("*.json"):
             payload = self._read_payload(path)
-            if payload is not None and payload.get("datasource") == datasource.id:
+            if payload is not None and payload.get("datasource") == datasource.path:
                 return True
         return False
 
@@ -611,7 +601,7 @@ class AuthoringStore:
         self,
         path: Path,
         *,
-        datasource: DatasourceRef,
+        datasource: Ref[DatasourceKind],
         datasource_fingerprint: str,
         source: TableSource,
     ) -> DiscoverySnapshot | None:
@@ -631,7 +621,7 @@ class AuthoringStore:
             snapshot_id = _string(payload.get("id"), field="id")
             if path != self._snapshot_path(snapshot_id):
                 return None
-            if _string(payload.get("datasource"), field="datasource") != datasource.id:
+            if _string(payload.get("datasource"), field="datasource") != datasource.path:
                 return None
             if (
                 _string(payload.get("datasource_fingerprint"), field="datasource_fingerprint")
@@ -711,7 +701,7 @@ class AuthoringStore:
     def valid_snapshots(
         self,
         *,
-        datasource: DatasourceRef,
+        datasource: Ref[DatasourceKind],
         datasource_fingerprint: str,
         source: TableSource,
         now: datetime | None = None,
@@ -745,7 +735,7 @@ class AuthoringStore:
         self,
         *,
         snapshot_id: str,
-        datasource: DatasourceRef,
+        datasource: Ref[DatasourceKind],
         datasource_fingerprint: str,
         source: TableSource,
         scope: AuthoringScope,
@@ -872,6 +862,6 @@ class AuthoringStore:
         self._write_json(self._snapshot_path(snapshot.id), payload)
         _SNAPSHOT_MEMORY[self._memory_key(snapshot.id)] = snapshot
 
-    def write_preview_check(self, check: PreviewCheck) -> None:
+    def write_preview_check(self, check: PreviewCheckV1) -> None:
         """Atomically persist row-free semantic preview evidence."""
         self._write_json(self._check_path(check.id), check)

@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from marivo.introspection.live.resolve import resolve_live_target
-from marivo.refs import SemanticRef
+from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic._capabilities.render import render_help_target, render_root_help
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
-from marivo.semantic.catalog import CatalogCollection, CatalogObject, SemanticCatalog
+from marivo.semantic.catalog import CatalogCollection, CatalogEntry, SemanticCatalog
 from marivo.semantic.dtos import VerifyResult
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.readiness import ReadinessReport
@@ -19,9 +19,9 @@ PublicSemanticHelpTarget = (
     str
     | RegisteredSemanticCallable
     | type[object]
-    | SemanticRef
-    | CatalogObject[SemanticRef]
-    | CatalogCollection[CatalogObject[SemanticRef], SemanticRef]
+    | Ref[SemanticKindTag]
+    | CatalogEntry[SemanticKindTag]
+    | CatalogCollection[SemanticKindTag]
     | SemanticCatalog
     | VerifyResult
     | ReadinessReport

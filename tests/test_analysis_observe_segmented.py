@@ -7,7 +7,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -49,9 +49,9 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
         "\n"
-        "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+        "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -128,7 +128,7 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -149,7 +149,7 @@ def test_ratio_segmented_observation_digest_omits_composition_fields(tmp_path):
 
     mf = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -172,8 +172,8 @@ def test_observe_multi_dimension_segmented(tmp_path):
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         dimensions=[
-            make_ref("region", SemanticKind.DIMENSION),
-            make_ref("channel", SemanticKind.DIMENSION),
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.channel", SemanticKind.DIMENSION),
         ],
         session=s,
     )
@@ -191,7 +191,7 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
 
     mf = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -211,13 +211,13 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
 
     full = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
     windowed = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
         time_scope={"start": "2026-07-02", "end": "2026-08-02"},
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -274,7 +274,7 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
 
     mf = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        dimensions=[make_ref("tier", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -311,8 +311,8 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
             dimensions=[
-                make_ref("region", SemanticKind.DIMENSION),
-                make_ref("region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
             ],
             session=s,
         )
@@ -330,7 +330,7 @@ def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue_plus_user_count", SemanticKind.METRIC),
-        dimensions=[make_ref("channel", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.channel", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -349,11 +349,11 @@ def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
             make_ref("sales.revenue_plus_user_count", SemanticKind.METRIC),
-            dimensions=[make_ref("missing", SemanticKind.DIMENSION)],
+            dimensions=[make_ref("sales.orders.missing", SemanticKind.DIMENSION)],
             session=s,
         )
 
-    assert exc_info.value._context["actual_kind"] == "not_found"
+    assert exc_info.value._context["actual_kind"] == "dimension"
 
 
 def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
@@ -364,12 +364,12 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
 
     by_region = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
     by_channel = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        dimensions=[make_ref("channel", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.channel", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -378,8 +378,12 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     region_job = s.job(region_job_summary.id)
     channel_job = s.job(channel_job_summary.id)
 
-    assert region_job["params"]["dimensions"] == [{"semantic_id": "sales.orders.region"}]
-    assert channel_job["params"]["dimensions"] == [{"semantic_id": "sales.orders.channel"}]
+    assert [item["path"] for item in region_job["params"]["dimension_refs"]] == [
+        "sales.orders.region"
+    ]
+    assert [item["path"] for item in channel_job["params"]["dimension_refs"]] == [
+        "sales.orders.channel"
+    ]
     assert (
         by_region.meta.lineage.steps[0].params_digest
         != by_channel.meta.lineage.steps[0].params_digest
@@ -395,12 +399,12 @@ def test_observe_dimension_not_found(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            dimensions=[make_ref("not_a_real_field", SemanticKind.DIMENSION)],
+            dimensions=[make_ref("sales.orders.not_a_real_field", SemanticKind.DIMENSION)],
             session=s,
         )
 
-    assert exc_info.value._context["actual_kind"] == "not_found"
-    assert exc_info.value._context["ref"] == "not_a_real_field"
+    assert exc_info.value._context["actual_kind"] == "dimension"
+    assert exc_info.value._context["ref"] == "dimension:sales.orders.not_a_real_field"
 
 
 def test_observe_dimension_rejects_bare_string(tmp_path):
@@ -418,7 +422,7 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
             session=s,
         )
 
-    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension or time_dimension"
 
 
 def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path):
@@ -429,7 +433,7 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
 
     frame = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
 

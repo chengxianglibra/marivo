@@ -15,7 +15,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.analysis.intents.observe_planner import _validate_field_expr
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 # ---------------------------------------------------------------------------
 # Runtime guard: _validate_field_expr
@@ -80,7 +80,7 @@ def _bootstrap_schema_project(tmp_path):
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "\n"
         "queries = ms.entity(name='queries', datasource=warehouse, source=md.table('queries'))\n"
         "\n"

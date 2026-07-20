@@ -7,23 +7,23 @@ from types import SimpleNamespace
 import pytest
 
 from marivo.analysis.intents.observe_planner import _planned_metric
+from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic.catalog import (
     AiContextView,
     DerivedMetricDetails,
     MetricDetails,
     SemanticKind,
-    SemanticRef,
     SimpleMetricDetails,
 )
 from marivo.semantic.ir import ParityStatus, SourceLocation
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_ref(ref: str, kind: SemanticKind = SemanticKind.METRIC) -> SemanticRef:
+def _make_ref(ref: str, kind: SemanticKind = SemanticKind.METRIC) -> Ref[SemanticKindTag]:
     return make_ref(ref, kind)
 
 
@@ -56,7 +56,7 @@ def metric_details_factory(
     common_kwargs = {
         "ref": ref,
         "kind": SemanticKind.METRIC,
-        "name": overrides.pop("name", ref.id.rsplit(".", 1)[-1]),
+        "name": overrides.pop("name", ref.path.rsplit(".", 1)[-1]),
         "domain": overrides.pop("domain", "test"),
         "context": overrides.pop("context", _make_ctx()),
         "source_location": overrides.pop("source_location", _make_loc()),
@@ -72,7 +72,7 @@ def metric_details_factory(
         "unit": overrides.pop("unit", None),
         "provenance": overrides.pop("provenance", None),
         "parity_status": overrides.pop("parity_status", ParityStatus.UNVERIFIED),
-        "python_symbol": overrides.pop("python_symbol", ref.id.rsplit(".", 1)[-1]),
+        "python_symbol": overrides.pop("python_symbol", ref.path.rsplit(".", 1)[-1]),
     }
 
     # Pop variant-specific overrides before updating common_kwargs so they

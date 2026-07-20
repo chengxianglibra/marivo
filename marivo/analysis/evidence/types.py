@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from marivo.analysis._pages import _BoundedPage
+from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import AnalysisRepair
-from marivo.semantic.metric_graph import TypedEvidenceSubject
+from marivo.refs import RefPayloadV1
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    CatalogMetricSubjectV1,
+    DeltaComparisonIdentityV1,
+    DeltaMetricSubjectV1,
+    MetricIdentity,
+    RuntimeExpressionIdentity,
+    RuntimeExpressionSubjectV1,
+    TypedEvidenceSubject,
+)
 
 type JsonScalar = str | int | float | bool | None
-type JsonValue = JsonScalar | tuple["JsonValue", ...] | dict[str, "JsonValue"]
+type JsonValue = JsonScalar | tuple["JsonValue", ...] | list["JsonValue"] | dict[str, "JsonValue"]
 EvidenceStatus = Literal["complete", "partial", "unavailable"]
 EvidenceCompleteness = EvidenceStatus
 EpistemicKind = Literal[
@@ -54,9 +65,8 @@ class _FrozenModel(BaseModel):
 
 class Subject(_FrozenModel):
     typed_metric_subject: TypedEvidenceSubject | None = None
-    metric: str | None = None
-    entity: str | None = None
-    slice: dict[str, JsonValue] = Field(default_factory=dict)
+    entity_ref: RefPayloadV1 | None = None
+    slice_predicates: tuple[SlicePredicateV1, ...] = ()
     grain: str | None = None
     analysis_axis: Literal[
         "scalar",
@@ -71,6 +81,33 @@ class Subject(_FrozenModel):
         "quality",
     ]
 
+    @property
+    def metric(self) -> str | None:
+        if isinstance(self.typed_metric_subject, CatalogMetricSubjectV1):
+            return self.typed_metric_subject.metric_ref.path
+        if isinstance(self.typed_metric_subject, RuntimeExpressionSubjectV1):
+            return f"runtime:{self.typed_metric_subject.expression_fingerprint}"
+        if isinstance(self.typed_metric_subject, DeltaMetricSubjectV1):
+            current = self.typed_metric_subject.comparison.current
+            baseline = self.typed_metric_subject.comparison.baseline
+            if current == baseline:
+                return (
+                    current.metric_ref.path
+                    if isinstance(current, CatalogMetricIdentity)
+                    else f"runtime:{current.expression_fingerprint}"
+                )
+        return None
+
+    @property
+    def entity(self) -> str | None:
+        return self.entity_ref.path if self.entity_ref is not None else None
+
+    @property
+    def slice(self) -> dict[str, JsonValue]:
+        return {
+            item.dimension_ref.path: cast("JsonValue", item.value) for item in self.slice_predicates
+        }
+
 
 class TimeWindow(_FrozenModel):
     field: str
@@ -81,10 +118,34 @@ class TimeWindow(_FrozenModel):
 class AnalysisScope(_FrozenModel):
     """Metric-shaped scope for one artifact and its evidence projection."""
 
-    metric_ids: tuple[str, ...] = ()
-    segment_keys: dict[str, JsonValue] = Field(default_factory=dict)
+    metric_identities: tuple[MetricIdentity, ...] = ()
+    comparison: DeltaComparisonIdentityV1 | None = None
+    axis_refs: tuple[RefPayloadV1, ...] = ()
+    segment_predicates: tuple[SlicePredicateV1, ...] = ()
     window: dict[str, JsonValue] | None = None
     assumptions: tuple[str, ...] = ()
+
+    @property
+    def metric_ids(self) -> tuple[str, ...]:
+        identities = self.metric_identities
+        if not identities and self.comparison is not None:
+            identities = (self.comparison.current, self.comparison.baseline)
+        metric_ids = tuple(
+            identity.metric_ref.path
+            if isinstance(identity, CatalogMetricIdentity)
+            else f"runtime:{identity.expression_fingerprint}"
+            for identity in identities
+            if isinstance(identity, (CatalogMetricIdentity, RuntimeExpressionIdentity))
+        )
+        metric_ids = tuple(dict.fromkeys(metric_ids))
+        return metric_ids
+
+    @property
+    def segment_keys(self) -> dict[str, JsonValue]:
+        return {
+            item.dimension_ref.path: cast("JsonValue", item.value)
+            for item in self.segment_predicates
+        }
 
 
 class QualitySummary(_FrozenModel):

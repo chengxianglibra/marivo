@@ -11,7 +11,7 @@ from typing import Any, Literal, TypeGuard, cast
 import numpy as np
 import pandas as pd
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
@@ -62,6 +62,7 @@ from marivo.analysis.semantic_inputs import (
 )
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.refs import FieldKind, Ref
 
 _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
@@ -135,15 +136,13 @@ def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
     return objective in _VALID_OBJECTIVES
 
 
-def _normalize_dimension_boundary(
-    session: Session, value: AnalysisDimensionRef, *, argument: str
-) -> str:
+def _normalize_dimension_boundary(session: Session, value: Ref[FieldKind], *, argument: str) -> str:
     return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
 
 
 def _normalize_dimension_inputs_boundary(
     session: Session,
-    values: list[AnalysisDimensionRef] | None,
+    values: list[Ref[FieldKind]] | None,
     *,
     argument: str,
 ) -> list[str] | None:
@@ -163,8 +162,8 @@ def _discover_dispatch(
     value: str | None = None,
     threshold: float | None = None,
     limit: int | None = _DEFAULT_DISCOVER_LIMIT,
-    search_space: list[AnalysisDimensionRef] | None = None,
-    peer_scope: list[AnalysisDimensionRef] | None = None,
+    search_space: list[Ref[FieldKind]] | None = None,
+    peer_scope: list[Ref[FieldKind]] | None = None,
     session: Session | None = None,
     analysis_purpose: str | None = None,
 ) -> CandidateSet:
@@ -338,11 +337,8 @@ def _discover_dispatch(
             step_type="discover",
             inputs=CommitInputs(input_refs=[source_ref]),
             params=CommitParams(values=full_params),
-            semantic_anchors=CommitSemanticAnchors(
-                values={"metric_id": getattr(source.meta, "metric_id", "")}
-            ),
+            semantic_anchors=CommitSemanticAnchors.from_frame(source),
             subject=Subject(
-                metric=getattr(source.meta, "metric_id", None),
                 grain=getattr(source.meta, "grain", None),
                 analysis_axis=axis,
             ),
@@ -357,6 +353,7 @@ def _discover_dispatch(
             "id": job_ref,
             "session_id": session.id,
             "intent": "discover",
+            **job_semantics_from_frames(source),
             "analysis_purpose": analysis_purpose,
             "params": full_params,
             "input_frame_refs": [source.ref],
@@ -367,7 +364,6 @@ def _discover_dispatch(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "semantic_model": source.meta.semantic_model,
         },
     )
     return frame
@@ -423,7 +419,7 @@ class DiscoverAPI:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[AnalysisDimensionRef],
+        search_space: list[Ref[FieldKind]],
         value: str | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
@@ -443,7 +439,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[AnalysisDimensionRef] | None = None,
+        search_space: list[Ref[FieldKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
@@ -485,7 +481,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[AnalysisDimensionRef] | None = None,
+        peer_scope: list[Ref[FieldKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
@@ -1075,9 +1071,12 @@ def _attach_selector_semantic_ids(
         selector = row.get("selector")
         if not isinstance(selector, dict):
             continue
-        row["selector"] = {
+        semantic_selector = {
             semantic_id_by_column.get(str(key), str(key)): value for key, value in selector.items()
         }
+        row["selector"] = semantic_selector
+        if isinstance(row.get("keys"), dict):
+            row["keys"] = dict(semantic_selector)
 
 
 def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:

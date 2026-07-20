@@ -21,7 +21,7 @@ from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session._runtime import persist_frame
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import make_metric_frame, make_test_component_contract
 
 
 @pytest.fixture
@@ -132,12 +132,15 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+                axes=axes,
+            ),
             composition_kind="ratio",
-            components={
-                "numerator": "sales.failed_count",
-                "denominator": "sales.total_count",
-            },
-            axes=axes,
             semantic_kind="time_series",
             semantic_model="sales",
         ),

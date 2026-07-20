@@ -23,7 +23,7 @@ _INLINE_SALES = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
+orders = ms.entity(name="orders", datasource=ms.Ref.datasource("wh"), source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
@@ -136,8 +136,8 @@ def test_count_materializes_as_entity_row_count(materialized_project):
 
 def test_tier2_body_can_reference_measure(materialized_project):
     # revenue_via_measure: a tier-2 @ms.metric body that calls the `amount`
-    # measure -> amount(orders).sum(). The MeasureRef must resolve to its
-    # sidecar callable inside a loaded project, like DimensionRef does.
+    # measure -> amount(orders).sum(). The Ref[measure] binding must resolve
+    # through the compiled expression sidecar just like Ref[dimension].
     value = materialized_project.materializer.metric("sales.revenue_via_measure")
     assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
 

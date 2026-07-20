@@ -20,7 +20,6 @@ from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource.authoring import (
-    DatasourceRef,
     DatasourceSpec,
     _storage_name,
 )
@@ -34,6 +33,7 @@ from marivo.datasource.errors import (
     repair,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
 
 
@@ -163,7 +163,7 @@ class DatasourceTestResult(RenderableResult):
 class RawSqlResult(RenderableResult):
     """Bounded terminal result from the datasource raw-SQL execution path."""
 
-    datasource: DatasourceRef
+    datasource: Ref[DatasourceKind]
     backend_type: str
     sql: str
     reason: str
@@ -179,7 +179,7 @@ class RawSqlResult(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"RawSqlResult datasource={self.datasource.id} "
+            f"RawSqlResult datasource={self.datasource.path} "
             f"rows={self.returned_row_count} terminal_only"
         )
 
@@ -193,7 +193,7 @@ class RawSqlResult(RenderableResult):
                 available=(".rows", ".columns", ".types", ".to_pandas()", ".render()", ".show()"),
             )
             .status(f"terminal_only truncated={self.is_truncated} warnings={len(self.warnings)}")
-            .field("datasource", str(self.datasource.id))
+            .field("datasource", self.datasource.path)
             .field("backend_type", self.backend_type)
             .field("reason", self.reason)
             .field(
@@ -467,7 +467,7 @@ def _connect_internal(
     return connection
 
 
-def _datasource_name(value: str | DatasourceRef) -> str:
+def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
     return _storage_name(value)
 
 
@@ -482,18 +482,18 @@ def _connection_repair(exc: Exception) -> AuthoringRepair:
     )
 
 
-def test(name: str | DatasourceRef) -> DatasourceTestResult:
+def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
     """Round-trip the backend and persist validated env secrets.
 
     Args:
-        name: The datasource name or ``DatasourceRef`` to test.
+        name: The datasource name or ``Ref[DatasourceKind]`` to test.
 
     Returns:
         A ``DatasourceTestResult`` with ok status, latency, and typed repair.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.test(md.ref("datasource.wh"))
+        >>> md.test(ms.Ref.datasource("wh"))
 
     Constraints:
         On success, env-sourced secrets that resolved correctly are
@@ -531,7 +531,7 @@ def test(name: str | DatasourceRef) -> DatasourceTestResult:
 
 
 def test_no_persist(
-    name: str | DatasourceRef,
+    name: str | Ref[DatasourceKind],
     *,
     project_root: Path | None = None,
     include_semantic_layers: bool = False,
@@ -539,7 +539,7 @@ def test_no_persist(
     """Round-trip the backend without persisting resolved secrets.
 
     Args:
-        name: The datasource name or ``DatasourceRef`` to test.
+        name: The datasource name or ``Ref[DatasourceKind]`` to test.
 
     Returns:
         A ``DatasourceTestResult`` with ok status, latency, and typed repair.
@@ -633,7 +633,7 @@ def _extract_raw_sql_frame(
 
 
 def raw_sql(
-    datasource: DatasourceRef,
+    datasource: Ref[DatasourceKind],
     sql: str,
     *,
     reason: str,
@@ -645,7 +645,7 @@ def raw_sql(
     """Run a bounded read-only SQL terminal diagnostic against a datasource.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
+        datasource: Datasource reference returned by ``ms.Ref.datasource("warehouse")``.
         sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
             are bounded with a wrapper query capped at ``limit + 1`` rows;
             metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
@@ -663,7 +663,7 @@ def raw_sql(
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1 AS ok", reason="check query path")
+        >>> md.raw_sql(ms.Ref.datasource("warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
         Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,

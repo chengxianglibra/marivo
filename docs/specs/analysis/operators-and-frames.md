@@ -89,9 +89,9 @@ Calendar and holiday alignment are specified in
 
 ### Semantic refs
 
-Every semantic entry point is a catalog-resolved typed ref, never a guessed
-string. Metrics and dimensions are passed as `CatalogObject`/`SemanticRef`
-obtained from `session.catalog.get(...)`; calendars and artifacts use
+Every semantic entry point is a catalog-resolved exact ref, never a guessed
+string. Metrics and dimensions are passed as the `.ref` from
+`session.catalog.require(ref)`; catalog entries themselves are rejected. Calendars and artifacts use
 `CalendarRef` / `ArtifactRef`. An agent holding only a string resolves it through
 the catalog before submitting a step.
 
@@ -157,10 +157,10 @@ requested axes:
 
 ```python
 series = session.observe(
-    metric=session.catalog.get("metric.analytics.dau"),
+    metric=session.catalog.require(ms.Ref.metric("analytics.dau")).ref,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
-    dimensions=[session.catalog.get("dimension.analytics.events.platform")],
+    dimensions=[session.catalog.require(ms.Ref.dimension("analytics.events.platform")).ref],
 )
 ```
 
@@ -314,8 +314,8 @@ metrics separately. Existing non-linear sampled-fold validation still runs first
 drivers = session.attribute(
     delta,
     axes=[
-        session.catalog.get("dimension.analytics.events.country"),
-        session.catalog.get("dimension.analytics.events.platform"),
+        session.catalog.require(ms.Ref.dimension("analytics.events.country")).ref,
+        session.catalog.require(ms.Ref.dimension("analytics.events.platform")).ref,
     ],
     mode="joint",
 )

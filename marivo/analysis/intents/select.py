@@ -20,8 +20,7 @@ from marivo.analysis.frames.candidate import (
     WindowSelection,
 )
 from marivo.analysis.windows import AbsoluteWindow
-from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import DimensionRef, make_ref
+from marivo.refs import DimensionKind, Ref
 
 
 def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
@@ -72,9 +71,9 @@ def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
         )
     if shape == "driver_axis":
         semantic_id = row.get("axis_semantic_id")
-        axis: DimensionRef | str
+        axis: Ref[DimensionKind] | str
         if isinstance(semantic_id, str) and semantic_id:
-            axis = cast("DimensionRef", make_ref(semantic_id, SemanticKind.DIMENSION))
+            axis = Ref.dimension(semantic_id)
         else:
             axis = str(row["axis"])
         return DriverAxisSelection(**common, axis=axis)
@@ -109,7 +108,7 @@ def _json_list(raw: object) -> list[str]:
 
 def _selector(
     row: pd.Series, column: str, *, required: bool = False
-) -> dict[DimensionRef | str, str | int | float | bool | None]:
+) -> dict[Ref[DimensionKind] | str, str | int | float | bool | None]:
     raw = row[column]
     if not isinstance(raw, str) or not raw:
         if required:
@@ -122,9 +121,9 @@ def _selector(
     return {_selector_key(name): value for name, value in decoded.items()}
 
 
-def _selector_key(name: str) -> DimensionRef | str:
+def _selector_key(name: str) -> Ref[DimensionKind] | str:
     if name.count(".") >= 2:
-        return cast("DimensionRef", make_ref(name, SemanticKind.DIMENSION))
+        return Ref.dimension(name)
     return name
 
 

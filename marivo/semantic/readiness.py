@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from marivo._authoring.model import AuthoringRepair
-from marivo.datasource.authoring import DatasourceRef
-from marivo.refs import SemanticRef, SymbolKind
+from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
-from marivo.semantic.refs import make_ref
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract
@@ -45,6 +42,7 @@ class ReadinessIssue:
     message: str
     repair: AuthoringRepair | None = None
     details: Mapping[str, object] = field(default_factory=dict)
+    catalog_definition_fingerprint: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -53,6 +51,7 @@ class ReadinessIssue:
             "refs": list(self.refs),
             "message": self.message,
             "repair": self.repair.model_dump() if self.repair is not None else None,
+            "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
         }
         if self.details:
             payload["details"] = dict(self.details)
@@ -76,12 +75,13 @@ class ReadinessInputSummary:
 @dataclass(frozen=True, repr=False)
 class ReadinessReport(RenderableResult):
     status: ReadinessStatus
-    analysis_ready_refs: tuple[str, ...]
+    analysis_ready_refs: tuple[Ref[SemanticKindTag], ...]
     blockers: tuple[ReadinessIssue, ...]
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
-    preview_required_refs: tuple[SemanticRef, ...] = ()
+    preview_required_refs: tuple[Ref[SemanticKindTag], ...] = ()
+    catalog_definition_fingerprint: str | None = None
 
     def _repr_identity(self) -> str:
         return (
@@ -121,25 +121,33 @@ class ReadinessReport(RenderableResult):
                     "runtime_preview_missing: "
                     f"{len(self.preview_required_refs)} refs are not currently preview-certified; "
                     "analysis may proceed -> optional fix: "
-                    "catalog.preview(refs=report.preview_required_refs, using=...)"
+                    "catalog.preview_many(report.preview_required_refs, using=...)"
                 )
             card = card.listing(
                 label=f"warnings ({len(self.warnings)})",
                 items=tuple(warning_items),
             )
         if self.analysis_ready_refs:
-            card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
+            card = card.field(
+                label="analysis_ready",
+                value=", ".join(ref.key for ref in self.analysis_ready_refs),
+            )
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "status": self.status,
-            "analysis_ready_refs": list(self.analysis_ready_refs),
+            "analysis_ready_refs": [
+                RefPayloadV1.from_ref(ref).to_dict() for ref in self.analysis_ready_refs
+            ],
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
             "input_summary": self.input_summary.to_dict(),
             "checked_at": self.checked_at,
-            "preview_required_refs": [ref.id for ref in self.preview_required_refs],
+            "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
+            "preview_required_refs": [
+                RefPayloadV1.from_ref(ref).to_dict() for ref in self.preview_required_refs
+            ],
         }
 
     def contract(self) -> AuthoringContract:
@@ -153,30 +161,44 @@ class ReadinessReport(RenderableResult):
         )
 
         return contract_for_readiness_report(
-            self.analysis_ready_refs,
+            tuple(ref.path for ref in self.analysis_ready_refs),
             self.blockers + self.warnings,
         )
 
 
-class _SemanticKind(StrEnum):
-    DOMAIN = "domain"
-    DATASOURCE = "datasource"
-    ENTITY = "entity"
-    DIMENSION = "dimension"
-    MEASURE = "measure"
-    TIME_DIMENSION = "time_dimension"
-    METRIC = "metric"
-    RELATIONSHIP = "relationship"
+def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
+    factory = {
+        SemanticKind.DOMAIN: Ref.domain,
+        SemanticKind.DATASOURCE: Ref.datasource,
+        SemanticKind.ENTITY: Ref.entity,
+        SemanticKind.DIMENSION: Ref.dimension,
+        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
+        SemanticKind.MEASURE: Ref.measure,
+        SemanticKind.METRIC: Ref.metric,
+        SemanticKind.RELATIONSHIP: Ref.relationship,
+    }[kind]
+    return factory(path)
+
+
+def _exact_key(path: str, kind: SemanticKind) -> str:
+    return _exact_ref(path, kind).key
+
+
+def _display_path(ref_key: str) -> str:
+    prefix, separator, path = ref_key.partition(":")
+    if separator and prefix in {kind.value for kind in SemanticKind}:
+        return path
+    return ref_key
 
 
 _EXECUTABLE_KINDS = frozenset(
     {
-        _SemanticKind.ENTITY,
-        _SemanticKind.DIMENSION,
-        _SemanticKind.TIME_DIMENSION,
-        _SemanticKind.MEASURE,
-        _SemanticKind.METRIC,
-        _SemanticKind.RELATIONSHIP,
+        SemanticKind.ENTITY,
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.MEASURE,
+        SemanticKind.METRIC,
+        SemanticKind.RELATIONSHIP,
     }
 )
 
@@ -228,44 +250,66 @@ def _parity_passed(project: SemanticProject, ref: str) -> bool:
     return parity_result is not None and parity_result.ok
 
 
-def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], dict[str, object]]:
+def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
     reg = project._registry
     if reg is None:
         return {}, {}
 
-    kinds: dict[str, _SemanticKind] = {}
+    kinds: dict[str, SemanticKind] = {}
     objects: dict[str, object] = {}
 
     for entity in reg.entities.values():
-        kinds[entity.semantic_id] = _SemanticKind.ENTITY
-        objects[entity.semantic_id] = entity
+        key = _exact_key(entity.semantic_id, SemanticKind.ENTITY)
+        kinds[key] = SemanticKind.ENTITY
+        objects[key] = entity
     for dim in reg.dimensions.values():
-        kind = _SemanticKind.TIME_DIMENSION if dim.is_time_dimension else _SemanticKind.DIMENSION
-        kinds[dim.semantic_id] = kind
-        objects[dim.semantic_id] = dim
+        kind = SemanticKind.TIME_DIMENSION if dim.is_time_dimension else SemanticKind.DIMENSION
+        key = _exact_key(dim.semantic_id, kind)
+        kinds[key] = kind
+        objects[key] = dim
     for measure in reg.measures.values():
-        kinds[measure.semantic_id] = _SemanticKind.MEASURE
-        objects[measure.semantic_id] = measure
+        key = _exact_key(measure.semantic_id, SemanticKind.MEASURE)
+        kinds[key] = SemanticKind.MEASURE
+        objects[key] = measure
     for metric in reg.metrics.values():
-        kinds[metric.semantic_id] = _SemanticKind.METRIC
-        objects[metric.semantic_id] = metric
+        key = _exact_key(metric.semantic_id, SemanticKind.METRIC)
+        kinds[key] = SemanticKind.METRIC
+        objects[key] = metric
     for relationship in reg.relationships.values():
-        kinds[relationship.semantic_id] = _SemanticKind.RELATIONSHIP
-        objects[relationship.semantic_id] = relationship
+        key = _exact_key(relationship.semantic_id, SemanticKind.RELATIONSHIP)
+        kinds[key] = SemanticKind.RELATIONSHIP
+        objects[key] = relationship
     for domain_ir in reg.domains.values():
-        kinds[domain_ir.name] = _SemanticKind.DOMAIN
-        objects[domain_ir.name] = domain_ir
+        key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
+        kinds[key] = SemanticKind.DOMAIN
+        objects[key] = domain_ir
     for ds_ir in project._datasource_irs or reg.datasources.values():
-        datasource_ref = DatasourceRef.from_id(ds_ir.semantic_id).id
-        kinds[datasource_ref] = _SemanticKind.DATASOURCE
-        objects[datasource_ref] = ds_ir
+        key = _exact_key(ds_ir.semantic_id, SemanticKind.DATASOURCE)
+        kinds[key] = SemanticKind.DATASOURCE
+        objects[key] = ds_ir
 
     return kinds, objects
 
 
+def _scope_keys(
+    refs: Iterable[Ref[SemanticKindTag] | str] | None,
+    kinds: Mapping[str, SemanticKind],
+) -> tuple[str, ...] | None:
+    if refs is None:
+        return None
+    keys: list[str] = []
+    for ref in refs:
+        if type(ref) is Ref:
+            keys.append(ref.key)
+            continue
+        candidates = tuple(key for key in kinds if _display_path(key) == ref)
+        keys.append(candidates[0] if len(candidates) == 1 else ref)
+    return tuple(keys)
+
+
 def _strict_enrichment_issues(
     checked_refs: Iterable[str],
-    kinds: Mapping[str, _SemanticKind],
+    kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
 ) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
     """Contracts section 7: analyzable handoff refs must carry a non-empty
@@ -273,11 +317,11 @@ def _strict_enrichment_issues(
     refs). Richness owns optional enrichment suggestions.
     Relationships are out of scope, matching semantic-preview scoping."""
     analyzable = {
-        _SemanticKind.ENTITY,
-        _SemanticKind.DIMENSION,
-        _SemanticKind.MEASURE,
-        _SemanticKind.TIME_DIMENSION,
-        _SemanticKind.METRIC,
+        SemanticKind.ENTITY,
+        SemanticKind.DIMENSION,
+        SemanticKind.MEASURE,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.METRIC,
     }
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -288,13 +332,14 @@ def _strict_enrichment_issues(
         obj = objects.get(ref)
         if obj is None:
             continue
+        path = _display_path(ref)
         if _missing_business_definition(obj):
             blockers.append(
                 _issue(
                     "missing_business_definition",
                     "blocker",
-                    (ref,),
-                    f"{ref} has no ai_context.business_definition for semantic certification.",
+                    (path,),
+                    f"{path} has no ai_context.business_definition for semantic certification.",
                     repair(
                         kind="reauthor",
                         canonical_id="metric",
@@ -310,8 +355,8 @@ def _strict_enrichment_issues(
                 _issue(
                     "missing_guardrails",
                     "warning",
-                    (ref,),
-                    f"{ref} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
+                    (path,),
+                    f"{path} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
                     repair(
                         kind="reauthor",
                         canonical_id="metric",
@@ -323,11 +368,11 @@ def _strict_enrichment_issues(
 
 
 _CONTAINER_KINDS = frozenset(
-    {_SemanticKind.RELATIONSHIP, _SemanticKind.DOMAIN, _SemanticKind.DATASOURCE}
+    {SemanticKind.RELATIONSHIP, SemanticKind.DOMAIN, SemanticKind.DATASOURCE}
 )
 
 
-def _default_checked_refs(kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
+def _default_checked_refs(kinds: Mapping[str, SemanticKind]) -> tuple[str, ...]:
     return tuple(ref for ref in kinds if kinds[ref] not in _CONTAINER_KINDS) + tuple(
         ref for ref in kinds if kinds[ref] in _CONTAINER_KINDS
     )
@@ -336,58 +381,63 @@ def _default_checked_refs(kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]
 def _dependencies_for_ref(
     ref: str,
     objects: Mapping[str, object],
-    kinds: Mapping[str, _SemanticKind],
+    kinds: Mapping[str, SemanticKind],
 ) -> tuple[str, ...]:
     kind = kinds.get(ref)
     obj = objects.get(ref)
     if obj is None:
         return ()
-    if kind == _SemanticKind.DOMAIN:
+    path = _display_path(ref)
+    if kind == SemanticKind.DOMAIN:
         return tuple(
             obj_id
             for obj_id, other in objects.items()
-            if kinds.get(obj_id) == _SemanticKind.ENTITY and getattr(other, "domain", None) == ref
+            if kinds.get(obj_id) == SemanticKind.ENTITY and getattr(other, "domain", None) == path
         )
-    if kind == _SemanticKind.DATASOURCE:
+    if kind == SemanticKind.DATASOURCE:
         return tuple(
             obj_id
             for obj_id, other in objects.items()
-            if kinds.get(obj_id) == _SemanticKind.ENTITY
-            and getattr(other, "datasource", None) == ref
+            if kinds.get(obj_id) == SemanticKind.ENTITY
+            and getattr(other, "datasource", None) == path
         )
-    if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
+    if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         entity = getattr(obj, "entity", None)
-        return (entity,) if isinstance(entity, str) else ()
-    if kind == _SemanticKind.MEASURE:
+        return (_exact_key(entity, SemanticKind.ENTITY),) if isinstance(entity, str) else ()
+    if kind == SemanticKind.MEASURE:
         entity = getattr(obj, "entity", None)
-        return (entity,) if isinstance(entity, str) else ()
-    if kind == _SemanticKind.METRIC:
+        return (_exact_key(entity, SemanticKind.ENTITY),) if isinstance(entity, str) else ()
+    if kind == SemanticKind.METRIC:
         deps: list[str] = []
-        deps.extend(getattr(obj, "entities", ()))
+        deps.extend(
+            _exact_key(entity, SemanticKind.ENTITY) for entity in getattr(obj, "entities", ())
+        )
         composition = getattr(obj, "composition", None)
         if composition is not None:
             from marivo.semantic.ir import composition_components
 
             components = composition_components(composition)
-            deps.extend(str(value) for value in components.values())
+            deps.extend(
+                _exact_key(str(value), SemanticKind.METRIC) for value in components.values()
+            )
         return tuple(deps)
-    if kind == _SemanticKind.RELATIONSHIP:
+    if kind == SemanticKind.RELATIONSHIP:
         keys = getattr(obj, "keys", ())
         key_refs = tuple(ref for key in keys for ref in key.to_tuple())
-        relationship_deps = (
-            getattr(obj, "from_entity", None),
-            getattr(obj, "to_entity", None),
-            *key_refs,
-            *getattr(obj, "from_keys", ()),
-            *getattr(obj, "to_keys", ()),
+        entity_deps = (getattr(obj, "from_entity", None), getattr(obj, "to_entity", None))
+        return tuple(
+            _exact_key(dep, SemanticKind.ENTITY) for dep in entity_deps if isinstance(dep, str)
+        ) + tuple(
+            _exact_key(dep, SemanticKind.DIMENSION)
+            for dep in (*key_refs, *getattr(obj, "from_keys", ()), *getattr(obj, "to_keys", ()))
+            if isinstance(dep, str)
         )
-        return tuple(dep for dep in relationship_deps if isinstance(dep, str))
     return ()
 
 
 def _expand_checked_refs(
     refs: Iterable[str] | None,
-    kinds: Mapping[str, _SemanticKind],
+    kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     seeds = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
@@ -411,11 +461,11 @@ def _expand_checked_refs(
 def _datasource_refs_for_checked_refs(
     refs: Iterable[str],
     objects: Mapping[str, object],
-    kinds: Mapping[str, _SemanticKind],
+    kinds: Mapping[str, SemanticKind],
 ) -> tuple[str, ...]:
     datasources: list[str] = []
     for ref in refs:
-        if kinds.get(ref) != _SemanticKind.ENTITY:
+        if kinds.get(ref) != SemanticKind.ENTITY:
             continue
         datasource = getattr(objects.get(ref), "datasource", None)
         if isinstance(datasource, str):
@@ -423,8 +473,8 @@ def _datasource_refs_for_checked_refs(
     return _dedupe(datasources)
 
 
-def _dataset_refs(refs: Iterable[str], kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
-    return tuple(ref for ref in refs if kinds.get(ref) == _SemanticKind.ENTITY)
+def _dataset_refs(refs: Iterable[str], kinds: Mapping[str, SemanticKind]) -> tuple[str, ...]:
+    return tuple(_display_path(ref) for ref in refs if kinds.get(ref) == SemanticKind.ENTITY)
 
 
 def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
@@ -445,14 +495,15 @@ def _missing_guardrails(obj: object) -> bool:
 
 def _undeclared_naive_time_axis_issues(
     checked_refs: Iterable[str],
-    kinds: Mapping[str, _SemanticKind],
+    kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
 ) -> list[ReadinessIssue]:
     """Return blockers for native temporal axes without a source timezone."""
     blockers: list[ReadinessIssue] = []
     for ref in checked_refs:
-        if kinds.get(ref) != _SemanticKind.TIME_DIMENSION:
+        if kinds.get(ref) != SemanticKind.TIME_DIMENSION:
             continue
+        path = _display_path(ref)
         time_dimension = objects.get(ref)
         parse = getattr(time_dimension, "parse", None)
         data_type = getattr(parse, "kind", None)
@@ -461,15 +512,19 @@ def _undeclared_naive_time_axis_issues(
             continue
 
         entity_ref = getattr(time_dimension, "entity", None)
-        entity = objects.get(entity_ref) if isinstance(entity_ref, str) else None
+        entity = (
+            objects.get(_exact_key(entity_ref, SemanticKind.ENTITY))
+            if isinstance(entity_ref, str)
+            else None
+        )
         datasource = getattr(entity, "datasource", None)
         parse_call = f'ms.{data_type}(timezone="Region/City")'
         blockers.append(
             _issue(
                 "undeclared_naive_time_axis",
                 "blocker",
-                (ref,),
-                f"{ref} is a native {data_type} time axis with no declared source timezone; "
+                (path,),
+                f"{path} is a native {data_type} time axis with no declared source timezone; "
                 "analysis will otherwise interpret naive values using the datasource read timezone.",
                 repair(
                     kind="reauthor",
@@ -492,7 +547,7 @@ def _undeclared_naive_time_axis_issues(
 def build_readiness_report(
     project: SemanticProject,
     *,
-    refs: Iterable[str] | None = None,
+    refs: Iterable[Ref[SemanticKindTag] | str] | None = None,
 ) -> ReadinessReport:
     """Build a readiness report from loaded state and persisted row-free evidence.
 
@@ -509,14 +564,9 @@ def build_readiness_report(
         ReadinessReport indicating whether the selected refs satisfy the
         current certification contract.
     """
-    # Defensive normalization: ensure all refs are plain strings so that
-    # downstream code (dict key lookups, .split() calls) works correctly
-    # even if callers pass SemanticRef objects.
-    if refs is not None:
-        refs = [str(r) for r in refs]
-
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
+    preview_required_keys: list[str] = []
 
     if not project.is_ready():
         for error in project.errors():
@@ -544,11 +594,18 @@ def build_readiness_report(
                 tables=(),
             ),
             checked_at=_checked_at(),
+            catalog_definition_fingerprint=None,
         )
 
+    compiled_state = project._compiled_state
+    if compiled_state is None:
+        raise RuntimeError("ready semantic project has no compiled state")
+    catalog_definition_fingerprint = compiled_state.definition_fingerprint
+
     kinds, objects = _object_maps(project)
-    direct_refs = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
-    checked_refs, unknown_refs = _expand_checked_refs(refs, kinds, objects)
+    scoped_keys = _scope_keys(refs, kinds)
+    direct_refs = _dedupe(scoped_keys if scoped_keys is not None else _default_checked_refs(kinds))
+    checked_refs, unknown_refs = _expand_checked_refs(scoped_keys, kinds, objects)
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
     cross_datasource_refs: list[str] = []
@@ -558,7 +615,7 @@ def build_readiness_report(
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS:
                 continue
-            entity_ids = preview_dependency_entities(ref, registry=reg)
+            entity_ids = preview_dependency_entities(_display_path(ref), registry=reg)
             datasource_ids = {
                 reg.entities[entity_id].datasource
                 for entity_id in entity_ids
@@ -575,17 +632,18 @@ def build_readiness_report(
         )
 
         for ref in direct_refs:
-            if kinds.get(ref) != _SemanticKind.METRIC:
+            if kinds.get(ref) != SemanticKind.METRIC:
                 continue
+            path = _display_path(ref)
             try:
-                lower_catalog_metric(reg, ref)
+                lower_catalog_metric(reg, path, sidecar=project._expression_sidecar)
             except (MetricGraphContractError, MetricGraphLoweringError) as exc:
                 blockers.append(
                     _issue(
                         "metric_graph_invalid",
                         "blocker",
-                        (ref,),
-                        f"{ref} cannot lower to the bounded metric expression graph: {exc}",
+                        (path,),
+                        f"{path} cannot lower to the bounded metric expression graph: {exc}",
                         repair(
                             kind="reauthor",
                             canonical_id="metric",
@@ -608,16 +666,17 @@ def build_readiness_report(
                 )
 
     for ref in unknown_refs:
+        path = _display_path(ref)
         blockers.append(
             _issue(
                 "unknown_ref",
                 "blocker",
-                (ref,),
-                f"Requested semantic ref {ref!r} is not loaded in the project registry.",
+                (path,),
+                f"Requested semantic ref {path!r} is not loaded in the project registry.",
                 repair(
                     kind="inspect",
                     canonical_id="load",
-                    action="Browse loaded refs with catalog.domains.show(), catalog.metrics.show(), etc., inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
+                    action="Browse loaded refs with catalog.domains.show() or catalog.metrics.show(), then inspect a known identity with catalog.require(ms.Ref.<kind>(path)).details().show().",
                 ),
             )
         )
@@ -634,17 +693,19 @@ def build_readiness_report(
     blockers.extend(enrichment_blockers)
     warnings.extend(enrichment_warnings)
 
-    if project._registry is not None and project._sidecar is not None:
+    if project._registry is not None and project._expression_sidecar is not None:
         from marivo.semantic.preview_checks import preview_evidence_requirement
 
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS or ref in cross_datasource_refs:
                 continue
+            path = _display_path(ref)
             requirement = preview_evidence_requirement(
-                ref,
+                path,
                 registry=project._registry,
-                sidecar=project._sidecar,
+                sidecar=project._expression_sidecar,
                 project_root=project._workspace_dir,
+                catalog_definition_fingerprint=catalog_definition_fingerprint,
             )
             if requirement.status == "matched":
                 continue
@@ -653,8 +714,8 @@ def build_readiness_report(
                     _issue(
                         "snapshot_missing",
                         "blocker",
-                        (ref,),
-                        f"{ref} has no matching datasource snapshot metadata.",
+                        (path,),
+                        f"{path} has no matching datasource snapshot metadata.",
                         repair=requirement.repair,
                     )
                 )
@@ -663,22 +724,24 @@ def build_readiness_report(
                 _issue(
                     "runtime_preview_missing",
                     "warning",
-                    (ref,),
-                    f"{ref} has no preview check matching its current definition and dependencies; "
+                    (path,),
+                    f"{path} has no preview check matching its current definition and dependencies; "
                     "analysis may proceed, but preview is still required to certify an authoring change.",
                     repair=requirement.repair,
                 )
             )
+            preview_required_keys.append(ref)
 
     # Cross-datasource unfederated metrics.
     if reg is not None:
         for ref in cross_datasource_refs:
+            path = _display_path(ref)
             blockers.append(
                 _issue(
                     "cross_datasource_unfederated",
                     "blocker",
-                    (ref,),
-                    f"Semantic object {ref} spans multiple datasources without federation support.",
+                    (path,),
+                    f"Semantic object {path} spans multiple datasources without federation support.",
                     repair(
                         kind="reauthor",
                         canonical_id="metric",
@@ -689,8 +752,9 @@ def build_readiness_report(
 
     # SQL parity unverified warnings.
     for ref in checked_refs:
-        if kinds.get(ref) != _SemanticKind.METRIC:
+        if kinds.get(ref) != SemanticKind.METRIC:
             continue
+        path = _display_path(ref)
         obj = objects.get(ref)
         if obj is None:
             continue
@@ -700,17 +764,17 @@ def build_readiness_report(
         provenance_sql = prov.sql
         if provenance_sql is None:
             continue
-        if not _parity_passed(project, ref):
+        if not _parity_passed(project, path):
             warnings.append(
                 _issue(
                     "sql_parity_unverified",
                     "warning",
-                    (ref,),
-                    f"{ref} has provenance SQL but parity has not been confirmed.",
+                    (path,),
+                    f"{path} has provenance SQL but parity has not been confirmed.",
                     repair(
                         kind="reverify",
                         canonical_id="parity_check",
-                        action=f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
+                        action=f"Run ms.parity_check({path!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
                     ),
                 )
             )
@@ -746,22 +810,33 @@ def build_readiness_report(
                 )
             )
     blocked_refs = _refs_with_issue(blockers)
-    analysis_ready_refs = tuple(
+    analysis_ready_ids = tuple(
         ref
         for ref in direct_refs
-        if blocked_refs.isdisjoint(_expand_checked_refs((ref,), kinds, objects)[0])
+        if blocked_refs.isdisjoint(
+            _display_path(dependency)
+            for dependency in _expand_checked_refs((ref,), kinds, objects)[0]
+        )
     )
-    preview_required_ids = _dedupe(
-        ref
-        for issue in (*blockers, *warnings)
-        if issue.kind == "runtime_preview_missing"
-        for ref in issue.refs
+    analysis_ready_refs = tuple(
+        _exact_ref(_display_path(ref), kinds[ref]) for ref in analysis_ready_ids if ref in kinds
     )
     preview_required_refs = tuple(
-        make_ref(ref, SymbolKind(kinds[ref].value)) for ref in preview_required_ids if ref in kinds
+        _exact_ref(_display_path(ref), kinds[ref])
+        for ref in _dedupe(preview_required_keys)
+        if ref in kinds
     )
 
     datasources_checked: tuple[str, ...] = scoped_datasources if reg is not None else ()
+
+    blockers = [
+        replace(issue, catalog_definition_fingerprint=catalog_definition_fingerprint)
+        for issue in blockers
+    ]
+    warnings = [
+        replace(issue, catalog_definition_fingerprint=catalog_definition_fingerprint)
+        for issue in warnings
+    ]
 
     return ReadinessReport(
         status=_status(blockers, warnings),
@@ -770,9 +845,10 @@ def build_readiness_report(
         warnings=tuple(warnings),
         input_summary=ReadinessInputSummary(
             datasources=datasources_checked,
-            refs=checked_refs,
+            refs=_dedupe(_display_path(ref) for ref in checked_refs),
             tables=_dataset_refs(checked_refs, kinds),
         ),
         checked_at=_checked_at(),
         preview_required_refs=preview_required_refs,
+        catalog_definition_fingerprint=catalog_definition_fingerprint,
     )

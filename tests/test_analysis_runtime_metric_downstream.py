@@ -4,6 +4,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis.errors import AttributionMaterializationError
 from marivo.analysis.intents._replay import recover_observe_replay
 from tests.conftest import bootstrap_sales_project
@@ -36,8 +37,8 @@ def runtime_session(tmp_path):
 
 def _refs(session):
     measure_id = next(iter(session.catalog._require_index().registry.measures))
-    amount = session.catalog.get(f"measure.{measure_id}").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    amount = session.catalog.require(ms.Ref.measure(measure_id)).ref
+    region = session.catalog.require(ms.Ref.dimension("sales.orders.region")).ref
     return amount, region
 
 

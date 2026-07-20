@@ -7,8 +7,10 @@ from typing import cast
 
 import pytest
 
+from marivo.refs import Ref, RefPayloadV1
 from marivo.semantic.metric_graph import (
     MAX_EXPRESSION_OCCURRENCES,
+    CanonicalSliceEntryV1,
     CatalogBodyLeafV1,
     ExpressionOccurrenceV1,
     ExpressionPresentationV1,
@@ -39,18 +41,26 @@ def _record(node):
     return MetricGraphNodeRecordV1(node_id=node_fingerprint(node), node=node)
 
 
+def _metric_payload(path: str) -> RefPayloadV1:
+    return RefPayloadV1.from_ref(Ref.metric(path))
+
+
+def _dimension_payload(path: str) -> RefPayloadV1:
+    return RefPayloadV1.from_ref(Ref.dimension(path))
+
+
 def _ratio_graph() -> MetricExpressionGraphV1:
     numerator = _record(
         CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id="sales.failed",
+            metric_ref=_metric_payload("sales.failed"),
             dependency_fingerprint="a" * 64,
         )
     )
     denominator = _record(
         CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id="sales.requests",
+            metric_ref=_metric_payload("sales.requests"),
             dependency_fingerprint="b" * 64,
         )
     )
@@ -82,7 +92,7 @@ def _slice_chain(depth: int) -> MetricExpressionGraphV1:
     leaf = _record(
         CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id="sales.requests",
+            metric_ref=_metric_payload("sales.requests"),
             dependency_fingerprint="c" * 64,
         )
     )
@@ -93,8 +103,15 @@ def _slice_chain(depth: int) -> MetricExpressionGraphV1:
             SliceNodeV1(
                 kind="slice",
                 child_id=node_id,
-                predicates=((f"sales.axis_{index}", "x"),),
-                predicate_dependencies=((f"sales.axis_{index}", "f" * 64),),
+                predicates=(
+                    CanonicalSliceEntryV1(
+                        dimension_ref=_dimension_payload(f"sales.orders.axis_{index}"),
+                        value="x",
+                    ),
+                ),
+                predicate_dependencies=(
+                    (_dimension_payload(f"sales.orders.axis_{index}"), "f" * 64),
+                ),
             )
         )
         records.append(record)
@@ -135,8 +152,13 @@ def _wrap_root_slice(
     node = SliceNodeV1(
         kind="slice",
         child_id=graph.roots[0],
-        predicates=(("sales.orders.state", value),),
-        predicate_dependencies=(("sales.orders.state", "9" * 64),),
+        predicates=(
+            CanonicalSliceEntryV1(
+                dimension_ref=_dimension_payload("sales.orders.state"),
+                value=value,
+            ),
+        ),
+        predicate_dependencies=((_dimension_payload("sales.orders.state"), "9" * 64),),
     )
     record = _record(node)
     return MetricExpressionGraphV1(
@@ -159,7 +181,7 @@ def test_canonical_bytes_and_fingerprint_are_stable() -> None:
     validate_graph(graph)
 
     assert canonical_bytes(graph).startswith(b'{"schema":"metric-expression/v1","roots":[')
-    assert fingerprint(graph) == "04b4085d229cf4a8db34022f6ff89376ac5f3b7041f4bd6173ee9ab16ce63833"
+    assert fingerprint(graph) == "80b80582579b5a47fca14fd70aa1f8d5d3bac5b52dbbc4b486277013395b2abe"
     assert fingerprint(graph) == fingerprint(replace(graph))
 
 
@@ -217,7 +239,7 @@ def test_pre_cse_occurrence_budget_cannot_be_bypassed_by_shared_node() -> None:
     leaf = _record(
         CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id="sales.requests",
+            metric_ref=_metric_payload("sales.requests"),
             dependency_fingerprint="d" * 64,
         )
     )
@@ -243,7 +265,7 @@ def test_pre_cse_occurrence_budget_accepts_exact_limit() -> None:
     leaf = _record(
         CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id="sales.requests",
+            metric_ref=_metric_payload("sales.requests"),
             dependency_fingerprint="e" * 64,
         )
     )

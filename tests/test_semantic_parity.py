@@ -29,6 +29,7 @@ from unittest.mock import patch
 import ibis
 import pytest
 
+import marivo.semantic as ms
 from marivo.semantic.errors import ErrorKind, SemanticParityError
 from marivo.semantic.ir import ParityStatus
 from marivo.semantic.parity import propagated_parity_status
@@ -118,7 +119,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -136,7 +137,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -150,7 +151,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -163,7 +164,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -177,7 +178,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -205,7 +206,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -308,7 +309,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     small_mismatch_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -389,7 +390,7 @@ def test_derived_metric_with_provenance_sql_fails_load(
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -445,9 +446,9 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     cross_ds_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=md.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource=ms.Ref.datasource("warehouse1"), source=md.table("orders"))
 
-        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=md.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource=ms.Ref.datasource("warehouse2"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders_a, orders_b],
@@ -564,7 +565,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     drifted_component_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -635,7 +636,7 @@ def test_derived_propagation_verified_and_no_provenance_sql(
     mixed_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -733,8 +734,8 @@ def test_catalog_metric_details_reflect_parity_status(
 
     # Before parity check: UNVERIFIED
     metrics = catalog.metrics.items
-    assert any(metric.ref.id == "sales.total_amount" for metric in metrics)
-    details = catalog.get("metric.sales.total_amount").details()
+    assert any(metric.ref.path == "sales.total_amount" for metric in metrics)
+    details = catalog.require(ms.Ref.metric("sales.total_amount")).details()
     assert isinstance(details, MetricDetails)
     assert details.parity_status == ParityStatus.UNVERIFIED
 
@@ -742,8 +743,13 @@ def test_catalog_metric_details_reflect_parity_status(
     with _patch_project_backends(project, backend_factory):
         project.parity_check("sales.total_amount")
 
-    # After parity check: VERIFIED
-    details = catalog.get("metric.sales.total_amount").details()
+    # The compiled catalog is immutable; it does not mutate under new evidence.
+    details = catalog.require(ms.Ref.metric("sales.total_amount")).details()
+    assert isinstance(details, MetricDetails)
+    assert details.parity_status == ParityStatus.UNVERIFIED
+
+    # A newly compiled catalog view observes the completed parity evidence.
+    details = SemanticCatalog(project).require(ms.Ref.metric("sales.total_amount")).details()
     assert isinstance(details, MetricDetails)
     assert details.parity_status == ParityStatus.VERIFIED
 

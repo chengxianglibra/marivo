@@ -16,6 +16,7 @@ from typing import Any, Literal, cast
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype, is_object_dtype
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import AlignmentFailedError, SemanticKindMismatchError
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -252,10 +253,8 @@ def correlate(
                 input_refs=[a.meta.artifact_id or a.ref, b.meta.artifact_id or b.ref]
             ),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(
-                values={"left_metric_id": a.meta.metric_id, "right_metric_id": b.meta.metric_id}
-            ),
-            subject=Subject(metric=None, analysis_axis="correlation"),
+            semantic_anchors=CommitSemanticAnchors.from_frames(a, b),
+            subject=Subject(analysis_axis="correlation"),
             extractor_family="association_result",
             seeding_context={
                 "left_subject": left_subject,
@@ -271,6 +270,7 @@ def correlate(
             "id": job_ref,
             "session_id": session.id,
             "intent": "correlate",
+            **job_semantics_from_frames(a, b),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": source_refs,
@@ -281,7 +281,6 @@ def correlate(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": a.meta.semantic_model,
             "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
         },
     )

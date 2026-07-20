@@ -1,23 +1,29 @@
 from __future__ import annotations
 
+import importlib
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import AttributionMaterializationError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._replay import (
+    ObserveReplay,
     recover_alignment_policy,
     recover_observe_replay,
 )
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.runtime_metric import replay_payload
 from marivo.analysis.session._runtime import persist_job_record
-from marivo.semantic.refs import MetricRef
+from marivo.refs import Ref
+from tests.shared_fixtures import make_test_delta_contract, make_test_metric_contract
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +39,22 @@ def _now() -> datetime:
 
 
 def _metric_frame(session: mv.Session, *, params: dict[str, object]) -> MetricFrame:
+    df = pd.DataFrame({"value": [10.0]})
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "sales.orders.created_at",
+        },
+        "region": {
+            "role": "dimension",
+            "column": "region",
+            "ref": "sales.orders.region",
+        },
+    }
     return MetricFrame(
-        _df=pd.DataFrame({"value": [10.0]}),
+        _df=df,
         meta=MetricFrameMeta(
             kind="metric_frame",
             ref="frame_current",
@@ -56,7 +76,13 @@ def _metric_frame(session: mv.Session, *, params: dict[str, object]) -> MetricFr
                 ]
             ),
             metric_id="sales.revenue",
-            axes={},
+            **make_test_metric_contract(
+                df,
+                metric_id="sales.revenue",
+                axes=axes,
+                where={"sales.orders.region": "US"},
+            ),
+            axes=axes,
             measure={"name": "revenue"},
             window={
                 "start": "2026-07-01T00:00:00+00:00",
@@ -75,6 +101,7 @@ def _delta_frame(session: mv.Session, *, alignment: dict[str, object]) -> DeltaF
     return DeltaFrame(
         _df=pd.DataFrame({"delta": [2.0]}),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             kind="delta_frame",
             ref="frame_delta",
             session_id=session.id,
@@ -99,8 +126,7 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
     frame = _metric_frame(
         session,
         params={
-            "metric": "sales.revenue",
-            "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
+            "replay_expression": replay_payload(Ref.metric("sales.revenue")),
             "timescope": {
                 "original": {"start": "2026-07-01", "end": "2026-08-01"},
                 "resolved": {
@@ -111,19 +137,17 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
                 },
                 "report_tz": "UTC",
             },
-            "dimensions": [{"semantic_id": "sales.orders.region"}],
-            "where": {"sales.orders.region": "US"},
         },
     )
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == MetricRef("sales.revenue")
+    assert replay.metric == Ref.metric("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
-    assert replay.time_dimension == "sales.orders.created_at"
-    assert replay.dimensions == ("sales.orders.region",)
-    assert replay.slice_by == {"sales.orders.region": "US"}
+    assert replay.time_dimension == Ref.time_dimension("sales.orders.created_at")
+    assert replay.dimensions == (Ref.dimension("sales.orders.region"),)
+    assert replay.slice_by == {Ref.dimension("sales.orders.region"): "US"}
 
 
 def test_recover_observe_replay_requires_observe_params() -> None:
@@ -171,8 +195,7 @@ def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
 
 
 _OBSERVE_PARAMS: dict[str, object] = {
-    "metric": "sales.revenue",
-    "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
+    "replay_expression": replay_payload(Ref.metric("sales.revenue")),
     "timescope": {
         "original": {"start": "2026-07-01", "end": "2026-08-01"},
         "resolved": {
@@ -183,15 +206,27 @@ _OBSERVE_PARAMS: dict[str, object] = {
         },
         "report_tz": "UTC",
     },
-    "dimensions": [{"semantic_id": "sales.orders.region"}],
-    "where": {"sales.orders.region": "US"},
 }
 
 
 def _metric_frame_no_lineage(session: mv.Session) -> MetricFrame:
     """Build a MetricFrame with empty lineage but a produced_by_job ref."""
+    df = pd.DataFrame({"value": [10.0]})
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "sales.orders.created_at",
+        },
+        "region": {
+            "role": "dimension",
+            "column": "region",
+            "ref": "sales.orders.region",
+        },
+    }
     return MetricFrame(
-        _df=pd.DataFrame({"value": [10.0]}),
+        _df=df,
         meta=MetricFrameMeta(
             kind="metric_frame",
             ref="frame_current",
@@ -203,7 +238,13 @@ def _metric_frame_no_lineage(session: mv.Session) -> MetricFrame:
             byte_size=0,
             lineage=Lineage(),
             metric_id="sales.revenue",
-            axes={},
+            **make_test_metric_contract(
+                df,
+                metric_id="sales.revenue",
+                axes=axes,
+                where={"sales.orders.region": "US"},
+            ),
+            axes=axes,
             measure={"name": "revenue"},
             window={
                 "start": "2026-07-01T00:00:00+00:00",
@@ -228,6 +269,7 @@ def test_recover_observe_replay_falls_back_to_job_record() -> None:
             "id": "job_observe_current",
             "session_id": session.id,
             "intent": "observe",
+            **job_semantics_from_frames(frame),
             "params": dict(_OBSERVE_PARAMS),
             "input_frame_refs": [],
             "output_frame_ref": "frame_current",
@@ -237,19 +279,18 @@ def test_recover_observe_replay_falls_back_to_job_record() -> None:
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.project_root),
-            "semantic_model": "sales",
             "queries": [],
         },
     )
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == MetricRef("sales.revenue")
+    assert replay.metric == Ref.metric("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
-    assert replay.time_dimension == "sales.orders.created_at"
-    assert replay.dimensions == ("sales.orders.region",)
-    assert replay.slice_by == {"sales.orders.region": "US"}
+    assert replay.time_dimension == Ref.time_dimension("sales.orders.created_at")
+    assert replay.dimensions == (Ref.dimension("sales.orders.region"),)
+    assert replay.slice_by == {Ref.dimension("sales.orders.region"): "US"}
 
 
 def test_observe_replay_with_dimensions_dedups_and_skips_time_dimension() -> None:
@@ -259,7 +300,77 @@ def test_observe_replay_with_dimensions_dedups_and_skips_time_dimension() -> Non
     replay = recover_observe_replay(frame, session=session)
 
     result = replay.with_dimensions(
-        ["sales.orders.region", "sales.orders.platform", "sales.orders.created_at"]
+        [
+            Ref.dimension("sales.orders.region"),
+            Ref.dimension("sales.orders.platform"),
+            Ref.time_dimension("sales.orders.created_at"),
+        ]
     )
 
-    assert result.dimensions == ("sales.orders.region", "sales.orders.platform")
+    assert result.dimensions == (
+        Ref.dimension("sales.orders.region"),
+        Ref.dimension("sales.orders.platform"),
+    )
+
+
+def test_replay_uses_exact_dependency_digest_not_whole_catalog_fingerprint(
+    monkeypatch,
+) -> None:
+    session = mv.session.get_or_create(name="digest_replay")
+    replay = ObserveReplay(
+        metric=Ref.metric("sales.revenue"),
+        time_scope=None,
+        grain=None,
+        dimensions=(),
+        slice_by={},
+        time_dimension=None,
+        dependency_digest="sha256:unchanged",
+        catalog_definition_fingerprint="sha256:old-catalog",
+    )
+    result = SimpleNamespace(meta=SimpleNamespace(execution_stats=None))
+    monkeypatch.setattr(
+        "marivo.analysis.intents._runtime_metric_lowering.lower_metric_inputs",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            dependency_digest=SimpleNamespace(digest="sha256:unchanged")
+        ),
+    )
+    observe_module = importlib.import_module("marivo.analysis.intents.observe")
+    monkeypatch.setattr(observe_module, "observe", lambda *_args, **_kwargs: result)
+
+    assert replay.call_observe(session) is result
+
+
+def test_replay_stops_before_execution_when_dependency_digest_changes(
+    monkeypatch,
+) -> None:
+    session = mv.session.get_or_create(name="digest_drift")
+    replay = ObserveReplay(
+        metric=Ref.metric("sales.revenue"),
+        time_scope=None,
+        grain=None,
+        dimensions=(),
+        slice_by={},
+        time_dimension=None,
+        dependency_digest="sha256:recorded",
+        catalog_definition_fingerprint="sha256:recorded-catalog",
+    )
+    monkeypatch.setattr(
+        "marivo.analysis.intents._runtime_metric_lowering.lower_metric_inputs",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            dependency_digest=SimpleNamespace(digest="sha256:changed")
+        ),
+    )
+    executed = False
+
+    def fail_if_executed(*_args, **_kwargs):
+        nonlocal executed
+        executed = True
+        raise AssertionError("observe must not execute after dependency drift")
+
+    observe_module = importlib.import_module("marivo.analysis.intents.observe")
+    monkeypatch.setattr(observe_module, "observe", fail_if_executed)
+
+    with pytest.raises(AttributionMaterializationError) as exc_info:
+        replay.call_observe(session)
+    assert exc_info.value._context["recoverability_status"] == ("semantic_dependency_changed")
+    assert executed is False

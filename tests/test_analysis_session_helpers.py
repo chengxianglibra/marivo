@@ -195,7 +195,14 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
             {
                 "ref": "frame_1",
                 "kind": "metric_frame",
-                "metric_id": "metric.sales.revenue",
+                "metric_identity": {
+                    "kind": "catalog",
+                    "metric_ref": {
+                        "schema": "marivo.semantic_ref/v1",
+                        "kind": "metric",
+                        "path": "sales.revenue",
+                    },
+                },
                 "analysis_purpose": "explain revenue decline",
             }
         )
@@ -250,7 +257,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
     assert after.updated_at == before.updated_at
     assert session_meta_path.read_text() == meta_before
     assert snapshot.summary.question == "Why did revenue drop?"
-    assert snapshot.frames.items[0].metric_id == "metric.sales.revenue"
+    assert snapshot.frames.items[0].metric_id == "sales.revenue"
     assert snapshot.recent_jobs[0].id == "job_1"
 
 

@@ -204,7 +204,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship", "ref"),
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
-        'Use md.ref("datasource.warehouse") for datasource parameters and EntityRef/DimensionRef/MetricRef values returned by decorators.',
+        'Use ms.Ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
         ConstraintId.COMPOSITION_SHAPE,
@@ -333,7 +333,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Entity and datasource references must resolve.",
         "Semantic objects compile through registered datasource and entity ids.",
-        "Reference a declared datasource name or EntityRef/qualified entity id.",
+        "Reference a declared datasource name or Ref[entity]/qualified entity id.",
     ),
     ConstraintId.DIMENSION_REF_EXISTS: _constraint(
         ConstraintId.DIMENSION_REF_EXISTS,
@@ -342,7 +342,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "time_dimension", "relationship"),
         "Dimension references must resolve.",
         "Relationships and time prefixes need registered dimension ids.",
-        "Reference a declared DimensionRef/TimeDimensionRef or qualified dimension id.",
+        "Reference a declared Ref[dimension]/Ref[time_dimension] or qualified dimension id.",
     ),
     ConstraintId.METRIC_REF_EXISTS: _constraint(
         ConstraintId.METRIC_REF_EXISTS,
@@ -351,7 +351,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
-        "Reference a declared MetricRef or qualified metric id in decomposition components.",
+        "Reference a declared Ref[metric] or qualified metric id in decomposition components.",
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
         ConstraintId.METRIC_GRAPH_ACYCLIC,
@@ -402,7 +402,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("relationship",),
         "Relationship endpoints must be registered entities.",
         "The compiler uses relationships to plan joins between known entities.",
-        "Pass EntityRef values or qualified entity ids to from_entity and to_entity.",
+        "Pass Ref[entity] values or qualified entity ids to from_entity and to_entity.",
     ),
     ConstraintId.PROJECT_ORGANIZATION: _constraint(
         ConstraintId.PROJECT_ORGANIZATION,
@@ -465,7 +465,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "@ms.metric(...) with more than one entity requires root_entity=...",
         "The root entity determines join order and grain for cross-entity metrics.",
-        "Pass root_entity=<EntityRef> when a metric references more than one entity.",
+        "Pass root_entity=<Ref[entity]> when a metric references more than one entity.",
     ),
     ConstraintId.METRIC_ROOT_ENTITY_VALID: _constraint(
         ConstraintId.METRIC_ROOT_ENTITY_VALID,
@@ -474,7 +474,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "root_entity must be one of the metric's entities.",
         "The root entity anchors the metric's aggregation grain.",
-        "Use an EntityRef from the metric's entities list as root_entity.",
+        "Use an Ref[entity] from the metric's entities list as root_entity.",
     ),
     ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
         ConstraintId.METRIC_VERIFICATION_MODE_VALID,
@@ -529,7 +529,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.metrics.show() and use catalog.get('metric.<semantic_id>').",
+        "catalog = ms.load(); catalog.metrics.show() and use catalog.require(ms.Ref.metric('<semantic_id>')).",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -538,7 +538,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.entities.show() and use catalog.get('entity.<semantic_id>').",
+        "catalog.entities.show() and use catalog.require(ms.Ref.entity('<semantic_id>')).",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -547,7 +547,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.dimensions.show() and use catalog.get('dimension.<semantic_id>').",
+        "catalog.dimensions.show() and use catalog.require(ms.Ref.dimension('<semantic_id>')).",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,

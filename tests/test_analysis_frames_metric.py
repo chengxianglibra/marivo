@@ -9,7 +9,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import FrameReadError, NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import make_metric_frame, make_test_metric_meta_contract
 
 
 def _now():
@@ -28,6 +28,7 @@ def test_meta_kind_literal_is_metric_frame():
         byte_size=64,
         lineage=Lineage(),
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={"time": {"column": "order_date", "grain": "day"}},
         measure={"name": "amount", "unit": "USD", "type": "scalar"},
         window={"start": "2026-07-01", "end": "2026-09-30"},
@@ -53,6 +54,7 @@ def test_metric_frame_wraps_df_and_meta():
         byte_size=64,
         lineage=Lineage(),
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={"time": {"column": "bucket", "grain": "day"}},
         measure={"name": "value", "unit": "USD", "type": "scalar"},
         window=None,
@@ -91,6 +93,7 @@ def test_make_metric_frame_creates_external_entry(tmp_path):
             external_inputs=["frame_external_001"],
         ),
         metric_id="custom.metric",
+        **make_test_metric_meta_contract("custom.metric"),
         axes={"segment": {"column": "region"}},
         measure={"name": "value", "unit": None, "type": "scalar"},
         window=None,
@@ -154,6 +157,7 @@ def test_metric_frame_meta_accepts_optional_normalization():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={},
         measure={"name": "revenue"},
         window=None,
@@ -179,6 +183,7 @@ def test_metric_frame_meta_normalization_defaults_to_none():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={},
         measure={"name": "revenue"},
         window=None,
@@ -199,6 +204,7 @@ def test_metric_frame_meta_component_links_default_to_none():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={},
         measure={"name": "revenue"},
         window=None,
@@ -220,6 +226,7 @@ def test_metric_frame_meta_coverage_links_default_to_none():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={},
         measure={"name": "revenue"},
         window=None,
@@ -241,6 +248,7 @@ def test_metric_frame_meta_accepts_coverage_summary():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={},
         measure={"name": "revenue"},
         window=None,
@@ -267,6 +275,7 @@ def test_metric_frame_coverage_raises_when_no_sidecar():
         byte_size=64,
         lineage=Lineage(),
         metric_id="sales.revenue",
+        **make_test_metric_meta_contract("sales.revenue"),
         axes={"time": {"column": "bucket", "grain": "day"}},
         measure={"name": "value", "unit": "USD", "type": "scalar"},
         window=None,

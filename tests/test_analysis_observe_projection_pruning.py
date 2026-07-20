@@ -8,8 +8,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +53,7 @@ def test_panel_observe_prunes_unused_source_columns_from_query_sql() -> None:
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
     job = session.job(frame.meta.produced_by_job)
@@ -73,7 +73,7 @@ def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> No
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
     rows = {

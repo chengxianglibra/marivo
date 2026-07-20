@@ -9,15 +9,15 @@ from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.semantic_inputs import normalize_dimension_input
 from marivo.semantic.catalog import (
     EntityDetails,
-    Measure,
     MeasureDetails,
+    MeasureEntry,
     MetricDetails,
     SemanticCatalog,
     SemanticKind,
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import SqlProvenance
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 _DOMAIN_PY = """\
 import marivo.datasource as md
@@ -29,7 +29,7 @@ _MODEL_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
 @ms.dimension(entity=orders)
 def region(orders):
@@ -79,11 +79,11 @@ def _preview_backend(path: str):
 def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    obj = catalog.get("measure.sales.orders.amount")
+    obj = catalog.require(ms.Ref.measure("sales.orders.amount"))
     details = obj.details()
 
-    assert type(obj) is Measure
-    assert obj.id == "measure.sales.orders.amount"
+    assert type(obj) is MeasureEntry
+    assert obj.key == "measure:sales.orders.amount"
     assert obj.ref.kind == SemanticKind.MEASURE
     assert obj.ref == make_ref("sales.orders.amount", SemanticKind.MEASURE)
     assert isinstance(details, MeasureDetails)
@@ -91,13 +91,15 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
     assert details.entity == make_ref("sales.orders", SemanticKind.ENTITY)
     assert details.additivity == "additive"
     assert details.unit == "USD"
-    assert repr(details) == "<MeasureDetails ref=sales.orders.amount; call .show() to inspect>"
+    assert (
+        repr(details) == "<MeasureDetails ref=measure:sales.orders.amount; call .show() to inspect>"
+    )
 
 
 def test_catalog_measures_collection_returns_measures(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert catalog.measures.ids() == ["measure.sales.orders.amount"]
+    assert [ref.key for ref in catalog.measures.refs] == ["measure:sales.orders.amount"]
 
 
 def test_entity_children_include_dimension_measure_time_dimension_metrics_and_relationships(
@@ -105,10 +107,10 @@ def test_entity_children_include_dimension_measure_time_dimension_metrics_and_re
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    details = catalog.get("entity.sales.orders").details()
+    details = catalog.require(ms.Ref.entity("sales.orders")).details()
 
     assert isinstance(details, EntityDetails)
-    child_refs = {(child.id, child.kind) for child in details.children}
+    child_refs = {(child.path, child.kind) for child in details.children}
     assert ("sales.orders.region", SemanticKind.DIMENSION) in child_refs
     assert ("sales.orders.amount", SemanticKind.MEASURE) in child_refs
     assert ("sales.orders.order_date", SemanticKind.TIME_DIMENSION) in child_refs
@@ -121,8 +123,8 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    aggregate_metric = catalog.get("metric.sales.revenue").details()
-    native_metric = catalog.get("metric.sales.native_revenue").details()
+    aggregate_metric = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    native_metric = catalog.require(ms.Ref.metric("sales.native_revenue")).details()
 
     assert isinstance(aggregate_metric, MetricDetails)
     assert aggregate_metric.measure == make_ref("sales.orders.amount", SemanticKind.MEASURE)
@@ -155,13 +157,13 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("orders")).sample(
+    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("order_id", "amount", "region", "order_date"),
     )
 
     preview = catalog.preview(
-        catalog.get("measure.sales.orders.amount"),
+        catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
         using=snapshot,
         limit=3,
     )
@@ -172,7 +174,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
-            catalog.get("measure.sales.orders.amount"),
+            catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
             using=snapshot,
             context_columns=("region",),
         )
@@ -210,8 +212,8 @@ def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_fac
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        normalize_dimension_input(catalog, catalog.get("measure.sales.orders.amount"))
+        normalize_dimension_input(catalog, catalog.require(ms.Ref.measure("sales.orders.amount")))
 
     message = str(exc_info.value)
     assert "measure" in message
-    assert "exact DimensionRef or TimeDimensionRef" in message
+    assert "exact Ref[dimension | time_dimension]" in message

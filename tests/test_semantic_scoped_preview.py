@@ -14,6 +14,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.preview import PreviewLimitError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
@@ -78,7 +79,7 @@ def scoped_catalog(
 
                 orders = ms.entity(
                     name="orders",
-                    datasource=md.ref("datasource.warehouse"),
+                    datasource=ms.Ref.datasource("warehouse"),
                     source=md.table("orders"),
                     ai_context=ms.ai_context(
                         business_definition="Sales orders.",
@@ -87,7 +88,7 @@ def scoped_catalog(
                 )
                 refunds = ms.entity(
                     name="refunds",
-                    datasource=md.ref("datasource.warehouse"),
+                    datasource=ms.Ref.datasource("warehouse"),
                     source=md.table("refunds"),
                     ai_context=ms.ai_context(
                         business_definition="Sales refunds.",
@@ -110,7 +111,22 @@ def scoped_catalog(
                 def amount(orders):
                     return orders.amount
 
+                @ms.measure(entity=refunds, additivity="additive", unit="USD")
+                def refund_amount(refunds):
+                    return refunds.amount
+
                 gross_revenue = ms.aggregate(name="gross_revenue", measure=amount, agg="sum")
+                total_refunds = ms.aggregate(
+                    name="total_refunds",
+                    measure=refund_amount,
+                    agg="sum",
+                )
+                revenue_to_refunds = ms.ratio(
+                    name="revenue_to_refunds",
+                    numerator=gross_revenue,
+                    denominator=total_refunds,
+                    unit="1",
+                )
                 double_revenue = ms.linear(
                     name="double_revenue",
                     add=[gross_revenue, gross_revenue],
@@ -132,11 +148,11 @@ def scoped_catalog(
         }
     )
     monkeypatch.chdir(tmp_path)
-    orders_snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("orders")).sample(
+    orders_snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("order_id", "amount", "region", "dt"),
     )
-    refunds_snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("refunds")).sample(
+    refunds_snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("refund_id", "amount", "dt"),
     )
@@ -147,7 +163,7 @@ def scoped_catalog(
 
 def test_preview_requires_using(scoped_catalog) -> None:
     catalog, _orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
 
     with pytest.raises(TypeError):
         catalog.preview(revenue)  # type: ignore[call-arg]
@@ -160,7 +176,7 @@ def test_preview_rejects_non_binding_shapes_before_connection(
     invalid: object,
 ) -> None:
     catalog, _orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     monkeypatch.setattr(
         catalog._project,
         "_connection_service",
@@ -176,7 +192,7 @@ def test_preview_rejects_stale_or_mismatched_snapshot_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     mismatched = replace(orders_snapshot, schema_fingerprint="changed-schema")
     monkeypatch.setattr(
         catalog._project,
@@ -195,7 +211,7 @@ def test_preview_rejects_mutated_snapshot_timestamp_metadata_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     mismatched = replace(
         orders_snapshot,
         expires_at=orders_snapshot.expires_at + timedelta(days=7),
@@ -221,7 +237,7 @@ def test_expired_snapshot_and_preview_evidence_remain_usable_reference_metadata(
     from marivo.semantic import preview_checks
 
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     future = orders_snapshot.expires_at + timedelta(hours=1)
     assert catalog.preview(revenue, using=orders_snapshot).status == "passed"
     assert query_spy.user_data_queries == 1
@@ -251,9 +267,9 @@ def test_multi_entity_preview_requires_exact_entity_mapping_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, orders_snapshot, refunds_snapshot = scoped_catalog
-    net_revenue = catalog.get("metric.sales.net_revenue")
-    orders = catalog.get("entity.sales.orders")
-    refunds = catalog.get("entity.sales.refunds")
+    net_revenue = catalog.require(ms.Ref.metric("sales.net_revenue")).ref
+    orders = catalog.require(ms.Ref.entity("sales.orders")).ref
+    refunds = catalog.require(ms.Ref.entity("sales.refunds")).ref
     monkeypatch.setattr(
         catalog._project,
         "_connection_service",
@@ -262,16 +278,16 @@ def test_multi_entity_preview_requires_exact_entity_mapping_before_connection(
 
     with pytest.raises(SemanticRuntimeError, match="exactly"):
         catalog.preview(net_revenue, using={orders: orders_snapshot})
-    with pytest.raises(SemanticRuntimeError, match="entity-kind"):
+    with pytest.raises(SemanticRuntimeError, match=r"Ref\[entity\]"):
         catalog.preview(
             net_revenue,
             using={
                 orders: orders_snapshot,
-                refunds.ref: refunds_snapshot,
-                net_revenue.ref: refunds_snapshot,
+                refunds: refunds_snapshot,
+                net_revenue: refunds_snapshot,
             },
         )
-    with pytest.raises(SemanticRuntimeError, match="entity keys"):
+    with pytest.raises(SemanticRuntimeError, match=r"Ref\[entity\] keys"):
         catalog.preview(
             net_revenue,
             using={
@@ -279,6 +295,25 @@ def test_multi_entity_preview_requires_exact_entity_mapping_before_connection(
                 "sales.refunds": refunds_snapshot,
             },
         )
+
+
+def test_cross_entity_derived_scalar_preview_combines_component_relations(
+    scoped_catalog,
+    query_spy: _QuerySpy,
+) -> None:
+    catalog, orders_snapshot, refunds_snapshot = scoped_catalog
+    ref = catalog.require(ms.Ref.metric("sales.revenue_to_refunds")).ref
+
+    using = {
+        catalog.require(ms.Ref.entity("sales.orders")).ref: orders_snapshot,
+        catalog.require(ms.Ref.entity("sales.refunds")).ref: refunds_snapshot,
+    }
+    result = catalog.preview(ref, using=using)
+    batch = catalog.preview_many([ref], using=using)
+
+    assert result.rows == ({"value": 3.75},)
+    assert batch.results[0].rows == result.rows
+    assert query_spy.user_data_queries == 2
 
 
 def test_preview_rejects_invalid_limit_before_connection(
@@ -294,7 +329,7 @@ def test_preview_rejects_invalid_limit_before_connection(
 
     with pytest.raises(PreviewLimitError):
         catalog.preview(
-            catalog.get("metric.sales.revenue"),
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
             using=orders_snapshot,
             limit=0,
         )
@@ -313,7 +348,7 @@ def test_preview_rejects_invalid_context_columns_before_connection(
 
     with pytest.raises(SemanticRuntimeError, match="context_columns"):
         catalog.preview(
-            catalog.get("metric.sales.revenue"),
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
             using=orders_snapshot,
             context_columns=("order_id",),
         )
@@ -360,7 +395,7 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
     monkeypatch.setattr(catalog_module, "preview_ibis_value", tracked_preview)
 
     result = catalog.preview(
-        catalog.get("metric.sales.revenue"),
+        catalog.require(ms.Ref.metric("sales.revenue")).ref,
         using=orders_snapshot,
     )
 
@@ -376,8 +411,27 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
 
     check_path = next((tmp_path / ".marivo" / "authoring" / "checks").glob("*.json"))
     check_payload = json.loads(check_path.read_text())
+    assert check_payload["schema"] == "marivo.semantic_preview_check/v1"
     assert check_payload["status"] == "passed"
-    assert check_payload["snapshot_ids"] == [orders_snapshot.id]
+    assert check_payload["checked_ref"] == {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "metric",
+        "path": "sales.revenue",
+    }
+    assert check_payload["catalog_definition_fingerprint"] == catalog.definition_fingerprint
+    assert check_payload["semantic_dependency_digest"]["schema"] == (
+        "marivo.semantic_dependency_digest/v1"
+    )
+    assert check_payload["entity_snapshot_bindings"] == [
+        {
+            "entity_ref": {
+                "schema": "marivo.semantic_ref/v1",
+                "kind": "entity",
+                "path": "sales.orders",
+            },
+            "snapshot_id": orders_snapshot.id,
+        }
+    ]
     assert check_payload["expires_at"] == orders_snapshot.expires_at.isoformat()
     assert "rows" not in check_payload
 
@@ -421,7 +475,7 @@ def test_preview_timeout_cleanup_follows_execution_error(
 
     with pytest.raises(RuntimeError, match="preview failed"):
         catalog.preview(
-            catalog.get("metric.sales.revenue"),
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
             using=orders_snapshot,
         )
 
@@ -433,20 +487,22 @@ def test_preview_check_fingerprints_complete_transitive_dependency_closure(
     tmp_path: Path,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    double_revenue = catalog.get("metric.sales.double_revenue")
+    double_revenue = catalog.require(ms.Ref.metric("sales.double_revenue")).ref
 
     catalog.preview(double_revenue, using=orders_snapshot)
     check_dir = tmp_path / ".marivo" / "authoring" / "checks"
     initial = {
         payload["id"]: payload
         for path in check_dir.glob("*.json")
-        if (payload := json.loads(path.read_text()))["semantic_ref"] == "sales.double_revenue"
+        if (payload := json.loads(path.read_text()))["checked_ref"]["path"]
+        == "sales.double_revenue"
     }
     catalog.preview(double_revenue, using=orders_snapshot)
     unchanged = {
         payload["id"]: payload
         for path in check_dir.glob("*.json")
-        if (payload := json.loads(path.read_text()))["semantic_ref"] == "sales.double_revenue"
+        if (payload := json.loads(path.read_text()))["checked_ref"]["path"]
+        == "sales.double_revenue"
     }
 
     model_path = tmp_path / "models" / "semantic" / "sales" / "models.py"
@@ -456,25 +512,26 @@ def test_preview_check_fingerprints_complete_transitive_dependency_closure(
             "return orders.amount * 2\n",
         )
     )
-    catalog.load()
+    catalog = ms.load()
     catalog.preview(
-        catalog.get("metric.sales.double_revenue"),
+        catalog.require(ms.Ref.metric("sales.double_revenue")).ref,
         using=orders_snapshot,
     )
     changed = {
         payload["id"]: payload
         for path in check_dir.glob("*.json")
-        if (payload := json.loads(path.read_text()))["semantic_ref"] == "sales.double_revenue"
+        if (payload := json.loads(path.read_text()))["checked_ref"]["path"]
+        == "sales.double_revenue"
     }
 
     assert unchanged.keys() == initial.keys()
-    assert {payload["dependency_fingerprint"] for payload in unchanged.values()} == {
-        payload["dependency_fingerprint"] for payload in initial.values()
+    assert {payload["semantic_dependency_digest"]["digest"] for payload in unchanged.values()} == {
+        payload["semantic_dependency_digest"]["digest"] for payload in initial.values()
     }
     assert len(initial) == 1
     assert len(changed) == 2
-    assert {payload["dependency_fingerprint"] for payload in changed.values()} != {
-        next(iter(initial.values()))["dependency_fingerprint"]
+    assert {payload["semantic_dependency_digest"]["digest"] for payload in changed.values()} != {
+        next(iter(initial.values()))["semantic_dependency_digest"]["digest"]
     }
 
 
@@ -483,7 +540,7 @@ def test_readiness_reports_preview_advisory_only_for_direct_executable_refs(
     query_spy: _QuerySpy,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
 
     report = catalog.readiness(refs=[revenue])
 
@@ -494,6 +551,12 @@ def test_readiness_reports_preview_advisory_only_for_direct_executable_refs(
     assert preview_warnings[0].severity == "warning"
     assert preview_warnings[0].repair is not None
     assert preview_warnings[0].repair.kind == "repreview"
+    assert report.catalog_definition_fingerprint == catalog.definition_fingerprint
+    assert all(
+        issue.catalog_definition_fingerprint == catalog.definition_fingerprint
+        for issue in (*report.blockers, *report.warnings)
+    )
+    assert report.to_dict()["catalog_definition_fingerprint"] == catalog.definition_fingerprint
     assert query_spy.user_data_queries == 0
 
     catalog.preview(revenue, using=orders_snapshot)
@@ -504,13 +567,43 @@ def test_readiness_reports_preview_advisory_only_for_direct_executable_refs(
     assert query_spy.user_data_queries == 0
 
 
+def test_readiness_ignores_legacy_schema_less_preview_check(
+    scoped_catalog,
+    query_spy: _QuerySpy,
+    tmp_path: Path,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+    catalog.preview(revenue, using=orders_snapshot)
+    check_path = next((tmp_path / ".marivo" / "authoring" / "checks").glob("*.json"))
+    check_path.write_text(
+        json.dumps(
+            {
+                "id": check_path.stem,
+                "semantic_ref": "sales.revenue",
+                "semantic_fingerprint": "legacy",
+                "dependency_fingerprint": "legacy",
+                "snapshot_ids": [orders_snapshot.id],
+                "status": "passed",
+                "backend": "duckdb",
+            }
+        )
+    )
+    query_spy.user_data_queries = 0
+
+    report = catalog.readiness(refs=[revenue])
+
+    assert any(issue.kind == "runtime_preview_missing" for issue in report.warnings)
+    assert query_spy.user_data_queries == 0
+
+
 def test_readiness_domain_is_structural_and_does_not_require_dependency_previews(
     scoped_catalog,
     query_spy: _QuerySpy,
 ) -> None:
     catalog, _orders_snapshot, _refunds_snapshot = scoped_catalog
 
-    report = catalog.readiness(refs=[catalog.get("domain.sales")])
+    report = catalog.readiness(refs=[catalog.require(ms.Ref.domain("sales")).ref])
 
     assert all(issue.kind != "runtime_preview_missing" for issue in report.blockers)
     assert all(issue.kind != "snapshot_missing" for issue in report.blockers)
@@ -526,7 +619,7 @@ def test_readiness_snapshot_missing_emits_only_exact_inspection_call(
     for path in (tmp_path / ".marivo" / "authoring" / "snapshots").glob("*.json"):
         path.unlink()
 
-    report = catalog.readiness(refs=[catalog.get("metric.sales.revenue")])
+    report = catalog.readiness(refs=[catalog.require(ms.Ref.metric("sales.revenue")).ref])
 
     blocker = next(issue for issue in report.blockers if issue.kind == "snapshot_missing")
     assert blocker.refs == ("sales.revenue",)
@@ -541,12 +634,12 @@ def test_readiness_stale_definition_warns_once_with_multi_entity_mapping(
     tmp_path: Path,
 ) -> None:
     catalog, orders_snapshot, refunds_snapshot = scoped_catalog
-    net_revenue = catalog.get("metric.sales.net_revenue")
+    net_revenue = catalog.require(ms.Ref.metric("sales.net_revenue")).ref
     catalog.preview(
         net_revenue,
         using={
-            catalog.get("entity.sales.orders"): orders_snapshot,
-            catalog.get("entity.sales.refunds"): refunds_snapshot,
+            catalog.require(ms.Ref.entity("sales.orders")).ref: orders_snapshot,
+            catalog.require(ms.Ref.entity("sales.refunds")).ref: refunds_snapshot,
         },
     )
     model_path = tmp_path / "models" / "semantic" / "sales" / "models.py"
@@ -556,10 +649,10 @@ def test_readiness_stale_definition_warns_once_with_multi_entity_mapping(
             "def net_revenue(orders, refunds):\n    return (orders.amount * 2).sum()\n",
         )
     )
-    catalog.load()
+    catalog = ms.load()
     query_spy.user_data_queries = 0
 
-    report = catalog.readiness(refs=[catalog.get("metric.sales.net_revenue")])
+    report = catalog.readiness(refs=[catalog.require(ms.Ref.metric("sales.net_revenue")).ref])
 
     warnings = [issue for issue in report.warnings if issue.kind == "runtime_preview_missing"]
     assert [issue.refs for issue in warnings] == [("sales.net_revenue",)]
@@ -573,7 +666,7 @@ def test_relationship_preview_check_satisfies_direct_readiness_gate(
     query_spy: _QuerySpy,
 ) -> None:
     catalog, orders_snapshot, refunds_snapshot = scoped_catalog
-    relationship = catalog.get("relationship.sales.orders_to_refunds")
+    relationship = catalog.require(ms.Ref.relationship("sales.orders_to_refunds")).ref
 
     missing = catalog.readiness(refs=[relationship])
     warning = next(issue for issue in missing.warnings if issue.kind == "runtime_preview_missing")
@@ -584,8 +677,8 @@ def test_relationship_preview_check_satisfies_direct_readiness_gate(
     catalog.preview(
         relationship,
         using={
-            catalog.get("entity.sales.orders"): orders_snapshot,
-            catalog.get("entity.sales.refunds"): refunds_snapshot,
+            catalog.require(ms.Ref.entity("sales.orders")).ref: orders_snapshot,
+            catalog.require(ms.Ref.entity("sales.refunds")).ref: refunds_snapshot,
         },
     )
     query_spy.user_data_queries = 0
@@ -603,7 +696,7 @@ def test_relationship_preview_check_satisfies_direct_readiness_gate(
         ("snapshot", "id_path"),
         ("snapshot", "evidence_format"),
         ("check", "check_id"),
-        ("check", "check_scopes"),
+        ("check", "check_binding"),
     ],
 )
 def test_readiness_rejects_tampered_persisted_evidence_without_query(
@@ -614,7 +707,7 @@ def test_readiness_rejects_tampered_persisted_evidence_without_query(
     tamper: str,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     catalog.preview(revenue, using=orders_snapshot)
     evidence_dir = tmp_path / ".marivo" / "authoring"
     path = (
@@ -632,8 +725,8 @@ def test_readiness_rejects_tampered_persisted_evidence_without_query(
         payload["evidence_format_version"] += 1
     elif tamper == "check_id":
         payload["id"] = "tampered-check-id"
-    elif tamper == "check_scopes":
-        payload["scopes"][0][1]["max_rows"] += 1
+    elif tamper == "check_binding":
+        payload["entity_snapshot_bindings"][0]["entity_ref"]["path"] = "sales.refunds"
     path.write_text(json.dumps(payload))
     query_spy.user_data_queries = 0
 
@@ -660,7 +753,7 @@ def test_readiness_rejects_tampered_evidence_timestamps_without_query(
     tamper: str,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     catalog.preview(revenue, using=orders_snapshot)
     evidence_dir = tmp_path / ".marivo" / "authoring"
     snapshot_path = evidence_dir / "snapshots" / f"{orders_snapshot.id}.json"
@@ -705,13 +798,13 @@ def test_multi_entity_preview_uses_each_explicit_scope(
     query_spy: _QuerySpy,
 ) -> None:
     catalog, orders_snapshot, refunds_snapshot = scoped_catalog
-    net_revenue = catalog.get("metric.sales.net_revenue")
+    net_revenue = catalog.require(ms.Ref.metric("sales.net_revenue")).ref
 
     result = catalog.preview(
         net_revenue,
         using={
-            catalog.get("entity.sales.orders"): orders_snapshot,
-            catalog.get("entity.sales.refunds").ref: refunds_snapshot,
+            catalog.require(ms.Ref.entity("sales.orders")).ref: orders_snapshot,
+            catalog.require(ms.Ref.entity("sales.refunds")).ref: refunds_snapshot,
         },
     )
 
@@ -732,16 +825,16 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
 
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
     refs = [
-        catalog.get("entity.sales.orders").ref,
-        catalog.get("dimension.sales.orders.region").ref,
-        catalog.get("measure.sales.orders.amount").ref,
-        catalog.get("metric.sales.gross_revenue").ref,
-        catalog.get("metric.sales.double_revenue").ref,
-        catalog.get("metric.sales.revenue").ref,
+        catalog.require(ms.Ref.entity("sales.orders")).ref,
+        catalog.require(ms.Ref.dimension("sales.orders.region")).ref,
+        catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
+        catalog.require(ms.Ref.metric("sales.gross_revenue")).ref,
+        catalog.require(ms.Ref.metric("sales.double_revenue")).ref,
+        catalog.require(ms.Ref.metric("sales.revenue")).ref,
     ]
     missing = catalog.readiness(refs=refs)
 
-    assert [ref.id for ref in missing.preview_required_refs] == [ref.id for ref in refs]
+    assert [ref.path for ref in missing.preview_required_refs] == [ref.path for ref in refs]
     assert len(
         [issue for issue in missing.warnings if issue.kind == "runtime_preview_missing"]
     ) == len(refs)
@@ -751,18 +844,18 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
     ]
     assert len(preview_transitions) == 1
     assert preview_transitions[0].available is True
-    assert preview_transitions[0].subject_refs == tuple(ref.id for ref in refs)
+    assert preview_transitions[0].subject_refs == tuple(ref.path for ref in refs)
     assert query_spy.user_data_queries == 0
 
-    result = catalog.preview(
-        refs=missing.preview_required_refs,
+    result = catalog.preview_many(
+        missing.preview_required_refs,
         using=orders_snapshot,
         limit=2,
     )
 
     assert isinstance(result, PreviewBatchResult)
     assert result.status == "passed"
-    assert result.refs == tuple(ref.id for ref in refs)
+    assert result.refs == tuple(ref.path for ref in refs)
     assert query_spy.user_data_queries == 2
     assert tuple(catalog._project._connection_service()._session_backends) == ("warehouse",)
     assert result.results[0].columns == ("order_id", "amount", "region", "dt")
@@ -786,7 +879,7 @@ def test_batch_preview_rejects_invalid_batch_before_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     monkeypatch.setattr(
         catalog._project,
         "_connection_service",
@@ -794,23 +887,9 @@ def test_batch_preview_rejects_invalid_batch_before_connection(
     )
 
     with pytest.raises(SemanticRuntimeError, match="non-empty"):
-        catalog.preview(refs=[], using=orders_snapshot)
-    with pytest.raises(SemanticRuntimeError, match="exactly one"):
-        catalog.preview(using=orders_snapshot)  # type: ignore[call-overload]
-    with pytest.raises(SemanticRuntimeError, match="exactly one"):
-        catalog.preview(
-            revenue.ref,
-            refs=[revenue.ref],
-            using=orders_snapshot,
-        )  # type: ignore[call-overload]
+        catalog.preview_many([], using=orders_snapshot)
     with pytest.raises(SemanticRuntimeError, match="duplicate"):
-        catalog.preview(refs=[revenue.ref, revenue.ref], using=orders_snapshot)
-    with pytest.raises(SemanticRuntimeError, match="context_columns"):
-        catalog.preview(
-            refs=[revenue.ref],
-            using=orders_snapshot,
-            context_columns=("order_id",),  # type: ignore[arg-type]
-        )
+        catalog.preview_many([revenue, revenue], using=orders_snapshot)
 
 
 def test_entity_preview_does_not_satisfy_child_preview_gates(
@@ -818,18 +897,18 @@ def test_entity_preview_does_not_satisfy_child_preview_gates(
     query_spy: _QuerySpy,
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
-    entity = catalog.get("entity.sales.orders")
+    entity = catalog.require(ms.Ref.entity("sales.orders")).ref
     child_refs = [
-        catalog.get("dimension.sales.orders.region").ref,
-        catalog.get("measure.sales.orders.amount").ref,
-        catalog.get("metric.sales.revenue").ref,
+        catalog.require(ms.Ref.dimension("sales.orders.region")).ref,
+        catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
+        catalog.require(ms.Ref.metric("sales.revenue")).ref,
     ]
 
-    catalog.preview(entity.ref, using=orders_snapshot)
+    catalog.preview(entity, using=orders_snapshot)
     query_spy.user_data_queries = 0
     report = catalog.readiness(refs=child_refs)
 
-    assert [ref.id for ref in report.preview_required_refs] == [ref.id for ref in child_refs]
+    assert [ref.path for ref in report.preview_required_refs] == [ref.path for ref in child_refs]
     assert query_spy.user_data_queries == 0
 
 
@@ -838,14 +917,14 @@ def test_batch_preview_accepts_exact_union_mapping_for_multi_entity_refs(
     query_spy: _QuerySpy,
 ) -> None:
     catalog, orders_snapshot, refunds_snapshot = scoped_catalog
-    revenue = catalog.get("metric.sales.revenue")
-    net_revenue = catalog.get("metric.sales.net_revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+    net_revenue = catalog.require(ms.Ref.metric("sales.net_revenue")).ref
 
-    result = catalog.preview(
-        refs=[revenue.ref, net_revenue.ref],
+    result = catalog.preview_many(
+        [revenue, net_revenue],
         using={
-            catalog.get("entity.sales.orders").ref: orders_snapshot,
-            catalog.get("entity.sales.refunds").ref: refunds_snapshot,
+            catalog.require(ms.Ref.entity("sales.orders")).ref: orders_snapshot,
+            catalog.require(ms.Ref.entity("sales.refunds")).ref: refunds_snapshot,
         },
     )
 
@@ -862,17 +941,17 @@ def test_batch_group_failure_does_not_persist_group_checks(
 ) -> None:
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
     refs = [
-        catalog.get("dimension.sales.orders.region").ref,
-        catalog.get("measure.sales.orders.amount").ref,
+        catalog.require(ms.Ref.dimension("sales.orders.region")).ref,
+        catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
     ]
 
     def fail_group(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("batch group failed")
 
-    monkeypatch.setattr(catalog, "_preview_row_group", fail_group)
+    monkeypatch.setattr(SemanticCatalog, "_preview_row_group", fail_group)
 
     with pytest.raises(SemanticRuntimeError, match="batch group failed") as exc_info:
-        catalog.preview(refs=refs, using=orders_snapshot)
+        catalog.preview_many(refs, using=orders_snapshot)
 
-    assert exc_info.value.semantic_refs == tuple(ref.id for ref in refs)
+    assert exc_info.value.semantic_refs == tuple(ref.path for ref in refs)
     assert list((tmp_path / ".marivo" / "authoring" / "checks").glob("*.json")) == []

@@ -1,6 +1,6 @@
 # Tier-2 Semantic Expression Reference Binding Design
 
-Status: accepted; implementation pending
+Status: accepted and implemented
 
 Date: 2026-07-19
 

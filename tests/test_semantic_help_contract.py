@@ -125,10 +125,10 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
         ("snapshot", "partition_field=snapshot_date, grain='day'"),
         ("validity", "valid_from=valid_from, valid_to=valid_to"),
         ("semi_additive", "over=snapshot_date, fold='last'"),
-        ("verify_object", "catalog.verify_object(revenue.ref)"),
+        ("verify", "catalog.verify(revenue.ref)"),
         (
             "preview",
-            "catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)",
+            "catalog.preview(revenue.ref, using=orders_snapshot)",
         ),
     ],
 )
@@ -157,15 +157,12 @@ def test_help_text_semantic_catalog_type() -> None:
 
 
 def test_help_text_metric_type_distinguishes_inspection_display_and_continuation() -> None:
-    text = ms.help_text(ms.Metric)
+    text = ms.help_text(ms.MetricEntry)
 
     assert ".details() for structured semantic metadata" in text
     assert ".details().show() for bounded readable detail" in text
     assert ".show() prints the same bounded card returned by .render()" in text
-    assert (
-        ".contract() only exposes mechanically executable verify, preview, and readiness actions"
-        in text
-    )
+    assert ".contract() for mechanically valid next actions" in text
 
 
 def test_help_text_verify_result_type() -> None:

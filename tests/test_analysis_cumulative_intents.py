@@ -19,7 +19,7 @@ from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
 def _cum_marker() -> dict:
@@ -53,7 +53,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "order_date = ms.time_dimension_column("
         "name='order_date', entity=orders, column='created_at', granularity='day')\n"
@@ -115,6 +115,7 @@ def _now():
 
 def _delta(session, *, cumulative: dict | None = None) -> DeltaFrame:
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.cum_gmv"),
         kind="delta_frame",
         ref="frame_delta",
         session_id=session.id,

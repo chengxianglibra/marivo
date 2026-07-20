@@ -13,6 +13,7 @@ from marivo.analysis.intents.observe_errors import (
     RepairSafety,
     raise_observe_planning_error,
 )
+from marivo.refs import Ref
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     DimensionDetails,
@@ -23,27 +24,23 @@ from marivo.semantic.catalog import (
     SimpleMetricDetails,
     TimeDimensionDetails,
 )
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-
-
-def _catalog_id(ref: str, kind: SemanticKind) -> str:
-    return f"{kind.value}.{ref}"
 
 
 def _details(catalog: SemanticCatalog, ref: str) -> Any:
-    for kind in (
-        SemanticKind.METRIC,
-        SemanticKind.ENTITY,
-        SemanticKind.DIMENSION,
-        SemanticKind.TIME_DIMENSION,
-        SemanticKind.RELATIONSHIP,
-        SemanticKind.MEASURE,
-    ):
-        try:
-            return catalog.get(_catalog_id(ref, kind)).details()
-        except SemanticRuntimeError as exc:
-            if exc.kind != ErrorKind.NOT_FOUND.value:
-                raise
+    registry = catalog._require_index().registry
+    if ref in registry.metrics:
+        return catalog.require(Ref.metric(ref)).details()
+    if ref in registry.entities:
+        return catalog.require(Ref.entity(ref)).details()
+    if ref in registry.dimensions:
+        factory = (
+            Ref.time_dimension if registry.dimensions[ref].is_time_dimension else Ref.dimension
+        )
+        return catalog.require(factory(ref)).details()
+    if ref in registry.relationships:
+        return catalog.require(Ref.relationship(ref)).details()
+    if ref in registry.measures:
+        return catalog.require(Ref.measure(ref)).details()
     raise_observe_planning_error(
         code="path-missing",
         message=f"Semantic reference {ref!r} was not found.",
@@ -78,10 +75,10 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
     index = catalog._require_index()
-    scope_id = f"entity.{entity_ref}"
+    scope_ref = Ref.entity(entity_ref)
     details = (
-        *index.details_under(SemanticKind.DIMENSION, scope_id=scope_id),
-        *index.details_under(SemanticKind.TIME_DIMENSION, scope_id=scope_id),
+        *index.details_under(SemanticKind.DIMENSION, scope_ref=scope_ref),
+        *index.details_under(SemanticKind.TIME_DIMENSION, scope_ref=scope_ref),
     )
     return [item for item in details if isinstance(item, (DimensionDetails, TimeDimensionDetails))]
 
@@ -94,7 +91,11 @@ def _fields_for_entities(catalog: SemanticCatalog, entity_refs: set[str]) -> lis
 
 
 def _ref_id(value: Any) -> str:
+    if type(value) is Ref:
+        return value.path
     ref = getattr(value, "ref", None)
+    if type(ref) is Ref:
+        return ref.path
     if isinstance(ref, str):
         return ref
     nested = getattr(ref, "ref", None)

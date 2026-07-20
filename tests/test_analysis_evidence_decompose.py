@@ -12,13 +12,16 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_test_delta_contract
 
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -30,6 +33,7 @@ def _delta(session) -> DeltaFrame:
         }
     )
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_delta",
         session_id=session.id,
@@ -64,7 +68,7 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
 
     attribution = session.attribute(
         _delta(session),
-        axes=[make_ref("country", SemanticKind.DIMENSION)],
+        axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
 
     assert attribution.meta.artifact_id is not None

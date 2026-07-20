@@ -9,6 +9,7 @@ from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_test_component_contract
 
 
 def _created_at() -> datetime:
@@ -62,9 +63,12 @@ def test_component_frame_identity_includes_parent_and_metric() -> None:
             parent_ref="frame_parent",
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={"numerator": "sales.failed", "denominator": "sales.total"},
+                axes={},
+            ),
             composition_kind="ratio",
-            components={"numerator": "sales.failed", "denominator": "sales.total"},
-            axes={},
             semantic_kind="scalar",
             semantic_model="sales",
         ),

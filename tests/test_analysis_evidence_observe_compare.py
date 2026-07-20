@@ -12,8 +12,8 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -101,7 +101,7 @@ def test_observe_segmented_emits_bounded_digest(tmp_path) -> None:
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-05-01", "end": "2026-05-07"},
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
     assert frame.meta.additivity == "additive"

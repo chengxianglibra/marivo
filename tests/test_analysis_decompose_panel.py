@@ -11,7 +11,8 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -19,6 +20,7 @@ from tests.shared_fixtures import make_metric_frame
 def _session_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
     session_attach._reset_process_state()
 
@@ -79,7 +81,9 @@ def _panel_delta(tmp_path):
 def test_decompose_panel_per_bucket(tmp_path):
     session, delta = _panel_delta(tmp_path)
 
-    out = decompose(delta, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
+    out = decompose(
+        delta, axis=make_ref("sales.orders.region", SemanticKind.DIMENSION), session=session
+    )
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.semantic_kind == "panel"
@@ -122,7 +126,9 @@ def test_decompose_panel_axis_not_in_dimensions(tmp_path):
     delta._df = delta.to_pandas().assign(channel="WEB")
 
     with pytest.raises(AxisNotInPanelDimensionsError) as exc_info:
-        decompose(delta, axis=make_ref("channel", SemanticKind.DIMENSION), session=session)
+        decompose(
+            delta, axis=make_ref("sales.orders.channel", SemanticKind.DIMENSION), session=session
+        )
 
     assert exc_info.value._context["axis"] == "channel"
     assert exc_info.value._context["available_dimensions"] == ["region"]
@@ -131,7 +137,9 @@ def test_decompose_panel_axis_not_in_dimensions(tmp_path):
 def test_decompose_panel_axes_single_axis_preserves_bucket_scope(tmp_path):
     session, delta = _panel_delta(tmp_path)
 
-    out = decompose(delta, axes=[make_ref("region", SemanticKind.DIMENSION)], session=session)
+    out = decompose(
+        delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)], session=session
+    )
 
     assert out.meta.semantic_kind == "panel"
     assert out.meta.driver_field == "path"

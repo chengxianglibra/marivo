@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.errors import (
     AttributionMaterializationError,
     CumulativeFrameUnsupportedError,
@@ -17,6 +16,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._replay import (
+    _dimension_ref,
     recover_alignment_policy,
     recover_observe_replay,
 )
@@ -28,9 +28,10 @@ from marivo.analysis.intents.decompose import (
     decompose,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.refs import FieldKind, Ref
 
 
-def _normalize_attribute_axes(session: Session, axes: list[AnalysisDimensionRef]) -> list[str]:
+def _normalize_attribute_axes(session: Session, axes: list[Ref[FieldKind]]) -> list[str]:
     if not axes:
         raise SemanticKindMismatchError(
             message="attribute requires at least one axis",
@@ -94,7 +95,7 @@ def _load_metric_source(
 def attribute(
     frame: DeltaFrame,
     *,
-    axes: list[AnalysisDimensionRef],
+    axes: list[Ref[FieldKind]],
     mode: AttributionMode | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
@@ -144,11 +145,12 @@ def attribute(
         delta=frame,
         missing_axes=missing_axes,
     )
+    missing_axis_refs = [_dimension_ref(resolved_session, axis) for axis in missing_axes]
     current_replay = recover_observe_replay(current, session=resolved_session).with_dimensions(
-        missing_axes
+        missing_axis_refs
     )
     baseline_replay = recover_observe_replay(baseline, session=resolved_session).with_dimensions(
-        missing_axes
+        missing_axis_refs
     )
     alignment = recover_alignment_policy(frame)
 

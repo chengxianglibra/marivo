@@ -39,7 +39,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -82,7 +82,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -124,7 +124,7 @@ _INLINE_NESTED_UNITS = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 events = ms.entity(name="events", datasource=wh, source=md.table("events"))
 
 amount = ms.measure_column(
@@ -176,7 +176,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -209,7 +209,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -237,7 +237,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -262,7 +262,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")

@@ -13,6 +13,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
@@ -65,7 +66,7 @@ def inspection(project_root: Path) -> SourceInspection:
     )
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
-    return md.inspect(md.ref("datasource.warehouse"), md.table("orders"))
+    return md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
 
 
 def test_sample_return_annotation_is_runtime_resolvable() -> None:
@@ -96,7 +97,7 @@ def test_snapshot_exposes_projection_methods_and_affordances(
     assert all(f".{name}(" in rendered for name in projection_names)
     assert ".contract()" in rendered
     contract = snapshot.contract()
-    assert contract.subject_refs[0] == "datasource.warehouse"
+    assert contract.subject_refs[0] == "datasource:warehouse"
     assert [(state.id, state.evidence_ids) for state in contract.states] == [
         ("evidence.acquired", (snapshot.id,)),
         ("scope.explicit", ()),
@@ -357,7 +358,7 @@ def test_typed_csv_acquisition_uses_authored_schema(
     csv_path = project_root / "orders.csv"
     csv_path.write_text("order_id,ignored\n1,x\n2,y\n")
     inspection = md.inspect(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         md.csv(str(csv_path), schema={"order_id": "VARCHAR", "ignored": "VARCHAR"}),
     )
 
@@ -380,7 +381,7 @@ def test_profiles_preserve_integer_range(
     backend.raw_sql("INSERT INTO events VALUES (1, 10), (23, 20)")
     backend.disconnect()
     md.register(md.duckdb(name="events", path=str(path)), project_root=project_root)
-    inspection = md.inspect(md.ref("datasource.events"), md.table("events"))
+    inspection = md.inspect(ms.Ref.datasource("events"), md.table("events"))
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=30),
@@ -414,7 +415,7 @@ def test_parquet_source_projection_remains_expression_only(
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
     source = md.parquet(str(parquet_path), columns=("order_id", "amount"))
-    inspection = md.inspect(md.ref("datasource.warehouse"), source)
+    inspection = md.inspect(ms.Ref.datasource("warehouse"), source)
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=30),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -13,7 +12,7 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.refs import CalendarRef
-from marivo.semantic.catalog import CatalogObject, SemanticKind, SemanticRef
+from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 AlignmentKind = Literal[
     "window_bucket",
@@ -22,9 +21,6 @@ AlignmentKind = Literal[
     "holiday_and_dow_aligned",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
-SemanticAnchorInput = str | SemanticRef | CatalogObject[SemanticRef]
-
-
 _DIMENSION_ANCHOR_FIELDS = {"subject", "time_axis", "axis"}
 
 
@@ -70,20 +66,19 @@ def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind 
             _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
 
 
-def _semantic_anchor_id(value: SemanticAnchorInput | None, *, field_name: str) -> str | None:
+def _semantic_anchor_id(
+    value: Ref[SemanticKindTag] | None,
+    *,
+    field_name: str,
+) -> str | None:
     if value is None:
         return None
-    if isinstance(value, CatalogObject):
-        _validate_anchor_kind(value, field_name=field_name, kind=value.ref.kind)
-        return value.ref.id
-    if isinstance(value, SemanticRef):
+    if type(value) is Ref:
         _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
-        return value.id
-    if isinstance(value, Mapping):
-        raise ValueError(f"expected str, SemanticRef, or CatalogObject, got {type(value).__name__}")
-    if isinstance(value, str):
-        return value
-    raise ValueError(f"expected str, SemanticRef, or CatalogObject, got {type(value).__name__}")
+        return value.path
+    raise ValueError(
+        f"expected exact Ref; got {type(value).__name__}. Pass entry.ref or ms.Ref.<kind>(path)."
+    )
 
 
 class AlignmentPolicy(BaseModel):

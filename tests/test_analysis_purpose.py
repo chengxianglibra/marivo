@@ -4,6 +4,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import (
     connect_sales_orders,
@@ -32,7 +33,7 @@ def _sales_session(tmp_path):
 
 def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue").ref
+    revenue = session.catalog.require(ms.Ref.metric("sales.revenue")).ref
     purpose = "confirm whether September revenue exceeds August"
 
     frame = session.observe(
@@ -64,8 +65,8 @@ def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path)
 
 def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    revenue = session.catalog.require(ms.Ref.metric("sales.revenue")).ref
+    region = session.catalog.require(ms.Ref.dimension("sales.orders.region")).ref
     cur = session.observe(
         revenue,
         time_scope={"start": "2026-09-01", "end": "2026-10-01"},
@@ -118,8 +119,8 @@ def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) ->
 
 def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    revenue = session.catalog.require(ms.Ref.metric("sales.revenue")).ref
+    region = session.catalog.require(ms.Ref.dimension("sales.orders.region")).ref
     parent = session.observe(
         revenue,
         dimensions=[region],

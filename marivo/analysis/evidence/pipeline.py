@@ -10,11 +10,12 @@ import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
@@ -51,6 +52,7 @@ from marivo.analysis.evidence.types import (
 from marivo.analysis.frames._content_hash import compute_frame_content_hash
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope, compute_quality_summary
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
+from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
@@ -58,8 +60,10 @@ from marivo.semantic.metric_graph import (
     DeltaMetricSubjectV1,
     RuntimeExpressionIdentity,
     RuntimeExpressionSubjectV1,
+    SemanticDependencyDigestV1,
     TypedEvidenceSubject,
 )
+from marivo.semantic.metric_graph_canonical import canonical_value
 from marivo.telemetry import staged
 
 
@@ -74,8 +78,84 @@ class CommitParams(BaseModel):
 
 
 class CommitSemanticAnchors(BaseModel):
+    """Closed, role-preserving semantic input to artifact fingerprinting."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
-    values: dict[str, Any]
+
+    anchor_schema: Literal["marivo.commit_semantic_anchors/v1"] = (
+        "marivo.commit_semantic_anchors/v1"
+    )
+    catalog_definition_fingerprint: str | None = None
+    semantic_dependency_digest: SemanticDependencyDigestV1 | None = None
+    metric_identities: tuple[CatalogMetricIdentity | RuntimeExpressionIdentity, ...] = ()
+    comparison_identity: DeltaComparisonIdentityV1 | None = None
+    axis_refs: tuple[RefPayloadV1, ...] = ()
+    slice_predicates: tuple[SlicePredicateV1, ...] = ()
+
+    @classmethod
+    def from_frame(cls, frame: BaseFrame) -> CommitSemanticAnchors:
+        meta = frame.meta
+        identities = tuple(getattr(meta, "metric_identities", ()))
+        if not identities:
+            identity = getattr(meta, "metric_identity", None)
+            if isinstance(identity, (CatalogMetricIdentity, RuntimeExpressionIdentity)):
+                identities = (identity,)
+        bindings = tuple(getattr(meta, "axis_bindings", ()))
+        return cls(
+            catalog_definition_fingerprint=getattr(meta, "catalog_definition_fingerprint", None),
+            semantic_dependency_digest=getattr(meta, "semantic_dependency_digest", None),
+            metric_identities=identities,
+            comparison_identity=getattr(meta, "comparison_identity", None),
+            axis_refs=tuple(binding.ref for binding in bindings),
+            slice_predicates=tuple(getattr(meta, "slice_predicates", ())),
+        )
+
+    @classmethod
+    def from_frames(cls, *frames: BaseFrame) -> CommitSemanticAnchors:
+        anchors = tuple(cls.from_frame(frame) for frame in frames)
+        identities = tuple(
+            dict.fromkeys(identity for anchor in anchors for identity in anchor.metric_identities)
+        )
+        axis_refs = tuple(dict.fromkeys(ref for anchor in anchors for ref in anchor.axis_refs))
+        predicate_values: list[SlicePredicateV1] = []
+        for anchor in anchors:
+            for predicate in anchor.slice_predicates:
+                if predicate not in predicate_values:
+                    predicate_values.append(predicate)
+        predicates = tuple(predicate_values)
+        return cls(
+            catalog_definition_fingerprint=next(
+                (
+                    anchor.catalog_definition_fingerprint
+                    for anchor in anchors
+                    if anchor.catalog_definition_fingerprint is not None
+                ),
+                None,
+            ),
+            semantic_dependency_digest=next(
+                (
+                    anchor.semantic_dependency_digest
+                    for anchor in anchors
+                    if anchor.semantic_dependency_digest is not None
+                ),
+                None,
+            ),
+            metric_identities=identities,
+            comparison_identity=next(
+                (
+                    anchor.comparison_identity
+                    for anchor in anchors
+                    if anchor.comparison_identity is not None
+                ),
+                None,
+            ),
+            axis_refs=axis_refs,
+            slice_predicates=predicates,
+        )
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return cast("dict[str, Any]", canonical_value(self.model_dump(mode="python")))
 
 
 def compute_prospective_artifact_id(
@@ -90,7 +170,7 @@ def compute_prospective_artifact_id(
         step_type=step_type,
         normalized_inputs=inputs.input_refs,
         normalized_params=params.values,
-        semantic_anchors=semantic_anchors.values,
+        semantic_anchors=semantic_anchors.payload,
     )
 
 
@@ -185,7 +265,7 @@ def _typed_subject_for_identity(
         return CatalogMetricSubjectV1(
             kind="catalog_metric",
             session_id=frame.meta.session_id,
-            metric_id=identity.metric_id,
+            metric_ref=identity.metric_ref,
             artifact_id=artifact_id,
             scope_fingerprint=scope_fingerprint,
         )
@@ -214,7 +294,7 @@ def _metric_entries(
         identities = tuple(getattr(meta, "metric_identities", ()))
         entries: list[tuple[Subject, str, str | None, bool, str | None]] = []
         for index, entry in enumerate(measures):
-            updates: dict[str, object] = {"metric": entry["metric_id"]}
+            updates: dict[str, object] = {}
             if index < len(identities):
                 typed_subject = _typed_subject_for_identity(
                     identity=identities[index],
@@ -652,6 +732,7 @@ def _bind_typed_metric_subject(
     subject: Subject,
     artifact_id: str,
     scope: AnalysisScope,
+    semantic_anchors: CommitSemanticAnchors,
 ) -> Subject:
     """Bind current artifact/session ownership to a typed metric subject."""
 
@@ -663,6 +744,16 @@ def _bind_typed_metric_subject(
         scope=scope,
     )
     comparison_identity = getattr(frame.meta, "comparison_identity", None)
+    if metric_identity is None and len(semantic_anchors.metric_identities) == 1:
+        metric_identity = semantic_anchors.metric_identities[0]
+        typed_subject = _typed_subject_for_identity(
+            identity=metric_identity,
+            frame=frame,
+            artifact_id=artifact_id,
+            scope=scope,
+        )
+    if comparison_identity is None:
+        comparison_identity = semantic_anchors.comparison_identity
     if isinstance(comparison_identity, DeltaComparisonIdentityV1):
         typed_subject = DeltaMetricSubjectV1(
             kind="delta_metric",
@@ -715,11 +806,17 @@ def commit_result(
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
     scope = compute_analysis_scope(frame)
+    slice_predicates = getattr(frame.meta, "slice_predicates", ())
+    if not slice_predicates:
+        slice_predicates = semantic_anchors.slice_predicates
+    if isinstance(slice_predicates, tuple) and slice_predicates:
+        subject = subject.model_copy(update={"slice_predicates": slice_predicates})
     subject = _bind_typed_metric_subject(
         frame=frame,
         subject=subject,
         artifact_id=artifact_id,
         scope=scope,
+        semantic_anchors=semantic_anchors,
     )
     quality = compute_quality_summary(frame)
     findings: list[Finding] = []

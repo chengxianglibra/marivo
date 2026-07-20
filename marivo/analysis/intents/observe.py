@@ -14,6 +14,7 @@ from marivo.analysis._cumulative import (
     CUMULATIVE_CONTRACT_VERSION,
     normalize_cumulative_anchor,
 )
+from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.errors import (
     SemanticKindMismatchError,
     SliceEmptyResultError,
@@ -54,7 +55,6 @@ from marivo.analysis.intents._observe_base import (  # noqa: F401
 )
 from marivo.analysis.intents._observe_catalog import (  # noqa: F401
     _build_entity_adapter,
-    _catalog_id,
     _catalog_kind,
     _catalog_object,
     _DimensionIRAdapter,
@@ -142,13 +142,12 @@ from marivo.analysis.intents.sampled_fold import (
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.runtime_metric import (
     RuntimeAggregateExpr,
+    RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
     replay_payload,
 )
 from marivo.analysis.semantic_inputs import (
-    AnalysisDimensionRef,
-    ObserveMetricInput,
     normalize_metric_input,
 )
 from marivo.analysis.session._load import load_frame
@@ -163,9 +162,16 @@ from marivo.analysis.windows.spec import (
     TimeScopeInput,
     dump_window,
 )
+from marivo.refs import (
+    FieldKind,
+    MetricKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    TimeDimensionKind,
+)
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
-    SemanticKind,
     SimpleMetricDetails,
 )
 from marivo.semantic.ir import (
@@ -176,6 +182,7 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
+    CanonicalSliceEntryV1,
     CatalogBodyLeafV1,
     CatalogMetricIdentity,
     ComparableValueSemanticsV1,
@@ -190,7 +197,6 @@ from marivo.semantic.metric_graph import (
     node_child_ids,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
-from marivo.semantic.refs import MetricRef, TimeDimensionRef
 from marivo.semantic.unit_algebra import UnknownUnitV2
 
 # Symbols that remain importable from this module for ``derive`` /
@@ -501,7 +507,7 @@ def _cumulative_graph_marker(
 
     identity = graph_plan.forest.identities[0]
     if isinstance(identity, CatalogMetricIdentity):
-        return _catalog_cumulative_marker(catalog, identity.metric_id)
+        return _catalog_cumulative_marker(catalog, identity.metric_ref.path)
 
     cumulative_leaves = {
         leaf.node_id: leaf
@@ -573,19 +579,24 @@ def _cumulative_graph_marker(
 
 
 def observe(
-    metric: ObserveMetricInput | list[ObserveMetricInput] | tuple[ObserveMetricInput, ...],
+    metric: (
+        Ref[MetricKind]
+        | RuntimeMetricExpr
+        | list[Ref[MetricKind] | RuntimeMetricExpr]
+        | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+    ),
     *,
     time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
-    dimensions: list[AnalysisDimensionRef] | None = None,
-    slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
-    time_dimension: TimeDimensionRef | None = None,
+    dimensions: list[Ref[FieldKind]] | None = None,
+    slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
+    time_dimension: Ref[TimeDimensionKind] | None = None,
     expect_shape: SemanticShape | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     if isinstance(metric, (list, tuple)):
-        metric_items: list[ObserveMetricInput] = list(metric)
+        metric_items: list[Ref[MetricKind] | RuntimeMetricExpr] = list(metric)
         if not metric_items:
             raise SemanticKindMismatchError(
                 message="observe requires at least one metric",
@@ -603,7 +614,7 @@ def observe(
                 analysis_purpose=analysis_purpose,
                 session=session,
             )
-        single_metric: ObserveMetricInput = metric_items[0]
+        single_metric: Ref[MetricKind] | RuntimeMetricExpr = metric_items[0]
     else:
         single_metric = metric
     if session is None:
@@ -612,9 +623,15 @@ def observe(
     catalog = session.catalog
     catalog._require_index()
     metric_ir: Any
-    is_catalog_root = isinstance(single_metric, MetricRef)
+    planner_scope: set[str]
+    is_catalog_root = type(single_metric) is Ref
     if is_catalog_root:
-        assert isinstance(single_metric, MetricRef)
+        assert type(single_metric) is Ref
+        if single_metric.kind is not SemanticKind.METRIC:
+            raise SemanticKindMismatchError(
+                message="metric requires exact Ref[metric] or RuntimeMetricExpr",
+                context={"actual_kind": single_metric.kind.value},
+            )
         metric_id = _normalize_metric_boundary(catalog, single_metric)
         model_name, metric_name = metric_id.split(".", 1)
         metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
@@ -642,13 +659,13 @@ def observe(
     else:
         raise SemanticKindMismatchError(
             message=(
-                "metric requires exact MetricRef or RuntimeMetricExpr; "
+                "metric requires exact Ref[metric] or RuntimeMetricExpr; "
                 f"got {type(single_metric).__name__}."
             ),
             hint="Pass loaded_metric.ref or a value returned by mv.runtime_metric.*.",
             context={
                 "argument": "metric",
-                "expected_type": "MetricRef or RuntimeMetricExpr",
+                "expected_type": "Ref[metric] or RuntimeMetricExpr",
                 "actual_type": type(single_metric).__name__,
                 "repair": "Use loaded_metric.ref.",
             },
@@ -664,7 +681,7 @@ def observe(
         dimensions,
         scoped_entity_refs=planner_scope,
     )
-    resolver = catalog._resolver(connections=session._connection_runtime)
+    resolver = catalog._semantic_resolver(connections=session._connection_runtime)
     resolved_window, original_timescope = _resolve_timescope(
         time_scope,
         grain=grain,
@@ -820,11 +837,10 @@ def observe(
                     base_plan.lineage_metadata.get("version_resolutions", [])
                 )
             params = {
-                "metric": metric_id,
                 "replay_expression": replay_payload(single_metric),
                 "timescope": params_timescope,
-                "dimensions": _dump_dimensions(dimension_refs),
-                "where": stored_where,
+                "dimension_refs": _dimension_ref_payloads(catalog, dimension_refs),
+                "slice_predicates": canonical_value(_slice_predicates(catalog, stored_where)),
                 "metric_graph": canonical_value(graph_plan.graph),
                 "semantic_dependency_digest": canonical_value(graph_plan.forest.dependency_digest),
                 "presentation": canonical_value(graph_plan.forest.presentation),
@@ -854,11 +870,21 @@ def observe(
                 params["cumulative"] = cumulative_meta
             if any(isinstance(node, RatioNodeV1) for node in graph_nodes.values()):
                 params["zero_division"] = "null"
-            semantic_anchors = {"metric_id": metric_id, "model": model_name}
+            anchor_time_ref = _status_time_dimension_payload(planner_time_dimension_id)
+            commit_anchors = CommitSemanticAnchors(
+                catalog_definition_fingerprint=session.catalog.definition_fingerprint,
+                semantic_dependency_digest=graph_plan.forest.dependency_digest,
+                metric_identities=graph_plan.forest.identities,
+                axis_refs=tuple(
+                    RefPayloadV1.from_ref(Ref.dimension(path)) for path in dimension_refs
+                )
+                + ((anchor_time_ref,) if anchor_time_ref is not None else ()),
+                slice_predicates=_slice_predicates(catalog, stored_where),
+            )
             artifact_cache_key = _observe_artifact_cache_key(
                 graph_plan=graph_plan,
                 params=params,
-                semantic_anchors=semantic_anchors,
+                semantic_anchors=commit_anchors.payload,
             )
             cached_frame, starting_snapshot_token = _lookup_snapshot_verified_artifact(
                 session=session,
@@ -885,11 +911,19 @@ def observe(
         )
         params["snapshot_fingerprint"] = snapshot_fingerprint
         params["coverage_fingerprint"] = coverage_fingerprint
+        persisted_axis_bindings = _axis_bindings(catalog, graph_execution.roots[0].axes)
+        commit_anchors = CommitSemanticAnchors(
+            catalog_definition_fingerprint=session.catalog.definition_fingerprint,
+            semantic_dependency_digest=graph_plan.forest.dependency_digest,
+            metric_identities=graph_plan.forest.identities,
+            axis_refs=tuple(binding.ref for binding in persisted_axis_bindings),
+            slice_predicates=_slice_predicates(catalog, stored_where),
+        )
         prospective_id = compute_prospective_artifact_id(
             step_type="observe",
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values=semantic_anchors),
+            semantic_anchors=commit_anchors,
         )
         if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
             cached_frame = cast("MetricFrame", load_frame(prospective_id, session=session))
@@ -936,8 +970,8 @@ def observe(
         scope_fingerprint = fingerprint(
             {
                 "timescope": params_timescope,
-                "dimensions": _dump_dimensions(dimension_refs),
-                "where": stored_where,
+                "dimension_refs": _dimension_ref_payloads(catalog, dimension_refs),
+                "slice_predicates": canonical_value(_slice_predicates(catalog, stored_where)),
                 "report_tz": session.report_tz_name,
             }
         )
@@ -958,9 +992,7 @@ def observe(
             fields=key_fields,
             fingerprint=fingerprint(key_fields),
         )
-        comparable_global_slice = tuple(
-            (key, fingerprint(value)) for key, value in sorted(stored_where.items())
-        )
+        comparable_global_slice = _comparable_slice(catalog, stored_where)
         comparable_fold = fingerprint(fold_meta) if fold_meta is not None else None
         comparable_payload = {
             "expression_fingerprint": graph_plan.graph.roots[0],
@@ -988,7 +1020,7 @@ def observe(
             "metric_identities": (metric_identity,),
             "scope_fingerprint": scope_fingerprint,
             "source_domain_fingerprint": graph_plan.source_domain.profile_fingerprint,
-            "dependency_fingerprint": graph_plan.forest.dependency_digest.fingerprint,
+            "dependency_fingerprint": graph_plan.forest.dependency_digest.digest,
             "snapshot_fingerprint": snapshot_fingerprint,
             "coverage_fingerprint": coverage_fingerprint,
             "presentation_fingerprint": presentation_fingerprint,
@@ -999,7 +1031,7 @@ def observe(
             metric_identities=(metric_identity,),
             scope_fingerprint=scope_fingerprint,
             source_domain_fingerprint=graph_plan.source_domain.profile_fingerprint,
-            dependency_fingerprint=graph_plan.forest.dependency_digest.fingerprint,
+            dependency_fingerprint=graph_plan.forest.dependency_digest.digest,
             snapshot_fingerprint=snapshot_fingerprint,
             coverage_fingerprint=coverage_fingerprint,
             presentation_fingerprint=presentation_fingerprint,
@@ -1020,6 +1052,7 @@ def observe(
             quantile_method = capability.method
         meta = MetricFrameMeta(
             kind="metric_frame",
+            catalog_definition_fingerprint=session.catalog.definition_fingerprint,
             ref=frame_ref,
             session_id=session.id,
             project_root=str(session.project_root),
@@ -1053,6 +1086,11 @@ def observe(
             source_compatibility_domain=graph_plan.source_domain,
             comparable_value_semantics=comparable_semantics,
             execution_stats=_execution_stats(graph_plan, graph_execution),
+            axis_bindings=_axis_bindings(session.catalog, root_execution.axes),
+            slice_predicates=_slice_predicates(session.catalog, stored_where),
+            status_time_dimension_ref=_status_time_dimension_payload(
+                metric_ir.status_time_dimension
+            ),
             axes=root_execution.axes,
             measure={"name": metric_name},
             window=dump_window(resolved_window),
@@ -1208,6 +1246,7 @@ def observe(
                 "id": job_ref,
                 "session_id": session.id,
                 "intent": "observe",
+                **_observe_job_semantics(frame),
                 "analysis_purpose": analysis_purpose,
                 "params": params,
                 "input_frame_refs": [],
@@ -1218,7 +1257,6 @@ def observe(
                 "status": "succeeded",
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
-                "semantic_model": model_name,
                 "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in captured_queries],
             },
         )
@@ -1236,13 +1274,13 @@ def observe(
 
 
 def _forest_output_columns(
-    metric_inputs: tuple[ObserveMetricInput, ...],
+    metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
     identities: tuple[Any, ...],
 ) -> list[str]:
     requested: list[str] = []
     for index, (metric_input, identity) in enumerate(zip(metric_inputs, identities, strict=True)):
         if isinstance(identity, CatalogMetricIdentity):
-            requested.append(identity.metric_id.rsplit(".", 1)[-1])
+            requested.append(identity.metric_ref.path.rsplit(".", 1)[-1])
         else:
             requested.append(getattr(metric_input, "label", None) or f"runtime_metric_{index + 1}")
     counts: dict[str, int] = {}
@@ -1254,13 +1292,13 @@ def _forest_output_columns(
 
 
 def _observe_metric_forest(
-    metric_inputs: tuple[ObserveMetricInput, ...],
+    metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
     *,
     time_scope: TimeScopeInput,
     grain: GrainInput,
-    dimensions: list[AnalysisDimensionRef] | None,
-    slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None,
-    time_dimension: TimeDimensionRef | None,
+    dimensions: list[Ref[FieldKind]] | None,
+    slice_by: Mapping[Ref[FieldKind], SliceValue] | None,
+    time_dimension: Ref[TimeDimensionKind] | None,
     expect_shape: SemanticShape | None,
     analysis_purpose: str | None,
     session: Session | None,
@@ -1272,14 +1310,19 @@ def _observe_metric_forest(
     catalog = session.catalog
     catalog._require_index()
     for metric_input in metric_inputs:
-        if isinstance(metric_input, MetricRef):
+        if type(metric_input) is Ref:
+            if metric_input.kind is not SemanticKind.METRIC:
+                raise SemanticKindMismatchError(
+                    message="observe metric sequences require exact Ref[metric] values",
+                    context={"actual_kind": metric_input.kind.value},
+                )
             normalize_metric_input(catalog, metric_input)
         elif not isinstance(
             metric_input, RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr
         ):
             raise SemanticKindMismatchError(
                 message=(
-                    "observe metric sequences require exact MetricRef or RuntimeMetricExpr "
+                    "observe metric sequences require exact Ref[metric] or RuntimeMetricExpr "
                     f"items; got {type(metric_input).__name__}."
                 ),
                 context={"argument": "metric", "actual_type": type(metric_input).__name__},
@@ -1319,7 +1362,7 @@ def _observe_metric_forest(
                     "expect_shape": expect_shape,
                 },
             )
-    resolver = catalog._resolver(connections=session._connection_runtime)
+    resolver = catalog._semantic_resolver(connections=session._connection_runtime)
     all_entity_refs = _all_entity_ids(catalog)
     _, _, all_dataset_irs, all_dataset_fns = _entity_adapter_maps(
         catalog=catalog,
@@ -1371,8 +1414,8 @@ def _observe_metric_forest(
             "metric_identities": canonical_value(graph_plan.forest.identities),
             "replay_expressions": [replay_payload(item) for item in metric_inputs],
             "timescope": params_timescope,
-            "dimensions": _dump_dimensions(dimension_refs),
-            "where": stored_where,
+            "dimension_refs": _dimension_ref_payloads(session.catalog, dimension_refs),
+            "slice_predicates": canonical_value(_slice_predicates(session.catalog, stored_where)),
             "metric_graph": canonical_value(graph_plan.graph),
             "semantic_dependency_digest": canonical_value(graph_plan.forest.dependency_digest),
             "presentation": canonical_value(graph_plan.forest.presentation),
@@ -1381,14 +1424,22 @@ def _observe_metric_forest(
             "warnings": list(graph_plan.warnings),
             "output_columns": output_columns,
         }
-        anchors = {
-            "metric_identities": canonical_value(graph_plan.forest.identities),
-            "model": model_name,
-        }
+        anchor_time_path = (
+            resolved_window.time_dimension if resolved_window is not None else time_dimension_id
+        )
+        anchor_time_ref = _status_time_dimension_payload(anchor_time_path)
+        commit_anchors = CommitSemanticAnchors(
+            catalog_definition_fingerprint=session.catalog.definition_fingerprint,
+            semantic_dependency_digest=graph_plan.forest.dependency_digest,
+            metric_identities=graph_plan.forest.identities,
+            axis_refs=tuple(RefPayloadV1.from_ref(Ref.dimension(path)) for path in dimension_refs)
+            + ((anchor_time_ref,) if anchor_time_ref is not None else ()),
+            slice_predicates=_slice_predicates(session.catalog, stored_where),
+        )
         artifact_cache_key = _observe_artifact_cache_key(
             graph_plan=graph_plan,
             params=params,
-            semantic_anchors=anchors,
+            semantic_anchors=commit_anchors.payload,
         )
         cached_frame, starting_snapshot_token = _lookup_snapshot_verified_artifact(
             session=session,
@@ -1412,11 +1463,19 @@ def _observe_metric_forest(
     snapshot_fingerprint, coverage_fingerprint = _execution_snapshot_fingerprints(execution)
     params["snapshot_fingerprint"] = snapshot_fingerprint
     params["coverage_fingerprint"] = coverage_fingerprint
+    persisted_axis_bindings = _axis_bindings(session.catalog, execution.roots[0].axes)
+    commit_anchors = CommitSemanticAnchors(
+        catalog_definition_fingerprint=session.catalog.definition_fingerprint,
+        semantic_dependency_digest=graph_plan.forest.dependency_digest,
+        metric_identities=graph_plan.forest.identities,
+        axis_refs=tuple(binding.ref for binding in persisted_axis_bindings),
+        slice_predicates=_slice_predicates(session.catalog, stored_where),
+    )
     prospective_id = compute_prospective_artifact_id(
         step_type="observe",
         inputs=CommitInputs(input_refs=[]),
         params=CommitParams(values=params),
-        semantic_anchors=CommitSemanticAnchors(values=anchors),
+        semantic_anchors=commit_anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         _remember_snapshot_verified_artifact(
@@ -1458,8 +1517,8 @@ def _observe_metric_forest(
     scope_fingerprint = fingerprint(
         {
             "timescope": params_timescope,
-            "dimensions": _dump_dimensions(dimension_refs),
-            "where": stored_where,
+            "dimension_refs": _dimension_ref_payloads(session.catalog, dimension_refs),
+            "slice_predicates": canonical_value(_slice_predicates(session.catalog, stored_where)),
             "report_tz": session.report_tz_name,
         }
     )
@@ -1476,9 +1535,7 @@ def _observe_metric_forest(
         fields=key_fields,
         fingerprint=fingerprint(key_fields),
     )
-    comparable_global_slice: tuple[tuple[str, Any], ...] = tuple(
-        (key, fingerprint(value)) for key, value in sorted(stored_where.items())
-    )
+    comparable_global_slice = _comparable_slice(session.catalog, stored_where)
     comparable_payload = {
         "expression_fingerprint": expression_fingerprint,
         "evaluator_contracts": _evaluator_contracts(graph_plan),
@@ -1505,7 +1562,7 @@ def _observe_metric_forest(
         "metric_identities": graph_plan.forest.identities,
         "scope_fingerprint": scope_fingerprint,
         "source_domain_fingerprint": graph_plan.source_domain.profile_fingerprint,
-        "dependency_fingerprint": graph_plan.forest.dependency_digest.fingerprint,
+        "dependency_fingerprint": graph_plan.forest.dependency_digest.digest,
         "snapshot_fingerprint": snapshot_fingerprint,
         "coverage_fingerprint": coverage_fingerprint,
         "presentation_fingerprint": presentation_fingerprint,
@@ -1516,7 +1573,7 @@ def _observe_metric_forest(
         metric_identities=graph_plan.forest.identities,
         scope_fingerprint=scope_fingerprint,
         source_domain_fingerprint=graph_plan.source_domain.profile_fingerprint,
-        dependency_fingerprint=graph_plan.forest.dependency_digest.fingerprint,
+        dependency_fingerprint=graph_plan.forest.dependency_digest.digest,
         snapshot_fingerprint=snapshot_fingerprint,
         coverage_fingerprint=coverage_fingerprint,
         presentation_fingerprint=presentation_fingerprint,
@@ -1526,7 +1583,7 @@ def _observe_metric_forest(
     measures = [
         {
             "metric_id": (
-                identity.metric_id
+                identity.metric_ref.path
                 if isinstance(identity, CatalogMetricIdentity)
                 else f"runtime:{identity.expression_fingerprint}"
             ),
@@ -1548,6 +1605,7 @@ def _observe_metric_forest(
     ]
     meta = MetricFrameMeta(
         kind="metric_frame",
+        catalog_definition_fingerprint=session.catalog.definition_fingerprint,
         ref=frame_ref,
         session_id=session.id,
         project_root=str(session.project_root),
@@ -1581,6 +1639,8 @@ def _observe_metric_forest(
         source_compatibility_domain=graph_plan.source_domain,
         comparable_value_semantics=comparable_semantics,
         execution_stats=_execution_stats(graph_plan, execution),
+        axis_bindings=_axis_bindings(session.catalog, first_root.axes),
+        slice_predicates=_slice_predicates(session.catalog, stored_where),
         axes=first_root.axes,
         measure={},
         measures=measures,
@@ -1643,7 +1703,6 @@ def _observe_metric_forest(
         ),
         metric_ids=[str(item["metric_id"]) for item in measures],
         models=[model_name],
-        semantic_anchors=anchors,
     )
     output_ref = frame.meta.artifact_id or frame.ref
     persist_job_record(
@@ -1652,6 +1711,7 @@ def _observe_metric_forest(
             "id": job_ref,
             "session_id": session.id,
             "intent": "observe",
+            **_observe_job_semantics(frame),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [],
@@ -1662,7 +1722,6 @@ def _observe_metric_forest(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "semantic_model": model_name,
             "queries": [
                 {**query.to_dict(), "output_ref": output_ref} for query in captured_queries
             ],
@@ -1702,3 +1761,111 @@ def _raise_on_empty_slice_result(
         ),
         context={"slice_dimensions": dimensions},
     )
+
+
+def _axis_bindings(catalog: Any, axes: dict[str, Any]) -> tuple[AxisBindingV1, ...]:
+    registry = catalog._require_index().registry
+    bindings: list[AxisBindingV1] = []
+    for axis in axes.values():
+        if not isinstance(axis, dict):
+            continue
+        path = axis.get("ref")
+        column = axis.get("column")
+        if not isinstance(path, str) or not isinstance(column, str):
+            continue
+        dimension = registry.dimensions.get(path)
+        if dimension is None:
+            continue
+        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        bindings.append(
+            AxisBindingV1(
+                ref=RefPayloadV1.from_ref(ref),
+                column=column,
+                role="time_dimension" if dimension.is_time_dimension else "dimension",
+                grain=axis.get("grain") if isinstance(axis.get("grain"), str) else None,
+            )
+        )
+    return tuple(sorted(bindings, key=lambda item: item.ref.path))
+
+
+def _slice_predicates(catalog: Any, where: dict[str, Any]) -> tuple[SlicePredicateV1, ...]:
+    registry = catalog._require_index().registry
+    predicates: list[SlicePredicateV1] = []
+    for path, value in sorted(where.items()):
+        dimension = registry.dimensions.get(path)
+        if dimension is None:
+            continue
+        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        predicates.append(
+            SlicePredicateV1(
+                dimension_ref=RefPayloadV1.from_ref(ref),
+                value=value,
+            )
+        )
+    return tuple(predicates)
+
+
+def _dimension_ref_payloads(catalog: Any, paths: list[str]) -> list[dict[str, str]]:
+    registry = catalog._require_index().registry
+    payloads: list[dict[str, str]] = []
+    for path in paths:
+        dimension = registry.dimensions[path]
+        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        payloads.append(RefPayloadV1.from_ref(ref).to_dict())
+    return payloads
+
+
+def _comparable_slice(catalog: Any, where: dict[str, Any]) -> tuple[CanonicalSliceEntryV1, ...]:
+    return tuple(
+        CanonicalSliceEntryV1(
+            dimension_ref=predicate.dimension_ref,
+            value=fingerprint(predicate.value),
+        )
+        for predicate in _slice_predicates(catalog, where)
+    )
+
+
+def _status_time_dimension_payload(path: str | None) -> RefPayloadV1 | None:
+    return RefPayloadV1.from_ref(Ref.time_dimension(path)) if path is not None else None
+
+
+def _observe_job_semantics(frame: MetricFrame) -> dict[str, Any]:
+    identities = frame.meta.metric_identities
+
+    def subject(identity: object) -> dict[str, Any]:
+        if isinstance(identity, CatalogMetricIdentity):
+            return {
+                "kind": "catalog_metric",
+                "metric_ref": identity.metric_ref.to_dict(),
+            }
+        expression_fingerprint = getattr(identity, "expression_fingerprint", None)
+        expression_schema = getattr(identity, "expression_schema", None)
+        if not isinstance(expression_fingerprint, str) or not isinstance(expression_schema, str):
+            raise TypeError("observe metric identity is not persistable")
+        return {
+            "kind": "runtime_expression",
+            "expression_schema": expression_schema,
+            "expression_fingerprint": expression_fingerprint,
+        }
+
+    time_refs = [
+        binding.ref.to_dict()
+        for binding in frame.meta.axis_bindings
+        if binding.role == "time_dimension"
+    ]
+    payload: dict[str, Any] = {
+        "catalog_definition_fingerprint": frame.meta.catalog_definition_fingerprint,
+        "semantic_dependency_digest": canonical_value(frame.meta.semantic_dependency_digest),
+        "dimension_refs": [
+            binding.ref.to_dict()
+            for binding in frame.meta.axis_bindings
+            if binding.role == "dimension"
+        ],
+        "slice_predicates": canonical_value(frame.meta.slice_predicates),
+        "time_dimension_ref": time_refs[0] if time_refs else None,
+    }
+    if len(identities) == 1:
+        payload["subject"] = subject(identities[0])
+    else:
+        payload["subjects"] = [subject(identity) for identity in identities]
+    return payload

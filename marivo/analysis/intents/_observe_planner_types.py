@@ -10,7 +10,7 @@ from enum import StrEnum
 from types import SimpleNamespace
 from typing import Any, Literal
 
-from marivo.refs import SemanticRef
+from marivo.refs import Ref
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     DimensionDetails,
@@ -124,7 +124,7 @@ class _PlannedFieldDetails:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.id
+        return self.details.ref.path
 
     @property
     def name(self) -> str:
@@ -132,7 +132,7 @@ class _PlannedFieldDetails:
 
     @property
     def entity(self) -> str:
-        return self.details.entity.id
+        return self.details.entity.path
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.details, name)
@@ -154,15 +154,15 @@ class _PlannedRelationshipDetails:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.id
+        return self.details.ref.path
 
     @property
     def from_entity(self) -> str:
-        return self.details.from_entity.id
+        return self.details.from_entity.path
 
     @property
     def to_entity(self) -> str:
-        return self.details.to_entity.id
+        return self.details.to_entity.path
 
     @property
     def from_keys(self) -> tuple[str, ...]:
@@ -190,7 +190,7 @@ class _MetricDetailsAdapter:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.id
+        return self.details.ref.path
 
     @property
     def name(self) -> str:
@@ -198,11 +198,11 @@ class _MetricDetailsAdapter:
 
     @property
     def root_entity(self) -> str | None:
-        return self.details.root_entity.id if self.details.root_entity is not None else None
+        return self.details.root_entity.path if self.details.root_entity is not None else None
 
     @property
     def entities(self) -> tuple[str, ...]:
-        return tuple(entity.id for entity in self.details.entities)
+        return tuple(entity.path for entity in self.details.entities)
 
     @property
     def additivity(self) -> str | None:
@@ -221,7 +221,7 @@ class _MetricDetailsAdapter:
         if not isinstance(self.details, DerivedMetricDetails):
             return None
         components = {
-            role: (ref.id if isinstance(ref, SemanticRef) else str(ref))
+            role: (ref.path if type(ref) is Ref else str(ref))
             for role, ref in self.details.components
         }
         return SimpleNamespace(
@@ -258,7 +258,7 @@ class _MetricDetailsAdapter:
     @property
     def measure(self) -> str | None:
         if isinstance(self.details, SimpleMetricDetails):
-            return self.details.measure.id if self.details.measure else None
+            return self.details.measure.path if self.details.measure else None
         return None
 
     @property

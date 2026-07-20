@@ -17,13 +17,16 @@ from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_test_delta_contract
 
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -39,6 +42,7 @@ def _delta(
     additivity: str | None = "additive",
 ) -> DeltaFrame:
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_delta",
         session_id=session.id,
@@ -226,7 +230,7 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = md.ref('datasource.warehouse')\n"
+                "warehouse = ms.Ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day')\n"
                 "def created_at(orders):\n"
@@ -252,8 +256,8 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
         "(4, DATE '2025-07-02', 'CN', 30.0)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    revenue = session.catalog.get("metric.sales.revenue").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    revenue = session.catalog.require(make_ref("sales.revenue", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     cur = session.observe(
         revenue,
         time_scope={"start": "2026-07-01", "end": "2026-08-01"},
@@ -293,7 +297,7 @@ def test_attribute_validates_original_delta_before_axis_materialization(
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = md.ref('datasource.warehouse')\n"
+                "warehouse = ms.Ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day')\n"
                 "def created_at(orders):\n"
@@ -317,8 +321,8 @@ def test_attribute_validates_original_delta_before_axis_materialization(
         "(2, DATE '2025-07-01', 'US', 70.0)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    revenue = session.catalog.get("metric.sales.revenue").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    revenue = session.catalog.require(make_ref("sales.revenue", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     current = session.observe(
         revenue,
         time_scope={"start": "2026-07-01", "end": "2026-08-01"},
@@ -353,7 +357,7 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity("
-                "name='orders', datasource=md.ref('datasource.warehouse'), "
+                "name='orders', datasource=ms.Ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "created_at = ms.time_dimension_column("
                 "name='created_at', entity=orders, column='created_at', "
@@ -383,8 +387,8 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
         "(DATE '2025-07-04', 'US', NULL)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    avg_amount = session.catalog.get("metric.sales.avg_amount").ref
-    region = session.catalog.get("dimension.sales.orders.region").ref
+    avg_amount = session.catalog.require(make_ref("sales.avg_amount", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     cur = session.observe(
         avg_amount,
         time_scope={"start": "2026-07-01", "end": "2026-08-01"},

@@ -15,7 +15,6 @@ from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
-from marivo.datasource.authoring import ref as datasource_ref
 from marivo.datasource.errors import repair as datasource_repair
 from marivo.datasource.manage import (
     DatasourceDescription,
@@ -25,6 +24,7 @@ from marivo.datasource.manage import (
     RawSqlResult,
 )
 from marivo.preview import PreviewCoverage, PreviewResult
+from marivo.refs import Ref
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
@@ -34,6 +34,8 @@ from marivo.semantic.dtos import (
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from marivo.semantic.richness import RichnessReport
+
+datasource_ref = Ref.datasource
 
 REPR_MAX_LEN = 200
 RENDER_MAX_LINES = 1000
@@ -247,7 +249,7 @@ def _verify_result() -> VerifyResult:
 def _readiness_report() -> ReadinessReport:
     return ReadinessReport(
         status="ready",
-        analysis_ready_refs=("sales.revenue",),
+        analysis_ready_refs=(Ref.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(
@@ -424,7 +426,7 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
     assert _readiness_report().render() == "\n".join(
         [
             "ReadinessReport status=ready issues=0",
-            "analysis_ready: sales.revenue",
+            "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
             "- .render()",
@@ -482,8 +484,10 @@ def _metric_frame() -> MetricFrame:
     from datetime import UTC, datetime
 
     from marivo.analysis.lineage import Lineage
+    from tests.shared_fixtures import make_test_metric_meta_contract
 
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         kind="metric_frame",
         ref="frame_protocol_test",
         session_id="sess_test",

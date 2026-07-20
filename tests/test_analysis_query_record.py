@@ -17,8 +17,8 @@ from marivo.analysis.executor.runner import ExecutionResult, execute
 from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 def _runtime(factory=None) -> AnalysisConnectionRuntime:
@@ -258,7 +258,7 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
     assert "queries" in job
     assert len(job["queries"]) >= 1
     q = job["queries"][0]
-    assert q["datasource"] == "datasource.warehouse"
+    assert q["datasource"] == "warehouse"
     assert q["row_count"] == 1
     assert q["duration_ms"] >= 0
     assert q["status"] == "succeeded"
@@ -289,14 +289,14 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-08-31"},
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     delta = s.compare(
         frame,
         frame,
         alignment=mv.window_bucket(),
     )
-    attr = s.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+    attr = s.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
     job_id = attr.meta.produced_by_job
     assert job_id is not None
     job = s.job(job_id)
@@ -373,7 +373,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     job = s.job(scalar.meta.produced_by_job)
     assert len(job["queries"]) >= 1
     q = job["queries"][0]
-    assert q["datasource"] == "datasource.warehouse"
+    assert q["datasource"] == "warehouse"
     assert q["row_count"] >= 1
     assert q["duration_ms"] >= 0
     assert "from=marivo" in q["sql"]
@@ -386,13 +386,13 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     )
     job = s.job(ts.meta.produced_by_job)
     assert len(job["queries"]) >= 1
-    assert job["queries"][0]["datasource"] == "datasource.warehouse"
+    assert job["queries"][0]["datasource"] == "warehouse"
 
     # Segmented
     seg = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-09-30"},
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     job = s.job(seg.meta.produced_by_job)
     assert len(job["queries"]) >= 1
@@ -402,7 +402,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="month",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     job = s.job(panel.meta.produced_by_job)
     assert len(job["queries"]) >= 1

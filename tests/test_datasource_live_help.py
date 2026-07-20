@@ -88,7 +88,6 @@ def test_public_help_annotations_keep_the_exact_concrete_target_union() -> None:
         str
         | Callable[..., object]
         | type[object]
-        | md.DatasourceRef
         | DatasourceSpec
         | md.DatasourceCatalog
         | md.DatasourceSummary
@@ -113,7 +112,7 @@ def test_public_help_annotations_keep_the_exact_concrete_target_union() -> None:
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")
-    ref = md.ref("datasource.warehouse")
+    ref = ms.Ref.datasource("warehouse")
     scope = md.unpruned(max_rows=10, timeout_seconds=5)
     inspection = SourceInspection(
         datasource=ref,
@@ -143,7 +142,6 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     )
     return (
         md.duckdb(name="warehouse"),
-        ref,
         DatasourceCatalog(workspace_dir=tmp_path),
         source,
         scope,
@@ -201,7 +199,7 @@ def test_help_rejects_cross_surface_private_and_ambiguous_targets() -> None:
     from marivo.analysis import MetricFrame
     from marivo.datasource.authoring import _SpecBase
 
-    for target in (ms.ref("metric.sales.revenue"), MetricFrame, _SpecBase, object(), "source"):
+    for target in (ms.Ref.metric("sales.revenue"), MetricFrame, _SpecBase, object(), "source"):
         with pytest.raises(DatasourceHelpTargetError) as exc_info:
             md.help_text(target)  # type: ignore[arg-type]
         if target is MetricFrame:
@@ -211,7 +209,7 @@ def test_help_rejects_cross_surface_private_and_ambiguous_targets() -> None:
 @pytest.mark.parametrize(
     ("target", "adapter"),
     [
-        (ms.ref, "ms.help"),
+        (ms.metric, "ms.help"),
         (mv.Session, "mv.help"),
     ],
 )

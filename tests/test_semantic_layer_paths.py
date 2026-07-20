@@ -215,7 +215,7 @@ def _write_models_root(
             import marivo.datasource as md
             import marivo.semantic as ms
 
-            source = md.ref("datasource.{datasource_name}")
+            source = ms.Ref.datasource("{datasource_name}")
             rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
             @ms.metric(entities=[rows], additivity="additive")
@@ -265,17 +265,19 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root)
-    top_level_refs = {obj.ref.id for obj in catalog.domains.items}
-    top_level_refs |= {obj.ref.id for obj in catalog.datasources.items}
+    top_level_refs = {obj.ref.path for obj in catalog.domains.items}
+    top_level_refs |= {obj.ref.path for obj in catalog.datasources.items}
 
     assert {
         "sales",
         "finance",
-        "datasource.local_warehouse",
-        "datasource.external_warehouse",
+        "local_warehouse",
+        "external_warehouse",
     } <= top_level_refs
-    assert catalog.get("metric.sales.revenue").ref.id == "sales.revenue"
-    assert catalog.get("metric.finance.refunds_total").ref.id == "finance.refunds_total"
+    assert catalog.require(ms.Ref.metric("sales.revenue")).ref.path == "sales.revenue"
+    assert (
+        catalog.require(ms.Ref.metric("finance.refunds_total")).ref.path == "finance.refunds_total"
+    )
 
 
 def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> None:
@@ -284,11 +286,13 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root, domains=["finance"])
-    top_level_refs = {obj.ref.id for obj in catalog.domains.items}
+    top_level_refs = {obj.ref.path for obj in catalog.domains.items}
 
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs
-    assert catalog.get("metric.finance.refunds_total").ref.id == "finance.refunds_total"
+    assert (
+        catalog.require(ms.Ref.metric("finance.refunds_total")).ref.path == "finance.refunds_total"
+    )
 
 
 def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
@@ -299,7 +303,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
     catalog = ms.load(workspace_dir=project_root)
 
     with pytest.raises(SemanticRuntimeError):
-        catalog.get("metric.finance.net_refunds")
+        catalog.require(ms.Ref.metric("finance.net_refunds"))
 
     finance_objects = external_models / "semantic" / "finance" / "objects.py"
     finance_objects.write_text(
@@ -315,9 +319,9 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    catalog.load()
+    catalog = ms.load(workspace_dir=project_root)
 
-    assert catalog.get("metric.finance.net_refunds").ref.id == "finance.net_refunds"
+    assert catalog.require(ms.Ref.metric("finance.net_refunds")).ref.path == "finance.net_refunds"
 
 
 def test_external_layer_datasource_supports_entity_verify_and_preview(
@@ -353,20 +357,20 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     )
 
     catalog = ms.load(workspace_dir=project_root)
-    entity_ref = catalog.get("entity.finance.refunds").ref
-    metric_ref = catalog.get("metric.finance.refunds_total").ref
+    entity_ref = catalog.require(ms.Ref.entity("finance.refunds")).ref
+    metric_ref = catalog.require(ms.Ref.metric("finance.refunds_total")).ref
     monkeypatch.chdir(project_root)
     md.register(
         md.duckdb(name="warehouse", path=str(db_path)),
         project_root=project_root,
     )
-    snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("refunds")).sample(
+    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("amount",),
     )
     assert md.remove("warehouse") is True
 
-    verify = catalog.verify_object(entity_ref)
+    verify = catalog.verify(entity_ref)
     preview = catalog.preview(metric_ref, using=snapshot, limit=1)
 
     assert verify.status == "passed"
@@ -483,7 +487,7 @@ def test_duplicate_semantic_id_across_roots_fails_with_paths(tmp_path: Path) -> 
             import marivo.datasource as md
             import marivo.semantic as ms
 
-            source = md.ref("datasource.external_warehouse")
+            source = ms.Ref.datasource("external_warehouse")
             sales_domain = ms.domain(name="sales", owner="External", default=False)
             rows = ms.entity(name="orders", datasource=source, source=md.table("orders"), domain=sales_domain)
             """

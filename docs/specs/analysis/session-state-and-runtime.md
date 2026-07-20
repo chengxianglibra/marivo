@@ -70,7 +70,7 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
 frame = session.observe(
-    metric=session.catalog.get("metric.analytics.dau"),
+    metric=session.catalog.require(ms.Ref.metric("analytics.dau")).ref,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )

@@ -331,7 +331,7 @@ def plan_base_observe(
                     # mapping is non-None only in as_of_root_time mode, which
                     # requires root_time_dimension to be non-None.
                     assert root_time_dimension is not None
-                    anchor_expr = _field_fn(catalog, root_time_dimension.ref.id)(
+                    anchor_expr = _field_fn(catalog, root_time_dimension.ref.path)(
                         widened_table
                     ).cast("date")
                     extra_predicates = [anchor_expr == next_table.anchor_date]
@@ -386,7 +386,11 @@ def plan_base_observe(
         and getattr(resolved_window, "grain", None) is not None
     )
     axes_meta: dict[str, Any] = {
-        dimension.column: {"role": "dimension", "column": dimension.column}
+        dimension.column: {
+            "role": "dimension",
+            "column": dimension.column,
+            "ref": dimension.field.semantic_id,
+        }
         for dimension in planned_dimensions
     }
     if has_time_axis:
@@ -400,6 +404,7 @@ def plan_base_observe(
             "column": "bucket_start",
             "grain": _grain_token,
             "time_dimension": root_time_dimension.name,  # type: ignore[union-attr]
+            "ref": root_time_dimension.ref.path,  # type: ignore[union-attr]
         }
     return BaseObservePlan(
         root_entity=root,

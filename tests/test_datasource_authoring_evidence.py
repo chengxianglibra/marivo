@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._authoring.model import AuthoringStateRef
 from marivo.datasource.evidence import (
     TIME_RULE_IDS,
@@ -72,7 +73,7 @@ def _snapshot(
     retained_row_count = profiles[0].sample_row_count if profiles else 0
     return DiscoverySnapshot(
         id=snapshot_id,
-        datasource=md.ref(f"datasource.{datasource}"),
+        datasource=ms.Ref.datasource(f"{datasource}"),
         source=md.table(table),
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=tuple(profile.name for profile in profiles),

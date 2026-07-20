@@ -16,7 +16,7 @@ from marivo.semantic.ir import (
     MetricIR,
     RelationshipIR,
 )
-from marivo.semantic.validator import Registry, Sidecar
+from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -99,7 +99,3 @@ def iter_relationship_irs(
     if domain is not None:
         rels = [r for r in rels if r.domain == domain]
     return rels
-
-
-def get_sidecar(project: SemanticProject) -> Sidecar | None:
-    return project._sidecar

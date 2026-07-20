@@ -19,14 +19,20 @@ from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._runtime import persist_frame
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
-from tests.shared_fixtures import make_test_metric_contract
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import (
+    make_test_component_contract,
+    make_test_delta_contract,
+    make_test_metric_contract,
+)
 
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -93,10 +99,13 @@ def _component_aware_metric(
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components=component_map,
+                axes=axes,
+            ),
             composition_kind=composition_kind,
-            components=component_map,
             linear_terms=linear_terms,
-            axes=axes,
             semantic_kind="segmented",
             semantic_model="sales",
         ),
@@ -165,9 +174,12 @@ def _component_aware_metric_with_axes(
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components=component_map,
+                axes=axes,
+            ),
             composition_kind=composition_kind,
-            components=component_map,
-            axes=axes,
             semantic_kind=semantic_kind,
             semantic_model="sales",
         ),
@@ -275,7 +287,7 @@ def test_decompose_rejects_non_additive_linear_composition() -> None:
     delta = session.compare(current, baseline)
 
     with pytest.raises(AttributionAdditivityError) as exc_info:
-        session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+        session.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
 
     assert exc_info.value._context["reason"] == "non_additive_metric"
     assert exc_info.value._context["composition_kind"] == "linear"
@@ -389,7 +401,9 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+    attribution = session.attribute(
+        delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)]
+    )
 
     assert attribution.meta.method == "ratio_mix"
     assert attribution.meta.contribution_column == "contribution"
@@ -478,7 +492,9 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+    attribution = session.attribute(
+        delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)]
+    )
 
     assert attribution.meta.method == "weighted_mix"
     df = attribution.to_pandas()
@@ -542,7 +558,9 @@ def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+    attribution = session.attribute(
+        delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)]
+    )
 
     df = attribution.to_pandas().set_index("region")
     assert df["contribution"].notna().all()
@@ -597,7 +615,7 @@ def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
     delta = session.compare(current, baseline)
 
     with pytest.raises(ComponentDecompositionError):
-        session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+        session.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
 
 
 def test_compare_time_series_ratio_window_bucket_persists_component_delta():
@@ -827,7 +845,9 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.attribute(delta, axes=[make_ref("bucket_start", SemanticKind.DIMENSION)])
+    attribution = session.attribute(
+        delta, axes=[make_ref("sales.orders.bucket_start", SemanticKind.DIMENSION)]
+    )
 
     assert attribution.meta.method == "ratio_mix"
     df = attribution.to_pandas()
@@ -905,7 +925,9 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+    attribution = session.attribute(
+        delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)]
+    )
 
     df = attribution.to_pandas()
     assert list(df.columns) == [
@@ -1032,8 +1054,8 @@ def test_decompose_component_aware_ratio_delta_by_axis_combination():
     attribution = session.attribute(
         delta,
         axes=[
-            make_ref("category", SemanticKind.DIMENSION),
-            make_ref("channel", SemanticKind.DIMENSION),
+            make_ref("sales.orders.category", SemanticKind.DIMENSION),
+            make_ref("sales.orders.channel", SemanticKind.DIMENSION),
         ],
         mode="joint",
     )
@@ -1078,6 +1100,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             ]
         ),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.failure_rate"),
             ref="frame_calendar_delta",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -1134,12 +1157,15 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             parent_ref=compared.ref,
             parent_kind="delta_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+                axes=axes,
+            ),
             composition_kind="ratio",
-            components={
-                "numerator": "sales.failed_count",
-                "denominator": "sales.total_count",
-            },
-            axes=axes,
             semantic_kind="time_series",
             semantic_model="sales",
         ),
@@ -1149,7 +1175,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
     compared.meta = persist_frame(session, compared)
 
     attribution = session.attribute(
-        compared, axes=[make_ref("bucket_start", SemanticKind.DIMENSION)]
+        compared, axes=[make_ref("sales.orders.bucket_start", SemanticKind.DIMENSION)]
     )
 
     assert "bucket_start_a" in attribution.to_pandas().columns

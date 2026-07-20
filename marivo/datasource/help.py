@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from marivo.datasource._capabilities.render import render_help_target, render_root_help
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-from marivo.datasource.authoring import DatasourceRef, DatasourceSpec
+from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.evidence import (
@@ -41,7 +41,6 @@ PublicDatasourceHelpTarget = (
     str
     | RegisteredDatasourceCallable
     | type[object]
-    | DatasourceRef
     | DatasourceSpec
     | DatasourceCatalog
     | DatasourceSummary

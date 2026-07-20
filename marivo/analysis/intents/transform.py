@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
+from marivo.analysis._semantic_persistence import (
+    AxisBindingV1,
+    SlicePredicateV1,
+    job_semantics_from_frames,
+)
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import (
     CrossSessionFrameError,
@@ -54,14 +58,15 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
-from marivo.semantic.catalog import CatalogObject, SemanticRef
+from marivo.refs import FieldKind, Ref, RefPayloadV1, SemanticKind
+from marivo.semantic.catalog import CatalogEntry
 from marivo.semantic.metric_graph import (
+    CanonicalSliceEntryV1,
     ComparableValueSemanticsV1,
     MetricKeyFieldV1,
     MetricKeySchemaV1,
 )
 from marivo.semantic.metric_graph_canonical import fingerprint
-from marivo.semantic.refs import DimensionRef, TimeDimensionRef
 
 TransformFrame = MetricFrame | DeltaFrame
 RankMethod = Literal["ordinal", "dense", "min", "max"]
@@ -149,9 +154,7 @@ def _finish_transform[TTransformFrame: TransformFrame](
     return result
 
 
-def _normalize_dimension_boundary(
-    session: Session, value: AnalysisDimensionRef, *, argument: str
-) -> str:
+def _normalize_dimension_boundary(session: Session, value: Ref[FieldKind], *, argument: str) -> str:
     try:
         return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
     except SemanticKindMismatchError as exc:
@@ -169,7 +172,7 @@ def _normalize_dimension_boundary(
 
 def _normalize_where_boundary(
     session: Session,
-    where: Mapping[AnalysisDimensionRef, Any] | None,
+    where: Mapping[Ref[FieldKind], Any] | None,
 ) -> dict[str, Any]:
     if where is None:
         return {}
@@ -177,9 +180,9 @@ def _normalize_where_boundary(
         if isinstance(key, str):
             raise TransformArgError(
                 message="transform slice(slice_by=...) requires catalog dimension refs",
-                hint="Pass slice_by={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
+                hint="Pass slice_by={session.catalog.require(ms.Ref.dimension('sales.orders.country')).ref: 'US'}.",
                 context={
-                    "expected_kind": "DimensionRef or TimeDimensionRef",
+                    "expected_kind": "Ref[dimension] or Ref[time_dimension]",
                     "got_kind": "str",
                 },
             )
@@ -191,7 +194,7 @@ def _normalize_where_boundary(
 
 def _normalize_drop_axes_boundary(
     session: Session,
-    drop_axes: list[AnalysisDimensionRef] | None,
+    drop_axes: list[Ref[FieldKind]] | None,
 ) -> list[str]:
     if drop_axes is None:
         return []
@@ -199,9 +202,9 @@ def _normalize_drop_axes_boundary(
         if isinstance(axis, str):
             raise TransformArgError(
                 message="transform rollup(drop_axes=...) requires catalog dimension refs",
-                hint="Pass drop_axes=[session.catalog.get('dimension.sales.orders.country').ref].",
+                hint="Pass drop_axes=[session.catalog.require(ms.Ref.dimension('sales.orders.country')).ref].",
                 context={
-                    "expected_kind": "DimensionRef or TimeDimensionRef",
+                    "expected_kind": "Ref[dimension] or Ref[time_dimension]",
                     "got_kind": "str",
                 },
             )
@@ -235,7 +238,7 @@ def transform_filter[TTransformFrame: TransformFrame](
 def transform_slice[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    slice_by: Mapping[AnalysisDimensionRef, SliceValue],
+    slice_by: Mapping[Ref[FieldKind], SliceValue],
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     session, prepared = _prepare_transform(frame)
@@ -258,7 +261,7 @@ def transform_slice[TTransformFrame: TransformFrame](
 def transform_rollup[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    drop_axes: list[AnalysisDimensionRef] | None = None,
+    drop_axes: list[Ref[FieldKind]] | None = None,
     grain: str | None = None,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
@@ -418,10 +421,10 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 
 def _normalize_param_value(value: Any) -> Any:
-    if isinstance(value, CatalogObject):
-        return {"ref": value.ref.id, "kind": str(value.ref.kind)}
-    if isinstance(value, SemanticRef):
-        return {"ref": value.id, "kind": str(value.kind)}
+    if isinstance(value, CatalogEntry):
+        return RefPayloadV1.from_ref(value.ref).to_dict()
+    if type(value) is Ref:
+        return RefPayloadV1.from_ref(value).to_dict()
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if isinstance(value, (datetime, date)):
@@ -480,10 +483,10 @@ def _contains_callable(value: object) -> bool:
 def _axis_names(value: Any) -> set[str]:
     if value is None:
         return set()
-    if isinstance(value, CatalogObject):
-        return {value.ref.id}
-    if isinstance(value, SemanticRef):
-        return {value.id}
+    if isinstance(value, CatalogEntry):
+        return {value.ref.path}
+    if type(value) is Ref:
+        return {value.path}
     if isinstance(value, str):
         return {value}
     if isinstance(value, (list, tuple, set)):
@@ -494,8 +497,8 @@ def _axis_names(value: Any) -> set[str]:
     return set()
 
 
-def _dimension_input_id(value: AnalysisDimensionRef) -> str:
-    return value.id
+def _dimension_input_id(value: Ref[FieldKind]) -> str:
+    return value.path
 
 
 def _axis_matches(axis_id: str, axis_meta: Any, requested: str) -> bool:
@@ -578,6 +581,35 @@ def _axis_columns_by_id(axes: dict[str, Any]) -> dict[str, str]:
     return columns
 
 
+def _axis_bindings_for_axes(
+    bindings: tuple[AxisBindingV1, ...], axes: dict[str, Any]
+) -> tuple[AxisBindingV1, ...]:
+    """Re-cut structured axis bindings after a shape-changing transform."""
+    axes_by_ref = {
+        axis.get("ref"): axis
+        for axis in axes.values()
+        if isinstance(axis, dict) and isinstance(axis.get("ref"), str)
+    }
+    result: list[AxisBindingV1] = []
+    for binding in bindings:
+        axis = axes_by_ref.get(binding.ref.path)
+        if not isinstance(axis, dict):
+            continue
+        column = axis.get("column")
+        if not isinstance(column, str) or not column:
+            continue
+        grain = axis.get("grain")
+        result.append(
+            AxisBindingV1(
+                ref=binding.ref,
+                column=column,
+                role=binding.role,
+                grain=grain if isinstance(grain, str) and grain else None,
+            )
+        )
+    return tuple(result)
+
+
 def _axis_columns_by_role(frame: TransformFrame, df: pd.DataFrame, role: str) -> list[str]:
     columns: list[str] = []
     for axis in _frame_axes(frame).values():
@@ -593,14 +625,17 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     if not isinstance(drop_axes, list) or not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
             context={"op": "rollup", "argument": "drop_axes"},
         )
 
     axes = _frame_axes(frame)
     drop_ids: set[str] = set()
     for item in drop_axes:
-        if isinstance(item, DimensionRef | TimeDimensionRef):
+        if type(item) is Ref and item.kind in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }:
             dimension_id = _dimension_input_id(item)
             axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
             if axis_id is None:
@@ -623,7 +658,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
             continue
         raise TransformArgError(
             message="transform(op='rollup') drop_axes items must be catalog dimension refs or str",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
             context={
                 "op": "rollup",
                 "argument": "drop_axes",
@@ -1311,7 +1346,10 @@ def _op_normalize(
 def _resolve_slice_column(
     frame: TransformFrame, df: pd.DataFrame, key: Any
 ) -> tuple[str, str | None]:
-    if isinstance(key, DimensionRef | TimeDimensionRef):
+    if type(key) is Ref and key.kind in {
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+    }:
         axes = _frame_axes(frame)
         dimension_id = _dimension_input_id(key)
         axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
@@ -1374,7 +1412,7 @@ def _resolve_slice_column(
     raise TransformArgError(
         message="transform(op='slice') slice_by keys must be catalog dimension refs or str",
         hint=(
-            'Use slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
+            'Use slice_by={session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref: "US"} '
             "or slice_by={'value': (10, 20)}."
         ),
         context={"op": "slice", "actual_key_type": type(key).__name__},
@@ -1608,7 +1646,7 @@ def _op_rollup(
     if not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint='Pass drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
+            hint='Pass drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
             context={"op": "rollup", "argument": "drop_axes"},
         )
     drop_ids = _normalize_rollup_drop_axes(frame, drop_axes)
@@ -1905,7 +1943,7 @@ def _op_slice(
     if not where:
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty slice_by dict",
-            hint='Pass slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"}.',
+            hint='Pass slice_by={session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref: "US"}.',
             context={"op": "slice", "argument": "slice_by"},
         )
 
@@ -2034,6 +2072,16 @@ def _persist_transform_frame(
         external_inputs=list(parent.lineage.external_inputs),
     )
     meta_payload = parent.meta.model_dump()
+    if isinstance(parent, MetricFrame):
+        meta_payload.update(
+            {
+                "metric_id": parent.meta.metric_id,
+                "axes": copy.deepcopy(parent.meta.axes),
+                "where": copy.deepcopy(parent.meta.where),
+                "semantic_model": parent.meta.semantic_model,
+                "status_time_dimension": parent.meta.status_time_dimension,
+            }
+        )
     meta_payload.update(
         {
             "ref": frame_ref,
@@ -2057,6 +2105,20 @@ def _persist_transform_frame(
         meta_payload["semantic_kind"] = semantic_kind
     if where_scope is not None and isinstance(parent, MetricFrame):
         meta_payload["where"] = where_scope
+        registry = session.catalog._require_index().registry
+        predicates: list[SlicePredicateV1] = []
+        for path, value in sorted(where_scope.items()):
+            dimension = registry.dimensions.get(path)
+            if dimension is None:
+                continue
+            ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+            predicates.append(
+                SlicePredicateV1(
+                    dimension_ref=RefPayloadV1.from_ref(ref),
+                    value=value,
+                )
+            )
+        meta_payload["slice_predicates"] = tuple(predicates)
     if alignment is not None and isinstance(parent, DeltaFrame):
         meta_payload["alignment"] = alignment
     if normalization is not None:
@@ -2065,6 +2127,10 @@ def _persist_transform_frame(
         meta_payload["window"] = window
     if axes is not None and isinstance(parent, MetricFrame):
         meta_payload["axes"] = axes
+        meta_payload["axis_bindings"] = _axis_bindings_for_axes(
+            parent.meta.axis_bindings,
+            axes,
+        )
     elif axes is not None and isinstance(parent, DeltaFrame):
         alignment_payload = copy.deepcopy(meta_payload["alignment"])
         alignment_payload["axes"] = axes
@@ -2113,8 +2179,13 @@ def _persist_transform_frame(
                 }
             )
             global_slice = tuple(
-                (str(key), fingerprint(value))
-                for key, value in sorted(cast("dict[str, Any]", meta_payload["where"]).items())
+                CanonicalSliceEntryV1(
+                    dimension_ref=predicate.dimension_ref,
+                    value=fingerprint(predicate.value),
+                )
+                for predicate in cast(
+                    "tuple[SlicePredicateV1, ...]", meta_payload["slice_predicates"]
+                )
             )
             comparable_payload = {
                 "expression_fingerprint": comparable.expression_fingerprint,
@@ -2154,10 +2225,8 @@ def _persist_transform_frame(
                 step_type="transform",
                 inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
                 params=CommitParams(values=normalized_params),
-                semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_meta.metric_id}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(frame),
                 subject=Subject(
-                    metric=metric_meta.metric_id,
-                    slice=metric_meta.where,
                     grain=grain,
                     analysis_axis=_analysis_axis_for_metric_kind(metric_meta.semantic_kind),
                 ),
@@ -2177,8 +2246,8 @@ def _persist_transform_frame(
                 step_type="transform",
                 inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
                 params=CommitParams(values=normalized_params),
-                semantic_anchors=CommitSemanticAnchors(values={"metric_id": delta_meta.metric_id}),
-                subject=Subject(metric=delta_meta.metric_id, analysis_axis="change"),
+                semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+                subject=Subject(analysis_axis="change"),
                 extractor_family="delta_frame",
             ),
         )
@@ -2190,6 +2259,7 @@ def _persist_transform_frame(
             "id": job_ref,
             "session_id": session.id,
             "intent": "transform",
+            **job_semantics_from_frames(frame),
             "analysis_purpose": analysis_purpose,
             "params": normalized_params,
             "input_frame_refs": source_refs,
@@ -2200,7 +2270,6 @@ def _persist_transform_frame(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "semantic_model": parent.meta.semantic_model,
         },
     )
     return frame

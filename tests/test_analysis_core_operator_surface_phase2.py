@@ -5,6 +5,7 @@ from __future__ import annotations
 import marivo.analysis as mv
 import marivo.analysis.intents as intents
 import marivo.analysis.session as session_attach
+from tests.shared_fixtures import make_test_delta_contract
 
 
 def test_intents_export_hypothesis_test_not_test_alias() -> None:
@@ -94,6 +95,7 @@ def test_delta_affordance_uses_attribute_not_decompose(tmp_path, monkeypatch) ->
     delta = DeltaFrame(
         _df=pd.DataFrame({"region": ["US"], "delta": [1.0]}),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             kind="delta_frame",
             ref="frame_delta",
             session_id=session.id,

@@ -10,15 +10,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo.refs import RefPayloadV1, SemanticKind
+from marivo.semantic._expression_binding import ExpressionBindingV1
 from marivo.semantic.ir import AggKind, AggregateFoldInput
 
 MAX_EXPRESSION_DEPTH = 10
 MAX_EXPRESSION_OCCURRENCES = 256
 
 type CanonicalScalar = str | int | float | bool | None
-type CanonicalValue = CanonicalScalar | tuple[CanonicalValue, ...]
+type CanonicalValue = CanonicalScalar | RefPayloadV1 | tuple[CanonicalValue, ...]
 type CanonicalField = tuple[str, CanonicalValue]
-type CanonicalSlice = tuple[tuple[str, CanonicalValue], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalSliceEntryV1:
+    """One persisted slice value keyed by an exact semantic field ref."""
+
+    dimension_ref: RefPayloadV1
+    value: CanonicalValue
+
+    def __post_init__(self) -> None:
+        if type(self.dimension_ref) is not RefPayloadV1:
+            raise TypeError("slice dimension_ref must be an exact RefPayloadV1")
+        if self.dimension_ref.kind not in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }:
+            raise ValueError("slice dimension_ref must identify a dimension or time_dimension")
+
+
+type CanonicalSlice = tuple[CanonicalSliceEntryV1, ...]
 type CumulativeAnchorV1 = (
     Literal["all_history"]
     | tuple[Literal["grain_to_date"], str]
@@ -26,38 +47,65 @@ type CumulativeAnchorV1 = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SemanticDependencyEntryV1:
     """Value-relevant projection of one resolved semantic dependency."""
 
-    semantic_kind: str
-    semantic_id: str
+    ref: RefPayloadV1
     body_digest: str | None
     fields: tuple[CanonicalField, ...] = ()
+    bindings: tuple[ExpressionBindingV1, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not RefPayloadV1:
+            raise TypeError("semantic dependency entry ref must be an exact RefPayloadV1")
+        if self.body_digest is not None and (
+            type(self.body_digest) is not str or not self.body_digest
+        ):
+            raise ValueError("semantic dependency body_digest must be non-empty when provided")
+        if type(self.fields) is not tuple:
+            raise TypeError("semantic dependency fields must be a tuple")
+        if type(self.bindings) is not tuple or any(
+            type(binding) is not ExpressionBindingV1 for binding in self.bindings
+        ):
+            raise TypeError("semantic dependency bindings must contain ExpressionBindingV1 values")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SemanticDependencyDigestV1:
     """Canonical dependency closure used to validate cache and replay state."""
 
-    schema: Literal["semantic-dependency/v1"]
+    schema: Literal["marivo.semantic_dependency_digest/v1"]
     entries: tuple[SemanticDependencyEntryV1, ...]
-    fingerprint: str
+    digest: str
+
+    def __post_init__(self) -> None:
+        if self.schema != "marivo.semantic_dependency_digest/v1":
+            raise ValueError(
+                "semantic dependency digest schema must be 'marivo.semantic_dependency_digest/v1'"
+            )
+        if type(self.entries) is not tuple or any(
+            type(entry) is not SemanticDependencyEntryV1 for entry in self.entries
+        ):
+            raise TypeError(
+                "semantic dependency digest entries must contain SemanticDependencyEntryV1 values"
+            )
+        if type(self.digest) is not str or not self.digest.startswith("sha256:"):
+            raise ValueError("semantic dependency digest must use the sha256: prefix")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CatalogBodyLeafV1:
     kind: Literal["catalog_body_leaf"]
-    metric_id: str
+    metric_ref: RefPayloadV1
     dependency_fingerprint: str
     unit_override: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AggregateNodeV1:
     kind: Literal["aggregate"]
-    target_id: str
-    target_kind: Literal["measure", "entity"]
+    target_ref: RefPayloadV1
     dependency_fingerprint: str
     agg: AggKind
     fold: AggregateFoldInput
@@ -65,29 +113,29 @@ class AggregateNodeV1:
     unit_override: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SliceNodeV1:
     kind: Literal["slice"]
     child_id: str
     predicates: CanonicalSlice
-    predicate_dependencies: tuple[tuple[str, str], ...]
+    predicate_dependencies: tuple[tuple[RefPayloadV1, str], ...]
 
     def __post_init__(self) -> None:
-        predicate_keys = tuple(key for key, _ in self.predicates)
+        predicate_keys = tuple(item.dimension_ref for item in self.predicates)
         dependency_keys = tuple(key for key, _ in self.predicate_dependencies)
-        if predicate_keys != tuple(sorted(set(predicate_keys))):
-            raise ValueError("SliceNodeV1 predicates must have unique sorted dimension ids")
+        if predicate_keys != tuple(sorted(set(predicate_keys), key=lambda item: item.path)):
+            raise ValueError("SliceNodeV1 predicates must have unique sorted dimension refs")
         if dependency_keys != predicate_keys:
             raise ValueError(
-                "SliceNodeV1 predicate dependencies must align with predicate dimension ids"
+                "SliceNodeV1 predicate dependencies must align with predicate dimension refs"
             )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CumulativeNodeV1:
     kind: Literal["cumulative"]
     child_id: str
-    over: str | None
+    time_dimension_ref: RefPayloadV1 | None
     anchor: CumulativeAnchorV1
     dependency_fingerprint: str
     unit_override: str | None = None
@@ -180,10 +228,10 @@ class SliceCanonicalizationV1:
     occurrence_path_map: tuple[tuple[str, str], ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CatalogMetricIdentity:
     kind: Literal["catalog"]
-    metric_id: str
+    metric_ref: RefPayloadV1
 
 
 @dataclass(frozen=True)
@@ -201,9 +249,13 @@ class DatasourceCompatibilityDomainV1:
     """Exact resolved source identity required for cache/replay compatibility."""
 
     schema: Literal["datasource-compatibility/v1"]
-    datasource_id: str
+    datasource_ref: RefPayloadV1
     backend_type: str
     profile_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.datasource_ref.kind is not SemanticKind.DATASOURCE:
+            raise ValueError("datasource compatibility domain requires a datasource ref")
 
 
 @dataclass(frozen=True)
@@ -225,7 +277,7 @@ class ComparableValueSemanticsV1:
     schema: Literal["comparable-value-semantics/v1"]
     expression_fingerprint: str
     evaluator_contracts: tuple[str, ...]
-    global_slice: tuple[tuple[str, CanonicalValue], ...]
+    global_slice: CanonicalSlice
     key_schema_fingerprint: str
     unit: str | None
     fold: CanonicalValue
@@ -259,11 +311,11 @@ class DeltaComparisonIdentityV1:
     alignment_policy_fingerprint: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CatalogMetricSubjectV1:
     kind: Literal["catalog_metric"]
     session_id: str
-    metric_id: str
+    metric_ref: RefPayloadV1
     artifact_id: str
     scope_fingerprint: str
 
@@ -310,6 +362,7 @@ __all__ = [
     "MAX_EXPRESSION_DEPTH",
     "MAX_EXPRESSION_OCCURRENCES",
     "AggregateNodeV1",
+    "CanonicalSliceEntryV1",
     "CatalogBodyLeafV1",
     "CatalogMetricIdentity",
     "CatalogMetricSubjectV1",

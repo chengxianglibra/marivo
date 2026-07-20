@@ -16,7 +16,7 @@ constructor text alone. Disclose, at the level material to the conclusion:
 - derived unit/additivity/fold limitations, key-alignment coverage, and any
   partial or unavailable quality/component state;
 - that presentation labels are non-authoritative and the computation has not
-  acquired a catalog `MetricRef`, owner, readiness status, or durable business
+  acquired a catalog `Ref[metric]`, owner, readiness status, or durable business
   definition;
 - the owning analysis session/artifact scope. Do not generalize the runtime
   caliber beyond that scope without an approved semantic-authoring handoff.

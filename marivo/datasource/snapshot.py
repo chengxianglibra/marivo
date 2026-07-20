@@ -23,13 +23,14 @@ from marivo.datasource._capabilities.contracts import (
     contract_for_snapshot,
     repair_for_authoring_code,
 )
-from marivo.datasource.authoring import DatasourceRef, _storage_name
+from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
 from marivo.preview import normalize_preview_cell
+from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ class DiscoverySnapshot(RenderableResult):
     """
 
     id: str
-    datasource: DatasourceRef
+    datasource: Ref[DatasourceKind]
     source: TableSource
     scope: AuthoringScope
     columns: tuple[str, ...]
@@ -116,7 +117,7 @@ class DiscoverySnapshot(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"DiscoverySnapshot id={self.id} datasource={self.datasource.id} "
+            f"DiscoverySnapshot id={self.id} datasource={self.datasource.path} "
             f"columns={len(self.columns)} rows={self.coverage.retained_row_count}"
         )
 
@@ -161,7 +162,7 @@ class DiscoverySnapshot(RenderableResult):
     def contract(self) -> AuthoringContract:
         """Return the explicit-scope and acquired-evidence states this snapshot proves."""
         return contract_for_snapshot(
-            datasource_id=self.datasource.id,
+            datasource_id=self.datasource.path,
             source=self.source,
             snapshot_id=self.id,
         )

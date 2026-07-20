@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from marivo.analysis._cumulative import cumulative_compare_anchor
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
@@ -69,6 +70,7 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
+from marivo.refs import Ref, RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     DeltaComparisonIdentityV1,
@@ -237,14 +239,9 @@ def _require_compatible_components(
                 "baseline_axes": baseline_comp.meta.axes,
             },
         )
-    if current_comp.meta.semantic_model != baseline_comp.meta.semantic_model:
-        raise ComponentFrameMismatchError(
-            message="compare inputs have incompatible component semantic models",
-            context={
-                "current_semantic_model": current_comp.meta.semantic_model,
-                "baseline_semantic_model": baseline_comp.meta.semantic_model,
-            },
-        )
+    # ``semantic_model`` is a derived display projection and is deliberately
+    # empty for runtime-expression identities. Structured graph identities,
+    # component roles, axes, and compatibility domains above own comparability.
 
 
 def _component_axis_columns(component: ComponentFrame) -> list[str]:
@@ -641,13 +638,12 @@ def _build_delta_component_frame(
         lineage=Lineage(),
         parent_ref=parent_ref,
         parent_kind="delta_frame",
-        metric_id=source_component.meta.metric_id,
+        metric_identity=source_component.meta.metric_identity,
+        component_bindings=source_component.meta.component_bindings,
+        axis_bindings=source_component.meta.axis_bindings,
         composition_kind=source_component.meta.composition_kind,
-        components=source_component.meta.components,
         linear_terms=source_component.meta.linear_terms,
-        axes=source_component.meta.axes,
         semantic_kind=source_component.meta.semantic_kind,
-        semantic_model=source_component.meta.semantic_model,
     )
     return ComponentFrame(_df=df, meta=meta)
 
@@ -893,13 +889,19 @@ def compare(
         "alignment": alignment_dump,
         "additivity": additivity,
         "aggregation": aggregation,
-        "status_time_dimension": status_time_dimension,
+        "status_time_dimension_ref": (
+            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension)).to_dict()
+            if status_time_dimension is not None
+            else None
+        ),
     }
+    assert current.meta.metric_id is not None
+    assert baseline.meta.metric_id is not None
     current_identity = current.meta.metric_identity or CatalogMetricIdentity(
-        kind="catalog", metric_id=current.meta.metric_id
+        kind="catalog", metric_ref=RefPayloadV1.from_ref(Ref.metric(current.meta.metric_id))
     )
     baseline_identity = baseline.meta.metric_identity or CatalogMetricIdentity(
-        kind="catalog", metric_id=baseline.meta.metric_id
+        kind="catalog", metric_ref=RefPayloadV1.from_ref(Ref.metric(baseline.meta.metric_id))
     )
     current_comparable = current.meta.comparable_value_semantics
     baseline_comparable = baseline.meta.comparable_value_semantics
@@ -917,15 +919,20 @@ def compare(
         alignment_policy_fingerprint=fingerprint(alignment_dump),
     )
     params["comparison_identity"] = canonical_value(comparison_identity)
+    compare_anchors = CommitSemanticAnchors(
+        catalog_definition_fingerprint=current.meta.catalog_definition_fingerprint,
+        metric_identities=(current_identity,),
+        comparison_identity=comparison_identity,
+        axis_refs=tuple(binding.ref for binding in current.meta.axis_bindings),
+        slice_predicates=current.meta.slice_predicates,
+    )
 
     # Check cache before constructing the frame and committing.
     prospective_id = compute_prospective_artifact_id(
         step_type="compare",
         inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
         params=CommitParams(values=params),
-        semantic_anchors=CommitSemanticAnchors(
-            values={"metric_id": current.meta.metric_id, "model": current.meta.semantic_model}
-        ),
+        semantic_anchors=compare_anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         return cast("DeltaFrame", load_frame(prospective_id, session=session))
@@ -950,8 +957,25 @@ def compare(
         )
 
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
+    assert current.meta.catalog_definition_fingerprint is not None
     meta = DeltaFrameMeta(
         kind="delta_frame",
+        catalog_definition_fingerprint=current.meta.catalog_definition_fingerprint,
+        source_dependency_digests=tuple(
+            digest
+            for digest in (
+                current.meta.semantic_dependency_digest,
+                baseline.meta.semantic_dependency_digest,
+            )
+            if digest is not None
+        ),
+        axis_bindings=current.meta.axis_bindings,
+        slice_predicates=current.meta.slice_predicates,
+        status_time_dimension_ref=(
+            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension))
+            if status_time_dimension is not None
+            else None
+        ),
         ref=frame_ref,
         session_id=session.id,
         project_root=str(session.project_root),
@@ -971,7 +995,6 @@ def compare(
                 analysis_purpose=analysis_purpose,
             ),
         ),
-        metric_id=current.meta.metric_id,
         metric_identity=current_identity,
         baseline_metric_identity=baseline_identity,
         comparison_identity=comparison_identity,
@@ -979,14 +1002,12 @@ def compare(
         source_baseline_ref=baseline.ref,
         alignment=alignment_dump,
         semantic_kind=current.meta.semantic_kind,
-        semantic_model=current.meta.semantic_model,
         unit=current.meta.unit,
         composition=current.meta.composition if current_component is not None else None,
         fold=getattr(current.meta, "fold", None),
         component_folds=_component_fold_payload(current, session=session),
         additivity=additivity,
         aggregation=aggregation,
-        status_time_dimension=status_time_dimension,
         cumulative=cur_cumulative,
         component_ref=delta_component.ref if delta_component is not None else None,
     )
@@ -994,8 +1015,6 @@ def compare(
 
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
     subject = Subject(
-        metric=current.meta.metric_id,
-        slice=getattr(current.meta, "slice", None) or {},
         grain=_grain_from_axes(current),
         analysis_axis="change",
     )
@@ -1009,12 +1028,7 @@ def compare(
             step_type="compare",
             inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(
-                values={
-                    "metric_id": current.meta.metric_id,
-                    "model": current.meta.semantic_model,
-                }
-            ),
+            semantic_anchors=compare_anchors,
             subject=subject,
             extractor_family="delta_frame",
             comparison_window=comparison_window_dict,
@@ -1032,6 +1046,7 @@ def compare(
                 "id": job_ref,
                 "session_id": session.id,
                 "intent": "compare",
+                **job_semantics_from_frames(output_frame),
                 "analysis_purpose": analysis_purpose,
                 "params": params,
                 "input_frame_refs": [current.ref, baseline.ref],
@@ -1042,7 +1057,6 @@ def compare(
                 "status": "succeeded",
                 "error": None,
                 "semantic_project_root": str(session.catalog._project.semantic_root),
-                "semantic_model": current.meta.semantic_model,
             },
         )
     except BaseException:

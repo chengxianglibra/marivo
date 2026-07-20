@@ -8,6 +8,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.refs import Ref, TimeDimensionKind
 from marivo.semantic.authoring import (
     CumulativeComposition,
     GrainToDate,
@@ -17,7 +18,6 @@ from marivo.semantic.authoring import (
 from marivo.semantic.errors import SemanticDecoratorError
 from marivo.semantic.ir import MetricIR
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
-from marivo.semantic.refs import EntityRef, TimeDimensionRef
 
 
 @contextmanager
@@ -32,17 +32,20 @@ def _session(domain: str = "sales"):
 
 
 def _pending_metric(ctx: LoaderContext, semantic_id: str) -> MetricIR:
-    for ir_obj, _ in ctx.pending_objects:
-        if isinstance(ir_obj, MetricIR) and ir_obj.semantic_id == semantic_id:
-            return ir_obj
+    for pending in ctx.pending_definitions:
+        if (
+            isinstance(pending.definition, MetricIR)
+            and pending.definition.semantic_id == semantic_id
+        ):
+            return pending.definition
     raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
 
 
-def _build_event_time_axis() -> TimeDimensionRef:
+def _build_event_time_axis() -> Ref[TimeDimensionKind]:
     """Declare a minimal events entity + event_time time dimension, return the ref."""
     events = ms.entity(
         name="events",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("events"),
     )
 
@@ -50,12 +53,12 @@ def _build_event_time_axis() -> TimeDimensionRef:
     def event_time(table: Any) -> Any:
         return table["event_time"]
 
-    return event_time  # type: ignore[return-value]
+    return event_time
 
 
 def _measure(name: str, entity: str, *, additivity: str = "additive"):
     return ms.measure_column(
-        entity=EntityRef(entity), name=name, column=name, additivity=additivity
+        entity=ms.Ref.entity(entity), name=name, column=name, additivity=additivity
     )
 
 
@@ -250,7 +253,7 @@ _CUMULATIVE_PROJECT = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="created_at", granularity="day")

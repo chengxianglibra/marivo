@@ -7,7 +7,9 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
+from marivo.analysis._semantic_persistence import AxisBindingV1, ComponentBindingV1
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.semantic.metric_graph import CatalogMetricIdentity, MetricIdentity
 
 
 def resolve_role_column_name(components: dict[str, str | Any], role: str) -> str:
@@ -16,10 +18,10 @@ def resolve_role_column_name(components: dict[str, str | Any], role: str) -> str
     Uses the component metric's short name (part after the last dot). Falls
     back to the role name when two components share the same short name.
     """
-    from marivo.refs import SemanticRef
+    from marivo.refs import Ref
 
     def _to_id(v: str | Any) -> str:
-        return v.id if isinstance(v, SemanticRef) else str(v)
+        return v.path if type(v) is Ref else str(v)
 
     short_name: str = _to_id(components[role]).rsplit(".", 1)[-1]
     short_names: list[str] = [_to_id(mid).rsplit(".", 1)[-1] for mid in components.values()]
@@ -39,19 +41,80 @@ class ComponentFrameMeta(BaseFrameMeta):
     kind: Literal["component_frame"] = "component_frame"
     parent_ref: str
     parent_kind: Literal["metric_frame", "delta_frame"]
-    metric_id: str | None
+    metric_identity: MetricIdentity
+    component_bindings: tuple[ComponentBindingV1, ...] = ()
+    axis_bindings: tuple[AxisBindingV1, ...] = ()
+    metric_id: str | None = Field(default=None, exclude=True)
     composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None
-    components: dict[str, str] = Field(default_factory=dict)
+    components: dict[str, str] = Field(default_factory=dict, exclude=True)
     linear_terms: tuple[tuple[str, str], ...] = ()
-    axes: dict[str, Any]
+    axes: dict[str, Any] = Field(default_factory=dict, exclude=True)
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
-    semantic_model: str
+    semantic_model: str = Field(default="", exclude=True)
     component_graph_schema: Literal["metric-component-graph/v1"] = "metric-component-graph/v1"
     root_node_ids: tuple[str, ...] = ()
     component_graph: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _validate_component_graph(self) -> ComponentFrameMeta:
+        if isinstance(self.metric_identity, CatalogMetricIdentity):
+            derived_metric_id = self.metric_identity.metric_ref.path
+        else:
+            derived_metric_id = f"runtime:{self.metric_identity.expression_fingerprint}"
+        if self.metric_id is not None and self.metric_id != derived_metric_id:
+            raise ValueError("component metric_id display does not match metric_identity")
+        self.metric_id = derived_metric_id
+
+        derived_components = {
+            binding.role: (
+                binding.metric_identity.metric_ref.path
+                if isinstance(binding.metric_identity, CatalogMetricIdentity)
+                else (
+                    f"runtime:{binding.metric_identity.expression_fingerprint}"
+                    if binding.metric_identity is not None
+                    else binding.column
+                )
+            )
+            for binding in self.component_bindings
+        }
+        if self.components and self.components != derived_components:
+            raise ValueError("component display map does not match component_bindings")
+        self.components = derived_components
+
+        derived_axes: dict[str, Any] = {}
+        for binding in self.axis_bindings:
+            key = (
+                "time" if binding.role == "time_dimension" else binding.ref.path.rsplit(".", 1)[-1]
+            )
+            axis: dict[str, Any] = {
+                "role": "time" if binding.role == "time_dimension" else "dimension",
+                "column": binding.column,
+                "ref": binding.ref.path,
+            }
+            if binding.grain is not None:
+                axis["grain"] = binding.grain
+            if binding.role == "time_dimension":
+                axis["time_dimension"] = binding.ref.path.rsplit(".", 1)[-1]
+            derived_axes[key] = axis
+        if self.axes and self.axes != derived_axes:
+            raise ValueError("component axes display does not match axis_bindings")
+        self.axes = derived_axes
+
+        catalog_paths = [
+            self.metric_identity.metric_ref.path
+            if isinstance(self.metric_identity, CatalogMetricIdentity)
+            else ""
+        ] + [
+            binding.metric_identity.metric_ref.path
+            for binding in self.component_bindings
+            if isinstance(binding.metric_identity, CatalogMetricIdentity)
+        ]
+        domains = {path.split(".", 1)[0] for path in catalog_paths if "." in path}
+        derived_model = next(iter(domains)) if len(domains) == 1 else ""
+        if self.semantic_model and derived_model and self.semantic_model != derived_model:
+            raise ValueError("component semantic_model display does not match structured refs")
+        self.semantic_model = derived_model
+
         graph = self.component_graph
         if graph is None:
             return self

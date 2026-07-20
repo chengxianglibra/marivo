@@ -7,6 +7,11 @@ import pytest
 
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.refs import Ref
+from tests.shared_fixtures import (
+    make_test_metric_meta_contract,
+    make_test_multi_metric_contract,
+)
 
 
 def _lineage() -> Lineage:
@@ -46,6 +51,7 @@ def _meta_kwargs() -> dict:
 
 def make_single_frame() -> MetricFrame:
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         metric_id="sales.revenue",
         measure={"name": "revenue"},
         unit="usd",
@@ -59,6 +65,7 @@ def make_single_frame() -> MetricFrame:
 
 def make_multi_frame() -> MetricFrame:
     meta = MetricFrameMeta(
+        **make_test_multi_metric_contract("sales.revenue", "sales.order_count"),
         metric_id=None,
         measure={},
         measures=[
@@ -136,6 +143,7 @@ def test_single_frame_repr_unchanged():
 def test_legacy_meta_without_measures_field_loads():
     # Legacy persisted frames have metric_id set and no measures key.
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         metric_id="sales.revenue",
         measure={"name": "revenue"},
         **_meta_kwargs(),
@@ -206,8 +214,8 @@ def _fused(sales_session):
     catalog = sales_session.catalog
     return observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(Ref.metric("sales.revenue")).ref,
+            catalog.require(Ref.metric("sales.order_count")).ref,
         ],
         time_scope=_PROJECTION_WINDOW,
         grain="day",
@@ -227,15 +235,22 @@ def test_projection_returns_arity_1_frame(sales_session):
     assert list(revenue.columns) == ["bucket_start", "value"]
     assert revenue.meta.lineage.steps[-1].intent == "select_metric"
     assert revenue.meta.lineage.steps[-1].params == {
-        "metric": "sales.revenue",
-        "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
+        "replay_expression": {
+            "schema": "marivo.runtime_metric_expr/v1",
+            "kind": "metric_ref",
+            "metric_ref": {
+                "schema": "marivo.semantic_ref/v1",
+                "kind": "metric",
+                "path": "sales.revenue",
+            },
+        },
     }
 
 
 def test_projection_on_arity_1_returns_self(sales_session):
     catalog = sales_session.catalog
     single = observe(
-        catalog.get("metric.sales.revenue").ref,
+        catalog.require(Ref.metric("sales.revenue")).ref,
         time_scope=_PROJECTION_WINDOW,
         grain="day",
         session=sales_session,

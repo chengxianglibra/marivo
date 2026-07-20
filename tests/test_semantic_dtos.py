@@ -297,7 +297,7 @@ def test_verify_result_render_shows_issue_details() -> None:
             "issues:",
             "- [blocker] project_load_failed: Cannot verify 'trino_query': project failed to load.",
             "Next step:",
-            "- repair this object, then re-run catalog.verify_object(ref)",
+            "- repair this object, then re-run catalog.verify(ref)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -416,4 +416,4 @@ def test_verify_result_failed_render_has_repair_next_step() -> None:
     text = result.render()
     assert "Next step" in text
     assert "repair" in text.lower()
-    assert "catalog.verify_object(" in text
+    assert "catalog.verify(" in text

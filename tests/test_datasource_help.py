@@ -48,7 +48,7 @@ def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...
     for needle in needles:
         assert needle in text
     assert _DATASOURCE_IMPORT in text
-    assert _SEMANTIC_IMPORT not in text
+    assert (_SEMANTIC_IMPORT in text) == (target in {"inspect", "raw_sql"})
     assert text.count("\n") + 1 <= SURFACE_LIMITS.focused_help_max_lines
     assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
 

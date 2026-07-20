@@ -10,13 +10,11 @@ from pydantic import ValidationError
 
 from marivo.analysis.errors import FrameMutationError
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     ArtifactDigest,
     EvidenceAvailabilityIssue,
     OmissionSummary,
     OperatorSemantics,
     RawFallback,
-    Subject,
 )
 from marivo.analysis.frames._content_hash import stable_meta_payload
 from marivo.analysis.frames.base import (
@@ -28,6 +26,11 @@ from marivo.analysis.frames.base import (
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import (
+    make_test_analysis_scope,
+    make_test_metric_meta_contract,
+    make_test_subject,
+)
 
 
 def _meta(**overrides) -> BaseFrameMeta:
@@ -55,8 +58,8 @@ def _digest(ref: str = "frame_abc") -> ArtifactDigest:
             artifact_family="metric_frame",
             semantic_shape="scalar",
         ),
-        subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
-        scope=AnalysisScope(metric_ids=("sales.revenue",)),
+        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
+        scope=make_test_analysis_scope("sales.revenue"),
         omissions=OmissionSummary(
             retained_items=0,
             omitted_items=0,
@@ -75,6 +78,7 @@ def _metric_frame() -> MetricFrame:
     return MetricFrame(
         _df=pd.DataFrame({"value": [1.0]}),
         meta=MetricFrameMeta(
+            **make_test_metric_meta_contract("sales.revenue"),
             ref="metric_1",
             session_id="sess_1",
             project_root="/tmp/project",

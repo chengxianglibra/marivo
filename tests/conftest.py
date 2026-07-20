@@ -98,7 +98,7 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         f"md.duckdb(name='warehouse_replica', path={str(replica_path)!r})\n"
     )
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
+    semantic_dir.mkdir(parents=True, exist_ok=True)
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
     )
@@ -107,7 +107,7 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "import marivo.semantic as ms\n\n"
         "orders = ms.entity(\n"
         "    name='orders',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    source=md.table('orders'),\n"
         "    primary_key=['query_id'],\n"
         "    ai_context=ms.ai_context(\n"
@@ -168,15 +168,17 @@ def semantic_project_factory(tmp_path):
             full.write_text(src)
 
         declared_datasources: set[str] = set()
+        datasource_ref_pattern = re.compile(
+            r"(?:"
+            r"datasource\s*=\s*(?:ms\.)?Ref\.datasource\("
+            r"|(?:ms\.)?Ref\.datasource\("
+            r"|datasource\s*=\s*"
+            r")(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)"
+        )
         for src in files.values():
-            for match in re.finditer(
-                r"(?:datasource=|md\.ref\()(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)",
-                src,
-            ):
+            for match in datasource_ref_pattern.finditer(src):
                 name = match.group("name")
-                if name.startswith("datasource."):
-                    declared_datasources.add(name.removeprefix("datasource."))
-                elif "." not in name:
+                if "." not in name:
                     declared_datasources.add(name)
         for datasource_name in declared_datasources:
             datasource_file = marivo_root / "datasources" / f"{datasource_name}.py"
@@ -202,7 +204,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     # Write project manifest for discovery
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
+    semantic_dir.mkdir(parents=True, exist_ok=True)
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
@@ -213,7 +215,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -223,14 +225,62 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
         f"{time_dimension}"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "def status_at(orders):\n"
+        "    return orders.status_at\n"
+        "\n"
         "@ms.dimension(entity=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def platform(orders):\n"
+        "    return orders.platform\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def bucket(orders):\n"
+        "    return orders.bucket\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def bucket_start(orders):\n"
+        "    return orders.bucket_start\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def department(orders):\n"
+        "    return orders.department\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def cluster(orders):\n"
+        "    return orders.cluster\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def category(orders):\n"
+        "    return orders.category\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def channel(orders):\n"
+        "    return orders.channel\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def country(orders):\n"
+        "    return orders.country\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def a(orders):\n"
+        "    return orders.a\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def b(orders):\n"
+        "    return orders.b\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def nonexistent(orders):\n"
+        "    return orders.nonexistent\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', "
         "name='revenue', )\n"

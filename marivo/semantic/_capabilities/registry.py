@@ -28,8 +28,17 @@ from marivo.semantic._capabilities.model import (
 
 INPUT_FAMILIES = frozenset(
     {
-        "SemanticRef",
-        "CatalogObject",
+        "Ref",
+        "Ref[domain]",
+        "Ref[datasource]",
+        "Ref[entity]",
+        "Ref[dimension]",
+        "Ref[time_dimension]",
+        "Ref[measure]",
+        "Ref[metric]",
+        "Ref[relationship]",
+        "Ref[dimension | time_dimension]",
+        "CatalogEntry",
         "SemanticCatalog",
         "DiscoverySnapshot",
         "HelpTarget",
@@ -42,7 +51,6 @@ INPUT_FAMILIES = frozenset(
         "RelationshipName",
         "ColumnName",
         "TableName",
-        "DatasourceRef",
         "SqlText",
         "SqlDialect",
         "AggFunc",
@@ -55,13 +63,6 @@ INPUT_FAMILIES = frozenset(
         "JoinKeySpec",
         "RelationshipEndpoint",
         "DemandSignal",
-        "DomainRef",
-        "EntityRef",
-        "DimensionRef",
-        "TimeDimensionRef",
-        "MeasureRef",
-        "MetricRef",
-        "RelationshipRef",
         "RelTol",
         "AbsTol",
         "ForceFlag",
@@ -89,21 +90,23 @@ INPUT_FAMILIES = frozenset(
 OUTPUT_FAMILIES = frozenset(
     {
         "SemanticCatalog",
-        "CatalogObject",
+        "CatalogEntry",
         "VerifyResult",
         "PreviewBatchResult",
-        "PreviewResult | PreviewBatchResult",
+        "PreviewResult",
         "ReadinessReport",
         "RichnessReport",
         "ParityResult",
-        "DomainRef",
-        "EntityRef",
-        "DimensionRef",
-        "TimeDimensionRef",
-        "MeasureRef",
-        "MetricRef",
-        "RelationshipRef",
-        "SemanticRef",
+        "Ref",
+        "Ref[domain]",
+        "Ref[datasource]",
+        "Ref[entity]",
+        "Ref[dimension]",
+        "Ref[time_dimension]",
+        "Ref[measure]",
+        "Ref[metric]",
+        "Ref[relationship]",
+        "Ref[dimension | time_dimension]",
         "JoinKey",
         "SqlProvenance",
         "AiContextValue",
@@ -232,7 +235,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             kind="transition",
             output=None,
             effects=_NONE,
-            see_also=(_target("load"), _target("verify_object"), _target("preview")),
+            see_also=(_target("load"), _target("verify"), _target("preview")),
         ),
         # ------------------------------------------------------------------
         # author_families
@@ -241,7 +244,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "domain",
             "marivo.semantic._authoring_declarations.domain",
             "Declare a semantic domain namespace.",
-            output="DomainRef",
+            output="Ref[domain]",
             inputs=_inputs(("mapping_key", "DomainName"), ("dependency", "OwnerName")),
             effects=_AUTHOR,
             constraints=("domain_owner_required",),
@@ -251,24 +254,27 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "entity",
             "marivo.semantic._authoring_decorators.entity",
             "Declare a semantic entity backed by a datasource table.",
-            output="EntityRef",
+            output="Ref[entity]",
             inputs=_inputs(
                 ("mapping_key", "EntityName"),
-                ("dependency", "DatasourceRef"),
+                ("dependency", "Ref[datasource]"),
                 ("dependency", "TableName"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
-            example="orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))",
+            example=(
+                "warehouse = md.duckdb('warehouse', path='warehouse.duckdb'); "
+                "orders = ms.entity(name='orders', datasource=warehouse.ref, source=md.table('orders'))"
+            ),
         ),
         _capability(
             "dimension",
             "marivo.semantic._authoring_decorators.dimension",
             "Declare a calculated dimension on an entity.",
-            output="DimensionRef",
+            output="Ref[dimension]",
             inputs=_inputs(
                 ("mapping_key", "DimensionName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
@@ -278,10 +284,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "dimension_column",
             "marivo.semantic._authoring_decorators.dimension_column",
             "Declare a column-backed dimension on an entity.",
-            output="DimensionRef",
+            output="Ref[dimension]",
             inputs=_inputs(
                 ("mapping_key", "DimensionName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "ColumnName"),
             ),
             effects=_AUTHOR,
@@ -292,10 +298,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "time_dimension",
             "marivo.semantic._authoring_decorators.time_dimension",
             "Declare a calculated time dimension on an entity.",
-            output="TimeDimensionRef",
+            output="Ref[time_dimension]",
             inputs=_inputs(
                 ("mapping_key", "TimeDimensionName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "Granularity"),
             ),
             effects=_AUTHOR,
@@ -311,10 +317,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "time_dimension_column",
             "marivo.semantic._authoring_decorators.time_dimension_column",
             "Declare a column-backed time dimension on an entity.",
-            output="TimeDimensionRef",
+            output="Ref[time_dimension]",
             inputs=_inputs(
                 ("mapping_key", "TimeDimensionName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "ColumnName"),
                 ("dependency", "Granularity"),
             ),
@@ -334,10 +340,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "measure",
             "marivo.semantic._authoring_decorators.measure",
             "Declare a calculated measure on an entity.",
-            output="MeasureRef",
+            output="Ref[measure]",
             inputs=_inputs(
                 ("mapping_key", "MeasureName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "Additivity"),
             ),
             effects=_AUTHOR,
@@ -348,10 +354,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "measure_column",
             "marivo.semantic._authoring_decorators.measure_column",
             "Declare a column-backed measure on an entity.",
-            output="MeasureRef",
+            output="Ref[measure]",
             inputs=_inputs(
                 ("mapping_key", "MeasureName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "ColumnName"),
                 ("dependency", "Additivity"),
             ),
@@ -363,10 +369,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "aggregate",
             "marivo.semantic._authoring_declarations.aggregate",
             "Declare an aggregate metric from a measure.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=(
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
-                AuthoringInputRequirement(role="subject", family="MeasureRef"),
+                AuthoringInputRequirement(role="subject", family="Ref[measure]"),
                 AuthoringInputRequirement(role="dependency", family="AggFunc"),
                 _optional_input("dependency", "WhereFilter"),
             ),
@@ -385,10 +391,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "count",
             "marivo.semantic._authoring_declarations.count",
             "Declare a count metric on an entity.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=(
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
-                AuthoringInputRequirement(role="subject", family="EntityRef"),
+                AuthoringInputRequirement(role="subject", family="Ref[entity]"),
                 _optional_input("dependency", "WhereFilter"),
             ),
             effects=_AUTHOR,
@@ -412,10 +418,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "cumulative",
             "marivo.semantic._authoring_metrics.cumulative",
             "Declare a cumulative derived metric.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
-                ("subject", "MetricRef"),
+                ("subject", "Ref[metric]"),
                 ("dependency", "AnchorSpec"),
             ),
             effects=_AUTHOR,
@@ -429,11 +435,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "ratio",
             "marivo.semantic._authoring_metrics.ratio",
             "Declare a recursively composable ratio metric; each lowered node is validated independently.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
-                ("subject", "MetricRef"),
-                ("dependency", "MetricRef"),
+                ("subject", "Ref[metric]"),
+                ("dependency", "Ref[metric]"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "composition_shape"),
@@ -443,10 +449,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "weighted_average",
             "marivo.semantic._authoring_metrics.weighted_average",
             "Declare a recursively composable weighted-average metric with value/weight node checks.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
-                ("subject", "MetricRef"),
+                ("subject", "Ref[metric]"),
                 ("dependency", "WeightSpec"),
             ),
             effects=_AUTHOR,
@@ -457,7 +463,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "linear",
             "marivo.semantic._authoring_metrics.linear",
             "Declare a recursively composable linear metric with commensurable term checks.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
                 ("subject", "LinearTerm"),
@@ -470,7 +476,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "relationship",
             "marivo.semantic._authoring_decorators.relationship",
             "Declare a relationship between two entities.",
-            output="RelationshipRef",
+            output="Ref[relationship]",
             inputs=_inputs(
                 ("mapping_key", "RelationshipName"),
                 ("subject", "RelationshipEndpoint"),
@@ -509,23 +515,13 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # Low-level expression builders (public authoring surface)
         # ------------------------------------------------------------------
         _capability(
-            "ref",
-            "marivo.semantic._authoring_values.ref",
-            "Build a kind-qualified semantic reference.",
-            output="SemanticRef",
-            inputs=_inputs(("subject", "MetricName")),
-            effects=_AUTHOR,
-            constraints=("ref_shape",),
-            example="ms.ref('metric.sales.revenue')",
-        ),
-        _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
             "Declare a base metric with an expression body.",
-            output="MetricRef",
+            output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
-                ("subject", "EntityRef"),
+                ("subject", "Ref[entity]"),
                 ("dependency", "Additivity"),
             ),
             effects=_AUTHOR,
@@ -637,31 +633,53 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # verify_preview
         # ------------------------------------------------------------------
         _capability(
-            "verify_object",
-            "marivo.semantic.catalog.SemanticCatalog.verify_object",
-            "Statically verify one loaded semantic object.",
+            "verify",
+            "marivo.semantic.catalog.SemanticCatalog.verify",
+            "Statically verify one exact loaded ref.",
             kind="method",
             output="VerifyResult",
             inputs=_inputs(
                 ("receiver", "SemanticCatalog"),
-                ("subject", "CatalogObject"),
+                ("subject", "Ref"),
             ),
             effects=_LOCAL,
-            example="catalog.verify_object(revenue.ref)",
+            example="catalog.verify(revenue.ref)",
             produced_state="semantic.verified",
             required_states=_states("semantic.loaded"),
-            public_entrypoint="catalog.verify_object",
+            public_entrypoint="catalog.verify",
         ),
         _capability(
             "preview",
             "marivo.semantic.catalog.SemanticCatalog.preview",
-            "Run scoped data previews for one semantic object or an explicit batch.",
+            "Run one scoped data preview for an exact loaded ref.",
             kind="method",
-            output="PreviewResult | PreviewBatchResult",
+            output="PreviewResult",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                AuthoringInputRequirement(role="subject", family="Ref"),
+                AuthoringInputRequirement(
+                    role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
+                ),
+            ),
+            effects=_PREVIEW,
+            constraints=("backend_factory_available",),
+            example="catalog.preview(revenue.ref, using=orders_snapshot)",
+            preconditions=("semantic.loaded",),
+            produced_state="semantic.previewed",
+            required_states=_states("semantic.loaded"),
+            repair_kinds=("reconnect",),
+            public_entrypoint="catalog.preview",
+        ),
+        _capability(
+            "preview_many",
+            "marivo.semantic.catalog.SemanticCatalog.preview_many",
+            "Run scoped data previews for a non-empty exact ref sequence.",
+            kind="method",
+            output="PreviewBatchResult",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
-                    role="subject", family="CatalogObject", min_count=1, max_count=None
+                    role="subject", family="Ref", min_count=1, max_count=None
                 ),
                 AuthoringInputRequirement(
                     role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
@@ -669,12 +687,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)",
+            example="catalog.preview_many(report.preview_required_refs, using=orders_snapshot)",
             preconditions=("semantic.loaded",),
             produced_state="semantic.previewed",
             required_states=_states("semantic.loaded"),
             repair_kinds=("reconnect",),
-            public_entrypoint="catalog.preview",
+            public_entrypoint="catalog.preview_many",
         ),
         # ------------------------------------------------------------------
         # readiness
@@ -687,7 +705,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="ReadinessReport",
             inputs=_inputs(
                 ("receiver", "SemanticCatalog"),
-                ("subject", "SemanticRef"),
+                ("subject", "Ref"),
             ),
             effects=_LOCAL,
             example="catalog.readiness()",
@@ -714,7 +732,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Run parity check for a metric against its source SQL.",
             output="ParityResult",
             inputs=_inputs(
-                ("subject", "MetricRef"),
+                ("subject", "Ref[metric]"),
                 ("dependency", "RelTol"),
                 ("dependency", "AbsTol"),
                 ("dependency", "ForceFlag"),
@@ -751,18 +769,18 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
-            "SemanticCatalog.get",
-            "marivo.semantic.catalog.SemanticCatalog.get",
-            "Get one catalog object by semantic ref.",
+            "SemanticCatalog.require",
+            "marivo.semantic.catalog.SemanticCatalog.require",
+            "Require exact membership of one ref in the compiled catalog.",
             kind="method",
-            output="CatalogObject",
+            output="CatalogEntry",
             inputs=_inputs(
                 ("receiver", "SemanticCatalog"),
-                ("subject", "SemanticRef"),
+                ("subject", "Ref"),
             ),
             effects=_LOCAL,
-            example="catalog.get('metric.sales.revenue')",
-            public_entrypoint="catalog.get",
+            example="catalog.require(ms.Ref.metric('sales.revenue'))",
+            public_entrypoint="catalog.require",
         ),
     )
     groups: Mapping[SemanticRootGroup, tuple[str, ...]] = MappingProxyType(
@@ -786,7 +804,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "relationship",
                 "join_on",
                 "from_sql",
-                "ref",
                 "metric",
                 "ai_context",
                 "snapshot",
@@ -799,7 +816,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "grain_to_date",
                 "trailing",
             ),
-            "verify_preview": ("verify_object", "preview"),
+            "verify_preview": ("verify", "preview", "preview_many"),
             "readiness": ("readiness",),
             "diagnostics_boundaries": ("richness", "parity_check", "help", "help_text"),
         }
@@ -820,28 +837,28 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
-    from marivo.refs import SemanticRef, SymbolKind
+    from marivo.refs import Ref, SemanticKind
     from marivo.semantic.catalog import (
         CatalogCollection,
-        CatalogObject,
-        Datasource,
+        CatalogEntry,
         DatasourceDetails,
+        DatasourceEntry,
         DerivedMetricDetails,
-        Dimension,
         DimensionDetails,
-        Domain,
+        DimensionEntry,
         DomainDetails,
-        Entity,
+        DomainEntry,
         EntityDetails,
-        Measure,
+        EntityEntry,
         MeasureDetails,
-        Metric,
-        Relationship,
+        MeasureEntry,
+        MetricEntry,
         RelationshipDetails,
+        RelationshipEntry,
         SemanticCatalog,
         SimpleMetricDetails,
-        TimeDimension,
         TimeDimensionDetails,
+        TimeDimensionEntry,
     )
     from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
     from marivo.semantic.ir import JoinKey, SqlProvenance
@@ -850,15 +867,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessInputSummary,
         ReadinessIssue,
         ReadinessReport,
-    )
-    from marivo.semantic.refs import (
-        DimensionRef,
-        DomainRef,
-        EntityRef,
-        MeasureRef,
-        MetricRef,
-        RelationshipRef,
-        TimeDimensionRef,
     )
     from marivo.semantic.richness import RichnessReport
 
@@ -889,13 +897,14 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SemanticCatalog,
         "SemanticCatalog",
         ("load",),
-        methods=("get", "verify_object", "preview", "readiness", "contract"),
+        methods=("require", "verify", "preview", "preview_many", "readiness", "contract"),
         state_bearing=True,
     )
     add(
-        CatalogObject,
-        "CatalogObject",
-        ("SemanticCatalog.get",),
+        CatalogEntry,
+        "CatalogEntry",
+        ("SemanticCatalog.require",),
+        properties=("ref",),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
     )
@@ -906,8 +915,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Domain,
-        "Domain",
+        DomainEntry,
+        "DomainEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -919,8 +928,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Entity,
-        "Entity",
+        EntityEntry,
+        "EntityEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -932,8 +941,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Dimension,
-        "Dimension",
+        DimensionEntry,
+        "DimensionEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -945,8 +954,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        TimeDimension,
-        "TimeDimension",
+        TimeDimensionEntry,
+        "TimeDimensionEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -958,8 +967,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Measure,
-        "Measure",
+        MeasureEntry,
+        "MeasureEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -971,8 +980,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Metric,
-        "Metric",
+        MetricEntry,
+        "MetricEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -990,8 +999,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Relationship,
-        "Relationship",
+        RelationshipEntry,
+        "RelationshipEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -1003,8 +1012,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
-        Datasource,
-        "Datasource",
+        DatasourceEntry,
+        "DatasourceEntry",
         (),
         methods=("details", "show", "contract", "render"),
         state_bearing=True,
@@ -1019,14 +1028,14 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         VerifyResult,
         "VerifyResult",
-        ("verify_object",),
+        ("verify",),
         methods=("show", "contract", "render"),
         state_bearing=True,
     )
     add(
         PreviewBatchResult,
         "PreviewBatchResult",
-        ("preview",),
+        ("preview_many",),
         properties=("status", "refs", "results"),
         methods=("show", "contract", "render"),
         state_bearing=True,
@@ -1060,46 +1069,36 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ReadinessIssue",
         (),
     )
-    # Ref types
+    # Identity types
     add(
-        SemanticRef,
-        "SemanticRef",
-        ("ref",),
-    )
-    add(
-        DomainRef,
-        "DomainRef",
-        ("domain",),
-    )
-    add(
-        EntityRef,
-        "EntityRef",
-        ("entity",),
-    )
-    add(
-        DimensionRef,
-        "DimensionRef",
-        ("dimension", "dimension_column"),
-    )
-    add(
-        TimeDimensionRef,
-        "TimeDimensionRef",
-        ("time_dimension", "time_dimension_column"),
-    )
-    add(
-        MeasureRef,
-        "MeasureRef",
-        ("measure", "measure_column"),
-    )
-    add(
-        MetricRef,
-        "MetricRef",
-        ("aggregate", "count", "cumulative", "ratio", "weighted_average", "linear", "metric"),
-    )
-    add(
-        RelationshipRef,
-        "RelationshipRef",
-        ("relationship",),
+        Ref,
+        "Ref",
+        (
+            "domain",
+            "entity",
+            "dimension",
+            "dimension_column",
+            "time_dimension",
+            "time_dimension_column",
+            "measure",
+            "measure_column",
+            "aggregate",
+            "count",
+            "cumulative",
+            "ratio",
+            "weighted_average",
+            "linear",
+            "metric",
+            "relationship",
+        ),
+        properties=("kind", "path", "key", "name"),
+        consumers=(
+            "SemanticCatalog.require",
+            "verify",
+            "preview",
+            "preview_many",
+            "readiness",
+        ),
     )
     # IR types
     add(
@@ -1115,7 +1114,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
     # Enum and value types
     add(
-        SymbolKind,
+        SemanticKind,
         "SemanticKind",
         (),
     )

@@ -16,6 +16,7 @@ from marivo.analysis.intents._shape import (
     observe_output_shape,
 )
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_test_delta_contract, make_test_metric_meta_contract
 
 
 def _now() -> datetime:
@@ -24,6 +25,7 @@ def _now() -> datetime:
 
 def _metric_meta(semantic_kind: str) -> MetricFrameMeta:
     return MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         ref="frame_m",
         session_id="s",
         project_root="/p",
@@ -49,6 +51,7 @@ def _delta_meta(
     composition: dict | None = None,
 ) -> DeltaFrameMeta:
     return DeltaFrameMeta(
+        **make_test_delta_contract("sales.failure_rate"),
         ref="frame_d",
         session_id="s",
         project_root="/p",

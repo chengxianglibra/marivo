@@ -6,7 +6,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError, SliceInvalidError
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
@@ -32,9 +32,9 @@ def _session_with_sales(tmp_path):
 @pytest.mark.parametrize(
     ("slice_spec", "expected"),
     [
-        ({"region": {"op": "==", "value": "NORTH"}}, 70.0),
-        ({"region": {"op": "!=", "value": "NORTH"}}, 30.0),
-        ({"region": {"op": "in", "value": ["NORTH", "SOUTH"]}}, 100.0),
+        ({"sales.orders.region": {"op": "==", "value": "NORTH"}}, 70.0),
+        ({"sales.orders.region": {"op": "!=", "value": "NORTH"}}, 30.0),
+        ({"sales.orders.region": {"op": "in", "value": ["NORTH", "SOUTH"]}}, 100.0),
     ],
 )
 def test_observe_structured_slice_predicates(tmp_path, slice_spec, expected):
@@ -48,7 +48,7 @@ def test_observe_equality_shorthand_still_works(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
+        slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): "NORTH"},
         session=session,
     )
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
@@ -66,15 +66,25 @@ def test_observe_collection_shorthand_uses_in_predicate(tmp_path, slice_value, e
     session = _session_with_sales(tmp_path)
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        slice_by={make_ref("region", SemanticKind.DIMENSION): slice_value},
+        slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): slice_value},
         session=session,
     )
 
     expected_where = {"sales.orders.region": {"op": "in", "value": expected_value}}
+    expected_predicates = [
+        {
+            "dimension_ref": {
+                "schema": "marivo.semantic_ref/v1",
+                "kind": "dimension",
+                "path": "sales.orders.region",
+            },
+            "value": {"op": "in", "value": expected_value},
+        }
+    ]
     job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
     record = session.job(job.id)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(100.0)
-    assert record["params"]["where"] == expected_where
+    assert record["params"]["slice_predicates"] == expected_predicates
     assert frame.meta.where == expected_where
 
 
@@ -82,23 +92,28 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        slice_by={make_ref("region", SemanticKind.DIMENSION): {"op": "in", "value": {"NORTH"}}},
+        slice_by={
+            make_ref("sales.orders.region", SemanticKind.DIMENSION): {
+                "op": "in",
+                "value": {"NORTH"},
+            }
+        },
         session=session,
     )
 
     job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
     record = session.job(job.id)
     expected = {"sales.orders.region": {"op": "in", "value": ["NORTH"]}}
-    assert record["params"]["where"] == expected
+    assert record["params"]["slice_predicates"][0]["value"] == expected["sales.orders.region"]
     assert frame.meta.where == expected
 
 
 @pytest.mark.parametrize(
     "slice_spec",
     [
-        {"region": {"op": "==", "value": ["NORTH"]}},
-        {"region": {"op": "!=", "value": {"NORTH"}}},
-        {"region": []},
+        {"sales.orders.region": {"op": "==", "value": ["NORTH"]}},
+        {"sales.orders.region": {"op": "!=", "value": {"NORTH"}}},
+        {"sales.orders.region": []},
     ],
 )
 def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
@@ -111,12 +126,12 @@ def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
 @pytest.mark.parametrize(
     "slice_spec",
     [
-        {"amount": {"op": ">", "value": 20.0}},
-        {"amount": {"op": ">=", "value": 20.0}},
-        {"amount": {"op": "<", "value": 30.0}},
-        {"amount": {"op": "<=", "value": 30.0}},
-        {"amount": {"op": "between", "value": [20.0, 40.0]}},
-        {"user_id": {"op": "in", "value": {100, "200"}}},
+        {"sales.orders.amount": {"op": ">", "value": 20.0}},
+        {"sales.orders.amount": {"op": ">=", "value": 20.0}},
+        {"sales.orders.amount": {"op": "<", "value": 30.0}},
+        {"sales.orders.amount": {"op": "<=", "value": 30.0}},
+        {"sales.orders.amount": {"op": "between", "value": [20.0, 40.0]}},
+        {"sales.orders.user_id": {"op": "in", "value": {100, "200"}}},
     ],
 )
 def test_observe_rejects_physical_only_dimension_ref_slice_keys(tmp_path, slice_spec):
@@ -124,7 +139,7 @@ def test_observe_rejects_physical_only_dimension_ref_slice_keys(tmp_path, slice_
     where = {make_ref(key, SemanticKind.DIMENSION): value for key, value in slice_spec.items()}
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(make_ref("sales.revenue", SemanticKind.METRIC), slice_by=where, session=session)
-    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension or time_dimension"
 
 
 def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
@@ -134,7 +149,7 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
             slice_by={
-                make_ref("region", SemanticKind.DIMENSION): {
+                make_ref("sales.orders.region", SemanticKind.DIMENSION): {
                     "op": "in",
                     "value": [object()],
                 }

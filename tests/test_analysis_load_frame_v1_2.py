@@ -16,7 +16,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._layout import write_frame_to_disk
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import make_metric_frame, make_test_metric_meta_contract
 
 
 @pytest.fixture(autouse=True)
@@ -243,6 +243,7 @@ def test_frame_file_without_artifacts_row_is_unreachable():
 
     ref = "frame_orphan"
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("custom.metric"),
         kind="metric_frame",
         ref=ref,
         session_id=session.id,
@@ -297,7 +298,7 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
         session.get_frame(frame.ref)
 
 
-@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v2", "analysis-artifact/v4"])
+@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v2", "analysis-artifact/v5"])
 def test_registered_frame_rejects_every_non_current_artifact_schema(schema_version):
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(

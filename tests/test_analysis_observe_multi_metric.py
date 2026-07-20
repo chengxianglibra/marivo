@@ -4,12 +4,13 @@ import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import CatalogMetricSubjectV1
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import (
     bootstrap_multi_metric_sales_project,
     seed_multi_metric_tables,
@@ -43,7 +44,7 @@ def test_boundary_empty_sequence_rejected(sales_session):
 
 def test_duplicate_roots_preserve_order_with_distinct_output_columns(sales_session):
     catalog = sales_session.catalog
-    revenue = catalog.get("metric.sales.revenue").ref
+    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
     frame = observe(
         [revenue, revenue],
         time_scope=WINDOW,
@@ -57,13 +58,13 @@ def test_duplicate_roots_preserve_order_with_distinct_output_columns(sales_sessi
 def test_boundary_single_element_sequence_equals_scalar_observe(sales_session):
     catalog = sales_session.catalog
     via_list = observe(
-        [catalog.get("metric.sales.revenue").ref],
+        [catalog.require(ms.Ref.metric("sales.revenue")).ref],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     via_scalar = observe(
-        catalog.get("metric.sales.revenue").ref,
+        catalog.require(ms.Ref.metric("sales.revenue")).ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -76,8 +77,8 @@ def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session)
     catalog = sales_session.catalog
     frame = sales_session.observe(
         (
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ),
         time_scope=WINDOW,
         grain="day",
@@ -104,8 +105,8 @@ def test_same_entity_metrics_fuse_into_one_query(sales_session, monkeypatch):
     catalog = sales_session.catalog
     frame = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
         grain="day",
@@ -121,8 +122,8 @@ def test_value_columns_exposes_metric_value_columns_regardless_of_arity(sales_se
     catalog = sales_session.catalog
     multi = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
         grain="day",
@@ -138,21 +139,21 @@ def test_fused_values_match_single_observes(sales_session):
     catalog = sales_session.catalog
     fused = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     revenue = observe(
-        catalog.get("metric.sales.revenue").ref,
+        catalog.require(ms.Ref.metric("sales.revenue")).ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     count = observe(
-        catalog.get("metric.sales.order_count").ref,
+        catalog.require(ms.Ref.metric("sales.order_count")).ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -182,8 +183,8 @@ def test_cross_entity_metrics_join_on_time_axis(sales_session, monkeypatch):
     catalog = sales_session.catalog
     frame = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.user_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.user_count")).ref,
         ],
         time_scope=WINDOW,
         grain="day",
@@ -200,11 +201,11 @@ def test_segmented_multi_metric(sales_session):
     catalog = sales_session.catalog
     frame = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
-        dimensions=[catalog.get("dimension.sales.orders.region").ref],
+        dimensions=[catalog.require(ms.Ref.dimension("sales.orders.region")).ref],
         session=sales_session,
     )
     assert frame.meta.semantic_kind == "segmented"
@@ -215,8 +216,8 @@ def test_scalar_multi_metric(sales_session):
     catalog = sales_session.catalog
     frame = observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
         session=sales_session,
@@ -232,8 +233,8 @@ def _fused_frame(sales_session):
     catalog = sales_session.catalog
     return observe(
         [
-            catalog.get("metric.sales.revenue").ref,
-            catalog.get("metric.sales.order_count").ref,
+            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.Ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
         grain="day",
@@ -258,13 +259,13 @@ def test_meta_measures_ordered_and_scalars_none(sales_session):
 def test_params_record_metric_list_and_fusion(sales_session):
     frame = _fused_frame(sales_session)
     params = frame.meta.lineage.steps[0].params
-    assert [identity["metric_id"] for identity in params["metric_identities"]] == [
+    assert [identity["metric_ref"]["path"] for identity in params["metric_identities"]] == [
         "sales.revenue",
         "sales.order_count",
     ]
     assert len(params["metric_graph"]["roots"]) == 2
     assert len(params["lineage_metadata"]["physical_leaves"]) == 2
-    assert params["semantic_dependency_digest"]["fingerprint"]
+    assert params["semantic_dependency_digest"]["digest"]
     legacy_params = dict(params)
     legacy_params.pop("semantic_dependency_digest")
     assert frame.ref != make_artifact_id(

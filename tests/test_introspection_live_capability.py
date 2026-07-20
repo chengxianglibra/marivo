@@ -23,7 +23,7 @@ def _preview_capability() -> AuthoringCapability:
         callable_path="marivo.semantic.catalog.SemanticCatalog.preview",
         summary="Scoped runtime preview of one loaded semantic object.",
         input_requirements=(
-            AuthoringInputRequirement(role="subject", family="CatalogObject"),
+            AuthoringInputRequirement(role="subject", family="Ref"),
             AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
         ),
         output_family="PreviewResult",
