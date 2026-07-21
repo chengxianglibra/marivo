@@ -130,9 +130,11 @@ runtime preview evidence, follow its result-local contract and pass its typed
 missing-ref batch to the registered preview capability. This is a repair
 optimization over compatible execution plans, not permission to author a
 domain-sized batch or to skip the one-object validation loop. For routine
-analysis of already-authored refs, missing or stale preview certification is an
-advisory: disclose it and proceed with the directly requested analysis-ready
-refs unless another blocker affects their dependency closure.
+analysis of already-authored refs, missing datasource snapshots and missing or
+stale preview certification are advisories: disclose them and proceed with the
+directly requested analysis-ready refs unless a semantic blocker affects their
+dependency closure. Auxiliary datasource evidence never overrides an explicit,
+approved semantic definition as the governed source of business meaning.
 
 ### Durable partial order
 

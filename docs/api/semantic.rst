@@ -83,8 +83,17 @@ Readiness & verification
    richness
    parity_check
 
-Refs & loading
---------------
+Refs, binding & loading
+-----------------------
+
+``ref`` is the immutable exact-kind factory namespace. Ref values themselves
+are immutable identities and are never callable; use ``bind`` to apply a field
+ref to a direct entity alias inside a decorated expression body.
+
+.. autodata:: ref
+   :annotation:
+
+.. autofunction:: bind
 
 .. autosummary::
    :toctree: api/

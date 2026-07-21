@@ -19,6 +19,9 @@ from marivo.refs import (
     SemanticKindTag,
     TimeDimensionKind,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic.catalog import (
     AiContextView,
@@ -117,14 +120,14 @@ def test_ai_context_view_defaults_to_empty():
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     kind: cast("Callable[[str], Ref[SemanticKindTag]]", factory)
     for kind, factory in {
-        SemanticKind.DOMAIN: Ref.domain,
-        SemanticKind.DATASOURCE: Ref.datasource,
-        SemanticKind.ENTITY: Ref.entity,
-        SemanticKind.DIMENSION: Ref.dimension,
-        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-        SemanticKind.MEASURE: Ref.measure,
-        SemanticKind.METRIC: Ref.metric,
-        SemanticKind.RELATIONSHIP: Ref.relationship,
+        SemanticKind.DOMAIN: ref_factory.domain,
+        SemanticKind.DATASOURCE: ref_factory.datasource,
+        SemanticKind.ENTITY: ref_factory.entity,
+        SemanticKind.DIMENSION: ref_factory.dimension,
+        SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+        SemanticKind.MEASURE: ref_factory.measure,
+        SemanticKind.METRIC: ref_factory.metric,
+        SemanticKind.RELATIONSHIP: ref_factory.relationship,
     }.items()
 }
 
@@ -411,7 +414,7 @@ def test_catalog_require_returns_concrete_catalog_entry(
 
 
 def test_catalog_object_high_frequency_surface_is_minimal(semantic_project_factory) -> None:
-    revenue = _make_catalog(semantic_project_factory).require(ms.Ref.metric("sales.revenue"))
+    revenue = _make_catalog(semantic_project_factory).require(ms.ref.metric("sales.revenue"))
 
     for removed in (
         "semantic_id",
@@ -428,12 +431,12 @@ def test_catalog_object_equality_is_concrete_type_and_typed_id(
     semantic_project_factory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    first = catalog.require(ms.Ref.metric("sales.revenue"))
-    second = catalog.require(ms.Ref.metric("sales.revenue"))
+    first = catalog.require(ms.ref.metric("sales.revenue"))
+    second = catalog.require(ms.ref.metric("sales.revenue"))
 
     assert first == second
     assert hash(first) == hash(second)
-    assert first != catalog.require(ms.Ref.domain("sales"))
+    assert first != catalog.require(ms.ref.domain("sales"))
     assert "business_definition:" in first.render(max_output_bytes=None)
 
 
@@ -444,7 +447,7 @@ def test_catalog_object_conforms_to_agent_result(semantic_project_factory):
     from tests.test_agent_result_protocol import assert_conforms
 
     catalog = _make_catalog(semantic_project_factory)
-    assert_conforms(catalog.require(ms.Ref.metric("sales.revenue")))
+    assert_conforms(catalog.require(ms.ref.metric("sales.revenue")))
 
 
 def test_catalog_collection_conforms_to_agent_result(semantic_project_factory):
@@ -504,10 +507,10 @@ def test_semantic_object_details_render_points_to_verify_and_readiness(
     semantic_project_factory,
 ):
     catalog = _make_catalog(semantic_project_factory)
-    details = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    details = catalog.require(ms.ref.metric("sales.revenue")).details()
     rendered = details.render()
-    assert "catalog.verify(ms.Ref.metric('sales.revenue'))" in rendered
-    assert "catalog.readiness(refs=[ms.Ref.metric('sales.revenue')])" in rendered
+    assert "catalog.verify(ms.ref.metric('sales.revenue'))" in rendered
+    assert "catalog.readiness(refs=[ms.ref.metric('sales.revenue')])" in rendered
 
 
 def test_simple_metric_details_carry_and_render_filter(semantic_project_factory) -> None:
@@ -521,7 +524,7 @@ def test_simple_metric_details_carry_and_render_filter(semantic_project_factory)
             "sales/datasets.py": textwrap.dedent("""\
                 import marivo.datasource as md
                 import marivo.semantic as ms
-                orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
                 @ms.dimension(entity=orders)
                 def region(table):
@@ -535,8 +538,8 @@ def test_simple_metric_details_carry_and_render_filter(semantic_project_factory)
         }
     )
     catalog = SemanticCatalog(project)
-    all_details = catalog.require(ms.Ref.metric("sales.all_count")).details()
-    failed_details = catalog.require(ms.Ref.metric("sales.failed_count")).details()
+    all_details = catalog.require(ms.ref.metric("sales.all_count")).details()
+    failed_details = catalog.require(ms.ref.metric("sales.failed_count")).details()
     assert isinstance(all_details, SimpleMetricDetails)
     assert isinstance(failed_details, SimpleMetricDetails)
     assert all_details.filter is None
@@ -555,7 +558,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def region(table):
@@ -579,7 +582,7 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
 
     orders = ms.entity(
         name="orders",
-        datasource=ms.Ref.datasource("warehouse"),
+        datasource=ms.ref.datasource("warehouse"),
         source=md.table("orders"),
         ai_context=ms.ai_context(
             business_definition="One row per completed order.",
@@ -794,8 +797,8 @@ def test_catalog_relationships_collection(semantic_project_factory):
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def user_id(table):\n"
                 "    return table.user_id\n"
@@ -953,7 +956,7 @@ def test_catalog_unknown_attribute_raises_plain_attribute_error(semantic_project
 
 def test_catalog_require_returns_semantic_object_for_domain(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.domain("sales"))
+    obj = catalog.require(ms.ref.domain("sales"))
     assert obj.ref.path == "sales"
     assert str(obj.ref.kind) == "domain"
     assert obj.details().owner == "Mina Zhang"
@@ -961,7 +964,7 @@ def test_catalog_require_returns_semantic_object_for_domain(semantic_project_fac
 
 def test_catalog_require_returns_semantic_object_for_datasource(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.datasource("warehouse"))
+    obj = catalog.require(ms.ref.datasource("warehouse"))
     assert obj.ref.path == "warehouse"
     assert obj.ref.name == "warehouse"
     assert str(obj.ref.kind) == "datasource"
@@ -969,7 +972,7 @@ def test_catalog_require_returns_semantic_object_for_datasource(semantic_project
 
 def test_catalog_require_returns_semantic_object_for_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.entity("sales.orders"))
+    obj = catalog.require(ms.ref.entity("sales.orders"))
     assert obj.ref.path == "sales.orders"
     assert str(obj.ref.kind) == "entity"
     assert obj.details().domain == "sales"
@@ -977,20 +980,20 @@ def test_catalog_require_returns_semantic_object_for_entity(semantic_project_fac
 
 def test_catalog_require_returns_semantic_object_for_dimension(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.dimension("sales.orders.region"))
+    obj = catalog.require(ms.ref.dimension("sales.orders.region"))
     assert obj.ref.path == "sales.orders.region"
     assert str(obj.ref.kind) == "dimension"
 
 
 def test_catalog_require_returns_semantic_object_for_time_dimension(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.time_dimension("sales.orders.created_at"))
+    obj = catalog.require(ms.ref.time_dimension("sales.orders.created_at"))
     assert str(obj.ref.kind) == "time_dimension"
 
 
 def test_catalog_require_returns_semantic_object_for_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    obj = catalog.require(ms.ref.metric("sales.revenue"))
     assert obj.ref.path == "sales.revenue"
     assert str(obj.ref.kind) == "metric"
 
@@ -1022,13 +1025,13 @@ def test_catalog_require_rejects_short_names_with_factory_hint(semantic_project_
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.require(raw)  # type: ignore[arg-type]
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "ms.Ref.<kind>(path)" in str(exc_info.value)
+    assert "ms.ref.<kind>(path)" in str(exc_info.value)
 
 
 def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.Ref.metric("sales.orders"))
+        catalog.require(ms.ref.metric("sales.orders"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
     assert "metric" in str(exc_info.value)
 
@@ -1036,21 +1039,21 @@ def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory
 def test_catalog_require_not_found_raises_typed_error(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.Ref.metric("sales.nonexistent"))
+        catalog.require(ms.ref.metric("sales.nonexistent"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
 def test_catalog_get_not_found_error_mentions_browse_hint(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.Ref.metric("sales.missing"))
+        catalog.require(ms.ref.metric("sales.missing"))
     msg = str(exc_info.value)
     assert "catalog.metrics" in msg or "catalog.domains" in msg
 
 
 def test_catalog_get_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
-    catalog.require(ms.Ref.metric("sales.revenue"))
+    catalog.require(ms.ref.metric("sales.revenue"))
     assert capsys.readouterr().out == ""
 
 
@@ -1061,7 +1064,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
             "sales/datasets.py": textwrap.dedent("""\
                 import marivo.datasource as md
                 import marivo.semantic as ms
-                orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
                 @ms.metric(
                     entities=[orders],
@@ -1074,7 +1077,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
         }
     )
     catalog = SemanticCatalog(project)
-    obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    obj = catalog.require(ms.ref.metric("sales.revenue"))
     assert obj.details().context.business_definition == "All completed order amounts."
 
 
@@ -1086,13 +1089,13 @@ def test_catalog_get_business_definition_matches_authored_context(semantic_proje
         }
     )
     catalog = SemanticCatalog(project)
-    obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    obj = catalog.require(ms.ref.metric("sales.revenue"))
     assert obj.details().context.business_definition == "Total gross order amount before refunds."
 
 
 def test_catalog_require_source_location_is_populated(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    obj = catalog.require(ms.ref.metric("sales.revenue"))
     loc = obj.details().source_location
     assert loc.file != ""
     assert loc.line > 0
@@ -1134,7 +1137,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     )
     catalog = SemanticCatalog(project)
 
-    metric_rendered = catalog.require(ms.Ref.metric("sales.revenue")).details().render()
+    metric_rendered = catalog.require(ms.ref.metric("sales.revenue")).details().render()
     assert "business_definition: Total gross order amount before refunds." in metric_rendered
     assert "guardrails:" in metric_rendered
     assert "- Do not use as net revenue." in metric_rendered
@@ -1144,7 +1147,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     assert "measure: measure:sales.orders.amount" in metric_rendered
     assert "parity_status:" in metric_rendered
 
-    entity_rendered = catalog.require(ms.Ref.entity("sales.orders")).details().render()
+    entity_rendered = catalog.require(ms.ref.entity("sales.orders")).details().render()
     assert "datasource: datasource:warehouse" in entity_rendered
     assert "source:" in entity_rendered
     assert "children:" in entity_rendered
@@ -1203,7 +1206,7 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.require(ms.Ref.datasource("warehouse")).details()
+    details = catalog.require(ms.ref.datasource("warehouse")).details()
     assert isinstance(details, DatasourceDetails)
     assert details.fields == {"host": "h", "catalog": "c"}
     assert details.env_refs == {"auth": "TRINO_AUTH"}
@@ -1215,7 +1218,7 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
 
 def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.entity("sales.orders"))
+    obj = catalog.require(ms.ref.entity("sales.orders"))
     d = obj.details()
     assert isinstance(d, EntityDetails)
     assert type(d.datasource) is Ref
@@ -1243,7 +1246,7 @@ def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_fact
 
     from marivo.datasource.ir import TableSourceIR
 
-    details = catalog.require(ms.Ref.entity("sales.orders")).details()
+    details = catalog.require(ms.ref.entity("sales.orders")).details()
     assert isinstance(details, EntityDetails)
     assert isinstance(details.source, TableSourceIR)
     assert details.source.to_dict()["table"] == "orders"
@@ -1251,7 +1254,7 @@ def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_fact
 
 def test_catalog_get_metric_details_correct_dataset_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    obj = catalog.require(ms.ref.metric("sales.revenue"))
     d = obj.details()
     assert isinstance(d, MetricDetails)
     assert any(r.path == "sales.orders" for r in d.entities)
@@ -1263,7 +1266,7 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
@@ -1279,7 +1282,7 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.require(ms.Ref.metric("sales.conversion")).details()
+    details = catalog.require(ms.ref.metric("sales.conversion")).details()
 
     assert isinstance(details, DerivedMetricDetails)
     assert details.components == (
@@ -1306,7 +1309,7 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
 
                 queries = ms.entity(
                     name="queries",
-                    datasource=ms.Ref.datasource("warehouse"),
+                    datasource=ms.ref.datasource("warehouse"),
                     source=md.table("queries"),
                 )
                 cluster = ms.dimension_column(
@@ -1364,7 +1367,7 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
     )
     catalog = SemanticCatalog(project)
 
-    simple = catalog.require(ms.Ref.metric("sales.total_cache_bytes")).details()
+    simple = catalog.require(ms.ref.metric("sales.total_cache_bytes")).details()
     assert isinstance(simple, SimpleMetricDetails)
     assert simple.entities == (make_ref("sales.queries", SemanticKind.ENTITY),)
     assert simple.effective_entities == simple.entities
@@ -1372,11 +1375,11 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
         ("measure", make_ref("sales.queries.cache_bytes", SemanticKind.MEASURE)),
     )
 
-    count = catalog.require(ms.Ref.metric("sales.query_count")).details()
+    count = catalog.require(ms.ref.metric("sales.query_count")).details()
     assert isinstance(count, SimpleMetricDetails)
     assert count.measure_lineage == ()
 
-    ratio = catalog.require(ms.Ref.metric("sales.cache_hit_rate")).details()
+    ratio = catalog.require(ms.ref.metric("sales.cache_hit_rate")).details()
     assert isinstance(ratio, DerivedMetricDetails)
     assert ratio.entities == ()
     assert ratio.effective_entities == (make_ref("sales.queries", SemanticKind.ENTITY),)
@@ -1391,12 +1394,12 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
         ("denominator", make_ref("sales.queries.input_bytes", SemanticKind.MEASURE)),
     )
 
-    weighted = catalog.require(ms.Ref.metric("sales.weighted_cache")).details()
+    weighted = catalog.require(ms.ref.metric("sales.weighted_cache")).details()
     assert isinstance(weighted, SimpleMetricDetails)
     assert tuple(role for role, _ref in weighted.measure_lineage) == ("value", "weight")
     weighted_ref = make_ref("sales.weighted_cache", SemanticKind.METRIC)
     for measure_id in ("sales.queries.cache_bytes", "sales.queries.input_bytes"):
-        measure = catalog.require(ms.Ref.measure(measure_id)).details()
+        measure = catalog.require(ms.ref.measure(measure_id)).details()
         assert weighted_ref in measure.dependents
 
     expected_lineage_by_metric = {
@@ -1418,7 +1421,7 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
     assert "candidate_time_dimensions: time_dimension:sales.queries.occurred_at" in rendered
     assert "measure_lineage: numerator=measure:sales.queries.cache_bytes" in rendered
 
-    metric_card = catalog.require(ms.Ref.metric("sales.cache_hit_rate")).render()
+    metric_card = catalog.require(ms.ref.metric("sales.cache_hit_rate")).render()
     assert "composition: ratio (2 components)" in metric_card
     assert "analysis_scope: 1 effective entities; 1 candidate dimensions;" in metric_card
     assert ".details().show() for definition, candidate axes, and measure lineage" in metric_card
@@ -1430,7 +1433,7 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.time_dimension(\n"
                 "    entity=orders,\n"
                 "    granularity='minute',\n"
@@ -1443,7 +1446,7 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.require(ms.Ref.time_dimension("sales.orders.sampled_at")).details()
+    details = catalog.require(ms.ref.time_dimension("sales.orders.sampled_at")).details()
 
     assert isinstance(details, TimeDimensionDetails)
     assert details.sample_interval is not None
@@ -1456,7 +1459,7 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.time_dimension(\n"
                 "    entity=orders,\n"
                 "    granularity='minute',\n"
@@ -1473,7 +1476,7 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.require(ms.Ref.time_dimension("sales.orders.sampled_at")).details()
+    details = catalog.require(ms.ref.time_dimension("sales.orders.sampled_at")).details()
 
     assert isinstance(details, TimeDimensionDetails)
     assert details.parse_kind == "strptime"
@@ -1483,7 +1486,7 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
 
 def test_catalog_get_model_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.domain("sales"))
+    obj = catalog.require(ms.ref.domain("sales"))
     d = obj.details()
     assert isinstance(d, DomainDetails)
     child_refs = {r.path for r in d.children}
@@ -1493,7 +1496,7 @@ def test_catalog_get_model_details_children_include_metrics(semantic_project_fac
 
 def test_catalog_get_dataset_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.Ref.entity("sales.orders"))
+    obj = catalog.require(ms.ref.entity("sales.orders"))
     d = obj.details()
     assert isinstance(d, EntityDetails)
     child_refs = {r.path for r in d.children}
@@ -1506,7 +1509,7 @@ def test_catalog_get_dataset_details_children_include_metrics(semantic_project_f
 
 def test_catalog_readiness_accepts_exact_refs(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    report = catalog.readiness(refs=[ms.Ref.metric("sales.revenue")])
+    report = catalog.readiness(refs=[ms.ref.metric("sales.revenue")])
 
     assert report.status in {"ready", "ready_with_warnings", "blocked"}
 
@@ -1514,7 +1517,7 @@ def test_catalog_readiness_accepts_exact_refs(semantic_project_factory) -> None:
 def test_catalog_verify_exact_ref_returns_passed_result(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    result = catalog.verify(ms.Ref.domain("sales"))
+    result = catalog.verify(ms.ref.domain("sales"))
 
     assert result.status == "passed"
 
@@ -1605,7 +1608,7 @@ def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
         textwrap.dedent("""\
             import marivo.datasource as md
             import marivo.semantic as ms
-            orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+            orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
             @ms.dimension(entity=orders)
             def region(table):
@@ -1631,13 +1634,13 @@ def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
         """)
     )
     with pytest.raises(SemanticRuntimeError):
-        catalog.require(ms.Ref.metric("sales.profit"))
+        catalog.require(ms.ref.metric("sales.profit"))
 
     reloaded = ms.load(workspace_dir=project.workspace_dir)
 
     with pytest.raises(SemanticRuntimeError):
-        catalog.require(ms.Ref.metric("sales.profit"))
-    assert reloaded.require(ms.Ref.metric("sales.profit")).ref.path == "sales.profit"
+        catalog.require(ms.ref.metric("sales.profit"))
+    assert reloaded.require(ms.ref.metric("sales.profit")).ref.path == "sales.profit"
     assert reloaded is not catalog
 
 
@@ -1649,7 +1652,7 @@ def test_ms_load_can_recreate_filtered_domain_scope(semantic_project_factory):
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource=ms.Ref.datasource('warehouse'), source=md.table('events'))\n"
+                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
             ),
         },
         load=False,
@@ -1672,7 +1675,7 @@ def test_ms_load_with_domains_returns_different_filtered_catalog(semantic_projec
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource=ms.Ref.datasource('warehouse'), source=md.table('events'))\n"
+                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
             ),
         },
         load=False,
@@ -1728,7 +1731,7 @@ def _preview_catalog_and_snapshot(semantic_project_factory, tmp_path, monkeypatc
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("order_id", "amount", "region", "created_at"),
     )
@@ -1742,7 +1745,7 @@ def test_catalog_preview_field_preserves_context_columns(
         semantic_project_factory, tmp_path, monkeypatch
     )
     preview = catalog.preview(
-        catalog.require(ms.Ref.dimension("sales.orders.region")).ref,
+        catalog.require(ms.ref.dimension("sales.orders.region")).ref,
         using=snapshot,
         context_columns=("order_id",),
         limit=2,
@@ -1759,7 +1762,7 @@ def test_catalog_preview_metric_preserves_approximate_warning(
         semantic_project_factory, tmp_path, monkeypatch
     )
     preview = catalog.preview(
-        catalog.require(ms.Ref.metric("sales.revenue")).ref,
+        catalog.require(ms.ref.metric("sales.revenue")).ref,
         using=snapshot,
         limit=2,
     )
@@ -1791,7 +1794,7 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
 
                 orders = ms.entity(
                     name="orders",
-                    datasource=ms.Ref.datasource("warehouse"),
+                    datasource=ms.ref.datasource("warehouse"),
                     source=md.table("orders"),
                 )
                 item_count = ms.measure_column(
@@ -1826,13 +1829,13 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
         scope=md.unpruned(max_rows=3, timeout_seconds=30),
         columns=("amount", "item_count", "status"),
     )
 
     preview = catalog.preview(
-        catalog.require(ms.Ref.metric("sales.paid_price_index")).ref,
+        catalog.require(ms.ref.metric("sales.paid_price_index")).ref,
         using=snapshot,
     )
 
@@ -1848,7 +1851,7 @@ def test_catalog_preview_context_columns_rejected_for_metric(
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
-            catalog.require(ms.Ref.metric("sales.revenue")).ref,
+            catalog.require(ms.ref.metric("sales.revenue")).ref,
             using=snapshot,
             context_columns=("order_id",),
         )
@@ -1870,7 +1873,7 @@ def _write_minimal_project(tmp_path) -> None:
     )
     (semantic / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
@@ -1893,7 +1896,7 @@ def _write_multi_domain_project(tmp_path) -> None:
     )
     (sales / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
@@ -1906,7 +1909,7 @@ def _write_multi_domain_project(tmp_path) -> None:
     )
     (ops / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "events = ms.entity(name='events', datasource=ms.Ref.datasource('warehouse'), source=md.table('events'))\n"
+        "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
     )
 
 
@@ -1925,7 +1928,7 @@ def test_catalog_readiness_accepts_semantic_ref_values(semantic_project_factory)
     from marivo.semantic.readiness import ReadinessReport
 
     catalog = _make_catalog(semantic_project_factory)
-    revenue_ref = catalog.require(ms.Ref.metric("sales.revenue")).ref
+    revenue_ref = catalog.require(ms.ref.metric("sales.revenue")).ref
     report = catalog.readiness(refs=[revenue_ref])
     assert isinstance(report, ReadinessReport)
 
@@ -1945,15 +1948,15 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     )
     catalog = SemanticCatalog(project)
 
-    domain_report = catalog.readiness(refs=[ms.Ref.domain("sales")])
-    datasource_report = catalog.readiness(refs=[ms.Ref.datasource("sales")])
+    domain_report = catalog.readiness(refs=[ms.ref.domain("sales")])
+    datasource_report = catalog.readiness(refs=[ms.ref.datasource("sales")])
     all_report = catalog.readiness()
 
-    assert domain_report.analysis_ready_refs == (ms.Ref.domain("sales"),)
-    assert datasource_report.analysis_ready_refs == (ms.Ref.datasource("sales"),)
+    assert domain_report.analysis_ready_refs == (ms.ref.domain("sales"),)
+    assert datasource_report.analysis_ready_refs == (ms.ref.datasource("sales"),)
     assert set(all_report.analysis_ready_refs) == {
-        ms.Ref.domain("sales"),
-        ms.Ref.datasource("sales"),
+        ms.ref.domain("sales"),
+        ms.ref.datasource("sales"),
     }
 
 
@@ -1968,7 +1971,7 @@ def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(
     semantic_project_factory,
 ):
     catalog = _make_catalog(semantic_project_factory)
-    revenue = ms.Ref.metric("sales.revenue")
+    revenue = ms.ref.metric("sales.revenue")
     with pytest.raises(SemanticRuntimeError, match="non-empty"):
         catalog.readiness(refs=[])
     with pytest.raises(SemanticRuntimeError, match="unique exact refs") as exc_info:
@@ -1989,7 +1992,7 @@ def test_catalog_verify_object_static_domain_passes(semantic_project_factory):
     from marivo.semantic.dtos import VerifyResult
 
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify(catalog.require(ms.Ref.domain("sales")).ref)
+    result = catalog.verify(catalog.require(ms.ref.domain("sales")).ref)
     assert isinstance(result, VerifyResult)
     assert result.status == "passed"
     assert result.ref == "sales"
@@ -2000,7 +2003,7 @@ def test_catalog_verify_object_static_dimension_passes(semantic_project_factory)
     from marivo.semantic.dtos import VerifyResult
 
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify(catalog.require(ms.Ref.dimension("sales.orders.region")).ref)
+    result = catalog.verify(catalog.require(ms.ref.dimension("sales.orders.region")).ref)
     assert isinstance(result, VerifyResult)
     assert result.status == "passed"
     assert result.kind == "dimension"
@@ -2020,7 +2023,7 @@ def test_catalog_verify_entity_level_metric_ref_is_rejected_by_exact_ref_grammar
     semantic_project_factory,
 ):
     with pytest.raises(ValueError, match="exactly 2 segments"):
-        ms.Ref.metric("sales.orders.revenue")
+        ms.ref.metric("sales.orders.revenue")
 
 
 def test_catalog_verify_uses_immutable_compiled_snapshot_after_source_changes(
@@ -2034,7 +2037,7 @@ def test_catalog_verify_uses_immutable_compiled_snapshot_after_source_changes(
             "sales/metrics.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive')\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -2043,7 +2046,7 @@ def test_catalog_verify_uses_immutable_compiled_snapshot_after_source_changes(
         }
     )
     catalog = SemanticCatalog(project)
-    revenue_ratio = catalog.require(ms.Ref.metric("sales.revenue_ratio"))
+    revenue_ratio = catalog.require(ms.ref.metric("sales.revenue_ratio"))
     (tmp_path / "models/semantic/sales/metrics.py").write_text(
         "raise RuntimeError('intentional post-catalog load failure')\n"
     )
@@ -2072,7 +2075,7 @@ def test_metric_ref_rejects_entity_level_path(
 ):
     del semantic_project_factory
     with pytest.raises(ValueError, match="exactly 2 segments"):
-        ms.Ref.metric("sales.orders.revenue")
+        ms.ref.metric("sales.orders.revenue")
 
 
 def test_dimension_ref_rejects_domain_level_path(
@@ -2080,7 +2083,7 @@ def test_dimension_ref_rejects_domain_level_path(
 ):
     del semantic_project_factory
     with pytest.raises(ValueError, match="exactly 3 segments"):
-        ms.Ref.dimension("sales.region")
+        ms.ref.dimension("sales.region")
 
 
 # --- metric unit passthrough ---
@@ -2090,7 +2093,7 @@ _UNIT_DATASETS_PY = (
     "import marivo.datasource as md\nimport marivo.semantic as ms\n"
     "import marivo.datasource as md\n"
     "\n"
-    "warehouse = ms.Ref.datasource('warehouse')\n"
+    "warehouse = ms.ref.datasource('warehouse')\n"
     "\n"
     "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
     "\n"
@@ -2112,14 +2115,14 @@ def test_catalog_metric_details_unit_passthrough(semantic_project_factory):
         }
     )
     catalog = SemanticCatalog(project)
-    d = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    d = catalog.require(ms.ref.metric("sales.revenue")).details()
     assert isinstance(d, MetricDetails)
     assert d.unit == "CNY"
 
 
 def test_catalog_metric_details_unit_defaults_to_none(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    d = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    d = catalog.require(ms.ref.metric("sales.revenue")).details()
     assert d.unit is None
 
 

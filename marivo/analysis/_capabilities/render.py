@@ -45,17 +45,17 @@ if TYPE_CHECKING:
 # page states the import so examples run from a cold start (see issue #22).
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
 
-# Focused help pages that teach exact ``ms.Ref.<kind>(path)`` construction.
+# Focused help pages that teach exact ``ms.ref.<kind>(path)`` construction.
 _REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.require"})
 
 # Kind -> semantic path structure for the sole sealed ``ms.Ref`` type.
 _REF_ID_FORMATS: tuple[tuple[SemanticKind, str], ...] = (
-    (SemanticKind.METRIC, 'ms.Ref.metric("<domain>.<metric_name>")'),
-    (SemanticKind.DIMENSION, 'ms.Ref.dimension("<domain>.<entity>.<dimension_name>")'),
-    (SemanticKind.TIME_DIMENSION, 'ms.Ref.time_dimension("<domain>.<entity>.<dimension_name>")'),
-    (SemanticKind.MEASURE, 'ms.Ref.measure("<domain>.<entity>.<measure_name>")'),
-    (SemanticKind.ENTITY, 'ms.Ref.entity("<domain>.<entity_name>")'),
-    (SemanticKind.DOMAIN, 'ms.Ref.domain("<domain_name>")'),
+    (SemanticKind.METRIC, 'ms.ref.metric("<domain>.<metric_name>")'),
+    (SemanticKind.DIMENSION, 'ms.ref.dimension("<domain>.<entity>.<dimension_name>")'),
+    (SemanticKind.TIME_DIMENSION, 'ms.ref.time_dimension("<domain>.<entity>.<dimension_name>")'),
+    (SemanticKind.MEASURE, 'ms.ref.measure("<domain>.<entity>.<measure_name>")'),
+    (SemanticKind.ENTITY, 'ms.ref.entity("<domain>.<entity_name>")'),
+    (SemanticKind.DOMAIN, 'ms.ref.domain("<domain_name>")'),
 )
 
 

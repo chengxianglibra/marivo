@@ -39,7 +39,7 @@ def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
         }
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.domain("sales"))
+    result = SemanticCatalog(project).verify(ms.ref.domain("sales"))
 
     assert result.status == "passed"
     assert result.kind == "domain"
@@ -76,13 +76,13 @@ def test_verify_object_does_not_require_datasource_connectivity(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('missing'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('missing'), source=md.table('orders'))\n"
             )
         },
         workspace_dir=tmp_path,
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
+    result = SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
 
     assert result.status == "passed"
     assert result.validation_level == "static"
@@ -107,13 +107,13 @@ def test_entity_verification_is_static(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
             )
         },
         workspace_dir=tmp_path,
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
+    result = SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
 
     assert query_spy.user_data_queries == 0
     assert result.status == "passed"
@@ -149,7 +149,7 @@ def test_catalog_verification_is_static_for_every_object_kind(
             "sales/objects.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = ms.Ref.datasource('warehouse')\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "customers = ms.entity(name='customers', datasource=warehouse, source=md.table('customers'))\n"
                 "order_customer_id = ms.dimension_column(name='customer_id', entity=orders, column='customer_id')\n"
@@ -165,15 +165,15 @@ def test_catalog_verification_is_static_for_every_object_kind(
     )
     catalog = SemanticCatalog(project)
     refs_and_kinds = (
-        (ms.Ref.domain("sales"), "domain"),
-        (ms.Ref.datasource("warehouse"), "datasource"),
-        (ms.Ref.entity("sales.orders"), "entity"),
-        (ms.Ref.dimension("sales.orders.customer_id"), "dimension"),
-        (ms.Ref.time_dimension("sales.orders.created_at"), "time_dimension"),
-        (ms.Ref.measure("sales.orders.amount"), "measure"),
-        (ms.Ref.metric("sales.revenue"), "metric"),
-        (ms.Ref.metric("sales.revenue_ratio"), "derived_metric"),
-        (ms.Ref.relationship("sales.orders_to_customers"), "relationship"),
+        (ms.ref.domain("sales"), "domain"),
+        (ms.ref.datasource("warehouse"), "datasource"),
+        (ms.ref.entity("sales.orders"), "entity"),
+        (ms.ref.dimension("sales.orders.customer_id"), "dimension"),
+        (ms.ref.time_dimension("sales.orders.created_at"), "time_dimension"),
+        (ms.ref.measure("sales.orders.amount"), "measure"),
+        (ms.ref.metric("sales.revenue"), "metric"),
+        (ms.ref.metric("sales.revenue_ratio"), "derived_metric"),
+        (ms.ref.relationship("sales.orders_to_customers"), "relationship"),
     )
 
     for ref, kind in refs_and_kinds:
@@ -195,7 +195,7 @@ def test_verify_kind_lookup_preserves_exact_kind_when_registry_paths_collide(
             "sales/objects.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')\n"
                 "ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
             ),
@@ -217,8 +217,8 @@ def test_verify_kind_lookup_preserves_exact_kind_when_registry_paths_collide(
     collision.metrics["sales.orders"] = collision.metrics["sales.revenue"]
     project._registry = collision
 
-    entity_result = project._verify(ms.Ref.entity("sales.orders"))
-    metric_result = project._verify(ms.Ref.metric("sales.orders"))
+    entity_result = project._verify(ms.ref.entity("sales.orders"))
+    metric_result = project._verify(ms.ref.metric("sales.orders"))
 
     assert entity_result.kind == "entity"
     assert metric_result.status == "passed"
@@ -252,7 +252,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -271,7 +271,7 @@ def test_verify_time_dimension_passes_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result = SemanticCatalog(project).verify(ms.Ref.time_dimension("sales.orders.dt"))
+    result = SemanticCatalog(project).verify(ms.ref.time_dimension("sales.orders.dt"))
 
     assert result.status == "passed"
     assert result.kind == "time_dimension"
@@ -284,7 +284,7 @@ def test_verify_metric_passes_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result = SemanticCatalog(project).verify(ms.Ref.metric("sales.revenue"))
+    result = SemanticCatalog(project).verify(ms.ref.metric("sales.revenue"))
 
     assert result.status == "passed"
     assert result.kind == "metric"
@@ -300,7 +300,7 @@ def test_verify_metric_handles_semi_additive_without_persistence(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -312,7 +312,7 @@ def test_verify_metric_handles_semi_additive_without_persistence(
         }
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.metric("sales.inventory"))
+    result = SemanticCatalog(project).verify(ms.ref.metric("sales.inventory"))
 
     assert result.status == "passed"
     assert result.kind == "metric"
@@ -325,11 +325,11 @@ def test_verify_object_is_repeatable_without_persistence(
 ) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result1 = SemanticCatalog(project).verify(ms.Ref.metric("sales.revenue"))
+    result1 = SemanticCatalog(project).verify(ms.ref.metric("sales.revenue"))
     assert result1.status == "passed"
     assert not (Path(project.state_root) / "evidence").exists()
 
-    result2 = SemanticCatalog(project).verify(ms.Ref.metric("sales.revenue"))
+    result2 = SemanticCatalog(project).verify(ms.ref.metric("sales.revenue"))
     assert result2.status == "passed"
     assert not (Path(project.state_root) / "evidence").exists()
 
@@ -352,7 +352,7 @@ def test_verify_time_dimension_reloads_changed_declaration_without_stale_state(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -362,7 +362,7 @@ def test_verify_time_dimension_reloads_changed_declaration_without_stale_state(
         workspace_dir=tmp_path,
     )
 
-    result1 = SemanticCatalog(project).verify(ms.Ref.time_dimension("sales.orders.dt"))
+    result1 = SemanticCatalog(project).verify(ms.ref.time_dimension("sales.orders.dt"))
     assert result1.status == "passed"
 
     # Re-author with a different granularity. Verification should read the
@@ -372,7 +372,7 @@ def test_verify_time_dimension_reloads_changed_declaration_without_stale_state(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='month', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -382,7 +382,7 @@ def test_verify_time_dimension_reloads_changed_declaration_without_stale_state(
         workspace_dir=tmp_path,
     )
 
-    result2 = SemanticCatalog(project).verify(ms.Ref.time_dimension("sales.orders.dt"))
+    result2 = SemanticCatalog(project).verify(ms.ref.time_dimension("sales.orders.dt"))
     assert result2.status == "passed"
     assert not (Path(project.state_root) / "evidence").exists()
 
@@ -405,7 +405,7 @@ def test_verify_dimension_passes_without_audit_side_effects(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
@@ -415,7 +415,7 @@ def test_verify_dimension_passes_without_audit_side_effects(
         workspace_dir=tmp_path,
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.dimension("sales.orders.region"))
+    result = SemanticCatalog(project).verify(ms.ref.dimension("sales.orders.region"))
     assert result.status == "passed"
     assert result.kind == "dimension"
     assert not hasattr(result, "auto" + "_recorded")
@@ -440,7 +440,7 @@ def test_verify_derived_metric_passes_without_audit_side_effects(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(orders):\n"
@@ -455,7 +455,7 @@ def test_verify_derived_metric_passes_without_audit_side_effects(
         workspace_dir=tmp_path,
     )
 
-    result = SemanticCatalog(project).verify(ms.Ref.metric("sales.revenue_ratio"))
+    result = SemanticCatalog(project).verify(ms.ref.metric("sales.revenue_ratio"))
     assert result.status == "passed"
     assert result.kind == "derived_metric"
     assert not hasattr(result, "auto" + "_recorded")
@@ -480,7 +480,7 @@ def test_readiness_does_not_require_audit_decisions(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'), ai_context=ms.ai_context(business_definition='One row per order.', "
                 "guardrails=['Exclude test orders.']))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'), "
@@ -499,5 +499,7 @@ def test_readiness_does_not_require_audit_decisions(
     report = project.readiness()
     blocker_kinds = {b.kind for b in report.blockers}
     assert "missing_business_definition" not in blocker_kinds
-    assert report.status == "blocked"
-    assert blocker_kinds == {"snapshot_missing"}
+    assert report.status == "ready_with_warnings"
+    assert not blocker_kinds
+    assert {warning.kind for warning in report.warnings} == {"snapshot_missing"}
+    assert ms.ref.metric("sales.revenue") in report.analysis_ready_refs

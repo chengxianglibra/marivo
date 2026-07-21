@@ -19,7 +19,16 @@ from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, Tab
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
 from marivo.preview import PreviewCoverage, PreviewResult
-from marivo.refs import EntityKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo.refs import (
+    EntityKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    SemanticKindTag,
+)
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.semantic._persistence import EntitySnapshotBindingV1
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import EntityIR, composition_components
@@ -259,12 +268,12 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
 
 def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     factory = {
-        SemanticKind.ENTITY: Ref.entity,
-        SemanticKind.DIMENSION: Ref.dimension,
-        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-        SemanticKind.MEASURE: Ref.measure,
-        SemanticKind.METRIC: Ref.metric,
-        SemanticKind.RELATIONSHIP: Ref.relationship,
+        SemanticKind.ENTITY: ref_factory.entity,
+        SemanticKind.DIMENSION: ref_factory.dimension,
+        SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+        SemanticKind.MEASURE: ref_factory.measure,
+        SemanticKind.METRIC: ref_factory.metric,
+        SemanticKind.RELATIONSHIP: ref_factory.relationship,
     }.get(kind)
     if factory is None:
         raise AssertionError(f"unsupported preview ref kind: {kind}")
@@ -307,7 +316,7 @@ def _source_call(source: object) -> str:
 def _inspect_call(entity: EntityIR) -> str:
     datasource = entity.datasource
     source = entity.source
-    return f"md.inspect(ms.Ref.datasource({_quoted(datasource)}), {_source_call(source)})"
+    return f"md.inspect(ms.ref.datasource({_quoted(datasource)}), {_source_call(source)})"
 
 
 def _snapshot_sample_call(entity: EntityIR, snapshot: DiscoverySnapshot) -> str:
@@ -349,7 +358,7 @@ def _matching_snapshot_payloads(
         entity = registry.entities[entity_id]
         datasource = registry.datasources[entity.datasource]
         snapshots = store.valid_snapshots(
-            datasource=Ref.datasource(entity.datasource),
+            datasource=ref_factory.datasource(entity.datasource),
             datasource_fingerprint=datasource_spec_fingerprint(datasource),
             source=entity.source,
             now=now,
@@ -428,7 +437,7 @@ def preview_evidence_requirement(
                     and snapshot_id in snapshot_ids_by_entity[entity_id]
                     and isinstance(binding, dict)
                     and binding.get("entity_ref")
-                    == RefPayloadV1.from_ref(Ref.entity(entity_id)).to_dict()
+                    == RefPayloadV1.from_ref(ref_factory.entity(entity_id)).to_dict()
                     for entity_id, snapshot_id, binding in zip(
                         entity_ids,
                         snapshot_ids,
@@ -446,7 +455,7 @@ def preview_evidence_requirement(
             expected_bindings = (
                 tuple(
                     EntitySnapshotBindingV1(
-                        entity_ref=RefPayloadV1.from_ref(Ref.entity(entity_id)),
+                        entity_ref=RefPayloadV1.from_ref(ref_factory.entity(entity_id)),
                         snapshot_id=snapshot.id,
                     )
                     for entity_id, snapshot in zip(
@@ -507,12 +516,12 @@ def preview_evidence_requirement(
         entity_id: _snapshot_sample_call(registry.entities[entity_id], snapshots[entity_id])
         for entity_id in entity_ids
     }
-    typed_ref = f"ms.Ref.{kind.value}({_quoted(ref)})"
+    typed_ref = f"ms.ref.{kind.value}({_quoted(ref)})"
     if len(entity_ids) == 1:
         using = sample_calls[entity_ids[0]]
     else:
         mapping_items = "\n".join(
-            f"        ms.Ref.entity({_quoted(entity_id)}): {sample_calls[entity_id]},"
+            f"        ms.ref.entity({_quoted(entity_id)}): {sample_calls[entity_id]},"
             for entity_id in entity_ids
         )
         using = "{\n" + mapping_items + "\n    }"
@@ -543,7 +552,7 @@ def _validate_snapshot(
             f"Snapshot {snapshot.id!r} belongs to a different project.",
             details={"entity": entity_id},
         )
-    expected_datasource = Ref.datasource(entity.datasource)
+    expected_datasource = ref_factory.datasource(entity.datasource)
     if snapshot.datasource != expected_datasource:
         _blocked(
             preview_ref,
@@ -711,7 +720,7 @@ def normalize_preview_bindings(
     checked_ref = _exact_semantic_ref(ref, kind)
     return NormalizedPreviewBindings(
         checked_ref=checked_ref,
-        entity_refs=tuple(Ref.entity(entity_id) for entity_id in entity_ids),
+        entity_refs=tuple(ref_factory.entity(entity_id) for entity_id in entity_ids),
         snapshots=snapshots,
         backend=datasource.backend_type,
         datasource_id=datasource_ids[0],
@@ -819,7 +828,8 @@ def normalize_preview_batch_bindings(
             ref_using = by_entity[dependency_entities[0]]
         else:
             ref_using = {
-                Ref.entity(entity_id): by_entity[entity_id] for entity_id in dependency_entities
+                ref_factory.entity(entity_id): by_entity[entity_id]
+                for entity_id in dependency_entities
             }
         normalized.append(
             normalize_preview_bindings(

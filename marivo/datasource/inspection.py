@@ -611,7 +611,7 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
     """Inspect a physical source through metadata and system-catalog hooks only.
 
     Args:
-        datasource: Typed datasource reference from ``ms.Ref.datasource(...)``.
+        datasource: Typed datasource reference from ``ms.ref.datasource(...)``.
         source: Typed table, Parquet, CSV, or JSON source descriptor.
 
     Returns:
@@ -619,7 +619,7 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         execution-capability evidence.
 
     Example:
-        ``md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))``
+        ``md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))``
 
     Constraints:
         Executes no user-data query. CSV and JSON paths are never opened and
@@ -628,7 +628,7 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
     if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
         raise TypeError(
             "datasource must be Ref[datasource] from a datasource spec's .ref or "
-            "Ref.datasource('warehouse')."
+            "ref_factory.datasource('warehouse')."
         )
     if not isinstance(source, TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR):
         raise TypeError("source must be built by md.table, md.parquet, md.csv, or md.json.")

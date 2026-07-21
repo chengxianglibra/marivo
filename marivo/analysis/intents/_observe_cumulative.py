@@ -43,7 +43,7 @@ from marivo.analysis.intents._observe_planner_types import CumulativePhysicalLea
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticKind
 
 _WEIGHTED_MEAN_NUMERATOR = "__weighted_mean_numerator"
@@ -79,8 +79,8 @@ def _flow_aggregations(
             )
         }
     numerator, weight, _value = resolver.weighted_mean_aggregates_on(
-        Ref.measure(spec.value),
-        Ref.measure(spec.weight),
+        ref_factory.measure(spec.value),
+        ref_factory.measure(spec.weight),
         table,
     )
     return {
@@ -110,7 +110,7 @@ def _count_distinct_key_expr(resolver: Any, metric_ir: Any, table: Any) -> Any:
             message="cumulative count_distinct requires a measure-backed base metric",
             context={"metric": getattr(metric_ir, "semantic_id", None)},
         )
-    return resolver.measure_on(Ref.measure(measure_ref), table)
+    return resolver.measure_on(ref_factory.measure(measure_ref), table)
 
 
 def _apply_where_to_raw_table(

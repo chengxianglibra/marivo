@@ -119,7 +119,7 @@ def _write_project_with_json_entity(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         f"events = ms.entity(name='events', datasource=warehouse, source=md.json({source_args}))\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum', unit='USD')\n"
@@ -136,7 +136,7 @@ def test_verify_object_statically_validates_json_entity(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.events"))
+    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.events"))
 
     assert result.status == "passed"
     assert result.validation_level == "static"
@@ -154,7 +154,7 @@ def test_verify_object_statically_validates_json_entity_with_auto_format(tmp_pat
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.events"))
+    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.events"))
 
     assert result.status == "passed"
     assert result.validation_level == "static"

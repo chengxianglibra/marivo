@@ -42,7 +42,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _OBJECTS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):

@@ -41,7 +41,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/model.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def country(table):\n"
                 "    return table.country\n"
@@ -61,7 +61,7 @@ def test_normalize_metric_accepts_exact_ref_and_rejects_loaded_object(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     assert normalize_metric_input(catalog, metric.ref) == "sales.revenue"
     with pytest.raises(SemanticKindMismatchError, match=r"exact Ref\[metric\]") as exc:
@@ -87,7 +87,7 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
 
 def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    dim = catalog.require(ms.Ref.dimension("sales.orders.country"))
+    dim = catalog.require(ms.ref.dimension("sales.orders.country"))
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, dim.ref)
@@ -101,7 +101,7 @@ def test_metric_factory_prevents_forged_metric_ref_to_dimension(
 ) -> None:
     _catalog(semantic_project_factory)
     with pytest.raises(ValueError, match="exactly 2 segments"):
-        ms.Ref.metric("sales.orders.country")
+        ms.ref.metric("sales.orders.country")
 
 
 def test_normalize_metric_unknown_ref_raises_metric_not_found(semantic_project_factory) -> None:
@@ -127,18 +127,18 @@ def test_normalize_dimension_accepts_dimension_and_time_dimension(semantic_proje
 
     assert (
         normalize_dimension_input(
-            catalog, catalog.require(ms.Ref.dimension("sales.orders.country")).ref
+            catalog, catalog.require(ms.ref.dimension("sales.orders.country")).ref
         )
         == "sales.orders.country"
     )
     assert (
         normalize_dimension_input(
-            catalog, catalog.require(ms.Ref.time_dimension("sales.orders.ds")).ref
+            catalog, catalog.require(ms.ref.time_dimension("sales.orders.ds")).ref
         )
         == "sales.orders.ds"
     )
     assert normalize_dimension_inputs(
-        catalog, [catalog.require(ms.Ref.dimension("sales.orders.country")).ref]
+        catalog, [catalog.require(ms.ref.dimension("sales.orders.country")).ref]
     ) == ["sales.orders.country"]
 
 
@@ -147,7 +147,7 @@ def test_dimension_factory_prevents_forged_dimension_ref_to_metric(
 ) -> None:
     _catalog(semantic_project_factory)
     with pytest.raises(ValueError, match="exactly 3 segments"):
-        ms.Ref.dimension("sales.revenue")
+        ms.ref.dimension("sales.revenue")
 
 
 def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_dimensions(
@@ -158,7 +158,7 @@ def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_dimension_boundary(
-            empty_catalog, source_catalog.require(ms.Ref.metric("sales.revenue"))
+            empty_catalog, source_catalog.require(ms.ref.metric("sales.revenue"))
         )
 
     assert exc.value._context["expected_kind"] == "dimension or time_dimension"
@@ -186,8 +186,8 @@ def test_normalize_dimension_unknown_ref_raises_analysis_error(
 
 def test_normalize_where_inputs_returns_plain_string_keys(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    country = catalog.require(ms.Ref.dimension("sales.orders.country")).ref
-    ds = catalog.require(ms.Ref.time_dimension("sales.orders.ds")).ref
+    country = catalog.require(ms.ref.dimension("sales.orders.country")).ref
+    ds = catalog.require(ms.ref.time_dimension("sales.orders.ds")).ref
 
     assert normalize_where_inputs(
         catalog, {country: "US", ds: {"op": ">=", "value": "2026-01-01"}}
@@ -270,7 +270,7 @@ def test_time_dimension_argument_uses_correct_label(semantic_project_factory) ->
     """When argument='time_dimension', the error must say 'time dimension',
     not 'catalog dimension'."""
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")
@@ -284,7 +284,7 @@ def test_time_dimension_argument_includes_repair_guidance(semantic_project_facto
     """A wrong-kind input for the time_dimension argument must include repair
     guidance with copyable catalog snippets in both details and str(error)."""
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")
@@ -313,7 +313,7 @@ def test_dimension_argument_label_says_dimension_or_time_dimension(
     """When expected_kind='dimension', the error label should mention both
     'dimension' and 'time dimension' since both are accepted."""
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="dimension")
@@ -328,7 +328,7 @@ def test_wrong_kind_metric_includes_repair_and_available_ids(
     """A wrong-kind metric input must carry available_ids and repair guidance,
     and both must be surfaced in str(error)."""
     catalog = _catalog(semantic_project_factory)
-    dim = catalog.require(ms.Ref.dimension("sales.orders.country"))
+    dim = catalog.require(ms.ref.dimension("sales.orders.country"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_metric_input(catalog, dim.ref)
@@ -356,7 +356,7 @@ def test_repair_snippets_use_typed_collection_form(semantic_project_factory) -> 
     """Repair snippets must use typed collection form with placeholders,
     not the legacy catalog.list(...) form."""
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")

@@ -10,7 +10,16 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.refs import DomainKind, MetricKind, Ref, SemanticKind, TimeDimensionKind
+from marivo.refs import (
+    DomainKind,
+    MetricKind,
+    Ref,
+    SemanticKind,
+    TimeDimensionKind,
+)
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -169,7 +178,7 @@ def _derived(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
-    ref = Ref.metric(semantic_id)
+    ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
     ai_ctx = _build_ai_context(ai_context)

@@ -303,7 +303,7 @@ dt = ms.time_dimension_column(
 
 # 6. reload the typed object, verify statically, then preview against the snapshot
 catalog = ms.load()
-dt_ref = catalog.require(ms.Ref.time_dimension("sales.orders.order_date")).ref
+dt_ref = catalog.require(ms.ref.time_dimension("sales.orders.order_date")).ref
 catalog.verify(dt_ref).show()
 catalog.preview(dt_ref, using=snapshot).show()
 
@@ -329,8 +329,8 @@ artifact** ([frame/result interface simplification](../superpowers/specs/2026-06
 ```python
 session    = mv.session.get_or_create(name="revenue_drop")
 catalog    = session.catalog
-revenue    = catalog.require(ms.Ref.metric("sales.revenue")).ref
-created_at = catalog.require(ms.Ref.time_dimension("sales.orders.created_at")).ref
+revenue    = catalog.require(ms.ref.metric("sales.revenue")).ref
+created_at = catalog.require(ms.ref.time_dimension("sales.orders.created_at")).ref
 
 cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
 base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")

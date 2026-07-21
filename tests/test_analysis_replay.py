@@ -22,7 +22,7 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.runtime_metric import replay_payload
 from marivo.analysis.session._runtime import persist_job_record
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_delta_contract, make_test_metric_contract
 
 
@@ -126,7 +126,7 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
     frame = _metric_frame(
         session,
         params={
-            "replay_expression": replay_payload(Ref.metric("sales.revenue")),
+            "replay_expression": replay_payload(ref_factory.metric("sales.revenue")),
             "timescope": {
                 "original": {"start": "2026-07-01", "end": "2026-08-01"},
                 "resolved": {
@@ -142,12 +142,12 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == Ref.metric("sales.revenue")
+    assert replay.metric == ref_factory.metric("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
-    assert replay.time_dimension == Ref.time_dimension("sales.orders.created_at")
-    assert replay.dimensions == (Ref.dimension("sales.orders.region"),)
-    assert replay.slice_by == {Ref.dimension("sales.orders.region"): "US"}
+    assert replay.time_dimension == ref_factory.time_dimension("sales.orders.created_at")
+    assert replay.dimensions == (ref_factory.dimension("sales.orders.region"),)
+    assert replay.slice_by == {ref_factory.dimension("sales.orders.region"): "US"}
 
 
 def test_recover_observe_replay_requires_observe_params() -> None:
@@ -195,7 +195,7 @@ def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
 
 
 _OBSERVE_PARAMS: dict[str, object] = {
-    "replay_expression": replay_payload(Ref.metric("sales.revenue")),
+    "replay_expression": replay_payload(ref_factory.metric("sales.revenue")),
     "timescope": {
         "original": {"start": "2026-07-01", "end": "2026-08-01"},
         "resolved": {
@@ -285,12 +285,12 @@ def test_recover_observe_replay_falls_back_to_job_record() -> None:
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == Ref.metric("sales.revenue")
+    assert replay.metric == ref_factory.metric("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
-    assert replay.time_dimension == Ref.time_dimension("sales.orders.created_at")
-    assert replay.dimensions == (Ref.dimension("sales.orders.region"),)
-    assert replay.slice_by == {Ref.dimension("sales.orders.region"): "US"}
+    assert replay.time_dimension == ref_factory.time_dimension("sales.orders.created_at")
+    assert replay.dimensions == (ref_factory.dimension("sales.orders.region"),)
+    assert replay.slice_by == {ref_factory.dimension("sales.orders.region"): "US"}
 
 
 def test_observe_replay_with_dimensions_dedups_and_skips_time_dimension() -> None:
@@ -301,15 +301,15 @@ def test_observe_replay_with_dimensions_dedups_and_skips_time_dimension() -> Non
 
     result = replay.with_dimensions(
         [
-            Ref.dimension("sales.orders.region"),
-            Ref.dimension("sales.orders.platform"),
-            Ref.time_dimension("sales.orders.created_at"),
+            ref_factory.dimension("sales.orders.region"),
+            ref_factory.dimension("sales.orders.platform"),
+            ref_factory.time_dimension("sales.orders.created_at"),
         ]
     )
 
     assert result.dimensions == (
-        Ref.dimension("sales.orders.region"),
-        Ref.dimension("sales.orders.platform"),
+        ref_factory.dimension("sales.orders.region"),
+        ref_factory.dimension("sales.orders.platform"),
     )
 
 
@@ -318,7 +318,7 @@ def test_replay_uses_exact_dependency_digest_not_whole_catalog_fingerprint(
 ) -> None:
     session = mv.session.get_or_create(name="digest_replay")
     replay = ObserveReplay(
-        metric=Ref.metric("sales.revenue"),
+        metric=ref_factory.metric("sales.revenue"),
         time_scope=None,
         grain=None,
         dimensions=(),
@@ -345,7 +345,7 @@ def test_replay_stops_before_execution_when_dependency_digest_changes(
 ) -> None:
     session = mv.session.get_or_create(name="digest_drift")
     replay = ObserveReplay(
-        metric=Ref.metric("sales.revenue"),
+        metric=ref_factory.metric("sales.revenue"),
         time_scope=None,
         grain=None,
         dimensions=(),

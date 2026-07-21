@@ -66,7 +66,7 @@ def inspection(project_root: Path) -> SourceInspection:
     )
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
-    return md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    return md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
 
 def test_sample_return_annotation_is_runtime_resolvable() -> None:
@@ -358,7 +358,7 @@ def test_typed_csv_acquisition_uses_authored_schema(
     csv_path = project_root / "orders.csv"
     csv_path.write_text("order_id,ignored\n1,x\n2,y\n")
     inspection = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv(str(csv_path), schema={"order_id": "VARCHAR", "ignored": "VARCHAR"}),
     )
 
@@ -381,7 +381,7 @@ def test_profiles_preserve_integer_range(
     backend.raw_sql("INSERT INTO events VALUES (1, 10), (23, 20)")
     backend.disconnect()
     md.register(md.duckdb(name="events", path=str(path)), project_root=project_root)
-    inspection = md.inspect(ms.Ref.datasource("events"), md.table("events"))
+    inspection = md.inspect(ms.ref.datasource("events"), md.table("events"))
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=30),
@@ -415,7 +415,7 @@ def test_parquet_source_projection_remains_expression_only(
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
     source = md.parquet(str(parquet_path), columns=("order_id", "amount"))
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), source)
+    inspection = md.inspect(ms.ref.datasource("warehouse"), source)
 
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=30),

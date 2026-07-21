@@ -69,7 +69,7 @@ def inspection(project_root: Path) -> SourceInspection:
     backend.raw_sql("CREATE TABLE orders_copy AS SELECT * FROM orders")
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
-    return md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    return md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
 
 def _snapshot_path(project_root: Path, snapshot_id: str) -> Path:

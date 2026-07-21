@@ -6,16 +6,21 @@ from collections.abc import Callable
 from typing import cast
 
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.refs import ref as ref_factory
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
-    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.domain),
-    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.datasource),
-    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.entity),
-    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.dimension),
-    SemanticKind.TIME_DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.time_dimension),
-    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.measure),
-    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.metric),
-    SemanticKind.RELATIONSHIP: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.relationship),
+    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.domain),
+    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.datasource),
+    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.entity),
+    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.dimension),
+    SemanticKind.TIME_DIMENSION: cast(
+        "Callable[[str], Ref[SemanticKindTag]]", ref_factory.time_dimension
+    ),
+    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.measure),
+    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.metric),
+    SemanticKind.RELATIONSHIP: cast(
+        "Callable[[str], Ref[SemanticKindTag]]", ref_factory.relationship
+    ),
 }
 
 

@@ -67,7 +67,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         (*SUPPORTED_BACKEND_TYPES, "Ref[datasource]", "ref"),
         "Datasource spec names are global storage keys.",
         "Semantic declarations refer to datasources by stable kind-qualified ids.",
-        "Define specs with names like 'warehouse' and reference them with ms.Ref.datasource('warehouse').",
+        "Define specs with names like 'warehouse' and reference them with ms.ref.datasource('warehouse').",
     ),
     ConstraintId.DATASOURCE_BACKEND_TYPE_REQUIRED: _constraint(
         ConstraintId.DATASOURCE_BACKEND_TYPE_REQUIRED,

@@ -98,6 +98,7 @@ def test_all_list_matches_expected() -> None:
         "time_dimension_column",
         "aggregate",
         "ai_context",
+        "bind",
         "count",
         "cumulative",
         "from_sql",
@@ -113,6 +114,7 @@ def test_all_list_matches_expected() -> None:
         "relationship",
         "richness",
         "ratio",
+        "ref",
         "strptime",
         "weighted_mean",
         "snapshot",
@@ -504,60 +506,60 @@ def test_field_kind_is_str_enum() -> None:
 
 
 def test_dataset_ref() -> None:
-    ref = ms.Ref.entity("sales.orders")
+    ref = ms.ref.entity("sales.orders")
     assert ref.path == "sales.orders"
     assert ref.kind == SemanticKind.ENTITY
     assert repr(ref) == "Ref[entity](entity:sales.orders)"
 
 
 def test_field_ref() -> None:
-    ref = ms.Ref.dimension("sales.orders.amount")
+    ref = ms.ref.dimension("sales.orders.amount")
     assert ref.path == "sales.orders.amount"
     assert ref.kind == SemanticKind.DIMENSION
 
 
-def test_field_ref_callable_without_resolver_raises() -> None:
-    ref = ms.Ref.dimension("sales.orders.amount")
+def test_field_ref_bind_without_context_raises() -> None:
+    ref = ms.ref.dimension("sales.orders.amount")
     with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
-        ref(None)
+        ms.bind(ref, None)  # type: ignore[arg-type]
     assert exc_info.value.kind == "binding_context_missing"
 
 
 def test_time_field_ref() -> None:
-    ref = ms.Ref.time_dimension("sales.orders.order_date")
+    ref = ms.ref.time_dimension("sales.orders.order_date")
     assert ref.path == "sales.orders.order_date"
     assert ref.kind == SemanticKind.TIME_DIMENSION
 
 
-def test_time_field_ref_callable_without_resolver_raises() -> None:
-    ref = ms.Ref.time_dimension("sales.orders.order_date")
+def test_time_field_ref_bind_without_context_raises() -> None:
+    ref = ms.ref.time_dimension("sales.orders.order_date")
     with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
-        ref(None)
+        ms.bind(ref, None)  # type: ignore[arg-type]
     assert exc_info.value.kind == "binding_context_missing"
 
 
 def test_metric_ref() -> None:
-    ref = ms.Ref.metric("sales.revenue")
+    ref = ms.ref.metric("sales.revenue")
     assert ref.path == "sales.revenue"
     assert ref.kind == SemanticKind.METRIC
 
 
 def test_metric_ref_rejects_field_binding_call() -> None:
-    ref = ms.Ref.metric("sales.aov")
+    ref = ms.ref.metric("sales.aov")
     with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
-        ref(lambda t: t.amount.sum())  # type: ignore[arg-type]
+        ms.bind(ref, lambda t: t.amount.sum())  # type: ignore[arg-type]
     assert exc_info.value.kind == "invalid_binding_ref"
-    assert "field_ref(entity_alias)" in str(exc_info.value)
+    assert "ms.bind(field_ref, entity_alias)" in str(exc_info.value)
 
 
 def test_relationship_ref() -> None:
-    ref = ms.Ref.relationship("sales.orders_to_items")
+    ref = ms.ref.relationship("sales.orders_to_items")
     assert ref.path == "sales.orders_to_items"
     assert ref.kind == SemanticKind.RELATIONSHIP
 
 
 def test_base_ref_repr() -> None:
-    ref = ms.Ref.entity("sales.orders")
+    ref = ms.ref.entity("sales.orders")
     assert repr(ref) == "Ref[entity](entity:sales.orders)"
 
 

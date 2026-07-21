@@ -107,7 +107,7 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "import marivo.semantic as ms\n\n"
         "orders = ms.entity(\n"
         "    name='orders',\n"
-        "    datasource=ms.Ref.datasource('warehouse'),\n"
+        "    datasource=ms.ref.datasource('warehouse'),\n"
         "    source=md.table('orders'),\n"
         "    primary_key=['query_id'],\n"
         "    ai_context=ms.ai_context(\n"
@@ -170,8 +170,8 @@ def semantic_project_factory(tmp_path):
         declared_datasources: set[str] = set()
         datasource_ref_pattern = re.compile(
             r"(?:"
-            r"datasource\s*=\s*(?:ms\.)?Ref\.datasource\("
-            r"|(?:ms\.)?Ref\.datasource\("
+            r"datasource\s*=\s*(?:ms\.)?ref\.datasource\("
+            r"|(?:ms\.)?ref\.datasource\("
             r"|datasource\s*=\s*"
             r")(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)"
         )
@@ -225,7 +225,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"

@@ -890,7 +890,7 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
@@ -941,7 +941,7 @@ def _bootstrap_compare_axis_project(tmp_path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
         "source=md.table('orders'))\n\n"
         "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
         "def order_date(orders):\n"

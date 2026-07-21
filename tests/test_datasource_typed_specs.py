@@ -227,7 +227,7 @@ def test_datasource_helper_returns_public_spec_and_ref() -> None:
     spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
 
     assert isinstance(spec, md.DuckDBSpec)
-    assert spec.ref == ms.Ref.datasource("warehouse")
+    assert spec.ref == ms.ref.datasource("warehouse")
     assert spec.ref.path == "warehouse"
     assert spec.ref.name == "warehouse"
 

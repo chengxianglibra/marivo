@@ -116,7 +116,7 @@ def test_metric_not_found_renders_repair_with_candidates() -> None:
             "import marivo.semantic as ms\n"
             "catalog = ms.load()\n"
             "catalog.metrics.show()\n"
-            'session.observe(catalog.require(ms.Ref.metric("<registered_metric_id>")), '
+            'session.observe(catalog.require(ms.ref.metric("<registered_metric_id>")), '
             'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
         ),
         candidates=("sales.revenue", "sales.orders"),
@@ -145,7 +145,7 @@ def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
         action="Pass an observe result (MetricFrame) instead of a compare result (DeltaFrame).",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         snippet=(
-            'revenue = session.catalog.require(ms.Ref.metric("sales.revenue"))\n'
+            'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))\n'
             'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
             'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})\n'
             "delta = session.compare(cur, base, alignment=mv.window_bucket())"
@@ -164,7 +164,7 @@ def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
     assert "Expected: metric_frame" in rendered
     assert "Received: delta_frame" in rendered
     assert "Repair:" in rendered
-    assert 'revenue = session.catalog.require(ms.Ref.metric("sales.revenue"))' in rendered
+    assert 'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))' in rendered
     assert "  delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
     assert "Help: mv.help('compare')" in rendered
 
@@ -184,7 +184,7 @@ def test_window_invalid_has_repair_snippet() -> None:
         action="Pass a parseable absolute time_scope.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet=(
-            'session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), '
+            'session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
             'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
         ),
     )
@@ -200,7 +200,7 @@ def test_window_invalid_has_repair_snippet() -> None:
     assert "Received: last quarter" in rendered
     assert "Repair:" in rendered
     assert (
-        '  session.observe(session.catalog.require(ms.Ref.metric("sales.revenue")), '
+        '  session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
 
@@ -215,7 +215,7 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet() -> None:
 
     assert "panel dimension column 'region'" in rendered
     assert (
-        'axis = session.catalog.require(ms.Ref.dimension("<domain.entity.dimension>")).ref'
+        'axis = session.catalog.require(ms.ref.dimension("<domain.entity.dimension>")).ref'
         in rendered
     )
     assert "session.attribute(delta, axes=[axis])" in rendered

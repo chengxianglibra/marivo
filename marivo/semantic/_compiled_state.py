@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import cast
 
 from marivo.refs import Ref, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
@@ -56,30 +57,34 @@ class CompiledSemanticState:
 def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
     rows: dict[Ref[SemanticKindTag], object] = {}
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.domain(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.domain(key)), value)
         for key, value in registry.domains.items()
     )
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.datasource(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.datasource(key)), value)
         for key, value in registry.datasources.items()
     )
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.entity(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.entity(key)), value)
         for key, value in registry.entities.items()
     )
     for key, value in registry.dimensions.items():
-        ref = Ref.time_dimension(key) if value.is_time_dimension else Ref.dimension(key)
+        ref = (
+            ref_factory.time_dimension(key)
+            if value.is_time_dimension
+            else ref_factory.dimension(key)
+        )
         rows[cast("Ref[SemanticKindTag]", ref)] = value
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.measure(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.measure(key)), value)
         for key, value in registry.measures.items()
     )
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.metric(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.metric(key)), value)
         for key, value in registry.metrics.items()
     )
     rows.update(
-        (cast("Ref[SemanticKindTag]", Ref.relationship(key)), value)
+        (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
         for key, value in registry.relationships.items()
     )
     return rows
@@ -87,21 +92,25 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
 
 def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
     if path in registry.datasources:
-        return cast("Ref[SemanticKindTag]", Ref.datasource(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.datasource(path))
     if path in registry.entities:
-        return cast("Ref[SemanticKindTag]", Ref.entity(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.entity(path))
     dimension = registry.dimensions.get(path)
     if dimension is not None:
-        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if dimension.is_time_dimension
+            else ref_factory.dimension(path)
+        )
         return cast("Ref[SemanticKindTag]", ref)
     if path in registry.measures:
-        return cast("Ref[SemanticKindTag]", Ref.measure(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.measure(path))
     if path in registry.metrics:
-        return cast("Ref[SemanticKindTag]", Ref.metric(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.metric(path))
     if path in registry.relationships:
-        return cast("Ref[SemanticKindTag]", Ref.relationship(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.relationship(path))
     if path in registry.domains:
-        return cast("Ref[SemanticKindTag]", Ref.domain(path))
+        return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
 
 

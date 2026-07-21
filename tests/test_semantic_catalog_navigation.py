@@ -31,8 +31,8 @@ _OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
-users = ms.entity(name="users", datasource=ms.Ref.datasource("warehouse"), source=md.table("users"))
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"))
 
 @ms.dimension(entity=orders)
 def region(table):
@@ -73,7 +73,7 @@ _OPS_OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-events = ms.entity(name="events", datasource=ms.Ref.datasource("warehouse"), source=md.table("events"))
+events = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"), source=md.table("events"))
 
 @ms.dimension(entity=events)
 def region(table):
@@ -200,7 +200,7 @@ def test_catalog_require_rejects_raw_short_name_and_teaches_exact_typed_lookup(
     message = str(exc_info.value)
     assert exc_info.value.kind == ErrorKind.INVALID_REF
     assert "requires an exact Ref[kind]" in message
-    assert "ms.Ref.<kind>(path)" in message
+    assert "ms.ref.<kind>(path)" in message
 
 
 def test_collection_get_rejects_global_typed_identity(
@@ -212,7 +212,7 @@ def test_collection_get_rejects_global_typed_identity(
         catalog.metrics.get("entity.sales.orders")
 
     assert "accepts one local name segment only" in str(exc_info.value)
-    assert "catalog.require(ms.Ref.<kind>(path))" in str(exc_info.value)
+    assert "catalog.require(ms.ref.<kind>(path))" in str(exc_info.value)
 
 
 def test_collection_get_reports_existing_object_outside_scope(
@@ -247,8 +247,8 @@ def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
         catalog.dimensions.get("region")
 
     assert exc_info.value.kind == ErrorKind.AMBIGUOUS_REFERENCE
-    assert "ms.Ref.dimension('sales.orders.region')" in str(exc_info.value)
-    assert "ms.Ref.dimension('ops.events.region')" in str(exc_info.value)
+    assert "ms.ref.dimension('sales.orders.region')" in str(exc_info.value)
+    assert "ms.ref.dimension('ops.events.region')" in str(exc_info.value)
 
 
 def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_factory) -> None:

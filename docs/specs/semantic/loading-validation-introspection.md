@@ -65,7 +65,7 @@ sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
 orders.dimensions.show()
 
-revenue = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue = catalog.require(ms.ref.metric("sales.revenue"))
 revenue.details().show()
 ```
 
@@ -80,7 +80,7 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.require(ms.Ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by typed ID. |
+| `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by typed ID. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.refs`, `.get(key)`, `.show()`. |
 | `catalog.verify(ref)` | Static, zero-query validation of one exact ref. |
 | `catalog.preview(ref, using=snapshot_or_mapping)` | Scoped runtime preview for one ref, bound to matching snapshot evidence. |
@@ -193,7 +193,7 @@ through the catalog:
 
 ```python
 catalog = ms.load()
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
 catalog.verify(revenue).show()
 catalog.preview(revenue, using=snapshot).show()
 catalog.readiness(refs=[revenue]).show()
@@ -238,7 +238,7 @@ After the loader executes project files, assembly validation checks cross-object
 relationships: a missing or mismatched `_domain.py`; `ms.domain(...)` in the wrong
 file or a `_domain.py` declaring multiple domains; an entity referencing an
 unknown datasource; a metric referencing an unknown entity or component; a
-cross-domain `ms.Ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
+cross-domain `ms.ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
 `entities=[...]` count that disagrees with the function arity; an hour time
 dimension missing its required prefix; invalid relationship endpoints, join
 dimension refs, entity membership, or arity. On failure the registry is `errored`
@@ -282,7 +282,7 @@ style. The mapping from error kind to agent action is mechanical:
 |---|---|
 | `duplicate_name` | Remove the duplicate declaration or change `name=`, then reload. |
 | `missing_domain` | Add `ms.domain(...)` in `<root>/<domain>/_domain.py`, or pass an explicit `domain=`. |
-| `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.Ref.<kind>(path)`. |
+| `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref.<kind>(path)`. |
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.linear`. |
 | `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use `md.raw_sql(...)` for ad-hoc queries outside the semantic model. |
@@ -299,12 +299,12 @@ Two checks sit at the end of the write loop:
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
   `catalog.preview(..., using=...)` persists scoped runtime metadata that
-  readiness consumes. Missing or stale preview evidence for executable families
-  (`static_only`, `single_snapshot`, `snapshot_mapping`) is a visible advisory,
-  not an analysis blocker; authoring policy still requires repairing it before
-  declaring a new or changed object complete.
-  Snapshot and preview age are retained as reference metadata and never block
-  readiness or trigger implicit reacquisition.
+  readiness consumes. Missing datasource snapshots and missing or stale preview
+  evidence for executable families (`static_only`, `single_snapshot`,
+  `snapshot_mapping`) are visible advisories, not analysis blockers; authoring
+  policy still requires repairing the applicable evidence before declaring a
+  new or changed object complete. Snapshot and preview absence or age never
+  block readiness or trigger implicit reacquisition.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session

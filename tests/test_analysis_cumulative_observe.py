@@ -47,7 +47,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='day')\n"
@@ -365,7 +365,7 @@ def _bootstrap_hourly_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"
@@ -516,7 +516,7 @@ def _bootstrap_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"

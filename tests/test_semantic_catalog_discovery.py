@@ -44,7 +44,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def region(table):
@@ -81,7 +81,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource=ms.Ref.datasource('warehouse'), source=md.table('events'))\n"
+                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
                 "@ms.metric(entities=[events], additivity='additive', )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
@@ -168,8 +168,8 @@ def test_discovery_relationships_returns_relationships(semantic_project_factory)
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def user_id(table):\n"
                 "    return table.user_id\n"
@@ -240,7 +240,7 @@ def test_discovery_multi_domain_metrics_contains_both(semantic_project_factory):
 def test_discovery_unknown_domain_raises_error(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.Ref.domain("nonexistent"))
+        catalog.require(ms.ref.domain("nonexistent"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
@@ -488,7 +488,7 @@ def test_discovery_relationship_details_render():
 
 def test_discovery_domain_object_children_returns_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    domain_obj = catalog.require(ms.Ref.domain("sales"))
+    domain_obj = catalog.require(ms.ref.domain("sales"))
     children = domain_obj.details().children
     assert isinstance(children, tuple)
     child_refs = {r.path for r in children}
@@ -498,7 +498,7 @@ def test_discovery_domain_object_children_returns_refs(semantic_project_factory)
 
 def test_discovery_entity_object_children_returns_field_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    entity_obj = catalog.require(ms.Ref.entity("sales.orders"))
+    entity_obj = catalog.require(ms.ref.entity("sales.orders"))
     children = entity_obj.details().children
     assert isinstance(children, tuple)
     child_refs = {r.path for r in children}
@@ -507,11 +507,11 @@ def test_discovery_entity_object_children_returns_field_refs(semantic_project_fa
 
 def test_discovery_metric_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    metric_obj = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric_obj = catalog.require(ms.ref.metric("sales.revenue"))
     assert metric_obj.details().children == ()
 
 
 def test_discovery_dimension_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    dim_obj = catalog.require(ms.Ref.dimension("sales.orders.region"))
+    dim_obj = catalog.require(ms.ref.dimension("sales.orders.region"))
     assert dim_obj.details().children == ()

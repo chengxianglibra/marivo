@@ -36,7 +36,7 @@ def snapshot(tmp_path: Path) -> object:
 
     return DiscoverySnapshot(
         id="snapshot-1",
-        datasource=ms.Ref.datasource("warehouse"),
+        datasource=ms.ref.datasource("warehouse"),
         source=md.table("orders"),
         scope=md.unpruned(max_rows=10, timeout_seconds=5),
         columns=("order_id",),

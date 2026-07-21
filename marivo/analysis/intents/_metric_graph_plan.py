@@ -21,6 +21,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.analysis.runtime_metric import RuntimeMetricExpr
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
@@ -276,7 +277,7 @@ def _runtime_weighted_mean_adapter(
 def _catalog_metric_adapter(catalog: SemanticCatalog, metric_id: str) -> Any:
     from marivo.analysis.intents._observe_planner_types import _planned_metric
 
-    details = catalog.require(Ref.metric(metric_id)).details()
+    details = catalog.require(ref_factory.metric(metric_id)).details()
     if not isinstance(details, (SimpleMetricDetails, DerivedMetricDetails)):
         raise_observe_planning_error(
             code="metric-graph-metric-missing",
@@ -851,7 +852,7 @@ def _plan_metric_expression_forest(
         )
     source_domain = DatasourceCompatibilityDomainV1(
         schema="datasource-compatibility/v1",
-        datasource_ref=RefPayloadV1.from_ref(Ref.datasource(datasource_name)),
+        datasource_ref=RefPayloadV1.from_ref(ref_factory.datasource(datasource_name)),
         backend_type=datasource_ir.backend_type,
         profile_fingerprint=fingerprint(
             (

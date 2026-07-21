@@ -166,13 +166,13 @@ semantic-owned.
 
 Object-to-object parameters use ref objects. Prefer refs returned by earlier
 declarations or imported from sibling semantic modules. Use
-`ms.Ref.<kind>(path)` only for explicit forward/cross-file references or
+`ms.ref.<kind>(path)` only for explicit forward/cross-file references or
 import cycles:
 
 ```python
 sessions_per_user = ms.ratio(
     name="sessions_per_user",
-    numerator=ms.Ref.metric("marketing.sessions"),
+    numerator=ms.ref.metric("marketing.sessions"),
     denominator=total_users,
 )
 ```
@@ -180,6 +180,12 @@ sessions_per_user = ms.ratio(
 Cross-domain refs are allowed but are existence-, cycle-, and contract-checked at
 resolve time; they never fall back to copying another domain's definition into
 SQL provenance. Bare semantic-id strings are not valid authoring arguments.
+
+Refs are immutable identities and are never callable. Inside a decorated
+expression body, apply a declared dimension, time dimension, or measure to one
+direct entity parameter with `ms.bind(field_ref, entity_alias)`. The loader
+captures that explicit binding and validates catalog membership, entity
+ownership, and cycles before runtime materialization.
 
 ## Decision rules
 
@@ -215,11 +221,11 @@ If the decomposition is unclear, do not default to a sum — settle the structur
 from the business definition, source SQL, existing component metrics, or a user
 answer.
 
-**When to use `ms.Ref.<kind>`** — prefer decorated object refs for static readability
-and refactoring; reserve `ms.Ref.<kind>(path)` for forward or cross-domain
+**When to use `ms.ref.<kind>`** — prefer decorated object refs for static readability
+and refactoring; reserve `ms.ref.<kind>(path)` for forward or cross-domain
 references. Its single positional argument is the kind-relative path
-(e.g. `ms.Ref.metric("marketing.sessions")`,
-`ms.Ref.dimension("sales.orders.user_id")`).
+(e.g. `ms.ref.metric("marketing.sessions")`,
+`ms.ref.dimension("sales.orders.user_id")`).
 
 ### What to settle vs ask
 
@@ -271,12 +277,12 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   preview evidence. It batches compatible execution plans but persists exact
   evidence per object; it does not replace the one-object authoring loop.
 - **`catalog.readiness(refs=[ref])`** is the final zero-query closeout gate. It
-  reads matching static and runtime-check evidence, reports missing or stale
-  preview evidence as an advisory, and never refreshes automatically. Evidence
-  age is reported through snapshot metadata but does not block readiness or
-  force a new datasource query. Authoring policy still requires preview repair
-  before closeout. Refs whose dependency closures have no blocker are exposed
-  through `ReadinessReport.analysis_ready_refs`.
+  reads matching static and runtime-check evidence, reports missing datasource
+  snapshots and missing or stale preview evidence as advisories, and never
+  refreshes automatically. Evidence absence or age does not block readiness or
+  force a new datasource query. Authoring policy still requires the applicable
+  evidence repair before closeout. Refs whose dependency closures have no
+  semantic blocker are exposed through `ReadinessReport.analysis_ready_refs`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
 diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.

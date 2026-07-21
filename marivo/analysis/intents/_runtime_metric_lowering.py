@@ -21,6 +21,7 @@ from marivo.analysis.runtime_metric import (
 )
 from marivo.introspection._fuzzy import did_you_mean
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -348,7 +349,7 @@ def lower_metric_inputs(
             identities.append(
                 CatalogMetricIdentity(
                     kind="catalog",
-                    metric_ref=RefPayloadV1.from_ref(Ref.metric(catalog_id)),
+                    metric_ref=RefPayloadV1.from_ref(ref_factory.metric(catalog_id)),
                 )
             )
         else:

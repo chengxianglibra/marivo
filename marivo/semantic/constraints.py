@@ -72,6 +72,7 @@ class ConstraintId(StrEnum):
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
+    EXPRESSION_BINDING = "expression_binding"
     SINGLE_DATASOURCE_METRIC = "single_datasource_metric"
     PROVENANCE_DIALECT_REQUIRED = "provenance_dialect_required"
     PROVENANCE_VERIFIED = "provenance_verified"
@@ -204,7 +205,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship", "ref"),
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
-        'Use ms.Ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
+        'Use ms.ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
         ConstraintId.COMPOSITION_SHAPE,
@@ -529,7 +530,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.metrics.show() and use catalog.require(ms.Ref.metric('<semantic_id>')).",
+        "catalog = ms.load(); catalog.metrics.show() and use catalog.require(ms.ref.metric('<semantic_id>')).",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -538,7 +539,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.entities.show() and use catalog.require(ms.Ref.entity('<semantic_id>')).",
+        "catalog.entities.show() and use catalog.require(ms.ref.entity('<semantic_id>')).",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -547,7 +548,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.dimensions.show() and use catalog.require(ms.Ref.dimension('<semantic_id>')).",
+        "catalog.dimensions.show() and use catalog.require(ms.ref.dimension('<semantic_id>')).",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,
@@ -584,6 +585,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric expressions must compile to backend SQL.",
         "Unsupported ibis expressions cannot be materialized.",
         "Simplify the metric expression or use supported ibis operations.",
+    ),
+    ConstraintId.EXPRESSION_BINDING: _constraint(
+        ConstraintId.EXPRESSION_BINDING,
+        "invalid_binding_ref",
+        "runtime",
+        ("bind", "dimension", "time_dimension", "measure", "metric"),
+        "Semantic fields bind explicitly inside an active expression body.",
+        "Ref values carry identity only; the loaded expression context owns field bodies, "
+        "entity ownership, and cycle checks.",
+        "Use ms.bind(field_ref, entity_alias) with a dimension, time_dimension, or measure "
+        "and one direct decorated-body entity parameter.",
     ),
     ConstraintId.SINGLE_DATASOURCE_METRIC: _constraint(
         ConstraintId.SINGLE_DATASOURCE_METRIC,

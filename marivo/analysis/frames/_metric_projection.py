@@ -42,7 +42,8 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.refs import Ref, RefPayloadV1
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     ComparableValueSemanticsV1,
@@ -367,7 +368,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         axis_bindings=frame.meta.axis_bindings,
         slice_predicates=frame.meta.slice_predicates,
         status_time_dimension_ref=(
-            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension))
+            RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
             if isinstance(
                 status_time_dimension := entry.get("status_time_dimension"),
                 str,

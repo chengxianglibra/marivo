@@ -14,6 +14,8 @@ from typing import Any, Literal
 import duckdb
 import ibis
 
+from marivo.refs import ref as ref_factory
+
 # ---------------------------------------------------------------------------
 # Named DuckDB templates (versioned, cached in /tmp)
 # ---------------------------------------------------------------------------
@@ -34,7 +36,7 @@ def make_test_metric_contract(
     """Build current typed identity/key/comparability state for synthetic frames."""
 
     from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import (
         CanonicalSliceEntryV1,
         CatalogMetricIdentity,
@@ -71,7 +73,9 @@ def make_test_metric_contract(
     global_slice = tuple(
         CanonicalSliceEntryV1(
             dimension_ref=RefPayloadV1.from_ref(
-                Ref.dimension(str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}")
+                ref_factory.dimension(
+                    str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}"
+                )
             ),
             value=fingerprint(value),
         )
@@ -89,7 +93,7 @@ def make_test_metric_contract(
     }
     metric_identity = CatalogMetricIdentity(
         kind="catalog",
-        metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
+        metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
     )
     axis_bindings: list[AxisBindingV1] = []
     for key, axis in axes.items():
@@ -104,7 +108,11 @@ def make_test_metric_contract(
             or key
         )
         path = short_path if short_path.count(".") == 2 else f"{domain}.orders.{short_path}"
-        ref = Ref.time_dimension(path) if role == "time_dimension" else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if role == "time_dimension"
+            else ref_factory.dimension(path)
+        )
         column = str(axis.get("column") or axis.get("field") or key)
         axis_bindings.append(
             AxisBindingV1(
@@ -117,7 +125,9 @@ def make_test_metric_contract(
     slice_predicates = tuple(
         SlicePredicateV1(
             dimension_ref=RefPayloadV1.from_ref(
-                Ref.dimension(str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}")
+                ref_factory.dimension(
+                    str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}"
+                )
             ),
             value=value,
         )
@@ -180,7 +190,7 @@ def make_test_multi_metric_contract(
 ) -> dict[str, Any]:
     """Build v4 semantic provenance for a synthetic multi-metric frame."""
 
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import (
         CatalogMetricIdentity,
         SemanticDependencyDigestV1,
@@ -194,7 +204,7 @@ def make_test_multi_metric_contract(
     identities = tuple(
         CatalogMetricIdentity(
             kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
+            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
         )
         for metric_id in metric_ids
     )
@@ -227,7 +237,7 @@ def make_test_delta_contract(
 ) -> dict[str, Any]:
     """Build current structured comparison identity for synthetic delta frames."""
 
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import (
         CatalogMetricIdentity,
         DeltaComparisonIdentityV1,
@@ -239,7 +249,7 @@ def make_test_delta_contract(
     def identity(path: str) -> CatalogMetricIdentity:
         return CatalogMetricIdentity(
             kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(Ref.metric(path)),
+            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(path)),
         )
 
     current = identity(metric_id)
@@ -261,7 +271,7 @@ def make_test_delta_contract(
         "catalog_definition_fingerprint": "sha256:test-catalog",
         "source_dependency_digests": dependency_digests,
         "status_time_dimension_ref": (
-            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension))
+            RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
             if status_time_dimension is not None
             else None
         ),
@@ -286,7 +296,7 @@ def make_test_component_contract(
     """Build structured metric/component/axis bindings for synthetic component frames."""
 
     from marivo.analysis._semantic_persistence import AxisBindingV1, ComponentBindingV1
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import CatalogMetricIdentity
 
     domain = metric_id.split(".", 1)[0]
@@ -295,7 +305,7 @@ def make_test_component_contract(
         qualified = path if path.count(".") == 1 else f"{domain}.{path}"
         return CatalogMetricIdentity(
             kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(Ref.metric(qualified)),
+            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(qualified)),
         )
 
     short_names = [path.rsplit(".", 1)[-1] for path in components.values()]
@@ -319,7 +329,11 @@ def make_test_component_contract(
             or key
         )
         path = short_path if short_path.count(".") == 2 else f"{domain}.orders.{short_path}"
-        ref = Ref.time_dimension(path) if role == "time_dimension" else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if role == "time_dimension"
+            else ref_factory.dimension(path)
+        )
         axis_bindings.append(
             AxisBindingV1(
                 ref=RefPayloadV1.from_ref(ref),
@@ -348,7 +362,7 @@ def make_test_subject(
 
     from marivo.analysis._semantic_persistence import SlicePredicateV1
     from marivo.analysis.evidence.types import Subject
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import CatalogMetricSubjectV1
 
     qualified_metric = None
@@ -358,7 +372,7 @@ def make_test_subject(
         CatalogMetricSubjectV1(
             kind="catalog_metric",
             session_id=session_id,
-            metric_ref=RefPayloadV1.from_ref(Ref.metric(qualified_metric)),
+            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(qualified_metric)),
             artifact_id=artifact_id,
             scope_fingerprint="sha256:test-scope",
         )
@@ -368,7 +382,7 @@ def make_test_subject(
     predicates = tuple(
         SlicePredicateV1(
             dimension_ref=RefPayloadV1.from_ref(
-                Ref.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
+                ref_factory.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
             ),
             value=value,
         )
@@ -391,14 +405,14 @@ def make_test_analysis_scope(
 
     from marivo.analysis._semantic_persistence import SlicePredicateV1
     from marivo.analysis.evidence.types import AnalysisScope
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import CatalogMetricIdentity
 
     identities = tuple(
         CatalogMetricIdentity(
             kind="catalog",
             metric_ref=RefPayloadV1.from_ref(
-                Ref.metric(metric_id if metric_id.count(".") == 1 else f"sales.{metric_id}")
+                ref_factory.metric(metric_id if metric_id.count(".") == 1 else f"sales.{metric_id}")
             ),
         )
         for metric_id in metric_ids
@@ -406,7 +420,7 @@ def make_test_analysis_scope(
     predicates = tuple(
         SlicePredicateV1(
             dimension_ref=RefPayloadV1.from_ref(
-                Ref.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
+                ref_factory.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
             ),
             value=value,
         )
@@ -440,7 +454,7 @@ def make_metric_frame(
     from marivo.analysis.session._runtime import persist_frame
     from marivo.analysis.session.core import ensure_session_can_execute
     from marivo.analysis.windows import dump_window, normalize_absolute_window_input
-    from marivo.refs import Ref, RefPayloadV1
+    from marivo.refs import RefPayloadV1
 
     ensure_session_can_execute(session)
     resolved_window = normalize_absolute_window_input(window)
@@ -497,7 +511,7 @@ def make_metric_frame(
         status_time_dimension=status_time_dimension,
         status_time_dimension_ref=(
             RefPayloadV1.from_ref(
-                Ref.time_dimension(
+                ref_factory.time_dimension(
                     status_time_dimension
                     if status_time_dimension.count(".") == 2
                     else f"{metric_id.split('.', 1)[0]}.orders.{status_time_dimension}"
@@ -715,7 +729,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
@@ -941,7 +955,7 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "users = ms.entity(name='users', datasource=warehouse, source=md.table('users'))\n"

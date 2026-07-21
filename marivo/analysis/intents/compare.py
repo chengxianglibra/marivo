@@ -70,7 +70,8 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
-from marivo.refs import Ref, RefPayloadV1
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     DeltaComparisonIdentityV1,
@@ -890,7 +891,7 @@ def compare(
         "additivity": additivity,
         "aggregation": aggregation,
         "status_time_dimension_ref": (
-            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension)).to_dict()
+            RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension)).to_dict()
             if status_time_dimension is not None
             else None
         ),
@@ -898,10 +899,11 @@ def compare(
     assert current.meta.metric_id is not None
     assert baseline.meta.metric_id is not None
     current_identity = current.meta.metric_identity or CatalogMetricIdentity(
-        kind="catalog", metric_ref=RefPayloadV1.from_ref(Ref.metric(current.meta.metric_id))
+        kind="catalog", metric_ref=RefPayloadV1.from_ref(ref_factory.metric(current.meta.metric_id))
     )
     baseline_identity = baseline.meta.metric_identity or CatalogMetricIdentity(
-        kind="catalog", metric_ref=RefPayloadV1.from_ref(Ref.metric(baseline.meta.metric_id))
+        kind="catalog",
+        metric_ref=RefPayloadV1.from_ref(ref_factory.metric(baseline.meta.metric_id)),
     )
     current_comparable = current.meta.comparable_value_semantics
     baseline_comparable = baseline.meta.comparable_value_semantics
@@ -972,7 +974,7 @@ def compare(
         axis_bindings=current.meta.axis_bindings,
         slice_predicates=current.meta.slice_predicates,
         status_time_dimension_ref=(
-            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension))
+            RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
             if status_time_dimension is not None
             else None
         ),

@@ -59,6 +59,7 @@ from marivo.analysis.windows import (
     normalize_timescope_input,
 )
 from marivo.refs import FieldKind, Ref, RefPayloadV1, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import CatalogEntry
 from marivo.semantic.metric_graph import (
     CanonicalSliceEntryV1,
@@ -180,7 +181,7 @@ def _normalize_where_boundary(
         if isinstance(key, str):
             raise TransformArgError(
                 message="transform slice(slice_by=...) requires catalog dimension refs",
-                hint="Pass slice_by={session.catalog.require(ms.Ref.dimension('sales.orders.country')).ref: 'US'}.",
+                hint="Pass slice_by={session.catalog.require(ms.ref.dimension('sales.orders.country')).ref: 'US'}.",
                 context={
                     "expected_kind": "Ref[dimension] or Ref[time_dimension]",
                     "got_kind": "str",
@@ -202,7 +203,7 @@ def _normalize_drop_axes_boundary(
         if isinstance(axis, str):
             raise TransformArgError(
                 message="transform rollup(drop_axes=...) requires catalog dimension refs",
-                hint="Pass drop_axes=[session.catalog.require(ms.Ref.dimension('sales.orders.country')).ref].",
+                hint="Pass drop_axes=[session.catalog.require(ms.ref.dimension('sales.orders.country')).ref].",
                 context={
                     "expected_kind": "Ref[dimension] or Ref[time_dimension]",
                     "got_kind": "str",
@@ -625,7 +626,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     if not isinstance(drop_axes, list) or not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.ref.dimension("<dimension_id>")).ref].',
             context={"op": "rollup", "argument": "drop_axes"},
         )
 
@@ -658,7 +659,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
             continue
         raise TransformArgError(
             message="transform(op='rollup') drop_axes items must be catalog dimension refs or str",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.require(ms.ref.dimension("<dimension_id>")).ref].',
             context={
                 "op": "rollup",
                 "argument": "drop_axes",
@@ -1412,7 +1413,7 @@ def _resolve_slice_column(
     raise TransformArgError(
         message="transform(op='slice') slice_by keys must be catalog dimension refs or str",
         hint=(
-            'Use slice_by={session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref: "US"} '
+            'Use slice_by={session.catalog.require(ms.ref.dimension("<dimension_id>")).ref: "US"} '
             "or slice_by={'value': (10, 20)}."
         ),
         context={"op": "slice", "actual_key_type": type(key).__name__},
@@ -1646,7 +1647,7 @@ def _op_rollup(
     if not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint='Pass drop_axes=[session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref].',
+            hint='Pass drop_axes=[session.catalog.require(ms.ref.dimension("<dimension_id>")).ref].',
             context={"op": "rollup", "argument": "drop_axes"},
         )
     drop_ids = _normalize_rollup_drop_axes(frame, drop_axes)
@@ -1943,7 +1944,7 @@ def _op_slice(
     if not where:
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty slice_by dict",
-            hint='Pass slice_by={session.catalog.require(ms.Ref.dimension("<dimension_id>")).ref: "US"}.',
+            hint='Pass slice_by={session.catalog.require(ms.ref.dimension("<dimension_id>")).ref: "US"}.',
             context={"op": "slice", "argument": "slice_by"},
         )
 
@@ -2111,7 +2112,11 @@ def _persist_transform_frame(
             dimension = registry.dimensions.get(path)
             if dimension is None:
                 continue
-            ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+            ref = (
+                ref_factory.time_dimension(path)
+                if dimension.is_time_dimension
+                else ref_factory.dimension(path)
+            )
             predicates.append(
                 SlicePredicateV1(
                     dimension_ref=RefPayloadV1.from_ref(ref),

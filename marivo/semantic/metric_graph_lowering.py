@@ -8,6 +8,7 @@ from enum import Enum
 from typing import NoReturn, cast
 
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     AggregateFoldInput,
@@ -157,14 +158,14 @@ def _time_fold_value(fold: TimeFoldIR | None) -> AggregateFoldInput:
 
 def _ref_payload(kind: str, path: str) -> RefPayloadV1:
     factories = {
-        "domain": Ref.domain,
-        "datasource": Ref.datasource,
-        "entity": Ref.entity,
-        "dimension": Ref.dimension,
-        "time_dimension": Ref.time_dimension,
-        "measure": Ref.measure,
-        "metric": Ref.metric,
-        "relationship": Ref.relationship,
+        "domain": ref_factory.domain,
+        "datasource": ref_factory.datasource,
+        "entity": ref_factory.entity,
+        "dimension": ref_factory.dimension,
+        "time_dimension": ref_factory.time_dimension,
+        "measure": ref_factory.measure,
+        "metric": ref_factory.metric,
+        "relationship": ref_factory.relationship,
     }
     factory = factories.get(kind)
     if factory is None:
@@ -200,14 +201,14 @@ def _entry_for(
     body = None
     if sidecar is not None:
         factory = {
-            SemanticKind.DOMAIN: Ref.domain,
-            SemanticKind.DATASOURCE: Ref.datasource,
-            SemanticKind.ENTITY: Ref.entity,
-            SemanticKind.DIMENSION: Ref.dimension,
-            SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-            SemanticKind.MEASURE: Ref.measure,
-            SemanticKind.METRIC: Ref.metric,
-            SemanticKind.RELATIONSHIP: Ref.relationship,
+            SemanticKind.DOMAIN: ref_factory.domain,
+            SemanticKind.DATASOURCE: ref_factory.datasource,
+            SemanticKind.ENTITY: ref_factory.entity,
+            SemanticKind.DIMENSION: ref_factory.dimension,
+            SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+            SemanticKind.MEASURE: ref_factory.measure,
+            SemanticKind.METRIC: ref_factory.metric,
+            SemanticKind.RELATIONSHIP: ref_factory.relationship,
         }[ref_payload.kind]
         body = sidecar.bodies.get(factory(ref_payload.path))
     bindings = body.bindings if body is not None else ()
@@ -374,7 +375,9 @@ class _DependencyCollector:
             self.collect_metric(composition.base)
             if composition.over is not None:
                 self.collect_dimension(composition.over)
-        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", Ref.metric(metric_id)))
+        self._collect_expression_bindings(
+            cast("Ref[SemanticKindTag]", ref_factory.metric(metric_id))
+        )
         self._active_metrics.remove(metric_id)
 
     def collect_measure(self, measure_id: str) -> None:
@@ -387,7 +390,9 @@ class _DependencyCollector:
         self.collect_entity(measure.entity)
         if isinstance(measure.additivity, SemiAdditive):
             self.collect_dimension(measure.additivity.over)
-        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", Ref.measure(measure_id)))
+        self._collect_expression_bindings(
+            cast("Ref[SemanticKindTag]", ref_factory.measure(measure_id))
+        )
 
     def collect_dimension(self, dimension_id: str) -> None:
         dimension = self.registry.dimensions.get(dimension_id)
@@ -399,9 +404,9 @@ class _DependencyCollector:
         self._add(kind, dimension_id)
         self.collect_entity(dimension.entity)
         field_ref = (
-            Ref.time_dimension(dimension_id)
+            ref_factory.time_dimension(dimension_id)
             if dimension.is_time_dimension
-            else Ref.dimension(dimension_id)
+            else ref_factory.dimension(dimension_id)
         )
         self._collect_expression_bindings(cast("Ref[SemanticKindTag]", field_ref))
 
@@ -614,7 +619,7 @@ class _CatalogGraphBuilder:
             elif metric.aggregation is None:
                 node = CatalogBodyLeafV1(
                     kind="catalog_body_leaf",
-                    metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
+                    metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
                     dependency_fingerprint=_dependency_fingerprint(
                         self.registry, sidecar=self.sidecar, metric_id=metric_id
                     ),
@@ -802,7 +807,7 @@ def lower_catalog_metrics(
         identities=tuple(
             CatalogMetricIdentity(
                 kind="catalog",
-                metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
+                metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
             )
             for metric_id in roots
         ),

@@ -22,6 +22,9 @@ from marivo.refs import (
 from marivo.refs import (
     DimensionKind as DimensionKindTag,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -82,7 +85,7 @@ def entity(
 
     Args:
         name: Entity name.
-        datasource: Datasource ref returned by ``ms.Ref.datasource(...)``.
+        datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
         primary_key: Optional list of column names forming the primary key.
@@ -100,14 +103,14 @@ def entity(
     Example:
         >>> orders = ms.entity(
         ...     name="orders",
-        ...     datasource=ms.Ref.datasource("warehouse"),
+        ...     datasource=ms.ref.datasource("warehouse"),
         ...     source=md.table("orders", database="sales_mart"),
         ... )
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
-    ref = Ref.entity(semantic_id)
+    ref = ref_factory.entity(semantic_id)
     _check_duplicate(ctx, semantic_id, EntityIR)
     if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         _raise(
@@ -168,7 +171,7 @@ def dimension_column(
         or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
     """
     ctx = _require_ctx()
@@ -177,7 +180,7 @@ def dimension_column(
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
-    ref = Ref.dimension(semantic_id)
+    ref = ref_factory.dimension(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -254,7 +257,7 @@ def dimension(
             expected=(SemanticKind.ENTITY,),
         )
         semantic_id = f"{entity_ref}.{obj_name}"
-        ref = Ref.dimension(semantic_id)
+        ref = ref_factory.dimension(semantic_id)
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
             _raise(
@@ -326,7 +329,7 @@ def measure_column(
         more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
         ...     additivity="additive", unit="CNY",
@@ -338,7 +341,7 @@ def measure_column(
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
-    ref = Ref.measure(semantic_id)
+    ref = ref_factory.measure(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -418,7 +421,7 @@ def measure(
             expected=(SemanticKind.ENTITY,),
         )
         semantic_id = f"{entity_ref}.{obj_name}"
-        ref = Ref.measure(semantic_id)
+        ref = ref_factory.measure(semantic_id)
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
             _raise(
@@ -490,7 +493,7 @@ def time_dimension_column(
         one or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> log_date = ms.time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
         ...     granularity="day", parse=ms.strptime("%Y%m%d"),
@@ -502,7 +505,7 @@ def time_dimension_column(
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
-    ref = Ref.time_dimension(semantic_id)
+    ref = ref_factory.time_dimension(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -602,7 +605,7 @@ def time_dimension(
             expected=(SemanticKind.ENTITY,),
         )
         semantic_id = f"{ds_ref}.{obj_name}"
-        ref = Ref.time_dimension(semantic_id)
+        ref = ref_factory.time_dimension(semantic_id)
         ds_domain = ds_ref.split(".", 1)[0]
         if ds_domain != resolved_domain:
             _raise(
@@ -693,7 +696,7 @@ def relationship(
     resolved_domain = _resolve_domain(domain, ctx)
 
     semantic_id = f"{resolved_domain}.{name}"
-    ref = Ref.relationship(semantic_id)
+    ref = ref_factory.relationship(semantic_id)
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
     from_ds = _require_ref_id(

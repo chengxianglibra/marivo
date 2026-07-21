@@ -230,7 +230,7 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = ms.Ref.datasource('warehouse')\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day')\n"
                 "def created_at(orders):\n"
@@ -297,7 +297,7 @@ def test_attribute_validates_original_delta_before_axis_materialization(
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = ms.Ref.datasource('warehouse')\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day')\n"
                 "def created_at(orders):\n"
@@ -357,7 +357,7 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity("
-                "name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "created_at = ms.time_dimension_column("
                 "name='created_at', entity=orders, column='created_at', "

@@ -194,7 +194,7 @@ def test_file_source_builder_is_removed_from_public_surface() -> None:
 
 
 def test_measure_ref_and_kind_are_first_class() -> None:
-    ref = ms.Ref.measure("sales.orders.amount")
+    ref = ms.ref.measure("sales.orders.amount")
     assert ref.path == "sales.orders.amount"
     assert ref.kind == SemanticKind.MEASURE
     assert SemanticKind.MEASURE.value == "measure"
@@ -293,7 +293,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -331,7 +331,7 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -349,13 +349,13 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
         refunds = ms.entity(
             name="refunds",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("refunds"),
             domain=sales,
         )
@@ -375,13 +375,13 @@ def test_relationship_uses_join_key_pairs() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
         customers = ms.entity(
             name="customers",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("customers"),
             domain=sales,
         )
@@ -421,7 +421,7 @@ def test_time_dimension_uses_parse_value_object() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -462,7 +462,7 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -514,5 +514,5 @@ def test_error_kinds_use_entity_vocabulary() -> None:
 
 
 def test_resolver_accepts_measure_for_internal_resolution() -> None:
-    measure_ref = ms.Ref.measure("sales.orders.amount")
+    measure_ref = ms.ref.measure("sales.orders.amount")
     assert measure_ref.kind == ms.SemanticKind.MEASURE

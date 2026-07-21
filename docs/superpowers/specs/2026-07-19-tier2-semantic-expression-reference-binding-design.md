@@ -5,8 +5,8 @@ Status: accepted and implemented
 Date: 2026-07-19
 
 Revision policy: destructive cutover. Resolver-bearing refs and loader mutation
-have no compatibility weight. The existing field-call spelling is retained
-because it is the lowest-cognitive-cost authoring form.
+have no compatibility weight. Field application uses the explicit `ms.bind`
+operation; callable refs have no compatibility weight.
 
 This document is the accepted companion prerequisite required by
 [`2026-07-19-unified-semantic-object-reference-design.md`](2026-07-19-unified-semantic-object-reference-design.md).
@@ -26,14 +26,14 @@ def amount(order_rows):
 
 @ms.metric(entities=[orders], additivity="additive", unit="USD")
 def revenue(order_rows):
-    return amount(order_rows).sum()
+    return ms.bind(amount, order_rows).sum()
 ```
 
-Calling `amount(order_rows)` does not read a resolver stored on `amount`.
+`ms.bind(amount, order_rows)` does not read a resolver stored on `amount`.
 Instead, the semantic materializer installs one private catalog-bound
-`ContextVar` immediately around body execution. `Ref.__call__` delegates to
-that context, which resolves the referenced field sidecar and applies it to the
-exact positional entity alias. The context is always reset in `finally`.
+`ContextVar` immediately around body execution. `ms.bind` delegates to that
+context, which resolves the referenced field sidecar and applies it to the exact
+positional entity alias. The context is always reset in `finally`.
 
 The complete model is:
 
@@ -41,16 +41,16 @@ The complete model is:
 authoring AST records one exact field-ref-to-alias binding
     -> loader compiles binding metadata into the expression sidecar
     -> materializer enters one catalog-bound expression context
-    -> field_ref(entity_alias) applies the referenced sidecar body
+    -> ms.bind(field_ref, entity_alias) applies the referenced sidecar body
     -> context is reset before control returns to caller code
 ```
 
 ## Selected Decisions
 
-- `field_ref(entity_alias)` is the only semantic field-ref application syntax.
-- Callability is available only to static field kinds: dimension,
-  time-dimension, and measure.
-- Metric, entity, domain, datasource, and relationship refs reject calls.
+- `ms.bind(field_ref, entity_alias)` is the only semantic field-ref application syntax.
+- Ref values are never callable.
+- `ms.bind` accepts only static field kinds: dimension, time-dimension, and
+  measure; every other ref kind is rejected.
 - `@ms.metric(entities=[...])` continues to inject raw Ibis tables positionally
   and in declaration order. Parameter names never establish identity.
 - Direct physical-column expressions such as `orders.amount` and
@@ -59,7 +59,7 @@ authoring AST records one exact field-ref-to-alias binding
   catalog, readiness state, source location, or mutable field.
 - The active expression runtime is private task-local state implemented with a
   `ContextVar` and token-reset in `finally`.
-- Every field call is validated and recorded before catalog compilation.
+- Every explicit field binding is validated and recorded before catalog compilation.
   Runtime evaluation cannot introduce an undeclared dependency.
 - The expression sidecar records deterministic binding metadata in addition to
   its private Python callable.
@@ -68,30 +68,30 @@ authoring AST records one exact field-ref-to-alias binding
 - The current `_FieldRef._resolver` slot and loader mutation are deleted in the
   same atomic cutover.
 
-## Why Context-Bound Callability Is Acceptable
+## Why Explicit Context-Bound Binding Is Acceptable
 
-The rejected design treated any method on `Ref` as identity/execution mixing.
-That boundary was too strict for an agent-facing authoring DSL. The harmful
-coupling is stored execution authority, not a context-checked value operation.
+`Ref` remains a pure identity value. Expression execution is exposed through
+the semantic-owned `ms.bind` operation, which makes the context-sensitive step
+visible without storing execution authority on the ref.
 
 After this cutover:
 
 - copying, hashing, pickling, serializing, or constructing an equal ref never
   copies or depends on execution state;
 - a ref cannot retain a catalog or make one catalog win over another;
-- calling a ref outside a registered semantic body fails before any effect;
+- binding outside a registered semantic body fails before any effect;
 - the same ref value resolves against the exact catalog whose materializer is
   evaluating the current body;
-- static typing restricts the call self-type to field kinds;
+- static typing restricts the `field` argument to field kinds;
 - runtime checks reject every non-field kind.
 
-This keeps identity semantics pure while preserving the existing minimal
+This keeps identity semantics pure while preserving a compact, explicit
 authoring spelling.
 
 ## Goals
 
 - Preserve every committed single- and multi-entity Tier-2 body capability.
-- Preserve the lowest-cognitive-cost `amount(order_rows)` spelling.
+- Preserve a single explicit `ms.bind(amount, order_rows)` spelling.
 - Remove all mutable and catalog-bound state from refs.
 - Make field dependencies available to catalog fingerprints, readiness,
   materialization, and replay before execution.
@@ -100,45 +100,47 @@ authoring spelling.
 
 ## Non-goals
 
-- This design does not create a general public resolver or `ms.bind(...)` API.
+- This design creates only the scoped public `ms.bind(...)` operation, not a
+  general catalog resolver.
 - It does not make non-field refs executable.
-- It does not add operator overloading beyond the field application call.
+- It does not add operator overloading to refs.
 - It does not replace or wrap Ibis tables.
 - It does not allow analysis scripts to execute authoring bodies.
 - It does not infer semantic fields from physical column names.
 - It does not permit dynamic field selection inside restricted bodies.
 - It does not change body-free metric composition APIs.
 
-## Ref Call Contract
+## Explicit Bind Contract
 
-The single unified runtime class declares a restricted self-type:
+The semantic surface declares one restricted operation:
 
 ```python
-def __call__(
-    self: Ref[DimensionKind | TimeDimensionKind | MeasureKind],
+def bind(
+    field: Ref[DimensionKind | TimeDimensionKind | MeasureKind],
     entity_alias: ibis.expr.types.Table,
 ) -> ibis.expr.types.Value:
     ...
 ```
 
-This is not a second ref subtype or alias. Static typing rejects calls on known
-`Ref[MetricKind]`, `Ref[EntityKind]`, and other non-field refs. Runtime checks
-remain mandatory because Python callers may erase or widen generic precision.
+This is not a second ref subtype or alias. Static typing rejects known
+`Ref[MetricKind]`, `Ref[EntityKind]`, and other non-field arguments. Runtime
+checks remain mandatory because Python callers may erase or widen generic
+precision.
 
-The call accepts exactly one positional entity alias and no keywords. That
-retains the established spelling and keeps AST analysis closed.
+The operation accepts exactly one field ref plus one positional entity alias and
+no keywords. That keeps AST analysis closed.
 
 ### Valid shapes
 
 ```python
 @ms.measure(entity=orders, additivity="additive", unit="USD")
 def net_amount(order_rows):
-    return gross_amount(order_rows) - order_rows.discount
+    return ms.bind(gross_amount, order_rows) - order_rows.discount
 
 
 @ms.metric(entities=[orders], additivity="additive", unit="USD")
 def revenue(order_rows):
-    return net_amount(order_rows).sum()
+    return ms.bind(net_amount, order_rows).sum()
 
 
 @ms.metric(
@@ -148,7 +150,9 @@ def revenue(order_rows):
     additivity="additive",
 )
 def vip_revenue(order_rows, customer_rows):
-    return (amount(order_rows) * vip_weight(customer_rows)).sum()
+    return (
+        ms.bind(amount, order_rows) * ms.bind(vip_weight, customer_rows)
+    ).sum()
 ```
 
 Renaming Python variables or parameters changes neither semantic identity nor
@@ -158,18 +162,18 @@ entity position.
 ### Rejected shapes
 
 ```python
-revenue(order_rows)                    # metric is not a field kind
-orders(order_rows)                     # entity is not a field kind
-Ref.measure("sales.orders.amount")()   # missing direct entity alias
-select_field()(order_rows)             # dynamic field selection
-amount(order_rows.filter(...))         # not a direct body alias
-amount(unrelated_local)                # not a body parameter
-amount(order_rows, other_rows)         # wrong arity
-amount(table=order_rows)                # keywords are not accepted
+ms.bind(revenue, order_rows)                    # metric is not a field kind
+ms.bind(orders, order_rows)                     # entity is not a field kind
+ms.bind(ms.ref.measure("sales.orders.amount")) # missing direct entity alias
+ms.bind(select_field(), order_rows)             # dynamic field selection
+ms.bind(amount, order_rows.filter(...))         # not a direct body alias
+ms.bind(amount, unrelated_local)                # not a body parameter
+ms.bind(amount, order_rows, other_rows)         # wrong arity
+ms.bind(field=amount, entity_alias=order_rows)  # keywords are not accepted
 ```
 
-Calling any ref outside registered semantic body evaluation fails. It never
-guesses the current project or most recently loaded catalog.
+Binding outside registered semantic body evaluation fails. It never guesses the
+current project or most recently loaded catalog.
 
 ## Declaration-Time Binding Analysis
 
@@ -179,8 +183,8 @@ The single-return validator recognizes a field application only as:
 
 ```text
 Call(
-    func=Name(<field_symbol>),
-    args=[Name(<body_parameter>)],
+    func=Attribute(Name("ms"), "bind"),
+    args=[Name(<field_symbol>), Name(<body_parameter>)],
     keywords=[],
 )
 ```
@@ -271,7 +275,7 @@ field call therefore fails before any query or project mutation.
 
 ### Runtime validation order
 
-`field_ref(entity_alias)` checks:
+`ms.bind(field_ref, entity_alias)` checks:
 
 1. the concrete receiver type is exactly `Ref`;
 2. the receiver kind is dimension, time dimension, or measure;
@@ -327,27 +331,28 @@ Required structured failures are:
   stack;
 - `binding_result_invalid` for a non-Ibis result.
 
-Each error includes the owning ref when available and teaches one valid field
-call. No error imports modules, selects candidates, mutates refs, or retries.
+Each error includes the owning ref when available and teaches one valid
+`ms.bind` call. No error imports modules, selects candidates, mutates refs, or
+retries.
 
 ## Help and Agent Contract
 
-Root and focused help retain one form:
+Root and focused help teach one form:
 
 ```python
-return amount(order_rows).sum()
+return ms.bind(amount, order_rows).sum()
 ```
 
 Help distinguishes semantic field application from direct physical-column
-access, states that only field-kind refs are callable, and explains that calls
-work only inside registered semantic bodies. It never exposes `ms.bind`,
+access, states that refs are immutable and never callable, and explains that
+`ms.bind` works only inside registered semantic bodies. It never exposes
 resolver attachment, sidecars, or catalog lookup as authoring concepts.
 
 ## Internal Ownership
 
 ```text
 marivo.refs
-    sealed Ref, SemanticKind, restricted context-bound __call__ delegation
+    sealed data-only Ref, SemanticKind, immutable ref factory namespace
 
 marivo.semantic authoring/validator
     AST extraction and positional binding validation
@@ -378,8 +383,8 @@ The cutover removes:
 - dynamic field dependencies absent from compiled metadata;
 - errors that describe a ref as a decorator.
 
-The call spelling remains, but its implementation and guarantees are replaced
-atomically. There is no compatibility resolver path.
+The old call spelling is deleted atomically. There is no compatibility resolver
+or callable-ref path.
 
 ## Landing Order
 
@@ -397,7 +402,7 @@ remain absent from public help and exports.
 ## Acceptance Criteria
 
 - One concrete `Ref` class represents all kinds and contains no resolver state.
-- `field_ref(entity_alias)` remains the only field application spelling.
+- `ms.bind(field_ref, entity_alias)` remains the only field application spelling.
 - Static typing restricts calls to field-kind refs.
 - Runtime checks reject every non-field kind and non-exact ref.
 - Single-entity dimension, time-dimension, measure, and metric bodies execute.
@@ -425,7 +430,7 @@ remain absent from public help and exports.
 
 `entities=[...]` says which entity aliases a body receives and in what order.
 
-`field_ref(entity_alias)` applies one declared field to one exact positional
+`ms.bind(field_ref, entity_alias)` applies one declared field to one exact positional
 entity alias through the current loader-owned expression context.
 
 The catalog records the dependency; the ref never stores the executor.

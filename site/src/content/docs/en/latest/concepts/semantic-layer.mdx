@@ -95,7 +95,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 sales = ms.domain(name="sales", owner="Mina Zhang")
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
@@ -107,7 +107,7 @@ After user approval and loading, routine analysis reads the metric and observes
 it:
 
 ```python
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
 revenue_entry.details().show()
 frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 ```
@@ -121,7 +121,7 @@ described below before this routine analysis sequence.
 
 Datasources are declared in `models/datasources/*.py` with a typed helper per
 backend. The helper registers the connection; it does not return a value. Semantic
-files refer to it through the exact `ms.Ref.datasource("warehouse")` factory.
+files refer to it through the exact `ms.ref.datasource("warehouse")` factory.
 
 ```python
 # models/datasources/warehouse.py
@@ -143,7 +143,7 @@ shares these parameters:
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | Yes | — | Global lowercase snake_case datasource name. Used by `ms.Ref.datasource(name)`. |
+| `name` | `str` | Yes | — | Global lowercase snake_case datasource name. Used by `ms.ref.datasource(name)`. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 | `extra` | `dict` | No | `None` | Rare JSON-safe ibis keyword arguments the typed helper does not model. |
 
@@ -223,7 +223,7 @@ anchor that dimensions, measures, and metrics attach to.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
-| `datasource` | `Ref[datasource]` | Yes | — | `ms.Ref.datasource("warehouse")`. |
+| `datasource` | `Ref[datasource]` | Yes | — | `ms.ref.datasource("warehouse")`. |
 | `source` | source builder | Yes | — | Datasource-owned `md.table(...)`, `md.parquet(...)`, `md.csv(...)`, or `md.json(...)`. |
 | `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
@@ -231,7 +231,7 @@ anchor that dimensions, measures, and metrics attach to.
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 
 orders = ms.entity(
     name="orders",
@@ -567,8 +567,8 @@ session = mv.session.get_or_create(
     question="Why did Q4 revenue drop?",
 )
 catalog = session.catalog
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
-region_entry = catalog.require(ms.Ref.dimension("sales.orders.region"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
+region_entry = catalog.require(ms.ref.dimension("sales.orders.region"))
 
 revenue_entry.details().show()
 current = session.observe(revenue_entry.ref, grain="month", dimensions=[region_entry.ref])
@@ -687,7 +687,7 @@ objects against the same configured roots.
 Every semantic object is identified by one sealed, immutable `ms.Ref` value.
 The runtime class is always exactly `Ref`; the generic kind (`Ref[metric]`,
 `Ref[dimension]`, and so on) gives static type checkers the role. Create refs
-only through an exact factory such as `ms.Ref.metric("sales.revenue")` or from
+only through an exact factory such as `ms.ref.metric("sales.revenue")` or from
 an authoring declaration that returns the same value type.
 
 All refs expose these read-only attributes:
@@ -703,21 +703,22 @@ All refs expose these read-only attributes:
 cannot be called directly and `Ref` cannot be subclassed. Public boundaries do
 not accept strings or catalog entries as substitutes for refs.
 
-| Kind | Factory | Typical authoring producer | Callable? |
+| Kind | Factory | Typical authoring producer | Expression binding? |
 | --- | --- | --- | --- |
-| `domain` | `ms.Ref.domain(path)` | `ms.domain(...)` | No |
-| `datasource` | `ms.Ref.datasource(path)` | datasource declaration `.ref` | No |
-| `entity` | `ms.Ref.entity(path)` | `ms.entity(...)` | No |
-| `dimension` | `ms.Ref.dimension(path)` | `ms.dimension_column(...)`, `@ms.dimension` | Yes, only in a bound expression body |
-| `time_dimension` | `ms.Ref.time_dimension(path)` | `ms.time_dimension_column(...)`, `@ms.time_dimension` | Yes, only in a bound expression body |
-| `measure` | `ms.Ref.measure(path)` | `ms.measure_column(...)`, `@ms.measure` | Yes, only in a bound expression body |
-| `metric` | `ms.Ref.metric(path)` | `ms.aggregate(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
-| `relationship` | `ms.Ref.relationship(path)` | `ms.relationship(...)` | No |
+| `domain` | `ms.ref.domain(path)` | `ms.domain(...)` | No |
+| `datasource` | `ms.ref.datasource(path)` | datasource declaration `.ref` | No |
+| `entity` | `ms.ref.entity(path)` | `ms.entity(...)` | No |
+| `dimension` | `ms.ref.dimension(path)` | `ms.dimension_column(...)`, `@ms.dimension` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `time_dimension` | `ms.ref.time_dimension(path)` | `ms.time_dimension_column(...)`, `@ms.time_dimension` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `measure` | `ms.ref.measure(path)` | `ms.measure_column(...)`, `@ms.measure` | `ms.bind(ref, entity_alias)` inside a bound expression body |
+| `metric` | `ms.ref.metric(path)` | `ms.aggregate(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
+| `relationship` | `ms.ref.relationship(path)` | `ms.relationship(...)` | No |
 
-Field refs are called with the declared entity alias inside an expression body,
-for example `amount(orders)`. The loader records that binding against the
-compiled catalog. Calling a field ref outside that body, with the wrong alias,
-or calling a non-field ref fails with a teaching error.
+Ref values are never callable. Inside an expression body, bind a field ref to
+the declared entity alias explicitly, for example `ms.bind(amount, orders)`.
+The loader records that binding against the compiled catalog. Binding outside
+that body, with the wrong alias, or binding a non-field ref fails with a
+teaching error.
 
 An authoring ref can be passed directly to analysis. When starting from a
 literal identity, require catalog membership once and then use the entry's ref:
@@ -726,7 +727,7 @@ literal identity, require catalog membership once and then use the entry's ref:
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 frame = session.observe(revenue, time_scope={...})
 
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
 frame = session.observe(revenue_entry.ref, time_scope={...})
 ```
 
@@ -859,7 +860,7 @@ Consult `md.help("authoring")` for datasource inspection and scope,
 `md.help("ai_context")` for the shared `ms.ai_context(...)` contract:
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 orders = md.table("orders")
 
 inspection = md.inspect(warehouse, orders)

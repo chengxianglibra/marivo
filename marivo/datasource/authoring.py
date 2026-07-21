@@ -17,6 +17,7 @@ from marivo.datasource.errors import (
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.typing import AiContextValue
 from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
+from marivo.refs import ref as ref_factory
 
 
 def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
@@ -163,7 +164,7 @@ class _SpecBase:
     @property
     def ref(self) -> Ref[DatasourceKind]:
         """Typed reference to this datasource for semantic authoring."""
-        return Ref.datasource(self.name)
+        return ref_factory.datasource(self.name)
 
     def __post_init__(self) -> None:
         validate_datasource_name(self.name)
@@ -427,7 +428,7 @@ def _require_datasource_ref(
         return value
     raise TypeError(
         f"{argument} must be Ref[datasource] from a datasource spec's .ref or "
-        "Ref.datasource('warehouse'). Do not pass a bare string."
+        "ref_factory.datasource('warehouse'). Do not pass a bare string."
     )
 
 

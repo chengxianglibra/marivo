@@ -17,8 +17,8 @@ from marivo.analysis.refs import ArtifactRef, CalendarRef
 
 def test_semantic_refs_stay_on_the_semantic_surface():
     assert mv.AlignmentKind is AlignmentKind
-    assert ms.Ref.metric("sales.revenue").path == "sales.revenue"
-    assert ms.Ref.dimension("sales.orders.region").path == "sales.orders.region"
+    assert ms.ref.metric("sales.revenue").path == "sales.revenue"
+    assert ms.ref.dimension("sales.orders.region").path == "sales.orders.region"
     assert not hasattr(mv, "SemanticRef")
     assert not hasattr(mv, "Ref")
     assert not hasattr(mv, "SemanticKind")

@@ -1,7 +1,7 @@
 """Tests for the metric-split foundation (Plan 1: IR + authoring).
 
 Covers: Additivity/SemiAdditive/AggKind types, Composition union,
-MetricIR rewrite, DimensionIR.additivity, _BaseRef.__call__ teaching
+MetricIR rewrite, DimensionIR.additivity, and explicit ms.bind teaching
 error, and the full authoring surface (ms.semi_additive, ms.aggregate,
 @ms.metric, ms.ratio/ms.linear, ms.weighted_mean,
 dimension(additivity=)).
@@ -160,16 +160,16 @@ def test_categorical_dimension_rejects_additivity():
 
 
 # ---------------------------------------------------------------------------
-# Task 6: Ref.__call__ kind guard
+# Task 6: ms.bind kind guard
 # ---------------------------------------------------------------------------
 
 
 def test_non_field_ref_rejects_binding_call():
-    r = ms.Ref.metric("d.loss_rate")
+    r = ms.ref.metric("d.loss_rate")
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        r(lambda: None)  # type: ignore[arg-type]
+        ms.bind(r, lambda: None)  # type: ignore[arg-type]
     assert exc_info.value.kind == "invalid_binding_ref"
-    assert "field_ref(entity_alias)" in str(exc_info.value)
+    assert "ms.bind(field_ref, entity_alias)" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ def test_non_field_ref_rejects_binding_call():
 
 
 def test_semi_additive_builder_normalizes_fold():
-    order_date = ms.Ref.time_dimension("sales.orders.order_date")
+    order_date = ms.ref.time_dimension("sales.orders.order_date")
     sa = authoring.semi_additive(over=order_date, fold="last")
     assert isinstance(sa, ir.SemiAdditive)
     assert sa.over == "sales.orders.order_date"
@@ -186,7 +186,7 @@ def test_semi_additive_builder_normalizes_fold():
 
 
 def test_semi_additive_builder_percentile():
-    t = ms.Ref.time_dimension("d.e.t")
+    t = ms.ref.time_dimension("d.e.t")
     sa = authoring.semi_additive(over=t, fold=("percentile", 0.9))
     assert sa.fold.kind == "percentile" and sa.fold.q == 0.9
 
@@ -206,7 +206,7 @@ def test_semi_additive_builder_rejects_string_over():
 def test_aggregate_builds_tier1_metric():
     with authoring_session(domain="sales") as sess:
         amount = sess.measure(
-            entity=ms.Ref.entity("sales.orders"), name="amount", additivity="additive"
+            entity=ms.ref.entity("sales.orders"), name="amount", additivity="additive"
         )
         rev = authoring.aggregate(measure=amount, agg="sum", name="revenue")
         m = sess.pending_metric("sales.revenue")
@@ -226,7 +226,7 @@ def test_aggregate_builds_tier1_metric():
 def test_metric_body_form_declares_additivity():
     with authoring_session(domain="sales") as sess:
 
-        @authoring.metric(entities=[ms.Ref.entity("sales.orders")], additivity="additive")
+        @authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity="additive")
         def gmv(orders):
             return (orders.price * orders.qty).sum()
 
@@ -239,10 +239,10 @@ def test_metric_body_form_declares_additivity():
 
 def test_metric_semi_additive_via_builder():
     with authoring_session(domain="ops") as sess:
-        t = ms.Ref.time_dimension("ops.samples.t")
+        t = ms.ref.time_dimension("ops.samples.t")
 
         @authoring.metric(
-            entities=[ms.Ref.entity("ops.samples")],
+            entities=[ms.ref.entity("ops.samples")],
             additivity=authoring.semi_additive(over=t, fold="max"),
         )
         def peak_bw(samples):
@@ -260,7 +260,7 @@ def test_metric_semi_additive_via_builder():
 
 def _m(sess, entity, col):
     """Declare a measure dimension and return its ref."""
-    return sess.measure(entity=ms.Ref.entity(entity), name=col, additivity="additive")
+    return sess.measure(entity=ms.ref.entity(entity), name=col, additivity="additive")
 
 
 def test_ratio_constructor_is_flat_and_derived():

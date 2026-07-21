@@ -86,7 +86,7 @@ Help & description
 Catalog & refs
 --------------
 
-Datasource identities use ``marivo.semantic.Ref.datasource(...)``. The
+Datasource identities use ``marivo.semantic.ref.datasource(...)``. The
 datasource module accepts that exact ref at inspection and raw-SQL boundaries,
 but does not define a second ref type.
 

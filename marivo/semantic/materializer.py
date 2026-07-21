@@ -20,6 +20,7 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.refs import EntityKind, Ref, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
@@ -143,8 +144,8 @@ class Materializer:
     @staticmethod
     def _dimension_ref(semantic_id: str, *, is_time_dimension: bool) -> Ref[SemanticKindTag]:
         if is_time_dimension:
-            return cast("Ref[SemanticKindTag]", Ref.time_dimension(semantic_id))
-        return cast("Ref[SemanticKindTag]", Ref.dimension(semantic_id))
+            return cast("Ref[SemanticKindTag]", ref_factory.time_dimension(semantic_id))
+        return cast("Ref[SemanticKindTag]", ref_factory.dimension(semantic_id))
 
     # -- entity --------------------------------------------------------------
 
@@ -320,7 +321,7 @@ class Materializer:
                 semantic_id,
                 is_time_dimension=field_ir.is_time_dimension,
             ),
-            (Ref.entity(field_ir.entity),),
+            (ref_factory.entity(field_ir.entity),),
             (parent_table,),
         )
 
@@ -343,7 +344,7 @@ class Materializer:
                 semantic_id,
                 is_time_dimension=field_ir.is_time_dimension,
             ),
-            (Ref.entity(field_ir.entity),),
+            (ref_factory.entity(field_ir.entity),),
             (table,),
         )
 
@@ -365,8 +366,8 @@ class Materializer:
             )
         parent_table = self.entity(measure_ir.entity)
         value = self._evaluate_expression(
-            cast("Ref[SemanticKindTag]", Ref.measure(semantic_id)),
-            (Ref.entity(measure_ir.entity),),
+            cast("Ref[SemanticKindTag]", ref_factory.measure(semantic_id)),
+            (ref_factory.entity(measure_ir.entity),),
             (parent_table,),
         )
         self._measure_cache[semantic_id] = value
@@ -389,8 +390,8 @@ class Materializer:
                 refs=(semantic_id,),
             )
         return self._evaluate_expression(
-            cast("Ref[SemanticKindTag]", Ref.measure(semantic_id)),
-            (Ref.entity(measure_ir.entity),),
+            cast("Ref[SemanticKindTag]", ref_factory.measure(semantic_id)),
+            (ref_factory.entity(measure_ir.entity),),
             (table,),
         )
 
@@ -634,8 +635,8 @@ class Materializer:
             tables.append(table)
 
         return self._evaluate_expression(
-            cast("Ref[SemanticKindTag]", Ref.metric(semantic_id)),
-            tuple(Ref.entity(entity_id) for entity_id in metric_ir.entities),
+            cast("Ref[SemanticKindTag]", ref_factory.metric(semantic_id)),
+            tuple(ref_factory.entity(entity_id) for entity_id in metric_ir.entities),
             tuple(tables),
         )
 
@@ -702,8 +703,8 @@ class Materializer:
                     refs=(target_id,),
                 )
             column = self._evaluate_expression(
-                cast("Ref[SemanticKindTag]", Ref.measure(target_id)),
-                (Ref.entity(measure_ir.entity),),
+                cast("Ref[SemanticKindTag]", ref_factory.measure(target_id)),
+                (ref_factory.entity(measure_ir.entity),),
                 (tables[0],),
             )
             return self._apply_agg(
@@ -713,8 +714,8 @@ class Materializer:
                 backend_type=backend_type,
             )
         return self._evaluate_expression(
-            cast("Ref[SemanticKindTag]", Ref.metric(semantic_id)),
-            tuple(Ref.entity(entity_id) for entity_id in metric_ir.entities),
+            cast("Ref[SemanticKindTag]", ref_factory.metric(semantic_id)),
+            tuple(ref_factory.entity(entity_id) for entity_id in metric_ir.entities),
             tuple(tables),
         )
 

@@ -63,7 +63,7 @@ def _bootstrap_sales_with_country_dimension(tmp_path):
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
@@ -115,7 +115,7 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def create_date(orders):\n"
@@ -146,7 +146,7 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
         "def create_date(orders):\n"
@@ -188,7 +188,7 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"
@@ -226,7 +226,7 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='hour', parse=ms.strptime('%Y%m%d%H'))\n"
         "def log_hour(orders):\n"
@@ -253,7 +253,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"
@@ -306,7 +306,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/model.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def country(table):\n"
                 "    return table.country\n"
@@ -332,7 +332,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
         use_datasources=False,
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    metric = catalog.require(ms.Ref.metric("sales.revenue"))
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     class GuardedCatalog(SemanticCatalog):
         def __init__(self, wrapped):
@@ -356,7 +356,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
     guarded_catalog = GuardedCatalog(catalog)
 
     def metric_adapter(ref):
-        details = guarded_catalog.require(ms.Ref.metric(ref)).details()
+        details = guarded_catalog.require(ms.ref.metric(ref)).details()
         composition_ns = None
         if isinstance(details, DerivedMetricDetails):
             composition_ns = SimpleNamespace(
@@ -391,7 +391,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
         metric_ir=metric_adapter("sales.revenue"),
         dataset_irs=dataset_irs,
         dataset_fns=dataset_fns,
-        dimensions=[guarded_catalog.require(ms.Ref.dimension("sales.orders.country")).ref],
+        dimensions=[guarded_catalog.require(ms.ref.dimension("sales.orders.country")).ref],
         where=None,
         resolved_window=None,
         time_dimension=None,
@@ -450,8 +450,8 @@ def test_observe_rejects_bare_metric_string(tmp_path):
 
 
 def test_session_observe_rejects_catalog_object_and_accepts_exact_ref(sales_session, sales_catalog):
-    metric = sales_catalog.require(ms.Ref.metric("sales.revenue"))
-    country = sales_catalog.require(ms.Ref.dimension("sales.orders.country")).ref
+    metric = sales_catalog.require(ms.ref.metric("sales.revenue"))
+    country = sales_catalog.require(ms.ref.dimension("sales.orders.country")).ref
 
     with pytest.raises(AnalysisError, match="received MetricEntry"):
         sales_session.observe(metric, dimensions=[country])  # type: ignore[arg-type]
@@ -556,7 +556,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "create_date" in rendered
     assert "create_time" in rendered
     assert (
-        'time_dimension=session.catalog.require(ms.Ref.time_dimension("<domain.entity.time_dimension>")).ref'
+        'time_dimension=session.catalog.require(ms.ref.time_dimension("<domain.entity.time_dimension>")).ref'
         in rendered
     )
     assert "is_default=True" in rendered
@@ -837,7 +837,7 @@ def _bootstrap_failure_rate(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -1136,7 +1136,7 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y/%m/%d'))\n"
         "def log_date(orders):\n"
@@ -1206,7 +1206,7 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='minute', parse=ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC'))\n"
         "def create_time(orders):\n"
@@ -1269,7 +1269,7 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"

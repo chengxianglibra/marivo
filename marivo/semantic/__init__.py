@@ -25,12 +25,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.refs import Ref, SemanticKind
+from marivo.refs import Ref, SemanticKind, ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
     aggregate,
     ai_context,
+    bind,
     count,
     cumulative,
     datetime,
@@ -209,6 +210,7 @@ __all__ = [
     "VerifyResult",
     "aggregate",
     "ai_context",
+    "bind",
     "count",
     "cumulative",
     "datetime",
@@ -230,6 +232,7 @@ __all__ = [
     "metric",
     "parity_check",
     "ratio",
+    "ref",
     "relationship",
     "richness",
     "semi_additive",

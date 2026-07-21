@@ -81,7 +81,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 sales = ms.domain(name="sales", owner="Mina Zhang")
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
@@ -92,7 +92,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 用户批准并加载模型后，日常分析先读取指标，再调用 `observe`：
 
 ```python
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
 revenue_entry.details().show()
 frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 ```
@@ -104,7 +104,7 @@ frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 ### 1. 连接数据源
 
 Datasources 在 `models/datasources/*.py` 中声明，每种 backend 对应一个 typed helper。
-helper 会注册连接。Semantic 文件通过精确的 `ms.Ref.datasource("warehouse")` factory 引用
+helper 会注册连接。Semantic 文件通过精确的 `ms.ref.datasource("warehouse")` factory 引用
 datasource。
 
 ```python
@@ -126,7 +126,7 @@ md.duckdb(
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 全局 lowercase snake_case datasource 名称。供 `ms.Ref.datasource(name)` 使用。 |
+| `name` | `str` | 是 | — | 全局 lowercase snake_case datasource 名称。供 `ms.ref.datasource(name)` 使用。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 | `extra` | `dict` | 否 | `None` | typed helper 未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
 
@@ -202,7 +202,7 @@ Entity 表示一个物理源（一张表或一个文件）及其 primary key。d
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
-| `datasource` | `Ref[datasource]` | 是 | — | `ms.Ref.datasource("warehouse")`。 |
+| `datasource` | `Ref[datasource]` | 是 | — | `ms.ref.datasource("warehouse")`。 |
 | `source` | source builder | 是 | — | Datasource-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
 | `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
@@ -210,7 +210,7 @@ Entity 表示一个物理源（一张表或一个文件）及其 primary key。d
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 
 orders = ms.entity(
     name="orders",
@@ -525,8 +525,8 @@ session = mv.session.get_or_create(
     question="Why did Q4 revenue drop?",
 )
 catalog = session.catalog
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
-region_entry = catalog.require(ms.Ref.dimension("sales.orders.region"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
+region_entry = catalog.require(ms.ref.dimension("sales.orders.region"))
 
 revenue_entry.details().show()
 current = session.observe(revenue_entry.ref, grain="month", dimensions=[region_entry.ref])
@@ -634,7 +634,7 @@ Marivo 会先加载中央 project 的 `models/`，再按配置顺序加载外部
 
 每个 semantic 对象都由一个 sealed、不可变的 `ms.Ref` 值标识。运行时只有一个
 具体 `Ref` 类；泛型 kind（如 `Ref[metric]`、`Ref[dimension]`）负责静态角色检查。
-只能通过 `ms.Ref.metric("sales.revenue")` 这类精确 factory，或返回同一值类型的
+只能通过 `ms.ref.metric("sales.revenue")` 这类精确 factory，或返回同一值类型的
 authoring declaration 创建 ref。
 
 所有 ref 都有以下只读属性：
@@ -649,20 +649,21 @@ authoring declaration 创建 ref。
 `str(ref)` 返回 `.key`，相等性和哈希基于 `(kind, path)`。不能直接调用
 `Ref(...)`，也不能继承 `Ref`。公开边界不会把字符串或 catalog entry 当作 ref。
 
-| Kind | Factory | 常见 authoring producer | 可调用? |
+| Kind | Factory | 常见 authoring producer | Expression binding |
 | --- | --- | --- | --- |
-| `domain` | `ms.Ref.domain(path)` | `ms.domain(...)` | 否 |
-| `datasource` | `ms.Ref.datasource(path)` | datasource declaration 的 `.ref` | 否 |
-| `entity` | `ms.Ref.entity(path)` | `ms.entity(...)` | 否 |
-| `dimension` | `ms.Ref.dimension(path)` | `ms.dimension_column(...)`、`@ms.dimension` | 仅在绑定的 expression body 内可调用 |
-| `time_dimension` | `ms.Ref.time_dimension(path)` | `ms.time_dimension_column(...)`、`@ms.time_dimension` | 仅在绑定的 expression body 内可调用 |
-| `measure` | `ms.Ref.measure(path)` | `ms.measure_column(...)`、`@ms.measure` | 仅在绑定的 expression body 内可调用 |
-| `metric` | `ms.Ref.metric(path)` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
-| `relationship` | `ms.Ref.relationship(path)` | `ms.relationship(...)` | 否 |
+| `domain` | `ms.ref.domain(path)` | `ms.domain(...)` | 否 |
+| `datasource` | `ms.ref.datasource(path)` | datasource declaration 的 `.ref` | 否 |
+| `entity` | `ms.ref.entity(path)` | `ms.entity(...)` | 否 |
+| `dimension` | `ms.ref.dimension(path)` | `ms.dimension_column(...)`、`@ms.dimension` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
+| `time_dimension` | `ms.ref.time_dimension(path)` | `ms.time_dimension_column(...)`、`@ms.time_dimension` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
+| `measure` | `ms.ref.measure(path)` | `ms.measure_column(...)`、`@ms.measure` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
+| `metric` | `ms.ref.metric(path)` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
+| `relationship` | `ms.ref.relationship(path)` | `ms.relationship(...)` | 否 |
 
-在 expression body 内，field ref 必须显式传入已声明的 entity alias，例如
-`amount(orders)`。Loader 会把该绑定记录到 compiled catalog。若在 body 外调用、使用错误
-alias，或调用非 field ref，都会得到带修复提示的错误。
+Ref 值本身始终不可调用。在 expression body 内，必须通过
+`ms.bind(amount, orders)` 将 field ref 显式绑定到已声明的 entity alias。Loader 会把该绑定
+记录到 compiled catalog。若在 body 外绑定、使用错误 alias，或绑定非 field ref，都会得到
+带修复提示的错误。
 
 Authoring ref 可以直接传给分析。如果从字面身份开始，先做一次精确 catalog membership
 校验，再使用 entry 的 ref：
@@ -671,7 +672,7 @@ Authoring ref 可以直接传给分析。如果从字面身份开始，先做一
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 frame = session.observe(revenue, time_scope={...})
 
-revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
 frame = session.observe(revenue_entry.ref, time_scope={...})
 ```
 
@@ -797,7 +798,7 @@ ms.relationship(
 `ms.ai_context(...)` 契约：
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 orders = md.table("orders")
 
 inspection = md.inspect(warehouse, orders)

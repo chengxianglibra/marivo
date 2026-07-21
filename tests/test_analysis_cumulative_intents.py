@@ -53,7 +53,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "order_date = ms.time_dimension_column("
         "name='order_date', entity=orders, column='created_at', granularity='day')\n"

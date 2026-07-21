@@ -49,9 +49,9 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
         "\n"
-        "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+        "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"

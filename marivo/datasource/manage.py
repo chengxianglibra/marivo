@@ -493,7 +493,7 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.test(ms.Ref.datasource("wh"))
+        >>> md.test(ms.ref.datasource("wh"))
 
     Constraints:
         On success, env-sourced secrets that resolved correctly are
@@ -645,7 +645,7 @@ def raw_sql(
     """Run a bounded read-only SQL terminal diagnostic against a datasource.
 
     Args:
-        datasource: Datasource reference returned by ``ms.Ref.datasource("warehouse")``.
+        datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
         sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
             are bounded with a wrapper query capped at ``limit + 1`` rows;
             metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
@@ -663,7 +663,7 @@ def raw_sql(
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.raw_sql(ms.Ref.datasource("warehouse"), "SELECT 1 AS ok", reason="check query path")
+        >>> md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
         Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,

@@ -37,7 +37,7 @@ def _catalog(semantic_project_factory):
             ),
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def amount(table):\n"
                 "    return table.amount\n"
@@ -56,7 +56,7 @@ def test_resolver_table_uses_connection_service(semantic_project_factory):
     connections = _FakeConnections(backend)
     resolver = _catalog(semantic_project_factory)._semantic_resolver(connections=connections)
 
-    table = resolver.table(ms.Ref.entity("sales.orders"))
+    table = resolver.table(ms.ref.entity("sales.orders"))
 
     assert "amount" in table.columns
     assert connections.names == ["warehouse"]

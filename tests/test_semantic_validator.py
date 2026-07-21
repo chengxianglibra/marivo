@@ -22,6 +22,7 @@ import textwrap
 
 import pytest
 
+import marivo.semantic as ms
 from marivo.semantic.errors import ErrorKind, SemanticLoadError
 from marivo.semantic.validator import validate_metric_body_ast
 
@@ -63,11 +64,11 @@ def test_base_method_calls_on_dataset_arg() -> None:
     assert isinstance(result, str)
 
 
-def test_base_field_ref_calls() -> None:
-    """Calling field refs (Name calls) is allowed in base metrics."""
+def test_base_field_ref_bind() -> None:
+    """Explicit semantic field binding is allowed in base metrics."""
 
     def revenue(table):  # type: ignore[no-untyped-def]
-        return amount(table).sum()  # noqa: F821
+        return ms.bind(amount, table).sum()  # noqa: F821
 
     result = validate_metric_body_ast(revenue, "base")
     assert isinstance(result, str)
@@ -349,7 +350,7 @@ def test_base_ms_component_call_rejected() -> None:
     """ms.component() is not supported in base metric bodies."""
 
     def bad_metric(table):  # type: ignore[no-untyped-def]
-        return ms.component("amount")  # noqa: F821
+        return ms.component("amount")
 
     with pytest.raises(SemanticLoadError) as exc_info:
         validate_metric_body_ast(bad_metric, "base")

@@ -29,6 +29,7 @@ from marivo.analysis.intents._observe_inputs import _analysis_axis_for_kind
 from marivo.analysis.session._runtime import persist_frame, register_frame_artifact
 from marivo.analysis.session.core import Session
 from marivo.refs import Ref, RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import CatalogMetricIdentity, RuntimeExpressionIdentity
 
 
@@ -84,7 +85,7 @@ def _persist_metric_component_frame(
                     column=column,
                     metric_identity=CatalogMetricIdentity(
                         kind="catalog",
-                        metric_ref=RefPayloadV1.from_ref(Ref.metric(target)),
+                        metric_ref=RefPayloadV1.from_ref(ref_factory.metric(target)),
                     ),
                 )
             )
@@ -412,7 +413,7 @@ def _metric_semantics_payload(
         "additivity": additivity,
         "aggregation": _meta_aggregation(getattr(metric_ir, "aggregation", None)),
         "status_time_dimension_ref": (
-            RefPayloadV1.from_ref(Ref.time_dimension(status_path)).to_dict()
+            RefPayloadV1.from_ref(ref_factory.time_dimension(status_path)).to_dict()
             if isinstance(status_path, str)
             else None
         ),

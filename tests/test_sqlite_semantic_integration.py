@@ -58,7 +58,7 @@ def test_sqlite_verify_preview_readiness_and_observe(
 
                 orders = ms.entity(
                     name="orders",
-                    datasource=ms.Ref.datasource("warehouse"),
+                    datasource=ms.ref.datasource("warehouse"),
                     source=md.table("orders"),
                     ai_context=ms.ai_context(
                         business_definition="Accepted sales orders.",
@@ -99,8 +99,8 @@ def test_sqlite_verify_preview_readiness_and_observe(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
-    snapshot = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders")).sample(
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=5),
         columns=("order_id", "amount", "created_at"),
     )

@@ -23,7 +23,7 @@ _INLINE_SALES = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=ms.Ref.datasource("wh"), source=md.table("orders"))
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
@@ -35,7 +35,7 @@ def gross(orders): return orders.gross
 def refund(orders): return orders.refund
 
 @ms.metric(entities=[orders], additivity="additive", name="revenue_via_measure")
-def revenue_via_measure(orders): return amount(orders).sum()
+def revenue_via_measure(orders): return ms.bind(amount, orders).sum()
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")

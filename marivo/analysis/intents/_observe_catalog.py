@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
 from marivo.refs import EntityKind, FieldKind, Ref, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DimensionDetails,
     EntityDetails,
@@ -102,12 +103,12 @@ def _catalog_kind(catalog: Any, ref: str) -> SemanticKind | None:
 
 def _catalog_object(catalog: Any, ref: str, kind: SemanticKind) -> Any:
     factory = {
-        SemanticKind.ENTITY: Ref.entity,
-        SemanticKind.DIMENSION: Ref.dimension,
-        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-        SemanticKind.MEASURE: Ref.measure,
-        SemanticKind.METRIC: Ref.metric,
-        SemanticKind.RELATIONSHIP: Ref.relationship,
+        SemanticKind.ENTITY: ref_factory.entity,
+        SemanticKind.DIMENSION: ref_factory.dimension,
+        SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+        SemanticKind.MEASURE: ref_factory.measure,
+        SemanticKind.METRIC: ref_factory.metric,
+        SemanticKind.RELATIONSHIP: ref_factory.relationship,
     }.get(kind)
     if factory is None:
         raise SemanticKindMismatchError(
@@ -144,7 +145,7 @@ def _fields_for_entity(
     catalog: Any, entity_ref: str
 ) -> list[DimensionDetails | TimeDimensionDetails]:
     index = catalog._require_index()
-    scope_ref = Ref.entity(entity_ref)
+    scope_ref = ref_factory.entity(entity_ref)
     details = (
         *index.details_under(SemanticKind.DIMENSION, scope_ref=scope_ref),
         *index.details_under(SemanticKind.TIME_DIMENSION, scope_ref=scope_ref),

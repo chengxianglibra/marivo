@@ -64,7 +64,7 @@ def _reject_exact(
         context["available_refs"] = list(available_refs)
     raise SemanticKindMismatchError(
         message=f"{argument} requires exact {expected_type}; got {actual_type} ({actual_kind}).",
-        hint="Pass entry.ref or construct one exact ms.Ref.<kind>(path).",
+        hint="Pass entry.ref or construct one exact ms.ref.<kind>(path).",
         context=context,
     )
 

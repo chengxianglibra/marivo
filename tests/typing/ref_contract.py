@@ -14,6 +14,10 @@ from marivo.refs import (
     Ref,
     TimeDimensionKind,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
+from marivo.semantic import bind
 from marivo.semantic.catalog import (
     CatalogCollection,
     DimensionEntry,
@@ -21,27 +25,27 @@ from marivo.semantic.catalog import (
     SemanticCatalog,
 )
 
-assert_type(Ref.datasource("warehouse"), Ref[DatasourceKind])
-assert_type(Ref.entity("sales.orders"), Ref[EntityKind])
-assert_type(Ref.dimension("sales.orders.region"), Ref[DimensionKind])
-assert_type(Ref.time_dimension("sales.orders.ordered_at"), Ref[TimeDimensionKind])
-assert_type(Ref.measure("sales.orders.revenue"), Ref[MeasureKind])
-assert_type(Ref.metric("sales.revenue"), Ref[MetricKind])
+assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
+assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])
+assert_type(ref_factory.dimension("sales.orders.region"), Ref[DimensionKind])
+assert_type(ref_factory.time_dimension("sales.orders.ordered_at"), Ref[TimeDimensionKind])
+assert_type(ref_factory.measure("sales.orders.revenue"), Ref[MeasureKind])
+assert_type(ref_factory.metric("sales.revenue"), Ref[MetricKind])
 
 
 def _requires_never_ref(_value: Ref[Never]) -> None:
     pass
 
 
-_requires_never_ref(Ref.metric("sales.revenue"))  # type: ignore[arg-type]
+_requires_never_ref(ref_factory.metric("sales.revenue"))  # type: ignore[arg-type]
 Ref[Never]()  # type: ignore[call-arg]
 
 
 def _field_call_contract(table: Table) -> None:
-    assert_type(Ref.dimension("sales.orders.region")(table), Value)
-    assert_type(Ref.time_dimension("sales.orders.ordered_at")(table), Value)
-    assert_type(Ref.measure("sales.orders.amount")(table), Value)
-    Ref.metric("sales.revenue")(table)  # type: ignore[misc]
+    assert_type(bind(ref_factory.dimension("sales.orders.region"), table), Value)
+    assert_type(bind(ref_factory.time_dimension("sales.orders.ordered_at"), table), Value)
+    assert_type(bind(ref_factory.measure("sales.orders.amount"), table), Value)
+    bind(ref_factory.metric("sales.revenue"), table)  # type: ignore[arg-type]
 
 
 def _catalog_collection_contract(catalog: SemanticCatalog) -> None:

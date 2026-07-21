@@ -14,6 +14,7 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     DimensionDetails,
@@ -29,18 +30,20 @@ from marivo.semantic.catalog import (
 def _details(catalog: SemanticCatalog, ref: str) -> Any:
     registry = catalog._require_index().registry
     if ref in registry.metrics:
-        return catalog.require(Ref.metric(ref)).details()
+        return catalog.require(ref_factory.metric(ref)).details()
     if ref in registry.entities:
-        return catalog.require(Ref.entity(ref)).details()
+        return catalog.require(ref_factory.entity(ref)).details()
     if ref in registry.dimensions:
         factory = (
-            Ref.time_dimension if registry.dimensions[ref].is_time_dimension else Ref.dimension
+            ref_factory.time_dimension
+            if registry.dimensions[ref].is_time_dimension
+            else ref_factory.dimension
         )
         return catalog.require(factory(ref)).details()
     if ref in registry.relationships:
-        return catalog.require(Ref.relationship(ref)).details()
+        return catalog.require(ref_factory.relationship(ref)).details()
     if ref in registry.measures:
-        return catalog.require(Ref.measure(ref)).details()
+        return catalog.require(ref_factory.measure(ref)).details()
     raise_observe_planning_error(
         code="path-missing",
         message=f"Semantic reference {ref!r} was not found.",
@@ -75,7 +78,7 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
     index = catalog._require_index()
-    scope_ref = Ref.entity(entity_ref)
+    scope_ref = ref_factory.entity(entity_ref)
     details = (
         *index.details_under(SemanticKind.DIMENSION, scope_ref=scope_ref),
         *index.details_under(SemanticKind.TIME_DIMENSION, scope_ref=scope_ref),
