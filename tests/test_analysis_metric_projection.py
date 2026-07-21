@@ -232,7 +232,9 @@ def test_projection_returns_arity_1_frame(sales_session):
     assert revenue.meta.additivity == frame.meta.measures[0]["additivity"]
     assert revenue.meta.aggregation == frame.meta.measures[0]["aggregation"]
     assert revenue.meta.status_time_dimension == frame.meta.measures[0]["status_time_dimension"]
-    assert list(revenue.columns) == ["bucket_start", "value"]
+    assert list(revenue.columns) == ["bucket_start", "revenue"]
+    assert list(revenue.to_pandas().columns) == revenue.columns
+    assert [column.name for column in revenue.contract().artifact_schema.columns] == revenue.columns
     assert revenue.meta.lineage.steps[-1].intent == "select_metric"
     assert revenue.meta.lineage.steps[-1].params == {
         "replay_expression": {

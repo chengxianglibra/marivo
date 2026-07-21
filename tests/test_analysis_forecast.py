@@ -96,7 +96,7 @@ def test_panel_per_segment_and_insufficient_history(tmp_path):
         value_pattern="linear",
     )
     short_rows = [{"segment": "CA", "time": pd.Timestamp("2026-01-01"), "value": 3.0}]
-    combined = pd.concat([full.to_pandas(), pd.DataFrame(short_rows)], ignore_index=True)
+    combined = pd.concat([full._dataframe_copy(), pd.DataFrame(short_rows)], ignore_index=True)
     history = make_metric_frame(
         combined,
         metric_id="sales.revenue",
@@ -147,7 +147,7 @@ def test_forecast_errors_and_persistence(tmp_path):
     with pytest.raises(ForecastShapeUnsupportedError):
         session.forecast(scalar, horizon=1)
 
-    with_nan = history.to_pandas()
+    with_nan = history._dataframe_copy()
     with_nan.loc[0, "value"] = None
     nan_frame = make_metric_frame(
         with_nan,

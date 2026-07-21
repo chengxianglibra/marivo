@@ -67,6 +67,71 @@ def test_metric_frame_wraps_df_and_meta():
     assert list(mf.columns) == ["bucket", "value"]
 
 
+def test_metric_frame_public_metric_name_uses_qualified_id_on_axis_collision():
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_collision",
+        session_id="sess_x",
+        project_root="/p",
+        produced_by_job="job_1",
+        created_at=_now(),
+        row_count=1,
+        byte_size=64,
+        lineage=Lineage(),
+        metric_id="sales.region",
+        **make_test_metric_meta_contract("sales.region"),
+        axes={"region": {"role": "dimension", "column": "region"}},
+        measure={"name": "region", "unit": None, "type": "scalar"},
+        window=None,
+        where={},
+        semantic_kind="segmented",
+        semantic_model="sales",
+    )
+    frame = MetricFrame(
+        _df=pd.DataFrame({"region": ["NORTH"], "value": [1.0]}),
+        meta=meta,
+    )
+
+    assert frame.value_columns == ("sales__region",)
+    assert frame.columns == ["region", "sales__region"]
+    assert list(frame.to_pandas().columns) == frame.columns
+
+
+def test_metric_frame_public_metric_name_stays_unique_after_qualified_collision():
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_qualified_collision",
+        session_id="sess_x",
+        project_root="/p",
+        produced_by_job="job_1",
+        created_at=_now(),
+        row_count=1,
+        byte_size=64,
+        lineage=Lineage(),
+        metric_id="sales.region",
+        **make_test_metric_meta_contract("sales.region"),
+        axes={
+            "region": {"role": "dimension", "column": "region"},
+            "qualified": {"role": "dimension", "column": "sales__region"},
+        },
+        measure={"name": "region", "unit": None, "type": "scalar"},
+        window=None,
+        where={},
+        semantic_kind="segmented",
+        semantic_model="sales",
+    )
+    frame = MetricFrame(
+        _df=pd.DataFrame({"region": ["NORTH"], "sales__region": ["axis"], "value": [1.0]}),
+        meta=meta,
+    )
+
+    assert frame.value_columns == ("sales__region#2",)
+    assert frame.columns == ["region", "sales__region", "sales__region#2"]
+    assert frame["sales__region#2"].tolist() == [1.0]
+    assert list(frame.to_pandas().columns) == frame.columns
+    assert [column.name for column in frame.contract().artifact_schema.columns] == frame.columns
+
+
 def test_make_metric_frame_creates_external_entry(tmp_path):
     """test helper marks lineage with external_inputs."""
 
@@ -125,6 +190,31 @@ def test_make_metric_frame_persists_external_frame(tmp_path, monkeypatch):
     assert mf.meta.produced_by_job is None
     assert mf.ref in mf.meta.lineage.external_inputs
     assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
+
+
+def test_recovered_metric_frame_keeps_internal_value_and_public_metric_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"region": ["north"], "revenue": [1.0]}),
+        metric_id="sales.revenue",
+        axes={"region": {"role": "dimension", "column": "region"}},
+        measure={"name": "revenue", "column": "revenue"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+
+    recovered = session.get_frame(frame.ref)
+
+    assert isinstance(recovered, MetricFrame)
+    assert list(recovered._dataframe_copy().columns) == ["region", "value"]
+    assert recovered.columns == ["region", "revenue"]
+    assert list(recovered.to_pandas().columns) == recovered.columns
+    assert [
+        column.name for column in recovered.contract().artifact_schema.columns
+    ] == recovered.columns
 
 
 def test_make_metric_frame_rejects_read_only_session(tmp_path, monkeypatch):

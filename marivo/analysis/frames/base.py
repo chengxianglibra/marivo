@@ -331,16 +331,15 @@ class BaseFrame(RenderableResult):
 
     def _build_schema(self) -> ArtifactSchema:
         """Build the schema descriptor embedded in the artifact contract."""
+        public_columns = self._public_column_names()
         columns = [
             ArtifactColumn(
                 name=name,
                 dtype=str(dtype),
                 nullable=bool(self._df.iloc[:, idx].isna().any()) if len(self._df) else True,
-                role=_column_role(name),
+                role=_column_role(str(self._df.columns[idx])),
             )
-            for idx, (name, dtype) in enumerate(
-                zip(_display_column_names(self._df.columns), self._df.dtypes, strict=True)
-            )
+            for idx, (name, dtype) in enumerate(zip(public_columns, self._df.dtypes, strict=True))
         ]
         raw_shape = getattr(self.meta, "semantic_kind", None)
         return ArtifactSchema(
@@ -413,16 +412,26 @@ class BaseFrame(RenderableResult):
         """Return an internal defensive copy without public export shaping."""
         return self._df.copy()
 
+    def _public_column_names(self) -> list[str]:
+        """Return the column names shared by every public frame read path."""
+        return _display_column_names(self._df.columns)
+
+    def _public_dataframe_view(self) -> pd.DataFrame:
+        """Return a shallow view with public column names for bounded selection."""
+        df = self._df.copy(deep=False)
+        df.columns = self._public_column_names()
+        return df
+
     def _export_dataframe(self) -> pd.DataFrame:
         """Return the DataFrame shape exposed by the terminal pandas boundary."""
-        return self._dataframe_copy()
+        return self._public_dataframe_view().copy()
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a defensive copy shaped for terminal pandas consumption."""
         return self._export_dataframe()
 
     def __getitem__(self, key: Any) -> Any:
-        return self._df[key]
+        return self._public_dataframe_view()[key].copy()
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -430,7 +439,7 @@ class BaseFrame(RenderableResult):
 
     @property
     def columns(self) -> list[str]:
-        return list(self._df.columns)
+        return self._public_column_names()
 
     def __len__(self) -> int:
         return len(self._df)
@@ -464,7 +473,7 @@ class BaseFrame(RenderableResult):
         )
 
     def _preview_rows_provider(self) -> Iterator[tuple[str, ...]]:
-        columns = _display_column_names(self._df.columns)
+        columns = self._public_column_names()
         for row in self._df.itertuples(index=False, name=None):
             yield tuple(str(_preview_cell(value)) for value in row[: len(columns)])
 
@@ -543,7 +552,7 @@ class BaseFrame(RenderableResult):
         return card
 
     def _card(self) -> Card:
-        columns = _display_column_names(self._df.columns)
+        columns = self._public_column_names()
         return self._base_card().lazy_table(
             columns=columns,
             rows_provider=self._preview_rows_provider,

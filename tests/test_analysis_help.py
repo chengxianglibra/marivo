@@ -499,6 +499,9 @@ def test_type_help_lists_registry_allowlist_members() -> None:
     for method in PUBLIC_FRAME_METHODS.get("MetricFrame", ()):
         assert method in text, f"missing method: {method}"
 
+    assert "public metric names" in text
+    assert "canonical internal value" in text
+
 
 # ---------------------------------------------------------------------------
 # Error help

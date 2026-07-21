@@ -419,6 +419,16 @@ arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent t
 accessing them raises `AttributeError`. Use `frame.show()` for bounded inspection
 and `frame.to_pandas()` for terminal custom analysis.
 
+Every public read of a single-metric `MetricFrame` uses the metric name for its
+value column. This includes `show()` / `render()`, `.columns`, iteration,
+`contract().artifact_schema`, `frame[metric_name]`, and `to_pandas()`, and remains
+true after transforms. The typed runtime and persisted frame keep the canonical
+internal `value` column; transform predicates and operator implementations use
+that internal schema. If a metric short name collides with an axis column, the
+public value column uses the qualified metric id with `.` replaced by `__`.
+If that qualified name also collides, Marivo appends a deterministic `#N`
+suffix until the public column name is unique.
+
 ### The mechanical contract
 
 `contract()` returns an `ArtifactContract` describing mechanical compatibility

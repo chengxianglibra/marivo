@@ -35,8 +35,8 @@ def test_seeded_time_series_metric_frame_fixture(tmp_path):
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.axes["time"]["field"] == "time"
     assert frame.meta.window is not None
-    assert list(df.columns) == ["time", "value"]
-    assert df["value"].tolist() == [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
+    assert list(df.columns) == ["time", "revenue"]
+    assert df["revenue"].tolist() == [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
 
 
 def _metric_frame(
