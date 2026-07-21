@@ -463,6 +463,16 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
 
 _ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
 _ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
+_SINGLE_AXIS_ATTRIBUTION_RESERVED_COLUMNS = frozenset(
+    {
+        _ATTRIBUTION_TOTAL_DELTA_COLUMN,
+        "contribution",
+        "rank",
+        "share_of_negative_pool",
+        "share_of_positive_pool",
+        "share_of_total_delta",
+    }
+)
 
 
 def _add_contribution_shares(
@@ -1107,13 +1117,43 @@ def _axis_columns_for_delta(
     return axis_columns
 
 
-def _ordered_hierarchy_output(
+def _single_axis_sum_output(
     df: pd.DataFrame,
     *,
-    axis_columns: list[str],
+    axis_column: str,
     value_column: str,
     bucket_column: str | None = None,
 ) -> pd.DataFrame:
+    """Aggregate an additive delta while preserving its single dimension column."""
+    dynamic_reserved_columns = {value_column}
+    if bucket_column is not None:
+        dynamic_reserved_columns.add(bucket_column)
+    reserved_columns = _SINGLE_AXIS_ATTRIBUTION_RESERVED_COLUMNS | dynamic_reserved_columns
+    if axis_column in reserved_columns:
+        raise SemanticKindMismatchError(
+            message=("single-axis attribution dimension conflicts with a reserved result column"),
+            expected="a dimension name outside the single-axis attribution reserved namespace",
+            received=repr(axis_column),
+            location="session.attribute axes",
+            repair=AnalysisRepair(
+                kind="semantic_authoring",
+                action=(
+                    f"Rename dimension {axis_column!r} to a non-reserved semantic name, "
+                    "reload the catalog, then re-observe and compare before retrying attribution."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+            hint=(
+                "Single-axis output must keep the dimension and attribution protocol fields "
+                "as distinct columns."
+            ),
+            context={
+                "argument": "axes",
+                "reason": "reserved_axis_column",
+                "axis_column": axis_column,
+                "reserved_columns": sorted(reserved_columns),
+            },
+        )
     rows: list[dict[str, object]] = []
     bucket_values: list[object] = [None]
     if bucket_column is not None:
@@ -1122,45 +1162,32 @@ def _ordered_hierarchy_output(
     for bucket_value in bucket_values:
         bucket_df = df if bucket_column is None else df[df[bucket_column] == bucket_value]
         denominator = float(bucket_df[value_column].sum())
-        for level in range(1, len(axis_columns) + 1):
-            group_columns = axis_columns[:level]
-            grouped = (
-                bucket_df.groupby(group_columns, dropna=False)[value_column]
-                .sum()
-                .reset_index()
-                .rename(columns={value_column: "contribution"})
-            )
-            grouped["_abs_contribution"] = grouped["contribution"].abs()
-            grouped = grouped.sort_values(
-                "_abs_contribution",
-                ascending=False,
-                kind="mergesort",
-            ).reset_index(drop=True)
-            grouped = _add_contribution_shares(grouped, total_delta=denominator)
-            for rank_val, (_, row) in enumerate(grouped.iterrows(), start=1):
-                path_parts = [str(row[column]) for column in group_columns]
-                contribution = float(row["contribution"])
-                output_row: dict[str, object] = {
-                    "level": level,
-                    "axis": axis_columns[level - 1],
-                    "driver": row[axis_columns[level - 1]],
-                    "path": " > ".join(path_parts),
-                    "contribution": contribution,
-                    "share_of_total_delta": row["share_of_total_delta"],
-                    "share_of_positive_pool": row["share_of_positive_pool"],
-                    "share_of_negative_pool": row["share_of_negative_pool"],
-                    _ATTRIBUTION_TOTAL_DELTA_COLUMN: denominator,
-                    "rank": rank_val,
-                }
-                if bucket_column is not None:
-                    output_row[bucket_column] = bucket_value
-                rows.append(output_row)
+        grouped = (
+            bucket_df.groupby(axis_column, dropna=False)[value_column]
+            .sum()
+            .reset_index()
+            .rename(columns={value_column: "contribution"})
+        )
+        grouped = grouped.reindex(
+            grouped["contribution"].abs().sort_values(ascending=False, kind="mergesort").index
+        ).reset_index(drop=True)
+        grouped = _add_contribution_shares(grouped, total_delta=denominator)
+        for rank_val, (_, row) in enumerate(grouped.iterrows(), start=1):
+            output_row: dict[str, object] = {
+                axis_column: row[axis_column],
+                "contribution": float(row["contribution"]),
+                "share_of_total_delta": row["share_of_total_delta"],
+                "share_of_positive_pool": row["share_of_positive_pool"],
+                "share_of_negative_pool": row["share_of_negative_pool"],
+                _ATTRIBUTION_TOTAL_DELTA_COLUMN: denominator,
+                "rank": rank_val,
+            }
+            if bucket_column is not None:
+                output_row[bucket_column] = bucket_value
+            rows.append(output_row)
 
     columns = [
-        "level",
-        "axis",
-        "driver",
-        "path",
+        axis_column,
         "contribution",
         "share_of_total_delta",
         "share_of_positive_pool",
@@ -1532,9 +1559,10 @@ def decompose(
 
     if frame.meta.semantic_kind == "panel":
         bucket_column = _bucket_column_for_panel(frame)
-        output = _ordered_hierarchy_output(
+        axis_column = axis_columns[0]
+        output = _single_axis_sum_output(
             source_df,
-            axis_columns=axis_columns,
+            axis_column=axis_column,
             value_column=value_column,
             bucket_column=bucket_column,
         )
@@ -1548,10 +1576,10 @@ def decompose(
             "axis_columns": axis_columns,
             "measure_column": value_column,
             "bucket_column": bucket_column,
-            "driver_field": "path",
+            "driver_field": axis_column,
             "value_column": value_column,
             "contribution_column": "contribution",
-            "method": "ordered_hierarchy_sum",
+            "method": "sum",
         }
         params.update(params_extra)
         return persist_attribution_frame(
@@ -1562,10 +1590,10 @@ def decompose(
             sources=[frame],
             metric_ids=[frame.meta.metric_id],
             attribution_kind="decomposition",
-            driver_field="path",
+            driver_field=axis_column,
             value_column=value_column,
             contribution_column="contribution",
-            method="ordered_hierarchy_sum",
+            method="sum",
             semantic_kind=frame.meta.semantic_kind,
             semantic_model=frame.meta.semantic_model,
             started_at=started_at,
@@ -1575,9 +1603,10 @@ def decompose(
             reconciliation=reconciliation,
         )
 
-    output = _ordered_hierarchy_output(
+    axis_column = axis_columns[0]
+    output = _single_axis_sum_output(
         source_df,
-        axis_columns=axis_columns,
+        axis_column=axis_column,
         value_column=value_column,
     )
     output, reconciliation = _finalize_attribution_output(output, bucket_column=None)
@@ -1586,10 +1615,10 @@ def decompose(
         "axes": axis_ids,
         "axis_columns": axis_columns,
         "measure_column": value_column,
-        "driver_field": "path",
+        "driver_field": axis_column,
         "value_column": value_column,
         "contribution_column": "contribution",
-        "method": "ordered_hierarchy_sum",
+        "method": "sum",
     }
     params.update(params_extra)
     return persist_attribution_frame(
@@ -1600,10 +1629,10 @@ def decompose(
         sources=[frame],
         metric_ids=[frame.meta.metric_id],
         attribution_kind="decomposition",
-        driver_field="path",
+        driver_field=axis_column,
         value_column=value_column,
         contribution_column="contribution",
-        method="ordered_hierarchy_sum",
+        method="sum",
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=frame.meta.semantic_model,
         started_at=started_at,

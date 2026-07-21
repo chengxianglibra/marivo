@@ -343,7 +343,17 @@ For `joint`, contribution rows are additive and sum to the overall change. For
 level when reconciling the change. Component-aware ratio and weighted-mean
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
 Multi-axis calls have no default mode; omit `mode` for a single axis, where a
-supplied value has no effect. `attribution.attribution_mode` exposes the row
+supplied value has no effect. Single-axis output keeps the resolved dimension
+column name, such as `cluster`, and can be joined directly to the source
+`DeltaFrame` on that column. The generic `level`, `axis`, `driver`, and `path`
+columns appear only in multi-axis hierarchy output. Additive single-axis
+attribution reports `attribution_shape="sum"`.
+The preserved dimension name must not collide with attribution result, value,
+or panel bucket columns. A collision fails closed with a
+structured semantic-authoring repair instead of producing duplicate or
+ambiguous columns. Evidence protocol fields use explicit metadata mapping and
+do not reserve user dimension names.
+`attribution.attribution_mode` exposes the row
 layout, while `attribution.attribution_shape` / `meta.method` expose the
 attribution math. Both layouts can therefore report `method="weighted_mix"`.
 Use `mv.help("AttributionMode")` for the focused distinction.

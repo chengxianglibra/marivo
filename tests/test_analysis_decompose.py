@@ -134,10 +134,11 @@ def test_decompose_time_series_uses_axis_ref():
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.attribution_kind == "decomposition"
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "bucket"
+    assert out.meta.method == "sum"
     assert out.meta.metric_ids == ["sales.revenue"]
     df = out.to_pandas()
-    assert list(df["driver"]) == ["2026-07-01", "2026-07-03", "2026-07-02"]
+    assert list(df["bucket"]) == ["2026-07-01", "2026-07-03", "2026-07-02"]
     assert list(df["rank"]) == [1, 2, 3]
     assert df.iloc[0]["contribution"] == pytest.approx(10.0)
 
@@ -160,12 +161,12 @@ def test_decompose_segmented_uses_axis_ref():
     )
 
     df = out.to_pandas()
-    assert list(df["driver"]) == ["north", "south"]
+    assert list(df["region"]) == ["north", "south"]
     assert list(df["contribution"]) == [pytest.approx(15.0), pytest.approx(-3.0)]
     assert list(df["rank"]) == [1, 2]
 
 
-def test_decompose_axes_single_axis_returns_level_one_hierarchy_rows():
+def test_decompose_axes_single_axis_preserves_dimension_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
@@ -182,11 +183,13 @@ def test_decompose_axes_single_axis_returns_level_one_hierarchy_rows():
         frame, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)], session=session
     )
 
-    assert out.meta.driver_field == "path"
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.driver_field == "region"
+    assert out.meta.method == "sum"
     assert out.meta.params["axes"] == ["sales.orders.region"]
     assert "mode" not in out.meta.params
-    df = out.to_pandas().set_index("driver")
+    df = out.to_pandas()
+    assert {"driver", "path", "level", "axis"}.isdisjoint(df.columns)
+    df = df.set_index("region")
     assert df.loc["north", "contribution"] == pytest.approx(15.0)
     assert df.loc["north", "share_of_total_delta"] == pytest.approx(1.25)
     assert df.loc["north", "share_of_positive_pool"] == pytest.approx(1.0)
@@ -339,9 +342,9 @@ def test_decompose_accepts_model_prefixed_axis_ref():
         frame, axis=make_ref("sales.orders.department", SemanticKind.DIMENSION), session=session
     )
 
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "department"
     df = out.to_pandas()
-    assert list(df["driver"]) == ["analytics", "search"]
+    assert list(df["department"]) == ["analytics", "search"]
     assert list(df["contribution"]) == [pytest.approx(14.0), pytest.approx(-3.0)]
 
 
@@ -362,7 +365,7 @@ def test_decompose_accepts_catalog_dimension_ref(tmp_path):
 
     out = decompose(frame, axis=axis, session=session)
 
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "region"
 
 
 def test_decompose_requires_axis_argument():
@@ -517,7 +520,7 @@ def test_decompose_time_series_bucket_start_axis_still_works():
     )
 
     assert isinstance(out, AttributionFrame)
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "bucket_start"
     df = out.to_pandas()
     assert len(df) == 3
 
@@ -758,7 +761,7 @@ def test_decompose_allows_semi_additive_delta_over_spatial_axis() -> None:
         session=session,
     )
 
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
     assert out.to_pandas()["contribution"].sum() == pytest.approx(8.0)
 
 
@@ -817,7 +820,7 @@ def test_decompose_fold_kind_mean_is_linear_over_spatial_axis() -> None:
         session=session,
     )
 
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
     assert out.to_pandas()["contribution"].sum() == pytest.approx(8.0)
 
 
@@ -872,9 +875,8 @@ def test_decompose_rejects_semi_additive_delta_over_status_time_axis() -> None:
     assert exc_info.value._context["status_time_dimension"] == status_time
 
 
-def test_decompose_axes_empty_delta_returns_empty_hierarchy():
-    """An empty DeltaFrame (zero rows) must produce an empty AttributionFrame
-    with the correct hierarchy columns, not a KeyError."""
+def test_decompose_axes_empty_delta_preserves_single_dimension_schema():
+    """An empty DeltaFrame keeps its dimension column in the attribution schema."""
     session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
@@ -892,15 +894,12 @@ def test_decompose_axes_empty_delta_returns_empty_hierarchy():
     )
 
     assert isinstance(out, AttributionFrame)
-    assert out.meta.driver_field == "path"
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.driver_field == "region"
+    assert out.meta.method == "sum"
     df = out.to_pandas()
     assert df.empty
     assert list(df.columns) == [
-        "level",
-        "axis",
-        "driver",
-        "path",
+        "region",
         "contribution",
         "share_of_total_delta",
         "share_of_positive_pool",

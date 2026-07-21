@@ -87,16 +87,14 @@ def test_decompose_panel_per_bucket(tmp_path):
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.semantic_kind == "panel"
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "region"
+    assert out.meta.method == "sum"
     assert out.meta.params["bucket_column"] == "bucket_start"
     assert out.meta.params["value_column"] == "delta"
     df = out.to_pandas()
     assert list(df.columns) == [
         "bucket_start",
-        "level",
-        "axis",
-        "driver",
-        "path",
+        "region",
         "contribution",
         "share_of_total_delta",
         "share_of_positive_pool",
@@ -117,8 +115,8 @@ def test_decompose_panel_accepts_model_prefixed_axis_ref(tmp_path):
         delta, axis=make_ref("sales.orders.region", SemanticKind.DIMENSION), session=session
     )
 
-    assert out.meta.driver_field == "path"
-    assert "driver" in out.to_pandas().columns
+    assert out.meta.driver_field == "region"
+    assert "region" in out.to_pandas().columns
 
 
 def test_decompose_panel_axis_not_in_dimensions(tmp_path):
@@ -142,15 +140,12 @@ def test_decompose_panel_axes_single_axis_preserves_bucket_scope(tmp_path):
     )
 
     assert out.meta.semantic_kind == "panel"
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "region"
     assert out.meta.params["bucket_column"] == "bucket_start"
     df = out.to_pandas()
     assert list(df.columns) == [
         "bucket_start",
-        "level",
-        "axis",
-        "driver",
-        "path",
+        "region",
         "contribution",
         "share_of_total_delta",
         "share_of_positive_pool",
@@ -158,7 +153,6 @@ def test_decompose_panel_axes_single_axis_preserves_bucket_scope(tmp_path):
         "rank",
     ]
     for _, bucket_df in df.groupby("bucket_start", sort=False):
-        assert set(bucket_df["level"]) == {1}
         assert list(bucket_df["rank"]) == list(range(1, len(bucket_df) + 1))
         finite_share = bucket_df["share_of_total_delta"].replace([np.inf, -np.inf], np.nan).dropna()
         assert finite_share.sum() == pytest.approx(1.0)

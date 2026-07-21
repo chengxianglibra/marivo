@@ -807,6 +807,15 @@ class Session(RenderableResult):
         axis combination, or ``mode="hierarchy"`` for prefix-level drill-down
         rows. Joint rows are additive; hierarchy rows repeat parent totals, so
         only the deepest level is additive.
+        A single-axis result preserves the concrete dimension column name, so
+        its pandas rows can join directly to the source DeltaFrame on that
+        dimension. Generic ``driver`` and ``path`` columns are reserved for
+        multi-axis hierarchy rows.
+        The concrete name must not collide with attribution result, value, or
+        panel bucket columns; such a collision fails closed with a
+        structured semantic-authoring repair instead of producing duplicate or
+        ambiguous columns. Evidence protocol fields are mapped explicitly and
+        do not reserve user dimension names.
         Additive deltas support axis-sum attribution. Semi-additive deltas
         support non-time axes but reject their persisted status time axis.
         Component-aware ratio and weighted-mean deltas use mix attribution.
@@ -837,7 +846,8 @@ class Session(RenderableResult):
                 attribution was produced.
 
         Returns:
-            An AttributionFrame with reconciled contribution and share columns.
+            An AttributionFrame with dimension, reconciled contribution, and
+            share columns.
 
         Raises:
             SemanticKindMismatchError: ``frame`` is not a DeltaFrame, axes are

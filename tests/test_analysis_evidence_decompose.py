@@ -25,13 +25,14 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def _delta(session) -> DeltaFrame:
-    df = pd.DataFrame(
-        {
-            "country": ["US", "US", "CA"],
-            "delta": [12.0, 8.0, -5.0],
-        }
-    )
+def _delta(session, df: pd.DataFrame | None = None) -> DeltaFrame:
+    if df is None:
+        df = pd.DataFrame(
+            {
+                "country": ["US", "US", "CA"],
+                "delta": [12.0, 8.0, -5.0],
+            }
+        )
     meta = DeltaFrameMeta(
         **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
@@ -94,8 +95,9 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     assert attribution.evidence_digest is not None
     assert {item.kind for item in attribution.evidence_digest.items} == {"contribution"}
     assert all(not hasattr(item, "contribution_role") for item in attribution.evidence_digest.items)
+    assert attribution.meta.driver_field == "country"
     shares = {
-        item.dimension_keys["path"]: item.contribution_share
+        item.dimension_keys["country"]: item.contribution_share
         for item in attribution.evidence_digest.items
     }
     assert shares == {"CA": pytest.approx(-1.0 / 3.0), "US": pytest.approx(4.0 / 3.0)}
@@ -107,3 +109,31 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     assert reconciliation is not None
     assert reconciliation.total_delta == pytest.approx(15.0)
     assert reconciliation.contribution_sum == pytest.approx(15.0)
+
+
+def test_hierarchy_evidence_identity_distinguishes_null_child_from_parent() -> None:
+    session = session_attach.get_or_create(name="hierarchy_evidence")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "country": ["US", "US"],
+                "platform": [None, "web"],
+                "delta": [3.0, 2.0],
+            }
+        ),
+    )
+
+    attribution = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+        mode="hierarchy",
+    )
+
+    assert attribution.meta.evidence_status == "complete"
+    assert attribution.evidence_digest is not None
+    assert len(attribution.evidence_digest.items) == 3
+    assert len({item.item_id for item in attribution.evidence_digest.items}) == 3

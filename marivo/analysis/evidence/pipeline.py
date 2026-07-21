@@ -19,7 +19,10 @@ from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
-from marivo.analysis.evidence.extraction.composition import extract_decomposition_findings
+from marivo.analysis.evidence.extraction.composition import (
+    DecompositionExtractionContract,
+    extract_decomposition_findings,
+)
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
@@ -412,32 +415,47 @@ def _extract_findings(
         scope_delta_ref = getattr(meta, "scope_delta_ref", None) or (refs[0] if refs else None)
         if scope_delta_ref is None:
             return []
-        prepared = df.copy()
         driver_field = getattr(meta, "driver_field", None)
         contribution_column = getattr(meta, "contribution_column", None)
-        if "dimension" not in prepared.columns and driver_field in prepared.columns:
-            prepared["dimension"] = driver_field
-        if "contribution_value" not in prepared.columns and contribution_column in prepared.columns:
-            prepared["contribution_value"] = prepared[contribution_column]
-        if (
-            "contribution_share" not in prepared.columns
-            and "share_of_total_delta" in prepared.columns
-        ):
-            prepared["contribution_share"] = prepared["share_of_total_delta"]
         reconciliation = getattr(meta, "reconciliation", None)
-        if (
-            "reconciliation_residual" not in prepared.columns
-            and reconciliation is not None
-            and reconciliation.residual is not None
-        ):
-            prepared["reconciliation_residual"] = reconciliation.residual
+        params = getattr(meta, "params", {})
+        axis_columns = params.get("axis_columns", []) if isinstance(params, dict) else []
+        key_columns = [
+            str(column)
+            for column in axis_columns
+            if isinstance(column, str) and column in df.columns
+        ]
+        if isinstance(params, dict) and params.get("mode") == "hierarchy":
+            key_columns = [
+                column for column in ("level", "axis", "driver", "path") if column in df.columns
+            ] + key_columns
+        bucket_column = params.get("bucket_column") if isinstance(params, dict) else None
+        if isinstance(bucket_column, str) and bucket_column in df.columns:
+            key_columns.insert(0, bucket_column)
+        if not key_columns and isinstance(driver_field, str) and driver_field in df.columns:
+            key_columns.append(driver_field)
+        if not isinstance(contribution_column, str) or contribution_column not in df.columns:
+            return []
         findings = extract_decomposition_findings(
-            df=prepared,
+            df=df,
             artifact_id=artifact_id,
             session_id=session_id,
             subject=subject,
             committed_at=committed_at,
             scope_delta_ref=str(scope_delta_ref),
+            contract=DecompositionExtractionContract(
+                dimension_name=str(driver_field or ""),
+                key_columns=tuple(dict.fromkeys(key_columns)),
+                contribution_column=contribution_column,
+                contribution_share_column=(
+                    "share_of_total_delta" if "share_of_total_delta" in df.columns else None
+                ),
+                direction="undefined",
+                decomposition_method=str(getattr(meta, "method", "algebraic_decomposition")),
+                reconciliation_residual=(
+                    reconciliation.residual if reconciliation is not None else None
+                ),
+            ),
         )
     elif extractor_family == "candidate_set":
         objective = getattr(meta, "discovery_objective", None) or getattr(meta, "objective", None)
