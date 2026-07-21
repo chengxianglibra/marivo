@@ -11,7 +11,10 @@ from pydantic import ValidationError
 from marivo.analysis.errors import FrameMutationError
 from marivo.analysis.evidence.types import (
     ArtifactDigest,
+    ChangeFact,
+    DerivationRule,
     EvidenceAvailabilityIssue,
+    InferenceBoundary,
     OmissionSummary,
     OperatorSemantics,
     RawFallback,
@@ -215,6 +218,66 @@ def test_digest_is_session_local_for_content_identity_and_renders_before_preview
     rendered = frame.render(max_output_bytes=None)
     assert "evidence: no evidence findings emitted" in rendered
     assert rendered.index("evidence:") < rendered.index("preview:")
+
+
+def test_show_points_to_full_rows_when_digest_items_are_omitted():
+    subject = make_test_subject(metric_id="sales.revenue", analysis_axis="change")
+    scope = make_test_analysis_scope("sales.revenue")
+    item = ChangeFact(
+        item_id="item_1",
+        artifact_ref="frame_abc",
+        subject=subject,
+        scope=scope,
+        derivation=DerivationRule(
+            rule_id="extract.delta",
+            rule_version="v2",
+            operator="compare",
+            source_fields=("delta",),
+            source_finding_refs=(),
+        ),
+        delta=1.0,
+        direction="increase",
+    )
+    digest = ArtifactDigest(
+        artifact_ref="frame_abc",
+        operator=OperatorSemantics(
+            operator="compare",
+            operator_version="v1",
+            artifact_family="delta_frame",
+            semantic_shape="segmented",
+        ),
+        subject=subject,
+        scope=scope,
+        items=(item,),
+        boundaries=(
+            InferenceBoundary(
+                kind="full_distribution_not_in_digest",
+                reason="digest_bound_exceeded",
+                required_evidence=("full_distribution",),
+            ),
+        ),
+        omissions=OmissionSummary(
+            retained_items=1,
+            omitted_items=3,
+            omitted_kinds=("change",),
+            bounded=True,
+        ),
+        fallback=RawFallback(
+            artifact_ref="frame_abc",
+            findings_available=True,
+            rows_available=True,
+        ),
+        fingerprint="sha256:test",
+    )
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": range(8)}),
+        meta=_meta(evidence_status="complete", evidence_digest=digest, row_count=8),
+    )
+
+    rendered = frame.render(max_output_bytes=None)
+
+    assert "evidence: items=1 omitted=3; call .to_pandas() for all rows" in rendered
+    assert "full_distribution_not_in_digest" in rendered
 
 
 def test_repr_and_show_are_bounded_agent_reads(capsys):
