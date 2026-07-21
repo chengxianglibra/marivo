@@ -206,6 +206,13 @@ The skill does not prescribe a report structure. Require only that:
   inferred semantics, and the terminal/bounded/no-lineage/no-evidence-continuity
   limitations; canonical artifact claims and raw-SQL-supported claims remain
   visibly separate;
+- Marivo UX or product feedback exposed during the analysis is not part of the
+  user's analysis result; record it privately at
+  `<project_root>/.marivo/analysis/internal_feedback/<session.id>.md` and keep
+  it out of final answers, deliverables, artifacts, evidence, semantic objects,
+  and `session.knowledge()`; if the underlying issue affects result validity,
+  coverage, confidence, or blocks the analysis, disclose that impact separately
+  as a caveat, quality issue, or blocker;
 - absolute interpreter and package paths from the environment fingerprint do
   not enter user-facing reports or deliverables. Internal diagnostic logs
   and evaluator transcripts may retain them.

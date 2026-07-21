@@ -106,9 +106,9 @@ composed separately when a task requires it.
 | Environment-bound CLI help and `mv.help()` | Capability discovery, environment identity, API contracts, operator semantics, constraints, examples, and recovery mechanisms |
 | Semantic objects | Business definitions, units, composition, additivity, guardrails, and provenance |
 | Artifact `show()`, `contract()`, and metadata | Current facts, mechanical compatibility, lineage, quality, blockers, and confidence scope |
-| `marivo-analysis` skill | Hard boundaries, cross-capability routings, evidence continuity, and Marivo-specific closeout obligations |
+| `marivo-analysis` skill | Hard boundaries, cross-capability routings, evidence continuity, Marivo-specific closeout obligations, and isolation of analysis-exposed Marivo UX feedback |
 | Agent | Requirement interpretation, hypotheses, exploration path, method selection, judgment, stop criteria, conclusions, and recommendations |
-| Repository maintainer guidance | Repository tests, dogfooding, internal feedback, and development rules |
+| Repository maintainer guidance | Repository tests, general dogfooding and feedback-triage workflows, and development rules |
 
 The active guide and analysis specs must stop saying that the skill owns
 workflow. The replacement contract is:
@@ -397,9 +397,11 @@ rewrite of historical records.
 - The packaged skill contains exactly one `SKILL.md`.
 - It contains no API signatures, operator inventory, parameter tables, call
   examples, ordered analysis process, generic methodology checklist, report
-  template, repository test commands, or internal feedback procedure.
+  template, repository test commands, or general dogfooding procedure.
 - It contains only the trigger, authority rule, hard boundaries, routings, and
-  closeout obligations defined above.
+  closeout obligations defined above. Its feedback rule is limited to keeping
+  analysis-exposed Marivo UX or product feedback out of user results and writing
+  it privately under `.marivo/analysis/internal_feedback/<session.id>.md`.
 - An ordinary Marivo API change does not require a skill update.
 
 ### Ownership consistency
