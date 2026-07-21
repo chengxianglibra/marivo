@@ -173,6 +173,15 @@ def test_help_text_verify_result_type() -> None:
 def test_help_text_readiness_report_type() -> None:
     text = ms.help_text(ms.ReadinessReport)
     assert "ReadinessReport" in text
+    assert "analysis_ready_inputs" in text
+
+
+def test_help_text_readiness_accepts_runtime_metric_expressions() -> None:
+    text = ms.help_text("readiness")
+
+    assert "Sequence[Ref[SemanticKindTag] | RuntimeMetricExpr]" in text
+    assert "subject: Ref | RuntimeMetricExpression" in text
+    assert "catalog.readiness(refs=[revenue, runtime_revenue])" in text
 
 
 # ---------------------------------------------------------------------------

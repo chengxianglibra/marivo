@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import textwrap
 from collections.abc import Callable
 from typing import cast, get_args, get_origin, get_type_hints
@@ -9,6 +10,7 @@ from typing import cast, get_args, get_origin, get_type_hints
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.refs import (
@@ -1933,6 +1935,303 @@ def test_catalog_readiness_accepts_semantic_ref_values(semantic_project_factory)
     assert isinstance(report, ReadinessReport)
 
 
+def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    amount = catalog.require(ms.ref.measure("sales.orders.amount")).ref
+    region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
+    runtime_total = mv.runtime_metric.aggregate(
+        amount,
+        agg="sum",
+        label="Runtime total",
+    )
+    runtime_ratio = mv.runtime_metric.ratio(
+        runtime_total,
+        revenue,
+        label="Runtime ratio",
+    )
+    expression = mv.runtime_metric.slice(
+        runtime_ratio,
+        by={region: "north"},
+        label="Runtime north ratio",
+    )
+
+    report = catalog.readiness(refs=[revenue, expression])
+
+    assert report.status == "ready_with_warnings"
+    assert report.analysis_ready_refs == (revenue,)
+    assert report.analysis_ready_inputs == (revenue, expression)
+    assert report.input_summary.refs == (
+        "sales.revenue",
+        "sales.orders.amount",
+        "sales.orders.region",
+        "sales.orders",
+    )
+    assert report.to_dict()["analysis_ready_inputs"][1]["schema"] == (
+        "marivo.runtime_metric_expr/v1"
+    )
+
+
+def test_catalog_readiness_deduplicates_shared_runtime_leaves(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    amount = catalog.require(ms.ref.measure("sales.orders.amount")).ref
+    total = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime total")
+    count = mv.runtime_metric.aggregate(amount, agg="count", label="Runtime count")
+
+    report = catalog.readiness(refs=[total, count])
+
+    assert report.analysis_ready_inputs == (total, count)
+    assert report.input_summary.refs.count("sales.orders.amount") == 1
+    with pytest.raises(SemanticRuntimeError, match="unique direct inputs"):
+        catalog.readiness(refs=[total, total])
+
+
+def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missing(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    missing = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.orders.missing_amount"),
+        agg="sum",
+        label="Missing runtime total",
+    )
+
+    report = catalog.readiness(refs=[revenue, missing])
+
+    assert report.status == "blocked"
+    assert report.analysis_ready_refs == (revenue,)
+    assert report.analysis_ready_inputs == (revenue,)
+    assert {issue.kind for issue in report.blockers} >= {"unknown_ref", "metric_graph_invalid"}
+
+
+def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                    ai_context=ms.ai_context(
+                        business_definition="One row per completed order.",
+                        guardrails=["Exclude tests."],
+                    ),
+                )
+                value = ms.measure_column(
+                    name="value", entity=orders, column="value",
+                    additivity="non_additive",
+                    ai_context=ms.ai_context(
+                        business_definition="Observed row value.", guardrails=["Same grain only."]
+                    ),
+                )
+                invalid_weight = ms.measure_column(
+                    name="invalid_weight", entity=orders, column="weight",
+                    additivity="non_additive",
+                    ai_context=ms.ai_context(
+                        business_definition="Non-additive row weight.",
+                        guardrails=["Do not aggregate."],
+                    ),
+                )
+            """),
+        }
+    )
+    catalog = SemanticCatalog(project)
+    value = catalog.require(ms.ref.measure("sales.orders.value")).ref
+    invalid_weight = catalog.require(ms.ref.measure("sales.orders.invalid_weight")).ref
+    expression = mv.runtime_metric.weighted_mean(
+        value,
+        invalid_weight,
+        label="Invalid runtime weighted mean",
+    )
+
+    report = catalog.readiness(refs=[expression])
+
+    assert report.status == "blocked"
+    assert report.analysis_ready_inputs == ()
+    issue = next(item for item in report.blockers if item.kind == "metric_graph_invalid")
+    assert issue.details["lowering_error_kind"] == ("runtime-weighted-mean-weight-non-additive")
+
+
+def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_graphs(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders", datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders")
+                )
+                shipments = ms.entity(
+                    name="shipments", datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("shipments")
+                )
+                returns = ms.entity(
+                    name="returns", datasource=ms.ref.datasource("lake"),
+                    source=md.table("returns")
+                )
+                order_value = ms.measure_column(
+                    name="order_value", entity=orders, column="amount",
+                    additivity="non_additive"
+                )
+                shipment_weight = ms.measure_column(
+                    name="shipment_weight", entity=shipments, column="weight",
+                    additivity="additive"
+                )
+                order_amount = ms.measure_column(
+                    name="order_amount", entity=orders, column="amount",
+                    additivity="additive"
+                )
+                return_amount = ms.measure_column(
+                    name="return_amount", entity=returns, column="amount",
+                    additivity="additive"
+                )
+                orders_total = ms.aggregate(
+                    name="orders_total", measure=order_amount, agg="sum"
+                )
+                returns_total = ms.aggregate(
+                    name="returns_total", measure=return_amount, agg="sum"
+                )
+            """),
+        }
+    )
+    catalog = SemanticCatalog(project)
+    cross_entity = mv.runtime_metric.weighted_mean(
+        catalog.require(ms.ref.measure("sales.orders.order_value")).ref,
+        catalog.require(ms.ref.measure("sales.shipments.shipment_weight")).ref,
+        label="Cross entity weighted mean",
+    )
+    cross_entity_report = catalog.readiness(refs=[cross_entity])
+    cross_entity_issue = next(
+        item for item in cross_entity_report.blockers if item.kind == "metric_graph_invalid"
+    )
+    assert cross_entity_issue.details["lowering_error_kind"] == (
+        "runtime-weighted-mean-grain-mismatch"
+    )
+
+    cross_datasource = mv.runtime_metric.ratio(
+        catalog.require(ms.ref.metric("sales.orders_total")).ref,
+        catalog.require(ms.ref.metric("sales.returns_total")).ref,
+        label="Cross datasource ratio",
+    )
+    cross_datasource_report = catalog.readiness(refs=[cross_datasource])
+    cross_datasource_issue = next(
+        item for item in cross_datasource_report.blockers if item.kind == "metric_graph_invalid"
+    )
+    assert cross_datasource_issue.details["lowering_error_kind"] == (
+        "metric-graph-source-domain-mismatch"
+    )
+
+
+def test_catalog_readiness_blocks_runtime_depth_and_forest_occurrence_limits(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    deep = mv.runtime_metric.slice(
+        revenue,
+        by={catalog.require(ms.ref.dimension("sales.orders.region")).ref: "north"},
+        label="Depth 1",
+    )
+    for index in range(10):
+        deep = mv.runtime_metric.ratio(
+            deep,
+            revenue,
+            label=f"Depth {index + 2}",
+        )
+
+    report = catalog.readiness(refs=[deep])
+
+    assert report.status == "blocked"
+    issue = next(item for item in report.blockers if item.kind == "metric_graph_invalid")
+    assert issue.details["lowering_error_kind"] == "depth_limit_exceeded"
+
+    wide = mv.runtime_metric.aggregate(
+        catalog.require(ms.ref.measure("sales.orders.amount")).ref,
+        agg="sum",
+        label="Occurrence leaf",
+    )
+    for index in range(8):
+        wide = mv.runtime_metric.ratio(
+            wide,
+            wide,
+            label=f"Occurrence level {index + 1}",
+        )
+    occurrence_report = catalog.readiness(refs=[wide])
+    occurrence_issue = next(
+        item for item in occurrence_report.blockers if item.kind == "metric_graph_invalid"
+    )
+    assert occurrence_issue.details["lowering_error_kind"] == "occurrence_limit_exceeded"
+
+
+def test_catalog_readiness_returns_json_safe_blocker_for_nonfinite_runtime_slice(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    amount = catalog.require(ms.ref.measure("sales.orders.amount")).ref
+    region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
+    expression = mv.runtime_metric.aggregate(
+        amount,
+        agg="sum",
+        slice_by={region: float("nan")},
+        label="Invalid slice",
+    )
+
+    report = catalog.readiness(refs=[expression])
+
+    assert report.status == "blocked"
+    assert report.analysis_ready_inputs == ()
+    issue = next(item for item in report.blockers if item.kind == "metric_graph_invalid")
+    assert issue.refs == ("runtime:root[0]",)
+    assert issue.details["lowering_error_kind"] == "graph_contract"
+    json.dumps(report.to_dict(), allow_nan=False)
+
+
 def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     semantic_project_factory,
 ):
@@ -1965,6 +2264,8 @@ def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
     assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "RuntimeMetricExpr" in str(exc_info.value)
+    assert "mv.runtime_metric.aggregate" in str(exc_info.value)
 
 
 def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(

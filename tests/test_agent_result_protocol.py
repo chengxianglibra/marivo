@@ -433,6 +433,7 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "- .to_dict()",
             "- .contract()",
             "- .preview_required_refs",
+            "- .analysis_ready_inputs",
         ]
     )
     assert _richness_report().render() == "\n".join(

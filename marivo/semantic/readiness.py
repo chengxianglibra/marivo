@@ -12,6 +12,7 @@ from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
+from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract
@@ -83,6 +84,11 @@ class ReadinessReport(RenderableResult):
     checked_at: str
     preview_required_refs: tuple[Ref[SemanticKindTag], ...] = ()
     catalog_definition_fingerprint: str | None = None
+    analysis_ready_inputs: tuple[Ref[SemanticKindTag] | RuntimeMetricExpr, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.analysis_ready_inputs and self.analysis_ready_refs:
+            object.__setattr__(self, "analysis_ready_inputs", self.analysis_ready_refs)
 
     def _repr_identity(self) -> str:
         return (
@@ -97,6 +103,7 @@ class ReadinessReport(RenderableResult):
                 ".to_dict()",
                 ".contract()",
                 ".preview_required_refs",
+                ".analysis_ready_inputs",
             ),
         )
         if self.blockers:
@@ -133,6 +140,12 @@ class ReadinessReport(RenderableResult):
                 label="analysis_ready",
                 value=", ".join(ref.key for ref in self.analysis_ready_refs),
             )
+        runtime_inputs = tuple(item for item in self.analysis_ready_inputs if type(item) is not Ref)
+        if runtime_inputs:
+            card = card.field(
+                label="analysis_ready_runtime",
+                value=", ".join(item.label for item in runtime_inputs),
+            )
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
@@ -140,6 +153,10 @@ class ReadinessReport(RenderableResult):
             "status": self.status,
             "analysis_ready_refs": [
                 RefPayloadV1.from_ref(ref).to_dict() for ref in self.analysis_ready_refs
+            ],
+            "analysis_ready_inputs": [
+                RefPayloadV1.from_ref(item).to_dict() if type(item) is Ref else replay_payload(item)
+                for item in self.analysis_ready_inputs
             ],
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
