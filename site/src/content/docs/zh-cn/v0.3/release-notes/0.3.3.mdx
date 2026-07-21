@@ -1,0 +1,71 @@
+---
+slug: zh-cn/v0.3/release-notes/0.3.3
+title: Marivo 0.3.3
+description: Marivo 0.3.3 发布说明。
+---
+
+Marivo 0.3.3 在 datasource、semantic 与 analysis 工作流之间统一了显式的语义身份和指标组合
+模型，同时加入一等 SQLite 支持，并修复若干 frame shape 与 evidence 报告问题。
+
+## 重点
+
+- 语义对象现在跨 datasource、semantic、analysis、持久化与 help 接面共用一套类型化
+  `Ref[kind]` 模型。使用 `ms.ref.metric("sales.revenue")` 等精确工厂构造引用；catalog entry
+  与声明通过 `.ref` 显式暴露其引用。
+- 指标组合现在表示为 canonical 类型化图。Catalog metric 与闭合的
+  `mv.runtime_metric.*` 表达式共用规划、执行、持久化、回放、evidence lineage、单位传播和
+  readiness 规则。
+- `ms.weighted_mean(...)` 成为一等 authored metric，用于同一 entity 上的 value 与 weight
+  measure；运行时表达式接面提供对应的 `mv.runtime_metric.weighted_mean(...)` 操作。
+- SQLite 通过 `md.sqlite(...)` 成为一等 datasource，支持类型化 table 声明、metadata
+  inspection、主键与索引发现、query-only 只读模式、raw SQL 和 semantic materialization。
+- Semantic readiness 接受闭合的 runtime metric 表达式；当其完整依赖闭包 ready 时，会通过
+  `analysis_ready_inputs` 返回。
+
+## 破坏性变更
+
+- 引用构造与表达式绑定被拆分为两个操作。`ms.ref.<kind>(path)` 只构造精确的类型化身份；在
+  bound semantic expression 函数体内，dimension、time dimension 和 measure 引用必须使用
+  `ms.bind(ref, entity_alias)`。
+- Lifecycle 与 analysis 输入改为 ref-only。在支持的位置传入精确 `.ref` 或闭合的 runtime
+  metric 表达式；loaded catalog object、generic ref 与裸字符串不再隐式转换，而是直接拒绝。
+- 持久化语义身份使用封闭的 `marivo.semantic_ref/v1` payload；旧引用形状写入的状态不会自动迁移。
+
+## 变更
+
+- Composed metrics 可以共同 observe，包括带筛选条件的分支，同时保留确定性的图身份以及
+  query/evidence lineage。
+- Mean metric 会持久化精确的 sum 与 non-null count component；weighted mean 会为下游分析
+  保留 numerator 与 weight component。
+- MetricFrame 的 public value columns 在单指标和多指标 observe 中保持一致；单轴 dimension
+  columns 也会跨分析操作保留。
+
+## 修复
+
+- Runtime metric readiness 现在验证完整表达式森林，并返回感知 blocker 的 analysis-ready inputs。
+- 被省略的 evidence digest 会指向完整 rows，不再暗示有界 digest 包含完整分布。
+- Composed metric preview 可跨 filtered branches 工作，不再丢失所需依赖。
+
+## 文档
+
+- 更新中英文 semantic-layer、readiness 和 analysis-workflow 指南，覆盖类型化 refs、runtime
+  expressions、weighted means 与 SQLite。
+- 新增 typed metric composition、semantic reference identity 和 expression binding 的实现与设计
+  specification。
+
+## 安装
+
+```bash
+pip install marivo
+pip install "marivo[sqlite]"
+```
+
+其他 datasource 请安装对应 backend extra。Marivo 0.3.3 要求 Python 3.12 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/v0.3/installation/)
+- [快速开始](/zh-cn/v0.3/quick-start/)
+- [Semantic Layer](/zh-cn/v0.3/concepts/semantic-layer/)
+- [Readiness](/zh-cn/v0.3/concepts/readiness/)
+- [Analysis Workflow](/zh-cn/v0.3/concepts/analysis-workflow/)
