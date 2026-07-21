@@ -428,9 +428,9 @@ mv.runtime_metric.aggregate(
     measure: MeasureRef,
     *,
     agg: AggKind,
+    label: str,
     fold: AggregateFoldInput = None,
     slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
-    label: str | None = None,
 ) -> RuntimeAggregateExpr
 ```
 
@@ -479,8 +479,8 @@ mv.runtime_metric.weighted_mean(
     value: MeasureRef,
     weight: MeasureRef,
     *,
+    label: str,
     slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
-    label: str | None = None,
 ) -> RuntimeWeightedMeanExpr
 ```
 
@@ -497,7 +497,7 @@ mv.runtime_metric.slice(
     metric: MetricExprInput,
     *,
     by: Mapping[AnalysisDimensionRef, SliceValue],
-    label: str | None = None,
+    label: str,
 ) -> RuntimeSliceExpr
 ```
 
@@ -525,9 +525,8 @@ The two forms have the same canonical graph, expression fingerprint, CSE/cache
 key, comparable value semantics, and evidence subject. The aggregate
 `slice_by=` equivalence is a special case of this general rule.
 
-Presentation extraction occurs before this value rewrite. A non-null label on
-an eliminated slice wrapper labels the rewritten subtree root; when the wrapper
-label is absent, the wrapped child's root label is retained. Synthetic leaf
+Presentation extraction occurs before this value rewrite. The required label on
+an eliminated slice wrapper labels the rewritten subtree root. Synthetic leaf
 slice occurrences created by pushdown receive no copied label. Existing labels
 inside the wrapped subtree remain attached to their remapped descendant
 occurrence paths. Thus value identity is maximally canonical without turning one
@@ -540,8 +539,8 @@ mv.runtime_metric.ratio(
     numerator: MetricExprInput,
     denominator: MetricExprInput,
     *,
+    label: str,
     zero_division: Literal["null", "error"] = "null",
-    label: str | None = None,
 ) -> RuntimeRatioExpr
 ```
 
@@ -617,6 +616,7 @@ cost_per_request = mv.runtime_metric.ratio(
     denominator=mv.runtime_metric.aggregate(
         measure=request_count,
         agg="sum",
+        label="request_count",
     ),
     label="cost_per_request",
 )
@@ -628,8 +628,13 @@ Nested ratio:
 ```python
 relative_failure_rate = mv.runtime_metric.ratio(
     numerator=mv.runtime_metric.ratio(
-        numerator=mv.runtime_metric.slice(requests, by={state: "FAILED"}),
+        numerator=mv.runtime_metric.slice(
+            requests,
+            by={state: "FAILED"},
+            label="failed_requests",
+        ),
         denominator=requests,
+        label="failure_rate",
     ),
     denominator=baseline_failure_rate,
     label="relative_failure_rate",
@@ -653,7 +658,7 @@ RuntimeAggregateExprV1 {
   agg: AggKind
   fold: AggregateFoldInput
   slice_by: TypedSliceMap
-  label?: DisplayLabel
+  label: DisplayLabel
 }
 
 RuntimeWeightedMeanExprV1 {
@@ -661,14 +666,14 @@ RuntimeWeightedMeanExprV1 {
   value: MeasureRef
   weight: MeasureRef
   slice_by: TypedSliceMap
-  label?: DisplayLabel
+  label: DisplayLabel
 }
 
 RuntimeSliceExprV1 {
   kind: "slice"
   metric: MetricExprInput
   by: TypedSliceMap
-  label?: DisplayLabel
+  label: DisplayLabel
 }
 
 RuntimeRatioExprV1 {
@@ -676,7 +681,7 @@ RuntimeRatioExprV1 {
   numerator: MetricExprInput
   denominator: MetricExprInput
   zero_division: ZeroDivisionPolicy
-  label?: DisplayLabel
+  label: DisplayLabel
 }
 ```
 
@@ -848,14 +853,13 @@ nodes merely for presentation.
 
 - the root label determines the displayed runtime metric name and value-column
   label;
-- child labels are optional component-display annotations;
+- every submitted runtime node has a required label; child labels remain
+  component-display annotations rather than value identity;
 - labels never affect expression equality, comparable semantics, evidence
   subjects, or computation-cache keys;
 - a canonical presentation fingerprint participates in artifact identity, so
   two callers may materialize distinct labeled artifacts while reusing the same
   computed graph;
-- absent labels receive a deterministic operator/fingerprint-derived display
-  label, never one inferred from business meaning.
 
 Component graph records reference presentation occurrence paths when rendering
 labels. They do not store one mutable label on an interned value node.
@@ -1376,7 +1380,7 @@ analysis closeout discloses:
 - every ratio's numerator/denominator roles and `zero_division` policy;
 - missing-child, present-null, zero-denominator, and affected-result counts by
   node and child role rather than only one collapsed root count;
-- the display label, if present, marked explicitly non-authoritative;
+- the required display label, marked explicitly non-authoritative;
 - `metric_identity.kind = "runtime_expression"` for an arity-one runtime root,
   or the corresponding `metric_identities` entry for a multi-root frame, plus the
   owning session/artifact analysis scope and the fact that equal computation
@@ -1737,9 +1741,8 @@ semantic promotion.
   `ratio(slice(a, X), slice(b, X))` have identical canonical bytes,
   fingerprints, CSE/cache keys, comparable semantics, and evidence subjects;
 - slice-pushdown presentation tests prove that an outer slice label moves only
-  to the rewritten subtree root, an absent wrapper label preserves the child
-  root label, descendant labels follow remapped occurrence paths, and no label
-  is copied onto synthetic leaf slices;
+  to the rewritten subtree root, descendant labels follow remapped occurrence
+  paths, and no label is copied onto synthetic leaf slices;
 - child role order changes ratio identity;
 - labels and analysis purpose do not change value identity;
 - labels at different occurrence paths survive DAG interning; root labels change

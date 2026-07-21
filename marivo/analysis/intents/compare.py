@@ -407,14 +407,19 @@ def _unmelt_component_frame(
 
 
 def _component_value_column(component: ComponentFrame, parent: MetricFrame) -> str | None:
-    """Return the metric value column if present in the component frame."""
-    # Current frames use the metric name as the value column in component frames.
+    """Return one side's root value column without treating labels as identity."""
+
     measure_name = (
         parent.meta.measure.get("name") if isinstance(parent.meta.measure, dict) else None
     )
     if isinstance(measure_name, str) and measure_name in component._df.columns:
         return measure_name
-    return None
+    excluded = {
+        *_component_axis_columns(component),
+        *_component_role_columns(component),
+    }
+    candidates = [str(column) for column in component._df.columns if str(column) not in excluded]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _component_role_metric_frame(

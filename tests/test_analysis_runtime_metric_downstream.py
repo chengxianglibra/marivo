@@ -45,7 +45,7 @@ def _refs(session):
 def test_runtime_frame_uses_ordinary_quality_and_transform_state(runtime_session) -> None:
     amount, _region = _refs(runtime_session)
     frame = runtime_session.observe(
-        mv.runtime_metric.aggregate(amount, agg="sum"),
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total"),
         time_scope={"start": "2026-07-01", "end": "2026-10-01"},
         grain="month",
     )
@@ -73,7 +73,7 @@ def test_runtime_frame_uses_ordinary_quality_and_transform_state(runtime_session
 
 def test_runtime_delta_can_replay_missing_axis_for_attribution(runtime_session) -> None:
     amount, region = _refs(runtime_session)
-    expression = mv.runtime_metric.aggregate(amount, agg="sum")
+    expression = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
     current = runtime_session.observe(
         expression,
         time_scope={"start": "2026-07-01", "end": "2026-08-01"},

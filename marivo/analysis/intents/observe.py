@@ -641,7 +641,7 @@ def observe(
     ):
         metric_id = "runtime.pending"
         model_name = "runtime"
-        metric_name = single_metric.label or "runtime_metric"
+        metric_name = single_metric.label
         metric_ir = SimpleNamespace(
             semantic_id=metric_id,
             name=metric_name,
@@ -1284,7 +1284,15 @@ def _forest_output_columns(
         if isinstance(identity, CatalogMetricIdentity):
             requested.append(identity.metric_ref.path.rsplit(".", 1)[-1])
         else:
-            requested.append(getattr(metric_input, "label", None) or f"runtime_metric_{index + 1}")
+            if not isinstance(
+                metric_input,
+                RuntimeAggregateExpr
+                | RuntimeSliceExpr
+                | RuntimeRatioExpr
+                | RuntimeWeightedMeanExpr,
+            ):
+                raise AssertionError(f"runtime metric identity at index {index} has no expression")
+            requested.append(metric_input.label)
     counts: dict[str, int] = {}
     result: list[str] = []
     for name in requested:

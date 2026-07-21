@@ -8,7 +8,10 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
-from marivo.analysis.errors import FrameMetaInvalidError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    FrameMetaInvalidError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.intents._replay import recover_observe_replay
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.metric_graph import RuntimeExpressionIdentity
@@ -124,6 +127,32 @@ def _persistence_state(session) -> tuple[set[str], set[str], set[str], set[str],
     )
 
 
+def test_observe_uses_runtime_expression_labels_as_output_columns(
+    runtime_session,
+) -> None:
+    amount = _measure_ref(runtime_session)
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
+    total = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child")
+    labeled_ratio = mv.runtime_metric.ratio(
+        total,
+        catalog_metric,
+        label="runtime_ratio",
+    )
+
+    single = runtime_session.observe(labeled_ratio)
+    mixed = runtime_session.observe(
+        [
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total"),
+            catalog_metric,
+        ]
+    )
+
+    assert single.value_columns == ("runtime_ratio",)
+    assert single.to_pandas()["runtime_ratio"].iloc[0] == pytest.approx(1.0)
+    assert mixed.value_columns == ("runtime_total", "measure_revenue")
+    assert list(mixed.to_pandas().columns) == ["runtime_total", "measure_revenue"]
+
+
 def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     expression = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime revenue")
@@ -181,7 +210,11 @@ def test_catalog_weighted_mean_filter_uses_authored_physical_column(runtime_sess
 def test_runtime_weighted_mean_pairs_nulls_and_reports_zero_weight(runtime_session) -> None:
     value = _named_measure_ref(runtime_session, "runtime_only_value_measure")
     weight = _named_measure_ref(runtime_session, "request_weight_measure")
-    expression = mv.runtime_metric.weighted_mean(value, weight)
+    expression = mv.runtime_metric.weighted_mean(
+        value,
+        weight,
+        label="runtime_weighted_mean",
+    )
     backend = runtime_session._connection_runtime.get_or_create("warehouse")
     backend.raw_sql("UPDATE orders SET amount = NULL WHERE order_id = 4")
 
@@ -207,7 +240,13 @@ def test_runtime_weighted_mean_rejects_non_additive_weight(runtime_session) -> N
     weight = _named_measure_ref(runtime_session, "invalid_weight_measure")
 
     with pytest.raises(ObservePlanningError, match=r"weight must be additive") as exc_info:
-        runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+        runtime_session.observe(
+            mv.runtime_metric.weighted_mean(
+                value,
+                weight,
+                label="runtime_weighted_mean",
+            )
+        )
 
     assert exc_info.value._context["code"] == "runtime-weighted-mean-weight-non-additive"
     assert exc_info.value._context["candidates"]["additive_weight_refs"]
@@ -221,7 +260,13 @@ def test_runtime_weighted_mean_rejects_cross_entity_inputs(runtime_session) -> N
     with pytest.raises(
         ObservePlanningError, match="same entity and physical row grain"
     ) as exc_info:
-        runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+        runtime_session.observe(
+            mv.runtime_metric.weighted_mean(
+                value,
+                weight,
+                label="runtime_weighted_mean",
+            )
+        )
 
     assert exc_info.value._context["code"] == "runtime-weighted-mean-grain-mismatch"
     assert exc_info.value._context["candidates"]["additive_weight_refs"]
@@ -238,6 +283,7 @@ def test_runtime_weighted_mean_rejects_missing_measure_with_structured_repair(
             mv.runtime_metric.weighted_mean(
                 ms.ref.measure("sales.orders.runtime_only_value_measur"),
                 weight,
+                label="runtime_weighted_mean",
             )
         )
 
@@ -261,7 +307,13 @@ def test_compare_catalog_and_equivalent_runtime_weighted_mean(runtime_session) -
     ).ref
 
     catalog_frame = runtime_session.observe(catalog_metric)
-    runtime_frame = runtime_session.observe(mv.runtime_metric.weighted_mean(value, weight))
+    runtime_frame = runtime_session.observe(
+        mv.runtime_metric.weighted_mean(
+            value,
+            weight,
+            label="runtime_weighted_mean",
+        )
+    )
     delta = runtime_session.compare(catalog_frame, runtime_frame)
 
     assert delta.to_pandas()["delta"].iloc[0] == pytest.approx(0.0)
@@ -273,16 +325,26 @@ def test_runtime_weighted_mean_can_feed_runtime_ratio(runtime_session) -> None:
     catalog_metric = runtime_session.catalog.require(
         ms.ref.metric("sales.catalog_weighted_mean")
     ).ref
-    weighted = mv.runtime_metric.weighted_mean(value, weight)
+    weighted = mv.runtime_metric.weighted_mean(
+        value,
+        weight,
+        label="runtime_weighted_mean_child",
+    )
 
-    frame = runtime_session.observe(mv.runtime_metric.ratio(weighted, catalog_metric))
+    frame = runtime_session.observe(
+        mv.runtime_metric.ratio(
+            weighted,
+            catalog_metric,
+            label="runtime_ratio",
+        )
+    )
 
     assert frame.to_pandas()[frame.value_columns[0]].iloc[0] == pytest.approx(1.0)
 
 
 def test_observe_reexecutes_before_reusing_a_materialized_snapshot(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    expression = mv.runtime_metric.aggregate(amount, agg="sum")
+    expression = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
 
     first = runtime_session.observe(expression)
     backend = runtime_session._connection_runtime.get_or_create("warehouse")
@@ -310,7 +372,7 @@ def test_observe_reuses_snapshot_verified_artifact_without_backend_execution(
     runtime_session, monkeypatch
 ) -> None:
     amount = _measure_ref(runtime_session)
-    expression = mv.runtime_metric.aggregate(amount, agg="sum")
+    expression = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
     backend = runtime_session._connection_runtime.get_or_create("warehouse")
     snapshot = {"token": "orders-v1"}
     monkeypatch.setattr(
@@ -355,12 +417,13 @@ def test_observe_runtime_conditional_ratio_pushes_branch_slices(runtime_session)
         amount,
         agg="sum",
         slice_by={region: "NORTH"},
+        label="north_total",
     )
-    total = mv.runtime_metric.aggregate(amount, agg="sum")
+    total = mv.runtime_metric.aggregate(amount, agg="sum", label="total")
 
-    frame = runtime_session.observe(mv.runtime_metric.ratio(north, total))
+    frame = runtime_session.observe(mv.runtime_metric.ratio(north, total, label="runtime_ratio"))
 
-    assert frame.to_pandas()["runtime_metric"].iloc[0] == pytest.approx(0.7)
+    assert frame.to_pandas()["runtime_ratio"].iloc[0] == pytest.approx(0.7)
     assert frame.meta.zero_denominator_rows == 0
     assert frame.meta.component_ref is not None
 
@@ -380,11 +443,13 @@ def test_observe_runtime_conditional_ratio_pushes_branch_slices(runtime_session)
 def test_observe_runtime_ratio_can_mix_catalog_child(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     revenue = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
-    runtime_total = mv.runtime_metric.aggregate(amount, agg="sum")
+    runtime_total = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child")
 
-    frame = runtime_session.observe(mv.runtime_metric.ratio(runtime_total, revenue))
+    frame = runtime_session.observe(
+        mv.runtime_metric.ratio(runtime_total, revenue, label="runtime_ratio")
+    )
 
-    assert frame.to_pandas()["runtime_metric"].iloc[0] == pytest.approx(1.0)
+    assert frame.to_pandas()["runtime_ratio"].iloc[0] == pytest.approx(1.0)
     params = frame.meta.lineage.steps[0].params
     assert params is not None
     assert len(params["lineage_metadata"]["physical_leaves"]) == 1
@@ -393,7 +458,11 @@ def test_observe_runtime_ratio_can_mix_catalog_child(runtime_session) -> None:
 def test_compare_catalog_and_equivalent_runtime_aggregate(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
-    runtime_expression = mv.runtime_metric.aggregate(amount, agg="sum")
+    runtime_expression = mv.runtime_metric.aggregate(
+        amount,
+        agg="sum",
+        label="runtime_total",
+    )
 
     current = runtime_session.observe(catalog_metric)
     baseline = runtime_session.observe(runtime_expression)
@@ -415,8 +484,8 @@ def test_compare_catalog_and_equivalent_runtime_ratio_uses_graph_identity(
     amount = _measure_ref(runtime_session)
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_average")).ref
     runtime_expression = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(amount, agg="sum"),
-        mv.runtime_metric.aggregate(amount, agg="count"),
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+        mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
         label="Runtime average",
     )
     catalog_frame = runtime_session.observe(catalog_metric)
@@ -465,8 +534,9 @@ def test_failed_component_alignment_leaves_no_delta_artifact_or_job(
 ) -> None:
     amount = _measure_ref(runtime_session)
     expression = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(amount, agg="sum"),
-        mv.runtime_metric.aggregate(amount, agg="count"),
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+        mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
+        label="runtime_average",
     )
     current = runtime_session.observe(expression)
     baseline = runtime_session.observe(expression)
@@ -490,8 +560,9 @@ def test_failed_compare_commit_rolls_back_delta_component_evidence_and_job(
 ) -> None:
     amount = _measure_ref(runtime_session)
     expression = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(amount, agg="sum"),
-        mv.runtime_metric.aggregate(amount, agg="count"),
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+        mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
+        label="runtime_average",
     )
     current = runtime_session.observe(expression)
     baseline = runtime_session.observe(expression)
@@ -512,8 +583,9 @@ def test_failed_compare_commit_rolls_back_delta_component_evidence_and_job(
 def test_runtime_expression_replay_uses_persisted_typed_descriptor(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     expression = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(amount, agg="sum"),
-        mv.runtime_metric.aggregate(amount, agg="count"),
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+        mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
+        label="runtime_average",
     )
     source = runtime_session.observe(expression)
 
@@ -529,7 +601,10 @@ def test_multi_root_replay_recovers_the_ordered_forest(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     source = runtime_session.observe(
-        [mv.runtime_metric.aggregate(amount, agg="sum"), catalog_metric]
+        [
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total"),
+            catalog_metric,
+        ]
     )
 
     replay = recover_observe_replay(source, session=runtime_session)
@@ -549,8 +624,9 @@ def test_unknown_runtime_unit_is_explicit_and_emits_capability_issue(runtime_ses
     amount = _measure_ref(runtime_session)
     frame = runtime_session.observe(
         mv.runtime_metric.ratio(
-            mv.runtime_metric.aggregate(opaque, agg="sum"),
-            mv.runtime_metric.aggregate(amount, agg="sum"),
+            mv.runtime_metric.aggregate(opaque, agg="sum", label="opaque_total"),
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+            label="runtime_ratio",
         )
     )
 
@@ -571,7 +647,7 @@ def test_public_observe_and_projection_keep_only_selected_runtime_root(runtime_s
     aggregate = mv.runtime_metric.aggregate(amount, agg="sum", label="Total")
     ratio = mv.runtime_metric.ratio(
         aggregate,
-        mv.runtime_metric.aggregate(amount, agg="count"),
+        mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
         label="Average",
     )
 
@@ -619,7 +695,10 @@ def test_multi_root_evidence_preserves_each_metric_unit(runtime_session) -> None
     amount = _measure_ref(runtime_session)
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     frame = runtime_session.observe(
-        [mv.runtime_metric.aggregate(amount, agg="sum"), catalog_metric]
+        [
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total"),
+            catalog_metric,
+        ]
     )
 
     findings = runtime_session.evidence.findings(
@@ -633,7 +712,9 @@ def test_multi_root_evidence_preserves_each_metric_unit(runtime_session) -> None
 
 def test_callback_transforms_are_incomparable(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    source = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
+    source = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
 
     first = source.transform.filter(predicate=lambda data: data["value"] >= 0)
     second = source.transform.filter(predicate=lambda data: data["value"] >= 80)
@@ -647,7 +728,9 @@ def test_callback_transforms_are_incomparable(runtime_session) -> None:
 
 def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    frame = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
+    frame = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
     meta_path = runtime_session._layout.frames_dir / frame.ref / "meta.json"
     payload = json.loads(meta_path.read_text())
     removed = {
@@ -675,8 +758,9 @@ def test_current_metric_frame_rejects_corrupt_expression_graph(runtime_session) 
     amount = _measure_ref(runtime_session)
     frame = runtime_session.observe(
         mv.runtime_metric.ratio(
-            mv.runtime_metric.aggregate(amount, agg="sum"),
-            mv.runtime_metric.aggregate(amount, agg="count"),
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+            mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
+            label="runtime_average",
         )
     )
     meta_path = runtime_session._layout.frames_dir / frame.ref / "meta.json"
@@ -696,7 +780,9 @@ def test_current_metric_frame_rejects_corrupt_expression_graph(runtime_session) 
 
 def test_current_metric_frame_rejects_mismatched_root_fingerprint(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    frame = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
+    frame = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
     meta_path = runtime_session._layout.frames_dir / frame.ref / "meta.json"
     payload = json.loads(meta_path.read_text())
     payload["expression_fingerprint"] = "wrong-root-fingerprint"
@@ -709,7 +795,9 @@ def test_current_metric_frame_rejects_mismatched_root_fingerprint(runtime_sessio
 
 def test_current_metric_frame_rejects_missing_typed_replay(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    frame = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
+    frame = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
     meta_path = runtime_session._layout.frames_dir / frame.ref / "meta.json"
     payload = json.loads(meta_path.read_text())
     observe_step = next(step for step in payload["lineage"]["steps"] if step["intent"] == "observe")
@@ -725,8 +813,9 @@ def test_current_component_graph_rejects_missing_child_reference(runtime_session
     amount = _measure_ref(runtime_session)
     frame = runtime_session.observe(
         mv.runtime_metric.ratio(
-            mv.runtime_metric.aggregate(amount, agg="sum"),
-            mv.runtime_metric.aggregate(amount, agg="count"),
+            mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total_child"),
+            mv.runtime_metric.aggregate(amount, agg="count", label="runtime_count_child"),
+            label="runtime_average",
         )
     )
     component = frame.components()
@@ -747,7 +836,9 @@ def test_current_component_graph_rejects_missing_child_reference(runtime_session
 
 def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    current = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
+    current = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
     baseline = runtime_session.observe(
         runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     )

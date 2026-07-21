@@ -114,11 +114,9 @@ def _freeze_slice_map(
     return FrozenSliceMap(tuple(items))
 
 
-def _normalize_label(label: str | None) -> str | None:
-    if label is None:
-        return None
+def _normalize_label(label: str) -> str:
     if not isinstance(label, str):
-        raise TypeError(f"runtime metric label must be str or None, got {type(label).__name__}")
+        raise TypeError(f"runtime metric label must be str, got {type(label).__name__}")
     normalized = label.strip()
     if not normalized:
         raise ValueError("runtime metric label must not be empty")
@@ -159,7 +157,10 @@ class RuntimeAggregateExpr:
     agg: AggKind
     fold: AggregateFoldInput
     slice_by: FrozenSliceMap
-    label: str | None = field(default=None, compare=False, hash=False)
+    label: str = field(compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "label", _normalize_label(self.label))
 
 
 @dataclass(frozen=True)
@@ -167,7 +168,10 @@ class RuntimeSliceExpr:
     kind: Literal["slice"]
     metric: Ref[MetricKind] | RuntimeMetricExpr
     by: FrozenSliceMap
-    label: str | None = field(default=None, compare=False, hash=False)
+    label: str = field(compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "label", _normalize_label(self.label))
 
 
 @dataclass(frozen=True)
@@ -176,7 +180,10 @@ class RuntimeRatioExpr:
     numerator: Ref[MetricKind] | RuntimeMetricExpr
     denominator: Ref[MetricKind] | RuntimeMetricExpr
     zero_division: Literal["null", "error"]
-    label: str | None = field(default=None, compare=False, hash=False)
+    label: str = field(compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "label", _normalize_label(self.label))
 
 
 @dataclass(frozen=True)
@@ -185,7 +192,10 @@ class RuntimeWeightedMeanExpr:
     value: Ref[MeasureKind]
     weight: Ref[MeasureKind]
     slice_by: FrozenSliceMap
-    label: str | None = field(default=None, compare=False, hash=False)
+    label: str = field(compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "label", _normalize_label(self.label))
 
 
 type RuntimeMetricExpr = (
@@ -331,8 +341,8 @@ def from_replay_payload(payload: object) -> Ref[MetricKind] | RuntimeMetricExpr:
             raise ValueError("runtime replay metric_ref requires metric kind")
         return cast("Ref[MetricKind]", metric_ref)
     label = payload.get("label")
-    if label is not None and not isinstance(label, str):
-        raise ValueError("runtime replay label must be a string or null")
+    if not isinstance(label, str):
+        raise ValueError("runtime replay label must be a non-empty string")
     if kind == "aggregate":
         if set(payload) != {
             "schema",
@@ -437,9 +447,9 @@ def aggregate(
     measure: Ref[MeasureKind],
     *,
     agg: AggKind,
+    label: str,
     fold: AggregateFoldInput = None,
     slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
-    label: str | None = None,
 ) -> RuntimeAggregateExpr:
     """Construct one frozen aggregate over a governed measure.
 
@@ -448,7 +458,7 @@ def aggregate(
         agg: Registered aggregate kind, including ``("percentile", q)``.
         fold: Optional authoring-aligned time fold.
         slice_by: Optional branch-local typed slice copied into the descriptor.
-        label: Optional presentation-only label.
+        label: Required presentation-only label and stable public value-column handle.
 
     Returns:
         A frozen ``RuntimeAggregateExpr`` accepted by ``session.observe`` or by
@@ -485,8 +495,8 @@ def weighted_mean(
     value: Ref[MeasureKind],
     weight: Ref[MeasureKind],
     *,
+    label: str,
     slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
-    label: str | None = None,
 ) -> RuntimeWeightedMeanExpr:
     """Construct one exact weighted mean over two governed measures.
 
@@ -494,7 +504,7 @@ def weighted_mean(
         value: Exact loaded ``Ref[measure]`` containing row-level values.
         weight: Exact loaded additive ``Ref[measure]`` containing row-level weights.
         slice_by: Optional branch-local typed slice copied into the descriptor.
-        label: Optional presentation-only label.
+        label: Required presentation-only label and stable public value-column handle.
 
     Returns:
         A frozen ``RuntimeWeightedMeanExpr`` accepted by ``session.observe`` or
@@ -538,14 +548,14 @@ def slice(
     metric: Ref[MetricKind] | RuntimeMetricExpr,
     *,
     by: Mapping[Ref[FieldKind], SliceValue],
-    label: str | None = None,
+    label: str,
 ) -> RuntimeSliceExpr:
     """Construct one frozen branch-local slice over a metric expression.
 
     Args:
         metric: Exact ``Ref[metric]`` or closed runtime metric expression.
         by: Non-empty typed dimension-to-slice mapping copied into the descriptor.
-        label: Optional presentation-only label.
+        label: Required presentation-only label and stable public value-column handle.
 
     Returns:
         A frozen ``RuntimeSliceExpr`` that can be nested recursively or observed.
@@ -554,6 +564,7 @@ def slice(
         >>> failed = mv.runtime_metric.slice(
         ...     session.catalog.require(ms.ref.metric("sales.requests")).ref,
         ...     by={session.catalog.require(ms.ref.dimension("sales.requests.state")).ref: "FAILED"},
+        ...     label="Observed failed requests",
         ... )
 
     Constraints:
@@ -573,8 +584,8 @@ def ratio(
     numerator: Ref[MetricKind] | RuntimeMetricExpr,
     denominator: Ref[MetricKind] | RuntimeMetricExpr,
     *,
+    label: str,
     zero_division: Literal["null", "error"] = "null",
-    label: str | None = None,
 ) -> RuntimeRatioExpr:
     """Construct one frozen recursive ratio from two metric expressions.
 
@@ -582,7 +593,7 @@ def ratio(
         numerator: Exact ``Ref[metric]`` or closed runtime metric expression.
         denominator: Exact ``Ref[metric]`` or closed runtime metric expression.
         zero_division: ``"null"`` to retain a null result or ``"error"`` to fail.
-        label: Optional presentation-only label.
+        label: Required presentation-only label and stable public value-column handle.
 
     Returns:
         A frozen ``RuntimeRatioExpr`` that can be nested recursively or observed.
