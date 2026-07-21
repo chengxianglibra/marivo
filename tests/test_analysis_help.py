@@ -256,6 +256,7 @@ def test_focused_help_includes_live_signature() -> None:
 def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
     target = f"runtime_metric.{name}"
     callable_obj = getattr(mv.runtime_metric, name)
+    assert inspect.signature(callable_obj).parameters["label"].default is inspect.Parameter.empty
 
     for text in (_text(target), _text(callable_obj)):
         assert text.splitlines()[0] == target
@@ -263,6 +264,7 @@ def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
         assert "Output type:" in text
         assert "Example:" in text
         assert "runtime_metric_closed_algebra" in text
+        assert "label: str" in text
 
 
 def test_runtime_metric_group_help_lists_all_constructors() -> None:

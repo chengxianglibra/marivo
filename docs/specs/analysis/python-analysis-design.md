@@ -187,9 +187,13 @@ resolve within one semantic model and datasource compatibility domain. Missing
 aligned keys are retained with null values rather than filled with zero.
 
 Runtime expressions are session-scoped analysis values, not catalog authority.
-Their labels are presentation metadata only. Persisted graph, dependency,
-source, key, quality, component, replay, and comparable-semantics state—not
-catalog/runtime origin—controls downstream admission. `compare` may therefore
+Every `mv.runtime_metric.*` constructor requires a non-empty label, including
+constructors used as nested nodes. The label becomes the stable public
+value-column handle when that expression is materialized as an observed root,
+but remains presentation metadata rather than catalog authority or value
+identity. Persisted graph, dependency, source, key, quality, component, replay,
+and comparable-semantics state—not catalog/runtime origin—controls downstream
+admission. `compare` may therefore
 compare a catalog frame and a runtime frame when their lowered value semantics
 match, while retaining ordered current/baseline identities in the delta.
 Runtime weighted means accept two governed same-entity measures, require an

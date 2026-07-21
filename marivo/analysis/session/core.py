@@ -572,7 +572,10 @@ class Session(RenderableResult):
         bounded expression graph, and persists the result as a MetricFrame.
 
         ``to_pandas()`` exports one value column per ordered root. Read
-        ``frame.value_columns`` before merging or renaming frames.
+        ``frame.value_columns`` before merging or renaming frames. Runtime metric
+        constructors require an explicit non-empty ``label`` for every expression;
+        labels are stable public value-column handles but remain presentation-only
+        metadata rather than catalog authority or value identity.
 
         Args:
             metric: Exact ``Ref[metric]``, ``RuntimeMetricExpr``, or a non-empty

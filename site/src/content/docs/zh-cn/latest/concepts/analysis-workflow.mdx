@@ -201,6 +201,7 @@ failed = mv.runtime_metric.aggregate(
     failed_requests_measure,
     agg="sum",
     slice_by={state: "failed"},
+    label="Runtime failed requests",
 )
 weighted_latency = mv.runtime_metric.weighted_mean(
     latency_measure,
@@ -220,8 +221,10 @@ runtime expression 可以递归包含 runtime expression 与 catalog `Ref[metric
 `runtime_metric.slice(..., by=...)` 是 branch-local，`observe(..., slice_by=...)`
 是 global。catalog/runtime root 都会 lower 到同一 canonical graph（最大深度 10，
 提交的 pre-CSE occurrence 最多 256）以及一个 model/source domain。label 只影响
-展示，不会变成 value identity 或 catalog authority。下游 operator 根据持久化 frame
-状态准入，不根据 catalog/runtime 来源准入。
+展示，不会变成 value identity 或 catalog authority。每个 `runtime_metric` 构造器都
+必须设置非空 `label`，包括嵌套 expression；当 expression 作为 observed root 物化时，
+该 label 成为稳定的公开值列 handle。下游 operator 根据持久化 frame 状态准入，不根据
+catalog/runtime 来源准入。
 
 `runtime_metric.weighted_mean(value, weight)` 会自动完成行级乘权与成对聚合。
 两个 measure 必须属于同一 entity 和物理行粒度，weight 必须为 additive；无需预先

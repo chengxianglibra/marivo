@@ -233,6 +233,7 @@ failed = mv.runtime_metric.aggregate(
     failed_requests_measure,
     agg="sum",
     slice_by={state: "failed"},
+    label="Runtime failed requests",
 )
 weighted_latency = mv.runtime_metric.weighted_mean(
     latency_measure,
@@ -253,8 +254,11 @@ Runtime expressions may recursively contain runtime expressions and catalog
 `observe(..., slice_by=...)` is global. Both catalog and runtime roots lower to
 one canonical graph (maximum depth 10, maximum 256 submitted pre-CSE
 occurrences) and one model/source domain. Labels affect presentation only, not
-value identity or catalog authority. Downstream operators use persisted frame
-state rather than catalog/runtime origin.
+value identity or catalog authority. Every `runtime_metric` constructor,
+including nested expressions, requires a non-empty `label`. The label becomes
+the stable public value-column handle when the expression is materialized as an
+observed root. Downstream operators use persisted frame state rather than
+catalog/runtime origin.
 
 `runtime_metric.weighted_mean(value, weight)` performs row-level multiplication
 and paired aggregation automatically. Both measures must have the same entity
