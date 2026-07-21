@@ -264,7 +264,17 @@ axes, coverage warnings, and budget stops go to metadata/blocking
 issues/lineage, never a next-step recommendation or narrative.
 
 There is no default for a multi-axis call; a single-axis call omits `mode`, and
-supplying one there has no effect. `AttributionFrame.attribution_mode` exposes
+supplying one there has no effect. A single-axis result preserves the resolved
+dimension column (for example, `cluster`) and sets `driver_field` to that name,
+so its pandas rows join directly to the source `DeltaFrame`. Generic
+`level` / `axis` / `driver` / `path` columns are reserved for multi-axis
+hierarchy output. Additive single-axis results report `method="sum"`.
+The preserved dimension name must not collide with attribution result, value,
+or panel bucket columns. Such a collision fails closed with a
+`SemanticKindMismatchError` and a semantic-authoring repair instead of
+producing duplicate columns. Evidence protocol fields are mapped explicitly
+from metadata and do not reserve user dimension names.
+`AttributionFrame.attribution_mode` exposes
 the persisted row layout (`"joint"`, `"hierarchy"`, or `None` for single-axis
 and legacy artifacts). It is intentionally distinct from
 `AttributionFrame.attribution_shape` / `meta.method`, which identify the

@@ -41,6 +41,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
     ATTRIBUTION_ADDITIVITY_COMPATIBLE = "attribution_additivity_compatible"
+    ATTRIBUTION_AXIS_COLUMN_COMPATIBLE = "attribution_axis_column_compatible"
     ATTRIBUTION_RECONCILIATION = "attribution_reconciliation"
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
     CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
@@ -312,6 +313,19 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "behind a normalized percentage.",
         "Inspect the reconciliation card and component rows; repair invalid component "
         "weights or inputs before retrying if attribution fails closed.",
+        help_target="attribute",
+    ),
+    ConstraintId.ATTRIBUTION_AXIS_COLUMN_COMPATIBLE: _constraint(
+        ConstraintId.ATTRIBUTION_AXIS_COLUMN_COMPATIBLE,
+        "SemanticKindMismatch",
+        "runtime",
+        ("attribute", "decompose", "AttributionFrame"),
+        "Single-axis attribution preserves the resolved dimension name only when it does "
+        "not collide with attribution result, value, or panel bucket columns.",
+        "A flat pandas result cannot represent a dimension and an attribution measure under "
+        "the same column name; evidence fields use an explicit metadata mapping instead.",
+        "Rename the semantic dimension to a non-reserved name, reload the catalog, then "
+        "re-observe and compare before retrying attribution.",
         help_target="attribute",
     ),
     ConstraintId.CUMULATIVE_COMPARE_COMPATIBLE: _constraint(

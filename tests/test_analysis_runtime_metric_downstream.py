@@ -88,4 +88,5 @@ def test_runtime_delta_can_replay_missing_axis_for_attribution(runtime_session) 
 
     assert attribution.meta.params["materialization_status"] == "expanded"
     assert attribution.meta.params["missing_axes"] == ["sales.orders.region"]
-    assert set(attribution.to_pandas()["driver"]) == {"NORTH", "SOUTH"}
+    assert attribution.meta.driver_field == "region"
+    assert set(attribution.to_pandas()["region"]) == {"NORTH", "SOUTH"}

@@ -106,13 +106,20 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert isinstance(out, AttributionFrame)
     assert out.meta.kind == "attribution_frame"
     assert out.lineage.steps[-1].intent == "attribute"
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
     assert out.meta.params["axes"] == ["sales.orders.region"]
-    assert out.meta.driver_field == "path"
-    assert out.to_pandas()[["driver", "contribution"]].to_dict("records") == [
-        {"driver": "US", "contribution": 14.0},
-        {"driver": "CN", "contribution": -2.0},
+    assert out.meta.driver_field == "region"
+    result = out.to_pandas()
+    assert {"driver", "path", "level", "axis"}.isdisjoint(result.columns)
+    assert result[["region", "contribution"]].to_dict("records") == [
+        {"region": "US", "contribution": 14.0},
+        {"region": "CN", "contribution": -2.0},
     ]
+    merged = frame.to_pandas().merge(result, on="region")
+    assert list(merged["region"]) == ["US", "CN", "US"]
+    loaded = session.get_frame(out.ref)
+    assert loaded.meta.driver_field == "region"
+    assert list(loaded.to_pandas().columns) == list(result.columns)
 
 
 def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
@@ -218,6 +225,96 @@ def test_attribute_rejects_duplicate_axes() -> None:
     assert exc_info.value._context["reason"] == "duplicate_axes"
 
 
+@pytest.mark.parametrize("axis_name", ["contribution", "rank", "share_of_total_delta"])
+def test_attribute_rejects_reserved_single_axis_column(
+    semantic_project_factory,
+    axis_name: str,
+) -> None:
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity("
+                "name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                f"reserved_axis = ms.dimension_column(name={axis_name!r}, "
+                f"entity=orders, column={axis_name!r})\n"
+            ),
+        }
+    )
+    session = mv.session.get_or_create(name="demo")
+    axis = session.catalog.require(
+        make_ref(f"sales.orders.{axis_name}", SemanticKind.DIMENSION)
+    ).ref
+    frame = _delta(
+        session,
+        pd.DataFrame({axis_name: ["A", "B"], "delta": [3.0, -1.0]}),
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(frame, axes=[axis])
+
+    error = exc_info.value
+    assert error._context["reason"] == "reserved_axis_column"
+    assert error._context["axis_column"] == axis_name
+    assert axis_name in error._context["reserved_columns"]
+    assert error.location == "session.attribute axes"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+
+
+@pytest.mark.parametrize(
+    "axis_name",
+    [
+        "dimension",
+        "contribution_value",
+        "contribution_share",
+        "direction",
+        "method",
+        "reconciliation_residual",
+    ],
+)
+def test_attribute_evidence_protocol_does_not_reserve_dimension_names(
+    semantic_project_factory,
+    axis_name: str,
+) -> None:
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity("
+                "name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                f"protocol_named_axis = ms.dimension_column(name={axis_name!r}, "
+                f"entity=orders, column={axis_name!r})\n"
+            ),
+        }
+    )
+    session = mv.session.get_or_create(name="demo")
+    axis = session.catalog.require(
+        make_ref(f"sales.orders.{axis_name}", SemanticKind.DIMENSION)
+    ).ref
+    frame = _delta(
+        session,
+        pd.DataFrame({axis_name: ["A", "B"], "delta": [3.0, -1.0]}),
+    )
+
+    attribution = session.attribute(frame, axes=[axis])
+
+    assert attribution.meta.evidence_status == "complete"
+    assert attribution.meta.driver_field == axis_name
+    assert attribution.to_pandas()[axis_name].tolist() == ["A", "B"]
+    assert attribution.evidence_digest is not None
+    assert {
+        item.dimension_keys[axis_name]: item.contribution_value
+        for item in attribution.evidence_digest.items
+    } == {"A": 3.0, "B": -1.0}
+    assert {item.dimension for item in attribution.evidence_digest.items} == {axis_name}
+    assert {item.decomposition_method for item in attribution.evidence_digest.items} == {"sum"}
+
+
 def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_factory) -> None:
     semantic_project_factory(
         {
@@ -275,9 +372,10 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     assert out.meta.params["original_delta_ref"] == delta.ref
     assert out.meta.params["missing_axes"] == ["sales.orders.region"]
     assert out.meta.params["expanded_delta_ref"]
-    assert out.to_pandas()[["driver", "contribution"]].to_dict("records") == [
-        {"driver": "US", "contribution": 30.0},
-        {"driver": "CN", "contribution": -10.0},
+    assert out.meta.driver_field == "region"
+    assert out.to_pandas()[["region", "contribution"]].to_dict("records") == [
+        {"region": "US", "contribution": 30.0},
+        {"region": "CN", "contribution": -10.0},
     ]
     assert [job.intent for job in session.jobs()].count("observe") == 4
     assert [job.intent for job in session.jobs()].count("compare") == 2
