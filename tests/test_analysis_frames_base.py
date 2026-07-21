@@ -121,8 +121,27 @@ def test_frame_is_immutable_and_to_pandas_returns_a_copy():
     exported = frame.to_pandas()
     exported.loc[0, "value"] = 99.0
     assert frame.to_pandas().iloc[0, 0] == 1.0
+    selected = frame["value"]
+    selected.iloc[0] = 77.0
+    assert frame["value"].iloc[0] == 1.0
     with pytest.raises(FrameMutationError):
         frame["other"] = 1
+
+
+def test_frame_column_read_copies_only_the_selected_result(monkeypatch):
+    frame = BaseFrame(
+        _df=pd.DataFrame({"selected": [1.0], "unselected": [2.0]}),
+        meta=_meta(row_count=1),
+    )
+
+    def reject_full_copy():
+        raise AssertionError("column reads must not copy the full dataframe")
+
+    monkeypatch.setattr(frame, "_dataframe_copy", reject_full_copy)
+
+    selected = frame["selected"]
+    selected.iloc[0] = 99.0
+    assert frame["selected"].iloc[0] == 1.0
 
 
 def test_contract_is_the_only_structured_issue_path():

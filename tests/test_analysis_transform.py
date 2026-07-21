@@ -310,16 +310,23 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         grain="day",
     )
     filtered = series.transform.filter(predicate=lambda d: d["value"] > 10)
-    assert filtered.to_pandas()["value"].tolist() == [40.0, 60.0]
+    assert filtered.to_pandas()[filtered.value_columns[0]].tolist() == [40.0, 60.0]
+    assert filtered.value_columns == ("revenue",)
+    assert filtered.columns == ["bucket_start", "revenue"]
+    assert [
+        column.name for column in filtered.contract().artifact_schema.columns
+    ] == filtered.columns
+    assert filtered["revenue"].tolist() == [40.0, 60.0]
+    assert "revenue" in filtered.render(max_output_bytes=None)
 
     windowed = series.transform.window(window={"start": "2026-07-02", "end": "2026-07-03"})
-    assert windowed.to_pandas()["value"].tolist() == [60.0]
+    assert windowed.to_pandas()[windowed.value_columns[0]].tolist() == [60.0]
 
     top = series.transform.topk(by="value", limit=1)
-    assert top.to_pandas()["value"].tolist() == [60.0]
+    assert top.to_pandas()[top.value_columns[0]].tolist() == [60.0]
 
     bottom = series.transform.bottomk(by="value", limit=1)
-    assert bottom.to_pandas()["value"].tolist() == [40.0]
+    assert bottom.to_pandas()[bottom.value_columns[0]].tolist() == [40.0]
 
     ranked = series.transform.rank(by="value", method="dense", rank_column="r")
     assert ranked.to_pandas()["r"].tolist() == [2, 1]
@@ -334,7 +341,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         session=session,
     )
     share = segmented.transform.normalize(mode="share")
-    assert share.to_pandas()["value"].round(6).tolist() == [0.428571, 0.571429]
+    assert share.to_pandas()[share.value_columns[0]].round(6).tolist() == [0.428571, 0.571429]
 
     panel = make_metric_frame(
         pd.DataFrame(
@@ -696,7 +703,7 @@ def test_transform_window_absolute_timezone_clips_tz_aware_axis():
     )
 
     df = clipped.to_pandas()
-    assert df["value"].tolist() == [20.0]
+    assert df[clipped.value_columns[0]].tolist() == [20.0]
     assert df["bucket_start"].dt.tz is not None
 
 
@@ -798,7 +805,7 @@ def test_transform_normalize_index_on_time_series(tmp_path):
     normalized = _active_transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
-    assert df["value"].tolist() == [100.0, 200.0]
+    assert df[normalized.value_columns[0]].tolist() == [100.0, 200.0]
     assert normalized.meta.normalization == {
         "mode": "index",
         "baseline": None,
@@ -835,7 +842,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
-    assert df["value"].tolist() == [100.0, 200.0]
+    assert df[normalized.value_columns[0]].tolist() == [100.0, 200.0]
     assert normalized.meta.normalization["columns_affected"] == ["value"]
 
 
@@ -868,7 +875,7 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
-    assert df["value"].tolist() == [100.0, 200.0]
+    assert df[normalized.value_columns[0]].tolist() == [100.0, 200.0]
     assert normalized.meta.normalization["columns_affected"] == ["value"]
 
 
@@ -879,7 +886,7 @@ def test_transform_normalize_share_on_segmented(tmp_path):
 
     df = normalized.to_pandas()
     assert normalized.meta.normalization["mode"] == "share"
-    assert df["value"].sum() == pytest.approx(1.0)
+    assert df[normalized.value_columns[0]].sum() == pytest.approx(1.0)
 
 
 def test_transform_normalize_pct_change_on_time_series(tmp_path):
@@ -887,7 +894,7 @@ def test_transform_normalize_pct_change_on_time_series(tmp_path):
 
     normalized = _active_transform(frame, op="normalize", mode="pct_change")
 
-    values = normalized.to_pandas()["value"]
+    values = normalized.to_pandas()[normalized.value_columns[0]]
     assert pd.isna(values.iloc[0])
     assert values.iloc[1] == pytest.approx(1.0)
 
@@ -922,7 +929,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
 
     normalized = _active_transform(frame, op="normalize", mode="pct_change")
 
-    values = normalized.to_pandas()["value"]
+    values = normalized.to_pandas()[normalized.value_columns[0]]
     assert values.iloc[0] == pytest.approx(1.0)
     assert values.iloc[1] == pytest.approx(1.0 / 3.0)
     assert pd.isna(values.iloc[2])
@@ -935,7 +942,7 @@ def test_transform_normalize_share_on_panel_normalizes_within_each_time_bucket(t
     normalized = _active_transform(frame, op="normalize", mode="share")
 
     df = normalized.to_pandas()
-    shares_by_bucket = df.groupby("bucket_start", dropna=False)["value"].sum()
+    shares_by_bucket = df.groupby("bucket_start", dropna=False)[normalized.value_columns[0]].sum()
     assert shares_by_bucket.tolist() == pytest.approx([1.0, 1.0])
 
 
@@ -1001,7 +1008,7 @@ def test_transform_normalize_z_score(tmp_path):
 
     normalized = _active_transform(frame, op="normalize", mode="z_score")
 
-    values = normalized.to_pandas()["value"]
+    values = normalized.to_pandas()[normalized.value_columns[0]]
     assert values.mean() == pytest.approx(0.0)
     assert values.std(ddof=0) == pytest.approx(1.0)
 
@@ -1125,14 +1132,14 @@ def test_transform_topk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
     top = _active_transform(frame, op="topk", by="value", limit=1)
     assert top.meta.row_count == 1
-    assert top.to_pandas()["value"].tolist() == [20.0]
+    assert top.to_pandas()[top.value_columns[0]].tolist() == [20.0]
 
 
 def test_transform_bottomk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
     bottom = _active_transform(frame, op="bottomk", by="value", limit=1)
     assert bottom.meta.row_count == 1
-    assert bottom.to_pandas()["value"].tolist() == [10.0]
+    assert bottom.to_pandas()[bottom.value_columns[0]].tolist() == [10.0]
 
 
 def test_transform_rank_appends_rank_column(tmp_path):
@@ -1140,7 +1147,9 @@ def test_transform_rank_appends_rank_column(tmp_path):
     ranked = _active_transform(frame, op="rank", by="value")
     df = ranked.to_pandas()
     assert "rank" in df.columns
-    expected = df["value"].rank(method="first", ascending=False).astype(int).tolist()
+    expected = (
+        df[ranked.value_columns[0]].rank(method="first", ascending=False).astype(int).tolist()
+    )
     assert df["rank"].tolist() == expected
 
 
@@ -1251,12 +1260,8 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     assert "country" not in df.columns
     assert "bucket_start" in df.columns
     raw = frame.to_pandas()
-    expected = (
-        raw.groupby("bucket_start", as_index=False)["revenue"]
-        .sum()
-        .rename(columns={"revenue": "value"})
-    )
-    assert df["value"].tolist() == expected["value"].tolist()
+    expected = raw.groupby("bucket_start", as_index=False)["revenue"].sum()
+    assert df[rolled.value_columns[0]].tolist() == expected["revenue"].tolist()
 
 
 def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_path):
@@ -1883,7 +1888,7 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
     assert (
-        df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), "value"].iloc[0]
+        df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), rolled.value_columns[0]].iloc[0]
         == feb_last_day_value
     )
     assert rolled.meta.rollup_fold == "last"
@@ -1900,7 +1905,10 @@ def test_rollup_grain_sums_reaggregatable_frame(cumulative_day_session):
     rolled = frame.transform.rollup(grain="month")
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
-    assert df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), "value"].iloc[0] == feb_total
+    assert (
+        df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), rolled.value_columns[0]].iloc[0]
+        == feb_total
+    )
     assert rolled.meta.rollup_fold is None
 
 
@@ -1971,11 +1979,18 @@ def test_rollup_chains_day_month_quarter(cumulative_day_session):
 
     month_df = day_to_month.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     mar_value = float(
-        month_df.loc[month_df["bucket_start"] == pd.Timestamp("2026-03-01"), "value"].iloc[0]
+        month_df.loc[
+            month_df["bucket_start"] == pd.Timestamp("2026-03-01"),
+            day_to_month.value_columns[0],
+        ].iloc[0]
     )
     q_df = month_to_quarter.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     assert (
-        q_df.loc[q_df["bucket_start"] == pd.Timestamp("2026-01-01"), "value"].iloc[0] == mar_value
+        q_df.loc[
+            q_df["bucket_start"] == pd.Timestamp("2026-01-01"),
+            month_to_quarter.value_columns[0],
+        ].iloc[0]
+        == mar_value
     )
     assert month_to_quarter.meta.rollup_fold == "last"
     assert month_to_quarter.meta.cumulative is not None

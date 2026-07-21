@@ -203,11 +203,18 @@ fuses same-datasource metrics into one query and outer-joins cross-datasource
 metrics on the time axis. Use `frame.metric(id)` to project an arity-1 frame
 for drill-down on a single metric.
 
-On frames returned by `observe`, `to_pandas()` always uses one value column per
-metric, regardless of arity. The column uses the metric short name, or a
-qualified metric id when names collide, so single- and multi-metric observations
-can be merged without arity-specific renames. Read `frame.value_columns` for the
-exact exported name(s).
+Every public read of a single-metric `MetricFrame` uses the metric short name for
+its value column, including `show()`, `columns`, `contract()`, indexing, and
+`to_pandas()`. The name stays stable after transforms. When it collides with an
+axis column, Marivo uses the qualified metric id instead and appends a
+deterministic `#N` suffix if that name is also occupied. Multi-metric frames
+continue to use one column per metric, so frames can be merged without
+arity-specific renames. Read `frame.value_columns` for the exact public name(s).
+
+Typed transforms still use the internal canonical `value` column. For example,
+`frame.transform.filter(predicate=lambda data: data["value"] > 0)` remains valid;
+afterward, read the result with `filtered[filtered.value_columns[0]]` or
+`filtered.to_pandas()`.
 
 ```python
 report = session.observe(

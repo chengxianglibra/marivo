@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis._cumulative import (
@@ -401,7 +400,13 @@ class MetricFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class MetricFrame(BaseFrame):
-    """Call mv.help(MetricFrame) for its public consumption contract."""
+    """Metric artifact: public metric names, canonical internal value; call mv.help(MetricFrame).
+
+    Single-metric frames expose the metric name consistently through every
+    public read path while typed analysis retains an internal canonical
+    ``"value"`` column. Call ``mv.help(MetricFrame)`` for the full consumption
+    contract.
+    """
 
     meta: MetricFrameMeta
 
@@ -461,63 +466,57 @@ class MetricFrame(BaseFrame):
 
     @property
     def value_columns(self) -> tuple[str, ...]:
-        """Value column name(s) in ``to_pandas()`` output, in metric order.
+        """Public value column name(s), in metric order.
 
-        Arity-1 observe frames export the metric short name (matching
-        multi-metric output); other arity-1 frames use ``"value"``. Multi-metric
-        frames use one column per metric. Exposed so callers can merge/rename
-        without guessing the naming from arity. See issue #33.
+        Arity-1 frames expose the metric short name across ``show()``,
+        ``columns``, ``contract()``, indexing, and ``to_pandas()``. Multi-metric
+        frames use one column per metric. Exposed so callers can merge or rename
+        frames without guessing the naming from arity or lineage.
         """
         if self.arity <= 1:
             return (self._arity1_exported_column_name(),)
         return tuple(str(entry["column"]) for entry in self.measures_meta())
 
     def _arity1_exported_column_name(self) -> str:
-        """The column name ``to_pandas()`` uses for the single value column."""
-        last_intent = self.lineage.steps[-1].intent if self.lineage.steps else None
-        if last_intent != "observe" or self.VALUE_COLUMN not in self._df.columns:
+        """The public column name used for the single metric value."""
+        if self.VALUE_COLUMN not in self._df.columns:
             return self.VALUE_COLUMN
+        value_index = list(self._df.columns).index(self.VALUE_COLUMN)
+        occupied = {
+            column
+            for index, column in enumerate(BaseFrame._public_column_names(self))
+            if index != value_index
+        }
         measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
         name = measure.get("name")
         if not isinstance(name, str) or not name:
             metric_id = self.meta.metric_id
             name = metric_id.rsplit(".", 1)[-1] if metric_id else self.VALUE_COLUMN
-        if name == self.VALUE_COLUMN:
-            return self.VALUE_COLUMN
-        if name in self._df.columns and name != self.VALUE_COLUMN:
-            metric_id = self.meta.metric_id
-            name = metric_id.replace(".", "__") if metric_id else name
-        return name
+        if name not in occupied:
+            return name
+
+        metric_id = self.meta.metric_id
+        qualified_name = metric_id.replace(".", "__") if metric_id else name
+        candidate = qualified_name
+        suffix = 2
+        while candidate in occupied:
+            candidate = f"{qualified_name}#{suffix}"
+            suffix += 1
+        return candidate
 
     @property
     def arity(self) -> int:
         """Number of metrics carried by this frame."""
         return len(self.measures_meta())
 
-    def _export_dataframe(self) -> pd.DataFrame:
-        """Return a copy whose value columns are named by metric.
-
-        Arity-1 frames returned by ``observe`` keep ``"value"`` as their
-        internal canonical column but export the metric short name, matching
-        multi-metric observe output. If that name collides with an axis column,
-        the qualified metric id is used.
-        """
-        df = self._dataframe_copy()
-        last_intent = self.lineage.steps[-1].intent if self.lineage.steps else None
-        if last_intent != "observe" or self.arity != 1 or self.VALUE_COLUMN not in df.columns:
-            return df
-
-        measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
-        measure_name = measure.get("name")
-        if not isinstance(measure_name, str) or not measure_name:
-            metric_id = self.meta.metric_id
-            measure_name = metric_id.rsplit(".", 1)[-1] if metric_id else self.VALUE_COLUMN
-        if measure_name == self.VALUE_COLUMN:
-            return df
-        if measure_name in df.columns:
-            metric_id = self.meta.metric_id
-            measure_name = metric_id.replace(".", "__") if metric_id else measure_name
-        return df.rename(columns={self.VALUE_COLUMN: measure_name})
+    def _public_column_names(self) -> list[str]:
+        """Project the internal canonical value column to the metric name."""
+        columns = super()._public_column_names()
+        if self.arity != 1 or self.VALUE_COLUMN not in self._df.columns:
+            return columns
+        value_index = list(self._df.columns).index(self.VALUE_COLUMN)
+        columns[value_index] = self._arity1_exported_column_name()
+        return columns
 
     # Every next-intent is gated at arity > 1; derive from _NEXT_INTENTS so
     # the two cannot drift.  These are capability-id prefixes: any
