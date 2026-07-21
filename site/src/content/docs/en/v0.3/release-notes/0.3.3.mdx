@@ -1,0 +1,84 @@
+---
+slug: en/v0.3/release-notes/0.3.3
+title: Marivo 0.3.3
+description: Release notes for Marivo 0.3.3.
+---
+
+Marivo 0.3.3 makes semantic identity and metric composition explicit across
+datasource, semantic, and analysis workflows. It also adds first-class SQLite
+support and closes several frame-shape and evidence-reporting gaps.
+
+## Highlights
+
+- Semantic objects now use one typed `Ref[kind]` model across datasource,
+  semantic, analysis, persistence, and help surfaces. Construct references with
+  an exact factory such as `ms.ref.metric("sales.revenue")`; catalog entries and
+  declarations expose their reference explicitly through `.ref`.
+- Metric composition is represented as a canonical typed graph. Catalog metrics
+  and closed `mv.runtime_metric.*` expressions share planning, execution,
+  persistence, replay, evidence lineage, unit propagation, and readiness rules.
+- `ms.weighted_mean(...)` is a first-class authored metric for same-entity value
+  and weight measures. The runtime expression surface supports the matching
+  `mv.runtime_metric.weighted_mean(...)` operation.
+- SQLite is a first-class datasource through `md.sqlite(...)`, including typed
+  table declarations, metadata inspection, primary-key and index discovery,
+  query-only read mode, raw SQL, and semantic materialization.
+- Semantic readiness accepts closed runtime metric expressions and reports them
+  through `analysis_ready_inputs` when their complete dependency closure is
+  ready.
+
+## Breaking changes
+
+- Reference construction and expression binding are separate operations.
+  `ms.ref.<kind>(path)` only constructs an exact typed identity. Inside a bound
+  semantic expression body, use `ms.bind(ref, entity_alias)` for dimension,
+  time-dimension, and measure references.
+- Lifecycle and analysis inputs are ref-only. Pass exact `.ref` values or closed
+  runtime metric expressions where supported; loaded catalog objects, generic
+  refs, and bare strings are rejected instead of being converted implicitly.
+- Persisted semantic identity uses the closed `marivo.semantic_ref/v1` payload.
+  State written with superseded reference shapes is not migrated automatically.
+
+## Changed
+
+- Composed metrics can be observed together, including filtered branches, while
+  preserving deterministic graph identity and query/evidence lineage.
+- Mean metrics persist exact sum and non-null-count components, and weighted
+  means preserve their numerator and weight components for downstream analysis.
+- MetricFrame public value columns are consistent for single and multi-metric
+  observations, and single-axis dimension columns are retained across analysis
+  operations.
+
+## Fixed
+
+- Runtime metric readiness now validates the full expression forest and returns
+  blocker-aware analysis-ready inputs.
+- Omitted evidence digests point readers to the full rows rather than suggesting
+  that a bounded digest contains the complete distribution.
+- Composed metric preview works across filtered branches without losing required
+  dependencies.
+
+## Documentation
+
+- Updated the English and Chinese semantic-layer, readiness, and analysis-workflow
+  guides for typed refs, runtime expressions, weighted means, and SQLite.
+- Added implementation and design specifications for typed metric composition,
+  semantic reference identity, and expression binding.
+
+## Installation
+
+```bash
+pip install marivo
+pip install "marivo[sqlite]"
+```
+
+Install the backend extra for any other datasource you plan to use. Marivo 0.3.3
+requires Python 3.12 or newer.
+
+## Documentation links
+
+- [Install Marivo](/en/v0.3/installation/)
+- [Quick Start](/en/v0.3/quick-start/)
+- [Semantic Layer](/en/v0.3/concepts/semantic-layer/)
+- [Readiness](/en/v0.3/concepts/readiness/)
+- [Analysis Workflow](/en/v0.3/concepts/analysis-workflow/)
