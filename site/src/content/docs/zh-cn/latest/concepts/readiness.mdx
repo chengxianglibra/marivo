@@ -9,9 +9,13 @@ description: 对新建或修改的语义对象进行显式技术认证。
 workflow 要求 technical certification 时运行它。它会识别不完整对象、未知引用，以及
 缺少当前 validation 或 preview evidence 的情况。
 
+显式 semantic definitions 是受治理的业务语义真源。Inspection、snapshot、discovery 和
+preview 为 authoring 与诊断提供辅助证据；缺少这些证据不会覆盖已经批准且结构合法的定义，
+也不会使其无法用于 analysis。
+
 Blocked report 不代表业务问题不能分析，而是说明所选 objects 存在语义或技术 blocker。
-缺失或不匹配的 runtime preview certification 改为 warning：没有其他 blocker 时，披露后可继续
-日常分析，但在声明新建或修改的 semantic object 已完成前仍需修复。
+缺少 datasource snapshot 或 runtime preview certification 时报告 warning：没有其他 blocker
+时，披露后可继续日常分析，但在声明新建或修改的 semantic object 已完成前仍需修复。
 
 Analysis APIs 不会自动调用 readiness。日常分析复用未变化的 objects 时，依赖 live catalog
 loading、semantic input resolution、planning 和 runtime execution checks，不会在每次调用前刷新
@@ -28,11 +32,11 @@ authoring snapshots。
 
 ## ready 表示什么
 
-`ready` 表示所选 semantic objects 已经具备当前 scope 所需的技术认证证据。
-`ready_with_warnings` 可能包含缺失或不匹配的 preview certification；此时
+`ready` 表示所选 semantic objects 没有 readiness blocker。
+`ready_with_warnings` 可能包含缺失的 datasource snapshot 或不匹配的 preview evidence；此时
 `analysis_ready_refs` 仍只列出依赖闭包中没有 blocker 的直接请求 refs。两种状态都不是 runtime
-authorization token：不代表业务定义已经获批，不保证所有后续查询都能成功，也不会替用户
-判断结论是否适合业务决策。
+authorization token：readiness 不记录用户的批准行为，不保证所有后续查询都能成功，也不会
+替用户判断结论是否适合业务决策。
 
 需要检查技术契约的读者，可以继续查看下面的报告和 API 参考。
 
@@ -54,9 +58,9 @@ SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审
 | `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
 
 :::caution[就绪检查不证明查询能跑通]
-`ready` 表示 object 已通过 static validation，并且有 matching scoped preview evidence。
-Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 block readiness，也不会触发
-重新采样。它不证明每一种未来 analysis query 或 full-source truth。Parity 从不作为 readiness 要求。
+非 blocked report 表示所选 definitions 已通过 semantic readiness gate。Snapshot 和 preview
+是建议性的 authoring metadata；缺少或过期都不会 block readiness，也不会触发重新采样。
+它不证明每一种未来 analysis query 或 full-source truth。Parity 从不作为 readiness 要求。
 :::
 
 ## 报告
@@ -106,7 +110,7 @@ Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 b
 | `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |
 | `time_dimension_pushdown_advisory` | warning | 某个 time dimension 可能无法下推到 partition。 | 当业务时间轴与 partition 一致时，保留原始 partition 列并声明其 parse。 |
-| `snapshot_missing` | blocker | executable ref 没有结构上匹配的 datasource snapshot metadata；仅仅过期不会触发。 | 获取 matching scoped snapshot。 |
+| `snapshot_missing` | warning | executable ref 没有结构上匹配的 datasource snapshot metadata；没有其他 blocker 时 semantic definition 仍可用于 analysis，仅仅过期不会触发。 | 需要 authoring evidence 时获取 matching scoped snapshot。 |
 | `runtime_preview_missing` | warning | 没有 v1 preview check 精确匹配 ref payload、catalog definition fingerprint、semantic dependency digest、entity-snapshot bindings 与 backend；仅仅过期不会触发。 | 日常分析可以继续；在声明新建或修改的 object 已完成前运行 scoped preview。 |
 
 ## 限定检查范围
@@ -116,7 +120,7 @@ objects；Marivo 会解析完整的依赖闭包（metric、它的 measures、dim
 datasources）：
 
 ```python
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
 report = catalog.readiness(refs=[revenue])
 if report.preview_required_refs:  # authoring closeout 必须修复；日常分析可选
     catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
@@ -132,14 +136,15 @@ Batch preview 会在连接前校验全部 bindings，合并兼容的 entity/fiel
 ## 继续进入 analysis
 
 当 readiness 未被 block 时，`analysis_ready_refs` 只包含依赖闭包中没有 blocker 的直接请求
-refs。Warnings 继续显示在同一份 report 上，调用方必须在决定继续前明确披露；单独的
-`runtime_preview_missing` warning 不会阻止日常分析。中间不再创建额外的传递对象。
+refs。Warnings 继续显示在同一份 report 上，调用方必须在决定继续前明确披露；
+`snapshot_missing` 与 `runtime_preview_missing` warning 都不会阻止日常分析。中间不再创建
+额外的传递对象。
 
 ```python
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
 report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()

@@ -38,6 +38,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.introspection._fuzzy import did_you_mean
 from marivo.refs import FieldKind, Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog, SemanticKind
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
@@ -66,7 +67,7 @@ def _relationship_details_for_entity(
 ) -> tuple[RelationshipDetails, ...]:
     details = catalog._require_index().details_under(
         SemanticKind.RELATIONSHIP,
-        scope_ref=Ref.entity(entity_ref),
+        scope_ref=ref_factory.entity(entity_ref),
     )
     return tuple(item for item in details if isinstance(item, RelationshipDetails))
 

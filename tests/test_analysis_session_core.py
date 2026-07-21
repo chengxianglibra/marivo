@@ -71,7 +71,7 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
 
 
 def _job_semantics(session: Session) -> dict[str, object]:
-    metric_ref = RefPayloadV1.from_ref(ms.Ref.metric("sales.revenue"))
+    metric_ref = RefPayloadV1.from_ref(ms.ref.metric("sales.revenue"))
     entries = (SemanticDependencyEntryV1(ref=metric_ref, body_digest="sha256:test"),)
     return {
         "catalog_definition_fingerprint": session.catalog.definition_fingerprint,
@@ -110,12 +110,12 @@ def _job_record(session: Session, semantics: dict[str, object]) -> dict[str, obj
     "mutate",
     [
         lambda semantics: semantics["subject"].update(  # type: ignore[union-attr]
-            metric_ref=RefPayloadV1.from_ref(ms.Ref.entity("sales.orders")).to_dict()
+            metric_ref=RefPayloadV1.from_ref(ms.ref.entity("sales.orders")).to_dict()
         ),
         lambda semantics: semantics.update(subjects=[semantics["subject"]]),
         lambda semantics: semantics.update(subject="sales.revenue"),
         lambda semantics: semantics.update(
-            dimension_refs=[RefPayloadV1.from_ref(ms.Ref.metric("sales.revenue")).to_dict()]
+            dimension_refs=[RefPayloadV1.from_ref(ms.ref.metric("sales.revenue")).to_dict()]
         ),
         lambda semantics: semantics.update(
             semantic_dependency_digest={
@@ -371,7 +371,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 import marivo.datasource as md
                 import marivo.semantic as ms
 
-                source = ms.Ref.datasource("{datasource}")
+                source = ms.ref.datasource("{datasource}")
                 rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
                 @ms.metric(entities=[rows], additivity="additive")
@@ -387,7 +387,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     session = mv.session.get_or_create(name="external_layer_session")
 
     assert (
-        session.catalog.require(ms.Ref.metric("finance.refunds_total")).ref.path
+        session.catalog.require(ms.ref.metric("finance.refunds_total")).ref.path
         == "finance.refunds_total"
     )
 
@@ -434,7 +434,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.datasource as md
             import marivo.semantic as ms
 
-            source = ms.Ref.datasource("warehouse")
+            source = ms.ref.datasource("warehouse")
             rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds"))
 
             @ms.metric(entities=[rows], additivity="additive")
@@ -448,7 +448,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     session_attach._reset_process_state()
 
     session = mv.session.get_or_create(name="external_layer_observe")
-    metric = session.catalog.require(ms.Ref.metric("finance.refunds_total")).ref
+    metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
     frame = session.observe(metric)
 
     assert frame.meta.metric_id == "finance.refunds_total"

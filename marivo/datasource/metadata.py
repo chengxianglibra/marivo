@@ -216,7 +216,7 @@ class TableMetadata(RenderableResult):
             card.listing(
                 "suggested next calls",
                 (
-                    f'md.inspect(ms.Ref.datasource("{self.datasource}"), '
+                    f'md.inspect(ms.ref.datasource("{self.datasource}"), '
                     f'md.table("{self.table}")).partitions().show()',
                     f"md.partition({{{partition_values}}}, max_rows=..., timeout_seconds=...) "
                     f"to scope a snapshot to {partition_columns}",

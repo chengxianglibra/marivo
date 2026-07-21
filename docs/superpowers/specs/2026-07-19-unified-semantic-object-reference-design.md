@@ -52,7 +52,7 @@ Authoring Python files remain the only durable semantic source of truth, but
 they are loader-executed declaration sources rather than importable analysis
 libraries. Analysis scripts do not traverse or import authoring modules. They
 obtain refs from a compiled catalog or construct a known identity with an exact
-kind factory such as `Ref.metric(...)` or `Ref.dimension(...)`, after which the
+kind factory such as `ref.metric(...)` or `ref.dimension(...)`, after which the
 active catalog must resolve the ref.
 
 The complete public mental model is:
@@ -70,7 +70,7 @@ author in Python -> compile with ms.load() -> browse CatalogEntry -> pass Ref
   removed. The enum is defined and exported once as `SemanticKind`.
 - Kind-specific runtime ref subclasses are removed.
 - Known refs are constructed only through exact factories on that one class:
-  `Ref.metric(path)`, `Ref.dimension(path)`, and the corresponding factory for
+  `ref.metric(path)`, `ref.dimension(path)`, and the corresponding factory for
   every addressable kind.
 - Raw `Ref(...)` construction is mechanically unavailable. `Ref` uses a sealed
   private construction path, cannot be subclassed, and every public value
@@ -121,7 +121,7 @@ author in Python -> compile with ms.load() -> browse CatalogEntry -> pass Ref
 - There is no generated refs module, ref-export lifecycle, or second
   import-oriented semantic manifest.
 - The accepted companion Tier-2 expression-binding design preserves the
-  committed `field_ref(entity_alias)` spelling and
+  committed `ms.bind(field_ref, entity_alias)` spelling and
   `@ms.metric(entities=[...])` positional-alias contract while moving all
   resolver state into a loader-owned task-local execution context.
 - The unified Ref foundation and structured payload land before the in-flight
@@ -225,7 +225,7 @@ object is analysis-ready.
 - Preserve Python as the explicit durable semantic authoring format.
 - Give the catalog a precise compiler-output role rather than treating it as a
   mirror of source variables.
-- Support generated analysis scripts through explicit `Ref.<kind>(...)` values
+- Support generated analysis scripts through explicit `ref.<kind>(...)` values
   without importing authoring modules or generating another refs file.
 - Make live help, structured errors, type annotations, and examples teach the
   same single path.
@@ -300,7 +300,7 @@ Immutable compiled SemanticCatalog
     - catalog entries and collections
     - verification / preview / readiness views
         |
-        | CatalogEntry[K].ref or explicit Ref.<kind>(path)
+        | CatalogEntry[K].ref or explicit ref.<kind>(path)
         v
       Ref[K]
                         |
@@ -344,27 +344,12 @@ class Ref(Generic[KindT]):
 
     def __new__(cls, *args: object, **kwargs: object) -> Never:
         raise TypeError(
-            "Ref has no public raw constructor; use Ref.metric(...), "
-            "Ref.dimension(...), or another exact kind factory."
+            "Ref has no public raw constructor; use ref.metric(...), "
+            "ref.dimension(...), or another exact kind factory."
         )
 
     def __init_subclass__(cls, **kwargs: object) -> Never:
         raise TypeError("Ref is sealed and cannot be subclassed.")
-
-    @staticmethod
-    def _create(kind: SemanticKind, path: str) -> Ref[SemanticKindTag]:
-        validated = _validate_ref_path(kind, path)
-        value = object.__new__(Ref)
-        object.__setattr__(value, "kind", kind)
-        object.__setattr__(value, "path", validated)
-        return cast("Ref[SemanticKindTag]", value)
-
-    @staticmethod
-    def metric(path: str) -> Ref[MetricKind]:
-        return cast(
-            "Ref[MetricKind]",
-            Ref._create(SemanticKind.METRIC, path),
-        )
 
     def __copy__(self) -> Ref[KindT]:
         return self
@@ -380,13 +365,6 @@ class Ref(Generic[KindT]):
             (RefPayloadV1.from_ref(self),),
         )
 
-    def __call__(
-        self: Ref[FieldKind],
-        entity_alias: IbisTable,
-        /,
-    ) -> IbisValue:
-        return _apply_field_ref_in_active_body(self, entity_alias)
-
     @property
     def key(self) -> str:
         return f"{self.kind.value}:{self.path}"
@@ -401,7 +379,22 @@ class Ref(Generic[KindT]):
 
 def _restore_ref_payload(payload: RefPayloadV1) -> Ref[SemanticKindTag]:
     return _decode_ref_payload(payload)
+
+
+@final
+class _RefFactory:
+    def metric(self, path: str) -> Ref[MetricKind]:
+        return cast("Ref[MetricKind]", _create_ref(SemanticKind.METRIC, path))
+
+    # The other seven exact-kind factory methods follow the same pattern.
+
+
+ref = _RefFactory()
 ```
+
+`Ref` is a data-only identity value. Exact construction lives on the immutable
+public `ms.ref` namespace; expression application lives on the separate
+`ms.bind(field_ref, entity_alias)` operation.
 
 `SemanticKindTag` and its kind-specific marker types are typing machinery, not
 runtime value families and not public help concepts. The exact implementation
@@ -443,7 +436,7 @@ format and must never replace `RefPayloadV1` in jobs, lineage, or artifacts.
 
 `dataclasses.replace(ref, ...)` is intentionally unsupported. Semantic identity
 cannot be edited field-by-field; callers construct another exact identity with
-the corresponding `Ref.<kind>(...)` factory.
+the corresponding `ref.<kind>(...)` factory.
 
 Field callability does not create a second construction or serialization path.
 Copy, deepcopy, pickle, equality, hashing, Pydantic validation, and durable
@@ -584,22 +577,22 @@ Known refs are constructed through closed kind factories on the same runtime
 class:
 
 ```python
-revenue = ms.Ref.metric("sales.revenue")
-country = ms.Ref.dimension("sales.orders.country")
-created_at = ms.Ref.time_dimension("sales.orders.created_at")
+revenue = ms.ref.metric("sales.revenue")
+country = ms.ref.dimension("sales.orders.country")
+created_at = ms.ref.time_dimension("sales.orders.created_at")
 ```
 
 The complete factory set mirrors `SemanticKind`:
 
 ```text
-Ref.domain(path)          -> Ref[domain]
-Ref.datasource(path)      -> Ref[datasource]
-Ref.entity(path)          -> Ref[entity]
-Ref.dimension(path)       -> Ref[dimension]
-Ref.time_dimension(path)  -> Ref[time_dimension]
-Ref.measure(path)         -> Ref[measure]
-Ref.metric(path)          -> Ref[metric]
-Ref.relationship(path)    -> Ref[relationship]
+ref.domain(path)          -> Ref[domain]
+ref.datasource(path)      -> Ref[datasource]
+ref.entity(path)          -> Ref[entity]
+ref.dimension(path)       -> Ref[dimension]
+ref.time_dimension(path)  -> Ref[time_dimension]
+ref.measure(path)         -> Ref[measure]
+ref.metric(path)          -> Ref[metric]
+ref.relationship(path)    -> Ref[relationship]
 ```
 
 Each factory validates the exact path shape for its kind and returns a precisely
@@ -614,15 +607,15 @@ the factory call site.
 Wrong textual shapes are rejected by the selected factory:
 
 ```python
-ms.Ref.metric("metric:sales.revenue")  # invalid_ref: pass semantic path only
-ms.Ref.metric("revenue")               # invalid_ref: missing domain path
-ms.Ref.dimension("sales.revenue")       # invalid_ref: missing entity path
+ms.ref.metric("metric:sales.revenue")  # invalid_ref: pass semantic path only
+ms.ref.metric("revenue")               # invalid_ref: missing domain path
+ms.ref.dimension("sales.revenue")       # invalid_ref: missing entity path
 ```
 
 `ms.Ref` is the only public Python owner and help target. `marivo.datasource`
 returns `Ref[datasource]` values from datasource authoring but does not re-export
 `Ref` as `md.Ref`; callers that need an explicit datasource identity use
-`ms.Ref.datasource(...)`. The lower core module that implements `Ref` is private.
+`ms.ref.datasource(...)`. The lower core module that implements `Ref` is private.
 
 The canonical `kind:path` key remains the complete human-facing rendered and
 CLI identity. CLI and persistence adapters use one private canonical decoder;
@@ -731,11 +724,11 @@ on source organization rather than semantic identity.
 The loader is the sole executor of authoring modules. A tool that needs current
 semantic objects calls `ms.load()` and consumes the resulting compiled catalog.
 
-### Field calls use loader-owned expression context
+### Field bindings use loader-owned expression context
 
-Refs contain no expression resolver or catalog state. Field-kind refs retain
-the established `field_ref(entity_alias)` spelling, while `Ref.__call__`
-delegates to an explicit loader-owned task-local expression context. The
+Refs contain no expression resolver or catalog state. Field application uses
+the explicit `ms.bind(field_ref, entity_alias)` spelling, which delegates to a
+loader-owned task-local expression context. The
 binding and runtime contract are defined by the companion
 [`Tier-2 Semantic Expression Reference Binding Design`](2026-07-19-tier2-semantic-expression-reference-binding-design.md).
 It preserves the currently committed Tier-2 declaration shape:
@@ -751,8 +744,8 @@ parameters remain positional entity aliases injected in that order, and
 parameter names never establish entity identity. The companion covers
 dimension, time-dimension, and measure refs, single- and multi-entity bodies,
 validator restrictions, sidecar execution, Ibis attribute shadowing, help, and
-typing. The cutover deletes mutable resolver-bearing refs atomically with the
-new context-bound implementation; the authoring spelling does not change.
+typing. The cutover deletes mutable resolver-bearing and callable refs
+atomically with the new context-bound implementation.
 
 ## Compiled Catalog Contract
 
@@ -870,7 +863,7 @@ collection exposes complete `.refs` for identity consumption and does not expose
 Known full identities use the catalog membership entry point:
 
 ```python
-revenue = ms.Ref.metric("sales.revenue")
+revenue = ms.ref.metric("sales.revenue")
 revenue_entry = catalog.require(revenue)
 ```
 
@@ -959,7 +952,7 @@ The report and each issue also record the catalog definition fingerprint. Ref
 objects themselves remain free of readiness state. The report does not mint a
 token, branded subtype, alternate constructor provenance, or session permit.
 Consequently, an analysis boundary cannot distinguish a ref obtained from
-`report.analysis_ready_refs` from the equal value built by `Ref.metric(...)`.
+`report.analysis_ready_refs` from the equal value built by `ref.metric(...)`.
 
 ## Analysis Intent Contract
 
@@ -1459,7 +1452,7 @@ immediately unreadable state and is explicitly forbidden.
 - Browsing an already loaded catalog has no datasource access.
 - Loading a catalog executes explicit project authoring Python and reads local
   or configured model metadata; live help must disclose that effect.
-- Calling a `Ref.<kind>(...)` factory has no I/O and no semantic side effect.
+- Calling a `ref.<kind>(...)` factory has no I/O and no semantic side effect.
 - Copy and deepcopy preserve the immutable value; pickle restore performs only
   validated payload decoding and no catalog or datasource I/O.
 - Marivo never unpickles untrusted job, artifact, or lineage bytes; durable
@@ -1494,8 +1487,9 @@ immediately unreadable state and is explicitly forbidden.
   with a valid rename; tests cover conventional credential-cache reuse when the
   normalized environment-variable key is equal and non-reuse when it differs.
 - `SemanticKind` is the only enum name; `SymbolKind` and enum aliases are absent.
-- No ref is mutable or resolver-bearing after construction; only field-kind
-  refs are callable and only through the active loader-owned body context.
+- No ref is mutable, resolver-bearing, or callable after construction;
+  field application is available only through `ms.bind` in the active
+  loader-owned body context.
 
 ### Authoring and loading
 
@@ -1503,7 +1497,7 @@ immediately unreadable state and is explicitly forbidden.
 - Every dependency parameter accepts only its exact ref kind.
 - Normal import of authoring modules is not a supported analysis path.
 - The accepted Tier-2 Semantic Expression Reference Binding Design preserves
-  `field_ref(entity_alias)` and `entities=[...]` positional aliases while
+  `ms.bind(field_ref, entity_alias)` and `entities=[...]` positional aliases while
   removing every resolver-bearing ref implementation.
 - Local and external layers compile into one immutable catalog.
 - Reload creates a new compiled catalog and fingerprint without mutating the old
@@ -1585,7 +1579,7 @@ compiled semantic world attached to a session. Their variables are source-level
 aliases, while the catalog owns cross-layer linking, inference, validation,
 readiness evaluation, and the session-bound compiled execution context.
 Analysis scripts use
-`Ref.<kind>(...)` when they already know an identity and catalog navigation when
+`ref.<kind>(...)` when they already know an identity and catalog navigation when
 they need discovery; neither path imports authoring code.
 
 ### Why not make CatalogEntry inherit from Ref?
@@ -1622,7 +1616,7 @@ separate serialization paths.
 Because it would introduce another artifact lifecycle, naming policy,
 fingerprint-staleness state, and import surface without adding semantic
 authority. An analysis script that already knows an object can construct its
-pure identity with `Ref.<kind>(path)`; an agent that needs discovery uses the
+pure identity with `ref.<kind>(path)`; an agent that needs discovery uses the
 catalog. Those two paths cover the use cases without generating a mirror file.
 
 ## Final Contract

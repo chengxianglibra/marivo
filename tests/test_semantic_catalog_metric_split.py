@@ -23,7 +23,7 @@ _MODELS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
@@ -50,7 +50,7 @@ def _make_catalog(semantic_project_factory) -> SemanticCatalog:
 
 def test_build_metric_object_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    rev = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    rev = catalog.require(ms.ref.metric("sales.revenue")).details()
     assert isinstance(rev, SimpleMetricDetails)
     assert rev.metric_type == "simple"
     assert rev.aggregation == "sum"
@@ -64,7 +64,7 @@ def test_build_metric_object_metric(semantic_project_factory):
 
 def test_build_metric_object_count_target(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    order_rows = catalog.require(ms.Ref.metric("sales.order_rows")).details()
+    order_rows = catalog.require(ms.ref.metric("sales.order_rows")).details()
     assert isinstance(order_rows, SimpleMetricDetails)
     assert order_rows.aggregation == "count"
     assert order_rows.measure is None
@@ -78,7 +78,7 @@ def test_build_metric_object_count_target(semantic_project_factory):
 
 def test_build_metric_object_derived_ratio(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    aov = catalog.require(ms.Ref.metric("sales.aov")).details()
+    aov = catalog.require(ms.ref.metric("sales.aov")).details()
     assert isinstance(aov, DerivedMetricDetails)
     assert aov.metric_type == "derived"
     assert aov.composition == "ratio"
@@ -88,7 +88,7 @@ def test_build_metric_object_derived_ratio(semantic_project_factory):
 
 def test_derived_metric_details_render_includes_composition(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    aov = catalog.require(ms.Ref.metric("sales.aov")).details()
+    aov = catalog.require(ms.ref.metric("sales.aov")).details()
     assert isinstance(aov, DerivedMetricDetails)
     rendered = aov.render()
     assert "composition: ratio" in rendered
@@ -97,7 +97,7 @@ def test_derived_metric_details_render_includes_composition(semantic_project_fac
 
 def test_simple_metric_details_render_includes_additivity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    rev = catalog.require(ms.Ref.metric("sales.revenue")).details()
+    rev = catalog.require(ms.ref.metric("sales.revenue")).details()
     assert isinstance(rev, SimpleMetricDetails)
     rendered = rev.render()
     assert "additivity: additive" in rendered

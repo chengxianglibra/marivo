@@ -608,9 +608,9 @@ class Session(RenderableResult):
 
         Example:
             >>> catalog = session.catalog
-            >>> revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
-            >>> country = catalog.require(ms.Ref.dimension("sales.orders.country")).ref
-            >>> channel = catalog.require(ms.Ref.dimension("sales.orders.channel")).ref
+            >>> revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+            >>> country = catalog.require(ms.ref.dimension("sales.orders.country")).ref
+            >>> channel = catalog.require(ms.ref.dimension("sales.orders.channel")).ref
             >>> frame = session.observe(
             ...     revenue,
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -753,7 +753,7 @@ class Session(RenderableResult):
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> revenue = session.catalog.require(ms.Ref.metric("sales.revenue")).ref
+            >>> revenue = session.catalog.require(ms.ref.metric("sales.revenue")).ref
             >>> cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(
@@ -850,8 +850,8 @@ class Session(RenderableResult):
 
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
-            >>> country = session.catalog.require(ms.Ref.dimension("sales.orders.country")).ref
-            >>> channel = session.catalog.require(ms.Ref.dimension("sales.orders.channel")).ref
+            >>> country = session.catalog.require(ms.ref.dimension("sales.orders.country")).ref
+            >>> channel = session.catalog.require(ms.ref.dimension("sales.orders.channel")).ref
             >>> attribution = session.attribute(
             ...     delta,
             ...     axes=[country, channel],
@@ -1002,7 +1002,7 @@ class Session(RenderableResult):
 
         Example:
             >>> history = session.observe(
-            ...     session.catalog.require(ms.Ref.metric("sales.revenue")),
+            ...     session.catalog.require(ms.ref.metric("sales.revenue")),
             ...     time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(

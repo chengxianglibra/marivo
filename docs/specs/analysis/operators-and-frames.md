@@ -157,10 +157,10 @@ requested axes:
 
 ```python
 series = session.observe(
-    metric=session.catalog.require(ms.Ref.metric("analytics.dau")).ref,
+    metric=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
-    dimensions=[session.catalog.require(ms.Ref.dimension("analytics.events.platform")).ref],
+    dimensions=[session.catalog.require(ms.ref.dimension("analytics.events.platform")).ref],
 )
 ```
 
@@ -314,8 +314,8 @@ metrics separately. Existing non-linear sampled-fold validation still runs first
 drivers = session.attribute(
     delta,
     axes=[
-        session.catalog.require(ms.Ref.dimension("analytics.events.country")).ref,
-        session.catalog.require(ms.Ref.dimension("analytics.events.platform")).ref,
+        session.catalog.require(ms.ref.dimension("analytics.events.country")).ref,
+        session.catalog.require(ms.ref.dimension("analytics.events.platform")).ref,
     ],
     mode="joint",
 )

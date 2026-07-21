@@ -17,7 +17,7 @@ _MINIMAL_DOMAIN_PY = (
 _DATASETS_PY = (
     "import marivo.datasource as md\n"
     "import marivo.semantic as ms\n"
-    'orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), '
+    'orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), '
     'source=md.table("orders"))\n'
     "\n"
     "@ms.metric(entities=[orders], additivity='additive', )\n"

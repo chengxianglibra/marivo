@@ -65,7 +65,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -83,8 +83,8 @@ def test_exact_field_resolution_uses_catalog_membership(semantic_project_factory
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -126,8 +126,8 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -177,7 +177,7 @@ def test_field_ref_not_found_lists_exact_catalog_candidates(semantic_project_fac
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -210,8 +210,8 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -258,8 +258,8 @@ def test_unique_shortest_path_finds_cross_domain_relationship_from_non_owner(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from ._domain import sales\n"
                 "identity = ms.domain(name='identity', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'), domain=sales)\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'), domain=identity)\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'), domain=sales)\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'), domain=identity)\n"
                 "@ms.dimension(entity=orders, domain=sales)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -294,7 +294,7 @@ def test_field_fn_invalid_expression_preserves_observe_error_code(semantic_proje
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def bad_dimension(orders):\n"
                 "    return 42\n"
@@ -316,7 +316,7 @@ def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_pr
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
             ),
         }
     )
@@ -351,7 +351,7 @@ def test_field_fn_does_not_misclassify_callable_not_found_failures(
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def warehouse_status(orders):\n"
                 "    return (_ for _ in ()).throw(\n"

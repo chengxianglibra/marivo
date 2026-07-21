@@ -21,6 +21,7 @@ from marivo.analysis.frames.candidate import (
 )
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.refs import DimensionKind, Ref
+from marivo.refs import ref as ref_factory
 
 
 def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
@@ -73,7 +74,7 @@ def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
         semantic_id = row.get("axis_semantic_id")
         axis: Ref[DimensionKind] | str
         if isinstance(semantic_id, str) and semantic_id:
-            axis = Ref.dimension(semantic_id)
+            axis = ref_factory.dimension(semantic_id)
         else:
             axis = str(row["axis"])
         return DriverAxisSelection(**common, axis=axis)
@@ -123,7 +124,7 @@ def _selector(
 
 def _selector_key(name: str) -> Ref[DimensionKind] | str:
     if name.count(".") >= 2:
-        return Ref.dimension(name)
+        return ref_factory.dimension(name)
     return name
 
 

@@ -33,7 +33,7 @@ These rules hold for every object type.
   example `metric:sales.revenue`), while each exact factory accepts only its
   kind-relative path. Object-to-object parameters take **ref objects** — a ref
   returned by an earlier declaration, or
-  `ms.Ref.<kind>(path)` for forward/cross-file references. Bare
+  `ms.ref.<kind>(path)` for forward/cross-file references. Bare
   semantic-id strings are not accepted as authoring arguments.
 - **Human text lives in `ai_context`.** There is no standalone `description=`.
   All prose is carried by `ms.ai_context(...)` (see below), whose
@@ -44,7 +44,8 @@ These rules hold for every object type.
   optional leading docstring and then require exactly one
   `return <ibis expression>`. Ibis is the only expression language; SQL is
   metadata (provenance), never an executable body. Any other statement is
-  rejected at decoration time.
+  rejected at decoration time. Refs remain data-only; nested field expressions
+  use `ms.bind(field_ref, entity_alias)` rather than calling the ref.
 - **Fail closed.** If decoration, assembly, materialization, or parity cannot
   prove the contract holds, the object raises a structured error rather than
   degrading to a best-effort guess.
@@ -93,7 +94,7 @@ An entity is the logical view of a business entity or fact table. It binds a
 `Ref[datasource]` and a physical source, and declares its key.
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(
     name="orders",
     datasource=warehouse,
@@ -125,7 +126,7 @@ user_profile_daily = ms.entity(
     source=md.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
-        partition_field=ms.Ref.dimension("sales.user_profile_daily.dt"),
+        partition_field=ms.ref.dimension("sales.user_profile_daily.dt"),
         grain="day",                 # snapshot cadence
         timezone="Asia/Shanghai",    # resolves "latest" on a real calendar
         format="%Y%m%d",             # on-disk partition encoding; omit for native date

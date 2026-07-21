@@ -607,7 +607,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=ms.Ref.datasource('warehouse'),\n"
+        "    datasource=ms.ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"

@@ -75,7 +75,7 @@ class DatasourceCatalog(RenderableResult):
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.inspect(ms.Ref.datasource("wh"), md.table("orders"))
+        >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
@@ -230,7 +230,7 @@ def load(
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.inspect(ms.Ref.datasource("wh"), md.table("orders"))
+        >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``

@@ -10,11 +10,16 @@ semantic objects. Run it after authoring or changing an object, or when a
 workflow asks for technical certification. It identifies incomplete
 objects, unknown references, and missing current validation or preview evidence.
 
+The explicit semantic definitions are the governed source of business meaning.
+Inspection, snapshots, discovery, and preview provide evidence for authoring and
+diagnosis; their absence does not override an approved, structurally valid
+definition or make it unavailable to analysis.
+
 A blocked report does not mean the analysis question is invalid. It means the
-selected objects have a semantic or technical blocker. Missing or stale runtime
-preview certification is reported as a warning instead: disclose it, continue
-routine analysis when no blocker remains, and repair it before declaring a new
-or changed semantic object complete.
+selected objects have a semantic or technical blocker. Missing snapshot or
+runtime preview certification is reported as a warning instead: disclose it,
+continue routine analysis when no blocker remains, and repair it before
+declaring a new or changed semantic object complete.
 
 Analysis APIs do not invoke readiness automatically. Routine analysis of
 unchanged objects relies on live catalog loading, semantic input resolution,
@@ -34,13 +39,13 @@ individually.
 
 ## What ready means
 
-`ready` means the selected semantic objects have current technical certification
-evidence for the requested scope. `ready_with_warnings` may include missing or
-stale preview certification, while `analysis_ready_refs` still identifies the
-directly requested refs whose dependency closures have no blocker. Neither
-status is a runtime authorization token: it does not approve the business
-definition, guarantee every future query, or decide whether a conclusion is
-suitable for a business decision.
+`ready` means the selected semantic objects have no readiness blocker.
+`ready_with_warnings` may include missing datasource snapshot or stale preview
+evidence, while `analysis_ready_refs` still identifies the directly requested
+refs whose dependency closures have no blocker. Neither status is a runtime
+authorization token: readiness does not record the user's approval, guarantee
+every future query, or decide whether a conclusion is suitable for a business
+decision.
 
 The sections below document the report and API behavior for readers who need
 to inspect the technical contract.
@@ -65,11 +70,11 @@ Backend-touching validation is separate and runs on demand:
 | `ms.richness()` | Advisory coverage/depth report; never blocks | No |
 
 :::caution[Readiness does not prove the query runs]
-A `ready` report means the object passed static validation and has matching
-scoped preview evidence. Snapshot and preview timestamps remain reference
-metadata; age alone does not block readiness or trigger reacquisition. It does
-not prove every future analysis query or full-source
-truth. Parity is never required for readiness.
+A non-blocked report means the selected definitions passed the semantic
+readiness gate. Snapshot and preview evidence is advisory authoring metadata;
+its absence or age does not block readiness or trigger reacquisition. The report
+does not prove every future analysis query or full-source truth. Parity is never
+required for readiness.
 :::
 
 ## The report
@@ -124,7 +129,7 @@ not block certification.
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
-| `snapshot_missing` | blocker | No structurally matching datasource snapshot metadata exists for an executable ref. Expiration alone never triggers this issue. | Acquire a matching scoped snapshot. |
+| `snapshot_missing` | warning | No structurally matching datasource snapshot metadata exists for an executable ref. The semantic definition remains analysis-ready when no blocker exists; expiration alone never triggers this issue. | Acquire a matching scoped snapshot when authoring evidence is needed. |
 | `runtime_preview_missing` | warning | No v1 preview check matches the exact ref payload, catalog definition fingerprint, semantic dependency digest, entity-snapshot bindings, and backend. Expiration alone never triggers this issue. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
 
 ## Scope the check
@@ -134,7 +139,7 @@ being authored, changed, or explicitly certified. Marivo resolves the full depen
 metric, its measures, dimensions, entities, and datasources) for you:
 
 ```python
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
 report = catalog.readiness(refs=[revenue])
 if report.preview_required_refs:  # required for authoring closeout; optional for routine analysis
     catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
@@ -154,14 +159,14 @@ how analysis records what it concludes, see [Evidence](/en/latest/concepts/evide
 When readiness is not blocked, `analysis_ready_refs` contains only the directly
 requested refs whose dependency closures have no blocker. Warnings remain
 visible on the same report and must be disclosed before the caller chooses to
-proceed. A `runtime_preview_missing` warning alone does not stop routine
-analysis. There is no second transfer object.
+proceed. `snapshot_missing` and `runtime_preview_missing` warnings do not stop
+routine analysis. There is no second transfer object.
 
 ```python
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
 report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()

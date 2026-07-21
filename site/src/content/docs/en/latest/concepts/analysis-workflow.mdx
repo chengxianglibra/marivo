@@ -102,8 +102,8 @@ datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue_object = catalog.require(ms.Ref.metric("sales.revenue"))
-region_object = catalog.require(ms.Ref.dimension("sales.orders.region"))
+revenue_object = catalog.require(ms.ref.metric("sales.revenue"))
+region_object = catalog.require(ms.ref.dimension("sales.orders.region"))
 
 revenue_object.details().show()     # definition, candidate axes, and measure lineage
 region_object.details().show()
@@ -147,8 +147,8 @@ across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.require(ms.Ref.metric("sales.revenue")).ref` | Exact `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
-| dimension input | `catalog.require(ms.Ref.dimension("sales.orders.region")).ref` | Exact `Ref[dimension]` / `Ref[time_dimension]` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| metric input | `catalog.require(ms.ref.metric("sales.revenue")).ref` | Exact `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
+| dimension input | `catalog.require(ms.ref.dimension("sales.orders.region")).ref` | Exact `Ref[dimension]` / `Ref[time_dimension]` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -211,7 +211,7 @@ exact exported name(s).
 
 ```python
 report = session.observe(
-    [revenue, catalog.require(ms.Ref.metric("sales.total_orders")).ref],
+    [revenue, catalog.require(ms.ref.metric("sales.total_orders")).ref],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
@@ -539,7 +539,7 @@ claims separate from canonical artifact evidence.
 import marivo.datasource as md
 
 result = md.raw_sql(
-    ms.Ref.datasource("warehouse"),
+    ms.ref.datasource("warehouse"),
     "SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region",
     reason="custom revenue breakdown",
 )
@@ -650,8 +650,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
-region = catalog.require(ms.Ref.dimension("sales.orders.region")).ref
+revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
 
 current = session.observe(
     revenue,

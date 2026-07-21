@@ -134,11 +134,11 @@ native temporal column instead.
 Semantic declarations reference a datasource by one exact ref:
 
 ```python
-warehouse = ms.Ref.datasource("warehouse")   # -> Ref[datasource]
+warehouse = ms.ref.datasource("warehouse")   # -> Ref[datasource]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 
-`ms.Ref.datasource(...)` accepts only the one-segment datasource path. Bare
+`ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare
 strings and kind-qualified strings such as `"datasource.warehouse"` are
 rejected — the exact ref is the contract. Renaming a legacy datasource changes
 its semantic identity, but cached credentials are keyed by the resolved
@@ -279,7 +279,7 @@ needs is the ref plus the evidence:
 import marivo.datasource as md
 import marivo.semantic as ms
 
-warehouse = ms.Ref.datasource("warehouse")
+warehouse = ms.ref.datasource("warehouse")
 inspection = md.inspect(warehouse, md.table("orders"))
 snapshot = inspection.sample(
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),

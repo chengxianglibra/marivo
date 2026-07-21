@@ -200,7 +200,7 @@ def _binding_runtime_error(
         message=message,
         refs=tuple(ref.key for ref in refs),
         hint=(
-            "Use one declared field-kind ref as field_ref(entity_alias) inside "
+            "Use ms.bind(field_ref, entity_alias) with one declared field-kind ref inside "
             "the active loaded semantic expression body."
         ),
         expected=expected,
@@ -246,6 +246,15 @@ def _resolved_symbols(fn: Callable[..., object]) -> dict[str, object]:
     return symbols
 
 
+def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
+    if isinstance(node, ast.Name):
+        return symbols.get(node.id) is bind
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        owner = symbols.get(node.value.id)
+        return getattr(owner, node.attr, None) is bind
+    return False
+
+
 class _BindingCollector(ast.NodeVisitor):
     def __init__(
         self,
@@ -261,13 +270,45 @@ class _BindingCollector(ast.NodeVisitor):
         self.index_by_key: dict[tuple[SemanticKind, str, int], int] = {}
 
     def visit_Call(self, node: ast.Call) -> None:
-        if not isinstance(node.func, ast.Name):
+        if not _is_bind_target(node.func, self._symbols):
+            if isinstance(node.func, ast.Name) and type(self._symbols.get(node.func.id)) is Ref:
+                legacy_ref = cast("Ref[SemanticKindTag]", self._symbols[node.func.id])
+                raise SemanticLoadError(
+                    kind=ErrorKind.INVALID_BINDING_REF,
+                    message=(
+                        f"Expression body {self._owning_ref.key!r} calls Ref "
+                        f"{legacy_ref.key!r} directly. Ref values are immutable identities, "
+                        "not expression callables."
+                    ),
+                    refs=(self._owning_ref.key, legacy_ref.key),
+                    expected="ms.bind(field_ref, entity_parameter)",
+                    received="field_ref(entity_parameter)",
+                )
             self.generic_visit(node)
             return
-        value = self._symbols.get(node.func.id)
+        if len(node.args) != 2 or node.keywords or not isinstance(node.args[0], ast.Name):
+            raise SemanticLoadError(
+                kind=ErrorKind.BINDING_ALIAS_NOT_DIRECT,
+                message=(
+                    f"Expression body {self._owning_ref.key!r} must call "
+                    "ms.bind(field_ref, entity_parameter) with two direct arguments."
+                ),
+                refs=(self._owning_ref.key,),
+                expected="ms.bind(field_ref, entity_parameter)",
+                received=ast.dump(node, include_attributes=False),
+            )
+        value = self._symbols.get(node.args[0].id)
         if type(value) is not Ref:
-            self.generic_visit(node)
-            return
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_BINDING_REF,
+                message=(
+                    f"Expression body {self._owning_ref.key!r} binds a value that is not "
+                    "an exact field ref."
+                ),
+                refs=(self._owning_ref.key,),
+                expected="a dimension, time_dimension, or measure Ref",
+                received=type(value).__name__,
+            )
         field_ref = cast("Ref[SemanticKindTag]", value)
         if field_ref.kind not in _FIELD_KINDS:
             raise SemanticLoadError(
@@ -281,22 +322,20 @@ class _BindingCollector(ast.NodeVisitor):
                 received=field_ref.kind.value,
             )
         if (
-            len(node.args) != 1
-            or node.keywords
-            or not isinstance(node.args[0], ast.Name)
-            or node.args[0].id not in self._parameter_positions
+            not isinstance(node.args[1], ast.Name)
+            or node.args[1].id not in self._parameter_positions
         ):
             raise SemanticLoadError(
                 kind=ErrorKind.BINDING_ALIAS_NOT_DIRECT,
                 message=(
-                    f"Field ref {field_ref.key!r} must receive exactly one direct "
+                    f"Field ref {field_ref.key!r} must bind to one direct "
                     "expression-body entity parameter."
                 ),
                 refs=(self._owning_ref.key, field_ref.key),
-                expected="field_ref(entity_parameter)",
+                expected="ms.bind(field_ref, entity_parameter)",
                 received=ast.dump(node, include_attributes=False),
             )
-        entity_position = self._parameter_positions[node.args[0].id]
+        entity_position = self._parameter_positions[node.args[1].id]
         key = (field_ref.kind, field_ref.path, entity_position)
         if key not in self.index_by_key:
             self.index_by_key[key] = len(self.bindings)
@@ -350,16 +389,27 @@ class _NormalizedBody(ast.NodeTransformer):
         return node
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
-        if isinstance(node.func, ast.Name) and len(node.args) == 1:
-            value = self._symbols.get(node.func.id)
-            argument = node.args[0]
+        if (
+            _is_bind_target(node.func, self._symbols)
+            and len(node.args) == 2
+            and isinstance(node.args[0], ast.Name)
+        ):
+            value = self._symbols.get(node.args[0].id)
+            argument = node.args[1]
             if type(value) is Ref and isinstance(argument, ast.Name):
                 ref = cast("Ref[SemanticKindTag]", value)
                 position = self._parameter_positions.get(argument.id)
                 if position is not None:
                     index = self._binding_indexes.get((ref.kind, ref.path, position))
                     if index is not None:
-                        node.func.id = f"field_{index}"
+                        return ast.copy_location(
+                            ast.Call(
+                                func=ast.Name(id=f"field_{index}", ctx=ast.Load()),
+                                args=[ast.Name(id=f"entity_{position}", ctx=ast.Load())],
+                                keywords=[],
+                            ),
+                            node,
+                        )
         self.generic_visit(node)
         return node
 
@@ -540,8 +590,34 @@ def evaluate_expression_body(
         _EXPRESSION_BINDING_CONTEXT.reset(token)
 
 
-def apply_field_ref(ref: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
-    """Apply a semantic field ref using the current top expression frame."""
+def bind(field: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
+    """Apply a semantic field ref to an entity alias in an expression body.
+
+    Parameters
+    ----------
+    field:
+        Exact dimension, time-dimension, or measure ref declared in the loaded
+        semantic project.
+    entity_alias:
+        Direct entity parameter of the active decorated expression body.
+
+    Returns
+    -------
+    ibis.expr.types.Value
+        The referenced field expression evaluated on ``entity_alias``.
+
+    Example
+    -------
+    >>> @ms.metric(entities=[orders], additivity="additive")
+    ... def revenue(orders):
+    ...     return ms.bind(amount, orders).sum()
+
+    Constraints
+    -----------
+    Only valid inside a loaded semantic expression body. The field must belong
+    to the bound entity and must be captured as a direct ``ms.bind`` argument.
+    """
+    ref = field
     if type(ref) is not Ref:
         raise _binding_runtime_error(
             ErrorKind.INVALID_BINDING_REF,
@@ -553,7 +629,7 @@ def apply_field_ref(ref: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
     if candidate.kind not in _FIELD_KINDS:
         raise _binding_runtime_error(
             ErrorKind.INVALID_BINDING_REF,
-            f"Ref {candidate.key!r} is not a callable semantic field ref.",
+            f"Ref {candidate.key!r} is not a bindable semantic field ref.",
             refs=(candidate,),
             expected="dimension, time_dimension, or measure Ref",
             received=candidate.kind.value,

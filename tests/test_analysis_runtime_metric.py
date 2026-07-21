@@ -13,7 +13,7 @@ from marivo.analysis.runtime_metric import (
     from_replay_payload,
     replay_payload,
 )
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 
 
 def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
@@ -34,8 +34,8 @@ def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
 
 
 def test_runtime_aggregate_aligns_authoring_fold_and_freezes_slice_copy() -> None:
-    measure = Ref.measure("sales.orders.amount")
-    country = Ref.dimension("sales.orders.country")
+    measure = ref_factory.measure("sales.orders.amount")
+    country = ref_factory.dimension("sales.orders.country")
     source = {country: ["CN", "US"]}
 
     expression = mv.runtime_metric.aggregate(
@@ -58,8 +58,8 @@ def test_runtime_aggregate_aligns_authoring_fold_and_freezes_slice_copy() -> Non
 
 
 def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
-    metric = Ref.metric("sales.revenue")
-    day = Ref.time_dimension("sales.orders.created_at")
+    metric = ref_factory.metric("sales.revenue")
+    day = ref_factory.time_dimension("sales.orders.created_at")
 
     expression = mv.runtime_metric.slice(metric, by={day: {"op": ">=", "value": "2026-01-01"}})
 
@@ -69,12 +69,12 @@ def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
 
 
 def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
-    measure = Ref.measure("sales.orders.amount")
+    measure = ref_factory.measure("sales.orders.amount")
     total = mv.runtime_metric.aggregate(measure, agg="sum")
     count = mv.runtime_metric.aggregate(measure, agg="count")
     inner = mv.runtime_metric.ratio(total, count)
-    first = mv.runtime_metric.ratio(inner, Ref.metric("sales.baseline"), label="first")
-    second = mv.runtime_metric.ratio(inner, Ref.metric("sales.baseline"), label="second")
+    first = mv.runtime_metric.ratio(inner, ref_factory.metric("sales.baseline"), label="first")
+    second = mv.runtime_metric.ratio(inner, ref_factory.metric("sales.baseline"), label="second")
 
     assert isinstance(first, RuntimeRatioExpr)
     assert isinstance(first.numerator, RuntimeRatioExpr)
@@ -83,9 +83,9 @@ def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
 
 
 def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
-    value = Ref.measure("sales.orders.latency")
-    weight = Ref.measure("sales.orders.requests")
-    region = Ref.dimension("sales.orders.region")
+    value = ref_factory.measure("sales.orders.latency")
+    weight = ref_factory.measure("sales.orders.requests")
+    region = ref_factory.dimension("sales.orders.region")
     source = {region: ["CN", "US"]}
 
     expression = mv.runtime_metric.weighted_mean(
@@ -108,34 +108,36 @@ def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
 @pytest.mark.parametrize("bad", ["sum_all", ("percentile", 0.0), ("percentile", True)])
 def test_runtime_aggregate_rejects_invalid_closed_agg(bad) -> None:
     with pytest.raises(ValueError):
-        mv.runtime_metric.aggregate(Ref.measure("sales.orders.amount"), agg=bad)
+        mv.runtime_metric.aggregate(ref_factory.measure("sales.orders.amount"), agg=bad)
 
 
 @pytest.mark.parametrize("bad", ["auto", ("percentile", 1.0), ("percentile", False)])
 def test_runtime_aggregate_rejects_invalid_shared_fold(bad) -> None:
     with pytest.raises(Exception):
-        mv.runtime_metric.aggregate(Ref.measure("sales.orders.amount"), agg="sum", fold=bad)
+        mv.runtime_metric.aggregate(ref_factory.measure("sales.orders.amount"), agg="sum", fold=bad)
 
 
 def test_runtime_constructors_reject_wrong_ref_and_operand_kinds() -> None:
     with pytest.raises(TypeError, match=r"exact Ref\[measure\]"):
-        mv.runtime_metric.aggregate(Ref.metric("sales.revenue"), agg="sum")  # type: ignore[arg-type]
+        mv.runtime_metric.aggregate(ref_factory.metric("sales.revenue"), agg="sum")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"exact Ref\[metric\]"):
-        mv.runtime_metric.ratio(Ref.measure("sales.orders.amount"), Ref.metric("sales.total"))  # type: ignore[arg-type]
+        mv.runtime_metric.ratio(
+            ref_factory.measure("sales.orders.amount"), ref_factory.metric("sales.total")
+        )  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"exact Ref\[dimension"):
-        mv.runtime_metric.slice(Ref.metric("sales.revenue"), by={"country": "CN"})  # type: ignore[dict-item]
+        mv.runtime_metric.slice(ref_factory.metric("sales.revenue"), by={"country": "CN"})  # type: ignore[dict-item]
     with pytest.raises(TypeError, match=r"weighted_mean value requires exact Ref\[measure\]"):
         mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
-            Ref.metric("sales.revenue"),
-            Ref.measure("sales.orders.requests"),
+            ref_factory.metric("sales.revenue"),
+            ref_factory.measure("sales.orders.requests"),
         )
     with pytest.raises(TypeError, match=r"weighted_mean weight requires exact Ref\[measure\]"):
         mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
-            Ref.measure("sales.orders.latency"),
-            Ref.metric("sales.requests"),
+            ref_factory.measure("sales.orders.latency"),
+            ref_factory.metric("sales.requests"),
         )
 
 
 def test_runtime_slice_requires_nonempty_mapping() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
-        mv.runtime_metric.slice(Ref.metric("sales.revenue"), by={})
+        mv.runtime_metric.slice(ref_factory.metric("sales.revenue"), by={})

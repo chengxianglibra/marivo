@@ -80,7 +80,7 @@ def _bootstrap_schema_project(tmp_path):
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "\n"
         "queries = ms.entity(name='queries', datasource=warehouse, source=md.table('queries'))\n"
         "\n"

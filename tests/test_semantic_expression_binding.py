@@ -8,61 +8,67 @@ import ibis
 import pytest
 
 from marivo.refs import Ref, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     ExpressionBody,
+    bind,
     compile_expression_body,
     evaluate_expression_body,
 )
 from marivo.semantic.errors import ErrorKind, SemanticLoadError, SemanticRuntimeError
 
-ORDERS = Ref.entity("sales.orders")
-USERS = Ref.entity("sales.users")
-AMOUNT = Ref.measure("sales.orders.amount")
+ORDERS = ref_factory.entity("sales.orders")
+USERS = ref_factory.entity("sales.users")
+AMOUNT = ref_factory.measure("sales.orders.amount")
 AMOUNT_ALIAS = AMOUNT
-NET_AMOUNT = Ref.measure("sales.orders.net_amount")
-COUNTRY = Ref.dimension("sales.orders.country")
-REVENUE = Ref.metric("sales.revenue")
+NET_AMOUNT = ref_factory.measure("sales.orders.net_amount")
+COUNTRY = ref_factory.dimension("sales.orders.country")
+REVENUE = ref_factory.metric("sales.revenue")
 
 
 def _revenue(orders):
-    return AMOUNT(orders).sum()
+    return bind(AMOUNT, orders).sum()
 
 
 def _renamed_revenue(rows):
-    return AMOUNT_ALIAS(rows).sum()
+    return bind(AMOUNT_ALIAS, rows).sum()
 
 
 def _net_amount(orders):
-    return AMOUNT(orders) * 0.9
+    return bind(AMOUNT, orders) * 0.9
 
 
 def _net_revenue(orders):
-    return NET_AMOUNT(orders).sum()
+    return bind(NET_AMOUNT, orders).sum()
 
 
 def _wrong_alias(orders):
-    return AMOUNT(orders.filter(orders.amount > 0)).sum()
+    return bind(AMOUNT, orders.filter(orders.amount > 0)).sum()
 
 
 def _two_entities(orders, users):
-    return AMOUNT(orders).sum()
+    return bind(AMOUNT, orders).sum()
 
 
 def _second_entity(orders, users):
-    return AMOUNT(users).sum()
+    return bind(AMOUNT, users).sum()
 
 
 def _identity_metric(orders):
-    return AMOUNT(orders)
+    return bind(AMOUNT, orders)
 
 
 def _recursive_amount(orders):
-    return AMOUNT(orders)
+    return bind(AMOUNT, orders)
 
 
 def _metric_ref_call(orders):
-    return REVENUE(orders)  # type: ignore[misc]
+    return bind(REVENUE, orders)  # type: ignore[arg-type]
+
+
+def _legacy_field_call(orders):
+    return AMOUNT(orders).sum()  # type: ignore[operator]
 
 
 def _sidecar(
@@ -147,6 +153,17 @@ def test_compile_rejects_metric_ref_call_as_invalid_binding() -> None:
     assert exc_info.value.semantic_refs == (REVENUE.key, REVENUE.key)
 
 
+def test_compile_rejects_legacy_callable_ref_with_bind_repair() -> None:
+    with pytest.raises(SemanticLoadError) as exc_info:
+        compile_expression_body(
+            _legacy_field_call,
+            owning_ref=REVENUE,
+            ordered_entity_refs=(ORDERS,),
+        )
+    assert exc_info.value.kind == ErrorKind.INVALID_BINDING_REF
+    assert exc_info.value.expected == "ms.bind(field_ref, entity_parameter)"
+
+
 def test_root_and_nested_evaluation_use_compiled_sidecar() -> None:
     amount_body = ExpressionBody.for_column("amount")
     net_body = compile_expression_body(
@@ -192,7 +209,7 @@ def test_context_is_cleaned_after_success_and_body_failure() -> None:
         aliases=(table,),
     )
     with pytest.raises(SemanticRuntimeError) as success_cleanup:
-        AMOUNT(table)
+        bind(AMOUNT, table)
     assert success_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
     def fails(_orders):
@@ -214,7 +231,7 @@ def test_context_is_cleaned_after_success_and_body_failure() -> None:
             aliases=(table,),
         )
     with pytest.raises(SemanticRuntimeError) as failure_cleanup:
-        AMOUNT(table)
+        bind(AMOUNT, table)
     assert failure_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
 
@@ -255,7 +272,7 @@ def test_wrong_entity_binding_fails_with_structured_repair() -> None:
             aliases=(orders, users),
         )
     assert exc_info.value.kind == ErrorKind.BINDING_ENTITY_MISMATCH
-    assert "field_ref(entity_alias)" in str(exc_info.value)
+    assert "ms.bind(field_ref, entity_alias)" in str(exc_info.value)
 
 
 def test_undeclared_and_missing_binding_targets_fail_structurally() -> None:
@@ -338,7 +355,7 @@ def test_cycle_and_invalid_nested_result_reset_every_frame() -> None:
         )
     assert cycle_error.value.kind == ErrorKind.BINDING_CYCLE
     with pytest.raises(SemanticRuntimeError) as cycle_cleanup:
-        AMOUNT(table)
+        bind(AMOUNT, table)
     assert cycle_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
     invalid = ExpressionBody(
@@ -358,17 +375,17 @@ def test_cycle_and_invalid_nested_result_reset_every_frame() -> None:
         )
     assert result_error.value.kind == ErrorKind.BINDING_RESULT_INVALID
     with pytest.raises(SemanticRuntimeError) as result_cleanup:
-        AMOUNT(table)
+        bind(AMOUNT, table)
     assert result_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
 
 def test_runtime_rejects_non_field_and_non_exact_receivers_structurally() -> None:
     table = ibis.table({"amount": "float64"}, name="orders")
     with pytest.raises(SemanticRuntimeError) as metric_error:
-        REVENUE(table)  # type: ignore[misc]
+        bind(REVENUE, table)  # type: ignore[arg-type]
     assert metric_error.value.kind == ErrorKind.INVALID_BINDING_REF
     with pytest.raises(SemanticRuntimeError) as exact_error:
-        Ref.__call__(object(), table)  # type: ignore[misc]
+        bind(object(), table)  # type: ignore[arg-type]
     assert exact_error.value.kind == ErrorKind.INVALID_BINDING_REF
 
 

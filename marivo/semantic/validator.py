@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.datasource.ir import DatasourceIR
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.refs import Ref, SemanticKind
+from marivo.refs import SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
@@ -687,7 +688,7 @@ def _validate_expression_bindings(
                         received="missing catalog object, owner, or expression body",
                         hint=(
                             "Declare the field in the loaded catalog and call it as "
-                            "field_ref(entity_alias)."
+                            "ms.bind(field_ref, entity_alias)."
                         ),
                     )
                 )
@@ -708,7 +709,7 @@ def _validate_expression_bindings(
                     )
                 )
                 continue
-            expected_owner = Ref.entity(entity_ids[binding.entity_position])
+            expected_owner = ref_factory.entity(entity_ids[binding.entity_position])
             if field_owner != expected_owner:
                 errors.append(
                     SemanticLoadError(
@@ -1371,7 +1372,7 @@ def assembly_validate(
         ):
             continue
         if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
-            body = sidecar.bodies.get(Ref.metric(m_id))
+            body = sidecar.bodies.get(ref_factory.metric(m_id))
             fn = None if body is None else body.callable
             if callable(fn):
                 offending_entity = _non_root_aggregate_entity(fn, metric_ir=m_ir)
@@ -1608,7 +1609,11 @@ def assembly_validate(
 
     # Partition pushdown advisory warnings
     for f_id, f_ir in registry.dimensions.items():
-        field_ref = Ref.time_dimension(f_id) if f_ir.is_time_dimension else Ref.dimension(f_id)
+        field_ref = (
+            ref_factory.time_dimension(f_id)
+            if f_ir.is_time_dimension
+            else ref_factory.dimension(f_id)
+        )
         body = None if sidecar is None else sidecar.bodies.get(field_ref)
         if _time_dimension_pushdown_advisory(
             f_ir,
@@ -1630,7 +1635,11 @@ def assembly_validate(
 
     # Dtype/data_type mismatch advisory warnings
     for f_id, f_ir in registry.dimensions.items():
-        field_ref = Ref.time_dimension(f_id) if f_ir.is_time_dimension else Ref.dimension(f_id)
+        field_ref = (
+            ref_factory.time_dimension(f_id)
+            if f_ir.is_time_dimension
+            else ref_factory.dimension(f_id)
+        )
         body = None if sidecar is None else sidecar.bodies.get(field_ref)
         inferred = _time_dimension_dtype_advisory(
             f_ir,

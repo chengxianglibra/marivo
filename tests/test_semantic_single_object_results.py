@@ -13,7 +13,7 @@ def _make_readiness_report() -> ReadinessReport:
 
     return ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_refs=(ms.Ref.metric("sales.revenue"),),
+        analysis_ready_refs=(ms.ref.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),

@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
     Never,
@@ -19,10 +18,6 @@ from typing import (
     get_args,
     get_origin,
 )
-
-if TYPE_CHECKING:
-    from ibis.expr.types import Table as IbisTable
-    from ibis.expr.types import Value as IbisValue
 
 
 class SemanticKind(StrEnum):
@@ -145,8 +140,8 @@ class Ref[KindT: SemanticKindTag]:
     def __new__(cls, *args: object, **kwargs: object) -> Self:
         del cls, args, kwargs
         raise TypeError(
-            "Ref has no public raw constructor; use Ref.metric(...), "
-            "Ref.dimension(...), or another exact kind factory."
+            "Ref has no public raw constructor; use marivo.semantic.ref.metric(...), "
+            "marivo.semantic.ref.dimension(...), or another exact kind factory."
         )
 
     def __init__(self, _sealed: Never, /) -> None:
@@ -159,52 +154,6 @@ class Ref[KindT: SemanticKindTag]:
     def __setattr__(self, name: str, value: object) -> Never:
         del name, value
         raise AttributeError("Ref instances are immutable")
-
-    @staticmethod
-    def _create(kind: SemanticKind, path: object) -> Ref[SemanticKindTag]:
-        validated = _validate_ref_path(kind, path)
-        value: Ref[SemanticKindTag] = object.__new__(Ref)
-        object.__setattr__(value, "kind", kind)
-        object.__setattr__(value, "path", validated)
-        return value
-
-    @staticmethod
-    def domain(path: str) -> Ref[DomainKind]:
-        return cast("Ref[DomainKind]", Ref._create(SemanticKind.DOMAIN, path))
-
-    @staticmethod
-    def datasource(path: str) -> Ref[DatasourceKind]:
-        return cast("Ref[DatasourceKind]", Ref._create(SemanticKind.DATASOURCE, path))
-
-    @staticmethod
-    def entity(path: str) -> Ref[EntityKind]:
-        return cast("Ref[EntityKind]", Ref._create(SemanticKind.ENTITY, path))
-
-    @staticmethod
-    def dimension(path: str) -> Ref[DimensionKind]:
-        return cast("Ref[DimensionKind]", Ref._create(SemanticKind.DIMENSION, path))
-
-    @staticmethod
-    def time_dimension(path: str) -> Ref[TimeDimensionKind]:
-        return cast(
-            "Ref[TimeDimensionKind]",
-            Ref._create(SemanticKind.TIME_DIMENSION, path),
-        )
-
-    @staticmethod
-    def measure(path: str) -> Ref[MeasureKind]:
-        return cast("Ref[MeasureKind]", Ref._create(SemanticKind.MEASURE, path))
-
-    @staticmethod
-    def metric(path: str) -> Ref[MetricKind]:
-        return cast("Ref[MetricKind]", Ref._create(SemanticKind.METRIC, path))
-
-    @staticmethod
-    def relationship(path: str) -> Ref[RelationshipKind]:
-        return cast(
-            "Ref[RelationshipKind]",
-            Ref._create(SemanticKind.RELATIONSHIP, path),
-        )
 
     @property
     def key(self) -> str:
@@ -228,11 +177,6 @@ class Ref[KindT: SemanticKindTag]:
 
     def __hash__(self) -> int:
         return hash((self.kind, self.path))
-
-    def __call__(self: Ref[FieldKind], entity_alias: IbisTable, /) -> IbisValue:
-        from marivo.semantic._expression_binding import apply_field_ref
-
-        return apply_field_ref(self, entity_alias)
 
     def __copy__(self) -> Ref[KindT]:
         return self
@@ -316,6 +260,54 @@ class Ref[KindT: SemanticKindTag]:
         )
 
 
+def _create_ref(kind: SemanticKind, path: object) -> Ref[SemanticKindTag]:
+    validated = _validate_ref_path(kind, path)
+    value: Ref[SemanticKindTag] = object.__new__(Ref)
+    object.__setattr__(value, "kind", kind)
+    object.__setattr__(value, "path", validated)
+    return value
+
+
+@final
+class _RefFactory:
+    """Exact semantic-ref factories kept separate from immutable identities."""
+
+    __slots__ = ()
+
+    def domain(self, path: str) -> Ref[DomainKind]:
+        return cast("Ref[DomainKind]", _create_ref(SemanticKind.DOMAIN, path))
+
+    def datasource(self, path: str) -> Ref[DatasourceKind]:
+        return cast("Ref[DatasourceKind]", _create_ref(SemanticKind.DATASOURCE, path))
+
+    def entity(self, path: str) -> Ref[EntityKind]:
+        return cast("Ref[EntityKind]", _create_ref(SemanticKind.ENTITY, path))
+
+    def dimension(self, path: str) -> Ref[DimensionKind]:
+        return cast("Ref[DimensionKind]", _create_ref(SemanticKind.DIMENSION, path))
+
+    def time_dimension(self, path: str) -> Ref[TimeDimensionKind]:
+        return cast(
+            "Ref[TimeDimensionKind]",
+            _create_ref(SemanticKind.TIME_DIMENSION, path),
+        )
+
+    def measure(self, path: str) -> Ref[MeasureKind]:
+        return cast("Ref[MeasureKind]", _create_ref(SemanticKind.MEASURE, path))
+
+    def metric(self, path: str) -> Ref[MetricKind]:
+        return cast("Ref[MetricKind]", _create_ref(SemanticKind.METRIC, path))
+
+    def relationship(self, path: str) -> Ref[RelationshipKind]:
+        return cast(
+            "Ref[RelationshipKind]",
+            _create_ref(SemanticKind.RELATIONSHIP, path),
+        )
+
+
+ref = _RefFactory()
+
+
 @dataclass(frozen=True, slots=True)
 class RefPayloadV1:
     """Internal versioned wire payload for one exact semantic ref."""
@@ -378,19 +370,19 @@ def _allowed_kinds_for_annotation(source_type: object) -> frozenset[SemanticKind
 
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
-    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.domain),
-    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.datasource),
-    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.entity),
-    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.dimension),
+    SemanticKind.DOMAIN: cast("Callable[[str], Ref[SemanticKindTag]]", ref.domain),
+    SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.datasource),
+    SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", ref.entity),
+    SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref.dimension),
     SemanticKind.TIME_DIMENSION: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
-        Ref.time_dimension,
+        ref.time_dimension,
     ),
-    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.measure),
-    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", Ref.metric),
+    SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.measure),
+    SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", ref.metric),
     SemanticKind.RELATIONSHIP: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
-        Ref.relationship,
+        ref.relationship,
     ),
 }
 

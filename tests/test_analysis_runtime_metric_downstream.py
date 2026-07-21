@@ -37,8 +37,8 @@ def runtime_session(tmp_path):
 
 def _refs(session):
     measure_id = next(iter(session.catalog._require_index().registry.measures))
-    amount = session.catalog.require(ms.Ref.measure(measure_id)).ref
-    region = session.catalog.require(ms.Ref.dimension("sales.orders.region")).ref
+    amount = session.catalog.require(ms.ref.measure(measure_id)).ref
+    region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
     return amount, region
 
 

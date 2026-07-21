@@ -77,7 +77,7 @@ def _semantic_anchor_id(
         _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
         return value.path
     raise ValueError(
-        f"expected exact Ref; got {type(value).__name__}. Pass entry.ref or ms.Ref.<kind>(path)."
+        f"expected exact Ref; got {type(value).__name__}. Pass entry.ref or ms.ref.<kind>(path)."
     )
 
 

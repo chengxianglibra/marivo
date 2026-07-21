@@ -33,6 +33,7 @@ from marivo.analysis.windows.spec import (
     normalize_timescope_input,
 )
 from marivo.refs import FieldKind, MetricKind, Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     EntityDetails,
@@ -243,7 +244,7 @@ def _metric_expr(
     if isinstance(runtime_measure_id, str):
         assert metric_ir is not None
         return resolver.aggregate_measure_on(
-            Ref.measure(runtime_measure_id),
+            ref_factory.measure(runtime_measure_id),
             dataset_tables[metric_datasets[0]],
             metric_ir.aggregation,
         )

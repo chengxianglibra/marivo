@@ -97,14 +97,12 @@ def render_root_help() -> str:
             output = descriptor.output_family or "None"
             effects = descriptor.effects
             assert effects is not None
-            badges = ", ".join(
-                (
-                    effects.data_access,
-                    effects.connection,
-                    *(effects.mutations or ("no mutation",)),
-                    *(effects.flags or ("no extra guards",)),
-                )
+            effect_values = (
+                *(value for value in (effects.data_access, effects.connection) if value != "none"),
+                *effects.mutations,
+                *effects.flags,
             )
+            badges = ", ".join(effect_values) or "none"
             lines.append(
                 f"    {descriptor.canonical_id:<34} {descriptor.summary} "
                 f"[output: {output}; effects: {badges}]"
@@ -113,7 +111,7 @@ def render_root_help() -> str:
         (
             "",
             "Identity handoff: navigate to a CatalogEntry, then pass entry.ref to "
-            "verify, preview, readiness, or analysis; use ms.Ref.<kind>(path) when "
+            "verify, preview, readiness, or analysis; use ms.ref.<kind>(path) when "
             "the exact identity is already known.",
             "",
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
@@ -262,14 +260,19 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.extend(
             (
                 "  Construction: use one exact factory such as "
-                "ms.Ref.metric('sales.revenue') or "
-                "ms.Ref.dimension('sales.orders.region').",
-                "  Catalog handoff: entry = catalog.require(ms.Ref.metric('sales.revenue')); "
+                "ms.ref.metric('sales.revenue') or "
+                "ms.ref.dimension('sales.orders.region').",
+                "  Catalog handoff: entry = catalog.require(ms.ref.metric('sales.revenue')); "
                 "metric_ref = entry.ref.",
-                "  Field application: only dimension, time_dimension, and measure refs "
-                "are callable, only as field_ref(entity_alias) inside a registered "
-                "semantic expression body.",
+                "  Field application: Ref values are never callable; use "
+                "ms.bind(field_ref, entity_alias) inside a registered semantic "
+                "expression body.",
             )
+        )
+    if type_name == "ref":
+        lines.append(
+            "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
+            "one immutable Ref[kind]."
         )
     if type_name == "CatalogEntry":
         lines.append(

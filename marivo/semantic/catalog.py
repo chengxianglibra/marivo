@@ -39,6 +39,9 @@ from marivo.refs import (
     SemanticKindTag,
     TimeDimensionKind,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.render import Card, FieldSection, ListSection, RenderableResult, Section
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
@@ -140,8 +143,8 @@ def _metric_preview_table(
     metric = registry.metrics[ref.path]
     composition = metric.composition
     if isinstance(composition, RatioComposition):
-        numerator_ref = Ref.metric(composition.numerator)
-        denominator_ref = Ref.metric(composition.denominator)
+        numerator_ref = ref_factory.metric(composition.numerator)
+        denominator_ref = ref_factory.metric(composition.denominator)
         numerator_alias = f"{alias}__numerator"
         denominator_alias = f"{alias}__denominator"
         numerator = _metric_preview_table(
@@ -170,7 +173,7 @@ def _metric_preview_table(
                 _metric_preview_table(
                     resolver,
                     registry,
-                    Ref.metric(term.metric),
+                    ref_factory.metric(term.metric),
                     alias=term_alias,
                 )
             )
@@ -226,14 +229,14 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     factory = {
-        SemanticKind.DOMAIN: Ref.domain,
-        SemanticKind.DATASOURCE: Ref.datasource,
-        SemanticKind.ENTITY: Ref.entity,
-        SemanticKind.DIMENSION: Ref.dimension,
-        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-        SemanticKind.MEASURE: Ref.measure,
-        SemanticKind.METRIC: Ref.metric,
-        SemanticKind.RELATIONSHIP: Ref.relationship,
+        SemanticKind.DOMAIN: ref_factory.domain,
+        SemanticKind.DATASOURCE: ref_factory.datasource,
+        SemanticKind.ENTITY: ref_factory.entity,
+        SemanticKind.DIMENSION: ref_factory.dimension,
+        SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+        SemanticKind.MEASURE: ref_factory.measure,
+        SemanticKind.METRIC: ref_factory.metric,
+        SemanticKind.RELATIONSHIP: ref_factory.relationship,
     }[kind]
     return factory(path)
 
@@ -354,8 +357,8 @@ class _DetailsBase(RenderableResult):
         card = card.listing(
             label="suggested next calls",
             items=(
-                f"catalog.verify(ms.Ref.{self.ref.kind.value}({self.ref.path!r}))",
-                f"catalog.readiness(refs=[ms.Ref.{self.ref.kind.value}({self.ref.path!r})])",
+                f"catalog.verify(ms.ref.{self.ref.kind.value}({self.ref.path!r}))",
+                f"catalog.readiness(refs=[ms.ref.{self.ref.kind.value}({self.ref.path!r})])",
             ),
         )
         return card
@@ -1228,7 +1231,7 @@ def _require_semantic_ref(value: object, *, parameter: str) -> Ref[SemanticKindT
         ErrorKind.INVALID_REF,
         f"catalog.{parameter} requires an exact Ref[kind]; received {type(value).__name__}. "
         "Pass entry.ref when starting from catalog navigation, or construct one "
-        "with the exact ms.Ref.<kind>(path) factory.",
+        "with the exact ms.ref.<kind>(path) factory.",
         cls=SemanticRuntimeError,
         constraint_id=ConstraintId.REF_SHAPE,
         details={
@@ -1246,11 +1249,11 @@ def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> Sourc
 def _build_datasource_object(
     ds_ir: DatasourceIR, reg: Registry, catalog: SemanticCatalog
 ) -> DatasourceEntry:
-    ref = Ref.datasource(ds_ir.semantic_id)
+    ref = ref_factory.datasource(ds_ir.semantic_id)
     dependents = tuple(
         _make_ref(d.semantic_id, SemanticKind.ENTITY)
         for d in reg.entities.values()
-        if Ref.datasource(d.datasource) == ref
+        if ref_factory.datasource(d.datasource) == ref
     )
     details = DatasourceDetails(
         ref=ref,
@@ -1304,7 +1307,7 @@ def _build_domain_object(
 
 def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalog) -> EntityEntry:
     ref = _make_ref(ds_ir.semantic_id, SemanticKind.ENTITY)
-    ds_ref = Ref.datasource(ds_ir.datasource)
+    ds_ref = ref_factory.datasource(ds_ir.datasource)
     fields_refs = tuple(
         _make_ref(
             f.semantic_id,
@@ -1896,7 +1899,7 @@ class SemanticCatalog:
         >>> catalog = ms.load()
         >>> catalog.domains.show()
         >>> catalog.metrics.show()  # all metrics across domains
-        >>> revenue = catalog.require(ms.Ref.metric("sales.revenue"))
+        >>> revenue = catalog.require(ms.ref.metric("sales.revenue"))
         >>> revenue.details().additivity
 
     Constraints:
@@ -2008,7 +2011,7 @@ class SemanticCatalog:
             _raise(
                 ErrorKind.INVALID_REF,
                 "CatalogCollection.get(...) accepts one local name segment only. "
-                "Use catalog.require(ms.Ref.<kind>(path)) for global lookup.",
+                "Use catalog.require(ms.ref.<kind>(path)) for global lookup.",
                 cls=SemanticRuntimeError,
                 refs=(key,),
             )
@@ -2029,7 +2032,7 @@ class SemanticCatalog:
             return matches[0]
         if len(matches) > 1:
             calls = tuple(
-                f"catalog.require(ms.Ref.{item.kind.value}({item.path!r}))" for item in matches
+                f"catalog.require(ms.ref.{item.kind.value}({item.path!r}))" for item in matches
             )
             _raise(
                 ErrorKind.AMBIGUOUS_REFERENCE,
@@ -2092,7 +2095,7 @@ class SemanticCatalog:
             if item.kind is exact_ref.kind
         )[:12]
         calls = tuple(
-            f"ms.Ref.{candidate.kind.value}({candidate.path!r})" for candidate in candidates
+            f"ms.ref.{candidate.kind.value}({candidate.path!r})" for candidate in candidates
         )
         _raise(
             ErrorKind.NOT_FOUND,

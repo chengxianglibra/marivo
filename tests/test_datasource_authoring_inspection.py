@@ -79,7 +79,7 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     path = _register_duckdb(project_root)
     _create_orders(path)
 
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
     assert inspection.partitioning.state in {"known", "none", "unknown"}
     assert inspection.physical_extent.row_count_kind in {"exact", "estimated", "unknown"}
@@ -108,7 +108,7 @@ def test_typed_text_inspection_uses_declared_schema_without_opening_source(
     )
 
     source = factory()
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), source)
+    inspection = md.inspect(ms.ref.datasource("warehouse"), source)
 
     assert inspection.schema[0].name == expected_name
     assert inspection.partitioning.state == "none"
@@ -120,9 +120,9 @@ def test_partition_states_remain_distinct(
 ) -> None:
     path = _register_duckdb(project_root)
     _create_orders(path)
-    unknown = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    unknown = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     none = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
 
@@ -156,7 +156,7 @@ def test_partition_states_remain_distinct(
         "marivo.datasource.inspection._inspect_source",
         lambda *_args, **_kwargs: known_metadata,
     )
-    known = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    known = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
     assert (known.partitioning.state, none.partitioning.state, unknown.partitioning.state) == (
         "known",
@@ -177,7 +177,7 @@ def test_parquet_inspection_reads_schema_without_executing_user_data_query(
     backend.disconnect()
 
     inspection = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.parquet(str(parquet_path)),
     )
 
@@ -197,7 +197,7 @@ def test_hive_parquet_unknown_partition_state_is_visible_in_warnings(
     backend.disconnect()
 
     inspection = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.parquet(str(parquet_path), hive_partitioning=True),
     )
 
@@ -211,7 +211,7 @@ def test_unknown_partition_state_rejects_partition_scope_before_field_validation
 ) -> None:
     path = _register_duckdb(project_root)
     _create_orders(path)
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     inspection = replace(
         inspection,
         partitioning=replace(inspection.partitioning, state="unknown", fields=()),
@@ -235,7 +235,7 @@ def test_unknown_partition_state_returns_typed_rescope_repair_without_query(
 ) -> None:
     path = _register_duckdb(project_root)
     _create_orders(path)
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     inspection = replace(
         inspection,
         partitioning=replace(inspection.partitioning, state="unknown", fields=()),
@@ -265,7 +265,7 @@ def test_unknown_partition_state_allows_explicit_unpruned_scope(
 ) -> None:
     path = _register_duckdb(project_root)
     _create_orders(path)
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     inspection = replace(
         inspection,
         partitioning=replace(inspection.partitioning, state="unknown", fields=()),
@@ -295,7 +295,7 @@ def test_known_partition_with_failed_value_hook_allows_unpruned_fallback(
     """
     path = _register_duckdb(project_root)
     _create_orders(path)
-    base = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    base = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     inspection = replace(
         base,
         partitioning=replace(
@@ -323,7 +323,7 @@ def test_partitions_only_reshapes_captured_metadata(
 ) -> None:
     _register_duckdb(project_root)
     source = md.csv("orders.csv", schema={"order_id": "string"})
-    result = md.inspect(ms.Ref.datasource("warehouse"), source).partitions()
+    result = md.inspect(ms.ref.datasource("warehouse"), source).partitions()
 
     assert result.partitioning.state == "none"
     assert result.status == "complete"
@@ -344,7 +344,7 @@ def test_file_source_requires_duckdb_without_opening_backend(
 
     with pytest.raises(DatasourceError) as exc_info:
         md.inspect(
-            ms.Ref.datasource("warehouse"),
+            ms.ref.datasource("warehouse"),
             md.csv("orders.csv", schema={"order_id": "string"}),
         )
 
@@ -355,7 +355,7 @@ def test_file_source_requires_duckdb_without_opening_backend(
 def test_sample_rejects_unknown_source_column_before_executor(project_root: Path) -> None:
     _register_duckdb(project_root)
     inspection = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
 
@@ -373,7 +373,7 @@ def test_sample_rejects_unknown_source_column_before_executor(project_root: Path
 def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path) -> None:
     _register_duckdb(project_root)
     base = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
     inspection = replace(
@@ -397,7 +397,7 @@ def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path
 def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: Path) -> None:
     _register_duckdb(project_root)
     base = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
     )
     known = replace(
@@ -443,7 +443,7 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
 def test_identity_partition_transform_is_rejected_in_v1(project_root: Path) -> None:
     _register_duckdb(project_root)
     base = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
     )
     identity = replace(
@@ -497,7 +497,7 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
         ),
     )
 
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     partition_result = inspection.partitions()
 
     assert inspection.partitioning.values == ()
@@ -512,7 +512,7 @@ def test_inspection_contract_exposes_factual_scope_state_without_string_guidance
 ) -> None:
     _register_duckdb(project_root)
     inspection = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
 
@@ -557,7 +557,7 @@ def test_inspection_contract_exposes_factual_scope_state_without_string_guidance
 def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> None:
     _register_duckdb(project_root)
     base = md.inspect(
-        ms.Ref.datasource("warehouse"),
+        ms.ref.datasource("warehouse"),
         md.csv("orders.csv", schema={"order_id": "string", "dt": "date"}),
     )
     known = replace(
@@ -626,7 +626,7 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
         ),
     )
 
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
 
     assert requested_limits == [101]
     assert len(inspection.partitioning.values) == 100

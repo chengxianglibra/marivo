@@ -340,7 +340,7 @@ def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     text = _text("observe")
     example_section = text[text.index("Example:") :]
     assert (
-        'channel = catalog.require(ms.Ref.dimension("sales.orders.channel")).ref' in example_section
+        'channel = catalog.require(ms.ref.dimension("sales.orders.channel")).ref' in example_section
     )
     assert 'slice_by={country: "US", channel: "online"}' in example_section
 
@@ -350,10 +350,10 @@ def test_observe_and_catalog_require_document_ref_factory_format() -> None:
     for target in ("observe", "catalog.require"):
         text = _text(target)
         assert "Ref ID format" in text, f"{target} missing ref id format section"
-        assert 'ms.Ref.metric("<domain>.<metric_name>")' in text
-        assert 'ms.Ref.dimension("<domain>.<entity>.<dimension_name>")' in text
-        assert 'ms.Ref.time_dimension("<domain>.<entity>.<dimension_name>")' in text
-        assert 'ms.Ref.measure("<domain>.<entity>.<measure_name>")' in text
+        assert 'ms.ref.metric("<domain>.<metric_name>")' in text
+        assert 'ms.ref.dimension("<domain>.<entity>.<dimension_name>")' in text
+        assert 'ms.ref.time_dimension("<domain>.<entity>.<dimension_name>")' in text
+        assert 'ms.ref.measure("<domain>.<entity>.<measure_name>")' in text
 
 
 def test_focused_help_includes_invocation_critical_constraints() -> None:
@@ -559,7 +559,7 @@ def test_semantic_ref_help_with_project(semantic_project_factory, capsys) -> Non
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = ms.Ref.datasource('warehouse')\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
@@ -592,7 +592,7 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) 
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = ms.Ref.datasource('warehouse')\n"
+                "warehouse = ms.ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', "

@@ -56,6 +56,7 @@ from marivo.semantic._authoring_values import (
     timestamp,
     validity,
 )
+from marivo.semantic._expression_binding import bind
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
 
 __all__ = [
@@ -63,6 +64,7 @@ __all__ = [
     "AggregateFoldValue",
     "aggregate",
     "ai_context",
+    "bind",
     "count",
     "cumulative",
     "datetime",

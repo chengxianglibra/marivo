@@ -14,7 +14,8 @@ from marivo.analysis.evidence.types import (
     Finding,
     Subject,
 )
-from marivo.refs import Ref, RefPayloadV1
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
@@ -34,7 +35,7 @@ def _derivation() -> DerivationRule:
 def _metric_identity() -> CatalogMetricIdentity:
     return CatalogMetricIdentity(
         kind="catalog",
-        metric_ref=RefPayloadV1.from_ref(Ref.metric("sales.revenue")),
+        metric_ref=RefPayloadV1.from_ref(ref_factory.metric("sales.revenue")),
     )
 
 

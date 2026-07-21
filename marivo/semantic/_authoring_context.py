@@ -203,7 +203,7 @@ def _require_ref_id(
         ErrorKind.INVALID_REF,
         f"{parameter} must be {expected_label}; got {type(ref).__name__}: {received!r}. "
         "Pass the Ref object returned by the semantic authoring call, import a declared "
-        "Ref from another model, or use Ref.<kind>('<path>') for an explicit "
+        "Ref from another model, or use ref.<kind>('<path>') for an explicit "
         "forward or cross-file reference.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
@@ -246,7 +246,7 @@ def _resolve_datasource_ref(ref: Ref[DatasourceKind]) -> str:
     _raise(
         ErrorKind.INVALID_REF,
         "ms.entity(datasource=...) accepts Ref[datasource] from a datasource spec's .ref "
-        "or Ref.datasource('warehouse'). Do not pass a bare string.",
+        "or ref_factory.datasource('warehouse'). Do not pass a bare string.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )

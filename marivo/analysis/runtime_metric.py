@@ -456,7 +456,7 @@ def aggregate(
 
     Example:
         >>> total = mv.runtime_metric.aggregate(
-        ...     session.catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
+        ...     session.catalog.require(ms.ref.measure("sales.orders.amount")).ref,
         ...     agg="sum",
         ...     label="Observed revenue",
         ... )
@@ -501,8 +501,8 @@ def weighted_mean(
         by another runtime metric constructor.
 
     Example:
-        >>> latency = session.catalog.require(ms.Ref.measure("api.requests.latency_ms")).ref
-        >>> requests = session.catalog.require(ms.Ref.measure("api.requests.count")).ref
+        >>> latency = session.catalog.require(ms.ref.measure("api.requests.latency_ms")).ref
+        >>> requests = session.catalog.require(ms.ref.measure("api.requests.count")).ref
         >>> observed_latency = mv.runtime_metric.weighted_mean(
         ...     latency,
         ...     requests,
@@ -552,8 +552,8 @@ def slice(
 
     Example:
         >>> failed = mv.runtime_metric.slice(
-        ...     session.catalog.require(ms.Ref.metric("sales.requests")).ref,
-        ...     by={session.catalog.require(ms.Ref.dimension("sales.requests.state")).ref: "FAILED"},
+        ...     session.catalog.require(ms.ref.metric("sales.requests")).ref,
+        ...     by={session.catalog.require(ms.ref.dimension("sales.requests.state")).ref: "FAILED"},
         ... )
 
     Constraints:

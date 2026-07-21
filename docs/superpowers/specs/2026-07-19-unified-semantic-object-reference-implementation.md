@@ -40,7 +40,7 @@ catalog = ms.load()
 revenue_entry = catalog.domains.get("sales").metrics.get("revenue")
 revenue = revenue_entry.ref
 
-known_country = ms.Ref.dimension("sales.orders.country")
+known_country = ms.ref.dimension("sales.orders.country")
 country_entry = catalog.require(known_country)
 
 frame = session.observe(
@@ -157,47 +157,26 @@ class Ref(Generic[KindT]):
 
     def __new__(cls, *args: object, **kwargs: object) -> Never:
         raise TypeError(
-            "Ref has no public raw constructor; use Ref.metric(...), "
-            "Ref.dimension(...), or another exact kind factory."
+            "Ref has no public raw constructor; use ref.metric(...), "
+            "ref.dimension(...), or another exact kind factory."
         )
 
     def __init_subclass__(cls, **kwargs: object) -> Never:
         raise TypeError("Ref is sealed and cannot be subclassed.")
 
-    @staticmethod
-    def _create(kind: SemanticKind, path: str) -> Ref[SemanticKindTag]:
-        validated = _validate_ref_path(kind, path)
-        value = object.__new__(Ref)
-        object.__setattr__(value, "kind", kind)
-        object.__setattr__(value, "path", validated)
-        return cast("Ref[SemanticKindTag]", value)
-
-    @staticmethod
-    def metric(path: str) -> Ref[MetricKind]:
-        return cast(
-            "Ref[MetricKind]",
-            Ref._create(SemanticKind.METRIC, path),
-        )
-
-    def __call__(
-        self: Ref[FieldKind],
-        entity_alias: IbisTable,
-        /,
-    ) -> IbisValue:
-        from marivo.semantic._expression_binding import apply_field_ref
-
-        return apply_field_ref(self, entity_alias)
 ```
 
-The other seven factories are identical except for the exact runtime tag,
-path shape, and static return marker.
+Private `_create_ref(kind, path)` performs validated construction. A final
+`_RefFactory` exposes eight exact methods on the singleton public namespace
+`ms.ref`; for example, `ms.ref.metric(path) -> Ref[MetricKind]`. Neither the
+class nor its instances expose kind factories.
 
 Every public boundary begins with `type(value) is Ref`, not `isinstance`, then
 checks the runtime kind against the annotation's closed allowed set. This is a
 defensive boundary check in addition to the sealed class.
 
-`Ref.__call__` is the only local upward import. Merely importing or constructing
-a ref does not import semantic runtime modules.
+`Ref` has no upward import into the semantic runtime. Merely importing or
+constructing a ref does not import semantic runtime modules.
 
 ### Value behavior
 
@@ -394,7 +373,7 @@ def dimension_column(
 ) -> Ref[DimensionKind]:
     _require_exact_ref(entity, SemanticKind.ENTITY, parameter="entity")
     path = f"{entity.path}.{_validate_segment(name, role='dimension name')}"
-    ref = Ref.dimension(path)
+    ref = ref.dimension(path)
     definition = DimensionIR(
         semantic_id=ref.path,
         entity=entity.path,
@@ -410,7 +389,7 @@ metadata records the owning identity:
 
 ```python
 def decorator(fn: Callable[..., object]) -> Ref[MetricKind]:
-    ref = Ref.metric(f"{domain.path}.{name or fn.__name__}")
+    ref = ref.metric(f"{domain.path}.{name or fn.__name__}")
     body = compile_expression_body(
         fn,
         owning_ref=ref,
@@ -428,7 +407,7 @@ Datasource specification constructors remain datasource specification
 builders because those specs also serve `md.register`, `md.test`, and
 `md.inspect`. Their `.ref` property becomes `Ref[DatasourceKind]`. Explicitly
 constructing a known datasource identity uses
-`ms.Ref.datasource("warehouse")`; `md.ref` and `md.DatasourceRef` are removed.
+`ms.ref.datasource("warehouse")`; `md.ref` and `md.DatasourceRef` are removed.
 
 ## Expression Binding Compilation
 
@@ -578,9 +557,9 @@ Nested calls do not mutate the current context. They create a replacement
 context with one appended immutable frame, install it with another token, and
 reset that token in `finally`.
 
-### `apply_field_ref` algorithm
+### `bind` algorithm
 
-`Ref.__call__` delegates to `apply_field_ref(ref, alias)`. The implementation
+The public `ms.bind(ref, alias)` operation owns field application. Its implementation
 performs these steps in order:
 
 ```text
@@ -800,7 +779,7 @@ collection.show()
 
 `get` accepts one valid local segment only. A dot, colon, ref, canonical key,
 or non-string fails before lookup. Ambiguity is computed within the already
-typed/scoped collection and returns exact `catalog.require(Ref.<kind>(...))`
+typed/scoped collection and returns exact `catalog.require(ref.<kind>(...))`
 alternatives derived from live entries.
 
 There is no `.ids()` because `.refs` is the complete identity projection.
@@ -1291,9 +1270,9 @@ Semantic and analysis operations consume Ref[kind].
 
 Focused help for `Ref` shows exact factories and makes clear that factories
 validate identity syntax only. Catalog help shows `entry.ref` and
-`catalog.require(ref)`. Expression help preserves
-`return amount(order_rows).sum()` and does not mention context variables,
-sidecars, resolver attachment, or `ms.bind`.
+`catalog.require(ref)`. Expression help teaches
+`return ms.bind(amount, order_rows).sum()` and does not mention context
+variables, sidecars, resolver attachment, or catalog lookup.
 
 Help, docstrings, errors, capability contracts, canonical specs, latest English
 and Chinese site docs, generated API pages, and skills use the same names in one
@@ -1343,7 +1322,7 @@ The implementation must demonstrate these properties directly:
 - AST binding captures exact field refs and entity positions before assembly;
 - variable/parameter renames do not alter fingerprints, while ref/position
   changes do;
-- nested field calls use their own frames, detect cycles, and clean up after
+- nested field bindings use their own frames, detect cycles, and clean up after
   success and failure;
 - concurrent task/catalog evaluations cannot observe another context;
 - equal refs resolve independently in distinct immutable catalogs;

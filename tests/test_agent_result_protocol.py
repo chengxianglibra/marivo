@@ -24,7 +24,7 @@ from marivo.datasource.manage import (
     RawSqlResult,
 )
 from marivo.preview import PreviewCoverage, PreviewResult
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
@@ -35,7 +35,7 @@ from marivo.semantic.dtos import (
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from marivo.semantic.richness import RichnessReport
 
-datasource_ref = Ref.datasource
+datasource_ref = ref_factory.datasource
 
 REPR_MAX_LEN = 200
 RENDER_MAX_LINES = 1000
@@ -249,7 +249,7 @@ def _verify_result() -> VerifyResult:
 def _readiness_report() -> ReadinessReport:
     return ReadinessReport(
         status="ready",
-        analysis_ready_refs=(Ref.metric("sales.revenue"),),
+        analysis_ready_refs=(ref_factory.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(

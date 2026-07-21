@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ibis
 
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.materializer import Materializer
@@ -16,7 +16,7 @@ import marivo.semantic as ms
 
 orders = ms.entity(
     name="orders",
-    datasource=ms.Ref.datasource("warehouse"),
+    datasource=ms.ref.datasource("warehouse"),
     source=md.table("orders"),
 )
 
@@ -26,7 +26,7 @@ def amount(order_rows):
 
 @ms.measure(entity=orders, additivity="additive")
 def net_amount(order_rows):
-    return amount(order_rows) * 0.9
+    return ms.bind(amount, order_rows) * 0.9
 
 @ms.dimension(entity=orders)
 def country(order_rows):
@@ -38,7 +38,7 @@ def ordered_at(order_rows):
 
 @ms.metric(entities=[orders], additivity="additive")
 def revenue(order_rows):
-    return net_amount(order_rows).sum()
+    return ms.bind(net_amount, order_rows).sum()
 """
 
 
@@ -81,10 +81,10 @@ def test_materializer_executes_nested_field_binding(semantic_project_factory) ->
     assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
 
     catalog = SemanticCatalog(project)
-    net_details = catalog.require(Ref.measure("sales.orders.net_amount")).details()
-    metric_details = catalog.require(Ref.metric("sales.revenue")).details()
-    assert Ref.measure("sales.orders.amount") in net_details.parents
-    assert Ref.measure("sales.orders.net_amount") in metric_details.parents
+    net_details = catalog.require(ref_factory.measure("sales.orders.net_amount")).details()
+    metric_details = catalog.require(ref_factory.metric("sales.revenue")).details()
+    assert ref_factory.measure("sales.orders.amount") in net_details.parents
+    assert ref_factory.measure("sales.orders.net_amount") in metric_details.parents
     assert "callable" not in repr(net_details)
     assert "callable" not in net_details.render()
 
@@ -104,14 +104,14 @@ def test_loader_rejects_field_bound_to_wrong_positional_entity(
             "sales/model.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
                 "@ms.measure(entity=orders, additivity='additive')\n"
                 "def amount(order_rows):\n"
                 "    return order_rows.amount\n"
                 "@ms.metric(entities=[users], additivity='additive')\n"
                 "def revenue(user_rows):\n"
-                "    return amount(user_rows).sum()\n"
+                "    return ms.bind(amount, user_rows).sum()\n"
             ),
         }
     )
@@ -119,8 +119,8 @@ def test_loader_rejects_field_bound_to_wrong_positional_entity(
     error = next(
         error for error in project.errors() if error.kind == ErrorKind.BINDING_ENTITY_MISMATCH
     )
-    assert error.expected == Ref.entity("sales.users").key
-    assert error.received == Ref.entity("sales.orders").key
+    assert error.expected == ref_factory.entity("sales.users").key
+    assert error.received == ref_factory.entity("sales.orders").key
     assert "direct parameter" in str(error)
 
 
@@ -140,7 +140,7 @@ def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
                 "sales/model.py": (
                     "import marivo.datasource as md\n"
                     "import marivo.semantic as ms\n"
-                    "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                    "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                     "@ms.measure(entity=orders, additivity='additive')\n"
                     "def amount(order_rows):\n"
                     f"    return {amount_expression}\n"
@@ -155,23 +155,23 @@ def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
     original = load(
         "@ms.metric(entities=[orders], additivity='additive')\n"
         "def revenue(order_rows):\n"
-        "    return amount(order_rows).sum()"
+        "    return ms.bind(amount, order_rows).sum()"
     )
     renamed = load(
         "amount_alias = amount\n"
         "@ms.metric(entities=[orders], additivity='additive')\n"
         "def revenue(rows):\n"
-        "    return amount_alias(rows).sum()"
+        "    return ms.bind(amount_alias, rows).sum()"
     )
     rebound = load(
         "@ms.metric(entities=[orders], additivity='additive')\n"
         "def revenue(order_rows):\n"
-        "    return discount(order_rows).sum()"
+        "    return ms.bind(discount, order_rows).sum()"
     )
     redefined = load(
         "@ms.metric(entities=[orders], additivity='additive')\n"
         "def revenue(order_rows):\n"
-        "    return amount(order_rows).sum()",
+        "    return ms.bind(amount, order_rows).sum()",
         amount_expression="order_rows.amount * 0.9",
     )
     for project in (original, renamed, rebound, redefined):
@@ -185,15 +185,15 @@ def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
         digest = dependency_digest(
             registry,
             sidecar=sidecar,
-            semantic_refs=(Ref.metric("sales.revenue"),),
+            semantic_refs=(ref_factory.metric("sales.revenue"),),
         )
         assert expected_binding in {
             binding.to_ref() for entry in digest.entries for binding in entry.bindings
         }
         return compiled_state.definition_fingerprint, digest.digest
 
-    amount_ref = Ref.measure("sales.orders.amount")
-    discount_ref = Ref.measure("sales.orders.discount")
+    amount_ref = ref_factory.measure("sales.orders.amount")
+    discount_ref = ref_factory.measure("sales.orders.discount")
     original_identity = identities(original, amount_ref)
     assert identities(renamed, amount_ref) == original_identity
     assert identities(rebound, discount_ref) != original_identity

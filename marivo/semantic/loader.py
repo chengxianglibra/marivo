@@ -25,6 +25,7 @@ from marivo.datasource.errors import (
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import load_datasources
 from marivo.refs import FieldKind, Ref, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.errors import (
@@ -631,7 +632,7 @@ def _build_registry(
     catalog_refs: set[Ref[SemanticKindTag]] = set()
     for datasource_ir in datasource_irs:
         registry.datasources[datasource_ir.semantic_id] = datasource_ir
-        catalog_refs.add(Ref.datasource(datasource_ir.semantic_id))
+        catalog_refs.add(ref_factory.datasource(datasource_ir.semantic_id))
 
     for ctx in all_contexts:
         for pending in ctx.pending_definitions:
@@ -650,10 +651,10 @@ def _build_registry(
                 registry.entities[sid] = ir
             elif isinstance(ir, DimensionIR):
                 registry.dimensions[sid] = ir
-                field_owners[cast("Ref[FieldKind]", ref)] = Ref.entity(ir.entity)
+                field_owners[cast("Ref[FieldKind]", ref)] = ref_factory.entity(ir.entity)
             elif isinstance(ir, MeasureIR):
                 registry.measures[sid] = ir
-                field_owners[cast("Ref[FieldKind]", ref)] = Ref.entity(ir.entity)
+                field_owners[cast("Ref[FieldKind]", ref)] = ref_factory.entity(ir.entity)
             elif isinstance(ir, MetricIR):
                 registry.metrics[sid] = ir
             elif isinstance(ir, RelationshipIR):

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from marivo._authoring.model import AuthoringRepair
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
 
@@ -168,14 +169,14 @@ class ReadinessReport(RenderableResult):
 
 def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     factory = {
-        SemanticKind.DOMAIN: Ref.domain,
-        SemanticKind.DATASOURCE: Ref.datasource,
-        SemanticKind.ENTITY: Ref.entity,
-        SemanticKind.DIMENSION: Ref.dimension,
-        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
-        SemanticKind.MEASURE: Ref.measure,
-        SemanticKind.METRIC: Ref.metric,
-        SemanticKind.RELATIONSHIP: Ref.relationship,
+        SemanticKind.DOMAIN: ref_factory.domain,
+        SemanticKind.DATASOURCE: ref_factory.datasource,
+        SemanticKind.ENTITY: ref_factory.entity,
+        SemanticKind.DIMENSION: ref_factory.dimension,
+        SemanticKind.TIME_DIMENSION: ref_factory.time_dimension,
+        SemanticKind.MEASURE: ref_factory.measure,
+        SemanticKind.METRIC: ref_factory.metric,
+        SemanticKind.RELATIONSHIP: ref_factory.relationship,
     }[kind]
     return factory(path)
 
@@ -676,7 +677,7 @@ def build_readiness_report(
                 repair(
                     kind="inspect",
                     canonical_id="load",
-                    action="Browse loaded refs with catalog.domains.show() or catalog.metrics.show(), then inspect a known identity with catalog.require(ms.Ref.<kind>(path)).details().show().",
+                    action="Browse loaded refs with catalog.domains.show() or catalog.metrics.show(), then inspect a known identity with catalog.require(ms.ref.<kind>(path)).details().show().",
                 ),
             )
         )
@@ -710,10 +711,10 @@ def build_readiness_report(
             if requirement.status == "matched":
                 continue
             if requirement.status == "snapshot_missing":
-                blockers.append(
+                warnings.append(
                     _issue(
                         "snapshot_missing",
-                        "blocker",
+                        "warning",
                         (path,),
                         f"{path} has no matching datasource snapshot metadata.",
                         repair=requirement.repair,

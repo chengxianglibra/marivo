@@ -110,7 +110,7 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
 
 
 def test_datasource_ref_uses_kind_qualified_identity() -> None:
-    ref = ms.Ref.datasource("warehouse")
+    ref = ms.ref.datasource("warehouse")
 
     assert ref.kind is ms.SemanticKind.DATASOURCE
     assert ref.path == "warehouse"

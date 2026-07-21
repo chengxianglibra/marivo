@@ -41,7 +41,7 @@ def _assert_fixed_time_rules(snapshot: md.DiscoverySnapshot) -> None:
 
 
 def _inspection_and_snapshot(project_root: Path):
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=_AUTHORING_COLUMNS,
@@ -133,12 +133,12 @@ def _acquire_secret_backed_snapshot(
     monkeypatch.setattr(inspection_module, "require_profile_for_backend_type", require_profile)
     monkeypatch.setattr(snapshot_module, "require_profile_for_backend_type", require_profile)
 
-    inspection = md.inspect(ms.Ref.datasource("secure_warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("secure_warehouse"), md.table("orders"))
     secure_snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=("query_id", "amount"),
     )
-    assert secure_snapshot.datasource == ms.Ref.datasource("secure_warehouse")
+    assert secure_snapshot.datasource == ms.ref.datasource("secure_warehouse")
     assert resolved_passwords == [secret, secret]
     return secure_snapshot
 
@@ -155,7 +155,7 @@ def test_real_duckdb_authoring_snapshot_reaches_analysis_ready_refs(
     assert snapshot.measures(columns=("amount",)).status == "complete"
 
     catalog = ms.load(workspace_dir=authoring_evidence_project)
-    revenue = catalog.require(ms.Ref.metric("sales.revenue"))
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
     assert catalog.verify(revenue.ref).status == "passed"
     preview = catalog.preview(revenue.ref, using=snapshot)
     assert preview.status == "passed"
@@ -206,7 +206,7 @@ def test_complete_authoring_query_count_matrix(
 
     matrix: dict[str, int] = {}
     before = counts["user_data"]
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     matrix["inspect"] = counts["user_data"] - before
     metadata_after_inspect = counts["metadata"]
 
@@ -233,7 +233,7 @@ def test_complete_authoring_query_count_matrix(
     matrix["refresh"] = counts["user_data"] - before
 
     catalog = ms.load(workspace_dir=authoring_evidence_project)
-    revenue = catalog.require(ms.Ref.metric("sales.revenue"))
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
     before = counts["user_data"]
     assert catalog.verify(revenue.ref).status == "passed"
     matrix["verify"] = counts["user_data"] - before
@@ -262,7 +262,7 @@ def test_complete_authoring_query_count_matrix(
 def test_negative_evidence_stays_unresolved_without_recommendations(
     authoring_evidence_project: Path,
 ) -> None:
-    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=(*_AUTHORING_COLUMNS, "uncommon_date", "epoch_like"),
@@ -278,7 +278,7 @@ def test_negative_evidence_stays_unresolved_without_recommendations(
         right=("query_id", "region"),
     )
     right_inspection = md.inspect(
-        ms.Ref.datasource("warehouse_replica"),
+        ms.ref.datasource("warehouse_replica"),
         md.table("orders_replica"),
     )
     right_snapshot = right_inspection.sample(
@@ -322,8 +322,8 @@ def test_negative_evidence_stays_unresolved_without_recommendations(
             and cross_source_relationship.right_snapshot_id == right_snapshot.id
             and cross_source_relationship.left_scope == snapshot.scope
             and cross_source_relationship.right_scope == right_snapshot.scope
-            and snapshot.datasource == ms.Ref.datasource("warehouse")
-            and right_snapshot.datasource == ms.Ref.datasource("warehouse_replica")
+            and snapshot.datasource == ms.ref.datasource("warehouse")
+            and right_snapshot.datasource == ms.ref.datasource("warehouse_replica")
             and snapshot.source == md.table("orders")
             and right_snapshot.source == md.table("orders_replica")
             and right_snapshot.id != snapshot.id,

@@ -10,7 +10,17 @@ import hashlib
 from collections.abc import Callable
 from typing import Any, Literal
 
-from marivo.refs import DomainKind, EntityKind, MeasureKind, MetricKind, Ref, SemanticKind
+from marivo.refs import (
+    DomainKind,
+    EntityKind,
+    MeasureKind,
+    MetricKind,
+    Ref,
+    SemanticKind,
+)
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -83,7 +93,7 @@ def domain(
         >>> sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
     """
     ctx = _require_ctx()
-    ref = Ref.domain(name)
+    ref = ref_factory.domain(name)
     if not isinstance(owner, str) or not owner.strip():
         _raise(
             ErrorKind.INVALID_DOMAIN_OWNER,
@@ -160,7 +170,7 @@ def aggregate(
     entity_id = measure_id.rsplit(".", 1)[0]
     obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
-    ref = Ref.metric(semantic_id)
+    ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
     fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
@@ -215,7 +225,7 @@ def weighted_mean(
     value_id = _require_ref_id(value, parameter="value", expected=(SemanticKind.MEASURE,))
     weight_id = _require_ref_id(weight, parameter="weight", expected=(SemanticKind.MEASURE,))
     semantic_id = f"{resolved_domain}.{name}"
-    ref = Ref.metric(semantic_id)
+    ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
     filter_pairs = _resolve_filter_pairs(filter)
@@ -336,7 +346,7 @@ def count(
         A ``Ref[metric]`` for the count metric.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
         >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 
@@ -349,7 +359,7 @@ def count(
     entity_id = entity_ref.path
     resolved_domain = _domain_from_ref_id(entity_id)
     semantic_id = f"{resolved_domain}.{name}"
-    ref = Ref.metric(semantic_id)
+    ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -417,7 +427,7 @@ def metric(
     def decorator(fn: Callable[..., Any]) -> Ref[MetricKind]:
         obj_name = name or fn.__name__
         semantic_id = f"{resolved_domain}.{obj_name}"
-        ref = Ref.metric(semantic_id)
+        ref = ref_factory.metric(semantic_id)
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
         _validate_metric_provenance(provenance)

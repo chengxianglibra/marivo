@@ -6,8 +6,6 @@ import copy
 import dataclasses
 import json
 import pickle
-import subprocess
-import sys
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -22,23 +20,26 @@ from marivo.refs import (
     _decode_ref_key,
     _decode_ref_payload,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
 
 
 @pytest.mark.parametrize(
     ("factory", "path", "kind"),
     [
-        (Ref.domain, "sales", SemanticKind.DOMAIN),
-        (Ref.datasource, "warehouse", SemanticKind.DATASOURCE),
-        (Ref.entity, "sales.orders", SemanticKind.ENTITY),
-        (Ref.dimension, "sales.orders.country", SemanticKind.DIMENSION),
+        (ref_factory.domain, "sales", SemanticKind.DOMAIN),
+        (ref_factory.datasource, "warehouse", SemanticKind.DATASOURCE),
+        (ref_factory.entity, "sales.orders", SemanticKind.ENTITY),
+        (ref_factory.dimension, "sales.orders.country", SemanticKind.DIMENSION),
         (
-            Ref.time_dimension,
+            ref_factory.time_dimension,
             "sales.orders.created_at",
             SemanticKind.TIME_DIMENSION,
         ),
-        (Ref.measure, "sales.orders.amount", SemanticKind.MEASURE),
-        (Ref.metric, "sales.revenue", SemanticKind.METRIC),
-        (Ref.relationship, "sales.orders_to_users", SemanticKind.RELATIONSHIP),
+        (ref_factory.measure, "sales.orders.amount", SemanticKind.MEASURE),
+        (ref_factory.metric, "sales.revenue", SemanticKind.METRIC),
+        (ref_factory.relationship, "sales.orders_to_users", SemanticKind.RELATIONSHIP),
     ],
 )
 def test_exact_factories_cover_all_kinds(factory, path: str, kind: SemanticKind) -> None:
@@ -76,14 +77,14 @@ def test_subclassing_is_sealed() -> None:
 @pytest.mark.parametrize(
     ("factory", "path"),
     [
-        (Ref.datasource, "prod-mysql"),
-        (Ref.datasource, "Warehouse"),
-        (Ref.datasource, "1warehouse"),
-        (Ref.datasource, " warehouse"),
-        (Ref.metric, "revenue"),
-        (Ref.metric, "sales.revenue.extra"),
-        (Ref.entity, "sales."),
-        (Ref.dimension, "sales.orders.OrderID"),
+        (ref_factory.datasource, "prod-mysql"),
+        (ref_factory.datasource, "Warehouse"),
+        (ref_factory.datasource, "1warehouse"),
+        (ref_factory.datasource, " warehouse"),
+        (ref_factory.metric, "revenue"),
+        (ref_factory.metric, "sales.revenue.extra"),
+        (ref_factory.entity, "sales."),
+        (ref_factory.dimension, "sales.orders.OrderID"),
     ],
 )
 def test_path_grammar_is_exact_and_never_normalizes(factory, path: str) -> None:
@@ -92,9 +93,9 @@ def test_path_grammar_is_exact_and_never_normalizes(factory, path: str) -> None:
 
 
 def test_value_identity_is_kind_and_path_only() -> None:
-    left = Ref.metric("sales.revenue")
-    equal = Ref.metric("sales.revenue")
-    other_kind = Ref.entity("sales.revenue")
+    left = ref_factory.metric("sales.revenue")
+    equal = ref_factory.metric("sales.revenue")
+    other_kind = ref_factory.entity("sales.revenue")
     assert left == equal
     assert hash(left) == hash(equal)
     assert left != other_kind
@@ -110,7 +111,7 @@ def test_value_identity_is_kind_and_path_only() -> None:
 
 
 def test_copy_deepcopy_pickle_and_replace_contract() -> None:
-    ref = Ref.dimension("sales.orders.country")
+    ref = ref_factory.dimension("sales.orders.country")
     assert copy.copy(ref) is ref
     assert copy.deepcopy(ref) is ref
     for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -121,33 +122,15 @@ def test_copy_deepcopy_pickle_and_replace_contract() -> None:
         dataclasses.replace(ref, path="sales.orders.region")
 
 
-def test_field_call_error_is_independent_of_semantic_import_order() -> None:
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from marivo.refs import Ref\n"
-                "try:\n"
-                "    Ref.dimension('sales.orders.country')(object())\n"
-                "except Exception as exc:\n"
-                "    print(type(exc).__name__)\n"
-                "    print(getattr(exc, 'kind', None))\n"
-            ),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert probe.stdout.splitlines() == [
-        "SemanticRuntimeError",
-        "binding_context_missing",
-    ]
+def test_ref_is_data_only_and_factories_are_separate() -> None:
+    value = ref_factory.dimension("sales.orders.country")
+    assert not callable(value)
+    assert not hasattr(value, "metric")
+    assert not hasattr(Ref, "metric")
 
 
 def test_payload_and_private_key_decoders_use_validated_factories() -> None:
-    ref = Ref.metric("sales.revenue")
+    ref = ref_factory.metric("sales.revenue")
     payload = RefPayloadV1.from_ref(ref)
     assert _decode_ref_payload(payload) == ref
     assert (
@@ -188,7 +171,7 @@ class _MetricEnvelope(BaseModel):
 
 
 def test_pydantic_python_mode_accepts_only_exact_ref_and_preserves_value() -> None:
-    ref = Ref.metric("sales.revenue")
+    ref = ref_factory.metric("sales.revenue")
     envelope = _MetricEnvelope.model_validate({"metric": ref})
     assert envelope.metric is ref
     dumped = envelope.model_dump(mode="python")
@@ -201,14 +184,14 @@ def test_pydantic_python_mode_accepts_only_exact_ref_and_preserves_value() -> No
             "kind": "metric",
             "path": "sales.revenue",
         },
-        Ref.entity("sales.orders"),
+        ref_factory.entity("sales.orders"),
     ):
         with pytest.raises(ValidationError):
             _MetricEnvelope.model_validate({"metric": invalid})
 
 
 def test_pydantic_json_mode_is_structured_exact_and_kind_checked() -> None:
-    ref = Ref.metric("sales.revenue")
+    ref = ref_factory.metric("sales.revenue")
     envelope = _MetricEnvelope(metric=ref)
     raw = envelope.model_dump_json()
     assert json.loads(raw) == {

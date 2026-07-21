@@ -12,7 +12,16 @@ from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payload
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.spec import TimeScopeInput
-from marivo.refs import FieldKind, MetricKind, Ref, TimeDimensionKind, _decode_ref_payload
+from marivo.refs import (
+    FieldKind,
+    MetricKind,
+    Ref,
+    TimeDimensionKind,
+    _decode_ref_payload,
+)
+from marivo.refs import (
+    ref as ref_factory,
+)
 
 _ALIGNMENT_POLICY_FIELDS = {
     "kind",
@@ -305,13 +314,13 @@ def _observe_params_from_job(frame: MetricFrame, *, session: Session) -> dict[st
 def _dimension_ref(session: Session, semantic_id: str) -> Ref[FieldKind]:
     dimension = session.catalog._require_index().registry.dimensions.get(semantic_id)
     if dimension is not None and dimension.is_time_dimension:
-        return Ref.time_dimension(semantic_id)
-    return Ref.dimension(semantic_id)
+        return ref_factory.time_dimension(semantic_id)
+    return ref_factory.dimension(semantic_id)
 
 
 def _time_dimension_ref(session: Session, semantic_id: str) -> Ref[TimeDimensionKind]:
     del session
-    return Ref.time_dimension(semantic_id)
+    return ref_factory.time_dimension(semantic_id)
 
 
 def _extract_dimension_id(item: object) -> str | None:

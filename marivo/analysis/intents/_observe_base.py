@@ -40,7 +40,7 @@ from marivo.analysis.intents.sampled_fold import (
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticKind, TimeDimensionDetails
 
 _WEIGHTED_MEAN_NUMERATOR_COLUMN = "__weighted_mean_numerator"
@@ -106,8 +106,8 @@ def _base_aggregations(
     if _is_weighted_mean_metric(metric_ir):
         spec = metric_ir.weighted_mean
         numerator, weight, value = resolver.weighted_mean_aggregates_on(
-            Ref.measure(spec.value),
-            Ref.measure(spec.weight),
+            ref_factory.measure(spec.value),
+            ref_factory.measure(spec.weight),
             dataset_tables[metric_datasets[0]],
         )
         return {

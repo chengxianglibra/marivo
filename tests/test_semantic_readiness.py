@@ -26,7 +26,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
 
     orders = ms.entity(
         name="orders",
-        datasource=ms.Ref.datasource("warehouse"),
+        datasource=ms.ref.datasource("warehouse"),
         source=md.table("orders"),
         primary_key=["order_id"],
         ai_context=ms.ai_context(
@@ -73,7 +73,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
 def test_readiness_report_to_dict_is_json_safe() -> None:
     report = ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_refs=(ms.Ref.metric("sales.total_amount"),),
+        analysis_ready_refs=(ms.ref.metric("sales.total_amount"),),
         blockers=(),
         warnings=(
             ReadinessIssue(
@@ -116,7 +116,7 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
 def test_readiness_report_target_fields_are_json_safe() -> None:
     report = ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_refs=(ms.Ref.metric("sales.total_amount"),),
+        analysis_ready_refs=(ms.ref.metric("sales.total_amount"),),
         blockers=(),
         warnings=(
             ReadinessIssue(
@@ -204,7 +204,7 @@ def test_analysis_ready_refs_include_only_direct_requests(
         "sales.total_amount",
         "sales.orders",
     )
-    assert report.analysis_ready_refs == (ms.Ref.metric("sales.double_amount"),)
+    assert report.analysis_ready_refs == (ms.ref.metric("sales.double_amount"),)
 
 
 def test_nested_ratio_is_analysis_ready_under_shared_graph_contract(
@@ -255,7 +255,7 @@ def test_nested_ratio_is_analysis_ready_under_shared_graph_contract(
     report = project.readiness(refs=("sales.outer",))
 
     assert report.status == "ready"
-    assert report.analysis_ready_refs == (ms.Ref.metric("sales.outer"),)
+    assert report.analysis_ready_refs == (ms.ref.metric("sales.outer"),)
     assert "metric_graph_invalid" not in _issue_kinds(report.blockers)
 
 
@@ -319,7 +319,7 @@ def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(
 
             orders = ms.entity(
                 name="orders",
-                datasource=ms.Ref.datasource("warehouse"),
+                datasource=ms.ref.datasource("warehouse"),
                 source=md.table("orders"),
                 ai_context=ms.ai_context(
                     business_definition="One row per paid order.",
@@ -341,11 +341,11 @@ def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(
         preview_checks,
         "preview_evidence_requirement",
         lambda *_args, **_kwargs: PreviewEvidenceRequirement(
-            status="matched",
+            status="snapshot_missing",
             repair=AuthoringRepair(
-                kind="retry",
+                kind="reacquire",
                 help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
-                action="Matching preview evidence is available.",
+                action="Acquire a matching datasource snapshot.",
             ),
         ),
     )
@@ -357,6 +357,7 @@ def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(
         issue.kind == "missing_business_definition" and issue.refs == ("sales.total_orders",)
         for issue in report.blockers
     )
+    assert any(issue.kind == "snapshot_missing" for issue in report.warnings)
     assert report.analysis_ready_refs == ()
 
 
@@ -368,7 +369,7 @@ def test_catalog_readiness_accepts_exact_ref_objects(
 
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
-    refs = (ms.Ref.entity("sales.orders"),)
+    refs = (ms.ref.entity("sales.orders"),)
     report = SemanticCatalog(project).readiness(refs=refs)
 
     assert report.input_summary.refs == ("sales.orders",)
@@ -386,14 +387,14 @@ def test_readiness_expands_relationship_join_key_dependencies(
 
             orders = ms.entity(
                 name="orders",
-                datasource=ms.Ref.datasource("warehouse"),
+                datasource=ms.ref.datasource("warehouse"),
                 source=md.table("orders"),
                 primary_key=["order_id"],
                 ai_context=ms.ai_context(business_definition="One row per paid order."),
             )
             customers = ms.entity(
                 name="customers",
-                datasource=ms.Ref.datasource("warehouse"),
+                datasource=ms.ref.datasource("warehouse"),
                 source=md.table("customers"),
                 primary_key=["customer_id"],
                 ai_context=ms.ai_context(business_definition="One row per customer."),
@@ -468,7 +469,7 @@ def test_readiness_no_dtype_advisory_when_parse_deferred(semantic_project_factor
 
                 ms.domain(name="sales", owner='Mina Zhang')
 
-                orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
                 @ms.time_dimension(entity=orders, granularity="day")
                 def order_date(table):
@@ -509,7 +510,7 @@ def test_readiness_strict_enrichment_warns_when_only_guardrails_missing_on_non_m
 
                 orders = ms.entity(
                     name="orders",
-                    datasource=ms.Ref.datasource("warehouse"),
+                    datasource=ms.ref.datasource("warehouse"),
                     source=md.table("orders"),
                     ai_context=ms.ai_context(business_definition="One row per paid order."),
                 )
@@ -527,11 +528,12 @@ def test_readiness_strict_enrichment_warns_when_only_guardrails_missing_on_non_m
     report = project.readiness(refs=("sales.orders.amount",))
 
     # Non-metric analyzable refs (entity, dimension) missing guardrails → warnings.
-    assert report.status == "blocked"
-    assert any(issue.kind == "snapshot_missing" for issue in report.blockers)
+    assert report.status == "ready_with_warnings"
+    assert any(issue.kind == "snapshot_missing" for issue in report.warnings)
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
     assert "missing_guardrails" in _issue_kinds(report.warnings)
     assert "missing_guardrails" not in _issue_kinds(report.blockers)
+    assert report.analysis_ready_refs == (ms.ref.dimension("sales.orders.amount"),)
 
 
 def test_readiness_warns_for_metric_missing_guardrails(semantic_project_factory):
@@ -545,7 +547,7 @@ def test_readiness_warns_for_metric_missing_guardrails(semantic_project_factory)
 
                 orders = ms.entity(
                     name="orders",
-                    datasource=ms.Ref.datasource("warehouse"),
+                    datasource=ms.ref.datasource("warehouse"),
                     source=md.table("orders"),
                     ai_context=ms.ai_context(
                         business_definition="One row per paid order.",
@@ -566,7 +568,7 @@ def test_readiness_warns_for_metric_missing_guardrails(semantic_project_factory)
 
     report = project.readiness(refs=("sales.total_amount",))
 
-    assert report.status == "blocked"
+    assert report.status == "ready_with_warnings"
     assert "missing_guardrails" in _issue_kinds(report.warnings)
     assert "missing_guardrails" not in _issue_kinds(report.blockers)
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
@@ -576,7 +578,7 @@ _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
 
-    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), primary_key=["order_id"], source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), primary_key=["order_id"], source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -610,7 +612,7 @@ def test_readiness_sql_parity_unverified_warning(semantic_project_factory) -> No
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
+        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
 
         @ms.metric(
             entities=[orders],
@@ -638,8 +640,8 @@ def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> Non
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse_a"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="Orders A."))
-        items = ms.entity(name="items", datasource=ms.Ref.datasource("warehouse_b"), source=md.table("items"), ai_context=ms.ai_context(business_definition="Items B."))
+        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse_a"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="Orders A."))
+        items = ms.entity(name="items", datasource=ms.ref.datasource("warehouse_b"), source=md.table("items"), ai_context=ms.ai_context(business_definition="Items B."))
 
         @ms.metric(
             entities=[orders, items],
@@ -679,12 +681,12 @@ def test_readiness_cross_datasource_relationship_has_only_structural_guidance(
                 ms.domain(name="sales", owner="Mina Zhang", default=True)
                 orders = ms.entity(
                     name="orders",
-                    datasource=ms.Ref.datasource("warehouse_a"),
+                    datasource=ms.ref.datasource("warehouse_a"),
                     source=md.table("orders"),
                 )
                 customers = ms.entity(
                     name="customers",
-                    datasource=ms.Ref.datasource("warehouse_b"),
+                    datasource=ms.ref.datasource("warehouse_b"),
                     source=md.table("customers"),
                 )
                 order_customer_id = ms.dimension_column(
@@ -730,7 +732,7 @@ def test_readiness_does_not_require_internal_audit_decisions(semantic_project_fa
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'),\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'),\n"
                 "    ai_context=ms.ai_context(business_definition='One row per order.', guardrails=['Exclude test orders.']))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', \n"
                 "    ai_context=ms.ai_context(business_definition='Sum of amount.', guardrails=['Additive across order date only.']))\n"
@@ -740,8 +742,10 @@ def test_readiness_does_not_require_internal_audit_decisions(semantic_project_fa
     )
 
     report = project.readiness()
-    assert report.status == "blocked"
-    assert {issue.kind for issue in report.blockers} == {"snapshot_missing"}
+    assert report.status == "ready_with_warnings"
+    assert not report.blockers
+    assert "snapshot_missing" in _issue_kinds(report.warnings)
+    assert ms.ref.metric("sales.revenue") in report.analysis_ready_refs
 
 
 # -- enrichment predicates ---------------------------------------------------
@@ -788,7 +792,7 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'),\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'),\n"
                 "    ai_context=ms.ai_context(business_definition='One row per order.',\n"
                 "               guardrails=['Exclude test orders.']))\n"
                 "@ms.dimension(entity=orders, name='amount',\n"
@@ -894,7 +898,7 @@ def _naive_tz_report(
 
         orders = ms.entity(
             name="orders",
-            datasource=ms.Ref.datasource("warehouse"),
+            datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
             ai_context=ms.ai_context(business_definition="One row per order."),
         )
@@ -1058,7 +1062,7 @@ def test_is_time_bearing_format_time_bearing() -> None:
 _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
     amount = ms.measure_column(
         name="amount",
         entity=orders,
@@ -1114,7 +1118,7 @@ def test_readiness_ready_with_warnings_renders_direct_ready_refs() -> None:
     """A ready_with_warnings report must render its directly consumable refs."""
     report = ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_refs=(ms.Ref.metric("sales.total_amount"),),
+        analysis_ready_refs=(ms.ref.metric("sales.total_amount"),),
         blockers=(),
         warnings=(
             ReadinessIssue(
@@ -1175,7 +1179,7 @@ def test_sql_parity_unverified_repair_mentions_parity_check_and_non_blocking(
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
+        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
 
         @ms.metric(
             entities=[orders],

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic import authoring, ir
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
@@ -55,7 +55,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
@@ -94,7 +94,7 @@ def test_resolution_fills_additivity() -> None:
             """\
 import marivo.datasource as md
 import marivo.semantic as ms
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 value = ms.measure_column(name="value", entity=o, column="value", additivity="non_additive")
 weight = ms.measure_column(name="weight", entity=o, column="weight", additivity="non_additive")
@@ -106,7 +106,7 @@ ms.weighted_mean(name="bad", value=value, weight=weight)
             """\
 import marivo.datasource as md
 import marivo.semantic as ms
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 left = ms.entity(name="left", datasource=wh, source=md.table("left"))
 right = ms.entity(name="right", datasource=wh, source=md.table("right"))
 value = ms.measure_column(name="value", entity=left, column="value", additivity="non_additive")
@@ -128,7 +128,7 @@ def test_weighted_mean_rejects_invalid_weight_grain(source: str, expected_text: 
 
 
 def test_semi_additive_over_must_be_time_dimension() -> None:
-    region = Ref.dimension("test.snap.region")
+    region = ref_factory.dimension("test.snap.region")
 
     with pytest.raises(SemanticDecoratorError) as exc_info:
         authoring.semi_additive(over=region, fold="last")  # type: ignore[arg-type]
@@ -145,7 +145,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="non_additive")
@@ -170,14 +170,14 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 rev = ms.aggregate(measure=amount, agg="sum", name="rev")
-bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.Ref.metric("test.missing"))
+bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.ref.metric("test.missing"))
 """
 
 
@@ -191,15 +191,15 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 base = ms.aggregate(measure=amount, agg="sum", name="base")
-a = ms.linear(name="a", add=[base, ms.Ref.metric("test.b")])
-b = ms.linear(name="b", add=[base, ms.Ref.metric("test.a")])
+a = ms.linear(name="a", add=[base, ms.ref.metric("test.b")])
+b = ms.linear(name="b", add=[base, ms.ref.metric("test.a")])
 """
 
 

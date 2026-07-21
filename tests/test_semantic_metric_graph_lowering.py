@@ -32,7 +32,7 @@ _CATALOG_SOURCE = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity="additive", unit="CNY"

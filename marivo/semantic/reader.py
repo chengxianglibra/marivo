@@ -153,7 +153,7 @@ def _verification_input(
         _raise(
             ErrorKind.INVALID_REF,
             "catalog.verify(ref) requires an exact Ref. "
-            "Pass entry.ref or construct ms.Ref.<kind>(path).",
+            "Pass entry.ref or construct ms.ref.<kind>(path).",
             cls=SemanticRuntimeError,
         )
     semantic_ref = value

@@ -171,6 +171,9 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.refs import (
+    ref as ref_factory,
+)
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SimpleMetricDetails,
@@ -873,7 +876,7 @@ def observe(
                 semantic_dependency_digest=graph_plan.forest.dependency_digest,
                 metric_identities=graph_plan.forest.identities,
                 axis_refs=tuple(
-                    RefPayloadV1.from_ref(Ref.dimension(path)) for path in dimension_refs
+                    RefPayloadV1.from_ref(ref_factory.dimension(path)) for path in dimension_refs
                 )
                 + ((anchor_time_ref,) if anchor_time_ref is not None else ()),
                 slice_predicates=_slice_predicates(catalog, stored_where),
@@ -1432,7 +1435,9 @@ def _observe_metric_forest(
             catalog_definition_fingerprint=session.catalog.definition_fingerprint,
             semantic_dependency_digest=graph_plan.forest.dependency_digest,
             metric_identities=graph_plan.forest.identities,
-            axis_refs=tuple(RefPayloadV1.from_ref(Ref.dimension(path)) for path in dimension_refs)
+            axis_refs=tuple(
+                RefPayloadV1.from_ref(ref_factory.dimension(path)) for path in dimension_refs
+            )
             + ((anchor_time_ref,) if anchor_time_ref is not None else ()),
             slice_predicates=_slice_predicates(session.catalog, stored_where),
         )
@@ -1776,7 +1781,11 @@ def _axis_bindings(catalog: Any, axes: dict[str, Any]) -> tuple[AxisBindingV1, .
         dimension = registry.dimensions.get(path)
         if dimension is None:
             continue
-        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if dimension.is_time_dimension
+            else ref_factory.dimension(path)
+        )
         bindings.append(
             AxisBindingV1(
                 ref=RefPayloadV1.from_ref(ref),
@@ -1795,7 +1804,11 @@ def _slice_predicates(catalog: Any, where: dict[str, Any]) -> tuple[SlicePredica
         dimension = registry.dimensions.get(path)
         if dimension is None:
             continue
-        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if dimension.is_time_dimension
+            else ref_factory.dimension(path)
+        )
         predicates.append(
             SlicePredicateV1(
                 dimension_ref=RefPayloadV1.from_ref(ref),
@@ -1810,7 +1823,11 @@ def _dimension_ref_payloads(catalog: Any, paths: list[str]) -> list[dict[str, st
     payloads: list[dict[str, str]] = []
     for path in paths:
         dimension = registry.dimensions[path]
-        ref = Ref.time_dimension(path) if dimension.is_time_dimension else Ref.dimension(path)
+        ref = (
+            ref_factory.time_dimension(path)
+            if dimension.is_time_dimension
+            else ref_factory.dimension(path)
+        )
         payloads.append(RefPayloadV1.from_ref(ref).to_dict())
     return payloads
 
@@ -1826,7 +1843,7 @@ def _comparable_slice(catalog: Any, where: dict[str, Any]) -> tuple[CanonicalSli
 
 
 def _status_time_dimension_payload(path: str | None) -> RefPayloadV1 | None:
-    return RefPayloadV1.from_ref(Ref.time_dimension(path)) if path is not None else None
+    return RefPayloadV1.from_ref(ref_factory.time_dimension(path)) if path is not None else None
 
 
 def _observe_job_semantics(frame: MetricFrame) -> dict[str, Any]:

@@ -113,11 +113,19 @@ def test_root_and_ref_help_teach_one_entry_to_ref_handoff() -> None:
 
     assert "CatalogEntry" in root
     assert "entry.ref" in root
-    assert "ms.Ref.<kind>(path)" in root
-    assert "entry = catalog.require(ms.Ref.metric('sales.revenue'))" in focused
+    assert "ms.ref.<kind>(path)" in root
+    assert "entry = catalog.require(ms.ref.metric('sales.revenue'))" in focused
     assert "metric_ref = entry.ref" in focused
-    assert "field_ref(entity_alias)" in focused
-    assert "ms.bind" not in focused
+    assert "ms.bind(field_ref, entity_alias)" in focused
+    assert "bind" in root
+
+    factory = ms.help_text(ms.ref)
+    assert factory.startswith("ref\n")
+    assert "ms.ref.<kind>(path)" in factory
+    assert ms.help_text("ref") == factory
+
+    bind = ms.help_text(ms.bind)
+    assert "ms.bind(amount, orders)" in bind
 
 
 def test_help_resolves_error_type_target() -> None:

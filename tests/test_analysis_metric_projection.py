@@ -7,7 +7,7 @@ import pytest
 
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.refs import Ref
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import (
     make_test_metric_meta_contract,
     make_test_multi_metric_contract,
@@ -214,8 +214,8 @@ def _fused(sales_session):
     catalog = sales_session.catalog
     return observe(
         [
-            catalog.require(Ref.metric("sales.revenue")).ref,
-            catalog.require(Ref.metric("sales.order_count")).ref,
+            catalog.require(ref_factory.metric("sales.revenue")).ref,
+            catalog.require(ref_factory.metric("sales.order_count")).ref,
         ],
         time_scope=_PROJECTION_WINDOW,
         grain="day",
@@ -250,7 +250,7 @@ def test_projection_returns_arity_1_frame(sales_session):
 def test_projection_on_arity_1_returns_self(sales_session):
     catalog = sales_session.catalog
     single = observe(
-        catalog.require(Ref.metric("sales.revenue")).ref,
+        catalog.require(ref_factory.metric("sales.revenue")).ref,
         time_scope=_PROJECTION_WINDOW,
         grain="day",
         session=sales_session,

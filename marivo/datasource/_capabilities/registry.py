@@ -306,7 +306,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
             constraints=constraints["configured"],
-            example='md.test(ms.Ref.datasource("warehouse"))',
+            example='md.test(ms.ref.datasource("warehouse"))',
             produced_state="datasource.connection_validated",
         ),
         _capability(
@@ -371,7 +371,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
             constraints=constraints["configured"],
-            example='md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))',
+            example='md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))',
             preconditions=("datasource.registered",),
             produced_state="source.inspected",
             required_states=_states("datasource.registered"),
@@ -394,7 +394,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 flags=("requires_positive_row_guard",),
             ),
             constraints=constraints["configured"],
-            example='md.raw_sql(ms.Ref.datasource("warehouse"), "SELECT 1", reason="check connectivity")',
+            example='md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="check connectivity")',
         ),
         _capability(
             "help",
@@ -488,7 +488,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             kind="method",
             output="PartitionInspection",
             inputs=_inputs(("receiver", "SourceInspection")),
-            example='inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))\ninspection.partitions()',
+            example='inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\ninspection.partitions()',
             public_entrypoint="inspection.partitions",
         ),
         _capability(

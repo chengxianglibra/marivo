@@ -46,7 +46,7 @@ def test_cumulative_load_resolves_single_time_dimension_and_non_additive(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
@@ -58,7 +58,7 @@ def test_cumulative_load_resolves_single_time_dimension_and_non_additive(
     monkeypatch.chdir(root)
 
     catalog = ms.load()
-    details = catalog.require(ms.Ref.metric("sales.cum_active_users")).details()
+    details = catalog.require(ms.ref.metric("sales.cum_active_users")).details()
 
     assert details.metric_type == "derived"
     assert details.composition == "cumulative"
@@ -72,7 +72,7 @@ def test_cumulative_rejects_derived_base(tmp_path: Path, monkeypatch: pytest.Mon
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
@@ -101,7 +101,7 @@ def test_cumulative_rejects_unsupported_base_aggregation(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
@@ -127,7 +127,7 @@ def test_cumulative_omitted_over_rejects_multiple_time_dimensions(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "created_at = ms.time_dimension_column("
         "name='created_at', entity=orders, column='created_at', granularity='day', "
@@ -158,7 +158,7 @@ def test_cumulative_rejects_tier2_body_base(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
@@ -187,14 +187,14 @@ def test_cumulative_rejects_unknown_over_ref(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=orders, column='created_at', granularity='day')\n"
         "amount = ms.measure_column("
         "name='amount', entity=orders, column='amount', additivity='additive')\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-        "bogus_ref = ms.Ref.time_dimension('sales.orders.nonexistent')\n"
+        "bogus_ref = ms.ref.time_dimension('sales.orders.nonexistent')\n"
         "bad = ms.cumulative(name='bad', base=revenue, over=bogus_ref)\n",
     )
     monkeypatch.chdir(root)
@@ -221,7 +221,7 @@ def test_cumulative_rejects_non_root_over_axis(
         tmp_path,
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "shipments = ms.entity(name='shipments', datasource=warehouse, "
         "source=md.table('shipments'))\n"

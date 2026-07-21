@@ -69,7 +69,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False, with_event_date=False):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -1358,7 +1358,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
 
 def test_transform_slice_accepts_catalog_dimension_ref(tmp_path):
     frame = _make_segmented(tmp_path)
-    country = session_attach.current().catalog.require(ms.Ref.dimension("sales.orders.country")).ref
+    country = session_attach.current().catalog.require(ms.ref.dimension("sales.orders.country")).ref
 
     sliced = _active_transform(frame, op="slice", slice_by={country: "US"})
 
@@ -1681,7 +1681,7 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=ms.Ref.datasource('warehouse'),\n"
+        "    datasource=ms.ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"
@@ -1788,7 +1788,7 @@ def _bootstrap_cumulative_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = ms.Ref.datasource('warehouse')\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"

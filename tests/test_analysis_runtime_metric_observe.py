@@ -87,7 +87,7 @@ def runtime_session(tmp_path):
 
 def _measure_ref(session):
     measure_id = next(iter(session.catalog._require_index().registry.measures))
-    return session.catalog.require(ms.Ref.measure(measure_id)).ref
+    return session.catalog.require(ms.ref.measure(measure_id)).ref
 
 
 def _named_measure_ref(session, name: str):
@@ -96,7 +96,7 @@ def _named_measure_ref(session, name: str):
         for semantic_id, measure in session.catalog._require_index().registry.measures.items()
         if measure.name == name
     )
-    return session.catalog.require(ms.Ref.measure(measure_id)).ref
+    return session.catalog.require(ms.ref.measure(measure_id)).ref
 
 
 def _region_ref(session):
@@ -105,7 +105,7 @@ def _region_ref(session):
         for semantic_id, dimension in session.catalog._require_index().registry.dimensions.items()
         if dimension.name == "region"
     )
-    return session.catalog.require(ms.Ref.dimension(region_id)).ref
+    return session.catalog.require(ms.ref.dimension(region_id)).ref
 
 
 def _persistence_state(session) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
@@ -170,7 +170,7 @@ def test_observe_runtime_weighted_mean_uses_exact_paired_components(runtime_sess
 
 def test_catalog_weighted_mean_filter_uses_authored_physical_column(runtime_session) -> None:
     metric = runtime_session.catalog.require(
-        ms.Ref.metric("sales.filtered_catalog_weighted_mean")
+        ms.ref.metric("sales.filtered_catalog_weighted_mean")
     ).ref
 
     frame = runtime_session.observe(metric)
@@ -236,7 +236,7 @@ def test_runtime_weighted_mean_rejects_missing_measure_with_structured_repair(
     with pytest.raises(ObservePlanningError, match="is not loaded") as exc_info:
         runtime_session.observe(
             mv.runtime_metric.weighted_mean(
-                ms.Ref.measure("sales.orders.runtime_only_value_measur"),
+                ms.ref.measure("sales.orders.runtime_only_value_measur"),
                 weight,
             )
         )
@@ -257,7 +257,7 @@ def test_compare_catalog_and_equivalent_runtime_weighted_mean(runtime_session) -
     value = _named_measure_ref(runtime_session, "unit_price_measure")
     weight = _named_measure_ref(runtime_session, "request_weight_measure")
     catalog_metric = runtime_session.catalog.require(
-        ms.Ref.metric("sales.catalog_weighted_mean")
+        ms.ref.metric("sales.catalog_weighted_mean")
     ).ref
 
     catalog_frame = runtime_session.observe(catalog_metric)
@@ -271,7 +271,7 @@ def test_runtime_weighted_mean_can_feed_runtime_ratio(runtime_session) -> None:
     value = _named_measure_ref(runtime_session, "unit_price_measure")
     weight = _named_measure_ref(runtime_session, "request_weight_measure")
     catalog_metric = runtime_session.catalog.require(
-        ms.Ref.metric("sales.catalog_weighted_mean")
+        ms.ref.metric("sales.catalog_weighted_mean")
     ).ref
     weighted = mv.runtime_metric.weighted_mean(value, weight)
 
@@ -379,7 +379,7 @@ def test_observe_runtime_conditional_ratio_pushes_branch_slices(runtime_session)
 
 def test_observe_runtime_ratio_can_mix_catalog_child(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    revenue = runtime_session.catalog.require(ms.Ref.metric("sales.measure_revenue")).ref
+    revenue = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     runtime_total = mv.runtime_metric.aggregate(amount, agg="sum")
 
     frame = runtime_session.observe(mv.runtime_metric.ratio(runtime_total, revenue))
@@ -392,7 +392,7 @@ def test_observe_runtime_ratio_can_mix_catalog_child(runtime_session) -> None:
 
 def test_compare_catalog_and_equivalent_runtime_aggregate(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    catalog_metric = runtime_session.catalog.require(ms.Ref.metric("sales.measure_revenue")).ref
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     runtime_expression = mv.runtime_metric.aggregate(amount, agg="sum")
 
     current = runtime_session.observe(catalog_metric)
@@ -413,7 +413,7 @@ def test_compare_catalog_and_equivalent_runtime_ratio_uses_graph_identity(
     catalog_is_current: bool,
 ) -> None:
     amount = _measure_ref(runtime_session)
-    catalog_metric = runtime_session.catalog.require(ms.Ref.metric("sales.measure_average")).ref
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_average")).ref
     runtime_expression = mv.runtime_metric.ratio(
         mv.runtime_metric.aggregate(amount, agg="sum"),
         mv.runtime_metric.aggregate(amount, agg="count"),
@@ -527,7 +527,7 @@ def test_runtime_expression_replay_uses_persisted_typed_descriptor(runtime_sessi
 
 def test_multi_root_replay_recovers_the_ordered_forest(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    catalog_metric = runtime_session.catalog.require(ms.Ref.metric("sales.measure_revenue")).ref
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     source = runtime_session.observe(
         [mv.runtime_metric.aggregate(amount, agg="sum"), catalog_metric]
     )
@@ -617,7 +617,7 @@ def test_public_observe_and_projection_keep_only_selected_runtime_root(runtime_s
 
 def test_multi_root_evidence_preserves_each_metric_unit(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
-    catalog_metric = runtime_session.catalog.require(ms.Ref.metric("sales.measure_revenue")).ref
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     frame = runtime_session.observe(
         [mv.runtime_metric.aggregate(amount, agg="sum"), catalog_metric]
     )
@@ -749,7 +749,7 @@ def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> N
     amount = _measure_ref(runtime_session)
     current = runtime_session.observe(mv.runtime_metric.aggregate(amount, agg="sum"))
     baseline = runtime_session.observe(
-        runtime_session.catalog.require(ms.Ref.metric("sales.measure_revenue")).ref
+        runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     )
     delta = runtime_session.compare(current, baseline)
     meta_path = runtime_session._layout.frames_dir / delta.ref / "meta.json"

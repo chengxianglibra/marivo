@@ -106,7 +106,7 @@ def _bootstrap_bandwidth(
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=ms.Ref.datasource('warehouse'),\n"
+        "    datasource=ms.ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"
@@ -237,7 +237,7 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
             time_scope={"start": "2026-01-01", "end": "2026-01-02"},
             grain="day",
             time_dimension=session.catalog.require(
-                ms.Ref.time_dimension("sales.bandwidth_samples.dt")
+                ms.ref.time_dimension("sales.bandwidth_samples.dt")
             ).ref,
         )
 
@@ -660,7 +660,7 @@ def _bootstrap_hour_prefix(tmp_path):
         "\n"
         "hourly_bandwidth = ms.entity(\n"
         "    name='hourly_bandwidth',\n"
-        "    datasource=ms.Ref.datasource('warehouse'),\n"
+        "    datasource=ms.ref.datasource('warehouse'),\n"
         "    primary_key=['obs_id'],\n"
         "    source=md.table('hourly_bandwidth'),\n"
         ")\n"

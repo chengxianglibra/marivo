@@ -45,7 +45,7 @@ def _build_event_time_axis() -> Ref[TimeDimensionKind]:
     """Declare a minimal events entity + event_time time dimension, return the ref."""
     events = ms.entity(
         name="events",
-        datasource=ms.Ref.datasource("warehouse"),
+        datasource=ms.ref.datasource("warehouse"),
         source=md.table("events"),
     )
 
@@ -58,7 +58,7 @@ def _build_event_time_axis() -> Ref[TimeDimensionKind]:
 
 def _measure(name: str, entity: str, *, additivity: str = "additive"):
     return ms.measure_column(
-        entity=ms.Ref.entity(entity), name=name, column=name, additivity=additivity
+        entity=ms.ref.entity(entity), name=name, column=name, additivity=additivity
     )
 
 
@@ -253,7 +253,7 @@ _CUMULATIVE_PROJECT = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = ms.Ref.datasource("wh")
+wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="created_at", granularity="day")

@@ -35,7 +35,7 @@ def _require_kind[KindT: SemanticKindTag](
         _raise(
             ErrorKind.INVALID_REF,
             f"Resolver requires an exact Ref; received {type(value).__name__}. "
-            "Pass entry.ref or construct ms.Ref.<kind>(path).",
+            "Pass entry.ref or construct ms.ref.<kind>(path).",
             cls=SemanticRuntimeError,
         )
     ref = value

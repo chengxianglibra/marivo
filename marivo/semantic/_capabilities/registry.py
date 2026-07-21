@@ -38,6 +38,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[metric]",
         "Ref[relationship]",
         "Ref[dimension | time_dimension]",
+        "Ref[dimension | time_dimension | measure]",
         "CatalogEntry",
         "SemanticCatalog",
         "DiscoverySnapshot",
@@ -84,6 +85,7 @@ INPUT_FAMILIES = frozenset(
         "TrailingSpec",
         "WhereFilter",
         "FilterConditions",
+        "EntityAlias",
     }
 )
 
@@ -107,6 +109,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[metric]",
         "Ref[relationship]",
         "Ref[dimension | time_dimension]",
+        "Ref[dimension | time_dimension | measure]",
         "JoinKey",
         "SqlProvenance",
         "AiContextValue",
@@ -121,6 +124,7 @@ OUTPUT_FAMILIES = frozenset(
         "None",
         "Text",
         "WhereFilter",
+        "IbisValue",
     }
 )
 
@@ -515,6 +519,19 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # Low-level expression builders (public authoring surface)
         # ------------------------------------------------------------------
         _capability(
+            "bind",
+            "marivo.semantic._expression_binding.bind",
+            "Apply one semantic field ref to a direct entity alias in an expression body.",
+            output="IbisValue",
+            inputs=_inputs(
+                ("subject", "Ref[dimension | time_dimension | measure]"),
+                ("dependency", "EntityAlias"),
+            ),
+            effects=_NONE,
+            constraints=("expression_binding",),
+            example="ms.bind(amount, orders)",
+        ),
+        _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
             "Declare a base metric with an expression body.",
@@ -779,7 +796,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("subject", "Ref"),
             ),
             effects=_LOCAL,
-            example="catalog.require(ms.Ref.metric('sales.revenue'))",
+            example="catalog.require(ms.ref.metric('sales.revenue'))",
             public_entrypoint="catalog.require",
         ),
     )
@@ -804,6 +821,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "relationship",
                 "join_on",
                 "from_sql",
+                "bind",
                 "metric",
                 "ai_context",
                 "snapshot",
@@ -838,6 +856,7 @@ REGISTRY = _build_registry()
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
     from marivo.refs import Ref, SemanticKind
+    from marivo.refs import ref as ref_factory
     from marivo.semantic.catalog import (
         CatalogCollection,
         CatalogEntry,
@@ -1098,6 +1117,21 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "preview",
             "preview_many",
             "readiness",
+        ),
+    )
+    add(
+        type(ref_factory),
+        "ref",
+        (),
+        methods=(
+            "domain",
+            "datasource",
+            "entity",
+            "dimension",
+            "time_dimension",
+            "measure",
+            "metric",
+            "relationship",
         ),
     )
     # IR types

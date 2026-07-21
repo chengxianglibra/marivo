@@ -7,7 +7,8 @@ from typing import cast
 
 import pytest
 
-from marivo.refs import Ref, RefPayloadV1
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     MAX_EXPRESSION_OCCURRENCES,
     CanonicalSliceEntryV1,
@@ -42,11 +43,11 @@ def _record(node):
 
 
 def _metric_payload(path: str) -> RefPayloadV1:
-    return RefPayloadV1.from_ref(Ref.metric(path))
+    return RefPayloadV1.from_ref(ref_factory.metric(path))
 
 
 def _dimension_payload(path: str) -> RefPayloadV1:
-    return RefPayloadV1.from_ref(Ref.dimension(path))
+    return RefPayloadV1.from_ref(ref_factory.dimension(path))
 
 
 def _ratio_graph() -> MetricExpressionGraphV1:

@@ -21,7 +21,7 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "user_history_ref = ms.Ref.entity('sales.user_history')\n"
+                "user_history_ref = ms.ref.entity('sales.user_history')\n"
                 "@ms.dimension(entity=user_history_ref)\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
@@ -30,7 +30,7 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
                 "    return t.valid_to\n"
                 "user_history = ms.entity(\n"
                 "    name='user_history',\n"
-                "    datasource=ms.Ref.datasource('warehouse'),\n"
+                "    datasource=ms.ref.datasource('warehouse'),\n"
                 "    source=md.table('user_history'),\n"
                 f"    primary_key={primary_key},\n"
                 "    versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),\n"
@@ -148,7 +148,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

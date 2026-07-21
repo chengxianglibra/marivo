@@ -35,7 +35,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -60,7 +60,7 @@ def test_verify_object_entity_is_static_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
+    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
 
     assert result.status == "passed"
     assert result.kind == "entity"
@@ -76,7 +76,7 @@ def test_verify_object_entity_uses_current_source_declaration(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
+    first = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
     assert first.status == "passed"
     assert first.runtime_checked is False
 
@@ -93,14 +93,14 @@ def test_verify_object_entity_uses_current_source_declaration(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders_v2'))\n"
             )
         },
         workspace_dir=tmp_path,
     )
 
-    second = ms.SemanticCatalog(project2).verify(ms.Ref.entity("sales.orders"))
+    second = ms.SemanticCatalog(project2).verify(ms.ref.entity("sales.orders"))
     assert second.status == "passed"
     assert second.validation_level == "static"
     assert second.runtime_checked is False
@@ -153,7 +153,7 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
-        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def amount(orders):\n"
         "    return orders.amount\n"
@@ -161,7 +161,7 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.Ref.measure("sales.orders.amount"))
+    result = ms.SemanticCatalog(project).verify(ms.ref.measure("sales.orders.amount"))
 
     assert result.status == "passed"
     assert result.kind == "measure"
@@ -182,5 +182,5 @@ def test_verify_known_ref_is_not_found_when_loaded(
     assert project.is_ready()
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        ms.SemanticCatalog(project).verify(ms.Ref.metric("sales.nonexistent_metric"))
+        ms.SemanticCatalog(project).verify(ms.ref.metric("sales.nonexistent_metric"))
     assert exc_info.value.kind == "not_found"
