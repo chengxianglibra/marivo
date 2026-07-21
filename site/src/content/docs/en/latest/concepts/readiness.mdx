@@ -41,8 +41,9 @@ individually.
 
 `ready` means the selected semantic objects have no readiness blocker.
 `ready_with_warnings` may include missing datasource snapshot or stale preview
-evidence, while `analysis_ready_refs` still identifies the directly requested
-refs whose dependency closures have no blocker. Neither status is a runtime
+evidence, while `analysis_ready_inputs` identifies the directly requested refs
+and runtime metric expressions whose dependency closures have no blocker.
+`analysis_ready_refs` remains the refs-only projection. Neither status is a runtime
 authorization token: readiness does not record the user's approval, guarantee
 every future query, or decide whether a conclusion is suitable for a business
 decision.
@@ -53,10 +54,11 @@ to inspect the technical contract.
 ## Zero-query closeout after scoped runtime evidence
 
 `catalog.readiness(refs=[...])` is a **pure in-memory check**. It never opens a datasource
-connection — it reasons about the declarations themselves: missing definitions,
-unknown refs, fan-out across datasources, fragile string references, and SQL
-parity status. It does not inspect GitHub/GitLab approval state and does not
-make audit-approval judgments.
+connection — it reasons about the declarations themselves and lowers closed
+runtime metric expressions through the same bounded graph contract used by
+analysis. It checks missing definitions, unknown governed leaves, graph budgets,
+datasource compatibility, fragile string references, and SQL parity status. It
+does not inspect GitHub/GitLab approval state or make audit-approval judgments.
 
 Backend-touching validation is separate and runs on demand:
 
@@ -86,6 +88,7 @@ required for readiness.
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
 | `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
 | `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
+| `analysis_ready_inputs` | `tuple[Ref | RuntimeMetricExpr, ...]` | Ordered directly requested roots whose governed dependency closures contain no blocker. |
 | `analysis_ready_refs` | `tuple[Ref, ...]` | Directly requested refs whose dependency closures contain no blocker. |
 | `preview_required_refs` | `tuple[Ref, ...]` | Typed executable refs with missing or stale preview certification. |
 | `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
@@ -111,8 +114,8 @@ target:
 `report.show()` groups multiple `runtime_preview_missing` warnings into one batch
 repair hint while `report.warnings` retains per-ref detail. `report.to_dict()`
 returns the full machine list; `report.contract()` exposes one batch `preview`
-transition when preview evidence is missing. Certified refs remain available
-directly through `analysis_ready_refs`.
+transition when preview evidence is missing. Certified roots remain available
+through `analysis_ready_inputs`; `analysis_ready_refs` is the refs-only projection.
 
 Optional `guardrails` enrichment is reported by readiness and richness; it does
 not block certification.
@@ -125,6 +128,7 @@ not block certification.
 | `unknown_ref` | blocker | A requested ref is not in the registry. | Fix the ref or remove it from the readiness scope. |
 | `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
 | `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
+| `metric_graph_invalid` | blocker | A catalog/runtime graph violates a governed-leaf, weighted-mean, datasource-domain, depth, or occurrence constraint. | Repair the reported leaf or rebuild the closed expression within the graph limits. |
 | `missing_guardrails` | warning | A checked metric, entity, dimension, measure, or time dimension has no `ai_context.guardrails`. Guardrails are recommended enrichment, not a certification requirement. | Add `guardrails` when explicit usage constraints would help. |
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
@@ -134,9 +138,10 @@ not block certification.
 
 ## Scope the check
 
-Pass exact refs through `refs=` to scope readiness to the objects
-being authored, changed, or explicitly certified. Marivo resolves the full dependency closure (the
-metric, its measures, dimensions, entities, and datasources) for you:
+Pass exact refs or closed `RuntimeMetricExpr` values through `refs=` to scope
+readiness to the objects and runtime roots being certified. Mixed lists retain
+their order. Marivo resolves governed leaves and their full dependency closure
+(metrics, measures, dimensions, entities, and datasources) for you:
 
 ```python
 revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
@@ -156,8 +161,9 @@ how analysis records what it concludes, see [Evidence](/en/latest/concepts/evide
 
 ## Continue to analysis
 
-When readiness is not blocked, `analysis_ready_refs` contains only the directly
-requested refs whose dependency closures have no blocker. Warnings remain
+When readiness is not blocked, `analysis_ready_inputs` contains the directly
+requested refs and runtime expressions whose dependency closures have no
+blocker. `analysis_ready_refs` remains the refs-only projection. Warnings remain
 visible on the same report and must be disclosed before the caller chooses to
 proceed. `snapshot_missing` and `runtime_preview_missing` warnings do not stop
 routine analysis. There is no second transfer object.
@@ -171,8 +177,8 @@ report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()
     raise SystemExit
-ready_refs = report.analysis_ready_refs
+ready_inputs = report.analysis_ready_inputs
 ```
 
 Readiness remains explicit: analysis operators do not run it automatically.
-Pass only the listed refs to the ordinary analysis APIs after handling warnings.
+Pass only the listed inputs to the ordinary analysis APIs after handling warnings.

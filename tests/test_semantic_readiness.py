@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import textwrap
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
+from marivo.analysis.runtime_metric import from_replay_payload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
@@ -149,6 +151,33 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
             "path": "sales.total_amount",
         }
     ]
+
+
+def test_readiness_report_runtime_inputs_are_json_safe_and_replayable() -> None:
+    expression = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.orders.amount"),
+        agg="sum",
+        label="Runtime revenue",
+    )
+    report = ReadinessReport(
+        status="ready",
+        analysis_ready_refs=(),
+        analysis_ready_inputs=(expression,),
+        blockers=(),
+        warnings=(),
+        input_summary=ReadinessInputSummary(
+            datasources=("warehouse",),
+            refs=("sales.orders.amount",),
+            tables=("sales.orders",),
+        ),
+        checked_at="2026-07-21T00:00:00Z",
+    )
+
+    payload = json.loads(json.dumps(report.to_dict()))
+
+    assert payload["analysis_ready_refs"] == []
+    assert payload["analysis_ready_inputs"][0]["schema"] == "marivo.runtime_metric_expr/v1"
+    assert from_replay_payload(payload["analysis_ready_inputs"][0]) == expression
 
 
 def test_project_readiness_accepts_refs_argument(

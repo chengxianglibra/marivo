@@ -85,7 +85,7 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | `catalog.verify(ref)` | Static, zero-query validation of one exact ref. |
 | `catalog.preview(ref, using=snapshot_or_mapping)` | Scoped runtime preview for one ref, bound to matching snapshot evidence. |
 | `catalog.preview_many(refs, using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
-| `catalog.readiness(refs=[ref])` | Zero-query readiness gate scoped to exact semantic refs. |
+| `catalog.readiness(refs=[ref_or_runtime_expr])` | Zero-query readiness gate scoped to exact semantic refs or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
@@ -293,8 +293,11 @@ style. The mapping from error kind to agent action is mechanical:
 
 Two checks sit at the end of the write loop:
 
-- **`catalog.readiness(refs=[ref])`** runs pure in-memory checks over the
-  dependency closure of exact refs selected for certification. It is
+- **`catalog.readiness(refs=[ref_or_runtime_expr])`** runs pure in-memory checks
+  over the governed dependency closure of exact refs and closed runtime metric
+  expressions selected for certification. Runtime expressions lower through
+  the same bounded graph contract as analysis, including weighted-mean,
+  datasource-domain, depth, and occurrence checks. It is
   the explicit certification and diagnostic at the end of an authoring change,
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
@@ -327,11 +330,13 @@ a readiness requirement. All three return silent result objects with `.show()` /
 
 ### Analysis-ready refs
 
-`ReadinessReport.analysis_ready_refs` is the result-owned list of directly
-requested refs whose full dependency closures contain no blocker. Dependency
-refs remain visible in `input_summary.refs` but are never leaked into the
-analysis handoff. Warnings remain visible on the same report and require an
-explicit proceed-or-stop decision by the caller.
+`ReadinessReport.analysis_ready_inputs` is the ordered result-owned list of
+directly requested refs and runtime expressions whose full dependency closures
+contain no blocker. `analysis_ready_refs` remains its refs-only compatibility
+projection. Governed leaf refs remain visible in `input_summary.refs` but are
+never substituted for the originally requested runtime expression. Warnings
+remain visible on the same report and require an explicit proceed-or-stop
+decision by the caller.
 
 The report and every issue carry the same `catalog_definition_fingerprint`.
 Persisted preview evidence matches only when its v1 checked-ref payload,

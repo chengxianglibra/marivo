@@ -108,7 +108,8 @@ semantic authoring 处理。
 
 :::note[什么时候运行 readiness]
 新建或修改 semantic objects 后，或者某个 workflow 要求 technical certification 时，
-运行 `catalog.readiness(refs=[...])`。Analysis APIs 不会自动调用它；日常分析也不需要在每次
+运行 `catalog.readiness(refs=[...])`。同一调用接受由 catalog refs 与封闭 `RuntimeMetricExpr`
+roots 组成的有序 mixed list，并通过 `analysis_ready_inputs` 返回通过的 roots。Analysis APIs 不会自动调用它；日常分析也不需要在每次
 `observe` 前刷新 authoring snapshots。Blocked report 表示所选 objects 尚未完成这次认证；
 先修复它们，再声明 semantic change 已完成。
 :::

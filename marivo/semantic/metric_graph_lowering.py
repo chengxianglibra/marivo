@@ -65,6 +65,7 @@ class MetricExpressionForestV1:
     dependency_digest: SemanticDependencyDigestV1
     identities: tuple[MetricIdentity, ...]
     presentation: ExpressionPresentationV1
+    root_dependency_refs: tuple[tuple[RefPayloadV1, ...], ...] = ()
 
 
 def _fail(*, kind: str, metric_id: str, path: str, message: str) -> NoReturn:

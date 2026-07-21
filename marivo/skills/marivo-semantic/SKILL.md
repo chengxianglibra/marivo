@@ -114,8 +114,8 @@ signature, transition call, or parameter table from this file:
     the active snapshot.
 11. **readiness** — run the registered readiness capability; follow typed
     repair for any blocker.
-12. **analysis** — use only live-marked `analysis_ready_refs` through the
-    ordinary analysis APIs.
+12. **analysis** — use only live-marked `analysis_ready_inputs` through the
+    ordinary analysis APIs; `analysis_ready_refs` is the refs-only projection.
 
 The router prefers object-near live guidance in this order: current structured
 error repair; current object/result `.contract()`; focused help for the target
@@ -320,13 +320,14 @@ not reconstruct them from conversation memory.
 | Condition | Route |
 | --- | --- |
 | Analysis reports a required business object genuinely does not exist | Activate `marivo-semantic`; follow the `semantic_authoring` repair and author the smallest dependency-closed set, one validated object at a time |
-| Semantic readiness exposes analysis-ready refs | Disclose warnings, apply the proceed-or-stop policy, then activate `marivo-analysis` with exactly `ReadinessReport.analysis_ready_refs` |
+| Semantic readiness exposes analysis-ready inputs | Disclose warnings, apply the proceed-or-stop policy, then activate `marivo-analysis` with exactly `ReadinessReport.analysis_ready_inputs` |
 | An unresolved business decision remains | One-question grill stop; stop mutation and validation for that object until answered |
 | An unresolved environment fingerprint mismatch | Environment-repair stop; no datasource, semantic, or analysis work proceeds until one authoritative environment is established |
 
 When semantic readiness is not blocked, the skill activates `marivo-analysis`
-with exactly the refs listed in `analysis_ready_refs`; it does not infer extra
-catalog work or create a second validation token. A semantic-first task may
+with exactly the refs or runtime expressions listed in `analysis_ready_inputs`;
+`analysis_ready_refs` remains available for refs-only consumers. It does not
+infer extra catalog work from governed leaves or create a second validation token. A semantic-first task may
 create or recover an analysis session before using those refs; no prior blocked
 analysis branch is required. A `ready_with_warnings` report does not prove that
 the runtime captured user or agent acceptance, so the skill explicitly
@@ -371,7 +372,7 @@ The skill does not provide fallback implementations or memorized workarounds.
 | A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
 | Static verification fails | Repair and reverify the same object |
 | Preview is missing or stale during authoring closeout | Run or repair scoped preview before declaring the object authoring-complete |
-| Preview is missing or stale during routine analysis | Disclose the advisory and continue with directly requested `analysis_ready_refs` unless another blocker applies |
+| Preview is missing or stale during routine analysis | Disclose the advisory and continue with directly requested `analysis_ready_inputs` unless another blocker applies |
 | Readiness is blocked | Follow typed repair; do not expose the blocked ref as analysis-ready |
 | Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then expose only ready refs |
 | Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |

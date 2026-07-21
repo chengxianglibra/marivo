@@ -160,7 +160,7 @@ analysis, become a semantic object, or erase the underlying semantic gap.
 | Condition | Route |
 | --- | --- |
 | A required business object is missing or must change | Stop the affected typed branch; optionally use terminal `md.raw_sql(...)`; defer `marivo-semantic` until closeout approval |
-| Semantic authoring returns ready refs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_refs` through the ordinary analysis APIs |
+| Semantic authoring returns ready inputs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_inputs` through the ordinary analysis APIs (`analysis_ready_refs` is the refs-only projection) |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
@@ -172,7 +172,8 @@ analysis. The agent records the exact gap, may use terminal raw SQL, and request
 approval for the smallest semantic change at closeout. Only after approval does
 it follow the semantic help target through `marivo-semantic`. After that change
 passes explicit readiness, analysis resumes with the report's current
-`analysis_ready_refs`.
+`analysis_ready_inputs`; runtime roots are never replaced by their governed leaf
+refs.
 
 ## Boundary-violation behavior
 

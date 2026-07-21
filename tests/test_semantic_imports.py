@@ -15,6 +15,8 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +160,20 @@ def test_readiness_public_dtos() -> None:
     assert ms.ReadinessReport is not None
     assert ms.ReadinessIssue is not None
     assert ms.ReadinessInputSummary is not None
+
+
+def test_semantic_import_does_not_load_analysis() -> None:
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import marivo.semantic; "
+            "raise SystemExit(1 if 'marivo.analysis' in sys.modules else 0)",
+        ],
+        check=False,
+    )
+
+    assert probe.returncode == 0
 
 
 def test_typing_submodule() -> None:
