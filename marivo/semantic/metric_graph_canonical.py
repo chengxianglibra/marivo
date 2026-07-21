@@ -269,6 +269,14 @@ def _fold_value(value: object, *, context: str) -> AggregateFoldInput:
     return ("percentile", float(pair[1]))
 
 
+def _zero_division_value(value: object, *, context: str) -> Literal["null", "error"]:
+    if value == "null":
+        return "null"
+    if value == "error":
+        return "error"
+    _invalid(f"{context} must be 'null' or 'error'")
+
+
 def _cumulative_anchor(value: object, *, context: str) -> CumulativeAnchorV1:
     if value == "all_history":
         return "all_history"
@@ -445,14 +453,13 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             {"kind", "numerator_id", "denominator_id", "zero_division", "unit_override"},
             context=context,
         )
-        zero_division = payload["zero_division"]
-        if zero_division not in {"null", "error"}:
-            _invalid(f"{context}.zero_division must be 'null' or 'error'")
         return RatioNodeV1(
             kind="ratio",
             numerator_id=_required_string(payload, "numerator_id", context=context),
             denominator_id=_required_string(payload, "denominator_id", context=context),
-            zero_division=cast("Literal['null', 'error']", zero_division),
+            zero_division=_zero_division_value(
+                payload["zero_division"], context=f"{context}.zero_division"
+            ),
             unit_override=_optional_string(payload, "unit_override", context=context),
         )
     if kind == "linear":
