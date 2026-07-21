@@ -513,9 +513,11 @@ class BaseFrame(RenderableResult):
             if not digest.items:
                 card.field("evidence", "no evidence findings emitted")
             else:
+                omitted_items = digest.omissions.omitted_items
+                full_rows_hint = "; call .to_pandas() for all rows" if omitted_items else ""
                 card.field(
                     "evidence",
-                    (f"items={len(digest.items)} omitted={digest.omissions.omitted_items}"),
+                    f"items={len(digest.items)} omitted={omitted_items}{full_rows_hint}",
                 )
                 from marivo.analysis.evidence.summary import render_digest_item
 
