@@ -31,7 +31,7 @@ from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
     gen_ref,
     params_digest,
-    require_numeric_column,
+    resolve_metric_value_column,
     resolve_session,
 )
 from marivo.analysis.intents._validate import cumulative_issue, require_single_metric
@@ -94,7 +94,14 @@ def forecast(
     )
 
     df = history._dataframe_copy()
-    value_col = require_numeric_column(df, measure_column, purpose="forecast history")
+    value_column = resolve_metric_value_column(
+        history,
+        df,
+        measure_column,
+        parameter="measure_column",
+        purpose="forecast history",
+    )
+    value_col = value_column.internal_name
     if df[value_col].isna().any():
         raise ForecastInputQualityError(message="forecast history contains NaN values")
     _ensure_no_time_gap(df, time_col=time_col, grain=grain)
@@ -130,7 +137,7 @@ def forecast(
     output = pd.DataFrame(rows)
     params = {
         "source_ref": history.ref,
-        "measure_column": value_col,
+        "measure_column": value_column.public_name,
         "horizon": horizon,
         "model": model,
         "seasonality_period": effective_seasonality,

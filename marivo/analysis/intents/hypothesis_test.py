@@ -33,7 +33,7 @@ from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
     gen_ref,
     params_digest,
-    require_numeric_column,
+    resolve_metric_value_column,
     resolve_session,
 )
 from marivo.analysis.intents._validate import require_single_metric
@@ -120,8 +120,22 @@ def hypothesis_test(
     started = monotonic()
     a_df = a._dataframe_copy()
     b_df = b._dataframe_copy()
-    a_value = require_numeric_column(a_df, value_a, purpose="hypothesis_test a")
-    b_value = require_numeric_column(b_df, value_b, purpose="hypothesis_test b")
+    a_value_column = resolve_metric_value_column(
+        a,
+        a_df,
+        value_a,
+        parameter="value_a",
+        purpose="hypothesis_test a",
+    )
+    b_value_column = resolve_metric_value_column(
+        b,
+        b_df,
+        value_b,
+        parameter="value_b",
+        purpose="hypothesis_test b",
+    )
+    a_value = a_value_column.internal_name
+    b_value = b_value_column.internal_name
 
     if a.meta.semantic_kind == "panel":
         segment_dims = _segment_dimensions(a)
@@ -163,8 +177,8 @@ def hypothesis_test(
     params = {
         "source_a_ref": a.ref,
         "source_b_ref": b.ref,
-        "value_a": a_value,
-        "value_b": b_value,
+        "value_a": a_value_column.public_name,
+        "value_b": b_value_column.public_name,
         "hypothesis": hypothesis,
         "method": "paired_t",
         "alignment": alignment_dump,

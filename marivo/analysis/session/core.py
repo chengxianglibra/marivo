@@ -925,8 +925,10 @@ class Session(RenderableResult):
         Args:
             a: First MetricFrame.
             b: Second MetricFrame.
-            measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
-            measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
+            measure_a: Public value column from ``a.value_columns``. Defaults to
+                the frame's unique metric value column.
+            measure_b: Public value column from ``b.value_columns``. Defaults to
+                the frame's unique metric value column.
             alignment: Defaults to ``mv.window_bucket()``.
             method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
             lag_range: Signed lags to explore for time-series or panel inputs
@@ -942,6 +944,8 @@ class Session(RenderableResult):
             >>> # lag=k pairs a[t] with b[t+k]; positive means a leads b.
             >>> result = session.correlate(
             ...     a, b,
+            ...     measure_a=a.value_columns[0],
+            ...     measure_b=b.value_columns[0],
             ...     alignment=mv.window_bucket(),
             ...     lag_range=range(-3, 4),
             ...     analysis_purpose="验证收入和订单量是否同向变化",
@@ -1003,7 +1007,8 @@ class Session(RenderableResult):
             seasonality_period: Override for the seasonality period. Defaults by grain
                 (day=7, week=52, month=12, quarter=4).
             interval_level: Confidence level for prediction intervals. Must be in (0, 1).
-            measure_column: Numeric column to forecast. Defaults to the frame's measure column.
+            measure_column: Public value column from ``history.value_columns``.
+                Defaults to the frame's unique metric value column.
 
         Raises:
             ForecastShapeUnsupportedError: ``history`` is not a time_series / panel MetricFrame,
@@ -1021,6 +1026,7 @@ class Session(RenderableResult):
             >>> forecast = session.forecast(
             ...     history,
             ...     horizon=30,
+            ...     measure_column=history.value_columns[0],
             ...     analysis_purpose="预测未来 30 天收入走势",
             ... )
             >>> forecast.show()
@@ -1119,8 +1125,10 @@ class Session(RenderableResult):
             a: Current MetricFrame.
             b: Baseline MetricFrame.
             hypothesis: Only ``"mean_changed"`` in v1.
-            value_a: Numeric column on ``a``. Defaults to the frame's measure column.
-            value_b: Numeric column on ``b``. Defaults to the frame's measure column.
+            value_a: Public value column from ``a.value_columns``. Defaults to
+                the frame's unique metric value column.
+            value_b: Public value column from ``b.value_columns``. Defaults to
+                the frame's unique metric value column.
             alignment: Defaults to ``mv.window_bucket()``.
             sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
             alpha: Significance level in (0, 0.5].
@@ -1137,6 +1145,8 @@ class Session(RenderableResult):
             >>> result = session.hypothesis_test(
             ...     cur,
             ...     base,
+            ...     value_a=cur.value_columns[0],
+            ...     value_b=base.value_columns[0],
             ...     analysis_purpose="验证收入变化是否统计显著",
             ... )
             >>> result.show()

@@ -30,7 +30,7 @@ from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._derived import (
     compose_lineage,
     ensure_frame_in_session,
-    require_numeric_column,
+    resolve_metric_value_column,
     resolve_session,
 )
 from marivo.analysis.intents._validate import require_single_metric
@@ -122,21 +122,33 @@ def correlate(
     started = monotonic()
     a_df = a._dataframe_copy()
     b_df = b._dataframe_copy()
-    a_value = require_numeric_column(a_df, measure_a, purpose="correlate a")
-    b_value = require_numeric_column(b_df, measure_b, purpose="correlate b")
+    a_value = resolve_metric_value_column(
+        a,
+        a_df,
+        measure_a,
+        parameter="measure_a",
+        purpose="correlate a",
+    )
+    b_value = resolve_metric_value_column(
+        b,
+        b_df,
+        measure_b,
+        parameter="measure_b",
+        purpose="correlate b",
+    )
     alignment_keys = _alignment_keys(
         a,
         b,
         a_df=a_df,
         b_df=b_df,
-        a_value=a_value,
-        b_value=b_value,
+        a_value=a_value.internal_name,
+        b_value=b_value.internal_name,
     )
     aligned, alignment_keys = _align(
         a_df,
         b_df,
-        a_value=a_value,
-        b_value=b_value,
+        a_value=a_value.internal_name,
+        b_value=b_value.internal_name,
         keys=alignment_keys,
     )
     series_keys = _lag_series_keys(a, b, alignment_keys=alignment_keys, lags=lags)
@@ -180,8 +192,8 @@ def correlate(
             "lag_mode": [lag_mode] * len(lags),
             "lag_offset": list(lags),
             "driver_field": [driver_field] * len(lags),
-            "value_column_a": [a_value] * len(lags),
-            "value_column_b": [b_value] * len(lags),
+            "value_column_a": [a_value.public_name] * len(lags),
+            "value_column_b": [b_value.public_name] * len(lags),
             "input_row_count_a": [len(a_df)] * len(lags),
             "input_row_count_b": [len(b_df)] * len(lags),
             "aligned_row_count": [lag_results[lag].aligned_row_count for lag in lags],
@@ -192,8 +204,8 @@ def correlate(
     params = {
         "source_a_ref": a.ref,
         "source_b_ref": b.ref,
-        "measure_a": a_value,
-        "measure_b": b_value,
+        "measure_a": a_value.public_name,
+        "measure_b": b_value.public_name,
         "alignment": alignment_dump,
         "method": method,
         "lags": list(lags),

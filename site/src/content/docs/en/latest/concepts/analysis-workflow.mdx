@@ -394,7 +394,7 @@ Measure the association between two metrics over aligned buckets.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `a`, `b` | `MetricFrame` | Yes | — | The two frames to associate. |
-| `measure_a`, `measure_b` | `str` | No | frame measure | Numeric column on each frame. |
+| `measure_a`, `measure_b` | `str` | No | frame measure | Public value name from each frame's `value_columns`. |
 | `alignment` | `AlignmentPolicy` | No | `window_bucket` | Bucket pairing. |
 | `method` | `"pearson"`, `"spearman"`, `"kendall"` | No | `"pearson"` | Correlation method. |
 | `lag_range` | `range` or sequence of signed integers | No | lag 0 | Lags to evaluate; `k` pairs `a[t]` with `b[t+k]`. Positive means `a` leads `b`; negative means `b` leads `a`. |
@@ -405,6 +405,9 @@ dropped after shifting so missing buckets do not collapse the time axis. Each
 lag requires at least two overlapping, non-constant pairs. The result contains
 one row per lag and records the strongest absolute correlation as
 `meta.best_lag`.
+
+Omit `measure_a` / `measure_b` to use each frame's unique metric value, or pass
+the exact public names returned by `a.value_columns` and `b.value_columns`.
 
 ### `forecast` → `ForecastFrame`
 
@@ -417,11 +420,11 @@ Project a time series or panel forward.
 | `model` | `"naive" \| "seasonal_naive" \| "drift"` | No | `"seasonal_naive"` | Forecast strategy. |
 | `seasonality_period` | `int` | No | by grain | Override the seasonal period (day=7, week=52, month=12, quarter=4). |
 | `interval_level` | `float` | No | `0.95` | Confidence level for the prediction interval. |
-| `measure_column` | `str` | No | frame measure | Column to forecast. |
+| `measure_column` | `str` | No | frame measure | Public value name from `history.value_columns`. |
 
 ```python
 history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
-projection = session.forecast(history, horizon=30)
+projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
 ### `assess_quality` → `QualityReport`
@@ -445,7 +448,7 @@ Paired test of whether a metric's mean changed between two periods.
 | --- | --- | --- | --- | --- |
 | `a`, `b` | `MetricFrame` | Yes | — | Current and baseline frames. |
 | `hypothesis` | `"mean_changed"` | No | `"mean_changed"` | Test type (v1). |
-| `value_a`, `value_b` | `str` | No | frame measure | Numeric column on each frame. |
+| `value_a`, `value_b` | `str` | No | frame measure | Public value name from each frame's `value_columns`. |
 | `alignment` | `AlignmentPolicy` | No | `window_bucket` | Pairing for the test. |
 | `sampling` | `SamplingPolicy` | No | inferred | Pairing/min-sample rules. |
 | `alpha` | `float` | No | `0.05` | Significance level. |
