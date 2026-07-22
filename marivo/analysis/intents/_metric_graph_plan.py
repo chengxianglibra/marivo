@@ -466,6 +466,86 @@ def _input_id(value: Any) -> str:
     return str(getattr(value, "id", value))
 
 
+def _dimension_ref_expression(value: Any, *, kind: SemanticKind) -> str:
+    dimension_id = _input_id(value)
+    factory = "time_dimension" if kind is SemanticKind.TIME_DIMENSION else "dimension"
+    return f"ms.ref.{factory}({dimension_id!r})"
+
+
+def _dimension_grain_candidates(
+    leaves: list[ResolvedMetricLeafV1],
+    dimensions: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return duplicate output-axis conflicts and single-entity grain repairs."""
+
+    if not leaves:
+        return [], []
+    planned = _base_plan(leaves[0]).dimensions
+    if len(planned) != len(dimensions):
+        return [], []
+
+    by_column: dict[str, list[int]] = {}
+    for index, item in enumerate(planned):
+        by_column.setdefault(item.column, []).append(index)
+
+    conflicts: list[dict[str, Any]] = []
+    conflicting_indices: set[int] = set()
+    common_entities: set[str] | None = None
+    for column, indices in by_column.items():
+        refs = [_input_id(dimensions[index]) for index in indices]
+        entities = [ref_id.rsplit(".", 1)[0] for ref_id in refs]
+        unique_entities = set(entities)
+        if len(set(refs)) < 2 or len(unique_entities) < 2:
+            continue
+        conflicts.append({"column": column, "refs": refs})
+        conflicting_indices.update(indices)
+        common_entities = (
+            unique_entities if common_entities is None else common_entities & unique_entities
+        )
+
+    if not conflicts or not common_entities:
+        return conflicts, []
+
+    entity_order: list[str] = []
+    for index in sorted(conflicting_indices):
+        entity = _input_id(dimensions[index]).rsplit(".", 1)[0]
+        if entity in common_entities and entity not in entity_order:
+            entity_order.append(entity)
+
+    candidates: list[dict[str, Any]] = []
+    for entity in entity_order[:4]:
+        selected_indices: list[int] = []
+        seen_conflict_columns: set[str] = set()
+        for index, dimension in enumerate(dimensions):
+            if index not in conflicting_indices:
+                selected_indices.append(index)
+                continue
+            dimension_id = _input_id(dimension)
+            column = planned[index].column
+            if dimension_id.rsplit(".", 1)[0] == entity and column not in seen_conflict_columns:
+                selected_indices.append(index)
+                seen_conflict_columns.add(column)
+        if len(seen_conflict_columns) != len(conflicts):
+            continue
+        candidate_ids = [_input_id(dimensions[index]) for index in selected_indices]
+        snippet = (
+            "dimensions=["
+            + ", ".join(
+                _dimension_ref_expression(dimensions[index], kind=planned[index].field.ref.kind)
+                for index in selected_indices
+            )
+            + "]"
+        )
+        candidates.append(
+            {
+                "entity": entity,
+                "dimensions": candidate_ids,
+                "snippet": snippet,
+            }
+        )
+    return conflicts, candidates
+
+
 def _base_plan(leaf: ResolvedMetricLeafV1) -> BaseObservePlan:
     return leaf.plan.base_plan if isinstance(leaf.plan, CumulativePhysicalLeafPlanV1) else leaf.plan
 
@@ -534,6 +614,63 @@ def _validate_leaf_comparability(
     where: dict[Any, Any] | None,
 ) -> None:
     """Validate the shared axes, filters, and snapshot resolution of all leaves."""
+
+    conflicts, grain_candidates = _dimension_grain_candidates(leaves, dimensions or [])
+    if conflicts and grain_candidates:
+        primary_column = conflicts[0]["column"]
+        resolved_components = [
+            {"metric": leaf.metric_id, "resolved_field_id": planned.field.semantic_id}
+            for leaf in leaves
+            for planned in _base_plan(leaf).dimensions
+            if planned.column == primary_column
+        ]
+        relationship_ids = sorted(
+            {
+                relationship["relationship"]
+                for leaf in leaves
+                for relationship in _base_plan(leaf).lineage_metadata.get("relationships", [])
+                if isinstance(relationship, dict)
+                and isinstance(relationship.get("relationship"), str)
+            }
+        )
+        conflict_text = "; ".join(
+            f"{item['column']}: {', '.join(item['refs'])}" for item in conflicts
+        )
+        relationship_text = ", ".join(relationship_ids) or "the planned relationship path"
+        retry_text = grain_candidates[0]["snippet"]
+        if len(grain_candidates) > 1:
+            retry_text += f"; alternative: {grain_candidates[1]['snippet']}"
+        repairs = [
+            RepairAction(
+                action="replace_dimensions",
+                target="session.observe",
+                arg="dimensions",
+                value=candidate["dimensions"],
+                safety=RepairSafety.MODELING_DECISION,
+                why=(
+                    f"use {candidate['entity']!r} as the single output grain across "
+                    f"relationship path {relationship_text}"
+                ),
+            )
+            for candidate in grain_candidates
+        ]
+        raise_observe_planning_error(
+            code="component-axis-field-mismatch",
+            message=(
+                "Observation dimensions define duplicate output axes across metric leaves "
+                f"({conflict_text}). Planned relationships already connect the entities: "
+                f"{relationship_text}. Choose one entity side as the output grain and retry "
+                f"with {retry_text}."
+            ),
+            candidates={
+                "dimension": conflicts[0]["refs"][0],
+                "components": resolved_components,
+                "conflicts": conflicts,
+                "relationships": relationship_ids,
+                "output_grain_candidates": grain_candidates,
+            },
+            repair=repairs,
+        )
 
     for raw_dimension in dimensions or ():
         dimension_id = _input_id(raw_dimension)

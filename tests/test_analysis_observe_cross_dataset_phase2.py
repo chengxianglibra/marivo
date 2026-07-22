@@ -550,6 +550,146 @@ def test_derived_ratio_multi_dataset_components_with_country_dimension(tmp_path)
     assert by_country["CA"] == pytest.approx(70.0)  # 70 / 1
 
 
+def _bootstrap_synonymous_relationship_dimensions(tmp_path):
+    semantic_dir = tmp_path / "models" / "semantic" / "water_economy"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='water_economy', owner='Mina Zhang')\n"
+    )
+    (semantic_dir / "indicators.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "water_records = ms.entity(name='water_records', datasource=ms.ref.datasource('warehouse'), primary_key=['region_code', 'year'], source=md.table('water_records'))\n"
+        "economic_records = ms.entity(name='economic_records', datasource=ms.ref.datasource('warehouse'), primary_key=['region_code', 'year'], source=md.table('economic_records'))\n"
+        "water_region_code = ms.dimension_column(name='region_code', entity=water_records, column='region_code')\n"
+        "water_region_name = ms.dimension_column(name='region_name', entity=water_records, column='region_name')\n"
+        "water_year = ms.dimension_column(name='year', entity=water_records, column='year')\n"
+        "economic_region_code = ms.dimension_column(name='region_code', entity=economic_records, column='region_code')\n"
+        "economic_region_name = ms.dimension_column(name='region_name', entity=economic_records, column='region_name')\n"
+        "economic_year = ms.dimension_column(name='year', entity=economic_records, column='year')\n"
+        "water_value = ms.measure_column(name='water_value', entity=water_records, column='water_value', additivity='additive')\n"
+        "gdp_value = ms.measure_column(name='gdp_value', entity=economic_records, column='gdp_value', additivity='non_additive')\n"
+        "water_total = ms.aggregate(name='water_total', measure=water_value, agg='sum')\n"
+        "gdp_per_capita = ms.aggregate(name='gdp_per_capita', measure=gdp_value, agg='mean')\n"
+        "ms.relationship(name='water_to_economy', from_entity=water_records, to_entity=economic_records, keys=[ms.join_on(water_region_code, economic_region_code), ms.join_on(water_year, economic_year)])\n"
+    )
+
+
+def _seed_synonymous_relationship_dimensions(con):
+    con.raw_sql(
+        "CREATE TABLE water_records "
+        "(region_code VARCHAR, region_name VARCHAR, year INTEGER, water_value DOUBLE)"
+    )
+    con.raw_sql(
+        "INSERT INTO water_records VALUES "
+        "('N', 'North', 2025, 10.0), ('S', 'South', 2025, 20.0), "
+        "('N', 'North', 2026, 12.0), ('S', 'South', 2026, 22.0)"
+    )
+    con.raw_sql(
+        "CREATE TABLE economic_records "
+        "(region_code VARCHAR, region_name VARCHAR, year INTEGER, gdp_value DOUBLE)"
+    )
+    con.raw_sql(
+        "INSERT INTO economic_records VALUES "
+        "('N', 'North', 2025, 100.0), ('S', 'South', 2025, 200.0), "
+        "('N', 'North', 2026, 110.0), ('S', 'South', 2026, 220.0)"
+    )
+
+
+def test_synonymous_relationship_dimensions_offer_executable_grain_repairs(tmp_path):
+    _bootstrap_synonymous_relationship_dimensions(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_synonymous_relationship_dimensions(con)
+    session = _session(con)
+    metrics = [
+        make_ref("water_economy.water_total", SemanticKind.METRIC),
+        make_ref("water_economy.gdp_per_capita", SemanticKind.METRIC),
+    ]
+    water_region = make_ref("water_economy.water_records.region_name", SemanticKind.DIMENSION)
+    water_year = make_ref("water_economy.water_records.year", SemanticKind.DIMENSION)
+    economic_region = make_ref("water_economy.economic_records.region_name", SemanticKind.DIMENSION)
+    economic_year = make_ref("water_economy.economic_records.year", SemanticKind.DIMENSION)
+
+    assert session.observe(metrics, dimensions=[water_year]).to_pandas().shape == (2, 3)
+    assert session.observe(metrics, dimensions=[economic_year]).to_pandas().shape == (2, 3)
+    assert session.observe(metrics, dimensions=[water_region, water_year]).to_pandas().shape == (
+        4,
+        4,
+    )
+    assert session.observe(
+        metrics, dimensions=[economic_region, economic_year]
+    ).to_pandas().shape == (4, 4)
+
+    with pytest.raises(ObservePlanningError) as exc_info:
+        session.observe(
+            metrics,
+            dimensions=[water_region, water_year, economic_region, economic_year],
+        )
+
+    error = exc_info.value
+    details = error._context
+    assert details["code"] == "component-axis-field-mismatch"
+    assert {
+        component["resolved_field_id"] for component in details["candidates"]["components"]
+    } == {
+        "water_economy.water_records.region_name",
+        "water_economy.economic_records.region_name",
+    }
+    assert details["candidates"]["relationships"] == ["water_economy.water_to_economy"]
+    assert details["candidates"]["conflicts"] == [
+        {
+            "column": "region_name",
+            "refs": [
+                "water_economy.water_records.region_name",
+                "water_economy.economic_records.region_name",
+            ],
+        },
+        {
+            "column": "year",
+            "refs": [
+                "water_economy.water_records.year",
+                "water_economy.economic_records.year",
+            ],
+        },
+    ]
+    candidates = details["candidates"]["output_grain_candidates"]
+    assert [candidate["entity"] for candidate in candidates] == [
+        "water_economy.water_records",
+        "water_economy.economic_records",
+    ]
+    assert candidates[0]["dimensions"] == [
+        "water_economy.water_records.region_name",
+        "water_economy.water_records.year",
+    ]
+    assert candidates[1]["dimensions"] == [
+        "water_economy.economic_records.region_name",
+        "water_economy.economic_records.year",
+    ]
+    assert [repair["action"] for repair in details["repair"]] == [
+        "replace_dimensions",
+        "replace_dimensions",
+    ]
+    assert all(repair["safety"] == "modeling_decision" for repair in details["repair"])
+    rendered = str(error)
+    assert "water_economy.water_to_economy" in rendered
+    assert "Choose one entity side as the output grain" in rendered
+    assert "dimensions=[ms.ref.dimension('water_economy.water_records.region_name')" in rendered
+    assert (
+        "alternative: dimensions=[ms.ref.dimension('water_economy.economic_records.region_name')"
+        in rendered
+    )
+
+    repaired_dimensions = [
+        make_ref(path, SemanticKind.DIMENSION) for path in details["repair"][0]["value"]
+    ]
+    assert session.observe(metrics, dimensions=repaired_dimensions).to_pandas().shape == (4, 4)
+
+
 def _bootstrap_axis_unreachable(tmp_path):
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
