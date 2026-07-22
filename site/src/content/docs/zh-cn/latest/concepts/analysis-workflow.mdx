@@ -339,7 +339,7 @@ total delta、contribution 合计、one-sided contribution 合计、未归因合
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `a`、`b` | `MetricFrame` | 是 | — | 要关联的两个 frame。 |
-| `measure_a`、`measure_b` | `str` | 否 | frame measure | 各 frame 上的数值列。 |
+| `measure_a`、`measure_b` | `str` | 否 | frame measure | 各 frame 的 `value_columns` 返回的公开值列名。 |
 | `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶配对。 |
 | `method` | `"pearson"`、`"spearman"`、`"kendall"` | 否 | `"pearson"` | 相关性计算方法。 |
 | `lag_range` | `range` 或有符号整数序列 | 否 | lag 0 | 要计算的 lag；`k` 表示 `a[t]` 对 `b[t+k]`。正值表示 `a` 领先 `b`，负值表示 `b` 领先 `a`。 |
@@ -348,6 +348,9 @@ total delta、contribution 合计、one-sided contribution 合计、未归因合
 不会跨序列边界配对；空值会在偏移后按配对过滤，因此缺失桶不会压缩时间轴。
 每个 lag 至少需要两个重叠且非常量的配对。结果为每个 lag 生成一行，并将绝对
 相关性最强的 lag 记录为 `meta.best_lag`。
+
+省略 `measure_a` / `measure_b` 时使用各 frame 唯一的 metric 值；显式指定时，
+传入 `a.value_columns` 与 `b.value_columns` 返回的准确公开名称。
 
 ### `forecast` → `ForecastFrame`
 
@@ -360,11 +363,11 @@ total delta、contribution 合计、one-sided contribution 合计、未归因合
 | `model` | `"naive" \| "seasonal_naive" \| "drift"` | 否 | `"seasonal_naive"` | 预测策略。 |
 | `seasonality_period` | `int` | 否 | 按 grain | 覆盖季节周期（day=7、week=52、month=12、quarter=4）。 |
 | `interval_level` | `float` | 否 | `0.95` | 预测区间的置信水平。 |
-| `measure_column` | `str` | 否 | frame measure | 要预测的列。 |
+| `measure_column` | `str` | 否 | frame measure | `history.value_columns` 返回的公开值列名。 |
 
 ```python
 history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
-projection = session.forecast(history, horizon=30)
+projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
 ### `assess_quality` → `QualityReport`
@@ -387,7 +390,7 @@ Report 的 `contract().issues` 包含类型化数据质量失败。存在 blocki
 | --- | --- | --- | --- | --- |
 | `a`、`b` | `MetricFrame` | 是 | — | 当前期与基线期 frame。 |
 | `hypothesis` | `"mean_changed"` | 否 | `"mean_changed"` | 检验类型（v1）。 |
-| `value_a`、`value_b` | `str` | 否 | frame measure | 各 frame 上的数值列。 |
+| `value_a`、`value_b` | `str` | 否 | frame measure | 各 frame 的 `value_columns` 返回的公开值列名。 |
 | `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 检验的配对方式。 |
 | `sampling` | `SamplingPolicy` | 否 | 推断 | 配对/最小样本规则。 |
 | `alpha` | `float` | 否 | `0.05` | 显著性水平。 |

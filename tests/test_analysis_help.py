@@ -381,6 +381,12 @@ def test_correlate_help_explains_signed_lag_semantics() -> None:
     assert "null pairs are dropped after shifting" in text
 
 
+@pytest.mark.parametrize("target", ["correlate", "forecast", "hypothesis_test"])
+def test_metric_value_selector_help_uses_public_value_columns(target: str) -> None:
+    text = _text(target)
+    assert ".value_columns[0]" in text
+
+
 def test_attribute_help_explains_additivity_boundary() -> None:
     text = _text("attribute")
 

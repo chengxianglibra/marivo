@@ -113,6 +113,103 @@ def test_correlate_common_key_alignment():
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
 
 
+def test_correlate_resolves_public_value_names_and_excludes_numeric_axes():
+    session = session_attach.get_or_create(name="demo")
+    axes = {"year": {"role": "dimension", "column": "year"}}
+    a = _metric(
+        session,
+        pd.DataFrame({"year": [2021, 2022, 2023], "value": [1.0, 2.0, 3.0]}),
+        metric_id="water.industrial_water_share",
+        semantic_model="water",
+        semantic_kind="segmented",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"year": [2023, 2021, 2022], "value": [30.0, 10.0, 20.0]}),
+        metric_id="water.gdp_per_capita",
+        semantic_model="water",
+        semantic_kind="segmented",
+        axes=axes,
+    )
+
+    inferred = session.correlate(a, b)
+    explicit = session.correlate(
+        a,
+        b,
+        measure_a=a.value_columns[0],
+        measure_b=b.value_columns[0],
+    )
+
+    for result in (inferred, explicit):
+        row = result.to_pandas().iloc[0]
+        assert row["driver_field"] == "year"
+        assert row["correlation"] == pytest.approx(1.0)
+        assert row["value_column_a"] == "industrial_water_share"
+        assert row["value_column_b"] == "gdp_per_capita"
+
+
+def test_correlate_invalid_measure_lists_public_valid_values():
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 2.0, 3.0]}),
+        metric_id="sales.revenue",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [2.0, 4.0, 6.0]}),
+        metric_id="sales.orders",
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.correlate(a, b, measure_a="missing")
+
+    assert "Valid measure_a values: ('revenue',)" in str(exc_info.value)
+    assert exc_info.value._context == {
+        "parameter": "measure_a",
+        "received": "missing",
+        "valid_values": ["revenue"],
+    }
+
+
+def test_correlate_accepts_collision_safe_public_value_name():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "short": {"role": "dimension", "column": "revenue"},
+        "qualified": {"role": "dimension", "column": "sales__revenue"},
+    }
+    axis_values = {
+        "revenue": ["a", "b", "c"],
+        "sales__revenue": ["x", "y", "z"],
+    }
+    a = _metric(
+        session,
+        pd.DataFrame({**axis_values, "value": [1.0, 2.0, 3.0]}),
+        metric_id="sales.revenue",
+        semantic_kind="segmented",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({**axis_values, "value": [10.0, 20.0, 30.0]}),
+        metric_id="sales.orders",
+        semantic_kind="segmented",
+        axes=axes,
+    )
+
+    assert a.value_columns == ("sales__revenue#2",)
+    result = session.correlate(
+        a,
+        b,
+        measure_a=a.value_columns[0],
+        measure_b=b.value_columns[0],
+    )
+
+    assert result.meta.correlation == pytest.approx(1.0)
+    assert result.to_pandas().iloc[0]["value_column_a"] == "sales__revenue#2"
+
+
 def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
     session = session_attach.get_or_create(name="demo")
     a = _metric(
@@ -264,16 +361,16 @@ def test_correlate_sample_alignment_truncates_and_drops_nulls():
     session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
-        pd.DataFrame({"left": [1.0, None, 3.0, 4.0]}),
+        pd.DataFrame({"value": [1.0, None, 3.0, 4.0]}),
         metric_id="sales.revenue",
     )
     b = _metric(
         session,
-        pd.DataFrame({"right": [1.0, 2.0, 3.0, 4.0, 999.0]}),
+        pd.DataFrame({"value": [1.0, 2.0, 3.0, 4.0, 999.0]}),
         metric_id="sales.orders",
     )
 
-    out = session.correlate(a, b, measure_a="left", measure_b="right")
+    out = session.correlate(a, b)
 
     df = out.to_pandas()
     assert df.iloc[0]["aligned_row_count"] == 3
@@ -329,8 +426,8 @@ def test_correlate_writes_job_and_frame():
     assert jobs[0].output_frame_ref == out.ref
     assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
     params = session.job(jobs[0].id)["params"]
-    assert params["measure_a"] == "value"
-    assert params["measure_b"] == "value"
+    assert params["measure_a"] == "revenue"
+    assert params["measure_b"] == "orders"
     assert params["alignment"] == {
         "kind": "window_bucket",
         "calendar": None,

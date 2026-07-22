@@ -7,9 +7,10 @@ import hashlib
 import json
 import secrets
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -36,6 +37,17 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
+
+if TYPE_CHECKING:
+    from marivo.analysis.frames.metric import MetricFrame
+
+
+@dataclass(frozen=True)
+class ResolvedMetricValueColumn:
+    """Public and internal names for one MetricFrame value column."""
+
+    public_name: str
+    internal_name: str
 
 
 def resolve_session(session: Session | None) -> Session:
@@ -79,6 +91,64 @@ def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str)
             context={"numeric_columns": numeric},
         )
     return str(numeric[0])
+
+
+def resolve_metric_value_column(
+    frame: MetricFrame,
+    df: pd.DataFrame,
+    value: str | None,
+    *,
+    parameter: str,
+    purpose: str,
+) -> ResolvedMetricValueColumn:
+    """Resolve one public MetricFrame value name to its internal storage column."""
+    valid_values = frame.value_columns
+    if len(valid_values) != 1:
+        raise SemanticKindMismatchError(
+            message=f"{purpose} requires exactly one frame value column",
+            context={"parameter": parameter, "valid_values": list(valid_values)},
+        )
+
+    public_name = valid_values[0]
+    public_columns = frame.columns
+    internal_columns = [str(column) for column in df.columns]
+    try:
+        value_index = public_columns.index(public_name)
+        internal_name = internal_columns[value_index]
+    except (IndexError, ValueError) as exc:
+        raise SemanticKindMismatchError(
+            message=f"{purpose} frame value column {public_name!r} cannot be resolved",
+            context={"parameter": parameter, "valid_values": list(valid_values)},
+        ) from exc
+
+    if value not in {None, public_name, internal_name}:
+        raise SemanticKindMismatchError(
+            message=(
+                f"{purpose} value column {value!r} is invalid. "
+                f"Valid {parameter} values: {valid_values!r}"
+            ),
+            context={
+                "parameter": parameter,
+                "received": value,
+                "valid_values": list(valid_values),
+            },
+        )
+
+    if internal_name not in df.columns or not is_numeric_dtype(df[internal_name]):
+        dtype = str(df[internal_name].dtype) if internal_name in df.columns else None
+        raise SemanticKindMismatchError(
+            message=f"{purpose} value column {public_name!r} is not numeric",
+            context={
+                "parameter": parameter,
+                "column": public_name,
+                "dtype": dtype,
+                "valid_values": list(valid_values),
+            },
+        )
+    return ResolvedMetricValueColumn(
+        public_name=public_name,
+        internal_name=internal_name,
+    )
 
 
 def first_non_numeric_column(df: pd.DataFrame) -> str | None:

@@ -44,6 +44,42 @@ def test_naive_time_series_constant(tmp_path):
     ]
 
 
+def test_forecast_resolves_public_value_name_and_excludes_numeric_dimension(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    times = pd.date_range("2026-01-01", periods=4, freq="D")
+    history = make_metric_frame(
+        pd.DataFrame(
+            [
+                {"segment": segment, "time": time, "value": float(index + segment)}
+                for segment in [1, 2]
+                for index, time in enumerate(times)
+            ]
+        ),
+        metric_id="sales.revenue",
+        axes={
+            "time": {"field": "time", "grain": "day"},
+            "dimensions": [{"field": "segment"}],
+        },
+        measure={"name": "revenue"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+
+    inferred = session.forecast(history, horizon=1, model="naive")
+    explicit = session.forecast(
+        history,
+        horizon=1,
+        model="naive",
+        measure_column=history.value_columns[0],
+    )
+
+    assert len(inferred) == 2
+    assert len(explicit) == 2
+    jobs = [job for job in session.jobs() if job.intent == "forecast"]
+    assert session.job(jobs[-1].id)["params"]["measure_column"] == "revenue"
+
+
 def test_seasonal_naive_dow_period_7(tmp_path):
     session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(
@@ -162,7 +198,7 @@ def test_forecast_errors_and_persistence(tmp_path):
     with pytest.raises(ForecastInputQualityError):
         session.forecast(nan_frame, horizon=1)
 
-    gap = history.to_pandas().drop(index=[2])
+    gap = history._dataframe_copy().drop(index=[2])
     gap_frame = make_metric_frame(
         gap,
         metric_id="sales.revenue",

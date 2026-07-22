@@ -114,6 +114,42 @@ def test_segmented_paired_across_segments(tmp_path):
     assert result.to_pandas().iloc[0]["sample_size"] == 3
 
 
+def test_hypothesis_test_resolves_public_value_names_and_excludes_numeric_dimension(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    axes = {"dimensions": [{"field": "year"}]}
+
+    def frame(metric_id, values):
+        return make_metric_frame(
+            pd.DataFrame({"year": [2021, 2022, 2023], "value": values}),
+            metric_id=metric_id,
+            axes=axes,
+            measure={"name": metric_id.rsplit(".", 1)[-1]},
+            semantic_kind="segmented",
+            semantic_model="sales",
+            session=session,
+        )
+
+    a = frame("sales.current", [12.0, 18.0, 31.0])
+    b = frame("sales.baseline", [10.0, 20.0, 25.0])
+    sampling = mv.SamplingPolicy(pairing="segment_key")
+
+    inferred = session.hypothesis_test(a, b, sampling=sampling)
+    explicit = session.hypothesis_test(
+        a,
+        b,
+        sampling=sampling,
+        value_a=a.value_columns[0],
+        value_b=b.value_columns[0],
+    )
+
+    assert inferred.to_pandas().iloc[0]["sample_size"] == 3
+    assert explicit.to_pandas().iloc[0]["sample_size"] == 3
+    jobs = [job for job in session.jobs() if job.intent == "hypothesis_test"]
+    params = session.job(jobs[-1].id)["params"]
+    assert params["value_a"] == "current"
+    assert params["value_b"] == "baseline"
+
+
 def test_panel_per_segment_rows(tmp_path):
     session = session_attach.get_or_create(name="demo")
     times = pd.date_range("2026-01-01", periods=4, freq="D")
