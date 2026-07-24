@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from marivo.analysis.session._connections import AnalysisConnectionRuntime
 
 from marivo.analysis.frames.base import BaseFrameMeta
-from marivo.refs import SemanticKind, _decode_ref_payload
+from marivo.refs import RefPayloadV1, SemanticKind, _decode_ref_payload
 
 # ---------------------------------------------------------------------------
 # Process-level current session
@@ -144,7 +144,139 @@ def _validate_job_subject(value: object, *, role: str) -> None:
             if type(comparison[field]) is not str or not comparison[field]:
                 raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
         return
+    if kind == "event":
+        payload = _require_exact_object(
+            value,
+            fields={"kind", "subject_entity_ref", "subject_identity_signature"},
+            role=role,
+        )
+        ref = _decode_ref_payload(payload["subject_entity_ref"])
+        if ref.kind is not SemanticKind.ENTITY:
+            raise ValueError(f"analysis job {role}.subject_entity_ref must be entity")
+        signature = payload["subject_identity_signature"]
+        if (
+            not isinstance(signature, list)
+            or not signature
+            or any(type(component) is not str or not component for component in signature)
+        ):
+            raise ValueError(
+                f"analysis job {role}.subject_identity_signature must be non-empty strings"
+            )
+        return
     raise ValueError(f"analysis job {role}.kind is invalid")
+
+
+def _validate_event_journey_payload(value: object) -> None:
+    payload = _require_exact_object(
+        value,
+        fields={
+            "pattern",
+            "matching",
+            "cohort_window",
+            "completion_through",
+            "completeness",
+            "input_coverage",
+            "coverage_basis",
+            "event_fingerprints",
+            "event_identity_components",
+            "role_endpoints",
+            "query_refs",
+        },
+        role="event_journey",
+    )
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.event import (
+        CompletenessDeclaration,
+        EventMatchingPolicy,
+        EventPattern,
+    )
+    from marivo.analysis.frames.event import EventInputCoverage
+    from marivo.analysis.windows.spec import TimeScope
+
+    pattern_payload = payload["pattern"]
+    if type(pattern_payload) is not dict or not isinstance(pattern_payload.get("steps"), list):
+        raise ValueError("analysis job event_journey.pattern is invalid")
+    decoded_steps: list[dict[str, object]] = []
+    for index, raw_step in enumerate(pattern_payload["steps"]):
+        if type(raw_step) is not dict or type(raw_step.get("participant")) is not dict:
+            raise ValueError(f"analysis job event_journey.pattern.steps[{index}] is invalid")
+        participant = dict(raw_step["participant"])
+        event_payload = participant.get("event")
+        if not isinstance(event_payload, (RefPayloadV1, dict)):
+            raise ValueError("analysis job event_journey pattern participant event is invalid")
+        participant["event"] = _decode_ref_payload(event_payload)
+        decoded_steps.append({**raw_step, "participant": participant})
+    EventPattern.model_validate({**pattern_payload, "steps": decoded_steps})
+    TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
+    TimeScope.model_validate(payload["cohort_window"])
+    completeness_payload = payload["completeness"]
+    if not isinstance(completeness_payload, list):
+        raise ValueError("analysis job event_journey.completeness must be a list")
+    decoded_completeness: list[dict[str, object]] = []
+    for index, raw_declaration in enumerate(completeness_payload):
+        if type(raw_declaration) is not dict or not isinstance(raw_declaration.get("inputs"), list):
+            raise ValueError(f"analysis job event_journey.completeness[{index}] is invalid")
+        decoded_completeness.append(
+            {
+                **raw_declaration,
+                "inputs": [
+                    _decode_ref_payload(event_ref) for event_ref in raw_declaration["inputs"]
+                ],
+            }
+        )
+    TypeAdapter(list[CompletenessDeclaration]).validate_python(decoded_completeness)
+    TypeAdapter(list[EventInputCoverage]).validate_python(payload["input_coverage"])
+    if type(payload["completion_through"]) is not str or not payload["completion_through"].strip():
+        raise ValueError("analysis job event_journey.completion_through must be non-empty")
+    if payload["coverage_basis"] not in {
+        "observed_watermark",
+        "declared_complete",
+        "mixed",
+        "unknown",
+    }:
+        raise ValueError("analysis job event_journey.coverage_basis is invalid")
+    event_fingerprints = payload["event_fingerprints"]
+    if (
+        not isinstance(event_fingerprints, dict)
+        or not event_fingerprints
+        or any(
+            type(key) is not str or not key or type(digest) is not str or not digest
+            for key, digest in event_fingerprints.items()
+        )
+    ):
+        raise ValueError("analysis job event_journey.event_fingerprints is invalid")
+    event_identity_components = payload["event_identity_components"]
+    if not isinstance(event_identity_components, dict) or set(event_identity_components) != set(
+        event_fingerprints
+    ):
+        raise ValueError(
+            "analysis job event_journey.event_identity_components must cover "
+            "the exact Event fingerprint keys"
+        )
+    for event_ref, components in event_identity_components.items():
+        if not isinstance(components, list) or not components:
+            raise ValueError(
+                f"analysis job event_journey identity for {event_ref!r} must be non-empty"
+            )
+        for component in components:
+            if _decode_ref_payload(component).kind is not SemanticKind.DIMENSION:
+                raise ValueError(
+                    "analysis job event_journey identity components must be dimensions"
+                )
+    role_endpoints = payload["role_endpoints"]
+    if not isinstance(role_endpoints, dict) or not role_endpoints:
+        raise ValueError("analysis job event_journey.role_endpoints must be non-empty")
+    for key, endpoint in role_endpoints.items():
+        if type(key) is not str or not key:
+            raise ValueError("analysis job event_journey role key must be non-empty")
+        if _decode_ref_payload(endpoint).kind is not SemanticKind.ENTITY:
+            raise ValueError("analysis job event_journey role endpoint must be entity")
+    query_refs = payload["query_refs"]
+    if not isinstance(query_refs, list) or any(
+        type(query_ref) is not str or not query_ref for query_ref in query_refs
+    ):
+        raise ValueError("analysis job event_journey.query_refs must be strings")
 
 
 def _validate_dependency_digest_payload(value: object, *, role: str) -> None:
@@ -460,9 +592,9 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             and ``"output_frame_ref"`` or ``"output_artifact_id"``.
     """
     supplied_schema = record.get("schema")
-    if supplied_schema not in {None, "marivo.analysis_job/v1"}:
+    if supplied_schema not in {None, "marivo.analysis_job/v2"}:
         raise ValueError(
-            f"job record schema must be 'marivo.analysis_job/v1'; received {supplied_schema!r}"
+            f"job record schema must be 'marivo.analysis_job/v2'; received {supplied_schema!r}"
         )
     forbidden = {"semantic_model", "semantic_anchors", "metric_id", "metric_ids"} & set(record)
     if forbidden:
@@ -484,6 +616,42 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             raise ValueError("analysis job subjects must be a non-empty list")
         for index, subject in enumerate(subjects):
             _validate_job_subject(subject, role=f"subjects[{index}]")
+    is_event_journey = "event_journey" in record
+    if is_event_journey:
+        if has_subjects or record["subject"].get("kind") != "event":
+            raise ValueError("analysis Event Journey job requires one event subject")
+        forbidden_event_fields = {
+            "semantic_dependency_digest",
+            "semantic_dependency_digests",
+            "dimension_refs",
+            "time_dimension_ref",
+            "slice_predicates",
+        } & set(record)
+        if forbidden_event_fields:
+            raise ValueError(
+                "analysis Event Journey job rejects metric semantic fields "
+                f"{sorted(forbidden_event_fields)}"
+            )
+        _validate_event_journey_payload(record["event_journey"])
+        persisted = {"schema": "marivo.analysis_job/v2", **record}
+        write_job_record(session._layout, persisted)
+        finished_at = persisted.get("finished_at")
+        session._store.record_job(
+            session_id=session.id,
+            job_id=persisted["id"],
+            intent=persisted["intent"],
+            status=persisted["status"],
+            started_at=persisted["started_at"],
+            finished_at=finished_at if isinstance(finished_at, str) else None,
+            output_artifact_id=persisted.get("output_frame_ref")
+            or persisted.get("output_artifact_id"),
+            record_path=session._layout.relative_path(
+                session._layout.jobs_dir / f"{persisted['id']}.json"
+            ),
+        )
+        return
+    if "event_journey" in record:
+        raise ValueError("analysis metric job cannot carry event_journey")
     has_digest = "semantic_dependency_digest" in record
     has_digests = "semantic_dependency_digests" in record
     if has_digest == has_digests:
@@ -527,7 +695,7 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
         decoded = _decode_ref_payload(predicate["dimension_ref"])
         if decoded.kind.value not in {"dimension", "time_dimension"}:
             raise ValueError("analysis job slice predicate requires a dimension ref")
-    persisted = {"schema": "marivo.analysis_job/v1", **record}
+    persisted = {"schema": "marivo.analysis_job/v2", **record}
     write_job_record(session._layout, persisted)
     finished_at = persisted.get("finished_at")
     session._store.record_job(

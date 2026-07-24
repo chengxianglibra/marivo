@@ -56,7 +56,13 @@ DigestItemKind = Literal[
     "quality_check",
 ]
 Direction = Literal["increase", "decrease", "flat", "undefined"]
-ObservationShape = Literal["scalar", "time_series", "segmented", "panel"]
+ObservationShape = Literal[
+    "scalar",
+    "time_series",
+    "segmented",
+    "panel",
+    "event_journey",
+]
 
 
 class _FrozenModel(BaseModel):
@@ -64,6 +70,7 @@ class _FrozenModel(BaseModel):
 
 
 class Subject(_FrozenModel):
+    kind: Literal["metric"] = "metric"
     typed_metric_subject: TypedEvidenceSubject | None = None
     entity_ref: RefPayloadV1 | None = None
     slice_predicates: tuple[SlicePredicateV1, ...] = ()
@@ -118,6 +125,7 @@ class TimeWindow(_FrozenModel):
 class AnalysisScope(_FrozenModel):
     """Metric-shaped scope for one artifact and its evidence projection."""
 
+    kind: Literal["metric"] = "metric"
     metric_identities: tuple[MetricIdentity, ...] = ()
     comparison: DeltaComparisonIdentityV1 | None = None
     axis_refs: tuple[RefPayloadV1, ...] = ()
@@ -146,6 +154,34 @@ class AnalysisScope(_FrozenModel):
             item.dimension_ref.path: cast("JsonValue", item.value)
             for item in self.segment_predicates
         }
+
+
+class EventSubject(_FrozenModel):
+    """Identity-safe subject descriptor for an Event Journey artifact."""
+
+    kind: Literal["event"] = "event"
+    subject_entity_ref: RefPayloadV1
+    subject_identity_signature: tuple[str, ...]
+    analysis_axis: Literal["journey"] = "journey"
+
+
+class EventAnalysisScope(_FrozenModel):
+    """Typed Event Journey scope without raw subject or event identities."""
+
+    kind: Literal["event"] = "event"
+    pattern: dict[str, JsonValue]
+    roles: tuple[dict[str, JsonValue], ...]
+    matching: dict[str, JsonValue]
+    cohort_window: dict[str, JsonValue]
+    completion_through: str
+    coverage: dict[str, JsonValue]
+    assumptions: tuple[str, ...] = ()
+
+
+EvidenceSubject = Annotated[Subject | EventSubject, Field(discriminator="kind")]
+EvidenceSubjectAdapter: TypeAdapter[EvidenceSubject] = TypeAdapter(EvidenceSubject)
+EvidenceScope = Annotated[AnalysisScope | EventAnalysisScope, Field(discriminator="kind")]
+EvidenceScopeAdapter: TypeAdapter[EvidenceScope] = TypeAdapter(EvidenceScope)
 
 
 class QualitySummary(_FrozenModel):
@@ -217,11 +253,31 @@ class PanelObservationValue(_FrozenModel):
     unit: str | None = None
 
 
+class EventJourneyObservationValue(_FrozenModel):
+    shape: Literal["event_journey"] = "event_journey"
+    attempt_count: int = Field(ge=0)
+    complete_count: int = Field(ge=0)
+    incomplete_count: int = Field(ge=0)
+    coverage_censored_count: int = Field(ge=0)
+    unused_event_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_attempt_partition(self) -> EventJourneyObservationValue:
+        represented = self.complete_count + self.incomplete_count + self.coverage_censored_count
+        if represented != self.attempt_count:
+            raise ValueError(
+                "attempt_count must equal complete_count + incomplete_count + "
+                "coverage_censored_count"
+            )
+        return self
+
+
 ObservationValue = Annotated[
     ScalarObservationValue
     | TimeSeriesObservationValue
     | SegmentedObservationValue
-    | PanelObservationValue,
+    | PanelObservationValue
+    | EventJourneyObservationValue,
     Field(discriminator="shape"),
 ]
 
@@ -330,7 +386,7 @@ class QualityCheckFindingValue(_FrozenModel):
     expectation_predicate: str
     expectation_parameters: dict[str, JsonScalar] = Field(default_factory=dict)
     expectation_condition_passed: bool
-    evaluated_scope: AnalysisScope
+    evaluated_scope: EvidenceScope
     source_refs: tuple[str, ...] = ()
 
 
@@ -367,7 +423,7 @@ class Finding(_FrozenModel):
     epistemic_kind: EpistemicKind
     artifact_id: str
     session_id: str
-    subject: Subject
+    subject: EvidenceSubject
     canonical_item_key: str
     value: FindingValue
     derivation: DerivationRule
@@ -375,8 +431,8 @@ class Finding(_FrozenModel):
     observed_window: TimeWindow | None = None
     quality_status: Literal["ready", "needs_attention", "not_ready"] | None = None
     committed_at: datetime
-    extractor_version: str = "v3"
-    artifact_schema_version: str = "v3"
+    extractor_version: str = "v4"
+    artifact_schema_version: str = "v4"
 
     @model_validator(mode="after")
     def _validate_kind_mapping(self) -> Finding:
@@ -400,8 +456,8 @@ class _DigestItemBase(_FrozenModel):
     kind: DigestItemKind
     epistemic_kind: EpistemicKind
     artifact_ref: str
-    subject: Subject
-    scope: AnalysisScope
+    subject: EvidenceSubject
+    scope: EvidenceScope
     derivation: DerivationRule
 
 
@@ -589,6 +645,13 @@ DataQualityIssueKind = Literal[
     "outlier_sensitivity_detected",
     "duplicate_keys_detected",
     "unit_capability_unknown",
+    "event_identity_invalid",
+    "event_participant_invalid",
+    "event_order_invalid",
+    "event_coverage_unknown",
+    "event_row_contract_invalid",
+    "event_censoring_present",
+    "declared_completeness_used",
 ]
 ComparabilityIssueKind = Literal[
     "comparability_incompatible",
@@ -611,7 +674,7 @@ class DataQualityIssue(_FrozenModel):
     check_id: str
     observed_value: JsonScalar
     expectation: str
-    evaluated_scope: AnalysisScope
+    evaluated_scope: EvidenceScope
     repair: AnalysisRepair | None = None
 
 
@@ -620,8 +683,8 @@ class ComparabilityIssue(_FrozenModel):
     kind: ComparabilityIssueKind
     severity: IssueSeverity
     source_refs: tuple[str, ...]
-    left_scope: AnalysisScope
-    right_scope: AnalysisScope
+    left_scope: EvidenceScope
+    right_scope: EvidenceScope
     incompatible_fields: tuple[str, ...] = ()
     definition_refs: tuple[str, ...] = ()
     approximation_details: tuple[str, ...] = ()
@@ -655,8 +718,8 @@ class ArtifactDigest(_FrozenModel):
     digest_version: str = "v1"
     artifact_ref: str
     operator: OperatorSemantics
-    subject: Subject
-    scope: AnalysisScope
+    subject: EvidenceSubject
+    scope: EvidenceScope
     items: tuple[DigestItem, ...] = ()
     boundaries: tuple[InferenceBoundary, ...] = ()
     omissions: OmissionSummary
@@ -738,10 +801,17 @@ __all__ = [
     "DigestItemKind",
     "Direction",
     "EpistemicKind",
+    "EventAnalysisScope",
+    "EventJourneyObservationValue",
+    "EventSubject",
     "EvidenceAvailabilityIssue",
     "EvidenceCompleteness",
     "EvidenceDerivationTrace",
+    "EvidenceScope",
+    "EvidenceScopeAdapter",
     "EvidenceStatus",
+    "EvidenceSubject",
+    "EvidenceSubjectAdapter",
     "FallbackReason",
     "Finding",
     "FindingPage",

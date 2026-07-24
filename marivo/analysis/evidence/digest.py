@@ -11,7 +11,6 @@ from marivo.analysis.evidence.identity import (
     make_digest_item_id,
 )
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     AnomalyCandidate,
     AnomalyCandidateFindingValue,
     ArtifactDigest,
@@ -24,6 +23,8 @@ from marivo.analysis.evidence.types import (
     DerivationRule,
     DigestItem,
     DigestItemKind,
+    EvidenceScope,
+    EvidenceSubject,
     FallbackReason,
     Finding,
     ForecastOutput,
@@ -38,7 +39,6 @@ from marivo.analysis.evidence.types import (
     QualityCheckResult,
     QualitySummary,
     RawFallback,
-    Subject,
     TestDecision,
     TestFindingValue,
 )
@@ -73,6 +73,20 @@ _RULES: dict[str, _RuleEntry] = {
         accepted_finding_kinds=("observation", "metric_value"),
         produced_item_kinds=("observation",),
         source_fields=("value.row_count", "value.value"),
+        sort_key=_default_sort_key,
+    ),
+    "events.match": _RuleEntry(
+        rule_id="digest.event_journey",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=(
+            "value.attempt_count",
+            "value.complete_count",
+            "value.incomplete_count",
+            "value.coverage_censored_count",
+            "value.unused_event_count",
+        ),
         sort_key=_default_sort_key,
     ),
     "compare": _RuleEntry(
@@ -230,12 +244,12 @@ def _item_derivation(entry: _RuleEntry, finding: Finding) -> DerivationRule:
 class _CommonItemArgs(TypedDict):
     item_id: str
     artifact_ref: str
-    subject: Subject
-    scope: AnalysisScope
+    subject: EvidenceSubject
+    scope: EvidenceScope
     derivation: DerivationRule
 
 
-def _common(entry: _RuleEntry, finding: Finding, scope: AnalysisScope) -> _CommonItemArgs:
+def _common(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> _CommonItemArgs:
     item_kind = cast(
         "DigestItemKind",
         {
@@ -264,7 +278,7 @@ def _common(entry: _RuleEntry, finding: Finding, scope: AnalysisScope) -> _Commo
     }
 
 
-def _build_item(entry: _RuleEntry, finding: Finding, scope: AnalysisScope) -> DigestItem | None:
+def _build_item(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> DigestItem | None:
     value = finding.value
     common = _common(entry, finding, scope)
     if isinstance(value, ObservationFindingValue):
@@ -454,8 +468,8 @@ def build_artifact_digest(
     *,
     artifact_ref: str,
     operator: OperatorSemantics,
-    subject: Subject,
-    scope: AnalysisScope,
+    subject: EvidenceSubject,
+    scope: EvidenceScope,
     findings: Iterable[Finding],
     quality: QualitySummary | None,
     rows_available: bool,

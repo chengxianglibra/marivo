@@ -72,6 +72,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "hypothesis_test",
         "forecast",
         "assess_quality",
+        "events.match",
         "transform",
         "session",
         "datasources",

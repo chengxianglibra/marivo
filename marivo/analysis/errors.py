@@ -844,9 +844,9 @@ class QualityShapeUnsupportedError(AnalysisError):
             location="session.assess_quality target",
             repair=AnalysisRepair(
                 kind="retry",
-                action="assess_quality v1 only supports MetricFrame targets.",
+                action=("assess_quality accepts MetricFrame or EventFrame[journey] targets."),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="assess_quality"),
-                snippet="report = session.assess_quality(metric_frame)",
+                snippet="report = session.assess_quality(metric_frame_or_event_journey)",
             ),
         )
 
@@ -1412,3 +1412,45 @@ class AttributionMaterializationError(AnalysisError):
                 ),
             ),
         )
+
+
+class InvalidEventPatternError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "invalid_event_pattern"
+
+
+class PatternStepMismatchError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "pattern_step_mismatch"
+
+
+class InvalidEventMatchingPolicyError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "invalid_event_matching_policy"
+
+
+class InvalidCompletenessDeclarationError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "invalid_completeness_declaration"
+
+
+class AmbiguousEventOrderError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "ambiguous_event_order"
+
+
+class EventIdentityError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "invalid_event_identity"
+
+
+class EventParticipantCardinalityError(AnalysisError):
+    @property
+    def kind(self) -> str:
+        return "invalid_event_participant_cardinality"

@@ -99,6 +99,47 @@ frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
 
+## 对可复用事件建模
+
+Event 为一次业务发生声明可复用的 identity、occurred time 和具名 participant roles。
+source Entity 由 `owner(occurred_at)` 推导，因此 Event 定义不重复接收 `entity` 参数。
+所有 Event 都使用唯一入口 `@ms.event(...)`。
+
+如果一个 Entity 的每一行都代表一次订单创建，那么该 Event 不需要额外行过滤，但仍要显式
+返回 `ms.all_rows()`：
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+共享事件日志 Entity 上的过滤 Event 则返回受限布尔表达式，例如
+`ms.bind(event_type, event_rows) == "payment_succeeded"`。不要使用无函数体
+constructor、裸 `True` 或另一套 filtered-Event API。
+
+`ms.participant_role(event=order_created, name="order")` 会解析出 Event analysis
+使用的 typed role。省略 `path` 表示 Event source Entity 自己就是 participant；
+非空 path 则沿着已经声明的 Relationship 到达另一个 Entity。作为 analysis subject
+的 role 必须使用 `cardinality="one"`。其 endpoint Entity 已声明的 primary key
+就是 subject identity，调用方不再重复提供。
+
 ## 建模步骤
 
 ### 1. 连接数据源

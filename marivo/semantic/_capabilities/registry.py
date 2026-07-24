@@ -37,6 +37,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[measure]",
         "Ref[metric]",
         "Ref[relationship]",
+        "Ref[event]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
@@ -51,6 +52,7 @@ INPUT_FAMILIES = frozenset(
         "MeasureName",
         "MetricName",
         "RelationshipName",
+        "EventName",
         "ColumnName",
         "TableName",
         "SqlText",
@@ -87,6 +89,8 @@ INPUT_FAMILIES = frozenset(
         "WhereFilter",
         "FilterConditions",
         "EntityAlias",
+        "Participant",
+        "ParticipantRoleHandle",
     }
 )
 
@@ -109,6 +113,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[measure]",
         "Ref[metric]",
         "Ref[relationship]",
+        "Ref[event]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
@@ -126,6 +131,8 @@ OUTPUT_FAMILIES = frozenset(
         "Text",
         "WhereFilter",
         "IbisValue",
+        "Participant",
+        "ParticipantRoleHandle",
     }
 )
 
@@ -499,6 +506,80 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
         ),
         _capability(
+            "event",
+            "marivo.semantic._authoring_decorators.event",
+            "Declare a filtered or explicit all-rows business occurrence.",
+            output="Ref[event]",
+            inputs=_inputs(
+                ("mapping_key", "EventName"),
+                ("dependency", "Ref[dimension]"),
+                ("dependency", "Ref[time_dimension]"),
+                ("dependency", "Participant"),
+            ),
+            effects=_AUTHOR,
+            constraints=(
+                "active_loader_context",
+                "event_source_owner",
+                "event_identity",
+                "event_predicate",
+                "event_participant_path",
+            ),
+            example=(
+                "@ms.event(identity=(event_id,), occurred_at=event_time, "
+                "participants=(ms.participant(name='order', cardinality='one'),))\n"
+                "def order_created(rows):\n"
+                "    return ms.all_rows()"
+            ),
+            see_also=(
+                _target("participant"),
+                _target("participant_role"),
+                _target("all_rows"),
+            ),
+        ),
+        _capability(
+            "participant",
+            "marivo.semantic.event.participant",
+            "Declare one named participant role inside an Event.",
+            output="Participant",
+            inputs=_inputs(
+                ("mapping_key", "EntityName"),
+                ("dependency", "Ref[relationship]"),
+            ),
+            effects=_NONE,
+            constraints=("event_participant_path", "event_participant_cardinality"),
+            example=("ms.participant(name='buyer', path=(event_to_buyer,), cardinality='one')"),
+            see_also=(_target("event"), _target("participant_role")),
+        ),
+        _capability(
+            "participant_role",
+            "marivo.semantic.event.participant_role",
+            "Create an immutable handle for one named participant role on an Event.",
+            output="ParticipantRoleHandle",
+            inputs=_inputs(
+                ("subject", "Ref[event]"),
+                ("mapping_key", "EntityName"),
+            ),
+            effects=_NONE,
+            constraints=("event_participant_membership",),
+            example="ms.participant_role(event=payment_succeeded, name='buyer')",
+            see_also=(_target("event"), _target("participant")),
+        ),
+        _capability(
+            "all_rows",
+            "marivo.semantic.event.all_rows",
+            "Return the explicit unfiltered predicate from an Event body.",
+            output="IbisValue",
+            effects=_NONE,
+            constraints=("event_all_rows_complete_return",),
+            example=(
+                "@ms.event(identity=(event_id,), occurred_at=event_time, "
+                "participants=(ms.participant(name='order', cardinality='one'),))\n"
+                "def order_created(rows):\n"
+                "    return ms.all_rows()"
+            ),
+            see_also=(_target("event"),),
+        ),
+        _capability(
             "join_on",
             "marivo.semantic._authoring_values.join_on",
             "Build a join-key specification for a relationship.",
@@ -820,6 +901,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "weighted_mean",
                 "linear",
                 "relationship",
+                "event",
+                "participant",
+                "participant_role",
+                "all_rows",
                 "join_on",
                 "from_sql",
                 "bind",
@@ -870,6 +955,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DomainEntry,
         EntityDetails,
         EntityEntry,
+        EventDetails,
+        EventEntry,
         MeasureDetails,
         MeasureEntry,
         MetricEntry,
@@ -1032,6 +1119,19 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
+        EventEntry,
+        "EventEntry",
+        (),
+        methods=("details", "show", "contract", "render"),
+        state_bearing=True,
+    )
+    add(
+        EventDetails,
+        "EventDetails",
+        (),
+        methods=show_render,
+    )
+    add(
         DatasourceEntry,
         "DatasourceEntry",
         (),
@@ -1110,6 +1210,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "linear",
             "metric",
             "relationship",
+            "event",
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
@@ -1133,7 +1234,23 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "measure",
             "metric",
             "relationship",
+            "event",
         ),
+    )
+    from marivo.semantic.event import Participant, ParticipantRoleHandle
+
+    add(
+        Participant,
+        "Participant",
+        ("participant",),
+        properties=("name", "path", "cardinality"),
+        consumers=("event",),
+    )
+    add(
+        ParticipantRoleHandle,
+        "ParticipantRoleHandle",
+        ("participant_role",),
+        properties=("event", "name", "key"),
     )
     # IR types
     add(

@@ -246,7 +246,8 @@ def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[Com
         if not isinstance(summary, dict):
             return []
         summaries[side] = summary
-        scopes[side] = loaded.meta.analysis_scope or AnalysisScope()
+        loaded_scope = loaded.meta.analysis_scope
+        scopes[side] = loaded_scope if isinstance(loaded_scope, AnalysisScope) else AnalysisScope()
 
     def _uneven(summary: dict[str, Any]) -> bool:
         try:

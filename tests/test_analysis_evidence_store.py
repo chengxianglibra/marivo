@@ -1,4 +1,4 @@
-"""Fresh schema-v3 evidence-store contracts."""
+"""Fresh schema-v4 evidence-store contracts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence.store import EXPECTED_SCHEMA_VERSION, open_evidence_store
 
 
-def test_fresh_store_contains_only_v3_evidence_tables(tmp_path: Path) -> None:
+def test_fresh_store_contains_only_v4_evidence_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
     store = open_evidence_store(db_path)
     try:
@@ -47,11 +47,14 @@ def test_store_rejects_future_schema(tmp_path: Path) -> None:
         open_evidence_store(db_path)
 
 
-def test_store_rejects_pre_cutover_schema_without_migration(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy_version", [1, 3])
+def test_store_rejects_pre_cutover_schema_without_migration(
+    tmp_path: Path, legacy_version: int
+) -> None:
     db_path = tmp_path / "judgment.db"
     with sqlite3.connect(db_path) as conn:
-        conn.execute("PRAGMA user_version = 1")
-    with pytest.raises(SchemaVersionMismatchError, match="requires a fresh v3 evidence store"):
+        conn.execute(f"PRAGMA user_version = {legacy_version}")
+    with pytest.raises(SchemaVersionMismatchError, match="requires a fresh v4 evidence store"):
         open_evidence_store(db_path)
 
 
@@ -115,7 +118,7 @@ def test_transaction_rolls_back_all_projection_rows(tmp_path: Path) -> None:
                     artifact_schema_version, subject_payload, lineage_payload,
                     evidence_status, committed_at_us)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                ("art_1", "sess_1", "compare", "delta_frame", "v3", "{}", "{}", "complete", 1),
+                ("art_1", "sess_1", "compare", "delta_frame", "v4", "{}", "{}", "complete", 1),
             )
             raise RuntimeError("rollback")
         assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0

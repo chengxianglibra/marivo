@@ -167,6 +167,7 @@ def _ref_payload(kind: str, path: str) -> RefPayloadV1:
         "measure": ref_factory.measure,
         "metric": ref_factory.metric,
         "relationship": ref_factory.relationship,
+        "event": ref_factory.event,
     }
     factory = factories.get(kind)
     if factory is None:
@@ -210,6 +211,7 @@ def _entry_for(
             SemanticKind.MEASURE: ref_factory.measure,
             SemanticKind.METRIC: ref_factory.metric,
             SemanticKind.RELATIONSHIP: ref_factory.relationship,
+            SemanticKind.EVENT: ref_factory.event,
         }[ref_payload.kind]
         body = sidecar.bodies.get(factory(ref_payload.path))
     bindings = body.bindings if body is not None else ()
@@ -314,6 +316,20 @@ def _entry_for(
                 from_entity_ref=_ref_payload("entity", relationship.from_entity),
                 to_entity_ref=_ref_payload("entity", relationship.to_entity),
                 keys=relationship.keys,
+            ),
+        )
+    if semantic_kind == "event":
+        event = registry.events[semantic_id]
+        return SemanticDependencyEntryV1(
+            ref=_ref_payload("event", semantic_id),
+            body_digest=event.body_ast_hash,
+            bindings=bindings,
+            fields=_fields(
+                source_entity_ref=_ref_payload("entity", event.source_entity),
+                identity_refs=tuple(_ref_payload("dimension", path) for path in event.identity),
+                occurred_at_ref=_ref_payload("time_dimension", event.occurred_at),
+                participants=event.participants,
+                predicate_kind=event.predicate_kind,
             ),
         )
     raise AssertionError(f"unsupported dependency kind: {semantic_kind}")
@@ -452,6 +468,25 @@ class _DependencyCollector:
             for key in relationship.keys:
                 for dimension_id in key.to_tuple():
                     self.collect_dimension(dimension_id)
+            return
+        if ref.kind is SemanticKind.EVENT:
+            event = self.registry.events.get(ref.path)
+            if event is None:
+                raise KeyError(ref.path)
+            self._add("event", ref.path)
+            self.collect_entity(event.source_entity)
+            self.collect_dimension(event.occurred_at)
+            for identity_ref in event.identity:
+                self.collect_dimension(identity_ref)
+            for participant in event.participants:
+                for relationship_id in participant.path or ():
+                    self.collect_ref(
+                        cast(
+                            "Ref[SemanticKindTag]",
+                            ref_factory.relationship(relationship_id),
+                        )
+                    )
+            self._collect_expression_bindings(ref)
             return
         if ref.kind is SemanticKind.DATASOURCE:
             if ref.path not in self.registry.datasources:

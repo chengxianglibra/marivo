@@ -30,6 +30,7 @@ from marivo.refs import (
     DimensionKind,
     DomainKind,
     EntityKind,
+    EventKind,
     FieldKind,
     MeasureKind,
     MetricKind,
@@ -52,6 +53,7 @@ from marivo.semantic.errors import (
     _raise,
     repair,
 )
+from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,
@@ -59,6 +61,8 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     EntityVersioningIR,
+    EventIR,
+    EventParticipantIR,
     HourPrefixParse,
     LinearComposition,
     MeasureIR,
@@ -119,6 +123,8 @@ __all__ = [
     "EntityDetails",
     "EntityEntry",
     "EntityVersioning",
+    "EventDetails",
+    "EventEntry",
     "MeasureDetails",
     "MeasureEntry",
     "MetricDetails",
@@ -239,6 +245,10 @@ def _make_ref(path: str, kind: Literal[SemanticKind.RELATIONSHIP]) -> Ref[Relati
 
 
 @overload
+def _make_ref(path: str, kind: Literal[SemanticKind.EVENT]) -> Ref[EventKind]: ...
+
+
+@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -252,6 +262,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
+        SemanticKind.EVENT: ref_factory.event,
     }[kind]
     return factory(path)
 
@@ -816,6 +827,48 @@ class RelationshipDetails(_DetailsBase):
         return sections
 
 
+@dataclass(frozen=True, repr=False)
+class EventDetails(_DetailsBase):
+    """Details for one executable Event definition."""
+
+    source_entity: Ref[EntityKind]
+    identity: tuple[Ref[DimensionKind], ...]
+    occurred_at: Ref[TimeDimensionKind]
+    participants: tuple[tuple[str, Ref[EntityKind], str, tuple[Ref[RelationshipKind], ...]], ...]
+    predicate_kind: Literal["all_rows", "filtered"]
+    definition_fingerprint: str
+
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        sections.extend(
+            (
+                FieldSection(label="source_entity", value=self.source_entity.key),
+                FieldSection(label="identity", value=_format_refs(self.identity)),
+                FieldSection(label="occurred_at", value=self.occurred_at.key),
+                FieldSection(label="predicate", value=self.predicate_kind),
+                FieldSection(
+                    label="definition_fingerprint",
+                    value=self.definition_fingerprint,
+                ),
+                FieldSection(
+                    label="participants",
+                    value=", ".join(
+                        f"{name}={endpoint.key} ({cardinality})"
+                        for name, endpoint, cardinality, _path in self.participants
+                    ),
+                ),
+            )
+        )
+        return sections
+
+
 _CatalogObjectDetails = (
     DatasourceDetails
     | DomainDetails
@@ -825,6 +878,7 @@ _CatalogObjectDetails = (
     | TimeDimensionDetails
     | MetricDetails
     | RelationshipDetails
+    | EventDetails
 )
 
 
@@ -913,6 +967,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "measures",
         "metrics",
         "relationships",
+        "events",
     )
 
     def details(self) -> DomainDetails:
@@ -954,6 +1009,10 @@ class DomainEntry(CatalogEntry[DomainKind]):
             scope_ref=self.ref,
         )
 
+    @property
+    def events(self) -> CatalogCollection[EventKind]:
+        return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
+
 
 class DatasourceEntry(CatalogEntry[DatasourceKind]):
     """Loaded datasource with the entities it backs."""
@@ -979,6 +1038,7 @@ class EntityEntry(CatalogEntry[EntityKind]):
         "measures",
         "metrics",
         "relationships",
+        "events",
     )
 
     def details(self) -> EntityDetails:
@@ -1015,6 +1075,10 @@ class EntityEntry(CatalogEntry[EntityKind]):
             SemanticKind.RELATIONSHIP,
             scope_ref=self.ref,
         )
+
+    @property
+    def events(self) -> CatalogCollection[EventKind]:
+        return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
 
 
 class DimensionEntry(CatalogEntry[DimensionKind]):
@@ -1111,6 +1175,15 @@ class RelationshipEntry(CatalogEntry[RelationshipKind]):
             .field(label="from_entity", value=self.from_entity.key)
             .field(label="to_entity", value=self.to_entity.key)
         )
+
+
+class EventEntry(CatalogEntry[EventKind]):
+    """Loaded executable Event."""
+
+    ref: Ref[EventKind]
+
+    def details(self) -> EventDetails:
+        return cast("EventDetails", self._details)
 
 
 def _object_from_details[CatalogObjectT](
@@ -1236,6 +1309,7 @@ _OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogEntry[SemanticKindTag]]] = 
     SemanticKind.MEASURE: MeasureEntry,
     SemanticKind.METRIC: MetricEntry,
     SemanticKind.RELATIONSHIP: RelationshipEntry,
+    SemanticKind.EVENT: EventEntry,
 }
 
 
@@ -1332,7 +1406,12 @@ def _build_domain_object(
         for m in reg.metrics.values()
         if m.domain == model_ir.name
     )
-    children = datasets_refs + metrics_refs
+    event_refs = tuple(
+        _make_ref(event.semantic_id, SemanticKind.EVENT)
+        for event in reg.events.values()
+        if event.domain == model_ir.name
+    )
+    children = datasets_refs + metrics_refs + event_refs
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -1376,7 +1455,12 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
     )
-    children = fields_refs + measure_refs + metric_refs + rels_refs
+    event_refs = tuple(
+        _make_ref(event.semantic_id, SemanticKind.EVENT)
+        for event in reg.events.values()
+        if event.source_entity == ds_ir.semantic_id
+    )
+    children = fields_refs + measure_refs + metric_refs + rels_refs + event_refs
     metric_dependents = tuple(
         _make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
@@ -1806,6 +1890,161 @@ def _build_relationship_object(
     return _object_from_details(RelationshipEntry, details, catalog)
 
 
+def _event_participant_endpoint(
+    event_ir: EventIR,
+    path: tuple[str, ...] | None,
+    registry: Registry,
+) -> str:
+    endpoint = event_ir.source_entity
+    for relationship_id in path or ():
+        endpoint = registry.relationships[relationship_id].to_entity
+    return endpoint
+
+
+def _validate_event_preview(
+    result: PreviewResult,
+    *,
+    event_ir: EventIR,
+    participants: tuple[EventParticipantIR, ...],
+) -> PreviewResult:
+    identity_columns = tuple(f"__event_identity_{index}" for index in range(len(event_ir.identity)))
+    observed: dict[
+        tuple[object, ...],
+        dict[str, list[tuple[object, ...]]],
+    ] = {}
+    for row in result.rows:
+        identity = tuple(row.get(column) for column in identity_columns)
+        if any(value is None for value in identity):
+            _raise(
+                ErrorKind.INVALID_EVENT_IDENTITY,
+                f"Event {event_ir.semantic_id!r} preview observed a null identity component.",
+                cls=SemanticRuntimeError,
+                refs=(event_ir.semantic_id, *event_ir.identity),
+                expected="a non-null occurrence identity tuple",
+                received=repr(identity),
+            )
+        subjects_by_role = observed.setdefault(identity, {})
+        for participant in participants:
+            subject_prefix = f"__subject_{participant.name}_identity_"
+            subject_columns = tuple(
+                column for column in result.columns if column.startswith(subject_prefix)
+            )
+            subject = tuple(row.get(column) for column in subject_columns)
+            if participant.cardinality == "one" and (
+                not subject_columns or any(value is None for value in subject)
+            ):
+                _raise(
+                    ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+                    (
+                        f"Event {event_ir.semantic_id!r} participant "
+                        f"{participant.name!r} preview did not resolve one subject."
+                    ),
+                    cls=SemanticRuntimeError,
+                    refs=(event_ir.semantic_id,),
+                    expected="one non-null endpoint primary-key tuple per occurrence",
+                    received=repr(subject),
+                )
+            subjects_by_role.setdefault(participant.name, []).append(subject)
+    for identity, subjects_by_role in observed.items():
+        row_count = max((len(values) for values in subjects_by_role.values()), default=0)
+        if row_count < 2:
+            continue
+        fanned_out = next(
+            (
+                (role, subjects)
+                for role, subjects in subjects_by_role.items()
+                if len(set(subjects)) > 1
+            ),
+            None,
+        )
+        if fanned_out is not None:
+            role, subjects = fanned_out
+            _raise(
+                ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+                (
+                    f"Event {event_ir.semantic_id!r} participant "
+                    f"{role!r} preview fanned out one occurrence."
+                ),
+                cls=SemanticRuntimeError,
+                refs=(event_ir.semantic_id,),
+                expected="at most one subject identity per Event identity",
+                received=repr({"event_identity": identity, "subjects": subjects}),
+            )
+        _raise(
+            ErrorKind.INVALID_EVENT_IDENTITY,
+            f"Event {event_ir.semantic_id!r} preview observed a duplicate occurrence identity.",
+            cls=SemanticRuntimeError,
+            refs=(event_ir.semantic_id, *event_ir.identity),
+            expected="unique Event identity after applying the Event predicate",
+            received=repr(identity),
+        )
+    return result
+
+
+def _build_event_object(
+    event_ir: EventIR,
+    reg: Registry,
+    catalog: SemanticCatalog,
+) -> EventEntry:
+    ref = ref_factory.event(event_ir.semantic_id)
+    source_ref = ref_factory.entity(event_ir.source_entity)
+    identity = tuple(ref_factory.dimension(path) for path in event_ir.identity)
+    occurred_at = ref_factory.time_dimension(event_ir.occurred_at)
+    participants = tuple(
+        (
+            participant.name,
+            ref_factory.entity(_event_participant_endpoint(event_ir, participant.path, reg)),
+            participant.cardinality,
+            tuple(ref_factory.relationship(path) for path in participant.path or ()),
+        )
+        for participant in event_ir.participants
+    )
+    body = catalog._state.sidecar.bodies.get(ref)
+    predicate_dimensions = (
+        tuple(ref_factory.dimension(binding.field_ref.path) for binding in body.bindings)
+        if body is not None
+        else ()
+    )
+    parents = tuple(
+        dict.fromkeys(
+            (
+                source_ref,
+                occurred_at,
+                *identity,
+                *predicate_dimensions,
+                *(
+                    relationship
+                    for _name, _endpoint, _cardinality, path in participants
+                    for relationship in path
+                ),
+            )
+        )
+    )
+    details = EventDetails(
+        ref=ref,
+        kind=SemanticKind.EVENT,
+        name=event_ir.name,
+        domain=event_ir.domain,
+        context=event_ir.ai_context,
+        source_location=event_ir.location,
+        parents=parents,
+        children=(),
+        dependents=(),
+        python_symbol=event_ir.python_symbol,
+        source_entity=source_ref,
+        identity=identity,
+        occurred_at=occurred_at,
+        participants=participants,
+        predicate_kind=event_ir.predicate_kind,
+        definition_fingerprint=_event_definition_fingerprint(
+            ref,
+            registry=reg,
+            sidecar=catalog._state.sidecar,
+        ),
+    )
+    return _object_from_details(EventEntry, details, catalog)
+
+
 # ---------------------------------------------------------------------------
 # _CatalogIndex — private query layer for typed catalog objects
 # ---------------------------------------------------------------------------
@@ -1859,6 +2098,7 @@ class _CatalogIndex:
             _build_relationship_object(item, reg, self.catalog)
             for item in reg.relationships.values()
         )
+        result.extend(_build_event_object(item, reg, self.catalog) for item in reg.events.values())
         return tuple(sorted(result, key=lambda obj: obj.key))
 
     def require(self, ref: Ref[SemanticKindTag]) -> CatalogEntry[SemanticKindTag] | None:
@@ -1922,6 +2162,11 @@ class _CatalogIndex:
                 return scope.ref in details.entities
             if isinstance(details, RelationshipDetails):
                 return scope.ref in {details.from_entity, details.to_entity}
+            if isinstance(details, EventDetails):
+                return scope.ref == details.source_entity or any(
+                    endpoint == scope.ref
+                    for _name, endpoint, _cardinality, _path in details.participants
+                )
         return False
 
 
@@ -2000,6 +2245,7 @@ class SemanticCatalog:
             "measures",
             "metrics",
             "relationships",
+            "events",
         }
     )
 
@@ -2127,6 +2373,10 @@ class SemanticCatalog:
     @property
     def relationships(self) -> CatalogCollection[RelationshipKind]:
         return self._collection(RelationshipEntry, SemanticKind.RELATIONSHIP)
+
+    @property
+    def events(self) -> CatalogCollection[EventKind]:
+        return self._collection(EventEntry, SemanticKind.EVENT)
 
     def require[KindT: SemanticKindTag](self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
@@ -2629,6 +2879,28 @@ class SemanticCatalog:
                     sample_policy=result.sample_policy,
                     timezones=result.timezones,
                 )
+            if kind == SemanticKind.EVENT:
+                event_ir = reg.events[ref_str]
+                table = resolver.event(
+                    ref_factory.event(ref_str),
+                    participants=tuple(participant.name for participant in event_ir.participants),
+                )
+                return _validate_event_preview(
+                    preview_ibis_table(
+                        table,
+                        kind="semantic_event",
+                        ref=ref_str,
+                        limit=preview_limit,
+                        sample_policy=PreviewSamplePolicy(
+                            method="bounded_limit",
+                            limit=preview_limit,
+                        ),
+                        include_types=include_types,
+                        report_tz=system_timezone_name(),
+                    ),
+                    event_ir=event_ir,
+                    participants=event_ir.participants,
+                )
             if kind == SemanticKind.RELATIONSHIP:
                 relationship = reg.relationships[ref_str]
                 left = resolver.table(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
@@ -2745,6 +3017,7 @@ class SemanticCatalog:
             SemanticKind.MEASURE,
             SemanticKind.METRIC,
             SemanticKind.RELATIONSHIP,
+            SemanticKind.EVENT,
         }
         resolved: list[tuple[str, SemanticKind]] = []
         for ref_obj in ref_objects:

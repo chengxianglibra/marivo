@@ -33,6 +33,9 @@ class ConstraintId(StrEnum):
     TRANSFORM_OPERATOR_SUPPORTED = "transform_operator_supported"
     FORECAST_INPUT_SHAPE = "forecast_input_shape"
     QUALITY_TARGET_SHAPE = "quality_target_shape"
+    EVENT_PATTERN_VALID = "event_pattern_valid"
+    EVENT_WINDOW_VALID = "event_window_valid"
+    EVENT_COMPLETENESS_VALID = "event_completeness_valid"
     FRAME_IMMUTABLE = "frame_immutable"
     FRAME_READ_BOUNDS = "frame_read_bounds"
     BACKEND_FACTORY_CONFIGURED = "backend_factory_configured"
@@ -196,11 +199,41 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.QUALITY_TARGET_SHAPE,
         "QualityShapeUnsupported",
         "runtime",
-        ("assess_quality", "QualityReport", "MetricFrame"),
-        "Quality assessment v1 accepts MetricFrame targets.",
-        "Quality checks are currently defined against observed metric frames and their metric metadata.",
-        "Call session.assess_quality(metric_frame) on an observe result.",
+        ("assess_quality", "QualityReport", "MetricFrame", "EventFrame"),
+        "Quality assessment accepts MetricFrame and EventFrame[journey] targets.",
+        "Metric and Event Journey artifacts have separate fixed check sets and report shapes.",
+        "Call session.assess_quality(metric_frame_or_event_journey).",
         help_target="assess_quality",
+    ),
+    ConstraintId.EVENT_PATTERN_VALID: _constraint(
+        ConstraintId.EVENT_PATTERN_VALID,
+        "InvalidEventPattern",
+        "runtime",
+        ("events.match", "EventPattern", "PatternStep"),
+        "Event Journey patterns contain typed steps over one subject Entity.",
+        "A journey can only be matched when every step selects the same cardinality-one participant endpoint.",
+        "Build each step with mv.step(participant=ms.participant_role(...), key='snake_case') and combine them with mv.sequence(...).",
+        help_target="events.match",
+    ),
+    ConstraintId.EVENT_WINDOW_VALID: _constraint(
+        ConstraintId.EVENT_WINDOW_VALID,
+        "InvalidEventPattern",
+        "runtime",
+        ("events.match", "TimeScope"),
+        "Event Journey cohort and follow-up bounds are explicit.",
+        "The first occurrence is anchored in a half-open cohort window while completion follow-up includes completion_through.",
+        "Pass mv.TimeScope(start=..., end=...) and completion_through greater than or equal to its end.",
+        help_target="events.match",
+    ),
+    ConstraintId.EVENT_COMPLETENESS_VALID: _constraint(
+        ConstraintId.EVENT_COMPLETENESS_VALID,
+        "InvalidCompletenessDeclaration",
+        "runtime",
+        ("events.match", "CompletenessDeclaration"),
+        "Completeness declarations cover exact Event inputs in the active pattern.",
+        "Caller declarations are validity evidence and cannot be reused for unrelated or overlapping Event inputs.",
+        "Build declarations with mv.declared_complete_through(inputs=(event_ref,), through=..., rationale=...).",
+        help_target="events.match",
     ),
     ConstraintId.FRAME_IMMUTABLE: _constraint(
         ConstraintId.FRAME_IMMUTABLE,

@@ -18,15 +18,15 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     ArtifactDigest,
     ArtifactIssue,
+    EvidenceScope,
     QualitySummary,
 )
 from marivo.analysis.lineage import Lineage
 from marivo.render import Card, RenderableResult
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v5"] = "analysis-artifact/v5"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v6"] = "analysis-artifact/v6"
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -206,7 +206,7 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v5"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v6"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str
@@ -218,7 +218,7 @@ class BaseFrameMeta(BaseModel):
     lineage: Lineage = Lineage()
     artifact_id: str | None = None
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
-    analysis_scope: AnalysisScope | None = None
+    analysis_scope: EvidenceScope | None = None
     quality_summary: QualitySummary | None = None
     evidence_digest: ArtifactDigest | None = None
     issues: tuple[ArtifactIssue, ...] = ()

@@ -17,9 +17,21 @@ case-insensitive filesystems.
 .. autofunction:: dimension
 .. autofunction:: measure
 .. autofunction:: metric
+.. autofunction:: event
 .. autofunction:: relationship
 .. autofunction:: time_dimension
 .. autofunction:: domain
+
+Event helpers
+-------------
+
+``event`` is the only Event declaration entrypoint. Filtered Event bodies
+return a restricted boolean expression; unfiltered bodies explicitly return
+``all_rows()``.
+
+.. autofunction:: participant
+.. autofunction:: participant_role
+.. autofunction:: all_rows
 
 Aggregation & measure helpers
 -----------------------------
@@ -124,6 +136,7 @@ Details types
    MeasureDetails
    MetricDetails
    RelationshipDetails
+   EventDetails
    TimeDimensionDetails
    DomainDetails
    DatasourceDetails

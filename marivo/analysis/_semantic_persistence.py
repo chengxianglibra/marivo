@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic.metric_graph import (
@@ -101,6 +101,49 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
     }
     if len(fingerprints) > 1:
         raise ValueError("job frames disagree on catalog definition fingerprint")
+
+    event_frames = tuple(frame for frame in frames if frame.meta.kind == "event_frame")
+    if event_frames:
+        if len(event_frames) != len(frames):
+            raise ValueError("analysis job cannot mix Event and metric frame semantics")
+        event_metas = tuple(cast("Any", frame.meta) for frame in event_frames)
+        first = event_metas[0]
+        signatures = {
+            (
+                meta.pattern.fingerprint,
+                meta.subject_entity_ref.path,
+                tuple(meta.subject_identity),
+            )
+            for meta in event_metas
+        }
+        if len(signatures) != 1:
+            raise ValueError("analysis job Event frames disagree on journey semantics")
+        return {
+            "catalog_definition_fingerprint": next(iter(fingerprints), None),
+            "subject": {
+                "kind": "event",
+                "subject_entity_ref": first.subject_entity_ref.to_dict(),
+                "subject_identity_signature": list(first.subject_identity),
+            },
+            "event_journey": {
+                "pattern": first.pattern.model_dump(mode="json"),
+                "matching": first.matching.model_dump(mode="json"),
+                "cohort_window": first.cohort_window.model_dump(mode="json"),
+                "completion_through": first.completion_through,
+                "completeness": [item.model_dump(mode="json") for item in first.completeness],
+                "input_coverage": [item.model_dump(mode="json") for item in first.input_coverage],
+                "coverage_basis": first.coverage_basis,
+                "event_fingerprints": dict(sorted(first.event_fingerprints.items())),
+                "event_identity_components": {
+                    key: [component.to_dict() for component in components]
+                    for key, components in sorted(first.event_identity_components.items())
+                },
+                "role_endpoints": {
+                    key: value.to_dict() for key, value in sorted(first.role_endpoints.items())
+                },
+                "query_refs": list(first.query_refs),
+            },
+        }
 
     identities: list[MetricIdentity] = []
     comparisons: list[DeltaComparisonIdentityV1] = []

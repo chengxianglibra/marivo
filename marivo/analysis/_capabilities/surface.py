@@ -18,6 +18,15 @@ from marivo.introspection.live.resolve import (
 
 def _build_type_registry() -> MappingProxyType[type, str]:
     """Build the exact public analysis type index."""
+    from marivo.analysis.event import (
+        CompletenessDeclaration,
+        EventPattern,
+        EventWatermarkReceipt,
+        EventWatermarkRequest,
+        EveryStart,
+        FirstPerSubject,
+        PatternStep,
+    )
     from marivo.analysis.evidence import (
         AnalysisScope,
         AnomalyCandidate,
@@ -54,6 +63,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
     from marivo.analysis.frames.delta import DeltaFrame
+    from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
@@ -65,6 +75,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             Session: "Session",
             BaseFrame: "BaseFrame",
             MetricFrame: "MetricFrame",
+            EventFrame: "EventFrame",
             DeltaFrame: "DeltaFrame",
             AttributionFrame: "AttributionFrame",
             CandidateSet: "CandidateSet",
@@ -99,6 +110,13 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             SliceSelection: "SliceSelection",
             WindowSelection: "WindowSelection",
             CrossSectionalOutlierSelection: "CrossSectionalOutlierSelection",
+            PatternStep: "PatternStep",
+            EventPattern: "EventPattern",
+            FirstPerSubject: "FirstPerSubject",
+            EveryStart: "EveryStart",
+            CompletenessDeclaration: "CompletenessDeclaration",
+            EventWatermarkRequest: "EventWatermarkRequest",
+            EventWatermarkReceipt: "EventWatermarkReceipt",
             cast("type", ArtifactIssue): "ArtifactIssue",
             cast("type", CandidateSelection): "CandidateSelection",
         }

@@ -105,6 +105,12 @@ class ErrorKind(StrEnum):
     INVALID_DOMAIN_OWNER = "invalid_domain_owner"
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
     IBIS_ATTR_SHADOW = "ibis_attr_shadow"
+    INVALID_EVENT_IDENTITY = "invalid_event_identity"
+    INVALID_EVENT_SOURCE = "invalid_event_source"
+    INVALID_EVENT_TIME = "invalid_event_time"
+    INVALID_EVENT_PREDICATE = "invalid_event_predicate"
+    INVALID_EVENT_PARTICIPANT_PATH = "invalid_event_participant_path"
+    INVALID_EVENT_PARTICIPANT_CARDINALITY = "invalid_event_participant_cardinality"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
@@ -266,6 +272,8 @@ class SemanticError(Exception):
             lines.append(f"  Did you mean: {', '.join(dym)}")
         if self.repair is not None:
             lines.extend(("", "Repair:", f"  {self.repair.action}"))
+            if self.repair.snippet is not None:
+                lines.extend(f"  {line}" for line in self.repair.snippet.splitlines())
             if self.repair.candidates:
                 lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
             target = self.repair.help_target
@@ -406,7 +414,10 @@ def _raise(
     location: SourceLocation | None = None,
     hint: str | None = None,
     details: dict[str, Any] | None = None,
+    expected: object | None = None,
+    received: object | None = None,
     constraint_id: ConstraintId | str | None = None,
+    repair_value: AuthoringRepair | None = None,
 ) -> NoReturn:
     """Raise a structured SemanticError with hint from the HINTS registry."""
     if hint is None:
@@ -417,12 +428,55 @@ def _raise(
             hint_fn = HINTS.get(kind)
             if hint_fn is not None:
                 hint = hint_fn()
+    resolved_details = dict(details or {})
+    if repair_value is None and kind in {
+        ErrorKind.INVALID_EVENT_IDENTITY,
+        ErrorKind.INVALID_EVENT_SOURCE,
+        ErrorKind.INVALID_EVENT_TIME,
+        ErrorKind.INVALID_EVENT_PREDICATE,
+        ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+        ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+    }:
+        participant_error = kind in {
+            ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+            ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+        }
+        repair_value = repair(
+            kind="reauthor",
+            canonical_id="participant" if participant_error else "event",
+            action=hint
+            or (
+                "Reauthor the participant declaration."
+                if participant_error
+                else "Reauthor the Event definition."
+            ),
+            snippet=(
+                "ms.participant(name='subject', cardinality='one')"
+                if participant_error
+                else "\n".join(
+                    (
+                        "@ms.event(",
+                        "    identity=(event_id,),",
+                        "    occurred_at=event_time,",
+                        "    participants=(",
+                        "        ms.participant(name='subject', cardinality='one'),",
+                        "    ),",
+                        ")",
+                        "def business_event(rows):",
+                        "    return ms.all_rows()",
+                    )
+                )
+            ),
+        )
     raise cls(
         kind=kind.value,
         message=message,
         refs=tuple(refs),
         location=location,
         hint=hint,
-        details=details,
+        details=resolved_details or None,
         constraint_id=constraint_id,
+        repair=repair_value,
+        expected=str(expected) if expected is not None else None,
+        received=str(received) if received is not None else None,
     )

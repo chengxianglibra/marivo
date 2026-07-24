@@ -622,6 +622,7 @@ def _build_registry(
     from marivo.semantic.ir import (
         DimensionIR,
         EntityIR,
+        EventIR,
         MetricIR,
         RelationshipIR,
     )
@@ -659,6 +660,8 @@ def _build_registry(
                 registry.metrics[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
+            elif isinstance(ir, EventIR):
+                registry.events[sid] = ir
             if expression_body is not None:
                 bodies[ref] = expression_body
 

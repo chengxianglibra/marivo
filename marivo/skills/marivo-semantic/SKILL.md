@@ -1,6 +1,6 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
+description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects including Events, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
 ---
 
 # marivo-semantic
@@ -302,6 +302,14 @@ options are forbidden.
 - The agent writes one object and validates it before advancing.
 - Advisory richness is not readiness and cannot create a required object by
   itself.
+- Event authoring follows the one registered Event entry point shown by current
+  `ms.help(...)`. The agent does not invent a body-free or filtered-Event
+  constructor from cached examples. Participant roles belong to the Event
+  definition; ordered EventPattern steps and matching policy belong to
+  `marivo-analysis`.
+- Event occurrence completeness is runtime analysis evidence, not semantic
+  readiness. The agent never promotes maximum observed Event time, query time,
+  or a lateness SLA into a semantic completeness guarantee.
 
 ### Diagnostics and parity
 

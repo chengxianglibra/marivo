@@ -18,10 +18,10 @@ from marivo.analysis.evidence.types import (
     ArtifactDigestPage,
     DerivationRule,
     EvidenceDerivationTrace,
+    EvidenceSubjectAdapter,
     Finding,
     FindingPage,
     FindingValueAdapter,
-    Subject,
     TimeWindow,
 )
 
@@ -38,7 +38,7 @@ def _row_to_finding(row: sqlite3.Row) -> Finding:
         epistemic_kind=row["epistemic_kind"],
         artifact_id=row["artifact_id"],
         session_id=row["session_id"],
-        subject=Subject.model_validate_json(row["subject_payload"]),
+        subject=EvidenceSubjectAdapter.validate_json(row["subject_payload"]),
         canonical_item_key=row["canonical_item_key"],
         value=FindingValueAdapter.validate_python(_loads(row["value_payload"], {})),
         derivation=DerivationRule.model_validate_json(row["derivation_payload"]),
@@ -73,7 +73,7 @@ def query_findings(
         clauses.append("finding_type = ?")
         params.append(kind)
     if subject is not None:
-        payload = Subject.model_validate(subject).model_dump(mode="json")
+        payload = EvidenceSubjectAdapter.validate_python(subject).model_dump(mode="json")
         clauses.append("subject_payload = ?")
         params.append(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     if cursor is not None:
@@ -126,7 +126,7 @@ def query_digests(
         params.append(operator)
     if subject is not None:
         clauses.append("subject_key = ?")
-        params.append(canonical_subject_key(Subject.model_validate(subject)))
+        params.append(canonical_subject_key(EvidenceSubjectAdapter.validate_python(subject)))
     if cursor is not None:
         committed_at, identity = decode_keyset_cursor(cursor)
         if not isinstance(committed_at, int):

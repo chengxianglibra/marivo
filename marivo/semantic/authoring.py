@@ -27,6 +27,7 @@ from marivo.semantic._authoring_decorators import (
     dimension,
     dimension_column,
     entity,
+    event,
     measure,
     measure_column,
     relationship,
@@ -57,6 +58,7 @@ from marivo.semantic._authoring_values import (
     validity,
 )
 from marivo.semantic._expression_binding import bind
+from marivo.semantic.event import all_rows, participant, participant_role
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
 
 __all__ = [
@@ -64,6 +66,7 @@ __all__ = [
     "AggregateFoldValue",
     "aggregate",
     "ai_context",
+    "all_rows",
     "bind",
     "count",
     "cumulative",
@@ -72,6 +75,7 @@ __all__ = [
     "dimension_column",
     "domain",
     "entity",
+    "event",
     "from_sql",
     "grain_to_date",
     "hour_prefix",
@@ -80,6 +84,8 @@ __all__ = [
     "measure",
     "measure_column",
     "metric",
+    "participant",
+    "participant_role",
     "ratio",
     "relationship",
     "semi_additive",

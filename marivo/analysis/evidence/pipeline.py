@@ -25,6 +25,7 @@ from marivo.analysis.evidence.extraction.composition import (
 )
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
+from marivo.analysis.evidence.extraction.event import extract_event_journey_finding
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
 from marivo.analysis.evidence.extraction.observation import (
     extract_metric_value_findings,
@@ -45,7 +46,10 @@ from marivo.analysis.evidence.types import (
     AnalysisScope,
     ArtifactDigest,
     ArtifactIssue,
+    EventSubject,
     EvidenceAvailabilityIssue,
+    EvidenceScope,
+    EvidenceSubject,
     Finding,
     OperatorSemantics,
     QualitySummary,
@@ -186,8 +190,8 @@ def frame_exists_on_disk(frames_dir: Path, artifact_id: str) -> bool:
     )
 
 
-_ARTIFACT_SCHEMA_VERSION = "v3"
-_EXTRACTOR_VERSION = "v3"
+_ARTIFACT_SCHEMA_VERSION = "v4"
+_EXTRACTOR_VERSION = "v4"
 _FINDINGS_ADAPTER = TypeAdapter(list[Finding])
 
 
@@ -343,14 +347,40 @@ def _extract_findings(
     df: pd.DataFrame,
     artifact_id: str,
     session_id: str,
-    subject: Subject,
+    subject: EvidenceSubject,
     extractor_family: str,
     frame: BaseFrame,
     committed_at: datetime,
-    scope: AnalysisScope,
+    scope: EvidenceScope,
 ) -> list[Finding]:
     meta = frame.meta
     semantic_kind = str(getattr(meta, "semantic_kind", "scalar"))
+    if extractor_family == "event_frame":
+        if not isinstance(subject, EventSubject):
+            raise TypeError("event_frame evidence requires EventSubject")
+        return [
+            extract_event_journey_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                committed_at=committed_at,
+                unused_event_count=int(getattr(meta, "unused_event_count", 0)),
+                source_refs=tuple(sorted(getattr(meta, "event_fingerprints", {}))),
+            )
+        ]
+    if extractor_family == "quality_report":
+        return extract_quality_check_findings(
+            df=df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+            evaluated_scope=scope,
+            source_refs=tuple(str(ref) for ref in getattr(meta, "source_refs", ())),
+        )
+    if not isinstance(subject, Subject) or not isinstance(scope, AnalysisScope):
+        raise TypeError(f"{extractor_family} evidence requires metric subject and scope")
     if extractor_family == "metric_frame":
         findings: list[Finding] = []
         for entry_subject, column, prefix, additive, unit in _metric_entries(
@@ -525,16 +555,6 @@ def _extract_findings(
             ),
             training_scope=scope,
         )
-    elif extractor_family == "quality_report":
-        findings = extract_quality_check_findings(
-            df=df,
-            artifact_id=artifact_id,
-            session_id=session_id,
-            subject=subject,
-            committed_at=committed_at,
-            evaluated_scope=scope,
-            source_refs=tuple(str(ref) for ref in getattr(meta, "source_refs", ())),
-        )
     else:
         findings = []
     return _FINDINGS_ADAPTER.validate_python(findings)
@@ -552,6 +572,7 @@ def _operator_for(step_type: str, extractor_family: str) -> str:
         "hypothesis_test_result": "hypothesis_test",
         "forecast_frame": "forecast",
         "quality_report": "assess_quality",
+        "event_frame": "events.match",
     }.get(extractor_family, step_type)
 
 
@@ -586,9 +607,9 @@ def _insert_projection(
     session_id: str,
     step_type: str,
     extractor_family: str,
-    subject: Subject,
+    subject: EvidenceSubject,
     lineage_payload: str,
-    scope: AnalysisScope,
+    scope: EvidenceScope,
     quality: QualitySummary,
     status: str,
     frame_path: str,
@@ -731,7 +752,11 @@ def _reuse_committed_result(
                     "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
                 },
             )
-        persisted_meta = type(frame.meta).model_validate(persisted_payload)
+        persisted_meta = (
+            type(frame.meta).model_validate_json(json.dumps(persisted_payload))
+            if getattr(frame.meta, "kind", None) == "event_frame"
+            else type(frame.meta).model_validate(persisted_payload)
+        )
         persisted_df = pd.read_parquet(parquet_path, engine="pyarrow", to_pandas_kwargs={})
     except FrameMetaInvalidError:
         raise
@@ -741,6 +766,13 @@ def _reuse_committed_result(
         return None
     frame.meta = persisted_meta
     frame._df = persisted_df
+    restore_persisted_columns = getattr(
+        frame,
+        "_restore_persisted_identity_columns",
+        None,
+    )
+    if callable(restore_persisted_columns):
+        restore_persisted_columns()
     return frame
 
 
@@ -783,6 +815,17 @@ def _bind_typed_metric_subject(
     return subject.model_copy(update={"typed_metric_subject": typed_subject})
 
 
+def event_subject_for_frame(frame: BaseFrame) -> EventSubject:
+    """Build the identity-safe evidence subject for an Event Journey frame."""
+    meta = cast("Any", frame.meta)
+    if getattr(meta, "kind", None) != "event_frame":
+        raise TypeError("event_subject_for_frame requires EventFrame")
+    return EventSubject(
+        subject_entity_ref=meta.subject_entity_ref,
+        subject_identity_signature=tuple(meta.subject_identity),
+    )
+
+
 @staged("evidence")
 def commit_result(
     *,
@@ -793,7 +836,7 @@ def commit_result(
     inputs: CommitInputs,
     params: CommitParams,
     semantic_anchors: CommitSemanticAnchors,
-    subject: Subject,
+    subject: EvidenceSubject,
     extractor_family: str,
     comparison_window: dict[str, Any] | None = None,
     comparison_basis: str | None = None,
@@ -823,19 +866,22 @@ def commit_result(
         return reused
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
-    scope = compute_analysis_scope(frame)
+    scope = frame.meta.analysis_scope or compute_analysis_scope(frame)
     slice_predicates = getattr(frame.meta, "slice_predicates", ())
     if not slice_predicates:
         slice_predicates = semantic_anchors.slice_predicates
-    if isinstance(slice_predicates, tuple) and slice_predicates:
+    if isinstance(subject, Subject) and isinstance(slice_predicates, tuple) and slice_predicates:
         subject = subject.model_copy(update={"slice_predicates": slice_predicates})
-    subject = _bind_typed_metric_subject(
-        frame=frame,
-        subject=subject,
-        artifact_id=artifact_id,
-        scope=scope,
-        semantic_anchors=semantic_anchors,
-    )
+    if getattr(frame.meta, "kind", None) == "event_frame":
+        subject = event_subject_for_frame(frame)
+    elif isinstance(subject, Subject) and isinstance(scope, AnalysisScope):
+        subject = _bind_typed_metric_subject(
+            frame=frame,
+            subject=subject,
+            artifact_id=artifact_id,
+            scope=scope,
+            semantic_anchors=semantic_anchors,
+        )
     quality = compute_quality_summary(frame)
     findings: list[Finding] = []
     digest: ArtifactDigest | None = None
@@ -1002,6 +1048,7 @@ __all__ = [
     "CommitSemanticAnchors",
     "commit_result",
     "compute_prospective_artifact_id",
+    "event_subject_for_frame",
     "frame_exists_on_disk",
     "rollback_committed_result",
 ]

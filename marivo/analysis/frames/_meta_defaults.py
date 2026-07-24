@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 
 from marivo.analysis._semantic_persistence import SlicePredicateV1
-from marivo.analysis.evidence.types import AnalysisScope, JsonValue, QualitySummary
+from marivo.analysis.evidence.types import (
+    AnalysisScope,
+    EventAnalysisScope,
+    EvidenceScope,
+    JsonValue,
+    QualitySummary,
+)
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import DeltaComparisonIdentityV1, MetricIdentity
@@ -114,9 +120,41 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
     )
 
 
-def compute_analysis_scope(frame: BaseFrame) -> AnalysisScope:
-    """Derive the existing metric-shaped analysis scope from frame metadata."""
+def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
+    """Derive a typed metric or Event Journey scope from frame metadata."""
     meta = frame.meta
+    if getattr(meta, "kind", None) == "event_frame":
+        event_meta = cast("Any", meta)
+        pattern = event_meta.pattern
+        matching = event_meta.matching
+        cohort_window = event_meta.cohort_window
+        role_endpoints = event_meta.role_endpoints
+        input_coverage = event_meta.input_coverage
+        roles = tuple(
+            {
+                "step_key": step.key,
+                "event_ref": RefPayloadV1.from_ref(step.event).to_dict(),
+                "participant_name": step.participant.name,
+                "endpoint_ref": role_endpoints[step.key].to_dict(),
+            }
+            for step in pattern.steps
+        )
+        coverage = {
+            "basis": event_meta.coverage_basis,
+            "inputs": tuple(item.model_dump(mode="json") for item in input_coverage),
+        }
+        return EventAnalysisScope(
+            pattern=cast("dict[str, JsonValue]", pattern.model_dump(mode="json")),
+            roles=cast("tuple[dict[str, JsonValue], ...]", roles),
+            matching=cast("dict[str, JsonValue]", matching.model_dump(mode="json")),
+            cohort_window=cast(
+                "dict[str, JsonValue]",
+                cohort_window.model_dump(mode="json"),
+            ),
+            completion_through=str(event_meta.completion_through),
+            coverage=cast("dict[str, JsonValue]", coverage),
+        )
+
     metric_identities: tuple[MetricIdentity, ...] = ()
     comparison: DeltaComparisonIdentityV1 | None = None
     axis_refs: tuple[RefPayloadV1, ...] = ()

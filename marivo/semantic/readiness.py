@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from marivo._authoring.model import AuthoringRepair
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
@@ -194,6 +194,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
+        SemanticKind.EVENT: ref_factory.event,
     }[kind]
     return factory(path)
 
@@ -217,6 +218,7 @@ _EXECUTABLE_KINDS = frozenset(
         SemanticKind.MEASURE,
         SemanticKind.METRIC,
         SemanticKind.RELATIONSHIP,
+        SemanticKind.EVENT,
     }
 )
 
@@ -297,6 +299,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(relationship.semantic_id, SemanticKind.RELATIONSHIP)
         kinds[key] = SemanticKind.RELATIONSHIP
         objects[key] = relationship
+    for event in reg.events.values():
+        key = _exact_key(event.semantic_id, SemanticKind.EVENT)
+        kinds[key] = SemanticKind.EVENT
+        objects[key] = event
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -340,6 +346,7 @@ def _strict_enrichment_issues(
         SemanticKind.MEASURE,
         SemanticKind.TIME_DIMENSION,
         SemanticKind.METRIC,
+        SemanticKind.EVENT,
     }
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -400,6 +407,8 @@ def _dependencies_for_ref(
     ref: str,
     objects: Mapping[str, object],
     kinds: Mapping[str, SemanticKind],
+    *,
+    event_predicate_dependencies: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     kind = kinds.get(ref)
     obj = objects.get(ref)
@@ -450,6 +459,22 @@ def _dependencies_for_ref(
             for dep in (*key_refs, *getattr(obj, "from_keys", ()), *getattr(obj, "to_keys", ()))
             if isinstance(dep, str)
         )
+    if kind == SemanticKind.EVENT:
+        from marivo.semantic.ir import EventIR
+
+        event = cast("EventIR", obj)
+        deps = [
+            _exact_key(event.source_entity, SemanticKind.ENTITY),
+            _exact_key(event.occurred_at, SemanticKind.TIME_DIMENSION),
+        ]
+        deps.extend(_exact_key(path, SemanticKind.DIMENSION) for path in event.identity)
+        for participant in event.participants:
+            deps.extend(
+                _exact_key(path, SemanticKind.RELATIONSHIP) for path in (participant.path or ())
+            )
+        if event_predicate_dependencies is not None:
+            deps.extend(event_predicate_dependencies.get(ref, ()))
+        return tuple(deps)
     return ()
 
 
@@ -457,6 +482,8 @@ def _expand_checked_refs(
     refs: Iterable[str] | None,
     kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
+    *,
+    event_predicate_dependencies: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     seeds = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
     checked: list[str] = []
@@ -470,7 +497,12 @@ def _expand_checked_refs(
         if ref not in kinds:
             unknown.append(ref)
             continue
-        for dep in _dependencies_for_ref(ref, objects, kinds):
+        for dep in _dependencies_for_ref(
+            ref,
+            objects,
+            kinds,
+            event_predicate_dependencies=event_predicate_dependencies,
+        ):
             if dep not in checked and dep not in queue:
                 queue.append(dep)
     return tuple(checked), tuple(unknown)
@@ -619,11 +651,21 @@ def build_readiness_report(
     if compiled_state is None:
         raise RuntimeError("ready semantic project has no compiled state")
     catalog_definition_fingerprint = compiled_state.definition_fingerprint
+    event_predicate_dependencies = {
+        ref.key: tuple(binding.to_ref().key for binding in body.bindings)
+        for ref, body in compiled_state.sidecar.bodies.items()
+        if ref.kind is SemanticKind.EVENT
+    }
 
     kinds, objects = _object_maps(project)
     scoped_keys = _scope_keys(refs, kinds)
     direct_refs = _dedupe(scoped_keys if scoped_keys is not None else _default_checked_refs(kinds))
-    checked_refs, unknown_refs = _expand_checked_refs(scoped_keys, kinds, objects)
+    checked_refs, unknown_refs = _expand_checked_refs(
+        scoped_keys,
+        kinds,
+        objects,
+        event_predicate_dependencies=event_predicate_dependencies,
+    )
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
     cross_datasource_refs: list[str] = []
@@ -833,7 +875,12 @@ def build_readiness_report(
         for ref in direct_refs
         if blocked_refs.isdisjoint(
             _display_path(dependency)
-            for dependency in _expand_checked_refs((ref,), kinds, objects)[0]
+            for dependency in _expand_checked_refs(
+                (ref,),
+                kinds,
+                objects,
+                event_predicate_dependencies=event_predicate_dependencies,
+            )[0]
         )
     )
     analysis_ready_refs = tuple(

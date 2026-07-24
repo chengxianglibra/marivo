@@ -40,6 +40,7 @@ def _classify_frame(value: object) -> str | None:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
     from marivo.analysis.frames.delta import DeltaFrame
+    from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
@@ -47,6 +48,8 @@ def _classify_frame(value: object) -> str | None:
 
     if isinstance(value, MetricFrame):
         return "MetricFrame"
+    if isinstance(value, EventFrame):
+        return "EventFrame"
     if isinstance(value, DeltaFrame):
         return "DeltaFrame"
     if isinstance(value, AttributionFrame):
@@ -108,6 +111,12 @@ def _classify_runtime_metric(value: object) -> str | None:
 def _classify_policy_or_spec(value: object) -> str | None:
     """Classify policy, sampling, time-scope, query-spec, and column-binding values."""
 
+    from marivo.analysis.event import (
+        CompletenessDeclaration,
+        EventPattern,
+        EveryStart,
+        FirstPerSubject,
+    )
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
@@ -117,6 +126,12 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "SamplingPolicy"
     if isinstance(value, (TimeScope, AbsoluteWindow)):
         return "TimeScopeInput"
+    if isinstance(value, EventPattern):
+        return "EventPattern"
+    if isinstance(value, (FirstPerSubject, EveryStart)):
+        return "EventMatchingPolicy"
+    if isinstance(value, CompletenessDeclaration):
+        return "CompletenessDeclaration"
     # A plain dict is acceptable as a TimeScopeInput (normalized later by
     # the capability-specific validator, which may reject relative windows).
     if isinstance(value, dict):

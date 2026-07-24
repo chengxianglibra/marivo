@@ -157,6 +157,11 @@ def _extract_raises(doc: str) -> str | None:
     return _extract_docstring_section(doc, "Raises:")
 
 
+def _extract_guidance(doc: str) -> str | None:
+    """Extract agent-facing business selection guidance from a docstring."""
+    return _extract_docstring_section(doc, "Guidance:")
+
+
 # ---------------------------------------------------------------------------
 # Constraint lookup
 # ---------------------------------------------------------------------------
@@ -486,7 +491,12 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                     s.startswith("*") for s in param_strs
                 ):
                     param_strs.append("*")
-                part = p.name
+                prefix = ""
+                if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                    prefix = "*"
+                elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                    prefix = "**"
+                part = f"{prefix}{p.name}"
                 if p.annotation is not inspect.Parameter.empty:
                     ann = p.annotation
                     if isinstance(ann, type):
@@ -538,6 +548,13 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             lines.append(f"  Restored family: {desc.restored_family}")
         lines.append(f"  Identity input: {desc.identity_input}")
         lines.append(f"  Query behavior: {desc.query_behavior}")
+
+    if callable_obj is not None:
+        guidance = _extract_guidance(inspect.getdoc(callable_obj) or "")
+        if guidance:
+            lines.append("")
+            lines.append("  Guidance:")
+            lines.extend(f"    {line}" if line else "" for line in guidance.splitlines())
 
     members = _grouping_members(desc)
     if members:
@@ -682,6 +699,10 @@ def _render_type_help(type_name: str) -> str:
             "SliceSelection",
             "WindowSelection",
             "CrossSectionalOutlierSelection",
+        ),
+        "QualityReport": (
+            "QualityReport[metric]",
+            "QualityReport[event_journey]",
         ),
     }.get(type_name)
     if variants:

@@ -11,12 +11,12 @@ import pandas as pd
 
 from marivo.analysis.evidence.identity import make_finding_id
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     DerivationRule,
+    EvidenceScope,
+    EvidenceSubject,
     Finding,
     JsonScalar,
     QualityCheckFindingValue,
-    Subject,
 )
 
 
@@ -58,6 +58,24 @@ def _predicate(
             {"expected": 0},
             duplicate_count == 0,
         )
+    event_detail_fields = {
+        "event_row_contract": "invalid_count",
+        "event_identity": "invalid_count",
+        "event_participant": "invalid_count",
+        "event_ordering": "invalid_count",
+        "event_coverage": "unknown_count",
+        "declared_completeness_used": "declared_input_count",
+        "event_censoring": "coverage_censored_count",
+    }
+    if check_kind in event_detail_fields:
+        detail_field = event_detail_fields[check_kind]
+        count = int(details.get(detail_field, 0))
+        return (
+            count,
+            f"{detail_field}_equals_zero",
+            {"expected": 0},
+            count == 0,
+        )
     raise ValueError(f"unsupported quality check kind: {check_kind}")
 
 
@@ -66,9 +84,9 @@ def extract_quality_check_findings(
     df: pd.DataFrame,
     artifact_id: str,
     session_id: str,
-    subject: Subject,
+    subject: EvidenceSubject,
     committed_at: datetime,
-    evaluated_scope: AnalysisScope,
+    evaluated_scope: EvidenceScope,
     source_refs: tuple[str, ...],
 ) -> list[Finding]:
     """Extract one typed finding for every executed quality predicate."""

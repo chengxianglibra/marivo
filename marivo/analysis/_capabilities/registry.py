@@ -54,6 +54,7 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "as_panel",
         ),
         "AttributionFrame": ("as_sum", "as_ratio_mix", "as_weighted_mix"),
+        "EventFrame": (),
         "CandidateSet": (
             "select",
             "as_point_anomaly",
@@ -110,6 +111,7 @@ PUBLIC_OBJECT_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "updated_at",
             "report_tz_name",
             "is_read_only",
+            "events",
         ),
         "FrameSummaryEntry": ("id",),
     }
@@ -273,6 +275,7 @@ class CapabilityRegistry:
 # ---------------------------------------------------------------------------
 
 _MF: frozenset[InputFamily] = frozenset({"MetricFrame"})
+_EF: frozenset[InputFamily] = frozenset({"EventFrame"})
 _DF: frozenset[InputFamily] = frozenset({"DeltaFrame"})
 _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
 _CS: frozenset[InputFamily] = frozenset({"CandidateSet"})
@@ -283,6 +286,13 @@ def _build_registry() -> CapabilityRegistry:
     """Build the complete immutable capability registry."""
 
     # Late imports to avoid circular dependencies at module load time.
+    from marivo.analysis.event import (
+        declared_complete_through,
+        every_start,
+        first_per_subject,
+        sequence,
+        step,
+    )
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.candidate import CandidateSet
     from marivo.analysis.frames.delta import DeltaFrame
@@ -322,6 +332,34 @@ def _build_registry() -> CapabilityRegistry:
                 "time_scope": frozenset({"TimeScopeInput"}),
             },
             output_family="MetricFrame",
+        )
+    )
+
+    descriptors.append(
+        OperatorCapability(
+            id="events.match",
+            public_entrypoint="session.events.match(...)",
+            help_target="events.match",
+            summary=(
+                "Match a typed EventPattern into dense subject journeys with "
+                "explicit follow-up completeness."
+            ),
+            root_group="artifact_production",
+            root_visibility="direct",
+            constraint_ids=(
+                "event_pattern_valid",
+                "event_window_valid",
+                "event_completeness_valid",
+            ),
+            callable_path="marivo.analysis.session.core.SessionEvents.match",
+            receiver="SessionEvents",
+            accepted_inputs={
+                "pattern": frozenset({"EventPattern"}),
+                "cohort_window": frozenset({"TimeScopeInput"}),
+                "matching": frozenset({"EventMatchingPolicy"}),
+                "completeness": frozenset({"CompletenessDeclaration"}),
+            },
+            output_family="EventFrame",
         )
     )
 
@@ -445,14 +483,14 @@ def _build_registry() -> CapabilityRegistry:
             id="assess_quality",
             public_entrypoint="session.assess_quality(...)",
             help_target="assess_quality",
-            summary="Run quality checks over a MetricFrame.",
+            summary="Run fixed quality checks over a MetricFrame or EventFrame[journey].",
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=("quality_target_shape",),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={
-                "target": _MF,
+                "target": _MF | _EF,
             },
             output_family="QualityReport",
         )
@@ -789,6 +827,46 @@ def _build_registry() -> CapabilityRegistry:
     # -- Constructors -----------------------------------------------------
 
     constructor_specs: tuple[tuple[str, str, str, str, object, str], ...] = (
+        (
+            "step",
+            "mv.step(...)",
+            "step",
+            "Construct one typed Event Journey step from a participant role.",
+            step,
+            "PatternStep",
+        ),
+        (
+            "sequence",
+            "mv.sequence(...)",
+            "sequence",
+            "Construct an ordered EventPattern from typed steps.",
+            sequence,
+            "EventPattern",
+        ),
+        (
+            "first_per_subject",
+            "mv.first_per_subject()",
+            "first_per_subject",
+            "Choose the earliest first-step occurrence per subject.",
+            first_per_subject,
+            "FirstPerSubject",
+        ),
+        (
+            "every_start",
+            "mv.every_start(...)",
+            "every_start",
+            "Create one attempt per first-step occurrence.",
+            every_start,
+            "EveryStart",
+        ),
+        (
+            "declared_complete_through",
+            "mv.declared_complete_through(...)",
+            "declared_complete_through",
+            "Declare exact Event inputs complete through a follow-up bound.",
+            declared_complete_through,
+            "CompletenessDeclaration",
+        ),
         (
             "window_bucket",
             "mv.window_bucket()",
@@ -1165,6 +1243,12 @@ def _build_registry() -> CapabilityRegistry:
             "session.catalog.metrics",
             "catalog.metrics",
             "Browse catalog metrics.",
+        ),
+        (
+            "catalog.events",
+            "session.catalog.events",
+            "catalog.events",
+            "Browse catalog Events.",
         ),
         (
             "catalog.dimensions",

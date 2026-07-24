@@ -1,6 +1,6 @@
 ---
 title: Analysis Workflow
-description: Metric-centered sessions, typed intents, and frames for repeatable agent analysis.
+description: Typed metric and Event intents, sessions, and frames for repeatable agent analysis.
 ---
 
 This page is the deeper reference for the agent-guided journey introduced in
@@ -42,17 +42,20 @@ documented below for readers who need to inspect or integrate the runtime.
 
 ## Operator and artifact reference
 
-Every Marivo analysis starts from a **metric** and runs as a **write-run-read
-loop**: an agent writes an intent (an operator call plus its fields), runs it,
-and reads a typed result before deciding the next step.
+Every Marivo analysis starts from governed semantic inputs and runs as a
+**write-run-read loop**: an agent writes an intent (an operator call plus its
+fields), runs it, and reads a typed result before deciding the next step.
+Metric analysis starts with `session.observe(...)`; Event journey analysis
+starts with `session.events.match(...)`.
 
 The runtime pieces are:
 
 - A **session** holds the guiding question, the semantic catalog, and the
   persisted results of every step.
-- An **operator call** is one deterministic analysis step — `observe`, `compare`,
-  `attribute`, `discover.<objective>`, and the other core operators — with its
-  parameters. The parameters *are* the analysis specification.
+- An **operator call** is one deterministic analysis step — `observe`,
+  `events.match`, `compare`, `attribute`, `discover.<objective>`, and the other
+  core operators — with its parameters. The parameters *are* the analysis
+  specification.
 - An **artifact** is the typed result of an operator. Artifacts are the boundary
   between steps: each operator consumes specific artifact families and produces
   another.
@@ -141,6 +144,67 @@ snapshots before every `observe`. A blocked report means the selected objects
 have not completed that certification; repair them before declaring the semantic
 change complete.
 :::
+
+## Match an Event journey
+
+Event analysis starts from typed participant roles and an ordered EventPattern.
+Each step gets a stable snake-case key; the role carries its Event and subject
+Entity, and the subject Entity's primary key supplies identity.
+
+```python
+cart_user = ms.participant_role(event=cart_created, name="user")
+checkout_user = ms.participant_role(event=checkout_started, name="user")
+payment_user = ms.participant_role(event=payment_succeeded, name="user")
+
+cart_step = mv.step(participant=cart_user, key="cart")
+checkout_step = mv.step(participant=checkout_user, key="checkout")
+payment_step = mv.step(participant=payment_user, key="payment")
+
+pattern = mv.sequence(cart_step, checkout_step, payment_step)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+The cohort window is half-open: only first-step occurrences in `[start, end)`
+anchor journeys. `completion_through` is inclusive follow-up and must be at
+least `end`. Phase 1 does not accept a cohort/SubjectSet argument, and does not
+advertise funnel, time-to-event, selection, comparison, or attribution
+continuations.
+
+`EventFrame[journey]` is a dense long table with one row for every
+`journey × pattern step`. A missing later step remains present with null event,
+time, and elapsed values. It is `incomplete` only when every required Event is
+known complete through the follow-up bound; otherwise it is
+`coverage_censored`.
+
+A backend may provide authoritative Event completeness through
+`marivo_event_watermark(request)`. Marivo does not infer that watermark from
+the maximum observed Event time, query time, or an SLA. When authoritative
+coverage is unavailable, the caller may attach an exact, bounded assumption:
+
+```python
+coverage = mv.declared_complete_through(
+    inputs=(cart_created, checkout_started, payment_succeeded),
+    through=followup_end,
+    rationale="Warehouse reconciliation completed through followup_end.",
+)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+    completeness=(coverage,),
+)
+```
+
+Observed watermarks take precedence over declarations. The artifact and its
+quality/evidence records retain each input's
+`observed_watermark | declared_complete | unknown` basis and the aggregate
+`observed_watermark | declared_complete | mixed | unknown` basis.
 
 ## How an intent is specified
 

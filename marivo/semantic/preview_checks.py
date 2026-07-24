@@ -143,7 +143,7 @@ def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoRetu
 
 
 def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tuple[str, ...]:
-    entities = registry.entities
+    entity_registry = registry.entities
     dimensions = registry.dimensions
     measures = registry.measures
     metrics = registry.metrics
@@ -156,6 +156,17 @@ def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tu
     if kind == SemanticKind.RELATIONSHIP:
         relationship = registry.relationships[ref]
         return tuple(dict.fromkeys((relationship.from_entity, relationship.to_entity)))
+    if kind == SemanticKind.EVENT:
+        event = registry.events[ref]
+        event_entities = [event.source_entity]
+        endpoint = event.source_entity
+        for participant in event.participants:
+            endpoint = event.source_entity
+            for relationship_id in participant.path or ():
+                endpoint = registry.relationships[relationship_id].to_entity
+                if endpoint not in event_entities:
+                    event_entities.append(endpoint)
+        return tuple(event_entities)
     if kind != SemanticKind.METRIC:
         return ()
 
@@ -168,7 +179,7 @@ def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tu
         visited_metrics.add(metric_id)
         metric = metrics[metric_id]
         for entity_id in metric.entities:
-            if entity_id in entities and entity_id not in ordered:
+            if entity_id in entity_registry and entity_id not in ordered:
                 ordered.append(entity_id)
         if metric.composition is not None:
             for component in composition_components(metric.composition).values():
@@ -263,6 +274,8 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         return SemanticKind.METRIC
     if ref in registry.relationships:
         return SemanticKind.RELATIONSHIP
+    if ref in registry.events:
+        return SemanticKind.EVENT
     raise KeyError(ref)
 
 
@@ -274,6 +287,7 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
+        SemanticKind.EVENT: ref_factory.event,
     }.get(kind)
     if factory is None:
         raise AssertionError(f"unsupported preview ref kind: {kind}")
