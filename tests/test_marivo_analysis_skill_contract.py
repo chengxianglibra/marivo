@@ -125,6 +125,20 @@ def test_analysis_skill_defers_semantic_authoring_and_allows_raw_sql_escape() ->
         assert required in text, f"Missing semantic-gap/raw-SQL boundary: {required}"
 
 
+def test_analysis_skill_routes_event_journeys_to_live_help_and_coverage_evidence() -> None:
+    """Event analysis routing stays in the skill while signatures stay in live help."""
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    for required in (
+        "typed semantic Events",
+        'mv.help("events.match")',
+        "watermark",
+        "declaration",
+        "unknown-coverage",
+        "censoring",
+    ):
+        assert required in text, f"Missing Event Journey routing boundary: {required}"
+
+
 def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
     """The packaged semantic skill shape is exactly one file, with no embedded
     code/repair symbols and all required routing sections present."""

@@ -751,7 +751,7 @@ def test_observe_persists_job_and_frame(tmp_path):
     frame_dir = s._layout.frames_dir / mf.ref
     assert (frame_dir / "data.parquet").is_file()
     persisted_meta = json.loads((frame_dir / "meta.json").read_text())
-    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v5"
+    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v6"
     assert {
         "metric_id",
         "axes",
@@ -769,7 +769,7 @@ def test_observe_persists_job_and_frame(tmp_path):
 
     job_path = next(s._layout.jobs_dir.glob("*.json"))
     persisted_job = json.loads(job_path.read_text())
-    assert persisted_job["schema"] == "marivo.analysis_job/v1"
+    assert persisted_job["schema"] == "marivo.analysis_job/v2"
     assert persisted_job["subject"]["metric_ref"]["path"] == "sales.revenue"
     assert {
         "semantic_model",
@@ -1003,7 +1003,7 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     assert frame.meta.key_schema is not None
     assert frame.meta.source_compatibility_domain is not None
     assert frame.meta.comparable_value_semantics is not None
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v5"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v6"
 
     store = session._evidence_store()
     assert store is not None

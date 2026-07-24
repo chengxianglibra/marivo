@@ -253,7 +253,8 @@ Every Event declares:
 - an ordered, non-empty `identity: tuple[DimensionRef, ...]`;
 - exactly one `occurred_at: TimeDimensionRef`;
 - one or more named participant roles;
-- an optional restricted typed row predicate for a shared event Entity;
+- one restricted function body that returns either the Event's row predicate or
+  the exact sentinel `ms.all_rows()`;
 - `ai_context` containing the business definition.
 
 The Event source Entity is mechanically resolved as `owner(occurred_at)`.
@@ -274,23 +275,25 @@ ingestion timestamp when a business occurrence time is available. Ingestion
 time, completeness watermarks, and arrival guarantees remain datasource
 execution evidence.
 
-The optional event predicate reuses the semantic validator's restricted
-decorator-body model. A filtered Event is authored with `@ms.event(...)`; its
-function receives one source-Entity alias and contains exactly one
-`return <boolean Ibis expression>`. The expression may use only
+The Event body reuses the semantic validator's restricted decorator-body model.
+Every Event is authored with the sole public entry point `@ms.event(...)`; its
+function receives one source-Entity alias and contains exactly one return. A
+filtered Event returns one boolean Ibis expression. The expression may use only
 `ms.bind(dimension_ref, entity_alias)` for declared Dimensions on that source
 Entity, closed scalar constants, comparisons, and boolean composition. It
 cannot use a bare `DimensionRef` as an expression, execute raw SQL, call
 external state, aggregate, introduce a join, or redefine a Metric.
 
-An Event with no predicate uses the body-free `ms.event(...)` constructor. The
-decorator and body-free form produce the same `EventRef` family and persisted
-Event IR; the predicate AST hash and compiled-expression sidecar are part of the
-Event fingerprint. The fingerprint also covers the inferred source Entity,
-identity and occurrence-time refs, and participant names, paths, inferred
-endpoints, and cardinalities. This permits one physical event log to expose
-several business Event definitions without making `Ref.__eq__` or another ref
-operator an expression language.
+An Event with no row filter uses that same decorator and explicitly returns
+`ms.all_rows()`. The sentinel is legal only as the complete return value; it
+cannot participate in a comparison or boolean composition. A missing return,
+Python `None`, bare `True`, a body-free `ms.event(...)`, `ms.filtered_event(...)`,
+or any parallel Event constructor is invalid. The all-rows/predicate definition
+and compiled-expression sidecar are part of the Event fingerprint. The
+fingerprint also covers the inferred source Entity, identity and occurrence-time
+refs, and participant names, paths, inferred endpoints, and cardinalities. This
+permits one physical event log to expose several business Event definitions
+without making `Ref.__eq__` or another ref operator an expression language.
 
 ### ParticipantRole
 
@@ -316,6 +319,11 @@ population. Multi-valued participant roles are deferred until an exact
 consumer owns fanout and deduplication semantics. If multiple eligible roles
 identify the requested subject Entity, the caller must pass the typed role
 handle; the planner never guesses.
+
+The endpoint Entity's declared, non-empty `primary_key` becomes the journey
+subject identity in its declared component order. Neither Event authoring nor
+`events.match` accepts another subject-identity argument. A role whose endpoint
+has no primary key is not eligible as an analytical subject.
 
 ### Event authoring shape
 
@@ -343,7 +351,26 @@ def refund_requested(event_rows):
     return ms.bind(event_type, event_rows) == "refund_requested"
 ```
 
-`ms.event(...)` returns `EventRef`. `ms.participant(...)` returns an immutable
+The corresponding unfiltered shape remains a decorated function:
+
+```python
+@ms.event(
+    name="order_created",
+    identity=(order_event_id,),
+    occurred_at=created_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+The decorated symbol is an immutable, non-callable `EventRef`.
+`ms.participant(...)` returns an immutable
 authoring value and is not exported as an independently loadable object. A
 nested role is resolved later through the sole typed handle constructor
 `ms.participant_role(event=<EventRef>, name=<str>)`; an `EventRef` remains a
@@ -670,24 +697,30 @@ EventFrame[journey]  -> events.time_to_event -> EventFrame[time_to_event]
 `events.match` accepts one typed EventPattern. V1 supports only an ordered
 sequence of
 `mv.step(participant=<ParticipantRoleHandle>, key=<str>) -> PatternStep`
-values. The participant handle supplies both the EventRef and subject Entity;
-neither is repeated in PatternStep or `events.match`. Every step in one pattern
-must resolve to the same cardinality-one participant Entity. Each `key` is a
-stable non-empty lowercase snake-case identifier matching
+values. The participant handle supplies the stable EventRef and role name;
+the active catalog resolves that role's exact Event definition and subject
+Entity before execution. Neither Event nor subject is repeated in PatternStep
+or `events.match`. Every step in one pattern must resolve to the same
+cardinality-one participant Entity. Each `key` is a stable non-empty lowercase
+snake-case identifier matching
 `[a-z][a-z0-9_]*`, unique within its EventPattern. It is analysis identity
 rather than a display label and therefore participates in the pattern
 fingerprint.
 
 `PatternStep` is an immutable analysis value containing the key and
-participant-role handle, from which EventRef and subject are mechanically
-resolved. Its canonical fingerprint covers that complete payload. The
-containing EventPattern additionally persists its inferred subject and ordered
-step fingerprints, so a consumer can prove exact membership without relying on
-position. A structurally identical PatternStep may be deliberately reused in
-another pattern; a same-key value with a different EventRef or role is a
-different step and fails membership. PatternStep is not a semantic object or a
-top-level catalog ref: Event defines reusable occurrence meaning, while a step
-defines that Event's role in one ordered analysis pattern.
+participant-role handle, from which EventRef and role identity are mechanically
+available and the subject is resolved against the active catalog. Its authoring
+fingerprint covers that complete stable payload. Before matching, Marivo builds
+a resolved pattern fingerprint that additionally covers every exact Event
+definition fingerprint and inferred subject; journey identity and persisted
+metadata retain that resolved evidence. This avoids mutable process-global
+fingerprint registries while ensuring that two catalogs with different Event
+definitions cannot produce the same journey identity. A structurally identical
+PatternStep may be deliberately reused in another pattern; a same-key value with
+a different EventRef or role is a different step and fails membership.
+PatternStep is not a semantic object or a top-level catalog ref: Event defines
+reusable occurrence meaning, while a step defines that Event's role in one
+ordered analysis pattern.
 
 All public step-consuming APIs accept a `PatternStep` whose complete
 fingerprint is present exactly once in the source EventPattern. They reject a
@@ -720,12 +753,13 @@ analysis recipes is a separate future analysis-governance capability; this
 design neither hides that policy in Event semantics nor invents a recipe
 registry.
 
-The EventPattern supplies the subject identity. The caller supplies a half-open
+The EventPattern supplies the subject Entity and its declared primary-key
+identity. The caller supplies a half-open `mv.TimeScope(start=start, end=end)`
 cohort window, `completion_through >= end`, and one matching policy. Optional
 typed completeness declarations may supplement missing runtime watermark
-evidence but remain explicit assumptions. An optional SubjectSet may narrow the
-population only when its subject identity matches. Ontology may be shown as
-navigation context, but it never fills the EventPattern.
+evidence but remain explicit assumptions. Phase 1 has no `cohort` parameter;
+typed SubjectSet admission lands in phase 2. Ontology may be shown as navigation
+context, but it never fills the EventPattern.
 
 ### Closed matching policies
 
@@ -796,8 +830,7 @@ checkout_pattern = mv.sequence(
 
 journeys = session.events.match(
     pattern=checkout_pattern,
-    cohort=eligible_users,  # optional ready SubjectSet; omit for all subjects
-    cohort_window=mv.window(start, end),
+    cohort_window=mv.TimeScope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
 )
@@ -815,7 +848,7 @@ declared_event_coverage = mv.declared_complete_through(
 
 journeys = session.events.match(
     pattern=checkout_pattern,
-    cohort_window=mv.window(start, end),
+    cohort_window=mv.TimeScope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
     completeness=(declared_event_coverage,),
@@ -851,6 +884,12 @@ occurred_at
 elapsed_from_start
 elapsed_from_previous
 ```
+
+The table is dense over `journey × pattern step`: every materialized journey
+has one row for every PatternStep in pattern order. When a later step is
+missing, `event_identity`, `occurred_at`, `elapsed_from_start`, and
+`elapsed_from_previous` are null on that row; the step row itself is never
+dropped.
 
 `step_key` is the stable reader-facing coordinate. Public operator arguments
 still use the complete PatternStep value so key reuse cannot weaken type
@@ -1483,6 +1522,32 @@ Therefore:
 - completeness belongs to artifact quality and lineage, not semantic
   readiness.
 
+For Event inputs, a backend may expose the optional provider-owned contract:
+
+```python
+backend.marivo_event_watermark(
+    EventWatermarkRequest(...)
+) -> EventWatermarkReceipt | None
+```
+
+The request names the exact EventRef and fingerprint, source Entity,
+`occurred_at` ref, and required-through instant. A receipt reports
+`complete_through`, its authority, observation time, and an optional source
+revision. It is authoritative only when it covers the requested instant and
+matches the exact Event request. If the provider is absent, returns `None`, or
+returns an insufficient or mismatched receipt, no observed watermark exists.
+Marivo never infers a watermark from maximum Event time, query time, successful
+execution, or a lateness SLA.
+
+For each Event input, coverage resolution is strictly ordered:
+
+1. a sufficient authoritative receipt yields `observed_watermark`;
+2. otherwise an exact sufficient declaration yields `declared_complete`;
+3. otherwise coverage is `unknown`.
+
+The aggregate Event basis is `observed_watermark | declared_complete | mixed |
+unknown`.
+
 If a datasource cannot expose an authoritative watermark or exact snapshot
 population receipt for the relevant temporal shape, execution reports observed
 completeness as unknown; aggregate coverage remains unknown unless an eligible
@@ -1715,7 +1780,7 @@ API or summary model.
 ## Capability Registration
 
 The semantic and analysis capability registries cumulatively receive the
-surface below as delivery slices land. “Extension” names the final coherent
+surface below as public delivery phases land. “Extension” names the final coherent
 surface, not one atomic release unit. The independent ontology discovery
 extension is specified in the companion design.
 
@@ -2065,11 +2130,12 @@ The design is accepted when:
    explicit total-bijective StateAlignment; no string mapping, implicit
    same-name alignment, partial alignment, or many-to-one collapse is legal.
 7. Every EventPattern step has a unique stable key and one
-   ParticipantRoleHandle that supplies Event and subject identity. Pattern
-   subject is inferred from consistent step endpoints; `mv.step` does not
-   repeat Event/subject, and v1 exposes no single-value contiguity parameter.
-   Public consumers require the exact PatternStep; numeric indexes, bare
-   strings, and EventRefs are not accepted as step selectors.
+   ParticipantRoleHandle that supplies stable Event and role identity. The
+   active catalog resolves the exact Event definition and subject from
+   consistent step endpoints; `mv.step` does not repeat Event/subject, and v1
+   exposes no single-value contiguity parameter. Public consumers require the
+   exact PatternStep; numeric indexes, bare strings, and EventRefs are not
+   accepted as step selectors.
 8. Public StateModel consumers require a ModelStateHandle owned by the exact
    model; bare state strings and cross-model handles fail before execution.
 9. Event matching materializes one canonical journey artifact; funnel and
@@ -2128,50 +2194,79 @@ The design is accepted when:
 
 ## Delivery Boundary
 
-This document specifies a future public contract only.
+Delivery proceeds through five public vertical phases rather than one
+all-or-nothing cutover:
 
-Delivery proceeds in vertical slices rather than one all-or-nothing cutover:
+1. **Event journey core**: Event, participant roles, keyed
+   PatternStep/EventPattern, `events.match`, Event-input completeness
+   declarations, journey recovery, quality, and evidence;
+2. **Event reducers and typed composition**: funnel/time-to-event reducers,
+   subject-axis funnel breakdown, SubjectSet, and typed cohort admission;
+3. **Replay-based Lifecycle core**: LifecycleState, StateModel,
+   ModelStateHandle, inception, lifecycle replay/history from
+   `from_inception()`, fixed violation behavior, reducers, typed lifecycle
+   selection, quality, replay-Event completeness declarations, and evidence;
+4. **Funnel comparison and attribution**: exact funnel compare/attribute with
+   the existing one-axis/joint/hierarchy layouts, additive component
+   decomposition, and reconciliation;
+5. **Observed-state projection and reconciliation**: Entity
+   `ChangesVersioning`; StateProjection, NormalizedState,
+   ProjectionStateHandle, and typed StateAlignment; inferred-current, explicit
+   snapshot, change-log, and closed-open validity observation; projection
+   completeness declarations; projection-backed
+   distribution/selection/transitions/dwell and temporal-integrity quality;
+   `from_projection(snapshot)` replay seed; and replay/projection
+   reconciliation.
 
-1. Event, participant roles, keyed PatternStep/EventPattern, `events.match`,
-   Event-input completeness declarations, journey recovery, quality, and
-   evidence;
-2. funnel/time-to-event reducers, subject-axis funnel breakdown, SubjectSet,
-   and typed cohort admission;
-3. funnel compare/attribute with existing one-axis/joint/hierarchy layouts and
-   reconciliation;
-4. LifecycleState, StateModel, ModelStateHandle, inception, lifecycle
-   replay/history with fixed violation behavior, reducers, quality, replay-Event
-   completeness declarations, and evidence, initially with
-   `from_inception()` only;
-5. StateProjection, NormalizedState/ProjectionStateHandle, typed StateAlignment,
-   inferred-current and explicit snapshot observation, projection completeness
-   declarations, exact-as-of snapshot distribution/selection, and
-   `from_projection(snapshot)` replay seed;
-6. Entity `ChangesVersioning`, change-log and closed-open validity history
-   observation, projection-backed transitions/dwell/distribution, and temporal
-   integrity quality;
-7. replay/projection reconciliation.
+The public delivery order is phases 1 through 5. Phase 4 technically depends
+only on phase 2 and may be developed alongside phase 3, but it lands before the
+final StateProjection phase. StateProjection is intentionally last because it
+is an independently observed state source, not a prerequisite for Event
+analysis or Event-driven lifecycle replay.
 
-Slice 1 is intentionally a complete standalone journey-analysis capability:
+Phase 1 is intentionally a complete standalone journey-analysis capability:
 `EventFrame[journey]` supports bounded show/contract, quality, evidence, and
 recovery. Its contract does not advertise funnel, time-to-event, or
-select-subject continuations until slice 2 registers those consumers. “Thin”
+select-subject continuations until phase 2 registers those consumers. “Thin”
 therefore means one canonical fact surface, not an incomplete published
 capability.
 
-Each slice ships its semantic inputs, public help, registry roles, artifact
+Each phase ships its semantic inputs, public help, registry roles, artifact
 contract, persistence/recovery, evidence extractor, structured errors, and
-behavioral fixtures together. No slice may publish a partial capability whose
+behavioral fixtures together. No phase may publish a partial capability whose
 artifact cannot be recovered or whose evidence contract is missing.
 
-Slices 1–2 form the standalone Event-analysis core. Slice 4 forms the standalone
-replay-based Lifecycle core. Slice 5 is the ordinary current-status/snapshot
-entry path, and slice 6 adds native change-log and validity history; neither is
-merely a reconciliation prerequisite. Funnel attribution in slice 3 and
-replay/projection reconciliation in slice 7 may be scheduled after their
-respective cores without removing their final contracts.
-`from_projection(snapshot)` is not registered or advertised until slice 5
-supplies its exact typed artifact input.
+Phases 1–2 form the standalone Event-analysis core. Phase 3 forms the
+standalone replay-based Lifecycle core. Phase 4 is an advanced Event-analysis
+continuation and does not block phase 3. Phase 5 delivers the complete
+StateProjection surface as one public phase: no StateProjectionRef,
+NormalizedState, ProjectionStateHandle, StateAlignment,
+`lifecycle.observe`, projection-specific completeness input,
+`from_projection(snapshot)`, Entity `ChangesVersioning`, projection
+continuation, or reconciliation capability is registered or advertised before
+that phase.
+
+Phase 5 may be implemented internally in private batches for semantic
+authoring and validation, current/snapshot observation, temporal-history
+lowering, and reconciliation. Those batches are not public delivery phases and
+must not expose temporary constructors, compatibility aliases, placeholder
+capabilities, or artifacts with incomplete recovery/evidence contracts. The
+phase lands only when every StateProjection source shape and registered
+continuation in this specification is coherent end to end.
+
+For every phase, implementation planning records:
+
+- the exact public constructors, semantic kinds, artifact families/shapes, and
+  capability-registry rows added in that phase;
+- the explicitly deferred continuations, which remain absent from help and
+  `contract()`;
+- the persisted row-contract and evidence variants introduced by the phase,
+  using only their final shapes and no legacy dual-read or migration path;
+- one end-to-end behavioral fixture, cold recovery with identical typed
+  continuations, and negative checks that illegal family/shape edges fail
+  before datasource execution;
+- the applicable acceptance-criteria numbers and the unchanged Metric-lane
+  regression gates.
 
 Retention/cohort-return analysis and an organization-governed named
 analysis-recipe registry are explicit post-v1 extensions. Retention receives a

@@ -211,7 +211,10 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         )
     )
     if descriptor.minimal_example is not None:
-        lines.extend(("  Example:", f"    {descriptor.minimal_example}"))
+        lines.append("  Example:")
+        lines.extend(
+            f"    {line}" if line else "" for line in descriptor.minimal_example.splitlines()
+        )
     constraints = _constraints(descriptor)
     if constraints:
         lines.append("  Constraints:")

@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from marivo.analysis.evidence.types import Subject
+from marivo.analysis.evidence.types import EvidenceSubject
 
 _SUBJECT_HASH_LEN = 32
 _ID_HASH_LEN = 24
@@ -27,7 +27,7 @@ def _hash(prefix: str, value: Any, length: int = _ID_HASH_LEN) -> str:
     return f"{prefix}{digest[:length]}"
 
 
-def canonical_subject_key(subject: Subject) -> str:
+def canonical_subject_key(subject: EvidenceSubject) -> str:
     """Hash a subject's complete normalized semantic content."""
     digest = hashlib.sha256(canonical_json(subject).encode("utf-8")).hexdigest()
     return digest[:_SUBJECT_HASH_LEN]

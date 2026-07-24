@@ -19,6 +19,11 @@ from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    from marivo.analysis.event import (
+        CompletenessDeclaration,
+        EventMatchingPolicy,
+        EventPattern,
+    )
     from marivo.analysis.evidence import (
         ArtifactDigest,
         ArtifactDigestPage,
@@ -32,6 +37,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
     from marivo.analysis.frames.candidate import CandidateSet, CandidateStrategy
     from marivo.analysis.frames.delta import DeltaFrame
+    from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
@@ -42,7 +48,7 @@ if TYPE_CHECKING:
     from marivo.analysis.runtime_metric import RuntimeMetricExpr
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
-    from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+    from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
     from marivo.refs import FieldKind, MetricKind, Ref, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog
 
@@ -317,6 +323,7 @@ class Session(RenderableResult):
             identity=self._repr_identity(),
             available=(
                 ".catalog",
+                ".events.match()",
                 ".frame_summaries()",
                 ".recent_jobs()",
                 ".render()",
@@ -445,13 +452,13 @@ class Session(RenderableResult):
                 context={"session_id": self.id, "job_id": job_id},
             )
         record = read_job_record(self._layout, job_id)
-        if record.get("schema") != "marivo.analysis_job/v1":
+        if record.get("schema") != "marivo.analysis_job/v2":
             raise SchemaVersionMismatchError(
-                message="unsupported_persisted_schema: job record is not marivo.analysis_job/v1",
+                message="unsupported_persisted_schema: job record is not marivo.analysis_job/v2",
                 context={
                     "job_id": job_id,
                     "received_schema": record.get("schema"),
-                    "expected_schema": "marivo.analysis_job/v1",
+                    "expected_schema": "marivo.analysis_job/v2",
                     "repair": "Start a new analysis session and regenerate the artifact.",
                 },
             )
@@ -545,6 +552,11 @@ class Session(RenderableResult):
     def discover(self) -> SessionDiscoverNamespace:
         """Return session-bound candidate discovery helpers."""
         return SessionDiscoverNamespace(self)
+
+    @property
+    def events(self) -> SessionEvents:
+        """Return the Phase 1 typed Event Journey analysis namespace."""
+        return SessionEvents(self)
 
     def observe(
         self,
@@ -1063,19 +1075,19 @@ class Session(RenderableResult):
     def assess_quality(
         self, frame: BaseFrame, *, analysis_purpose: str | None = None
     ) -> QualityReport:
-        """Run quality checks over a MetricFrame and return a structured report.
+        """Run quality checks over a MetricFrame or EventFrame and return a report.
 
-        When to use: check data quality (nulls, outliers, coverage) before analysis.
+        When to use: check data quality and coverage before downstream analysis.
 
-        v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
-        ForecastFrame / AttributionFrame are planned for later releases. The
-        returned QualityReport carries per-check rows and immutable typed issues.
+        EventFrame[journey] checks include row identity, participant resolution,
+        ordering determinism, per-input completeness, declarations, and censoring.
+        Other derived frame families remain unsupported.
 
         Args:
-            frame: A MetricFrame to inspect.
+            frame: A MetricFrame or EventFrame[journey] to inspect.
 
         Raises:
-            QualityShapeUnsupportedError: ``frame`` is not a MetricFrame.
+            QualityShapeUnsupportedError: ``frame`` is not a supported frame.
             CrossSessionFrameError: ``frame`` belongs to a different session.
 
         Example:
@@ -1197,6 +1209,114 @@ def ensure_session_can_execute(session: Session) -> None:
 # ensure_session_writable. Will be removed once those modules are migrated to
 # ensure_session_can_execute (Task 5).
 ensure_session_writable = ensure_session_can_execute
+
+
+@dataclass(frozen=True, repr=False)
+class SessionEvents(RenderableResult):
+    """Session-bound Phase 1 Event Journey operators."""
+
+    _session: Session
+
+    def _repr_identity(self) -> str:
+        return f"SessionEvents session={self._session.id}"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(".match(...)", ".render()", ".show()"),
+        ).status("phase=event_journey")
+
+    def match(
+        self,
+        *,
+        pattern: EventPattern,
+        cohort_window: TimeScope,
+        completion_through: str,
+        matching: EventMatchingPolicy,
+        completeness: tuple[CompletenessDeclaration, ...] = (),
+        analysis_purpose: str | None = None,
+    ) -> EventFrame:
+        """Match typed Event occurrences into dense subject journeys.
+
+        ``cohort_window`` is half-open: only first-step occurrences in
+        ``[start, end)`` establish journeys. ``completion_through`` is an
+        inclusive follow-up bound. Missing steps are ``incomplete`` only when
+        every pattern Event has authoritative or declared coverage; otherwise
+        they are ``coverage_censored``.
+
+        Args:
+            pattern: Non-empty typed sequence built with ``mv.step`` and
+                ``mv.sequence``. Every participant endpoint must be the same
+                Entity.
+            cohort_window: Half-open first-step cohort window.
+            completion_through: Inclusive follow-up bound at or after the
+                cohort window end.
+            matching: ``mv.first_per_subject()`` or an explicit
+                ``mv.every_start(completion_assignment=...)`` policy.
+            completeness: Optional exact Event completeness declarations.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``EventFrame[journey]`` with one dense row for every
+            journey and pattern step.
+
+        Guidance:
+            ``completion_through`` requests the latest follow-up instant used
+            for matching and coverage checks; it never proves that input data
+            is complete through that instant. Prefer an observed backend
+            watermark. Use ``mv.declared_complete_through(...)`` only for an
+            explicit governed assumption with a rationale.
+
+        Example:
+            >>> pattern = mv.sequence(
+            ...     mv.step(participant=cart_user, key="cart"),
+            ...     mv.step(participant=payment_buyer, key="payment"),
+            ... )
+            >>> journeys = session.events.match(
+            ...     pattern=pattern,
+            ...     cohort_window=mv.TimeScope(
+            ...         start="2026-07-01T00:00:00Z",
+            ...         end="2026-07-08T00:00:00Z",
+            ...     ),
+            ...     completion_through="2026-07-15T00:00:00Z",
+            ...     matching=mv.first_per_subject(),
+            ... )
+
+        Constraints:
+            Step subjects are inferred from cardinality-one participant
+            endpoints and their Entity primary keys. Same-time occurrences
+            from different EventRefs are rejected when their order would
+            affect matching.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.events import match
+
+        validate_capability_inputs(
+            "events.match",
+            pattern=pattern,
+            cohort_window=cohort_window,
+            matching=matching,
+            completeness=completeness,
+        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.events.match",
+            family="events",
+            intent="events.match",
+            attributes={
+                "marivo.analysis.event_step_count": len(pattern.steps),
+                "marivo.analysis.event_matching": matching.kind,
+            },
+        ):
+            return match(
+                pattern=pattern,
+                cohort_window=cohort_window,
+                completion_through=completion_through,
+                matching=matching,
+                completeness=completeness,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
 
 @dataclass(frozen=True)

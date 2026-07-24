@@ -316,6 +316,37 @@ def test_focused_help_signature_matches_inspect() -> None:
         assert param_name in text
 
 
+def test_sequence_help_preserves_variadic_signature() -> None:
+    text = _text("sequence")
+
+    assert "Signature: sequence(*steps: PatternStep)" in text
+
+
+def test_event_journey_help_explains_business_policy_and_coverage_choices() -> None:
+    first_help = _text("first_per_subject")
+    first_guidance = " ".join(first_help.split())
+    assert "one subject-level conversion journey" in first_guidance
+    assert "later starts are excluded" in first_guidance
+    assert "subject-level funnel reduction" in first_guidance
+
+    every_help = _text("every_start")
+    every_guidance = " ".join(every_help.split())
+    assert "each completion belongs to at most one attempt" in every_guidance
+    assert "one completion is business-correct for multiple" in every_guidance
+
+    declaration_help = _text("declared_complete_through")
+    declaration_guidance = " ".join(declaration_help.split())
+    assert "explicit caller assumption" in declaration_guidance
+    assert "weaker than an authoritative backend watermark" in declaration_guidance
+    assert "requires a rationale" in declaration_guidance
+
+    match_help = _text("events.match")
+    match_guidance = " ".join(match_help.split())
+    assert "completion_through" in match_guidance
+    assert "never proves that input data is complete" in match_guidance
+    assert "observed backend watermark" in match_guidance
+
+
 def test_focused_help_includes_accepted_and_output_families() -> None:
     text = _text("observe")
     assert "MetricFrame" in text
@@ -765,18 +796,26 @@ def test_analysis_all_is_pinned() -> None:
         "CandidateSelection",
         "ChangeFact",
         "ComparabilityIssue",
+        "CompletenessDeclaration",
         "ContributionFact",
         "CrossSectionalOutlierSelection",
         "DataQualityIssue",
         "DriverAxisSelection",
         "EvidenceAvailabilityIssue",
         "EvidenceDerivationTrace",
+        "EventFrame",
+        "EventPattern",
+        "EventWatermarkReceipt",
+        "EventWatermarkRequest",
+        "EveryStart",
         "Finding",
         "FindingPage",
+        "FirstPerSubject",
         "ForecastOutput",
         "FrameSummaryEntry",
         "FrameSummaryPage",
         "ObservationFact",
+        "PatternStep",
         "PeriodShiftSelection",
         "PointAnomalySelection",
         "QualityCheckResult",
@@ -805,6 +844,11 @@ def test_analysis_all_is_pinned() -> None:
         "session",
         "window_bucket",
         "runtime_metric",
+        "declared_complete_through",
+        "every_start",
+        "first_per_subject",
+        "sequence",
+        "step",
     }
     assert set(mv.__all__) == expected
 

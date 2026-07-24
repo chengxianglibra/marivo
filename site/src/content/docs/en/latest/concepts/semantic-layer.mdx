@@ -115,6 +115,50 @@ frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 If the metric was just authored or changed, finish the scoped authoring closeout
 described below before this routine analysis sequence.
 
+## Model reusable events
+
+An Event gives one business occurrence a reusable identity, occurrence time,
+and named participant roles. The source Entity is inferred from
+`owner(occurred_at)`, so Event authoring does not repeat an `entity` argument.
+Every Event uses the single `@ms.event(...)` decorator form.
+
+For an Entity where each row is one order creation, the Event has no additional
+row filter and explicitly returns `ms.all_rows()`:
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+For a filtered Event on a shared event-log Entity, return the restricted
+boolean expression instead, for example
+`ms.bind(event_type, event_rows) == "payment_succeeded"`. Do not use a
+body-free constructor, bare `True`, or a separate filtered-Event API.
+
+`ms.participant_role(event=order_created, name="order")` resolves the typed
+role used by Event analysis. Omitting `path` means the Event source Entity
+itself is the participant; a non-empty path follows declared Relationships to
+another Entity. A role used as the analysis subject must have
+`cardinality="one"`. Its endpoint Entity's declared primary key is the subject
+identity, so callers do not provide that identity again.
+
 ## Build the model
 
 ### 1. Connect a datasource

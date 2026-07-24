@@ -14,6 +14,7 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     DimensionIR,
     EntityIR,
+    EventIR,
     MeasureIR,
     MetricIR,
     RelationshipIR,
@@ -87,6 +88,10 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
         for key, value in registry.relationships.items()
     )
+    rows.update(
+        (cast("Ref[SemanticKindTag]", ref_factory.event(key)), value)
+        for key, value in registry.events.items()
+    )
     return rows
 
 
@@ -109,6 +114,8 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.metric(path))
     if path in registry.relationships:
         return cast("Ref[SemanticKindTag]", ref_factory.relationship(path))
+    if path in registry.events:
+        return cast("Ref[SemanticKindTag]", ref_factory.event(path))
     if path in registry.domains:
         return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
@@ -145,6 +152,10 @@ def _dependencies_for(
         paths.extend((definition.from_entity, definition.to_entity))
         for key in definition.keys:
             paths.extend((key.from_key, key.to_key))
+    elif isinstance(definition, EventIR):
+        paths.extend((definition.source_entity, definition.occurred_at, *definition.identity))
+        for participant in definition.participants:
+            paths.extend(participant.path or ())
     body = sidecar.bodies.get(ref)
     if body is not None:
         paths.extend(binding.field_ref.path for binding in body.bindings)

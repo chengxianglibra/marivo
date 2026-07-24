@@ -9,7 +9,11 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.analysis.calendar.loader import CalendarCache
-from marivo.analysis.errors import FrameMetaInvalidError, JobNotFoundError
+from marivo.analysis.errors import (
+    FrameMetaInvalidError,
+    JobNotFoundError,
+    SchemaVersionMismatchError,
+)
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
@@ -209,6 +213,22 @@ def test_session_job_raises_job_not_found_from_store_absence(tmp_path):
     with pytest.raises(JobNotFoundError) as exc_info:
         s.job("nonexistent_job")
     assert "nonexistent_job" in exc_info.value.message
+
+
+def test_session_job_rejects_v1_without_compatibility_read(tmp_path) -> None:
+    session = _session(tmp_path)
+    record = _job_record(session, _job_semantics(session))
+    persist_job_record(session, record)
+    job_path = session._layout.jobs_dir / f"{record['id']}.json"
+    payload = json.loads(job_path.read_text())
+    payload["schema"] = "marivo.analysis_job/v1"
+    job_path.write_text(json.dumps(payload))
+
+    with pytest.raises(SchemaVersionMismatchError) as exc_info:
+        session.job(str(record["id"]))
+
+    assert exc_info.value._context["expected_schema"] == "marivo.analysis_job/v2"
+    assert "new analysis session" in exc_info.value._context["repair"]
 
 
 def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):

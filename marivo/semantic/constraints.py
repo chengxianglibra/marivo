@@ -90,6 +90,13 @@ class ConstraintId(StrEnum):
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
     TIME_GRANULARITY_PARSE_COMPATIBLE = "time_granularity_parse_compatible"
+    EVENT_SOURCE_OWNER = "event_source_owner"
+    EVENT_IDENTITY = "event_identity"
+    EVENT_PREDICATE = "event_predicate"
+    EVENT_PARTICIPANT_PATH = "event_participant_path"
+    EVENT_PARTICIPANT_CARDINALITY = "event_participant_cardinality"
+    EVENT_PARTICIPANT_MEMBERSHIP = "event_participant_membership"
+    EVENT_ALL_ROWS_COMPLETE_RETURN = "event_all_rows_complete_return"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -237,6 +244,70 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Entity-backed metrics read source rows from their declared entity arguments.",
         "Simple metrics need entities=[...]; use ms.ratio/ms.linear "
         "for metrics composed from other metrics.",
+    ),
+    ConstraintId.EVENT_SOURCE_OWNER: _constraint(
+        ConstraintId.EVENT_SOURCE_OWNER,
+        "invalid_event_source",
+        "assembly",
+        ("event",),
+        "Event source ownership is inferred from occurred_at.",
+        "Identity and predicate fields must belong to the same occurrence source.",
+        "Use one source-owned time dimension and source-owned categorical dimensions.",
+    ),
+    ConstraintId.EVENT_IDENTITY: _constraint(
+        ConstraintId.EVENT_IDENTITY,
+        "invalid_event_identity",
+        "assembly",
+        ("event",),
+        "Event identity must be a non-empty ordered tuple of source-owned dimensions.",
+        "The tuple identifies one occurrence after the Event predicate is applied.",
+        "Pass unique categorical Dimension refs owned by owner(occurred_at).",
+    ),
+    ConstraintId.EVENT_PREDICATE: _constraint(
+        ConstraintId.EVENT_PREDICATE,
+        "invalid_event_predicate",
+        "ast",
+        ("event",),
+        "Event bodies return one restricted boolean row predicate.",
+        "A closed predicate keeps Event meaning deterministic and executable.",
+        "Return ms.all_rows() or compare source-owned ms.bind(...) values.",
+        ast_spec=_EXPR_BODY_AST_SPEC,
+    ),
+    ConstraintId.EVENT_PARTICIPANT_PATH: _constraint(
+        ConstraintId.EVENT_PARTICIPANT_PATH,
+        "invalid_event_participant_path",
+        "assembly",
+        ("event", "participant"),
+        "Participant paths are omitted for the source or are non-empty directed paths.",
+        "The endpoint and subject identity must be mechanically reproducible.",
+        "Omit path for the source Entity or pass a continuous tuple of Relationship refs.",
+    ),
+    ConstraintId.EVENT_PARTICIPANT_CARDINALITY: _constraint(
+        ConstraintId.EVENT_PARTICIPANT_CARDINALITY,
+        "invalid_event_participant_cardinality",
+        "assembly",
+        ("event", "participant"),
+        "Participant cardinality is one or optional_one.",
+        "Journey subjects require exactly one endpoint identity per occurrence.",
+        "Use cardinality='one' for analytical subjects and give the endpoint a primary key.",
+    ),
+    ConstraintId.EVENT_PARTICIPANT_MEMBERSHIP: _constraint(
+        ConstraintId.EVENT_PARTICIPANT_MEMBERSHIP,
+        "invalid_event_participant_path",
+        "runtime",
+        ("participant_role",),
+        "Participant-role handles must name a role on the exact loaded Event definition.",
+        "Typed membership prevents stale roles from silently selecting another subject.",
+        "Inspect catalog.events.get(...).details() and rebuild the role handle.",
+    ),
+    ConstraintId.EVENT_ALL_ROWS_COMPLETE_RETURN: _constraint(
+        ConstraintId.EVENT_ALL_ROWS_COMPLETE_RETURN,
+        "invalid_event_predicate",
+        "ast",
+        ("event", "all_rows"),
+        "ms.all_rows() is legal only as the complete Event return value.",
+        "The sentinel makes an unfiltered Event explicit without becoming a boolean operand.",
+        "Write exactly `return ms.all_rows()` in the Event body.",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,

@@ -50,6 +50,8 @@ __all__ = [
     "EntityProvenance",
     "EntitySourceIR",
     "EntityVersioningIR",
+    "EventIR",
+    "EventParticipantIR",
     "HourPrefixParse",
     "JoinKey",
     "JsonSourceIR",
@@ -275,6 +277,33 @@ class EntityIR:
     python_symbol: str
     location: SourceLocation
     versioning: EntityVersioningIR | None = None
+
+
+@dataclass(frozen=True)
+class EventParticipantIR:
+    """One normalized participant role owned by an Event."""
+
+    name: str
+    path: tuple[str, ...] | None
+    cardinality: Literal["one", "optional_one"]
+
+
+@dataclass(frozen=True)
+class EventIR:
+    """Executable occurrence semantics over one existing Entity."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    source_entity: str
+    identity: tuple[str, ...]
+    occurred_at: str
+    participants: tuple[EventParticipantIR, ...]
+    predicate_kind: Literal["all_rows", "filtered"]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+    body_ast_hash: str
 
 
 @dataclass(frozen=True)

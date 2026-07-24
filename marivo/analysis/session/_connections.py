@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
+from marivo.analysis.event import EventWatermarkReceipt, EventWatermarkRequest
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
@@ -76,6 +78,27 @@ class AnalysisConnectionRuntime:
             return None
         token = provider()
         return token if isinstance(token, str) and token else None
+
+    def event_watermark(
+        self,
+        datasource_name: str,
+        request: EventWatermarkRequest,
+    ) -> EventWatermarkReceipt | None:
+        """Return one provider-owned Event completeness receipt, when available."""
+        backend = self.get_or_create(datasource_name)
+        provider = getattr(backend, "marivo_event_watermark", None)
+        if not callable(provider):
+            return None
+        raw_receipt = cast(
+            "Callable[[EventWatermarkRequest], object | None]",
+            provider,
+        )(request)
+        if raw_receipt is None:
+            return None
+        try:
+            return EventWatermarkReceipt.model_validate(raw_receipt)
+        except (TypeError, ValueError):
+            return None
 
     def cached_metric_artifact(self, cache_key: str, snapshot_token: str) -> str | None:
         return self._metric_artifact_cache.get((cache_key, snapshot_token))

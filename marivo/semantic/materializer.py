@@ -348,6 +348,151 @@ class Materializer:
             (table,),
         )
 
+    def event(
+        self,
+        semantic_id: str,
+        *,
+        participants: tuple[str, ...],
+    ) -> ibis.Table:
+        """Materialize one Event once for one or more participant roles."""
+        registry, _sidecar = self._get_registry_and_sidecar()
+        event_ir = registry.events.get(semantic_id)
+        if event_ir is None:
+            _raise(
+                ErrorKind.NOT_FOUND,
+                f"Event {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        if not participants or len(set(participants)) != len(participants):
+            _raise(
+                ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+                f"Event {semantic_id!r} requires one or more unique participant roles.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                expected="a non-empty tuple of unique role names",
+                received=repr(participants),
+            )
+        available = tuple(item.name for item in event_ir.participants)
+        roles = []
+        for participant in participants:
+            role = next(
+                (item for item in event_ir.participants if item.name == participant),
+                None,
+            )
+            if role is None:
+                _raise(
+                    ErrorKind.NOT_FOUND,
+                    f"Event {semantic_id!r} has no participant role {participant!r}.",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                    expected=f"one of {available!r}",
+                    received=participant,
+                )
+            roles.append(role)
+        source_ref = ref_factory.entity(event_ir.source_entity)
+        source = self.entity(event_ir.source_entity)
+        predicate = self._evaluate_expression(
+            ref_factory.event(semantic_id),
+            (source_ref,),
+            (source,),
+        )
+        if not isinstance(predicate, ir.BooleanValue):
+            _raise(
+                ErrorKind.BINDING_RESULT_INVALID,
+                f"Event {semantic_id!r} body did not return an Ibis boolean value.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                expected="ibis BooleanValue",
+                received=type(predicate).__name__,
+            )
+        filtered = source.filter(predicate)
+        special_names: list[str] = []
+        projected = []
+        for index, identity_ref in enumerate(event_ir.identity):
+            name = f"__event_identity_{index}"
+            special_names.append(name)
+            projected.append(self.dimension_on(identity_ref, filtered).name(name))
+        special_names.append("__occurred_at")
+        projected.append(self.dimension_on(event_ir.occurred_at, filtered).name("__occurred_at"))
+        base = filtered.select(filtered, *projected)
+        base = base.mutate(
+            __source_identity_count=base.count().over(
+                group_by=[
+                    base[f"__event_identity_{index}"] for index in range(len(event_ir.identity))
+                ]
+            )
+        )
+        special_names.append("__source_identity_count")
+        role_tables: list[ibis.Table] = []
+        for role in roles:
+            current = base
+            endpoint = event_ir.source_entity
+            for relationship_id in role.path or ():
+                relationship = registry.relationships[relationship_id]
+                right = self.entity(relationship.to_entity)
+                predicates = []
+                for key in relationship.keys:
+                    from_key, to_key = key.to_tuple()
+                    predicates.append(
+                        self.dimension_on(from_key, current) == self.dimension_on(to_key, right)
+                    )
+                joined = current.left_join(right, predicates)
+                current = joined.select(
+                    right,
+                    *(current[name].name(name) for name in special_names),
+                )
+                endpoint = relationship.to_entity
+            endpoint_ir = registry.entities[endpoint]
+
+            def endpoint_identity_value(
+                identity: str,
+                endpoint_id: str,
+                table: ibis.Table,
+            ) -> ir.Value:
+                semantic_id = (
+                    identity if identity in registry.dimensions else f"{endpoint_id}.{identity}"
+                )
+                if semantic_id in registry.dimensions:
+                    return self.dimension_on(semantic_id, table)
+                if identity in table.columns:
+                    return table[identity]
+                _raise(
+                    ErrorKind.DIMENSION_NOT_FOUND,
+                    (
+                        f"Entity {endpoint_id!r} primary_key component {identity!r} "
+                        "is neither a declared Dimension nor a physical column."
+                    ),
+                    cls=SemanticRuntimeError,
+                    refs=(endpoint_id, identity),
+                )
+
+            role_tables.append(
+                current.select(
+                    *(current[name].name(name) for name in special_names),
+                    *(
+                        endpoint_identity_value(identity_ref, endpoint, current).name(
+                            f"__subject_{role.name}_identity_{index}"
+                        )
+                        for index, identity_ref in enumerate(endpoint_ir.primary_key)
+                    ),
+                )
+            )
+
+        result = role_tables[0]
+        for role_table in role_tables[1:]:
+            predicates = [result[name].identical_to(role_table[name]) for name in special_names]
+            joined = result.inner_join(role_table, predicates)
+            result = joined.select(
+                result,
+                *(
+                    role_table[column].name(column)
+                    for column in role_table.columns
+                    if column not in special_names
+                ),
+            )
+        return result
+
     # -- measure ---------------------------------------------------------------
 
     def measure(self, semantic_id: str) -> ir.Value:

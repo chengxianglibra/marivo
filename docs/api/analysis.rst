@@ -38,6 +38,7 @@ role-preserving affordances describe mechanical compatibility only.
    BaseFrame
    BaseFrameMeta
    MetricFrame
+   EventFrame
    ComponentFrame
    DeltaFrame
    CoverageFrame
@@ -120,6 +121,30 @@ Scopes and windows
 
    TimeScope
    AbsoluteWindow
+
+Event Journey
+-------------
+
+``session.events.match(...)`` consumes typed participant roles and a closed
+``EventPattern``. The first step uses the half-open ``TimeScope`` cohort
+window; ``completion_through`` is an inclusive follow-up bound.
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   PatternStep
+   EventPattern
+   FirstPerSubject
+   EveryStart
+   CompletenessDeclaration
+   EventWatermarkRequest
+   EventWatermarkReceipt
+   step
+   sequence
+   first_per_subject
+   every_start
+   declared_complete_through
 
 Policies
 --------

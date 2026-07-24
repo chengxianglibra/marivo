@@ -772,7 +772,7 @@ def test_compare_persists_job_and_frame(tmp_path):
     assert (s._layout.frames_dir / d.ref / "data.parquet").is_file()
     job_record = s.job(compare_jobs[0].id)
     assert job_record["params"]["alignment"]["kind"] == "window_bucket"
-    assert job_record["schema"] == "marivo.analysis_job/v1"
+    assert job_record["schema"] == "marivo.analysis_job/v2"
     assert job_record["subject"]["kind"] == "delta_metric"
     assert "semantic_model" not in job_record
 

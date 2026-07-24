@@ -142,6 +142,7 @@ _AUTHORING_KIND_BY_SYMBOL: dict[SemanticKind, AuthoringObjectKind] = {
     SemanticKind.MEASURE: "measure",
     SemanticKind.METRIC: "metric",
     SemanticKind.RELATIONSHIP: "relationship",
+    SemanticKind.EVENT: "event",
 }
 
 
@@ -332,6 +333,8 @@ class SemanticProject:
 
         if name in reg.relationships:
             return _DepNode(semantic_id=name, kind=SemanticKind.RELATIONSHIP, children=())
+        if name in reg.events:
+            return _DepNode(semantic_id=name, kind=SemanticKind.EVENT, children=())
 
         _raise(
             ErrorKind.NOT_FOUND,
@@ -596,6 +599,8 @@ class SemanticProject:
             return "derived_metric" if metric.metric_type == "derived" else "metric"
         if ref.kind is SemanticKind.RELATIONSHIP and path in self._registry.relationships:
             return "relationship"
+        if ref.kind is SemanticKind.EVENT and path in self._registry.events:
+            return "event"
         return "unknown"
 
     def _failed_verify(

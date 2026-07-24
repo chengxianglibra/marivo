@@ -37,6 +37,7 @@ from marivo.semantic.ir import (
     DimensionKind,
     DomainIR,
     EntityIR,
+    EventIR,
     HourPrefixParse,
     LinearComposition,
     MeasureIR,
@@ -56,6 +57,7 @@ __all__ = [
     "Registry",
     "assembly_validate",
     "validate_decorator_call",
+    "validate_event_body_ast",
     "validate_metric_body_ast",
 ]
 
@@ -76,6 +78,7 @@ class Registry:
     measures: dict[str, MeasureIR] = field(default_factory=dict)
     metrics: dict[str, MetricIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
+    events: dict[str, EventIR] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -90,6 +93,7 @@ class Registry:
             "measures",
             "metrics",
             "relationships",
+            "events",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))
@@ -494,6 +498,170 @@ _BODY_KIND_LABELS = {
 }
 
 
+def _event_call_name(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if (
+        isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ms"
+    ):
+        return node.func.attr
+    return None
+
+
+def validate_event_body_ast(fn: Callable[..., Any]) -> Literal["all_rows", "filtered"]:
+    """Validate the closed Event row-predicate body and classify its shape."""
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+        tree = ast.parse(source)
+    except (OSError, TypeError, IndentationError, SyntaxError) as exc:
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_EVENT_PREDICATE,
+            message=f"Event body {fn.__name__!r} source could not be inspected.",
+            refs=(fn.__name__,),
+            expected="one inspectable return expression",
+            received=type(exc).__name__,
+        ) from exc
+    function = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
+        ),
+        None,
+    )
+    if function is None:
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_EVENT_PREDICATE,
+            message=f"Event body {fn.__name__!r} has no function definition.",
+            refs=(fn.__name__,),
+            expected="one function with one return",
+            received="missing function",
+        )
+    base_validator = _BaseMetricASTValidator(fn.__name__, body_label="Event body")
+    base_validator.visit(function)
+    if base_validator.errors:
+        first = base_validator.errors[0]
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_EVENT_PREDICATE,
+            message=first.message,
+            refs=(fn.__name__,),
+            expected="one return containing ms.all_rows() or a restricted boolean predicate",
+            received=first.kind,
+            hint="Keep exactly one return and remove statements, aggregation, joins, or external calls.",
+        )
+    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return)]
+    if len(returns) != 1 or returns[0].value is None:
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_EVENT_PREDICATE,
+            message=f"Event body {fn.__name__!r} must return one predicate.",
+            refs=(fn.__name__,),
+            expected="return ms.all_rows() or one restricted boolean expression",
+            received="missing return value",
+        )
+    value = returns[0].value
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Attribute)
+        and isinstance(value.func.value, ast.Name)
+        and value.func.value.id == "ms"
+        and value.func.attr == "all_rows"
+    ):
+        if value.args or value.keywords:
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message="ms.all_rows() accepts no arguments.",
+                refs=(fn.__name__,),
+                expected="return ms.all_rows()",
+                received=ast.unparse(value),
+            )
+        return "all_rows"
+
+    if not isinstance(value, (ast.Compare, ast.BinOp, ast.UnaryOp)):
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_EVENT_PREDICATE,
+            message=f"Event body {fn.__name__!r} does not return a boolean predicate.",
+            refs=(fn.__name__,),
+            expected="one or more ms.bind(...) comparisons joined by boolean composition",
+            received=ast.unparse(value),
+        )
+
+    allowed_nodes = (
+        ast.Return,
+        ast.Compare,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Call,
+        ast.Attribute,
+        ast.Name,
+        ast.Load,
+        ast.Constant,
+        ast.BitAnd,
+        ast.BitOr,
+        ast.Invert,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+    )
+    for node in ast.walk(value):
+        if not isinstance(node, allowed_nodes):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message=f"Event body {fn.__name__!r} uses unsupported {type(node).__name__}.",
+                refs=(fn.__name__,),
+                expected="ms.bind comparisons joined by boolean composition",
+                received=ast.unparse(value),
+            )
+        if isinstance(node, ast.Call) and _event_call_name(node) != "bind":
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message=f"Event body {fn.__name__!r} may call only ms.bind(...).",
+                refs=(fn.__name__,),
+                expected="ms.bind(dimension_ref, rows)",
+                received=ast.unparse(node),
+            )
+        if isinstance(node, ast.Call):
+            is_ms_bind = (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "ms"
+                and node.func.attr == "bind"
+            )
+            if not is_ms_bind or len(node.args) != 2 or node.keywords:
+                raise SemanticLoadError(
+                    kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                    message=(
+                        f"Event body {fn.__name__!r} must call "
+                        "ms.bind(dimension_ref, rows) exactly."
+                    ),
+                    refs=(fn.__name__,),
+                    expected="ms.bind(dimension_ref, rows)",
+                    received=ast.unparse(node),
+                )
+        if isinstance(node, ast.Compare) and (len(node.ops) != 1 or len(node.comparators) != 1):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message="Chained comparisons are not supported in Event predicates.",
+                refs=(fn.__name__,),
+                expected="one comparison per predicate term",
+                received=ast.unparse(node),
+                hint="Split comparisons into parenthesized terms joined with & or |.",
+            )
+        if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message="Bare boolean constants are not Event predicates.",
+                refs=(fn.__name__,),
+                expected="return ms.all_rows() for an unfiltered Event",
+                received=repr(node.value),
+            )
+    return "filtered"
+
+
 def validate_metric_body_ast(
     fn: Callable[..., Any],
     mode: Literal["base"],
@@ -667,6 +835,9 @@ def _validate_expression_bindings(
         elif owning_ref.kind is SemanticKind.METRIC:
             metric = registry.metrics.get(owning_ref.path)
             entity_ids = () if metric is None else metric.entities
+        elif owning_ref.kind is SemanticKind.EVENT:
+            event = registry.events.get(owning_ref.path)
+            entity_ids = () if event is None else (event.source_entity,)
         else:
             continue
         for binding in body.bindings:
@@ -1091,6 +1262,110 @@ def assembly_validate(
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))
+
+    # -- Validate Event sources, fields, and directed participant paths -------
+    for event_id, event_ir in registry.events.items():
+        source = registry.entities.get(event_ir.source_entity)
+        if source is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_EVENT_SOURCE,
+                    message=f"Event {event_id!r} has unknown source Entity.",
+                    refs=(event_id, event_ir.source_entity),
+                    expected="owner(occurred_at) present in the compiled catalog",
+                    received=event_ir.source_entity,
+                )
+            )
+            continue
+        occurred = registry.dimensions.get(event_ir.occurred_at)
+        if (
+            occurred is None
+            or not occurred.is_time_dimension
+            or occurred.entity != event_ir.source_entity
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_EVENT_TIME,
+                    message=f"Event {event_id!r} occurred_at is not a source-owned time Dimension.",
+                    refs=(event_id, event_ir.occurred_at),
+                    expected=f"Ref[time_dimension] owned by {event_ir.source_entity}",
+                    received=event_ir.occurred_at,
+                )
+            )
+        for identity_ref in event_ir.identity:
+            dimension = registry.dimensions.get(identity_ref)
+            if (
+                dimension is None
+                or dimension.is_time_dimension
+                or dimension.entity != event_ir.source_entity
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_EVENT_IDENTITY,
+                        message=(
+                            f"Event {event_id!r} identity component is not a "
+                            "source-owned categorical Dimension."
+                        ),
+                        refs=(event_id, identity_ref),
+                        expected=f"Ref[dimension] owned by {event_ir.source_entity}",
+                        received=identity_ref,
+                    )
+                )
+        for participant in event_ir.participants:
+            endpoint = event_ir.source_entity
+            for relationship_id in participant.path or ():
+                relationship = registry.relationships.get(relationship_id)
+                if relationship is None or relationship.from_entity != endpoint:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+                            message=(
+                                f"Event {event_id!r} participant {participant.name!r} "
+                                "path is missing or not directed from its current endpoint."
+                            ),
+                            refs=(event_id, relationship_id),
+                            expected=f"Relationship from {endpoint}",
+                            received=(
+                                "missing"
+                                if relationship is None
+                                else f"{relationship.from_entity} -> {relationship.to_entity}"
+                            ),
+                        )
+                    )
+                    endpoint = ""
+                    break
+                endpoint = relationship.to_entity
+            endpoint_entity = registry.entities.get(endpoint)
+            if (
+                endpoint_entity is not None
+                and participant.cardinality == "one"
+                and not endpoint_entity.primary_key
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+                        message=(
+                            f"Event {event_id!r} cardinality-one participant "
+                            f"{participant.name!r} ends at Entity {endpoint!r} without a primary key."
+                        ),
+                        refs=(event_id, endpoint),
+                        expected="a non-empty endpoint Entity primary_key",
+                        received="empty primary_key",
+                    )
+                )
+            if endpoint_entity is not None and endpoint_entity.datasource != source.datasource:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+                        message=(
+                            f"Event {event_id!r} participant {participant.name!r} "
+                            "crosses datasource execution domains."
+                        ),
+                        refs=(event_id, event_ir.source_entity, endpoint),
+                        expected=f"datasource {source.datasource}",
+                        received=endpoint_entity.datasource,
+                    )
+                )
 
     if sidecar is not None:
         errors.extend(_validate_expression_bindings(registry, sidecar))

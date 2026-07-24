@@ -12,6 +12,8 @@ from marivo.analysis.evidence.types import (
     ContributionFact,
     DataQualityIssue,
     DigestItem,
+    EventJourneyObservationValue,
+    EventSubject,
     EvidenceAvailabilityIssue,
     ForecastOutput,
     ObservationFact,
@@ -47,6 +49,8 @@ def _segments(value: SegmentedObservationValue | PanelObservationValue) -> str:
 
 def _subject(digest: ArtifactDigest) -> str:
     subject = digest.subject
+    if isinstance(subject, EventSubject):
+        return f"{subject.subject_entity_ref.path}[journey]"
     base = subject.metric or subject.entity or "subject"
     if not subject.slice:
         return base
@@ -115,6 +119,13 @@ def render_digest_item(item: DigestItem) -> str:
                 f"observation rows={item.row_count} buckets={value.bucket_count} "
                 f"segments={value.segment_count} total={_number(value.total_value)} "
                 f"top_segments={_segments(value)}"
+            )
+        if isinstance(value, EventJourneyObservationValue):
+            return (
+                f"event_journey attempts={value.attempt_count} "
+                f"complete={value.complete_count} incomplete={value.incomplete_count} "
+                f"coverage_censored={value.coverage_censored_count} "
+                f"unused_events={value.unused_event_count}"
             )
     if isinstance(item, ChangeFact):
         return (

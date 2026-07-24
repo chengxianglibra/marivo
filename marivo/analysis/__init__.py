@@ -6,6 +6,20 @@ from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.event import (
+    CompletenessDeclaration,
+    EventPattern,
+    EventWatermarkReceipt,
+    EventWatermarkRequest,
+    EveryStart,
+    FirstPerSubject,
+    PatternStep,
+    declared_complete_through,
+    every_start,
+    first_per_subject,
+    sequence,
+    step,
+)
 from marivo.analysis.evidence import (
     AnalysisScope,
     AnomalyCandidate,
@@ -53,6 +67,7 @@ from marivo.analysis.frames.candidate import (
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.coverage import CoverageFrame
 from marivo.analysis.frames.delta import DeltaFrame
+from marivo.analysis.frames.event import EventFrame
 from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
@@ -122,15 +137,22 @@ __all__ = [
     "CandidateSet",
     "ChangeFact",
     "ComparabilityIssue",
+    "CompletenessDeclaration",
     "ContributionFact",
     "CrossSectionalOutlierSelection",
     "DataQualityIssue",
     "DeltaFrame",
     "DriverAxisSelection",
+    "EventFrame",
+    "EventPattern",
+    "EventWatermarkReceipt",
+    "EventWatermarkRequest",
+    "EveryStart",
     "EvidenceAvailabilityIssue",
     "EvidenceDerivationTrace",
     "Finding",
     "FindingPage",
+    "FirstPerSubject",
     "ForecastFrame",
     "ForecastOutput",
     "FrameSummaryEntry",
@@ -138,6 +160,7 @@ __all__ = [
     "HypothesisTestResult",
     "MetricFrame",
     "ObservationFact",
+    "PatternStep",
     "PeriodShiftSelection",
     "PointAnomalySelection",
     "QualityCheckResult",
@@ -147,13 +170,18 @@ __all__ = [
     "TestDecision",
     "TimeScope",
     "WindowSelection",
+    "declared_complete_through",
     "dow_aligned",
+    "every_start",
+    "first_per_subject",
     "help",
     "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
     "runtime_metric",
+    "sequence",
     "session",
+    "step",
     "window_bucket",
 ]
 

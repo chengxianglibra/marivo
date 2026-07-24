@@ -15,9 +15,9 @@ from marivo.analysis.errors import (
     SessionLockedByAnotherProcessError,
 )
 
-EXPECTED_SCHEMA_VERSION = 3
+EXPECTED_SCHEMA_VERSION = 4
 
-_SCHEMA_V3 = """
+_SCHEMA_V4 = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -135,8 +135,8 @@ class EvidenceStore:
         self._conn.close()
 
 
-def _initialize_v3(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA_V3)
+def _initialize_v4(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA_V4)
     conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
 
 
@@ -154,7 +154,7 @@ def open_evidence_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Eviden
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA foreign_keys = ON")
         if user_version == 0 and is_new_store:
-            _initialize_v3(conn)
+            _initialize_v4(conn)
             user_version = EXPECTED_SCHEMA_VERSION
     except sqlite3.DatabaseError as exc:
         if conn is not None:

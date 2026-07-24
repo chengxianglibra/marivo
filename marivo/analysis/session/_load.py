@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
@@ -19,6 +19,7 @@ from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.event import EventFrame, EventFrameMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
@@ -41,6 +42,7 @@ _FRAME_CLASSES = {
     "association_result": (AssociationResult, AssociationResultMeta),
     "hypothesis_test_result": (HypothesisTestResult, HypothesisTestResultMeta),
     "forecast_frame": (ForecastFrame, ForecastFrameMeta),
+    "event_frame": (EventFrame, EventFrameMeta),
     "quality_report": (QualityReport, QualityReportMeta),
     "component_frame": (ComponentFrame, ComponentFrameMeta),
     "coverage_frame": (CoverageFrame, CoverageFrameMeta),
@@ -356,7 +358,11 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 },
             )
     try:
-        parsed_meta = meta_cls(**meta)
+        parsed_meta = (
+            cast("Any", meta_cls).model_validate_json(json.dumps(meta))
+            if kind == "event_frame"
+            else meta_cls(**meta)
+        )
     except ValidationError as exc:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' has a corrupt current-schema metadata payload",

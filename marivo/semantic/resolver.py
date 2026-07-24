@@ -12,6 +12,7 @@ import ibis.expr.types as ir
 from marivo.datasource.source import AuthoringScope
 from marivo.refs import (
     EntityKind,
+    EventKind,
     FieldKind,
     MeasureKind,
     MetricKind,
@@ -140,3 +141,13 @@ class SemanticResolver:
     ) -> ir.Value:
         ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.METRIC,))
         return self._materializer.metric_on(ref, *tables)
+
+    def event(
+        self,
+        event_ref: Ref[EventKind],
+        *,
+        participants: tuple[str, ...],
+    ) -> ibis.Table:
+        """Materialize one Event occurrence relation for participant roles."""
+        ref = _require_kind(self.catalog, event_ref, expected=(SemanticKind.EVENT,))
+        return self._materializer.event(ref, participants=participants)

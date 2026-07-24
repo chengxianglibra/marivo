@@ -11,7 +11,13 @@ from marivo.analysis.evidence.types import (
     AnalysisScope,
     DeltaFindingValue,
     DerivationRule,
+    EventAnalysisScope,
+    EventJourneyObservationValue,
+    EventSubject,
+    EvidenceScopeAdapter,
+    EvidenceSubjectAdapter,
     Finding,
+    ObservationFindingValue,
     Subject,
 )
 from marivo.refs import RefPayloadV1
@@ -87,6 +93,75 @@ def test_finding_round_trip_uses_closed_value_union() -> None:
     restored = Finding.model_validate(finding.model_dump(mode="json"))
     assert restored == finding
     assert not hasattr(restored, "payload")
+
+
+def test_event_subject_scope_and_journey_observation_round_trip() -> None:
+    subject = EventSubject(
+        subject_entity_ref=RefPayloadV1.from_ref(ref_factory.entity("commerce.customers")),
+        subject_identity_signature=("commerce.customers.customer_id",),
+    )
+    scope = EventAnalysisScope(
+        pattern={"fingerprint": "sha256:pattern"},
+        roles=(
+            {
+                "step_key": "checkout",
+                "participant_name": "buyer",
+            },
+        ),
+        matching={"kind": "first_per_subject"},
+        cohort_window={"start": "2026-07-01", "end": "2026-07-08"},
+        completion_through="2026-07-15",
+        coverage={"basis": "unknown"},
+    )
+    value = EventJourneyObservationValue(
+        attempt_count=3,
+        complete_count=1,
+        incomplete_count=1,
+        coverage_censored_count=1,
+        unused_event_count=2,
+    )
+    finding = Finding(
+        finding_id="fnd_event",
+        finding_type="observation",
+        epistemic_kind="observed",
+        artifact_id="art_event",
+        session_id="sess_1",
+        subject=subject,
+        canonical_item_key="journey_outcomes",
+        value=ObservationFindingValue(row_count=3, value=value),
+        derivation=DerivationRule(
+            rule_id="extract.event_journey",
+            rule_version="v1",
+            operator="events.match",
+            source_fields=("journey_id", "completion_status"),
+            source_finding_refs=(),
+        ),
+        committed_at=datetime.now(UTC),
+    )
+
+    assert EvidenceSubjectAdapter.validate_python(subject.model_dump(mode="json")) == subject
+    assert EvidenceScopeAdapter.validate_python(scope.model_dump(mode="json")) == scope
+    assert Finding.model_validate(finding.model_dump(mode="json")) == finding
+    assert finding.artifact_schema_version == "v4"
+    assert "customer-raw-id" not in finding.model_dump_json()
+
+
+def test_event_journey_observation_rejects_non_partitioned_attempt_counts() -> None:
+    with pytest.raises(ValidationError, match="attempt_count must equal"):
+        EventJourneyObservationValue(
+            attempt_count=2,
+            complete_count=1,
+            incomplete_count=0,
+            coverage_censored_count=0,
+            unused_event_count=0,
+        )
+
+
+def test_evidence_union_rejects_pre_v4_untagged_subject_and_scope() -> None:
+    with pytest.raises(ValidationError):
+        EvidenceSubjectAdapter.validate_python({"analysis_axis": "scalar"})
+    with pytest.raises(ValidationError):
+        EvidenceScopeAdapter.validate_python({"assumptions": []})
 
 
 @pytest.mark.parametrize(

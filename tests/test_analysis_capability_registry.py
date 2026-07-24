@@ -65,6 +65,7 @@ def test_root_group_order_has_no_duplicates() -> None:
 
 EXPECTED_ARTIFACT_FAMILIES = (
     "MetricFrame",
+    "EventFrame",
     "DeltaFrame",
     "AttributionFrame",
     "ForecastFrame",
@@ -77,8 +78,8 @@ EXPECTED_ARTIFACT_FAMILIES = (
 )
 
 
-def test_artifact_families_has_ten_members() -> None:
-    assert len(ARTIFACT_FAMILIES) == 10
+def test_artifact_families_has_eleven_members() -> None:
+    assert len(ARTIFACT_FAMILIES) == 11
 
 
 def test_artifact_families_matches_expected_vocabulary() -> None:
@@ -668,6 +669,9 @@ _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "AlignmentPolicy",
     "SamplingPolicy",
     "TimeScopeInput",
+    "EventPattern",
+    "EventMatchingPolicy",
+    "CompletenessDeclaration",
 }
 
 _VALID_OUTPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {

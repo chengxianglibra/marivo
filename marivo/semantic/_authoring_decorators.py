@@ -13,6 +13,7 @@ from marivo.refs import (
     DatasourceKind,
     DomainKind,
     EntityKind,
+    EventKind,
     MeasureKind,
     Ref,
     RelationshipKind,
@@ -51,6 +52,7 @@ from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+from marivo.semantic.event import Participant
 from marivo.semantic.ir import (
     Additivity,
     CsvSourceIR,
@@ -58,6 +60,8 @@ from marivo.semantic.ir import (
     DimensionKind,
     EntityIR,
     EntitySourceIR,
+    EventIR,
+    EventParticipantIR,
     JoinKey,
     JsonSourceIR,
     MeasureIR,
@@ -69,6 +73,7 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
 )
 from marivo.semantic.typing import AiContextValue
+from marivo.semantic.validator import validate_event_body_ast
 
 
 def entity(
@@ -141,6 +146,160 @@ def entity(
     _push_ir(ctx, ref, ir, None)
 
     return ref
+
+
+def event(
+    *,
+    name: str | None = None,
+    identity: tuple[Ref[DimensionKindTag], ...],
+    occurred_at: Ref[TimeDimensionKind],
+    participants: tuple[Participant, ...],
+    domain: Ref[DomainKind] | None = None,
+    ai_context: AiContextValue | None = None,
+) -> Callable[[Callable[..., Any]], Ref[EventKind]]:
+    """Declare immutable business occurrences over one existing Entity.
+
+    Args:
+        name: Event name. Defaults to the decorated function name.
+        identity: Ordered non-empty occurrence identity Dimensions.
+        occurred_at: Business occurrence-time Dimension.
+        participants: One or more participant role declarations.
+        domain: Optional explicit domain override.
+        ai_context: Business definition and authoring guidance.
+
+    Returns:
+        A decorator replacing the function with ``Ref[event]``.
+
+    Example:
+        >>> @ms.event(
+        ...     identity=(event_id,),
+        ...     occurred_at=event_time,
+        ...     participants=(ms.participant(name="order", cardinality="one"),),
+        ... )
+        ... def order_created(rows):
+        ...     return ms.all_rows()
+
+    Constraints:
+        The function must return ``ms.all_rows()`` or one restricted boolean
+        expression built from source Dimensions through ``ms.bind``.
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+
+    def decorator(fn: Callable[..., Any]) -> Ref[EventKind]:
+        obj_name = name or fn.__name__
+        semantic_id = f"{resolved_domain}.{obj_name}"
+        event_ref = ref_factory.event(semantic_id)
+        _check_duplicate(ctx, semantic_id, EventIR)
+        if type(identity) is not tuple or not identity:
+            _raise(
+                ErrorKind.INVALID_EVENT_IDENTITY,
+                "event identity must be a non-empty tuple of Ref[dimension] values",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                expected="tuple[Ref[dimension], ...]",
+                received=repr(identity),
+            )
+        identity_paths: list[str] = []
+        for index, dimension_ref in enumerate(identity):
+            identity_paths.append(
+                _require_ref_id(
+                    dimension_ref,
+                    parameter=f"identity[{index}]",
+                    expected=(SemanticKind.DIMENSION,),
+                )
+            )
+        if len(set(identity_paths)) != len(identity_paths):
+            _raise(
+                ErrorKind.INVALID_EVENT_IDENTITY,
+                "event identity Dimensions must be unique",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id, *identity_paths),
+                expected="unique ordered Dimension refs",
+                received=repr(identity_paths),
+            )
+        occurred_at_path = _require_ref_id(
+            occurred_at,
+            parameter="occurred_at",
+            expected=(SemanticKind.TIME_DIMENSION,),
+        )
+        source_entity = occurred_at_path.rsplit(".", 1)[0]
+        wrong_owners = tuple(
+            path for path in identity_paths if path.rsplit(".", 1)[0] != source_entity
+        )
+        if wrong_owners:
+            _raise(
+                ErrorKind.INVALID_EVENT_SOURCE,
+                "event identity and occurred_at must belong to the same source Entity",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id, occurred_at_path, *wrong_owners),
+                expected=source_entity,
+                received=", ".join(wrong_owners),
+            )
+        if type(participants) is not tuple or not participants:
+            _raise(
+                ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
+                "event participants must be a non-empty tuple",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                expected="tuple[Participant, ...]",
+                received=repr(participants),
+            )
+        if any(type(value) is not Participant for value in participants):
+            _raise(
+                ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+                "event participants must contain exact ms.participant(...) values",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                expected="tuple[Participant, ...]",
+                received=repr(participants),
+            )
+        names = tuple(value.name for value in participants)
+        if len(set(names)) != len(names):
+            _raise(
+                ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
+                "event participant role names must be unique",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                expected="unique participant names",
+                received=repr(names),
+            )
+        predicate_kind = validate_event_body_ast(fn)
+        expression_body = compile_expression_body(
+            fn,
+            owning_ref=event_ref,
+            ordered_entity_refs=(ref_factory.entity(source_entity),),
+        )
+        normalized_participants = tuple(
+            EventParticipantIR(
+                name=value.name,
+                path=(
+                    tuple(relationship.path for relationship in value.path)
+                    if value.path is not None
+                    else None
+                ),
+                cardinality=value.cardinality,
+            )
+            for value in participants
+        )
+        event_ir = EventIR(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=obj_name,
+            source_entity=source_entity,
+            identity=tuple(identity_paths),
+            occurred_at=occurred_at_path,
+            participants=normalized_participants,
+            predicate_kind=predicate_kind,
+            ai_context=_build_ai_context(ai_context),
+            python_symbol=fn.__name__,
+            location=_caller_location(),
+            body_ast_hash=expression_body.body_ast_hash,
+        )
+        _push_ir(ctx, event_ref, event_ir, expression_body)
+        return event_ref
+
+    return decorator
 
 
 def dimension_column(
