@@ -1071,19 +1071,29 @@ Relationship path. Bare names, stale or cross-catalog entries, wrong-kind
 values, to-many paths, ambiguous paths, and axes without a compatible
 point-in-time contract fail before enrichment.
 
+An ordinary unversioned axis Entity is admissible only under its existing
+one-row-per-primary-key contract; its value is treated as invariant for the
+requested anchor. Snapshot, changes, and validity axes resolve the version
+effective at the operator-owned anchor through the Entity's governed
+versioning contract. If the source cannot yield exactly one deterministic axis
+value for a subject at that anchor, enrichment fails. Query time is lineage
+only and is never relabeled as the historical anchor.
+
 Axis values use an operator-owned temporal anchor:
 
 - Event funnel uses the subject's cohort-entry/first-step occurrence time;
 - lifecycle distribution uses each exact persisted or requested `as_of`
   instant.
 
-Axis order, refs, paths, temporal anchors, and null handling participate in the
-artifact fingerprint. A null axis value remains an explicit group and is never
-silently dropped. Enrichment may query the governed subject Dimensions and
-Relationship paths required for those values, but it never queries Event
-occurrence inputs, rereads StateProjection rows, rematches a journey, or replays
-a lifecycle. The derived artifact retains the source materialization as its
-assignment authority.
+Axis output columns use resolved Dimension expression names in caller-declared
+order. Duplicate refs, duplicate output names, and ambiguous paths fail before
+datasource execution. Axis order, refs, paths, temporal anchors, output names,
+and null handling participate in the artifact fingerprint. A null axis value
+remains an explicit group and is never silently dropped. Enrichment may query
+the governed subject Dimensions and Relationship paths required for those
+values, but it never queries Event occurrence inputs, rereads StateProjection
+rows, rematches a journey, or replays a lifecycle. The derived artifact retains
+the source materialization as its assignment authority.
 
 ### Funnel
 
@@ -1875,6 +1885,7 @@ closed shapes:
 | --- | --- | --- |
 | `QualityReport[event_journey]` | `EventFrame[journey]` | identity uniqueness, participant coverage, event-order determinism, per-input coverage basis, declared-assumption disclosure, censoring, row-contract integrity |
 | `QualityReport[event_funnel]` | `EventFrame[funnel]` | source-journey integrity, denominator math, censored population, subject-axis temporal ownership, grouped-to-total count reconciliation, PatternStep reconciliation |
+| `QualityReport[event_time_to_event]` | `EventFrame[time_to_event]` | source-journey integrity, exact PatternStep membership and order, completion/censoring classification, non-negative duration, identity restoration, row-contract integrity |
 | `QualityReport[lifecycle]` | one LifecycleFrame | seed/history coverage, per-input coverage basis, declared-assumption disclosure, state closure, projection decoding/alignment, current or snapshot subject uniqueness, change-time uniqueness, validity interval integrity and gaps, ordering, unmodeled projected transitions when applicable, subject-axis temporal ownership and grouped reconciliation when applicable, censoring, row-contract integrity |
 | `QualityReport[lifecycle_reconciliation]` | replay and projection `LifecycleFrame[distribution]` inputs with identical StateModel, subject, `as_of` instants, axes, and scope | per-axis/per-model-state count/share difference, missing subjects, source coverage, reconciliation tolerance |
 | `QualityReport[funnel_attribution]` | `AttributionFrame[funnel_loss_rate]` | additive components, contribution pools, residual, exact reconciliation |
@@ -2545,11 +2556,15 @@ all-or-nothing cutover:
    PatternStep/EventPattern, `events.match`, Event-input completeness
    declarations, journey recovery, quality, and evidence;
 2. **Event reducers and typed composition**: funnel/time-to-event reducers,
-   subject-axis funnel breakdown, SubjectSet, and typed cohort admission;
+   subject-axis funnel breakdown, Event-backed
+   `select_subjects(dropped_before)`, and typed SubjectSet cohort admission on
+   `session.observe` and `session.events.match`;
 3. **Replay-based Lifecycle core**: LifecycleState, StateModel,
    ModelStateHandle, inception, lifecycle replay/history from
    `from_inception()`, fixed violation behavior, reducers, typed lifecycle
-   selection, quality, replay-Event completeness declarations, and evidence;
+   `select_subjects(in_state)` selection, SubjectSet cohort admission on
+   `session.lifecycle.replay`, quality, replay-Event completeness declarations,
+   and evidence;
 4. **Funnel comparison and attribution**: exact funnel compare/attribute with
    the existing one-axis/joint/hierarchy layouts, additive component
    decomposition, and reconciliation;
@@ -2559,6 +2574,8 @@ all-or-nothing cutover:
    snapshot, change-log, and closed-open validity observation; projection
    completeness declarations; projection-backed
    distribution/selection/transitions/dwell and temporal-integrity quality;
+   projection-backed SubjectSet cohort admission on
+   `session.lifecycle.observe`;
    `from_projection(snapshot)` replay seed; and replay/projection
    reconciliation.
 
