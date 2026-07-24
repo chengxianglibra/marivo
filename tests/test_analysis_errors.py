@@ -62,7 +62,7 @@ def test_all_subclasses_are_analysis_errors(cls):
 
 
 def test_analysis_repair_accepts_known_kinds() -> None:
-    for kind in ("retry", "inspect", "semantic_authoring", "environment"):
+    for kind in ("retry", "inspect", "user_choice", "semantic_authoring", "environment"):
         repair = AnalysisRepair(
             kind=kind,
             action="do something",

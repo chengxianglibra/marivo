@@ -18,7 +18,6 @@ import pandas as pd
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AmbiguousEventOrderError,
-    AnalysisRepair,
     EventIdentityError,
     EventParticipantCardinalityError,
     InvalidCompletenessDeclarationError,
@@ -35,6 +34,9 @@ from marivo.analysis.event import (
     EveryStart,
     FirstPerSubject,
     PatternStep,
+)
+from marivo.analysis.event import (
+    _event_repair as _repair,
 )
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -67,7 +69,6 @@ from marivo.analysis.session._runtime import (
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EntityKind, EventKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.catalog import EventDetails, EventEntry
 
@@ -104,15 +105,6 @@ class _Occurrence:
     @property
     def occurrence_key(self) -> tuple[str, tuple[object, ...]]:
         return (self.event_ref.key, self.event_identity)
-
-
-def _repair(action: str, *, snippet: str | None = None) -> AnalysisRepair:
-    return AnalysisRepair(
-        kind="retry",
-        action=action,
-        help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
-        snippet=snippet,
-    )
 
 
 def _canonical_scalar(value: object) -> object:
@@ -207,7 +199,11 @@ def _parse_bound(value: object, *, report_tz: ZoneInfo, label: str) -> pd.Timest
             message=f"events.match {label} must be a non-empty ISO-8601 string",
             expected="an ISO-8601 date or datetime string",
             received=repr(value),
-            repair=_repair("Pass an explicit ISO-8601 cohort window and completion_through bound."),
+            location=f"session.events.match.{label}",
+            repair=_repair(
+                kind="user_choice",
+                action="Pass an explicit ISO-8601 cohort window and completion_through bound.",
+            ),
         )
     raw = value.strip()
     normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
@@ -223,7 +219,11 @@ def _parse_bound(value: object, *, report_tz: ZoneInfo, label: str) -> pd.Timest
             message=f"events.match {label} is not a valid ISO-8601 bound",
             expected="an ISO-8601 date or datetime string",
             received=repr(value),
-            repair=_repair("Pass an explicit ISO-8601 cohort window and completion_through bound."),
+            location=f"session.events.match.{label}",
+            repair=_repair(
+                kind="user_choice",
+                action="Pass an explicit ISO-8601 cohort window and completion_through bound.",
+            ),
         ) from exc
     return pd.Timestamp(parsed.astimezone(UTC))
 
@@ -257,7 +257,21 @@ def _inclusive_successor(
             message="Event occurred_at has an unsupported granularity",
             expected="year | quarter | month | week | day | hour | minute | second",
             received=repr(granularity),
-            repair=_repair("Repair the Event occurred_at TimeDimension granularity."),
+            location="session.events.match.pattern Event occurred_at",
+            repair=_repair(
+                kind="semantic_authoring",
+                action="Repair the Event occurred_at TimeDimension granularity.",
+                candidates=(
+                    "year",
+                    "quarter",
+                    "month",
+                    "week",
+                    "day",
+                    "hour",
+                    "minute",
+                    "second",
+                ),
+            ),
         )
     return successor.isoformat()
 
@@ -282,21 +296,38 @@ def _resolve_pattern(
             message="events.match requires a non-empty typed EventPattern",
             expected="mv.sequence(mv.step(...), ...)",
             received=type(pattern).__name__,
-            repair=_repair("Build the pattern with mv.step(...) and mv.sequence(...)."),
+            location="session.events.match.pattern",
+            repair=_repair(
+                kind="user_choice",
+                action="Build the pattern with mv.step(...) and mv.sequence(...).",
+            ),
         )
     if not isinstance(matching, (FirstPerSubject, EveryStart)):
         raise InvalidEventMatchingPolicyError(
             message="events.match requires a typed matching policy",
             expected="mv.first_per_subject() or mv.every_start(...)",
             received=type(matching).__name__,
-            repair=_repair("Choose mv.first_per_subject() or mv.every_start(...)."),
+            location="session.events.match.matching",
+            repair=_repair(
+                kind="user_choice",
+                action="Choose one matching policy that fits the business attempt semantics.",
+                candidates=(
+                    "mv.first_per_subject()",
+                    'mv.every_start(completion_assignment="exclusive")',
+                    'mv.every_start(completion_assignment="shared")',
+                ),
+            ),
         )
     if not isinstance(cohort_window, TimeScope):
         raise InvalidEventPatternError(
             message="events.match cohort_window must be mv.TimeScope",
             expected="mv.TimeScope(start=<inclusive>, end=<exclusive>)",
             received=type(cohort_window).__name__,
-            repair=_repair("Construct cohort_window with mv.TimeScope(start=..., end=...)."),
+            location="session.events.match.cohort_window",
+            repair=_repair(
+                kind="user_choice",
+                action="Construct cohort_window with explicit inclusive start and exclusive end.",
+            ),
         )
     if type(completeness) is not tuple or any(
         not isinstance(item, CompletenessDeclaration) for item in completeness
@@ -305,7 +336,11 @@ def _resolve_pattern(
             message="events.match completeness must be a tuple of typed declarations",
             expected="tuple[mv.CompletenessDeclaration, ...]",
             received=type(completeness).__name__,
-            repair=_repair("Pass completeness=(mv.declared_complete_through(...),), or omit it."),
+            location="session.events.match.completeness",
+            repair=_repair(
+                kind="user_choice",
+                action="Pass a tuple of governed completeness declarations, or omit it.",
+            ),
         )
 
     report_tz = cast("ZoneInfo", session.report_tz)
@@ -329,14 +364,22 @@ def _resolve_pattern(
             message="events.match cohort_window must be a non-empty half-open interval",
             expected="cohort_window.start < cohort_window.end",
             received=f"{cohort_window.start!r} .. {cohort_window.end!r}",
-            repair=_repair("Choose a cohort start strictly before the exclusive end."),
+            location="session.events.match.cohort_window",
+            repair=_repair(
+                kind="user_choice",
+                action="Choose a cohort start strictly before the exclusive end.",
+            ),
         )
     if completion < cohort_end:
         raise InvalidEventPatternError(
             message="events.match completion_through cannot precede the cohort end",
             expected="completion_through >= cohort_window.end",
             received=f"{completion_through!r} < {cohort_window.end!r}",
-            repair=_repair("Extend completion_through to the cohort end or later."),
+            location="session.events.match.completion_through",
+            repair=_repair(
+                kind="user_choice",
+                action="Choose a follow-up bound at or after the cohort end.",
+            ),
         )
 
     registry = session.catalog._require_index().registry
@@ -350,14 +393,22 @@ def _resolve_pattern(
                 message="EventPattern contains a non-PatternStep value",
                 expected="only mv.step(...) values",
                 received=type(raw_step).__name__,
-                repair=_repair("Rebuild the pattern using only mv.step(...) values."),
+                location="session.events.match.pattern.steps",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Rebuild the pattern using only mv.step(...) values.",
+                ),
             )
         if raw_step.key in step_keys:
             raise InvalidEventPatternError(
                 message=f"EventPattern repeats step key {raw_step.key!r}",
                 expected="unique snake_case step keys",
                 received=raw_step.key,
-                repair=_repair("Give every pattern step a unique snake_case key."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].key",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Give every pattern step a unique snake_case key.",
+                ),
             )
         step_keys.add(raw_step.key)
         if type(raw_step.event) is not Ref or raw_step.event.kind is not SemanticKind.EVENT:
@@ -365,8 +416,12 @@ def _resolve_pattern(
                 message=f"step {raw_step.key!r} does not reference an exact Event",
                 expected="a ParticipantRoleHandle created by ms.participant_role(...)",
                 received=repr(raw_step.event),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].participant",
                 repair=_repair(
-                    "Create the participant with ms.participant_role(event=..., name=...)."
+                    kind="user_choice",
+                    action=(
+                        "Create the participant with ms.participant_role(event=..., name=...)."
+                    ),
                 ),
             )
         try:
@@ -376,14 +431,24 @@ def _resolve_pattern(
                 message=f"step {raw_step.key!r} Event is not loaded in this catalog",
                 expected="an exact EventRef from session.catalog.events",
                 received=raw_step.event.key,
-                repair=_repair("Load the Event from this session catalog and rebuild the step."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].event",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect current catalog Events and rebuild the step from an exact role.",
+                    candidates=tuple(item.ref.key for item in session.catalog.events.items[:5]),
+                ),
             ) from exc
         if not isinstance(entry, EventEntry):
             raise PatternStepMismatchError(
                 message=f"step {raw_step.key!r} did not resolve to an Event",
                 expected="EventEntry",
                 received=type(entry).__name__,
-                repair=_repair("Use an Event participant role from the active catalog."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].event",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect current catalog Events and use one of their participant roles.",
+                    candidates=tuple(item.ref.key for item in session.catalog.events.items[:5]),
+                ),
             )
         details = entry.details()
         role = next(
@@ -403,10 +468,33 @@ def _resolve_pattern(
                 ),
                 expected=f"one of {available!r}",
                 received=raw_step.participant.name,
-                repair=_repair("Choose a declared participant name and rebuild the role handle."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].participant",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Choose a declared participant name and rebuild the role handle.",
+                    candidates=available[:5],
+                ),
             )
         _name, endpoint, cardinality, _path = role
         if cardinality != "one":
+            cardinality_one_roles = tuple(
+                name
+                for name, _candidate_endpoint, candidate_cardinality, _candidate_path in (
+                    details.participants
+                )
+                if candidate_cardinality == "one"
+            )
+            if cardinality_one_roles:
+                cardinality_repair = _repair(
+                    kind="user_choice",
+                    action="Choose a cardinality='one' participant from the current Event.",
+                    candidates=cardinality_one_roles[:5],
+                )
+            else:
+                cardinality_repair = _repair(
+                    kind="semantic_authoring",
+                    action="Author a cardinality='one' participant for this analysis subject.",
+                )
             raise EventParticipantCardinalityError(
                 message=(
                     f"step {raw_step.key!r} participant cannot be an analysis subject "
@@ -414,9 +502,8 @@ def _resolve_pattern(
                 ),
                 expected="participant cardinality='one'",
                 received=cardinality,
-                repair=_repair(
-                    "Choose a cardinality='one' participant, or repair the Event role definition."
-                ),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].participant",
+                repair=cardinality_repair,
             )
         endpoint_ir = registry.entities.get(endpoint.path)
         if endpoint_ir is None or not endpoint_ir.primary_key:
@@ -424,7 +511,11 @@ def _resolve_pattern(
                 message=f"step {raw_step.key!r} participant endpoint has no usable primary key",
                 expected="an endpoint Entity with a non-empty primary_key",
                 received=endpoint.key,
-                repair=_repair("Define the participant endpoint Entity primary_key."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].participant.endpoint",
+                repair=_repair(
+                    kind="semantic_authoring",
+                    action="Define the participant endpoint Entity primary_key.",
+                ),
             )
         normalized_subject_identity = tuple(
             (
@@ -446,14 +537,22 @@ def _resolve_pattern(
                 message="all EventPattern participant roles must resolve to one subject Entity",
                 expected=endpoint_ref.key,
                 received=endpoint.key,
-                repair=_repair("Choose participant roles whose endpoints are the same Entity."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].participant.endpoint",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Choose participant roles whose endpoints are the same Entity.",
+                ),
             )
         elif normalized_subject_identity != subject_identity:
             raise PatternStepMismatchError(
                 message="EventPattern participant roles disagree on subject identity",
                 expected=repr(subject_identity),
                 received=repr(normalized_subject_identity),
-                repair=_repair("Reload one coherent catalog and rebuild the pattern."),
+                location=f"session.events.match.pattern.steps[{raw_step.key!r}].subject_identity",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect the active catalog identity definitions, then rebuild the pattern.",
+                ),
             )
         event_ir = registry.events[raw_step.event.path]
         source_ir = registry.entities[event_ir.source_entity]
@@ -480,7 +579,11 @@ def _resolve_pattern(
                 message="completeness declaration does not cover completion_through",
                 expected=f"through >= {completion_through!r}",
                 received=repr(declaration.through),
-                repair=_repair("Extend the declaration through completion_through or remove it."),
+                location="session.events.match.completeness.through",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Extend the declaration through completion_through or remove it.",
+                ),
             )
         for event_ref in declaration.inputs:
             if event_ref not in pattern_events:
@@ -488,7 +591,12 @@ def _resolve_pattern(
                     message="completeness declaration references an Event outside the pattern",
                     expected="only EventRefs used by the current EventPattern",
                     received=event_ref.key,
-                    repair=_repair("Remove the unrelated EventRef from the declaration."),
+                    location="session.events.match.completeness.inputs",
+                    repair=_repair(
+                        kind="user_choice",
+                        action="Choose only EventRefs used by the current EventPattern.",
+                        candidates=tuple(sorted(item.key for item in pattern_events))[:5],
+                    ),
                 )
             previous = declaration_by_event.get(event_ref)
             if previous is not None:
@@ -496,7 +604,12 @@ def _resolve_pattern(
                     message="one pattern Event is covered by multiple declarations",
                     expected="at most one declaration per EventRef",
                     received=event_ref.key,
-                    repair=_repair("Merge the overlapping completeness declarations."),
+                    location="session.events.match.completeness.inputs",
+                    repair=_repair(
+                        kind="user_choice",
+                        action="Merge or remove overlapping completeness declarations.",
+                        candidates=(event_ref.key,),
+                    ),
                 )
             declaration_by_event[event_ref] = declaration
 
@@ -525,7 +638,11 @@ def _parse_declaration_through(
             message="completeness declaration has an invalid through bound",
             expected="an ISO-8601 date or datetime string",
             received=repr(declaration.through),
-            repair=_repair("Rebuild the declaration with a valid through bound."),
+            location="session.events.match.completeness.through",
+            repair=_repair(
+                kind="user_choice",
+                action="Rebuild the declaration with a valid governed through bound.",
+            ),
         ) from exc
 
 
@@ -562,14 +679,22 @@ def _time_adapter(
                     message=f"Event occurred_at {occurred_at!r} has no time metadata",
                     expected="a governed TimeDimension",
                     received=occurred_at,
-                    repair=_repair("Repair the Event occurred_at TimeDimension definition."),
+                    location="session.events.match.pattern Event occurred_at",
+                    repair=_repair(
+                        kind="semantic_authoring",
+                        action="Repair the Event occurred_at TimeDimension definition.",
+                    ),
                 )
             return adapter, field
     raise InvalidEventPatternError(
         message=f"Event occurred_at {occurred_at!r} is not on its source Entity",
         expected=f"a TimeDimension owned by {source_entity!r}",
         received=occurred_at,
-        repair=_repair("Repair the Event occurred_at reference."),
+        location="session.events.match.pattern Event occurred_at",
+        repair=_repair(
+            kind="semantic_authoring",
+            action="Repair the Event occurred_at reference.",
+        ),
     )
 
 
@@ -718,7 +843,11 @@ def _normalize_event_rows(
             message=f"materialized Event {event_ref.key!r} is missing identity columns",
             expected=repr(sorted(required)),
             received=repr(sorted(frame.columns)),
-            repair=_repair("Inspect the Event identity and participant path definitions."),
+            location=f"session.events.match.materialized[{event_ref.key!r}]",
+            repair=_repair(
+                kind="inspect",
+                action="Inspect the Event identity and participant path definitions.",
+            ),
         )
 
     context = effective_time_context(
@@ -742,7 +871,11 @@ def _normalize_event_rows(
                 message=f"Event {event_ref.key!r} produced an invalid source identity count",
                 expected="exactly one source occurrence per declared Event identity",
                 received=repr(row["__source_identity_count"]),
-                repair=_repair("Repair the Event identity dimensions or source data."),
+                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect the Event identity dimensions and source rows.",
+                ),
             ) from exc
         if source_identity_count != 1:
             raise EventIdentityError(
@@ -752,14 +885,22 @@ def _normalize_event_rows(
                     f"event_identity={event_identity!r}, "
                     f"source_identity_count={source_identity_count}"
                 ),
-                repair=_repair("Repair the Event identity dimensions or source data."),
+                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect duplicate Event identities and their source rows.",
+                ),
             )
         if any(_is_empty_component(component) for component in event_identity):
             raise EventIdentityError(
                 message=f"Event {event_ref.key!r} produced an empty identity component",
                 expected="a non-null, non-empty declared Event identity tuple",
                 received=repr(event_identity),
-                repair=_repair("Repair the Event identity dimensions or source data."),
+                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect null Event identity components and their source rows.",
+                ),
             )
         if event_identity in seen_event_ids:
             raise EventParticipantCardinalityError(
@@ -769,7 +910,11 @@ def _normalize_event_rows(
                 ),
                 expected="exactly one endpoint for every cardinality='one' role",
                 received=repr(event_identity),
-                repair=_repair("Repair participant relationship keys or role cardinality."),
+                location=f"session.events.match.materialized[{event_ref.key!r}].participants",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect participant relationship keys and joined endpoint rows.",
+                ),
             )
         seen_event_ids.add(event_identity)
         occurred_at = _normalize_timestamp(
@@ -782,7 +927,11 @@ def _normalize_event_rows(
                 message=f"Event {event_ref.key!r} produced an invalid occurred_at value",
                 expected="a non-null governed timestamp",
                 received=repr(row["__occurred_at"]),
-                repair=_repair("Repair the Event occurred_at TimeDimension or source data."),
+                location=f"session.events.match.materialized[{event_ref.key!r}].occurred_at",
+                repair=_repair(
+                    kind="inspect",
+                    action="Inspect the Event occurred_at definition and source values.",
+                ),
             )
         for role_name in role_names:
             columns = tuple(
@@ -798,7 +947,14 @@ def _normalize_event_rows(
                     ),
                     expected="one non-null participant endpoint identity",
                     received=repr(subject_identity),
-                    repair=_repair("Repair missing participant join keys or choose another role."),
+                    location=(
+                        f"session.events.match.materialized[{event_ref.key!r}]"
+                        f".participants[{role_name!r}]"
+                    ),
+                    repair=_repair(
+                        kind="inspect",
+                        action="Inspect missing participant join keys and endpoint rows.",
+                    ),
                 )
             by_role[(event_ref, role_name)].append(
                 _Occurrence(
@@ -849,8 +1005,13 @@ def _candidate_after(
                     f"{previous.event_ref.key} and {candidate.event_ref.key} "
                     f"at {candidate.occurred_at.isoformat()}"
                 ),
+                location="session.events.match.occurrence_order",
                 repair=_repair(
-                    "Model a more precise occurred_at timestamp or remove the ambiguous ordering."
+                    kind="inspect",
+                    action=(
+                        "Inspect source timestamps, then model more precise occurrence time "
+                        "or remove the ambiguous ordering."
+                    ),
                 ),
             )
         if _identity_sort_key(candidate.event_identity) > _identity_sort_key(

@@ -15,7 +15,13 @@ from marivo.refs import Ref, SemanticKind
 DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
 DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
 
-RepairKind = Literal["retry", "inspect", "semantic_authoring", "environment"]
+RepairKind = Literal[
+    "retry",
+    "inspect",
+    "user_choice",
+    "semantic_authoring",
+    "environment",
+]
 
 
 class AnalysisRepair(BaseModel):
@@ -26,11 +32,13 @@ class AnalysisRepair(BaseModel):
     kind:
         Closed repair category. ``retry`` means the agent can re-attempt with
         a corrected call. ``inspect`` means the agent should gather more
-        evidence before proceeding. ``semantic_authoring`` means a required
-        semantic object is absent, so typed analysis must stop that branch;
-        the agent may use terminal ``md.raw_sql(...)`` and must request
-        semantic-authoring approval at closeout. ``environment`` means project
-        or datasource state must be repaired before retry.
+        evidence before proceeding. ``user_choice`` means several mechanically
+        legal repairs remain and business judgment must select one.
+        ``semantic_authoring`` means a required semantic object is absent, so
+        typed analysis must stop that branch; the agent may use terminal
+        ``md.raw_sql(...)`` and must request semantic-authoring approval at
+        closeout. ``environment`` means project or datasource state must be
+        repaired before retry.
     action:
         One-sentence concrete next step.
     help_target:

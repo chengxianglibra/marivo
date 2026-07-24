@@ -380,6 +380,42 @@ def _build_registry() -> CapabilityRegistry:
                 "completeness": frozenset({"CompletenessDeclaration"}),
             },
             output_family="EventFrame",
+            additional_examples=(
+                HelpExample(
+                    label="Repeated attempts with exclusive completion assignment",
+                    code=(
+                        "exclusive_attempts = session.events.match(\n"
+                        "    pattern=mv.sequence(\n"
+                        '        mv.step(participant=cart_user, key="cart"),\n'
+                        '        mv.step(participant=payment_buyer, key="payment"),\n'
+                        "    ),\n"
+                        "    cohort_window=mv.TimeScope(\n"
+                        '        start="2026-07-01T00:00:00Z",\n'
+                        '        end="2026-07-08T00:00:00Z",\n'
+                        "    ),\n"
+                        '    completion_through="2026-07-15T00:00:00Z",\n'
+                        '    matching=mv.every_start(completion_assignment="exclusive"),\n'
+                        ")"
+                    ),
+                ),
+                HelpExample(
+                    label="Repeated attempts with shared completion assignment",
+                    code=(
+                        "shared_attempts = session.events.match(\n"
+                        "    pattern=mv.sequence(\n"
+                        '        mv.step(participant=cart_user, key="cart"),\n'
+                        '        mv.step(participant=payment_buyer, key="payment"),\n'
+                        "    ),\n"
+                        "    cohort_window=mv.TimeScope(\n"
+                        '        start="2026-07-01T00:00:00Z",\n'
+                        '        end="2026-07-08T00:00:00Z",\n'
+                        "    ),\n"
+                        '    completion_through="2026-07-15T00:00:00Z",\n'
+                        '    matching=mv.every_start(completion_assignment="shared"),\n'
+                        ")"
+                    ),
+                ),
+            ),
         )
     )
 

@@ -215,6 +215,23 @@ def _public_entrypoint_path(public_entrypoint: str) -> str:
     return normalized
 
 
+def _public_type_entrypoint_paths(
+    public_entrypoint: str,
+    *,
+    public_type_names: frozenset[str],
+) -> tuple[str, ...]:
+    """Return public type-qualified forms of a receiver-owned entrypoint."""
+    path = _public_entrypoint_path(public_entrypoint)
+    receiver, separator, remainder = path.partition(".")
+    if not separator or not remainder:
+        return ()
+    return tuple(
+        f"{type_name}.{remainder}"
+        for type_name in sorted(public_type_names)
+        if type_name.casefold() == receiver.casefold()
+    )
+
+
 def build_string_target_index[DescriptorT: ResolvableHelpDescriptor](
     registry: LiveSurfaceRegistry[DescriptorT],
     *,
@@ -234,6 +251,12 @@ def build_string_target_index[DescriptorT: ResolvableHelpDescriptor](
         identities = [descriptor.canonical_id]
         if descriptor.public_entrypoint:
             identities.append(_public_entrypoint_path(descriptor.public_entrypoint))
+            identities.extend(
+                _public_type_entrypoint_paths(
+                    descriptor.public_entrypoint,
+                    public_type_names=public_type_names,
+                )
+            )
         if descriptor.callable_path:
             callable_parts = descriptor.callable_path.split(".")
             if len(callable_parts) >= 2 and callable_parts[-2] in public_type_names:

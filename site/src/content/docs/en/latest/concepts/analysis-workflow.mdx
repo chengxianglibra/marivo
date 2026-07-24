@@ -179,6 +179,25 @@ least `end`. Phase 1 does not accept a cohort/SubjectSet argument, and does not
 advertise funnel, time-to-event, selection, comparison, or attribution
 continuations.
 
+Use an explicit repeated-attempt policy when every first-step occurrence should
+anchor an attempt. `exclusive` assigns one completion to at most one open
+attempt; `shared` permits one completion to close multiple eligible attempts:
+
+```python
+exclusive_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="exclusive"),
+)
+shared_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="shared"),
+)
+```
+
 `EventFrame[journey]` is a dense long table with one row for every
 `journey × pattern step`. A missing later step remains present with null event,
 time, and elapsed values. It is `incomplete` only when every required Event is
@@ -702,10 +721,12 @@ contract does not rank, recommend, enumerate calls, or decide the next step.
 When an operator fails, it raises a typed `AnalysisError` subclass. Every error
 carries stable typed fields — `expected`, `received`, `location`, and `repair` —
 not a generic details bag. The `repair` field is a typed `AnalysisRepair` object
-with `kind` (`retry`, `inspect`, `semantic_authoring`, `environment`), `action`,
-`help_target`, optional `snippet`, and optional `candidates` drawn from live
-state. Follow the repair guidance; it points to the exact `mv.help(...)` target
-for the failing capability.
+with `kind` (`retry`, `inspect`, `user_choice`, `semantic_authoring`,
+`environment`), `action`, `help_target`, optional `snippet`, and optional
+`candidates` drawn from live state. `user_choice` means several mechanically
+legal alternatives remain and business judgment must select one. Follow the
+repair guidance; it points to the exact `mv.help(...)` target for the failing
+capability.
 
 ### Terminal boundary exits
 

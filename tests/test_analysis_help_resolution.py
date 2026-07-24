@@ -185,6 +185,17 @@ def test_registered_observe_string_paths_resolve_to_one_descriptor(target: str) 
     assert resolved.descriptor is REGISTRY.by_id("observe")
 
 
+@pytest.mark.parametrize(
+    "target",
+    ("events.match", "Session.events.match", "session.events.match"),
+)
+def test_registered_event_match_string_paths_resolve_to_one_descriptor(target: str) -> None:
+    resolved = resolve_help_target(target)
+    assert resolved.kind == "descriptor"
+    assert resolved.canonical_id == "events.match"
+    assert resolved.descriptor is REGISTRY.by_id("events.match")
+
+
 def test_ambiguous_presentation_path_is_rejected() -> None:
     with pytest.raises(HelpTargetError):
         resolve_help_target("frame.components")

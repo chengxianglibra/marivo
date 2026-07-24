@@ -1348,7 +1348,13 @@ Every `AnalysisError` exposes stable `expected`, `received`, `location`, and
 `repair` fields. `AnalysisRepair` remains the only repair envelope:
 
 ```python
-RepairKind = Literal["retry", "inspect", "semantic_authoring", "environment"]
+RepairKind = Literal[
+    "retry",
+    "inspect",
+    "user_choice",
+    "semantic_authoring",
+    "environment",
+]
 
 class AnalysisRepair(BaseModel):
     kind: RepairKind
@@ -1357,6 +1363,10 @@ class AnalysisRepair(BaseModel):
     snippet: str | None = None
     candidates: tuple[str, ...] = ()
 ```
+
+`user_choice` means the runtime has a bounded set of mechanically legal
+alternatives but cannot select among their business meanings. It carries
+current candidates when available and never carries a retry snippet.
 
 Genuine semantic absence uses `semantic_authoring`, points to the semantic help
 surface, and explains the missing requirement in the ordinary error fields and

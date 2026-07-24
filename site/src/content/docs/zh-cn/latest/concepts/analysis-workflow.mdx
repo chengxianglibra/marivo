@@ -151,6 +151,25 @@ journey。`completion_through` 是包含端点的 follow-up bound，并且不得
 阶段一不接收 cohort/SubjectSet 参数，也不宣传 funnel、time-to-event、selection、
 comparison 或 attribution continuation。
 
+当每个首 step occurrence 都应建立 attempt 时，必须显式选择 repeated-attempt
+policy。`exclusive` 最多把一个 completion 分配给一个 open attempt；`shared`
+允许一个 completion 关闭多个合格 attempt：
+
+```python
+exclusive_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="exclusive"),
+)
+shared_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="shared"),
+)
+```
+
 `EventFrame[journey]` 是 dense long table：每个 `journey × pattern step` 都有一行。
 后续 step 缺失时，该行仍然存在，其 event、time 和 elapsed 值为空。只有全部必需
 Event 都已知完整覆盖到 follow-up bound 时，缺失 step 才是 `incomplete`；否则为
@@ -619,9 +638,10 @@ digest。同一个值可以从 `artifact.evidence_digest` 读取；通过
 当 operator 失败时，它会抛出一个类型化的 `AnalysisError` 子类。每个错误都携带稳定的
 类型化字段——`expected`、`received`、`location` 和 `repair`——而不是一个通用的
 details 包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包含 `kind`
-（`retry`、`inspect`、`semantic_authoring`、`environment`）、`action`、`help_target`、
-可选的 `snippet` 和从实时状态生成的可选 `candidates`。按照修复指引操作即可；它会指向
-失败能力的确切 `mv.help(...)` 目标。
+（`retry`、`inspect`、`user_choice`、`semantic_authoring`、`environment`）、
+`action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选
+`candidates`。`user_choice` 表示仍有多个机械上合法的方案，需要业务判断选择其一。
+按照修复指引操作即可；它会指向失败能力的确切 `mv.help(...)` 目标。
 
 ### 终端边界出口
 

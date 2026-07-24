@@ -14,12 +14,36 @@ from marivo.analysis.errors import (
     InvalidCompletenessDeclarationError,
     InvalidEventMatchingPolicyError,
     InvalidEventPatternError,
+    RepairKind,
 )
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.event import ParticipantRoleHandle
 
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _event_repair(
+    *,
+    kind: RepairKind,
+    action: str,
+    snippet: str | None = None,
+    candidates: tuple[str, ...] = (),
+) -> AnalysisRepair:
+    """Build one truthful Event repair owned by the events.match contract."""
+    if not action.strip():
+        raise ValueError("Event repair action must be non-empty")
+    if kind == "retry" and not (snippet and snippet.strip()):
+        raise ValueError("Event retry repair requires a runnable snippet")
+    if kind != "retry" and snippet is not None:
+        raise ValueError("only Event retry repairs may carry a snippet")
+    return AnalysisRepair(
+        kind=kind,
+        action=action,
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
+        snippet=snippet,
+        candidates=candidates,
+    )
 
 
 def _fingerprint(payload: object) -> str:
@@ -202,10 +226,10 @@ def step(*, participant: ParticipantRoleHandle, key: str) -> PatternStep:
             message="invalid Event PatternStep",
             expected="mv.step(participant=<ParticipantRoleHandle>, key=<snake_case>)",
             received=f"participant={participant!r}, key={key!r}",
-            repair=AnalysisRepair(
-                kind="retry",
+            location="mv.step(participant, key)",
+            repair=_event_repair(
+                kind="user_choice",
                 action="Use ms.participant_role(...) and a unique lowercase snake-case key.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
             ),
         ) from exc
 
@@ -235,10 +259,10 @@ def sequence(*steps: PatternStep) -> EventPattern:
             message="invalid EventPattern sequence",
             expected="one or more PatternStep values with unique keys",
             received=repr(steps),
-            repair=AnalysisRepair(
-                kind="retry",
+            location="mv.sequence(*steps)",
+            repair=_event_repair(
+                kind="user_choice",
                 action="Pass only mv.step(...) values with unique keys to mv.sequence(...).",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
             ),
         ) from exc
 
@@ -297,10 +321,14 @@ def every_start(
             message="invalid every_start completion assignment",
             expected="'exclusive' or 'shared'",
             received=repr(completion_assignment),
-            repair=AnalysisRepair(
-                kind="retry",
+            location="mv.every_start(completion_assignment)",
+            repair=_event_repair(
+                kind="user_choice",
                 action="Choose completion_assignment='exclusive' or 'shared'.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
+                candidates=(
+                    'completion_assignment="exclusive"',
+                    'completion_assignment="shared"',
+                ),
             ),
         ) from exc
 
@@ -350,10 +378,10 @@ def declared_complete_through(
             message="invalid Event completeness declaration",
             expected="non-empty unique EventRefs, through, and rationale",
             received=repr((inputs, through, rationale)),
-            repair=AnalysisRepair(
-                kind="retry",
+            location="mv.declared_complete_through(inputs, through, rationale)",
+            repair=_event_repair(
+                kind="user_choice",
                 action="Name exact EventRefs from the pattern and provide a non-empty rationale.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
             ),
         ) from exc
 

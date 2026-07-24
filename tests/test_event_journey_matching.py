@@ -16,6 +16,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import (
     AmbiguousEventOrderError,
     EventIdentityError,
+    EventParticipantCardinalityError,
     InvalidCompletenessDeclarationError,
     PatternStepMismatchError,
 )
@@ -269,6 +270,55 @@ def test_every_start_terminal_assignment_policy(
     assert statuses == expected
 
 
+@pytest.mark.parametrize(
+    ("example_index", "result_name", "expected_statuses"),
+    (
+        (0, "exclusive_attempts", ["complete", "coverage_censored"]),
+        (1, "shared_attempts", ["complete", "complete"]),
+    ),
+)
+def test_registered_repeated_attempt_help_examples_execute(
+    tmp_path: Any,
+    monkeypatch: Any,
+    example_index: int,
+    result_name: str,
+    expected_statuses: list[str],
+) -> None:
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    session = _event_session(
+        tmp_path,
+        monkeypatch,
+        event_rows_sql=(
+            "('cart_1', 'u1', 'cart_created', TIMESTAMP '2026-07-01 01:00:00'),"
+            "('cart_2', 'u1', 'cart_created', TIMESTAMP '2026-07-01 02:00:00'),"
+            "('payment_1', 'u1', 'payment_succeeded', "
+            "TIMESTAMP '2026-07-01 03:00:00')"
+        ),
+    )
+    cart_user = ms.participant_role(
+        event=ms.ref.event("commerce.cart_created"),
+        name="user",
+    )
+    payment_buyer = ms.participant_role(
+        event=ms.ref.event("commerce.payment_succeeded"),
+        name="buyer",
+    )
+    example = REGISTRY.by_id("events.match").additional_examples[example_index]
+    namespace = {
+        "cart_user": cart_user,
+        "mv": mv,
+        "payment_buyer": payment_buyer,
+        "session": session,
+    }
+
+    exec(compile(example.code, "<events-match-help-example>", "exec"), namespace)
+
+    frame = cast("mv.EventFrame", namespace[result_name])
+    statuses = sorted(frame.to_pandas().groupby("journey_id")["completion_status"].first().tolist())
+    assert statuses == expected_statuses
+
+
 def test_cross_event_same_timestamp_is_ambiguous() -> None:
     cart = ms.ref.event("commerce.cart_created")
     payment = ms.ref.event("commerce.payment_succeeded")
@@ -300,6 +350,10 @@ def test_cross_event_same_timestamp_is_ambiguous() -> None:
 
     assert captured.value.kind == "ambiguous_event_order"
     assert captured.value.expected == "distinct timestamps for cross-Event ordering"
+    assert captured.value.location == "session.events.match.occurrence_order"
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "inspect"
+    assert captured.value.repair.snippet is None
 
 
 @pytest.mark.parametrize(
@@ -512,7 +566,7 @@ def test_multi_participant_event_preserves_null_identity_for_validation(
         ),
     )
 
-    with pytest.raises(EventIdentityError, match="empty identity component"):
+    with pytest.raises(EventIdentityError, match="empty identity component") as captured:
         session.events.match(
             pattern=pattern,
             cohort_window=mv.TimeScope(
@@ -522,6 +576,10 @@ def test_multi_participant_event_preserves_null_identity_for_validation(
             completion_through="2026-07-02T00:00:00Z",
             matching=mv.first_per_subject(),
         )
+    assert captured.value.location.endswith(".identity")
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "inspect"
+    assert captured.value.repair.snippet is None
 
 
 def test_event_identity_duplicate_outside_query_window_is_rejected(
@@ -582,7 +640,7 @@ def test_incomplete_completeness_declaration_fails_before_query(
     with pytest.raises(
         InvalidCompletenessDeclarationError,
         match="does not cover completion_through",
-    ):
+    ) as captured:
         session.events.match(
             pattern=pattern,
             cohort_window=mv.TimeScope(
@@ -593,6 +651,10 @@ def test_incomplete_completeness_declaration_fails_before_query(
             matching=mv.first_per_subject(),
             completeness=(declaration,),
         )
+    assert captured.value.location == "session.events.match.completeness.through"
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "user_choice"
+    assert captured.value.repair.snippet is None
     assert session._connection_runtime.take_captured_queries() == []
 
 
@@ -694,7 +756,7 @@ def test_session_events_match_materializes_persists_and_recovers(
     assert repeated_event.to_pandas()["completion_status"].unique().tolist() == ["incomplete"]
 
     session._connection_runtime.begin_query_capture()
-    with pytest.raises(PatternStepMismatchError):
+    with pytest.raises(PatternStepMismatchError) as captured:
         session.events.match(
             pattern=mv.sequence(
                 mv.step(
@@ -712,4 +774,51 @@ def test_session_events_match_materializes_persists_and_recovers(
             completion_through=through,
             matching=mv.first_per_subject(),
         )
+    assert captured.value.location.endswith(".participant")
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "user_choice"
+    assert captured.value.repair.candidates == ("user",)
+    assert captured.value.repair.snippet is None
+    assert session._connection_runtime.take_captured_queries() == []
+
+
+def test_session_match_requires_semantic_authoring_for_non_subject_cardinality(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    session = _event_session(
+        tmp_path,
+        monkeypatch,
+        event_rows_sql=("('e1', 'u1', 'cart_created', TIMESTAMP '2026-07-01 01:00:00')"),
+        model_replacements=(
+            (
+                "name='user', path=(event_to_user,), cardinality='one'",
+                "name='user', path=(event_to_user,), cardinality='optional_one'",
+            ),
+        ),
+    )
+    cart = ms.ref.event("commerce.cart_created")
+    pattern = mv.sequence(
+        mv.step(
+            participant=ms.participant_role(event=cart, name="user"),
+            key="cart",
+        ),
+    )
+
+    session._connection_runtime.begin_query_capture()
+    with pytest.raises(EventParticipantCardinalityError) as captured:
+        session.events.match(
+            pattern=pattern,
+            cohort_window=mv.TimeScope(
+                start="2026-07-01T00:00:00Z",
+                end="2026-07-02T00:00:00Z",
+            ),
+            completion_through="2026-07-02T00:00:00Z",
+            matching=mv.first_per_subject(),
+        )
+
+    assert captured.value.location.endswith(".participant")
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "semantic_authoring"
+    assert captured.value.repair.snippet is None
     assert session._connection_runtime.take_captured_queries() == []

@@ -16,8 +16,13 @@ from marivo.analysis._capabilities.validation import (
     classify_input_family,
     validate_capability_inputs,
 )
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.event import first_per_subject, sequence, step
+from marivo.analysis.errors import (
+    AnalysisError,
+    InvalidCompletenessDeclarationError,
+    InvalidEventMatchingPolicyError,
+    InvalidEventPatternError,
+)
+from marivo.analysis.event import _event_repair, first_per_subject, sequence, step
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
 from marivo.analysis.intents._quality_checks import run_event_journey_checks
 from marivo.analysis.lineage import Lineage
@@ -106,6 +111,44 @@ def _event_frame(session: mv.Session) -> EventFrame:
         unused_event_count=1,
     )
     return EventFrame(_df=rows, meta=meta)
+
+
+def test_event_value_constructor_repairs_require_truthful_user_choice() -> None:
+    with pytest.raises(InvalidEventPatternError) as pattern_error:
+        mv.sequence()
+    with pytest.raises(InvalidEventMatchingPolicyError) as matching_error:
+        mv.every_start(completion_assignment="invalid")  # type: ignore[arg-type]
+    with pytest.raises(InvalidCompletenessDeclarationError) as completeness_error:
+        mv.declared_complete_through(inputs=(), through="", rationale="")
+
+    for error in (
+        pattern_error.value,
+        matching_error.value,
+        completeness_error.value,
+    ):
+        assert error.expected
+        assert error.received
+        assert error.location
+        assert error.repair is not None
+        assert error.repair.kind == "user_choice"
+        assert error.repair.help_target.canonical_id == "events.match"
+        assert error.repair.snippet is None
+    assert matching_error.value.repair is not None
+    assert matching_error.value.repair.candidates == (
+        'completion_assignment="exclusive"',
+        'completion_assignment="shared"',
+    )
+
+
+def test_event_repair_factory_enforces_retry_snippet_invariant() -> None:
+    with pytest.raises(ValueError, match="requires a runnable snippet"):
+        _event_repair(kind="retry", action="Retry the call.")
+    with pytest.raises(ValueError, match="only Event retry repairs"):
+        _event_repair(
+            kind="inspect",
+            action="Inspect the current Event.",
+            snippet="session.events.match(...)",
+        )
 
 
 def test_event_journey_quality_report_is_typed_and_discloses_coverage(
@@ -324,13 +367,18 @@ def test_only_phase_one_event_capabilities_are_discoverable(tmp_path, monkeypatc
     rendered = mv.help_text("events.match")
     assert "session.events.match" in rendered
     assert "EventFrame" in rendered
+    assert 'mv.every_start(completion_assignment="exclusive")' in rendered
+    assert 'mv.every_start(completion_assignment="shared")' in rendered
     assert "QualityReport[event_journey]" in mv.help_text("QualityReport")
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="event_discovery", use_datasources=False)
     assert ".events.match()" in session.render()
     assert callable(session.events.match)
-    assert mv.help_text(session.events.match).startswith("events.match")
+    canonical_help = mv.help_text("events.match")
+    assert mv.help_text("session.events.match") == canonical_help
+    assert mv.help_text("Session.events.match") == canonical_help
+    assert mv.help_text(session.events.match) == canonical_help
     assert not hasattr(session.events, "funnel")
     assert not hasattr(session.events, "time_to_event")
     assert not hasattr(session, "select_subjects")
