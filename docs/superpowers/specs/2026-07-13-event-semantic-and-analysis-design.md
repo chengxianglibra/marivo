@@ -1,8 +1,11 @@
 # Marivo Event and Lifecycle Semantic and Analysis Design
 
-Status: architecture revised; review feedback incorporated; pending implementation
+Status: architecture revised; phase 1 implemented; phases 2-5 and the
+coordinated agent-interface vNext cutover are pending
 
 Date: 2026-07-13
+
+Last revised: 2026-07-24
 
 > This document is one of two specifications split from the original
 > `Marivo Executable Semantic and Ontology Extension Design`. It owns the
@@ -27,12 +30,14 @@ readiness behavior, and metric execution semantics. This design adds `Event`,
 contracts; it does not replace the Metric lane or introduce a parallel
 grounding model.
 
-`marivo.analysis` remains an independent typed DSL. It consumes ready semantic
-handles and produces persistent typed artifacts. Event and lifecycle analysis
-centers on canonical journey and lifecycle-history materializations. Funnel,
-grouped funnel, time-to-event, lifecycle distribution with optional subject
-axes, transitions, dwell, and violations are closed reducers over those
-materializations rather than independent Event or state-source queries.
+`marivo.analysis` remains an independent typed DSL. It consumes ready
+top-level semantic identity through catalog-bound inputs and exact nested
+handles through closed analysis values, then produces persistent typed
+artifacts. Event and lifecycle analysis centers on canonical journey and
+lifecycle-history materializations. Funnel, grouped funnel, time-to-event,
+lifecycle distribution with optional subject axes, transitions, dwell, and
+violations are closed reducers over those materializations rather than
+independent Event or state-source queries.
 
 An exact `SubjectSet` is the only v1 bridge from Event/Lifecycle analysis into
 another typed subject-compatible branch. Funnel comparison and attribution are
@@ -43,6 +48,16 @@ pattern-member `PatternStep`, never through a positional integer or an
 `EventRef` alone.
 Public Lifecycle consumers identify a StateModel state through a typed
 `ModelStateHandle`, never through a bare state-name string.
+
+At catalog-bound runtime boundaries, a ready top-level semantic object may be
+supplied as either its exact current-catalog `CatalogEntry[K]` or `Ref[K]`.
+The boundary immediately validates and normalizes it to the canonical ref;
+planners, artifacts, evidence, persistence, and recovery remain ref-only.
+Standalone semantic authoring and typed-value constructors without an active
+catalog remain ref- or handle-only. This distinction follows the coordinated
+agent-interface contract in
+[`2026-07-24-marivo-agent-interface-surface-vnext-design.md`](2026-07-24-marivo-agent-interface-surface-vnext-design.md)
+and does not weaken nested Event/Lifecycle identity.
 
 The optional `marivo.ontology` knowledge extension and its narrow
 `discover.semantic_hypotheses` bridge are specified in the companion ontology
@@ -62,7 +77,8 @@ Executable Semantic Core (`marivo.semantic`)
     Entity / Dimension / TimeDimension / Measure / Metric / Relationship
     + Event / StateModel / StateProjection
         |
-        | ready typed semantic handles
+        | current-catalog entry or ref at catalog-bound runtime inputs
+        | exact nested typed handles everywhere else
         v
 Canonical Analysis Materialization (`marivo.analysis`)
     events.match      -> EventFrame[journey]
@@ -116,6 +132,85 @@ The extension applies one public-boundary rule consistently:
   contracts unless the family requires genuinely new meaning;
 - internal ordinals, fingerprints, and repeated plan facts remain artifact
   metadata; public rows use stable business coordinates and explicit nouns.
+
+### Agent execution continuity surface
+
+The cross-cutting agent interface in
+[`Marivo Agent Execution Continuity Interface Design`](2026-07-24-marivo-agent-interface-surface-vnext-design.md)
+is normative for every Event/Lifecycle phase at its coordinated cutover. This
+document owns Event/Lifecycle meaning, valid compositions, row contracts, and
+phase availability. The interface design owns the shared environment entry,
+semantic-input normalization, catalog lookup grammar, help routing, bounded
+result protocol, and executable repair shape. Event/Lifecycle does not create
+parallel versions of those shared contracts.
+
+The intended agent path is:
+
+```text
+environment-bound public surface
+  -> current catalog Event/StateModel/StateProjection entry
+  -> valid ref or exact nested handle at the operator boundary
+  -> bounded typed artifact
+  -> artifact contract, legal continuation, or executable repair
+```
+
+The top-level package remains version-only. Examples and repairs use the
+canonical imports:
+
+```python
+import marivo.semantic as ms
+import marivo.analysis as mv
+```
+
+A cold agent verifies the owning environment once through the track it is
+about to use:
+
+```text
+semantic authoring: <analysis-python> -m marivo help semantic
+analysis runtime:   <analysis-python> -m marivo help analysis
+```
+
+An analysis workflow does not proactively run both commands. After the one
+analysis-track check it follows the object already in hand: entry/ref briefing,
+artifact `show()`/`contract()`, or structured error repair. Event/Lifecycle
+introduces no top-level `marivo.event`, generic planner, ranked next-action API,
+or reflection-only recovery route.
+
+For a top-level catalog-backed kind, the shared runtime input alias is:
+
+```python
+type SemanticInput[K] = Ref[K] | CatalogEntry[K]
+```
+
+It applies only when the public call has one authoritative compiled catalog
+against which ownership, exact kind, current membership, and staleness can be
+checked. In this design that includes:
+
+- `SemanticCatalog.verify`, `preview`, `preview_many`, and `readiness` for
+  Event, StateModel, and StateProjection;
+- `session.lifecycle.replay`'s StateModel input when phase 3 lands;
+- Event/Lifecycle reducer, enrichment, and attribution axes that consume
+  top-level Dimensions;
+- any later session-bound Event/Lifecycle parameter that directly consumes a
+  top-level catalog ref and is present in the frozen interface inventory.
+
+The alias does not apply to semantic authoring decorators or constructors,
+including Event identity/time/participants, StateModel triggers, and
+StateProjection fields/paths. It also does not widen standalone typed-value
+constructors that have no active catalog, including `ms.participant_role`,
+`ms.model_state`, `ms.projection_state`, `mv.step`,
+`mv.declared_complete_through`, or state-alignment constructors. Those values
+continue to accept their exact refs or nested handles. `PatternStep`,
+`ParticipantRoleHandle`, `ProjectionStateHandle`, `ModelStateHandle`,
+`StateAlignment`, `CompletenessDeclaration`, `SubjectSet`, and typed artifacts
+remain closed exact types rather than `SemanticInput` unions.
+
+The shared normalizer rejects bare strings, wrong-kind refs or entries,
+cross-catalog entries, stale entries, unknown refs, unregistered subclasses,
+and duck-typed objects before datasource execution. Entry and ref forms must
+produce identical normalized job parameters, artifact identity, lineage,
+evidence anchors, replay behavior, and cold recovery. Only canonical refs cross
+the planning or persistence boundary.
 
 ### Industry semantics adopted
 
@@ -239,6 +334,43 @@ roles, loaded projection states, and model states expose typed handles through
 `ms.participant_role(...)`, `ms.projection_state(...)`, and
 `ms.model_state(...)` for analysis calls but do not become top-level catalog
 objects.
+
+The ref factories remain the authoring and persisted-identity surface.
+Compiled catalogs additionally expose concrete `EventEntry`,
+`StateModelEntry`, and `StateProjectionEntry` values. An entry is an ephemeral
+handle owned by one exact compilation; recompiling the project invalidates it
+even when a same-path object still exists. A session-bound runtime input may
+accept that current entry under `SemanticInput[K]`, but it must normalize the
+entry to its ref immediately and must never persist or silently rebase the
+entry.
+
+### Catalog lookup and object cards
+
+Typed catalog collections use the shared lookup grammar:
+
+```python
+event_entry = session.catalog.events.get("checkout.payment_succeeded")
+same_entry = session.catalog.events.get(payment_succeeded)
+```
+
+Each collection accepts a unique local name, an exact full path, or an exact
+same-kind ref. Scoped collections enforce their scope for all three forms;
+full-path or ref lookup cannot silently escape the scope. Ambiguity and missing
+membership return bounded exact candidates and inspection actions rather than
+guessing a replacement. `catalog.require(ref)` remains the strict global
+cross-kind membership operation.
+
+Every Event/Lifecycle catalog entry implements the common bounded
+`show()`/`details()`/`contract()` card behavior and exposes its exact kind, full
+path, business definition, `.ref`, parent/owner identity, and available
+navigation. Event cards additionally expose bounded exact refs for source
+Entity, ordered identity, occurrence time, participant roles, relationship
+paths, inferred endpoints, and cardinalities. StateModel cards expose subject,
+model states, inception, and transitions. StateProjection cards expose inferred
+source/subject, source temporal shape, state field, normalized state domain,
+and subject path. When a bounded card omits members, it reports the omitted
+count and the concrete full-read action. Cards expose facts and navigation;
+they never recommend an analysis operator.
 
 ## Event Semantic
 
@@ -375,6 +507,17 @@ authoring value and is not exported as an independently loadable object. A
 nested role is resolved later through the sole typed handle constructor
 `ms.participant_role(event=<EventRef>, name=<str>)`; an `EventRef` remains a
 data-only identity and does not acquire a dynamic `.participants` namespace.
+`ms.participant_role` is a standalone typed-value constructor with no active
+catalog, so it remains deliberately ref-only. When the agent starts from an
+`EventEntry`, the mechanically required conversion is explicit:
+
+```python
+payment_entry = session.catalog.events.get("checkout.payment_succeeded")
+payment_user = ms.participant_role(event=payment_entry.ref, name="user")
+```
+
+The later session-bound consumer validates that ref and role against its active
+catalog; the handle never stores the entry.
 
 ## StateModel Semantic
 
@@ -661,6 +804,11 @@ participant coverage, normalized-state decoding coverage, current/snapshot
 subject uniqueness, change-time uniqueness, and validity-interval integrity
 under the existing scoped query contract.
 
+At the coordinated interface cutover, public catalog `verify`, `preview`,
+`preview_many`, and `readiness` calls accept the exact current entry or
+equivalent ref for these top-level kinds and immediately normalize to the ref.
+Their compiled verification/readiness plans remain ref-only.
+
 Readiness is task-specific:
 
 - Event readiness requires a ready `owner(occurred_at)` Entity, same-owner Event
@@ -864,6 +1012,11 @@ non-empty rationale. It cannot target an Entity, datasource, pattern, or
 free-text id because those shapes do not prove which analytical inputs the
 caller meant. Declarations are analysis-owned assumptions; they do not mutate
 datasource state, Entity versioning, semantic readiness, or future operations.
+`mv.declared_complete_through` is a standalone fingerprinted value constructor,
+not a catalog-bound runtime call, so its `inputs` remain exact refs. An agent
+holding an EventEntry or StateProjectionEntry passes its explicit `.ref`; the
+session-bound materializer then validates current membership and the exact
+semantic fingerprint before accepting the declaration.
 
 An unversioned current-state projection has no governed business-time domain and
 therefore cannot be named by `declared_complete_through`. Its runtime capture
@@ -910,9 +1063,12 @@ declared classification cannot render as an observed non-completion.
 ### Subject-axis enrichment
 
 Funnel and lifecycle-distribution reducers accept optional
-`axes=[DimensionRef, ...]`. Every axis must be a ready Dimension on the subject
-Entity or reachable from it through one executable to-one Relationship path.
-Bare names, to-many paths, ambiguous paths, and axes without a compatible
+`axes: Sequence[SemanticInput[DimensionKind]]`. Every axis may be an exact
+current `DimensionEntry` or equivalent `DimensionRef`; the catalog-bound
+operator normalizes it immediately to the ref. The resolved Dimension must be
+ready on the subject Entity or reachable from it through one executable to-one
+Relationship path. Bare names, stale or cross-catalog entries, wrong-kind
+values, to-many paths, ambiguous paths, and axes without a compatible
 point-in-time contract fail before enrichment.
 
 Axis values use an operator-owned temporal anchor:
@@ -936,11 +1092,19 @@ with `mv.first_per_subject()`. With no axes it emits one row per PatternStep.
 With axes it emits one row per exact axis-value tuple and PatternStep:
 
 ```python
+acquisition_channel_entry = session.catalog.dimensions.get(
+    acquisition_channel
+)
+plan_tier_entry = session.catalog.dimensions.get(plan_tier)
+
 channel_funnel = session.events.funnel(
     journeys,
-    axes=[acquisition_channel, plan_tier],
+    axes=[acquisition_channel_entry, plan_tier_entry],
 )
 ```
+
+Passing the equivalent refs produces identical planning, artifact identity,
+lineage, evidence, and recovery.
 
 ```text
 <one column per declared axis, in declared order>
@@ -1033,12 +1197,19 @@ LifecycleFrame -> lifecycle.distribution / transitions / dwell / violations
 ### Replay materialization
 
 ```python
+order_model = session.catalog.state_models.get(order_lifecycle)
+
 history = session.lifecycle.replay(
-    order_lifecycle,
+    order_model,
     window=mv.window(start, end),
     seed=mv.from_inception(),
 )
 ```
+
+`session.lifecycle.replay` is catalog-bound, so its model parameter accepts the
+exact current `StateModelEntry` shown above or the equivalent `StateModelRef`
+and normalizes either form to the same ref before planning. The seed remains
+its exact typed analysis value.
 
 Closed seed policies are `mv.from_inception()` and
 `mv.from_projection(snapshot)`, where `snapshot` is a committed, model-aligned
@@ -1353,8 +1524,10 @@ dropouts = session.select_subjects(
     selection=mv.dropped_before(step=payment_step),
 )
 
+revenue_entry = session.catalog.metrics.get(revenue_metric)
+
 revenue = session.observe(
-    metric=revenue_metric,
+    metric=revenue_entry,
     cohort=dropouts,
     time_scope={"start": start, "end": end},
 )
@@ -1443,9 +1616,19 @@ delta = session.compare(
     baseline_funnel,
 )
 
+account_region_entry = session.catalog.dimensions.get(account_region)
+acquisition_channel_entry = session.catalog.dimensions.get(
+    acquisition_channel
+)
+plan_tier_entry = session.catalog.dimensions.get(plan_tier)
+
 drivers = session.attribute(
     delta,
-    axes=[account_region, acquisition_channel, plan_tier],
+    axes=[
+        account_region_entry,
+        acquisition_channel_entry,
+        plan_tier_entry,
+    ],
     mode="joint",
     target=mv.funnel_loss_rate(step=payment_step),
 )
@@ -1617,6 +1800,42 @@ Every artifact carries:
 - artifact family, closed shape, row-contract version, and lineage;
 - evidence status and the bounded `ArtifactDigest` snapshot.
 
+As `BaseFrame` subclasses, `EventFrame` and `LifecycleFrame` implement the
+shared data-bearing result basics:
+
+```python
+artifact.shape
+artifact.row_count
+artifact.columns
+artifact.render()
+artifact.show()
+artifact.to_pandas()
+artifact.contract()
+```
+
+`shape` is a two-integer tuple, `row_count == shape[0]`, `columns` is ordered,
+and `to_pandas()` returns an isolated copy and is terminal. `repr()`,
+`render()`, and `show()` remain bounded and deterministic; they do not perform
+backend I/O or imply that displayed rows are the full artifact.
+
+Every public object returned by `.contract()` is itself a bounded typed result:
+
+```python
+repr(contract)
+contract.render()
+contract.show()
+```
+
+Its fields remain directly accessible. An Event/Lifecycle
+`ArtifactContract.show()` renders artifact family/ref/shape and public columns,
+current issues and blockers, mechanically legal typed affordances,
+preconditions with executable repairs, and terminal ports. Each affordance
+retains the shared `capability_id`, `public_entrypoint`, `help_target`,
+`input_requirements`, `preconditions`, and `expected_output_family`. A failed
+precondition is included only with a non-empty typed repair. Contracts expose
+compatibility from exact current artifact state; they never rank operators,
+invent a workflow, or advertise a later delivery-phase continuation.
+
 The registered v1 continuation matrix is:
 
 | Input | Legal analysis continuations |
@@ -1642,10 +1861,10 @@ side. A recovered cold agent therefore receives only mechanically legal,
 typed-handle continuations from `contract()`; numeric indexes and bare state
 strings are never advertised.
 
-All artifacts also support bounded `show()`, `contract()`, evidence reads,
-recovery, and terminal `to_pandas()`. Correlate, hypothesis-test, forecast,
-discover, generic transform, and every unlisted family edge fail before
-querying. Implementing the shared artifact protocol never grants an affordance.
+All artifacts also support evidence reads and recovery. Correlate,
+hypothesis-test, forecast, discover, generic transform, and every unlisted
+family edge fail before querying. Implementing the shared artifact protocol
+never grants an affordance.
 
 ### Closed quality reports
 
@@ -1798,7 +2017,11 @@ Registers:
   `inception`, `transition`, `changes`, `normalized_state`,
   `state_projection`, and `projection_state`;
 - semantic verification, preview, readiness, details, lineage, persistence,
-  and the exact `ms.help(...)` topics for those values.
+  exact typed catalog collections and entry cards, and the exact
+  `ms.help(...)` topics for those values;
+- current-catalog `CatalogEntry | Ref` admission and immediate ref
+  normalization at the qualifying catalog-bound semantic runtime inputs,
+  without widening authoring or standalone handle constructors.
 
 ### Analysis execution surface
 
@@ -1820,6 +2043,10 @@ Registers:
 - Event/Lifecycle/SubjectSet shapes, QualityReport shapes, recovery, evidence,
   and terminal contracts;
 - discriminated evidence subject/scope and registered ObservationValue shapes.
+- current-catalog Dimension entry/ref admission for Event/Lifecycle axes and
+  StateModel entry/ref admission for replay, with the same capability
+  descriptors, family gates, persistence, and recovery as their normalized ref
+  forms.
 
 This extension has no ontology precondition and changes no existing Metric
 calculation semantics. The sole Metric-surface addition is exact
@@ -1848,6 +2075,41 @@ Public guidance preserves one owner per contract:
 `mo.help(...)` and semantic-hypothesis discovery help are specified in the
 companion ontology design.
 
+Equivalent callable targets resolve to one canonical capability descriptor. In
+particular:
+
+```python
+mv.help("events.match")
+mv.help("Session.events.match")
+mv.help("session.events.match")
+mv.help(session.events.match)
+```
+
+all render canonical capability id `events.match` and public entrypoint
+`session.events.match(...)`. The same rule applies to lifecycle calls and
+reducers. Exact Event/StateModel/StateProjection refs and entries resolve to a
+bounded semantic reference briefing, not to one guessed operator, because one
+semantic object may have several legal consumers. An error instance with a
+repair help target renders its concrete error briefing plus that canonical
+target; an error without one remains on its registered generic error contract.
+
+Every invokable focused-help page includes its live signature, accepted input
+families and semantic kinds, output family, invocation-critical constraints,
+producer/consumer edges, and at least one concise runnable example. It includes
+a bounded additional example only when materially different legal forms would
+otherwise be misleading. For Event matching, focused help must make the
+first-per-subject and repeated-attempt forms executable without turning their
+business choice into a default. For lifecycle replay/observation, focused help
+must make the distinct seed or scope forms executable. No shown example
+requires another help hop to discover missing arguments.
+
+The packaged `marivo-analysis` skill verifies the environment once and then
+uses the object-near surface. It may require `show()`, `contract()`, focused
+help for an unfamiliar capability, and structured error recovery; it must not
+duplicate Event/Lifecycle signatures, operator inventories, shape matrices,
+examples, or error catalogs, and it must not require proactive focused help
+before every call.
+
 Ordinary analysis agents discover ready Event, StateModel, and StateProjection
 handles through the session semantic catalog. They do not manipulate source
 internals.
@@ -1863,6 +2125,14 @@ generic table. Its `contract()` reconstructs typed
 step/state/alignment/axis/policy arguments from persisted identities rather
 than suggesting row indexes, bare strings, an inferred identity alignment, or
 an inferred completeness declaration.
+
+No `CatalogEntry` instance or compiled-catalog pointer is persisted in a job,
+artifact, lineage record, finding, digest, or recovered session. Entry inputs
+are normalized before those layers. Recovered refs are revalidated against the
+current catalog, and a stale held entry fails with a current same-kind
+reacquisition retry only when the same exact path still exists. Missing,
+wrong-kind, or ambiguous replacements require inspection or user choice rather
+than silent rebasing.
 
 ## Lineage
 
@@ -1895,7 +2165,29 @@ executable truth or a causal fact.
 ## Structured Errors
 
 All new public errors follow the existing SemanticError or AnalysisError
-templates and include expected, received, location, and typed repair.
+templates and include:
+
+- `expected`;
+- `received`;
+- `location`;
+- `repair.kind`;
+- `repair.action`;
+- the canonical live `help_target`;
+- bounded current candidates when relevant;
+- `repair.snippet` when and only when `repair.kind="retry"`.
+
+A retry snippet uses only public modules and canonical current names, is
+paste-ready with the surrounding `session`, `catalog`, or `frame` receiver, and
+contains exact values derivable from current state rather than placeholders.
+When Marivo cannot determine one safe retry without semantic or business
+judgment, the repair is `inspect`, `semantic_authoring`, or `user_choice`, not a
+partial retry. Every rejection that can be validated statically or against the
+active catalog occurs before datasource execution.
+
+Catalog ownership, stale-entry, wrong-kind, and membership failures use the
+shared semantic-input error contract from the agent-interface design rather
+than Event/Lifecycle-specific duplicates. The table below lists the
+domain-specific errors owned by this design.
 
 | Error kind | Trigger |
 | --- | --- |
@@ -2096,6 +2388,32 @@ distribution instants, axes/anchors, declarations, and coverage basis. Quality
 must not infer an identity alignment, rematch an alternative policy, or
 fabricate a sensitivity judgment.
 
+Verify Event, StateModel, and StateProjection typed collections resolve unique
+local names, full paths, and exact same-kind refs; scoped lookup cannot escape
+its scope. Verify entry cards expose exact refs and bounded executable members,
+and omitted members provide a concrete full-read action without recommending an
+operator.
+
+For every qualifying Event/Lifecycle catalog-bound input in the frozen
+agent-interface inventory, verify current exact entry and ref forms produce
+identical normalized jobs, artifact fingerprints, lineage, evidence, replay,
+and cold recovery. Reject wrong-kind, cross-catalog, stale, unknown,
+duck-typed, and bare-string inputs before backend execution. Verify standalone
+authoring and typed-value constructors remain ref- or handle-only.
+
+Verify every EventFrame/LifecycleFrame exposes bounded `repr`/`render`/`show`,
+ordered columns, `row_count == shape[0]`, isolated terminal pandas export, and
+a typed contract whose own `repr`/`render`/`show` are bounded. Contract
+affordances must agree with capability registration and phase availability.
+Every failed precondition must carry a non-empty repair; every retry repair
+must execute with the named receiver and exact current values.
+
+Verify callable and bound-method help spellings resolve to one Event/Lifecycle
+capability descriptor, while refs/entries and errors resolve to their semantic
+or error owner rather than a guessed operator. Verify the packaged analysis
+skill performs one environment check, then defers to current object contracts
+and structured errors instead of requiring per-call focused help.
+
 ## Acceptance Criteria
 
 The design is accepted when:
@@ -2191,6 +2509,32 @@ The design is accepted when:
     completeness choices without exposing single-value strategy slots.
 21. Ontology is absent from every execution, readiness, matching, replay, and
     evidence prerequisite.
+22. Every qualifying catalog-bound Event/Lifecycle runtime input accepts an
+    exact current `CatalogEntry` or equivalent `Ref`, validates ownership,
+    kind, membership, and staleness before backend work, and normalizes to a
+    ref before planning or persistence. Semantic authoring, standalone value
+    constructors, nested handles, policies, SubjectSets, and artifacts remain
+    exact types rather than widened unions.
+23. Event/Lifecycle catalog collections resolve local names, full paths, and
+    exact same-kind refs within their scope. Entry cards expose exact identity,
+    business facts, typed navigation, and concrete full-read recovery without
+    recommending an operator.
+24. Equivalent Event/Lifecycle help targets share one canonical capability
+    descriptor; refs/entries receive semantic briefings and errors receive
+    concrete repair briefings. Focused help is sufficient to execute each
+    materially distinct supported form without becoming a planner.
+25. EventFrame and LifecycleFrame implement the shared bounded data-bearing
+    result basics. Their typed contract objects also implement bounded
+    `repr`/`render`/`show`, expose only registered phase-valid affordances, and
+    preserve terminal `to_pandas()` with no typed re-entry.
+26. Every actionable error includes expected, received, location, repair kind
+    and action, canonical help target, and bounded current candidates where
+    relevant. A retry repair contains an executable current-state snippet;
+    otherwise it truthfully requires inspection, authoring, or user choice.
+27. Catalog entries are ephemeral and never persisted. Entry/ref calls recover
+    identically through current refs, stale entries are never silently rebased,
+    and the packaged skill uses one environment verification followed by
+    object-near contracts and error-driven recovery.
 
 ## Delivery Boundary
 
@@ -2223,6 +2567,17 @@ only on phase 2 and may be developed alongside phase 3, but it lands before the
 final StateProjection phase. StateProjection is intentionally last because it
 is an independently observed state source, not a prerequisite for Event
 analysis or Event-driven lifecycle replay.
+
+These five vertical capability phases are distinct from the internal phases in
+the agent-interface vNext design. The already implemented Event journey core is
+a complete public vertical boundary at which that design may freeze its exact
+consumer inventory. The shared interface then cuts over qualifying Phase 1
+Event inputs, catalog collections/cards, help targets, artifact/contract
+results, errors, docs, tests, and packaged skill atomically. A partial state in
+which one qualifying Event consumer accepts entries while another still
+requires refs is not releasable. Event/Lifecycle phases released after that
+cutover adopt the final interface contract from their first public release;
+they do not reintroduce the older ref-only runtime surface.
 
 Phase 1 is intentionally a complete standalone journey-analysis capability:
 `EventFrame[journey]` supports bounded show/contract, quality, evidence, and
@@ -2278,5 +2633,5 @@ This extension is independent of, and never requires, the optional ontology
 discovery extension specified in the companion design; the ontology extension
 may ship afterward.
 
-This specification revision does not implement runtime code, skills, or site
-documentation.
+This documentation-only revision does not itself implement the pending
+agent-interface vNext runtime, skill, or site cutover.
