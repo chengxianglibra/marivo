@@ -76,8 +76,10 @@ def test_consumed_type_help_uses_only_registered_public_contract() -> None:
     assert "_" not in "\n".join(line for line in text.splitlines() if line.strip().startswith("_"))
 
 
-def test_help_rejects_legacy_topics_and_private_names() -> None:
-    for target in ("snapshot.entity", "ai_context", "datasource_name_global", "_surface"):
+def test_help_accepts_registered_receiver_path_and_rejects_private_names() -> None:
+    assert md.help_text("snapshot.entity").startswith("DiscoverySnapshot.entity\n")
+
+    for target in ("ai_context", "datasource_name_global", "_surface"):
         with pytest.raises(DatasourceHelpTargetError):
             md.help_text(target)
 

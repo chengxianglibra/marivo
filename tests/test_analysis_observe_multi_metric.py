@@ -88,6 +88,17 @@ def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session)
     assert frame.arity == 2
 
 
+def test_registered_direct_ref_segmented_example_executes(sales_session):
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    example = REGISTRY.by_id("observe").additional_examples[0]
+    namespace = {"session": sales_session, "ms": ms}
+    exec(compile(example.code, "<observe-help-example>", "exec"), namespace)
+    frame = namespace["frame"]
+    assert frame.meta.semantic_kind == "panel"
+    assert frame.meta.metric_id == "sales.revenue"
+
+
 # --- Task 5: fused planning, execution, join ---
 
 

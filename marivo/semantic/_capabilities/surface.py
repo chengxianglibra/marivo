@@ -8,9 +8,11 @@ from typing import NoReturn
 
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.errors import build_help_target_error_payload
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
+    build_string_target_index,
     build_suggestion_index,
 )
 from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
@@ -53,6 +55,14 @@ def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
     """Resolve concrete semantic runtime values before callable dispatch."""
     error_type = type(target)
     if ERROR_TYPES.get(error_type.__name__) is error_type:
+        repair = getattr(target, "repair", None)
+        help_target = getattr(repair, "help_target", None)
+        if not isinstance(help_target, LiveHelpTarget):
+            return ResolvedLiveTarget(
+                kind="error_contract",
+                surface="semantic",
+                error_name=error_type.__name__,
+            )
         return ResolvedLiveTarget(
             kind="error_briefing",
             surface="semantic",
@@ -64,6 +74,25 @@ def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
             kind="error_contract",
             surface="semantic",
             error_name=target.__name__,
+        )
+    from marivo.refs import Ref
+
+    if type(target) is Ref:
+        return ResolvedLiveTarget(
+            kind="reference_briefing",
+            surface="semantic",
+            reference_id=target.path,
+            original=target,
+        )
+
+    from marivo.semantic.catalog import CatalogEntry
+
+    if isinstance(target, CatalogEntry):
+        return ResolvedLiveTarget(
+            kind="reference_briefing",
+            surface="semantic",
+            reference_id=target.path,
+            original=target,
         )
     contract = TYPE_CONTRACTS.get(type(target))
     if contract is not None:
@@ -88,6 +117,10 @@ def _build_surface() -> LiveSurface[AuthoringCapability]:
         default_suggestions=("load", "verify", "preview", "readiness", "help"),
         help_target_error=_help_target_error,
         enrich=_enrich,
+        string_target_index=build_string_target_index(
+            REGISTRY,
+            public_type_names=frozenset(type_index.values()),
+        ),
         suggestion_index=build_suggestion_index(REGISTRY),
     )
 

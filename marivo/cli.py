@@ -24,6 +24,8 @@ from marivo.config import (
 )
 from marivo.telemetry import track_operation, tracked_capability
 
+_HELP_TRACKS = ("analysis", "datasource", "semantic")
+
 
 def _render_track_help(track: str, target: str | None) -> str:
     """Render environment-bound help for one supported CLI track."""
@@ -40,6 +42,92 @@ def _render_track_help(track: str, target: str | None) -> str:
 
         return semantic_help_text(target)
     raise AssertionError(f"argparse admitted unsupported help track {track!r}")
+
+
+def _help_target_owners(target: str) -> tuple[tuple[str, str], ...]:
+    """Resolve a target against each native live surface without rendering help."""
+    from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
+    from marivo.analysis.errors import HelpTargetError
+    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
+    from marivo.datasource.errors import DatasourceHelpTargetError
+    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+    from marivo.semantic.errors import SemanticHelpTargetError
+
+    owners: list[tuple[str, str]] = []
+
+    try:
+        resolved_analysis = resolve_live_target(target, ANALYSIS_LIVE_SURFACE)
+    except (HelpTargetError, KeyError):
+        pass
+    else:
+        canonical_target = (
+            resolved_analysis.canonical_id
+            or resolved_analysis.type_name
+            or resolved_analysis.error_name
+        )
+        if canonical_target is not None:
+            owners.append(("analysis", canonical_target))
+
+    try:
+        resolved_datasource = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
+    except (DatasourceHelpTargetError, KeyError):
+        pass
+    else:
+        canonical_target = (
+            resolved_datasource.canonical_id
+            or resolved_datasource.type_name
+            or resolved_datasource.error_name
+        )
+        if canonical_target is not None:
+            owners.append(("datasource", canonical_target))
+
+    try:
+        resolved_semantic = resolve_live_target(target, SEMANTIC_LIVE_SURFACE)
+    except (SemanticHelpTargetError, KeyError):
+        pass
+    else:
+        canonical_target = (
+            resolved_semantic.canonical_id
+            or resolved_semantic.type_name
+            or resolved_semantic.error_name
+        )
+        if canonical_target is not None:
+            owners.append(("semantic", canonical_target))
+
+    return tuple(owners)
+
+
+def _raise_missing_help_track(target: str) -> None:
+    """Teach the canonical tracked help command for an omitted help track."""
+    owners = _help_target_owners(target)
+    if len(owners) == 1:
+        track, canonical_target = owners[0]
+        print(
+            "error: a help target requires its owning track. "
+            f"Specify the owning track: `marivo help {track} {canonical_target}`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if owners:
+        tracks = ", ".join(track for track, _ in owners)
+        commands = "\n".join(
+            f"  marivo help {track} {canonical_target}" for track, canonical_target in owners
+        )
+        print(
+            f"error: {target!r} is shared by help tracks: {tracks}. "
+            f"Choose an explicit track:\n{commands}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    forms = "\n".join(f"  marivo help {track} [target]" for track in _HELP_TRACKS)
+    print(
+        f"error: {target!r} is neither a help track nor a registered help target.\n"
+        f"Valid forms:\n{forms}",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 def _skills_source_dir() -> Path:
@@ -187,6 +275,11 @@ def main(argv: list[str] | None = None) -> None:
     Example:
         >>> main(["init", "--force"])
     """
+    parsed_argv = sys.argv[1:] if argv is None else argv
+    if parsed_argv == ["version"]:
+        print("Use `marivo --version`.", file=sys.stderr)
+        raise SystemExit(2)
+
     parser = argparse.ArgumentParser(
         prog="marivo",
         description="Marivo project tooling",
@@ -246,7 +339,7 @@ def main(argv: list[str] | None = None) -> None:
         help="Canonical help target string (e.g. 'observe', 'Session')",
     )
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args(parsed_argv)
 
     if args.command is None:
         parser.print_help()
@@ -323,16 +416,4 @@ def main(argv: list[str] | None = None) -> None:
                     print(str(exc), file=sys.stderr)
                     raise SystemExit(2) from None
             else:
-                track = args.track
-                # The track is not analysis/datasource/semantic. It may be a help
-                # target the user put in the track slot (e.g. `marivo help catalog`
-                # means `marivo help analysis catalog`). Teach the valid tracks and
-                # the target form instead of argparse's bare 'invalid choice'.
-                print(
-                    f"error: {track!r} is not a help track. "
-                    f"Tracks: analysis, datasource, semantic.\n"
-                    f"If {track!r} is a help target, try: marivo help analysis {track}\n"
-                    f"Or in Python: mv.help({track!r}) / md.help({track!r}) / ms.help({track!r})",
-                    file=sys.stderr,
-                )
-                raise SystemExit(2) from None
+                _raise_missing_help_track(args.track)

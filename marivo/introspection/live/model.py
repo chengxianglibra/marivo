@@ -80,6 +80,11 @@ class ResolvableHelpDescriptor(Protocol):
         ...
 
     @property
+    def callable_path(self) -> str | None:
+        """Return the registered callable path, when one exists."""
+        ...
+
+    @property
     def summary(self) -> str:
         """Return a bounded factual summary used for suggestions."""
         ...

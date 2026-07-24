@@ -21,13 +21,14 @@ from marivo.analysis._capabilities.model import (
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import (
     AnalysisError,
+    AnalysisRepair,
     HelpTargetError,
     MetricNotFoundError,
 )
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session.core import Session
-from marivo.introspection.live.model import SURFACE_LIMITS
+from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 
@@ -378,6 +379,23 @@ def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     assert 'slice_by={country: "US", channel: "online"}' in example_section
 
 
+def test_focused_help_adds_only_the_two_registered_call_forms() -> None:
+    observe_text = _text("observe")
+    correlate_text = _text("correlate")
+    assert "import marivo.semantic as ms" in observe_text
+    assert "import marivo.semantic as ms" in correlate_text
+    assert "Direct Ref segmented time series:" in observe_text
+    assert 'ms.ref.metric("sales.revenue")' in observe_text
+    assert 'ms.ref.dimension("sales.orders.region")' in observe_text
+    assert "Common-key cross-sectional frames from exact Refs:" in correlate_text
+    assert 'ms.ref.metric("sales.order_count")' in correlate_text
+
+
+def test_metric_projection_primary_example_uses_full_metric_id() -> None:
+    text = _text("MetricFrame.metric")
+    assert 'frame.metric("sales.revenue")' in text
+
+
 def test_observe_and_catalog_require_document_ref_factory_format() -> None:
     """Observe and catalog.require teach exact Ref factories."""
     for target in ("observe", "catalog.require"):
@@ -572,6 +590,23 @@ def test_error_instance_help_shows_concrete_repair() -> None:
     assert (
         "retry" in text.lower() or "semantic_authoring" in text.lower() or "inspect" in text.lower()
     )
+    assert "next_help: ms.help()" in text
+
+
+def test_error_instance_help_renders_exact_cross_surface_target() -> None:
+    err = AnalysisError(
+        message="inspect the datasource",
+        repair=AnalysisRepair(
+            kind="inspect",
+            action="Inspect the registered source.",
+            help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
+        ),
+    )
+    assert 'next_help: md.help("inspect")' in _text(err)
+
+
+def test_repair_free_error_instance_matches_generic_contract() -> None:
+    assert _text(AnalysisError(message="repair unavailable")) == _text(AnalysisError)
 
 
 def test_base_error_class_help() -> None:

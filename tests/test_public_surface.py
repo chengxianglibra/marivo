@@ -6,6 +6,12 @@ See docs/superpowers/specs/2026-06-13-agent-result-surface-design.md.
 
 from __future__ import annotations
 
+import json
+import pydoc
+import subprocess
+import sys
+
+import marivo
 import marivo.analysis as ma
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -206,6 +212,34 @@ DATASOURCE_PUBLIC = {
     "trino",
     "unpruned",
 }
+
+
+def test_top_level_help_teaches_supported_surface_imports_and_cli_routes() -> None:
+    rendered = pydoc.render_doc(marivo, renderer=pydoc.plaintext)
+
+    assert "import marivo.datasource as md" in rendered
+    assert "import marivo.semantic as ms" in rendered
+    assert "import marivo.analysis as mv" in rendered
+    assert "python -m marivo help datasource" in rendered
+    assert "python -m marivo help semantic" in rendered
+    assert "python -m marivo help analysis" in rendered
+
+
+def test_top_level_package_does_not_add_public_convenience_exports() -> None:
+    script = (
+        "import json, marivo; "
+        "print(json.dumps(sorted(name for name in dir(marivo) "
+        "if name == '__version__' or not name.startswith('_'))))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == ["__version__"]
 
 
 def test_semantic_all_is_pinned() -> None:

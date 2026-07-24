@@ -12,6 +12,7 @@ from marivo.analysis.errors import AnalysisError, HelpTargetError
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
+    build_string_target_index,
     build_suggestion_index,
 )
 
@@ -162,6 +163,14 @@ def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:
             type_name="CandidateSelection",
         )
     if isinstance(target, AnalysisError):
+        repair = target.repair
+        help_target = repair.help_target if repair is not None else None
+        if help_target is None:
+            return ResolvedLiveTarget(
+                kind="error_contract",
+                surface="analysis",
+                error_name=type(target).__name__,
+            )
         return ResolvedLiveTarget(
             kind="error_briefing",
             surface="analysis",
@@ -200,5 +209,9 @@ ANALYSIS_LIVE_SURFACE: LiveSurface[CapabilityDescriptor] = LiveSurface(
     default_suggestions=("observe", "compare", "attribute", "forecast", "help"),
     help_target_error=_help_target_error,
     enrich=_enrich,
+    string_target_index=build_string_target_index(
+        REGISTRY,
+        public_type_names=frozenset(TYPE_REGISTRY.values()),
+    ),
     suggestion_index=build_suggestion_index(REGISTRY),
 )

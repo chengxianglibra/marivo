@@ -49,6 +49,24 @@ def test_analysis_skill_packages_conditional_runtime_closeout_reference() -> Non
     assert "references/runtime-metric-closeout.md" in kernel
 
 
+def test_analysis_skill_uses_demand_driven_help_after_environment_entry() -> None:
+    """Environment entry is one-time; later guidance comes from live objects."""
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    section = text[text.index("## Live-contract rule") : text.index("## Script workspace")]
+    normalized = " ".join(section.split())
+
+    environment_entry = normalized.index("<analysis-python> -m marivo help analysis")
+    state_read = normalized.index("`.show()`")
+    contract_read = normalized.index("`.contract()`")
+    focused_help = normalized.index("object contract is insufficient")
+    structured_repair = normalized.index("follow the structured repair")
+
+    assert environment_entry < state_read < contract_read < focused_help < structured_repair
+    assert "first use of an unfamiliar capability" in normalized
+    assert "Focused help is not required before every API call." in normalized
+    assert "focused live help topics for every API contract" not in normalized
+
+
 def test_runtime_closeout_reference_carries_required_disclosures() -> None:
     text = (SKILL_DIR / "references" / "runtime-metric-closeout.md").read_text(encoding="utf-8")
     for required in (

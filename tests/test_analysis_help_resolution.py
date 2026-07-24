@@ -174,12 +174,35 @@ def test_unknown_string_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_string_aliases_are_not_canonical() -> None:
-    """Session.observe, session.observe, mv.Session.observe are NOT canonical."""
-    for target in ("Session.observe", "session.observe", "mv.Session.observe"):
-        with pytest.raises(HelpTargetError) as captured:
-            resolve_help_target(target)
-        assert "observe" in captured.value.repair.candidates
+@pytest.mark.parametrize(
+    "target",
+    ("observe", "Session.observe", "session.observe", "mv.Session.observe"),
+)
+def test_registered_observe_string_paths_resolve_to_one_descriptor(target: str) -> None:
+    resolved = resolve_help_target(target)
+    assert resolved.kind == "descriptor"
+    assert resolved.canonical_id == "observe"
+    assert resolved.descriptor is REGISTRY.by_id("observe")
+
+
+def test_ambiguous_presentation_path_is_rejected() -> None:
+    with pytest.raises(HelpTargetError):
+        resolve_help_target("frame.components")
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        'session.observe(ms.ref.metric("sales.revenue"))',
+        "marivo.analysis.session.core.Session.observe",
+        "Session._private",
+        "_FrameTransforms.filter",
+        "help.help_text",
+    ),
+)
+def test_unregistered_or_executable_string_paths_are_rejected(target: str) -> None:
+    with pytest.raises(HelpTargetError):
+        resolve_help_target(target)
 
 
 def test_help_target_error_surfaces_did_you_mean_on_first_line() -> None:
@@ -347,6 +370,13 @@ def test_error_instance_resolves() -> None:
     )
     result = resolve_help_target(err)
     assert result.kind == "error_briefing"
+
+
+def test_repair_free_error_instance_resolves_to_generic_contract() -> None:
+    err = AnalysisError(message="repair unavailable")
+    result = resolve_help_target(err)
+    assert result.kind == "error_contract"
+    assert result.error_name == "AnalysisError"
 
 
 def test_non_analysis_error_raises() -> None:
