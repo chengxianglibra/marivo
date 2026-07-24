@@ -311,6 +311,26 @@ def _format_card_refs(
     return rendered
 
 
+def _format_event_participant(
+    participant: tuple[
+        str,
+        Ref[EntityKind],
+        str,
+        tuple[Ref[RelationshipKind], ...],
+    ],
+    *,
+    bounded: bool,
+) -> str:
+    name, endpoint, cardinality, path = participant
+    if not path:
+        path_text = "self"
+    elif bounded:
+        path_text = _format_card_refs(path)
+    else:
+        path_text = " -> ".join(ref.key for ref in path)
+    return f"{name}: endpoint={endpoint.key}; cardinality={cardinality}; path={path_text}"
+
+
 def _format_tuple_values(values: tuple[str, ...], *, limit: int = 6) -> str:
     if not values:
         return "(none)"
@@ -873,9 +893,9 @@ class EventDetails(_DetailsBase):
                 ),
                 FieldSection(
                     label="participants",
-                    value=", ".join(
-                        f"{name}={endpoint.key} ({cardinality})"
-                        for name, endpoint, cardinality, _path in self.participants
+                    value="; ".join(
+                        _format_event_participant(participant, bounded=False)
+                        for participant in self.participants
                     ),
                 ),
             )
@@ -1238,6 +1258,30 @@ class EventEntry(CatalogEntry[EventKind]):
 
     def details(self) -> EventDetails:
         return cast("EventDetails", self._details)
+
+    def _card(self) -> Card:
+        details = self.details()
+        visible_participants = details.participants[:6]
+        card = (
+            super()
+            ._card()
+            .field(label="source_entity", value=details.source_entity.key)
+            .field(label="identity", value=_format_card_refs(details.identity))
+            .field(label="occurred_at", value=details.occurred_at.key)
+            .field(label="participant_count", value=str(len(details.participants)))
+        )
+        for participant in visible_participants:
+            card = card.field(
+                label=f"participant.{participant[0]}",
+                value=_format_event_participant(participant, bounded=True),
+            )
+        omitted = len(details.participants) - len(visible_participants)
+        if omitted:
+            card = card.field(
+                label="participants_omitted",
+                value=f"{omitted}; full: .details().show()",
+            )
+        return card
 
 
 def _object_from_details[CatalogObjectT](

@@ -226,14 +226,15 @@ def test_registry_rejects_invalid_additional_examples(
         _finalize_registry((descriptor,))
 
 
-def test_registry_additional_examples_are_owned_by_two_capabilities_only() -> None:
+def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -> None:
     owners = {
         descriptor.id: descriptor.additional_examples
         for descriptor in REGISTRY.descriptors
         if descriptor.additional_examples
     }
-    assert tuple(owners) == ("observe", "correlate")
+    assert tuple(owners) == ("observe", "events.match", "correlate")
     assert len(owners["observe"]) == 1
+    assert len(owners["events.match"]) == 2
     assert len(owners["correlate"]) == 1
 
 

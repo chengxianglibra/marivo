@@ -30,7 +30,14 @@ def _objects(
     predicate: str = "return ms.bind(event_type, rows) == 'payment_succeeded'",
     participant_path: str = "path=(event_to_buyer,), ",
     participant_cardinality: str = "one",
+    participants: str | None = None,
 ) -> str:
+    participant_rows = participants or (
+        "        ms.participant(\n"
+        '            name="buyer",\n'
+        f"            {participant_path}cardinality={participant_cardinality!r},\n"
+        "        ),"
+    )
     return f"""\
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -87,10 +94,7 @@ event_to_buyer = ms.relationship(
     identity=(event_id,),
     occurred_at=event_time,
     participants=(
-        ms.participant(
-            name="buyer",
-            {participant_path}cardinality={participant_cardinality!r},
-        ),
+{participant_rows}
     ),
     ai_context=ms.ai_context(
         business_definition="A successfully completed payment.",
@@ -160,7 +164,17 @@ def test_filtered_event_is_an_exact_non_callable_event_ref_and_catalog_entry(
     assert event.details().participants[0][1] == ms.ref.entity("commerce.buyers")
     assert ms.ref.dimension("commerce.event_log.event_type") in event.details().parents
     assert event.details().definition_fingerprint.startswith("sha256:")
-    assert "definition_fingerprint" in event.details().render()
+    details_rendered = event.details().render()
+    assert "definition_fingerprint" in details_rendered
+    assert "path=relationship:commerce.event_to_buyer" in details_rendered
+    card = event.render()
+    assert "source_entity: entity:commerce.event_log" in card
+    assert "identity: dimension:commerce.event_log.event_id" in card
+    assert "occurred_at: time_dimension:commerce.event_log.event_time" in card
+    assert "participant.buyer:" in card
+    assert "endpoint=entity:commerce.buyers" in card
+    assert "cardinality=one" in card
+    assert "path=relationship:commerce.event_to_buyer" in card
     verification = catalog.verify(event.ref)
     assert verification.status == "passed"
     readiness = catalog.readiness(refs=(event.ref,))
@@ -170,6 +184,34 @@ def test_filtered_event_is_an_exact_non_callable_event_ref_and_catalog_entry(
         issue.kind == "snapshot_missing" and "commerce.payment_succeeded" in issue.refs
         for issue in readiness.warnings
     )
+
+
+def test_event_card_bounds_participants_and_points_to_full_details(
+    semantic_project_factory,
+) -> None:
+    participants = "\n".join(
+        (
+            "        ms.participant(\n"
+            f'            name="buyer_{index}",\n'
+            "            path=(event_to_buyer,), cardinality='one',\n"
+            "        ),"
+        )
+        for index in range(7)
+    )
+    project = _project(
+        semantic_project_factory,
+        objects=_objects(participants=participants),
+    )
+    event = SemanticCatalog(project).events.get("payment_succeeded")
+
+    card = event.render()
+    assert "participant_count: 7" in card
+    assert "participant.buyer_5:" in card
+    assert "participant.buyer_6:" not in card
+    assert "participants_omitted: 1; full: .details().show()" in card
+    details = event.details().render()
+    assert "buyer_6:" in details
+    assert "path=relationship:commerce.event_to_buyer" in details
 
 
 def test_unfiltered_event_requires_explicit_all_rows(
