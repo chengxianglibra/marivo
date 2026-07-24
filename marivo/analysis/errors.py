@@ -250,6 +250,10 @@ class WindowInvalidError(AnalysisError):
         )
 
 
+class TemporalSuitabilityError(WindowInvalidError):
+    """Compiled semantic facts cannot support the requested temporal observation."""
+
+
 class TimezoneInvalidError(AnalysisError):
     pass
 
@@ -313,10 +317,13 @@ class SemanticKindMismatchError(AnalysisError):
                 location="session.discover.driver_axes arguments",
                 repair=AnalysisRepair(
                     kind="retry",
-                    action="Pass a non-empty search_space with catalog dimension refs.",
+                    action=(
+                        "Pass a non-empty search_space with current catalog dimension "
+                        "entries or exact refs."
+                    ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
-                        'region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref\n'
+                        'region = session.catalog.dimensions.get("sales.orders.region")\n'
                         "session.discover.driver_axes(delta, search_space=[region])"
                     ),
                 ),

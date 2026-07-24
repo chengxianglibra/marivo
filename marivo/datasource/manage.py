@@ -177,6 +177,23 @@ class RawSqlResult(RenderableResult):
     duration_ms: int
     warnings: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if self.returned_row_count != len(self.rows):
+            raise ValueError(
+                "returned_row_count must equal the number of bounded rows: "
+                f"returned_row_count={self.returned_row_count}, rows={len(self.rows)}"
+            )
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Return bounded returned rows by declared columns."""
+        return (self.returned_row_count, len(self.columns))
+
+    @property
+    def row_count(self) -> int:
+        """Return bounded rows, not full-source cardinality."""
+        return self.returned_row_count
+
     def _repr_identity(self) -> str:
         return (
             f"RawSqlResult datasource={self.datasource.path} "
@@ -190,16 +207,39 @@ class RawSqlResult(RenderableResult):
         card = (
             Card(
                 identity=self._repr_identity(),
-                available=(".rows", ".columns", ".types", ".to_pandas()", ".render()", ".show()"),
+                available=(
+                    ".rows",
+                    ".columns",
+                    ".types",
+                    ".shape",
+                    ".row_count",
+                    ".to_pandas()",
+                    ".render()",
+                    ".show()",
+                ),
             )
-            .status(f"terminal_only truncated={self.is_truncated} warnings={len(self.warnings)}")
+            .status(f"terminal bounded result warnings={len(self.warnings)}")
+            .field("terminal_only", "true")
+            .field("typed_reentry", "false")
+            .field("row_count_semantics", "returned_bounded_rows")
+            .field("returned_row_count", str(self.returned_row_count))
+            .field("requested_limit", str(self.requested_limit))
+            .field("is_truncated", str(self.is_truncated).lower())
+            .field(
+                "preserves",
+                "bounded rows, declared columns/types, datasource, SQL reason",
+            )
+            .field(
+                "does_not_preserve",
+                "semantic identity, canonical lineage, typed affordances",
+            )
+            .field(
+                "row_count_scope",
+                "returned rows are not full-source cardinality",
+            )
             .field("datasource", self.datasource.path)
             .field("backend_type", self.backend_type)
             .field("reason", self.reason)
-            .field(
-                "rows",
-                f"{self.returned_row_count} of {self.requested_limit} (truncated={self.is_truncated})",
-            )
             .field("timeout_seconds", str(self.timeout_seconds))
             .field("duration_ms", str(self.duration_ms))
             .table(self.columns, preview_rows, row_count=self.returned_row_count)

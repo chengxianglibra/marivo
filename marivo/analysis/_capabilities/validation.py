@@ -11,6 +11,8 @@ All names are private to ``marivo.analysis``.  Nothing is added to
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from marivo.analysis._capabilities.model import (
     BoundaryCapability,
     OperatorCapability,
@@ -72,17 +74,19 @@ def _classify_frame(value: object) -> str | None:
 
 
 def _classify_semantic_ref(value: object) -> str | None:
-    """Classify one exact Ref by its semantic kind.
+    """Classify one exact Ref or loaded catalog entry by its semantic kind.
 
     Returns the family string (e.g. ``"MetricSemantic"``) or ``None`` if the
     value is not a recognized semantic object.
     """
 
     from marivo.refs import Ref, SemanticKind
+    from marivo.semantic.catalog import CatalogEntry
 
-    if type(value) is not Ref:
+    if type(value) is Ref or isinstance(value, CatalogEntry):
+        kind = value.kind
+    else:
         return None
-    kind = value.kind
     if kind == SemanticKind.METRIC:
         return "MetricSemantic"
     if kind == SemanticKind.DIMENSION:
@@ -172,6 +176,18 @@ def classify_input_family(value: object) -> str:
     if runtime_metric_family is not None:
         return runtime_metric_family
 
+    if isinstance(value, Mapping) and value:
+        key_families = {_classify_semantic_ref(key) for key in value}
+        if None not in key_families and key_families <= {
+            "DimensionSemantic",
+            "TimeDimensionSemantic",
+        }:
+            return (
+                "TimeDimensionSemantic"
+                if key_families == {"TimeDimensionSemantic"}
+                else "DimensionSemantic"
+            )
+
     # Policies, time scopes, query specs, column bindings.
     policy_family = _classify_policy_or_spec(value)
     if policy_family is not None:
@@ -254,6 +270,12 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
         # Skip empty lists/tuples — arity checks are capability-specific
         # validators that run AFTER this gate.
         if isinstance(value, (list, tuple)) and not value:
+            continue
+        if (
+            isinstance(value, Mapping)
+            and not value
+            and accepted_families <= frozenset({"DimensionSemantic", "TimeDimensionSemantic"})
+        ):
             continue
 
         values = value if isinstance(value, (list, tuple)) else (value,)

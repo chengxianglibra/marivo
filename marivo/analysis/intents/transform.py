@@ -23,6 +23,7 @@ from marivo.analysis._semantic_persistence import (
 )
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import (
+    AnalysisRepair,
     CrossSessionFrameError,
     SemanticKindMismatchError,
     TransformArgError,
@@ -58,9 +59,16 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
-from marivo.refs import FieldKind, Ref, RefPayloadV1, SemanticKind
+from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import (
+    DimensionKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    TimeDimensionKind,
+)
 from marivo.refs import ref as ref_factory
-from marivo.semantic.catalog import CatalogEntry
+from marivo.semantic.catalog import CatalogEntry, _SemanticInput
 from marivo.semantic.metric_graph import (
     CanonicalSliceEntryV1,
     ComparableValueSemanticsV1,
@@ -155,10 +163,23 @@ def _finish_transform[TTransformFrame: TransformFrame](
     return result
 
 
-def _normalize_dimension_boundary(session: Session, value: Ref[FieldKind], *, argument: str) -> str:
+def _normalize_dimension_boundary(
+    session: Session,
+    value: _SemanticInput[DimensionKind | TimeDimensionKind],
+    *,
+    argument: str,
+    help_target: str,
+) -> str:
     try:
-        return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
+        return normalize_catalog_dimension_boundary(
+            session.catalog,
+            value,
+            argument=argument,
+            help_target=help_target,
+        )
     except SemanticKindMismatchError as exc:
+        if isinstance(value, CatalogEntry) or type(value) is not Ref:
+            raise
         ref = exc._context.get("ref", type(value).__name__)
         raise TransformDimensionNotFoundError(
             message=f"transform {argument} dimension {ref!r} is not present",
@@ -173,44 +194,90 @@ def _normalize_dimension_boundary(session: Session, value: Ref[FieldKind], *, ar
 
 def _normalize_where_boundary(
     session: Session,
-    where: Mapping[Ref[FieldKind], Any] | None,
+    where: Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], Any] | None,
 ) -> dict[str, Any]:
     if where is None:
         return {}
     for key in where:
         if isinstance(key, str):
             raise TransformArgError(
-                message="transform slice(slice_by=...) requires catalog dimension refs",
-                hint="Pass slice_by={session.catalog.require(ms.ref.dimension('sales.orders.country')).ref: 'US'}.",
+                message=(
+                    "transform slice(slice_by=...) requires current catalog dimension "
+                    "entries or exact refs"
+                ),
+                hint=(
+                    "Pass slice_by={session.catalog.dimensions.get('sales.orders.country'): 'US'}."
+                ),
                 context={
-                    "expected_kind": "Ref[dimension] or Ref[time_dimension]",
+                    "expected_kind": (
+                        "DimensionEntry, TimeDimensionEntry, Ref[dimension], or Ref[time_dimension]"
+                    ),
                     "got_kind": "str",
                 },
             )
-    return {
-        _normalize_dimension_boundary(session, key, argument="slice_by"): value
-        for key, value in where.items()
-    }
+    normalized: dict[str, Any] = {}
+    for key, value in where.items():
+        dimension_id = _normalize_dimension_boundary(
+            session,
+            key,
+            argument="slice_by",
+            help_target="transform.slice",
+        )
+        if dimension_id in normalized:
+            canonical_ref = key.ref if isinstance(key, CatalogEntry) else key
+            assert type(canonical_ref) is Ref
+            raise SemanticKindMismatchError(
+                message="slice_by keys must remain unique after semantic input normalization",
+                expected="one predicate per canonical dimension identity",
+                received=dimension_id,
+                location="slice_by",
+                repair=AnalysisRepair(
+                    kind="inspect",
+                    action=(
+                        "Keep either the current catalog entry or its exact ref for this "
+                        "dimension, then choose one predicate value."
+                    ),
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id="transform.slice",
+                    ),
+                    candidates=(canonical_ref.key,),
+                ),
+                context={"duplicate_dimension": dimension_id},
+            )
+        normalized[dimension_id] = value
+    return normalized
 
 
 def _normalize_drop_axes_boundary(
     session: Session,
-    drop_axes: list[Ref[FieldKind]] | None,
+    drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None,
 ) -> list[str]:
     if drop_axes is None:
         return []
     for axis in drop_axes:
         if isinstance(axis, str):
             raise TransformArgError(
-                message="transform rollup(drop_axes=...) requires catalog dimension refs",
-                hint="Pass drop_axes=[session.catalog.require(ms.ref.dimension('sales.orders.country')).ref].",
+                message=(
+                    "transform rollup(drop_axes=...) requires current catalog dimension "
+                    "entries or exact refs"
+                ),
+                hint=("Pass drop_axes=[session.catalog.dimensions.get('sales.orders.country')]."),
                 context={
-                    "expected_kind": "Ref[dimension] or Ref[time_dimension]",
+                    "expected_kind": (
+                        "DimensionEntry, TimeDimensionEntry, Ref[dimension], or Ref[time_dimension]"
+                    ),
                     "got_kind": "str",
                 },
             )
     return [
-        _normalize_dimension_boundary(session, axis, argument="drop_axes") for axis in drop_axes
+        _normalize_dimension_boundary(
+            session,
+            axis,
+            argument="drop_axes",
+            help_target="transform.rollup",
+        )
+        for axis in drop_axes
     ]
 
 
@@ -239,7 +306,7 @@ def transform_filter[TTransformFrame: TransformFrame](
 def transform_slice[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    slice_by: Mapping[Ref[FieldKind], SliceValue],
+    slice_by: Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], SliceValue],
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     session, prepared = _prepare_transform(frame)
@@ -262,7 +329,7 @@ def transform_slice[TTransformFrame: TransformFrame](
 def transform_rollup[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    drop_axes: list[Ref[FieldKind]] | None = None,
+    drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
     grain: str | None = None,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
@@ -498,7 +565,7 @@ def _axis_names(value: Any) -> set[str]:
     return set()
 
 
-def _dimension_input_id(value: Ref[FieldKind]) -> str:
+def _dimension_input_id(value: Ref[DimensionKind | TimeDimensionKind]) -> str:
     return value.path
 
 

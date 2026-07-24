@@ -4,9 +4,12 @@ and the navigation matrix."""
 from __future__ import annotations
 
 import textwrap
+from pathlib import Path
 
 import pytest
 
+import marivo.semantic as ms
+from marivo.refs import DimensionKind, Ref, SemanticKind
 from marivo.semantic.catalog import (
     CatalogCollection,
     CatalogEntry,
@@ -14,11 +17,13 @@ from marivo.semantic.catalog import (
     DimensionEntry,
     DomainEntry,
     EntityEntry,
+    EventEntry,
     MeasureEntry,
     MetricEntry,
     RelationshipEntry,
     SemanticCatalog,
     TimeDimensionEntry,
+    _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
@@ -31,7 +36,12 @@ _OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["user_id"],
+)
 users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"))
 
 @ms.dimension(entity=orders)
@@ -62,6 +72,15 @@ ms.relationship(
     to_entity=users,
     keys=[ms.join_on(user_id, id)],
 )
+
+@ms.event(
+    name="order_created",
+    identity=(user_id,),
+    occurred_at=ordered_at,
+    participants=(ms.participant(name="order", cardinality="one"),),
+)
+def order_created(rows):
+    return ms.all_rows()
 """
 
 _OPS_DOMAIN_PY = """\
@@ -81,14 +100,19 @@ def region(table):
 """
 
 
-def _catalog(semantic_project_factory) -> SemanticCatalog:
+def _catalog(
+    semantic_project_factory,
+    *,
+    workspace_dir: Path | None = None,
+) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": textwrap.dedent(_DOMAIN_PY),
             "sales/objects.py": textwrap.dedent(_OBJECTS_PY),
             "ops/_domain.py": textwrap.dedent(_OPS_DOMAIN_PY),
             "ops/objects.py": textwrap.dedent(_OPS_OBJECTS_PY),
-        }
+        },
+        workspace_dir=workspace_dir,
     )
     return SemanticCatalog(project)
 
@@ -112,6 +136,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
             RelationshipEntry,
             "relationship:sales.orders_to_users",
         ),
+        ("events", EventEntry, "event:sales.order_created"),
     ],
 )
 def test_catalog_global_collections_are_typed_and_use_typed_ids(
@@ -203,7 +228,17 @@ def test_catalog_require_rejects_raw_short_name_and_teaches_exact_typed_lookup(
     assert "ms.ref.<kind>(path)" in message
 
 
-def test_collection_get_rejects_global_typed_identity(
+def test_catalog_require_remains_ref_only(semantic_project_factory) -> None:
+    catalog = _catalog(semantic_project_factory)
+    revenue = catalog.metrics.get("sales.revenue")
+
+    with pytest.raises(SemanticRuntimeError, match="requires an exact Ref") as exc_info:
+        catalog.require(revenue)  # type: ignore[arg-type]
+
+    assert "Pass entry.ref" in str(exc_info.value)
+
+
+def test_collection_get_rejects_invalid_full_path_for_collection_kind(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
@@ -211,8 +246,7 @@ def test_collection_get_rejects_global_typed_identity(
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.metrics.get("entity.sales.orders")
 
-    assert "accepts one local name segment only" in str(exc_info.value)
-    assert "catalog.require(ms.ref.<kind>(path))" in str(exc_info.value)
+    assert "metric ref path must contain exactly 2 segments" in str(exc_info.value)
 
 
 def test_collection_get_reports_existing_object_outside_scope(
@@ -228,14 +262,12 @@ def test_collection_get_reports_existing_object_outside_scope(
     assert "domain:sales" in message
 
 
-def test_collection_get_rejects_bare_semantic_id(semantic_project_factory) -> None:
+def test_collection_get_accepts_exact_full_path(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.metrics.get("sales.revenue")
+    metric = catalog.metrics.get("sales.revenue")
 
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "accepts one local name segment only" in str(exc_info.value)
+    assert metric.key == "metric:sales.revenue"
 
 
 def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
@@ -247,8 +279,8 @@ def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
         catalog.dimensions.get("region")
 
     assert exc_info.value.kind == ErrorKind.AMBIGUOUS_REFERENCE
-    assert "ms.ref.dimension('sales.orders.region')" in str(exc_info.value)
-    assert "ms.ref.dimension('ops.events.region')" in str(exc_info.value)
+    assert "catalog.dimensions.get('sales.orders.region')" in str(exc_info.value)
+    assert "catalog.dimensions.get('ops.events.region')" in str(exc_info.value)
 
 
 def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_factory) -> None:
@@ -257,6 +289,208 @@ def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_fac
     region = catalog.domains.get("sales").entities.get("orders").dimensions.get("region")
 
     assert region.key == "dimension:sales.orders.region"
+
+
+def test_collection_get_accepts_exact_same_kind_ref_globally_and_in_scope(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    region_ref = ms.ref.dimension("sales.orders.region")
+
+    global_region = catalog.dimensions.get(region_ref)
+    scoped_region = catalog.entities.get("sales.orders").dimensions.get(region_ref)
+
+    assert global_region is scoped_region
+
+
+def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    region = catalog.entities.get("sales.orders").dimensions.get("sales.orders.region")
+
+    assert region.key == "dimension:sales.orders.region"
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        "ops.events.region",
+        ms.ref.dimension("ops.events.region"),
+    ),
+)
+def test_collection_get_full_path_and_ref_cannot_escape_scope(
+    semantic_project_factory,
+    key: str | Ref[DimensionKind],
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    sales_dimensions = catalog.domains.get("sales").dimensions
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        sales_dimensions.get(key)  # type: ignore[arg-type]
+
+    message = str(exc_info.value)
+    assert "outside collection scope domain:sales" in message
+    assert "hard visibility boundary" in message
+    assert "catalog.require(ms.ref.dimension('ops.events.region'))" in message
+
+
+def test_collection_get_wrong_kind_ref_names_correct_collection(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.metrics.get(ms.ref.entity("sales.orders"))  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "Expected metric, received entity" in str(exc_info.value)
+    assert "catalog.entities" in str(exc_info.value)
+
+
+def test_verify_accepts_metric_and_event_entries_like_their_refs(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    for entry in (
+        catalog.metrics.get("sales.revenue"),
+        catalog.events.get("sales.order_created"),
+    ):
+        by_entry = catalog.verify(entry)
+        by_ref = catalog.verify(entry.ref)
+
+        assert by_entry == by_ref
+        assert by_entry.ref == entry.path
+
+
+def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.metrics.get("sales.revenue")
+
+    class UnregisteredMetricEntry(MetricEntry):
+        pass
+
+    forged = UnregisteredMetricEntry(
+        ref=metric.ref,
+        _details=metric.details(),
+        _catalog=catalog,
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="not a registered concrete") as subclass:
+        _normalize_semantic_input(
+            catalog,
+            forged,
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
+    assert subclass.value.received == "UnregisteredMetricEntry(metric:sales.revenue)"
+
+    class DuckMetric:
+        ref = metric.ref
+
+    with pytest.raises(SemanticRuntimeError, match="duck-typed") as duck:
+        _normalize_semantic_input(
+            catalog,
+            DuckMetric(),  # type: ignore[arg-type]
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
+    assert duck.value.received == "DuckMetric"
+
+
+def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError, match="bare strings") as bare:
+        catalog.verify("sales.revenue")  # type: ignore[arg-type]
+    assert bare.value.repair is not None
+    assert bare.value.repair.kind == "inspect"
+    assert bare.value.repair.snippet is None
+
+    with pytest.raises(SemanticRuntimeError, match="received semantic kind entity") as wrong:
+        _normalize_semantic_input(
+            catalog,
+            ms.ref.entity("sales.orders"),  # type: ignore[arg-type]
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
+    assert wrong.value.repair is not None
+    assert wrong.value.repair.kind == "inspect"
+    assert wrong.value.repair.snippet is None
+    assert wrong.value.repair.candidates == ("metric:sales.revenue",)
+
+
+def test_semantic_input_rejects_cross_catalog_entry_without_retry(
+    tmp_path: Path,
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    other_workspace = tmp_path / "other"
+    other_workspace.mkdir()
+    other_catalog = _catalog(
+        semantic_project_factory,
+        workspace_dir=other_workspace,
+    )
+    foreign_metric = other_catalog.metrics.get("sales.revenue")
+
+    with pytest.raises(SemanticRuntimeError, match="another catalog") as exc_info:
+        catalog.verify(foreign_metric)
+
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.snippet is None
+
+
+def test_semantic_input_stale_entry_has_executable_exact_reacquisition(
+    semantic_project_factory,
+) -> None:
+    old_catalog = _catalog(semantic_project_factory)
+    stale_metric = old_catalog.metrics.get("sales.revenue")
+    current_catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError, match="earlier catalog instance") as exc_info:
+        current_catalog.verify(stale_metric)
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.kind == "reacquire"
+    assert error.repair.snippet == "entry = catalog.metrics.get('sales.revenue')"
+    namespace: dict[str, object] = {"catalog": current_catalog}
+    exec(error.repair.snippet, namespace)
+    assert namespace["entry"] is current_catalog.metrics.get("sales.revenue")
+
+
+def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
+    semantic_project_factory,
+) -> None:
+    old_catalog = _catalog(semantic_project_factory)
+    stale_metric = old_catalog.metrics.get("sales.revenue")
+    current_project = semantic_project_factory(
+        {
+            "sales/_domain.py": textwrap.dedent(_DOMAIN_PY),
+            "sales/objects.py": textwrap.dedent(
+                _OBJECTS_PY.replace(
+                    '\nrevenue = ms.aggregate(name="revenue", measure=amount, agg="sum")\n',
+                    "\n",
+                )
+            ),
+            "ops/_domain.py": textwrap.dedent(_OPS_DOMAIN_PY),
+            "ops/objects.py": textwrap.dedent(_OPS_OBJECTS_PY),
+        }
+    )
+    current_catalog = SemanticCatalog(current_project)
+
+    with pytest.raises(SemanticRuntimeError, match="stale catalog instance") as exc_info:
+        current_catalog.verify(stale_metric)
+
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.snippet is None
+    assert exc_info.value.repair.candidates == ()
 
 
 # ---------------------------------------------------------------------------

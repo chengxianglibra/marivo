@@ -283,6 +283,7 @@ _DF: frozenset[InputFamily] = frozenset({"DeltaFrame"})
 _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
 _CS: frozenset[InputFamily] = frozenset({"CandidateSet"})
 _AF: frozenset[InputFamily] = frozenset({"AttributionFrame"})
+_FIELD_SEMANTIC: frozenset[InputFamily] = frozenset({"DimensionSemantic", "TimeDimensionSemantic"})
 
 
 def _build_registry() -> CapabilityRegistry:
@@ -322,8 +323,8 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="session.observe(...)",
             help_target="observe",
             summary=(
-                "Materialize exact catalog refs or closed runtime metric expressions "
-                "through one bounded graph into a typed MetricFrame."
+                "Materialize exact current-catalog entries/refs or closed runtime "
+                "metric expressions through one bounded graph into a typed MetricFrame."
             ),
             root_group="artifact_production",
             root_visibility="direct",
@@ -333,6 +334,9 @@ def _build_registry() -> CapabilityRegistry:
             accepted_inputs={
                 "metric": frozenset({"MetricSemantic", "RuntimeMetricExpression"}),
                 "time_scope": frozenset({"TimeScopeInput"}),
+                "dimensions": _FIELD_SEMANTIC,
+                "slice_by": _FIELD_SEMANTIC,
+                "time_dimension": frozenset({"TimeDimensionSemantic"}),
             },
             output_family="MetricFrame",
             additional_examples=(
@@ -425,7 +429,7 @@ def _build_registry() -> CapabilityRegistry:
             receiver="Session",
             accepted_inputs={
                 "frame": _DF,
-                "axes": frozenset({"DimensionSemantic"}),
+                "axes": _FIELD_SEMANTIC,
             },
             output_family="AttributionFrame",
         )
@@ -538,20 +542,20 @@ def _build_registry() -> CapabilityRegistry:
             "discover.driver_axes",
             "Find dimensions that explain a delta.",
             _DF,
-            {"search_space": frozenset({"DimensionSemantic"})},
+            {"search_space": _FIELD_SEMANTIC},
         ),
         (
             "discover.interesting_slices",
             "Find dimension slices with notable values.",
             _MF_OR_DF,
-            {},
+            {"search_space": _FIELD_SEMANTIC},
         ),
         ("discover.interesting_windows", "Find time windows with notable behavior.", _MF_OR_DF, {}),
         (
             "discover.cross_sectional_outliers",
             "Find segments that are outliers compared to their peers.",
             _MF,
-            {},
+            {"peer_scope": _FIELD_SEMANTIC},
         ),
     )
 
@@ -582,8 +586,18 @@ def _build_registry() -> CapabilityRegistry:
         tuple[str, str, frozenset[InputFamily], Mapping[str, frozenset[InputFamily]]], ...
     ] = (
         ("filter", "Filter rows using a boolean predicate.", _MF_OR_DF, {}),
-        ("slice", "Filter rows by catalog-backed axis values.", _MF_OR_DF, {}),
-        ("rollup", "Aggregate by dropping axes or re-bucketing time.", _MF_OR_DF, {}),
+        (
+            "slice",
+            "Filter rows by catalog-backed axis values.",
+            _MF_OR_DF,
+            {"slice_by": _FIELD_SEMANTIC},
+        ),
+        (
+            "rollup",
+            "Aggregate by dropping axes or re-bucketing time.",
+            _MF_OR_DF,
+            {"drop_axes": _FIELD_SEMANTIC},
+        ),
         ("topk", "Keep the largest rows ordered by a column.", _MF_OR_DF, {}),
         ("bottomk", "Keep the smallest rows ordered by a column.", _MF_OR_DF, {}),
         ("rank", "Add a rank column ordered by a value column.", _MF_OR_DF, {}),

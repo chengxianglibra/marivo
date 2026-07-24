@@ -92,9 +92,9 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 用户批准并加载模型后，日常分析先读取指标，再调用 `observe`：
 
 ```python
-revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
+revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
+frame = session.observe(revenue_entry, time_scope={...}, grain="month")
 ```
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
@@ -566,11 +566,11 @@ session = mv.session.get_or_create(
     question="Why did Q4 revenue drop?",
 )
 catalog = session.catalog
-revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-region_entry = catalog.require(ms.ref.dimension("sales.orders.region"))
+revenue_entry = catalog.metrics.get("sales.revenue")
+region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-current = session.observe(revenue_entry.ref, grain="month", dimensions=[region_entry.ref])
+current = session.observe(revenue_entry, grain="month", dimensions=[region_entry])
 ~~~
 
 `details().show()` 展示人类编写的定义、guardrails、composition、effective entities、候选
@@ -598,13 +598,23 @@ revenue = orders.metrics.get("revenue")   # one metric object
 region = orders.dimensions.get("region")  # one dimension object
 ```
 
+每个 typed collection 都接受当前 scope 内的 local name、精确 full path 或同 kind ref。
+Scoped collection 不会通过 path 或 ref 返回 scope 外的 object。当 identity 来自配置、
+持久化状态或日志时，使用严格且只接受 ref 的 `catalog.require(ref)`。Entry card 会显示精确
+kind、full path、`.ref` 和有界的当前候选轴；被省略的成员会指向 `details().show()`。
+
 新建或修改 object 后，运行**就绪检查**，认证所选定义及其 scoped runtime evidence 仍然有效：
 
 ```python
-report = catalog.readiness(refs=[revenue.ref, region.ref])
+catalog.verify(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
+
+这些 runtime call 接受当前 entry 或它的精确 ref，并立即归一化为 ref。Readiness output、
+preview evidence、持久化、replay 与 recovery 仍然只保存 ref。
 
 :::note[Readiness 是显式认证]
 project 可以在 readiness 仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。Analysis APIs
@@ -707,18 +717,19 @@ Ref 值本身始终不可调用。在 expression body 内，必须通过
 带修复提示的错误。
 
 Authoring ref 可以直接传给分析。如果从字面身份开始，先做一次精确 catalog membership
-校验，再使用 entry 的 ref：
+校验，再直接传入当前 entry：
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 frame = session.observe(revenue, time_scope={...})
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-frame = session.observe(revenue_entry.ref, time_scope={...})
+frame = session.observe(revenue_entry, time_scope={...})
 ```
 
 `catalog.require(ref)` 是精确的全局查找；catalog collections 负责浏览和本地名称查找，
-analysis 与 authoring API 始终只接受 `Ref` 作为 semantic identity。持久化 payload 使用带版本的
+也支持完整路径查找。已冻结的 analysis consumer 接受当前 catalog entry 或其精确 ref；
+authoring、持久化和配置边界仍以 ref 为准。持久化 payload 使用带版本的
 `{schema, kind, path}` 记录，裸字符串不是公开 interchange 格式。
 
 #### `ai_context`：人与智能体之间的契约
@@ -876,9 +887,10 @@ state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards
 Uncommon formats、keys、timezone、aggregation、unit、additivity、relationship cardinality
 和 business meaning 仍由智能体负责。
 
-写完一个 Python declaration 后，重新加载 catalog entry，取出 `entry.ref`，依次运行
-`catalog.verify(ref)`、`catalog.preview(ref, using=snapshot)` 和零查询
-`catalog.readiness(refs=[ref])`。
+写完一个 Python declaration 后，重新加载当前 catalog entry，依次运行
+`catalog.verify(entry)`、`catalog.preview(entry, using=snapshot)` 和零查询
+`catalog.readiness(refs=[entry])`。只有持久化、日志或配置需要精确身份时才使用
+`entry.ref`。
 
 当 readiness 报告多个 runtime preview 缺失时，仍通过同一个入口修复：
 `catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`。

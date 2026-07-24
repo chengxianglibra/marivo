@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import cast
 
 import pytest
@@ -25,6 +26,9 @@ class _EmptyIndex:
 
     def kind_of(self, *args: object, **kwargs: object) -> None:
         return None
+
+    def require(self, *args: object, **kwargs: object) -> object:
+        raise RuntimeError("boom")
 
 
 class _ExplodingCatalog:
@@ -57,17 +61,82 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def test_normalize_metric_accepts_exact_ref_and_rejects_loaded_object(
+@pytest.mark.parametrize(
+    ("owner", "parameter"),
+    [
+        ("Session.observe", "metric"),
+        ("Session.observe", "dimensions"),
+        ("Session.observe", "slice_by"),
+        ("Session.observe", "time_dimension"),
+        ("Session.attribute", "axes"),
+        ("SessionDiscoverNamespace.driver_axes", "search_space"),
+        ("SessionDiscoverNamespace.interesting_slices", "search_space"),
+        ("SessionDiscoverNamespace.cross_sectional_outliers", "peer_scope"),
+        ("_FrameTransforms.slice", "slice_by"),
+        ("_FrameTransforms.rollup", "drop_axes"),
+    ],
+)
+def test_frozen_analysis_consumer_inventory_uses_semantic_input(
+    owner: str,
+    parameter: str,
+) -> None:
+    from marivo.analysis.frames.transforms import _FrameTransforms
+    from marivo.analysis.session.core import Session, SessionDiscoverNamespace
+
+    owners = {
+        "Session.observe": Session.observe,
+        "Session.attribute": Session.attribute,
+        "SessionDiscoverNamespace.driver_axes": SessionDiscoverNamespace.driver_axes,
+        "SessionDiscoverNamespace.interesting_slices": (
+            SessionDiscoverNamespace.interesting_slices
+        ),
+        "SessionDiscoverNamespace.cross_sectional_outliers": (
+            SessionDiscoverNamespace.cross_sectional_outliers
+        ),
+        "_FrameTransforms.slice": _FrameTransforms.slice,
+        "_FrameTransforms.rollup": _FrameTransforms.rollup,
+    }
+    annotation = inspect.signature(owners[owner]).parameters[parameter].annotation
+    assert "_SemanticInput" in str(annotation)
+
+
+def test_event_journey_signature_has_no_direct_semantic_input() -> None:
+    from marivo.analysis.session.core import SessionEvents
+
+    signature = inspect.signature(SessionEvents.match)
+    assert all(
+        "_SemanticInput" not in str(parameter.annotation)
+        for parameter in signature.parameters.values()
+    )
+
+
+def test_normalize_metric_accepts_exact_ref_and_loaded_object(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     assert normalize_metric_input(catalog, metric.ref) == "sales.revenue"
-    with pytest.raises(SemanticKindMismatchError, match=r"exact Ref\[metric\]") as exc:
-        normalize_metric_input(catalog, metric)  # type: ignore[arg-type]
-    assert exc.value._context["actual_type"] == "MetricEntry"
-    assert "loaded_entry.ref" in str(exc.value)
+    assert normalize_metric_input(catalog, metric) == "sales.revenue"
+
+
+def test_stale_metric_entry_does_not_claim_an_executable_analysis_retry(
+    semantic_project_factory,
+) -> None:
+    old_catalog = _catalog(semantic_project_factory)
+    stale_metric = old_catalog.metrics.get("sales.revenue")
+    current_catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticKindMismatchError, match="earlier catalog instance") as exc_info:
+        normalize_metric_input(current_catalog, stale_metric)
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert repair.snippet is None
+    assert repair.help_target.surface == "analysis"
+    assert repair.help_target.canonical_id == "observe"
+    assert repair.candidates == ("metric:sales.revenue",)
 
 
 def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
@@ -82,7 +151,7 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
     assert "metric:sales.revenue" in exc.value._context["available_refs"]
     message = str(exc.value)
     assert "sales.revenue" in message
-    assert "session.catalog." in message
+    assert "Candidates: metric:sales.revenue" in message
 
 
 def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) -> None:
@@ -150,16 +219,14 @@ def test_dimension_factory_prevents_forged_dimension_ref_to_metric(
         ms.ref.dimension("sales.revenue")
 
 
-def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_dimensions(
+def test_normalize_dimension_boundary_rejects_wrong_kind_entry(
     semantic_project_factory,
 ) -> None:
-    source_catalog = _catalog(semantic_project_factory)
-    empty_catalog = cast("SemanticCatalog", _ExplodingCatalog())
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc:
-        normalize_dimension_boundary(
-            empty_catalog, source_catalog.require(ms.ref.metric("sales.revenue"))
-        )
+        normalize_dimension_boundary(catalog, metric)
 
     assert exc.value._context["expected_kind"] == "dimension or time_dimension"
     assert exc.value._context["actual_kind"] == "metric"
@@ -197,6 +264,41 @@ def test_normalize_where_inputs_returns_plain_string_keys(semantic_project_facto
     }
 
 
+def test_normalize_where_inputs_rejects_entry_ref_key_collision(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    country = catalog.dimensions.get("sales.orders.country")
+
+    with pytest.raises(
+        SemanticKindMismatchError,
+        match="must remain unique after semantic input normalization",
+    ) as exc_info:
+        normalize_where_inputs(
+            catalog,
+            {country: "US", country.ref: "CA"},
+        )
+
+    assert exc_info.value.location == "slice_by"
+    assert exc_info.value._context["duplicate_dimension"] == "sales.orders.country"
+
+
+def test_normalize_where_inputs_preserves_time_dimension_kind_in_collision_repair(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    ds = catalog.time_dimensions.get("sales.orders.ds")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_where_inputs(
+            catalog,
+            {ds: "2026-01-01", ds.ref: "2026-01-02"},
+        )
+
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.candidates == ("time_dimension:sales.orders.ds",)
+
+
 def test_normalize_where_inputs_unknown_key_raises_analysis_error(
     semantic_project_factory,
 ) -> None:
@@ -229,7 +331,9 @@ def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> 
 
     message = str(exc_info.value)
     assert "measure" in message
-    assert "exact Ref[dimension | time_dimension]" in message
+    assert exc_info.value.expected == (
+        "exact Ref or current CatalogEntry with kind in {dimension, time_dimension}"
+    )
 
 
 def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> None:
@@ -248,18 +352,17 @@ def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> N
     details = exc_info.value._context
     assert details["actual_kind"] == "measure"
     assert details["expected_kind"] == "dimension or time_dimension"
-    assert "repair" in details
-    repair = details["repair"]
-    assert isinstance(repair, list)
-    assert any("session.catalog." in snippet for snippet in repair)
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert "dimension:sales.orders.country" in exc_info.value.repair.candidates
 
     # str(error) must surface the repair snippets — the primary way agents
     # consume error messages — and must not fall through to the generic
     # "Input frame kind" fallback cause.
     message = str(exc_info.value)
-    assert "session.catalog." in message
+    assert "Candidates:" in message
     assert "measure" in message
-    assert "exact Ref[dimension | time_dimension]" in message
+    assert "current CatalogEntry" in message
     assert "Input frame kind" not in message
 
 
@@ -276,7 +379,7 @@ def test_time_dimension_argument_uses_correct_label(semantic_project_factory) ->
         normalize_dimension_input(catalog, metric, argument="time_dimension")
 
     message = str(exc_info.value)
-    assert "Ref[dimension | time_dimension]" in message
+    assert "current CatalogEntry" in message
     assert "catalog dimension" not in message
 
 
@@ -294,16 +397,14 @@ def test_time_dimension_argument_includes_repair_guidance(semantic_project_facto
     assert details["ref"] == "metric:sales.revenue"
     assert details["expected_kind"] == "dimension or time_dimension"
     assert details["actual_kind"] == "metric"
-    assert "repair" in details
-    repair = details["repair"]
-    assert isinstance(repair, list)
-    assert any("session.catalog." in snippet for snippet in repair)
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
 
     # Repair snippets must be surfaced in str(error) — the primary way agents
     # consume error messages.
     message = str(exc_info.value)
-    assert "session.catalog." in message
-    assert "Ref[dimension | time_dimension]" in message
+    assert "Candidates:" in message
+    assert "current CatalogEntry" in message
     assert "metric" in message  # actual_kind appears in the cause
 
 
@@ -319,7 +420,7 @@ def test_dimension_argument_label_says_dimension_or_time_dimension(
         normalize_dimension_input(catalog, metric, argument="dimension")
 
     message = str(exc_info.value)
-    assert "Ref[dimension | time_dimension]" in message
+    assert "current CatalogEntry" in message
 
 
 def test_wrong_kind_metric_includes_repair_and_available_ids(
@@ -339,39 +440,31 @@ def test_wrong_kind_metric_includes_repair_and_available_ids(
     assert details["expected_kind"] == "metric"
     assert details["actual_kind"] == "dimension"
     assert "available_refs" in details
-    assert "repair" in details
-    repair = details["repair"]
-    assert isinstance(repair, list)
-    assert any("session.catalog." in snippet for snippet in repair)
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
 
     # str(error) must surface the kind info, available ids, and repair snippets.
     message = str(exc_info.value)
     assert "metric" in message  # expected_kind in cause
     assert "dimension" in message  # actual_kind in cause
     assert "sales.revenue" in message  # available_ids preview
-    assert "session.catalog." in message  # repair snippets
+    assert "Candidates:" in message
 
 
-def test_repair_snippets_use_typed_collection_form(semantic_project_factory) -> None:
-    """Repair snippets must use typed collection form with placeholders,
-    not the legacy catalog.list(...) form."""
+def test_wrong_kind_repair_is_inspection_without_placeholder_retry(
+    semantic_project_factory,
+) -> None:
     catalog = _catalog(semantic_project_factory)
     metric = catalog.require(ms.ref.metric("sales.revenue"))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")
 
-    details = exc_info.value._context
-    repair = details["repair"]
-    assert isinstance(repair, list)
-    # At least one snippet must use the typed collection form
-    assert any("session.catalog." in snippet for snippet in repair)
-    # No snippet should use the legacy catalog.list(...) form
-    for snippet in repair:
-        assert "catalog.list(" not in snippet
-    # At least one snippet must reference time_dimensions
-    assert any("time_dimensions" in snippet for snippet in repair)
-    # No snippet should hard-code project-specific ids like "sales.orders"
-    for snippet in repair:
-        assert "sales.orders" not in snippet
-        assert "sales.revenue" not in snippet
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert repair.snippet is None
+    assert repair.candidates == (
+        "dimension:sales.orders.country",
+        "time_dimension:sales.orders.ds",
+    )

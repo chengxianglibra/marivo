@@ -134,7 +134,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
         (
             session.discover.driver_axes(
                 delta_segmented,
-                search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
+                search_space=[session.catalog.dimensions.get("sales.orders.country")],
             ),
             "driver_axes",
             "driver_axis",
@@ -453,7 +453,7 @@ def test_interesting_slices_returns_selector_dict_round_trip():
     out = session.discover.interesting_slices(
         src,
         search_space=[
-            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            session.catalog.dimensions.get("sales.orders.country"),
             make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
         threshold=1.0,
@@ -682,7 +682,7 @@ def test_cross_sectional_outliers_peer_scope_groups_comparison():
     with_peer = session.discover.cross_sectional_outliers(
         metric,
         threshold=3.0,
-        peer_scope=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        peer_scope=[session.catalog.dimensions.get("sales.orders.region")],
     ).to_pandas()
     peer_stores = {json.loads(k)["store"] for k in with_peer["keys_json"]}
     # each region compared internally: both A's and B's intra-region spikes surface

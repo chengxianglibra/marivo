@@ -1,5 +1,6 @@
 """session.observe end-to-end against a seeded DuckDB."""
 
+import importlib
 import inspect
 import json
 from types import SimpleNamespace
@@ -10,11 +11,12 @@ import pytest
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import (
-    AnalysisError,
+    GrainUnsupportedError,
     MetricNotFoundError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
     SliceEmptyResultError,
+    TemporalSuitabilityError,
     WindowInvalidError,
 )
 from marivo.analysis.frames.metric import MetricFrame
@@ -75,6 +77,11 @@ def _bootstrap_sales_with_country_dimension(tmp_path):
         "name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', "
+        "name='order_count', )\n"
+        "def order_count(orders):\n"
+        "    return orders.order_id.count()\n"
     )
 
 
@@ -443,22 +450,25 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe("sales.revenue", session=s)  # type: ignore[arg-type]
 
-    assert exc_info.value._context["expected_type"] == "Ref[metric] or RuntimeMetricExpr"
+    assert exc_info.value._context["expected_type"] == (
+        "exact Ref or current CatalogEntry with kind in {metric}"
+    )
     assert exc_info.value._context["actual_type"] == "str"
     rendered = str(exc_info.value)
-    assert "exact Ref[metric] or RuntimeMetricExpr" in rendered
+    assert "bare strings" in rendered
 
 
-def test_session_observe_rejects_catalog_object_and_accepts_exact_ref(sales_session, sales_catalog):
+def test_session_observe_accepts_catalog_entries_and_exact_refs(sales_session, sales_catalog):
     metric = sales_catalog.require(ms.ref.metric("sales.revenue"))
-    country = sales_catalog.require(ms.ref.dimension("sales.orders.country")).ref
+    country = sales_catalog.require(ms.ref.dimension("sales.orders.country"))
 
-    with pytest.raises(AnalysisError, match="received MetricEntry"):
-        sales_session.observe(metric, dimensions=[country])  # type: ignore[arg-type]
-    frame = sales_session.observe(metric.ref, dimensions=[country])
+    by_entry = sales_session.observe(metric, dimensions=[country])
+    by_ref = sales_session.observe(metric.ref, dimensions=[country.ref])
 
-    assert frame.meta.metric_id == "sales.revenue"
-    assert "country" in frame.meta.axes
+    assert by_entry.meta.metric_id == by_ref.meta.metric_id == "sales.revenue"
+    assert by_entry.meta.metric_identity == by_ref.meta.metric_identity
+    assert by_entry.meta.axes == by_ref.meta.axes
+    assert by_entry.to_pandas().equals(by_ref.to_pandas())
 
 
 def test_session_observe_rejects_bare_metric_string(sales_session):
@@ -552,14 +562,14 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
         )
 
     rendered = str(exc_info.value)
-    assert "multiple time_dimensions" in rendered
+    assert isinstance(exc_info.value, TemporalSuitabilityError)
+    assert "explicit time_dimension" in rendered
     assert "create_date" in rendered
     assert "create_time" in rendered
-    assert (
-        'time_dimension=session.catalog.require(ms.ref.time_dimension("<domain.entity.time_dimension>")).ref'
-        in rendered
-    )
-    assert "is_default=True" in rendered
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.snippet is None
+    assert "<" not in rendered
 
 
 def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
@@ -607,7 +617,9 @@ def test_observe_multiple_time_fields_no_default_error_mentions_is_default(tmp_p
         )
 
     rendered = str(exc_info.value)
-    assert "is_default=True" in rendered
+    assert "explicit time_dimension" in rendered
+    assert "create_date" in rendered
+    assert "create_time" in rendered
 
 
 def test_observe_applies_slice(tmp_path):
@@ -683,6 +695,152 @@ def test_observe_rejects_bare_string_time_field(tmp_path):
     assert exc_info.value._context["expected_kind"] == "time_dimension"
 
 
+def _install_temporal_preflight_spies(session, monkeypatch):
+    calls: list[str] = []
+    observe_module = importlib.import_module("marivo.analysis.intents.observe")
+
+    def touched(name):
+        def record(*args, **kwargs):
+            calls.append(name)
+            raise AssertionError(f"temporal preflight touched {name}")
+
+        return record
+
+    monkeypatch.setattr(
+        session._connection_runtime,
+        "get_or_create",
+        touched("connection acquisition"),
+    )
+    monkeypatch.setattr(
+        session._connection_runtime,
+        "begin_query_capture",
+        touched("query capture"),
+    )
+    monkeypatch.setattr(
+        observe_module,
+        "_commit_observe_metric_frame",
+        touched("artifact/evidence commit"),
+    )
+    monkeypatch.setattr(
+        observe_module,
+        "persist_job_record",
+        touched("job persistence"),
+    )
+    return calls
+
+
+def test_temporal_preflight_no_candidate_blocks_scalar_and_forest_before_runtime(
+    sales_session,
+    monkeypatch,
+):
+    calls = _install_temporal_preflight_spies(sales_session, monkeypatch)
+    catalog = sales_session.catalog
+    revenue = catalog.metrics.get("sales.revenue")
+    order_count = catalog.metrics.get("sales.order_count")
+
+    for metric in (revenue, [revenue, order_count]):
+        with pytest.raises(TemporalSuitabilityError) as exc_info:
+            observe(
+                metric,
+                time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+                grain="day",
+                session=sales_session,
+            )
+        error = exc_info.value
+        assert error.repair is not None
+        assert error.repair.kind == "semantic_authoring"
+        assert error.repair.snippet is None
+        assert error._context["candidate_time_dimensions"] in (
+            {"sales.revenue": ()},
+            {"sales.revenue": (), "sales.order_count": ()},
+        )
+        assert error._context["catalog_definition_fingerprint"] == catalog.definition_fingerprint
+
+    assert calls == []
+
+
+def test_temporal_preflight_does_not_reinterpret_ordinary_dimension(
+    sales_session,
+    monkeypatch,
+):
+    calls = _install_temporal_preflight_spies(sales_session, monkeypatch)
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            catalog.metrics.get("sales.revenue"),
+            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            time_dimension=catalog.dimensions.get("sales.orders.country"),  # type: ignore[arg-type]
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.received == "dimension:sales.orders.country"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert error.repair.snippet is None
+    assert "Do not reinterpret ordinary dimension" in error.repair.action
+    assert calls == []
+
+
+def test_temporal_preflight_incompatible_grain_has_exact_retry_without_runtime(
+    tmp_path,
+    monkeypatch,
+):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(
+        name="temporal_grain",
+        backends=sales_backends(con),
+    )
+    calls = _install_temporal_preflight_spies(session, monkeypatch)
+    catalog = session.catalog
+
+    with pytest.raises(GrainUnsupportedError) as exc_info:
+        observe(
+            catalog.metrics.get("sales.revenue"),
+            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            grain="hour",
+            session=session,
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.kind == "retry"
+    assert 'session.catalog.metrics.get("sales.revenue")' in error.repair.snippet
+    assert 'session.catalog.time_dimensions.get("sales.orders.order_date")' in (
+        error.repair.snippet
+    )
+    assert 'grain="day"' in error.repair.snippet
+    assert "<" not in error.repair.snippet
+    assert calls == []
+
+
+def test_temporal_grain_retry_snippet_executes_with_session_bound(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(
+        name="temporal_grain_retry",
+        backends=sales_backends(con),
+    )
+
+    with pytest.raises(GrainUnsupportedError) as exc_info:
+        observe(
+            session.catalog.metrics.get("sales.revenue"),
+            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            grain="hour",
+            session=session,
+        )
+
+    repair = exc_info.value.repair
+    assert repair is not None and repair.snippet is not None
+    namespace = {"session": session}
+    exec(compile(repair.snippet, "<temporal-grain-repair>", "exec"), namespace)
+    frame = namespace["frame"]
+    assert isinstance(frame, MetricFrame)
+    assert frame.meta.axes["time"]["grain"] == "day"
+
+
 def test_observe_rejects_bare_string_where_key(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
@@ -694,6 +852,37 @@ def test_observe_rejects_bare_string_where_key(tmp_path):
             session=s,
         )
     assert exc_info.value._context["expected_kind"] == "dimension or time_dimension"
+
+
+def test_observe_rejects_entry_ref_slice_key_collision_before_query_capture(
+    tmp_path,
+    monkeypatch,
+):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(
+        name="slice_key_collision",
+        backends=sales_backends(con),
+    )
+    country = session.catalog.dimensions.get("sales.orders.region")
+    captures: list[bool] = []
+    monkeypatch.setattr(
+        session._connection_runtime,
+        "begin_query_capture",
+        lambda: captures.append(True),
+    )
+
+    with pytest.raises(
+        SemanticKindMismatchError,
+        match="must remain unique after semantic input normalization",
+    ):
+        observe(
+            session.catalog.metrics.get("sales.revenue"),
+            slice_by={country: "NORTH", country.ref: "SOUTH"},
+            session=session,
+        )
+
+    assert captures == []
 
 
 def test_observe_unknown_metric_raises(tmp_path):

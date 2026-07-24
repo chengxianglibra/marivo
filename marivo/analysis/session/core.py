@@ -49,8 +49,8 @@ if TYPE_CHECKING:
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
-    from marivo.refs import FieldKind, MetricKind, Ref, TimeDimensionKind
-    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.refs import DimensionKind, MetricKind, TimeDimensionKind
+    from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
 
 
 def _track_session_operation(
@@ -561,17 +561,21 @@ class Session(RenderableResult):
     def observe(
         self,
         metric: (
-            Ref[MetricKind]
+            _SemanticInput[MetricKind]
             | RuntimeMetricExpr
-            | list[Ref[MetricKind] | RuntimeMetricExpr]
-            | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+            | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
+            | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
         ),
         *,
         time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
-        dimensions: list[Ref[FieldKind]] | None = None,
-        slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
-        time_dimension: Ref[TimeDimensionKind] | None = None,
+        dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+        slice_by: Mapping[
+            _SemanticInput[DimensionKind | TimeDimensionKind],
+            SliceValue,
+        ]
+        | None = None,
+        time_dimension: _SemanticInput[TimeDimensionKind] | None = None,
         expect_shape: SemanticShape | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
@@ -579,9 +583,10 @@ class Session(RenderableResult):
 
         When to use: starting point for any metric analysis workflow.
 
-        Resolves an exact catalog ``Ref[metric]`` or a closed recursive value from
-        ``mv.runtime_metric``, applies the shared observation scope, executes one
-        bounded expression graph, and persists the result as a MetricFrame.
+        Resolves an exact current-catalog metric entry/ref or a closed recursive
+        value from ``mv.runtime_metric``, applies the shared observation scope,
+        executes one bounded expression graph, and persists canonical refs in
+        the resulting MetricFrame.
 
         ``to_pandas()`` exports one value column per ordered root. Read
         ``frame.value_columns`` before merging or renaming frames. Runtime metric
@@ -590,24 +595,28 @@ class Session(RenderableResult):
         metadata rather than catalog authority or value identity.
 
         Args:
-            metric: Exact ``Ref[metric]``, ``RuntimeMetricExpr``, or a non-empty
-                list/tuple of either over one shared scope. Loaded catalog
-                objects, generic refs, and bare strings are rejected; pass the
-                loaded metric's ``.ref``. Catalog and runtime roots may be
+            metric: Exact current-catalog metric entry/ref,
+                ``RuntimeMetricExpr``, or a non-empty list/tuple of either over
+                one shared scope. Bare strings and stale or cross-catalog
+                entries are rejected. Catalog and runtime roots may be
                 recursively composed, including nested catalog-derived metrics.
+                Temporal roots in one sequence must resolve to the same exact
+                time-dimension ref.
             time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
                 means data from August 1 is **not** included.
             grain: Optional time bucket grain. When present, observe returns a time
                 series or panel depending on ``dimensions``.
-            dimensions: Exact ``Ref[dimension]``/``Ref[time_dimension]`` segment
-                axes. Omit, pass ``None``, or pass ``[]`` for no segment axes.
+            dimensions: Exact current-catalog dimension/time-dimension entries
+                or refs used as segment axes. Omit, pass ``None``, or pass
+                ``[]`` for no segment axes.
             slice_by: Pre-aggregation global row filter. Keys are exact dimension
                 refs; values are either a scalar (``==``), a
                 list/tuple/set (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
-            time_dimension: Exact ``Ref[time_dimension]`` selecting the time axis
-                when an entity declares multiple time dimensions.
+            time_dimension: Exact current-catalog time-dimension entry/ref
+                selecting the time axis when an entity declares multiple time
+                dimensions.
             expect_shape: Optional guard. If set, observe predicts the output shape
                 from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
                 before any backend work when the prediction differs.
@@ -617,15 +626,17 @@ class Session(RenderableResult):
             SemanticKindMismatchError: A semantic input is not the required exact
                 ref subclass, roots do not share one shape/model/source domain,
                 or an expression exceeds the fixed graph contract.
+            TemporalSuitabilityError: A temporal request has no usable shared
+                time axis or requests an incompatible encoding/grain.
             ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
                 path, ambiguous dimension). Check ``details["code"]`` for the specific
                 error code.
 
         Example:
             >>> catalog = session.catalog
-            >>> revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
-            >>> country = catalog.require(ms.ref.dimension("sales.orders.country")).ref
-            >>> channel = catalog.require(ms.ref.dimension("sales.orders.channel")).ref
+            >>> revenue = catalog.metrics.get("sales.revenue")
+            >>> country = catalog.dimensions.get("sales.orders.country")
+            >>> channel = catalog.dimensions.get("sales.orders.channel")
             >>> frame = session.observe(
             ...     revenue,
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -656,7 +667,7 @@ class Session(RenderableResult):
             intent="observe",
             attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
         ) as telemetry_operation:
-            validate_capability_inputs("observe", metric=metric, time_scope=time_scope)
+            validate_capability_inputs("observe", time_scope=time_scope)
             result = observe(
                 metric,
                 time_scope=time_scope,
@@ -807,7 +818,7 @@ class Session(RenderableResult):
         self,
         frame: DeltaFrame,
         *,
-        axes: list[Ref[FieldKind]],
+        axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
         mode: AttributionMode | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
@@ -853,7 +864,8 @@ class Session(RenderableResult):
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
-            axes: One or more exact catalog dimension refs to attribute over.
+            axes: One or more exact current-catalog dimension/time-dimension
+                entries or refs to attribute over.
             mode: Required for multiple axes. ``"joint"`` returns one row per
                 axis combination; ``"hierarchy"`` returns ordered prefix rows.
                 Omit for a single axis.
@@ -875,8 +887,8 @@ class Session(RenderableResult):
 
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
-            >>> country = session.catalog.require(ms.ref.dimension("sales.orders.country")).ref
-            >>> channel = session.catalog.require(ms.ref.dimension("sales.orders.channel")).ref
+            >>> country = session.catalog.dimensions.get("sales.orders.country")
+            >>> channel = session.catalog.dimensions.get("sales.orders.channel")
             >>> attribution = session.attribute(
             ...     delta,
             ...     axes=[country, channel],
@@ -900,7 +912,7 @@ class Session(RenderableResult):
             intent="attribute",
             attributes=attrs,
         ):
-            validate_capability_inputs("attribute", frame=frame, axes=axes)
+            validate_capability_inputs("attribute", frame=frame)
             return attribute(
                 frame,
                 axes=axes,
@@ -1408,7 +1420,7 @@ class SessionDiscoverNamespace:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[Ref[FieldKind]],
+        search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
         value: str | None = None,
         limit: int | None = 50,
         analysis_purpose: str | None = None,
@@ -1419,6 +1431,11 @@ class SessionDiscoverNamespace:
         the candidate dimensions to evaluate for explanatory power. ``limit``
         bounds the candidate count (top by |score|, default 50; ``None`` for
         unbounded); truncation is recorded in ``params``.
+
+        Example:
+            >>> country = session.catalog.dimensions.get("sales.orders.country")
+            >>> candidates = session.discover.driver_axes(delta, search_space=[country])
+            >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1430,9 +1447,7 @@ class SessionDiscoverNamespace:
             intent="driver_axes",
             attributes={"marivo.analysis.search_space_count": len(search_space)},
         ):
-            validate_capability_inputs(
-                "discover.driver_axes", source=source, search_space=search_space
-            )
+            validate_capability_inputs("discover.driver_axes", source=source)
             return discover.driver_axes(
                 source,
                 search_space=search_space,
@@ -1446,7 +1461,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[Ref[FieldKind]] | None = None,
+        search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,
@@ -1460,6 +1475,13 @@ class SessionDiscoverNamespace:
         or absolute delta value for DeltaFrame; default 2.0. ``limit`` bounds
         the candidate count (top by |score|, default 50; ``None`` for
         unbounded); truncation is recorded in ``params``.
+
+        Example:
+            >>> country = session.catalog.dimensions.get("sales.orders.country")
+            >>> candidates = session.discover.interesting_slices(
+            ...     frame, search_space=[country]
+            ... )
+            >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1522,7 +1544,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[Ref[FieldKind]] | None = None,
+        peer_scope: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,
@@ -1537,6 +1559,13 @@ class SessionDiscoverNamespace:
         (|robust_z| >= threshold); default 3.0. ``limit`` bounds the candidate
         count (top by |robust_z|, default 50; ``None`` for unbounded);
         truncation is recorded in ``params``.
+
+        Example:
+            >>> region = session.catalog.dimensions.get("sales.orders.region")
+            >>> candidates = session.discover.cross_sectional_outliers(
+            ...     frame, peer_scope=[region]
+            ... )
+            >>> candidates.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover

@@ -10,6 +10,7 @@ import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import (
     FrameMetaInvalidError,
+    GrainUnsupportedError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.intents._replay import recover_observe_replay
@@ -173,6 +174,62 @@ def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) 
     assert component_graph["root_node_ids"] == [frame.meta.expression_fingerprint]
     assert component_graph["nodes"][0]["evaluator_contract"] == "aggregate-evaluation/v1"
     assert component_graph["nodes"][0]["governed_leaf_lineage"]
+
+
+def test_runtime_metric_temporal_preflight_fails_before_query_capture(
+    runtime_session,
+    monkeypatch,
+) -> None:
+    amount = _measure_ref(runtime_session)
+    expression = mv.runtime_metric.aggregate(
+        amount,
+        agg="sum",
+        label="Runtime revenue",
+    )
+    captures: list[bool] = []
+    monkeypatch.setattr(
+        runtime_session._connection_runtime,
+        "begin_query_capture",
+        lambda: captures.append(True),
+    )
+
+    with pytest.raises(GrainUnsupportedError) as exc_info:
+        runtime_session.observe(
+            expression,
+            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            grain="hour",
+        )
+
+    assert captures == []
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.snippet is None
+
+
+def test_runtime_metric_temporal_preflight_does_not_mask_unknown_measure(
+    runtime_session,
+    monkeypatch,
+) -> None:
+    expression = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.orders.missing"),
+        agg="sum",
+        label="Missing runtime measure",
+    )
+    captures: list[bool] = []
+    monkeypatch.setattr(
+        runtime_session._connection_runtime,
+        "begin_query_capture",
+        lambda: captures.append(True),
+    )
+
+    with pytest.raises(ValueError, match=r"runtime metric measure .* is not loaded"):
+        runtime_session.observe(
+            expression,
+            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            grain="day",
+        )
+
+    assert captures == []
 
 
 def test_observe_runtime_weighted_mean_uses_exact_paired_components(runtime_session) -> None:

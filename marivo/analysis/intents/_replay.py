@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -11,8 +12,10 @@ from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payload
 from marivo.analysis.session.core import Session
+from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows.spec import TimeScopeInput
 from marivo.refs import (
+    DimensionKind,
     FieldKind,
     MetricKind,
     Ref,
@@ -22,6 +25,7 @@ from marivo.refs import (
 from marivo.refs import (
     ref as ref_factory,
 )
+from marivo.semantic.catalog import _SemanticInput
 
 _ALIGNMENT_POLICY_FIELDS = {
     "kind",
@@ -101,8 +105,14 @@ class ObserveReplay:
             self.metric,
             time_scope=self.time_scope,
             grain=self.grain,
-            dimensions=list(self.dimensions) or None,
-            slice_by=self.slice_by or None,
+            dimensions=cast(
+                "list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None",
+                list(self.dimensions) or None,
+            ),
+            slice_by=cast(
+                "Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], SliceValue] | None",
+                self.slice_by or None,
+            ),
             time_dimension=self.time_dimension,
             session=session,
         )

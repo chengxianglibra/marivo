@@ -9,6 +9,8 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis._capabilities.validation import validate_capability_inputs
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import build_backend
@@ -60,13 +62,38 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert result.datasource == ms.ref.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 1
+    assert result.row_count == 1
+    assert result.shape == (1, 2)
+    assert result.row_count == result.shape[0]
     assert result.is_truncated is True
+    assert not hasattr(result, "contract")
     rendered = result.render()
     assert "terminal_only" in rendered
+    assert "typed_reentry: false" in rendered
+    assert "row_count_semantics: returned_bounded_rows" in rendered
+    assert "returned_row_count: 1" in rendered
+    assert "requested_limit: 1" in rendered
+    assert "is_truncated: true" in rendered
+    assert "returned rows are not full-source cardinality" in rendered
+    assert "semantic identity, canonical lineage, typed affordances" in rendered
     assert "escape_hatch" not in rendered
     assert "diagnose order amount sample" in rendered
     assert "expensive" in rendered
     assert 'md.help("raw_sql")' in rendered
+
+
+def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id, amount FROM orders ORDER BY id",
+        limit=1,
+        reason="verify terminal result cannot reenter typed analysis",
+        project_root=tmp_path,
+    )
+
+    with pytest.raises(AnalysisError, match="received RawSqlResult"):
+        validate_capability_inputs("compare", a=result, b=result)
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:
@@ -516,6 +543,55 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     assert df.iloc[0, 0] == [1, 2, 3]
     df.iloc[0, 0].append(999)
     assert result.rows[0]["data"] == [1, 2, 3]
+
+
+def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
+    from marivo.datasource.manage import RawSqlResult
+
+    with pytest.raises(ValueError, match="returned_row_count must equal"):
+        RawSqlResult(
+            datasource=ms.ref.datasource("wh"),
+            backend_type="duckdb",
+            sql="SELECT ok",
+            reason="validate bounded result count",
+            columns=("ok",),
+            types={"ok": "int64"},
+            rows=({"ok": 1},),
+            requested_limit=10,
+            returned_row_count=2,
+            is_truncated=False,
+            timeout_seconds=30,
+            duration_ms=5,
+            warnings=(),
+        )
+
+
+def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id, amount FROM orders ORDER BY id",
+        limit=1,
+        reason="inspect terminal result facts",
+        project_root=tmp_path,
+    )
+
+    rendered = result.render()
+    labels = (
+        "terminal_only:",
+        "typed_reentry:",
+        "row_count_semantics:",
+        "returned_row_count:",
+        "requested_limit:",
+        "is_truncated:",
+        "preserves:",
+        "does_not_preserve:",
+    )
+    positions = tuple(rendered.index(label) for label in labels)
+    assert positions == tuple(sorted(positions))
+    assert not hasattr(result, "contract")
+    for pandas_convenience in ("head", "dtypes", "groupby", "plot"):
+        assert not hasattr(result, pandas_convenience)
 
 
 def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:

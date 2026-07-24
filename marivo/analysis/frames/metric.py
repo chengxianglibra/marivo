@@ -71,10 +71,10 @@ def _cumulative_blocked_precondition(blocker: str) -> ArtifactPrecondition:
         status="fail",
         reason=f"derived cumulative compare is blocked: {blocker}",
         repair=AnalysisRepair(
-            kind="retry",
+            kind="inspect",
             action=(
-                "Use cumulative components that all share one trailing or grain_to_date "
-                "anchor, or compare the component metrics separately."
+                "Inspect the cumulative component anchors and component metric frames; "
+                "this wrapper has no mechanically valid compare retry."
             ),
             help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         ),
@@ -91,10 +91,10 @@ def _derived_cumulative_caveat(blocker: str) -> ArtifactPrecondition:
             f"{blocker}"
         ),
         repair=AnalysisRepair(
-            kind="retry",
+            kind="semantic_authoring",
             action=(
-                "Use the underlying flow components separately, or re-author every outer "
-                "component with one common cumulative anchor."
+                "Align every outer component to one approved cumulative anchor before "
+                "building a new typed wrapper."
             ),
             help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         ),
@@ -114,8 +114,8 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             "can pollute correlation and hypothesis-test interpretation"
         )
         repair_action = (
-            "Use trailing cumulative frames only with identical anchor payloads "
-            "for correlation and hypothesis tests."
+            "Inspect both frames and confirm identical trailing anchor payloads "
+            "before correlation or hypothesis testing."
         )
     elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
         reason = (
@@ -123,8 +123,8 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             "and across periods, which can pollute correlation and hypothesis-test interpretation"
         )
         repair_action = (
-            "Use grain_to_date cumulative frames only with single-period, "
-            "boundary-anchored windows for correlation and hypothesis tests."
+            "Inspect both frames and confirm single-period, boundary-anchored "
+            "windows before correlation or hypothesis testing."
         )
     else:
         reason = (
@@ -133,15 +133,15 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             "hypothesis-test interpretation"
         )
         repair_action = (
-            "Prefer non-cumulative frames for correlation and hypothesis tests; "
-            "or interpret results with awareness of the shared monotonic trend."
+            "Inspect the non-cumulative source frames and the shared monotonic trend "
+            "before correlation or hypothesis testing."
         )
     return ArtifactPrecondition(
         check="running_total_caveat",
         status="fail",
         reason=reason,
         repair=AnalysisRepair(
-            kind="retry",
+            kind="inspect",
             action=repair_action,
             help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         ),
@@ -187,10 +187,10 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                 "(same count and unit) on both frames"
             ),
             repair=AnalysisRepair(
-                kind="retry",
+                kind="inspect",
                 action=(
-                    "Ensure both cumulative frames use the same trailing anchor "
-                    "payload (same count and unit) before calling compare()."
+                    "Inspect both cumulative frames and confirm the same trailing "
+                    "anchor payload (count and unit)."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
             ),
@@ -205,10 +205,10 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                 "reset boundary and spans exactly one reset period)"
             ),
             repair=AnalysisRepair(
-                kind="retry",
+                kind="inspect",
                 action=(
-                    "Ensure both grain_to_date cumulative frames use "
-                    "single-period, boundary-anchored windows before calling compare()."
+                    "Inspect both grain_to_date frames and confirm single-period, "
+                    "boundary-anchored windows."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
             ),
@@ -596,17 +596,23 @@ class MetricFrame(BaseFrame):
             contract = _attach_rollup_affordance(contract)
         if self.arity <= 1:
             return contract
-        first_metric = self.metrics[0]
+        projection_options = tuple(
+            AnalysisRepair(
+                kind="retry",
+                action=f'Project the current frame to metric "{metric_id}".',
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id="MetricFrame.metric",
+                ),
+                snippet=f'frame.metric("{metric_id}")',
+            )
+            for metric_id in self.metrics
+        )
         precondition = ArtifactPrecondition(
             check="single_metric",
             status="fail",
-            reason=(f'frame carries {self.arity} metrics; call .metric("{first_metric}") first'),
-            repair=AnalysisRepair(
-                kind="retry",
-                action=f'Call .metric("{first_metric}") to project to a single metric first.',
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
-                snippet=f'frame.metric("{first_metric}")',
-            ),
+            reason=f"capability requires arity=1; frame carries arity={self.arity}",
+            repair_options=projection_options,
         )
         gated_prefixes = set(self._GATED_CAPABILITY_PREFIXES)
 

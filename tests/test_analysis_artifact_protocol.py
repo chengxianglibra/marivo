@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisRepair
@@ -240,6 +241,7 @@ def test_public_artifact_families_share_phase1_protocol() -> None:
         assert isinstance(artifact.state, ArtifactState), f"{tag}: state type"
         assert artifact.state.content_hash == "sha256:" + "a" * 64, f"{tag}: content_hash"
         assert artifact.to_pandas() is not artifact._df, f"{tag}: to_pandas not isolated"
+        assert artifact.row_count == artifact.shape[0], f"{tag}: row_count mismatch"
 
         contract = artifact.contract()
         assert isinstance(contract.artifact_schema, ArtifactSchema), (
@@ -276,6 +278,7 @@ def test_artifact_affordance_model_fields_use_capability_id_not_operator() -> No
 def test_artifact_precondition_has_repair_field() -> None:
     fields = ArtifactPrecondition.model_fields
     assert "repair" in fields
+    assert "repair_options" in fields
 
 
 def test_artifact_boundary_port_model_fields() -> None:
@@ -291,6 +294,79 @@ def test_artifact_boundary_port_model_fields() -> None:
 def test_artifact_contract_has_boundary_ports() -> None:
     fields = ArtifactContract.model_fields
     assert "boundary_ports" in fields
+
+
+def test_artifact_contract_renders_structured_sections_in_contract_order() -> None:
+    precondition = ArtifactPrecondition(
+        check="single_metric",
+        status="fail",
+        reason="capability requires arity=1; frame carries arity=2",
+        repair_options=(
+            AnalysisRepair(
+                kind="retry",
+                action='Project to "sales.revenue".',
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id="MetricFrame.metric",
+                ),
+                snippet='frame.metric("sales.revenue")',
+            ),
+            AnalysisRepair(
+                kind="retry",
+                action='Project to "sales.order_count".',
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id="MetricFrame.metric",
+                ),
+                snippet='frame.metric("sales.order_count")',
+            ),
+        ),
+    )
+    contract = ArtifactContract(
+        kind="metric_frame",
+        ref="frame_multi",
+        is_canonical=True,
+        artifact_schema=ArtifactSchema(
+            columns=[],
+            semantic_shape="time_series",
+        ),
+        affordances=(
+            ArtifactAffordance(
+                capability_id="compare",
+                public_entrypoint="session.compare(...)",
+                help_target="compare",
+                preconditions=(precondition,),
+                expected_output_family="DeltaFrame",
+            ),
+        ),
+        boundary_ports=(
+            ArtifactBoundaryPort(
+                kind="terminal_exit",
+                capability_id="boundary.to_pandas",
+                public_entrypoint="frame.to_pandas()",
+                help_target="boundary.to_pandas",
+                preserves=("rows",),
+                does_not_preserve=("typed lineage",),
+            ),
+        ),
+    )
+
+    rendered = contract.render(max_output_bytes=None)
+    labels = (
+        "canonical_state:",
+        "receiver:",
+        "semantic_shape:",
+        "columns:",
+        "typed affordances:",
+        "preconditions and repairs:",
+        "terminal boundary ports:",
+    )
+    positions = tuple(rendered.index(label) for label in labels)
+    assert positions == tuple(sorted(positions))
+    assert "receiver: frame" in rendered
+    assert 'frame.metric("sales.revenue")' in rendered
+    assert 'frame.metric("sales.order_count")' in rendered
+    assert contract.model_dump()["affordances"][0]["preconditions"][0]["repair_options"]
 
 
 def test_every_artifact_has_one_terminal_boundary_port() -> None:
@@ -342,27 +418,43 @@ def test_every_affordance_has_public_entrypoint_and_help_target() -> None:
             assert aff.help_target, f"{tag}: affordance {aff.capability_id} has empty help_target"
 
 
-def test_failed_precondition_without_repair_suppresses_affordance() -> None:
-    """An affordance with a failed precondition and no repair is suppressed."""
-    preconditions = [
+def test_failed_precondition_requires_visible_repair() -> None:
+    with pytest.raises(ValidationError, match="requires repair or repair_options"):
         ArtifactPrecondition(
             check="blocking_issue",
             status="fail",
             reason="something is wrong",
             repair=None,
         )
-    ]
-    affordance = ArtifactAffordance(
+
+
+def test_unsafe_failed_precondition_without_repair_is_suppressed_from_render() -> None:
+    precondition = ArtifactPrecondition.model_construct(
+        check="blocking_issue",
+        status="fail",
+        reason="something is wrong",
+        repair=None,
+        repair_options=(),
+    )
+    affordance = ArtifactAffordance.model_construct(
         capability_id="compare",
         public_entrypoint="session.compare(...)",
         help_target="compare",
         input_requirements=(),
-        preconditions=tuple(preconditions),
+        preconditions=(precondition,),
         expected_output_family="delta_frame",
     )
-    from marivo.analysis.frames.base import _visible_precondition
+    contract = ArtifactContract.model_construct(
+        kind="metric_frame",
+        ref="frame_abc",
+        is_canonical=True,
+        artifact_schema=ArtifactSchema(columns=[]),
+        affordances=(affordance,),
+    )
 
-    assert not _visible_precondition(preconditions[0])
+    rendered = contract.render()
+    assert "typed affordances: none" in rendered
+    assert "session.compare" not in rendered
 
 
 def test_failed_precondition_with_repair_remains_visible() -> None:
@@ -376,12 +468,56 @@ def test_failed_precondition_with_repair_remains_visible() -> None:
                 kind="retry",
                 action='Call .metric("sales.revenue") first',
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
+                snippet='frame.metric("sales.revenue")',
             ),
         )
     ]
     from marivo.analysis.frames.base import _visible_precondition
 
     assert _visible_precondition(preconditions[0])
+
+
+def test_failed_precondition_rejects_ambiguous_or_non_executable_repairs() -> None:
+    retry = AnalysisRepair(
+        kind="retry",
+        action='Project to "sales.revenue".',
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
+        snippet='frame.metric("sales.revenue")',
+    )
+    inspect = AnalysisRepair(
+        kind="inspect",
+        action="Inspect the current artifact contract.",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
+    )
+
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        ArtifactPrecondition(
+            check="single_metric",
+            status="fail",
+            repair=retry,
+            repair_options=(retry,),
+        )
+    with pytest.raises(ValidationError, match="runnable snippet"):
+        ArtifactPrecondition(
+            check="single_metric",
+            status="fail",
+            repair=retry.model_copy(update={"snippet": None}),
+        )
+    choice = ArtifactPrecondition(
+        check="single_metric",
+        status="fail",
+        repair_options=(retry, retry.model_copy(update={"snippet": 'frame.metric("sales.gmv")'})),
+    )
+    assert len(choice.repair_options) == 2
+    assert choice.repair is None
+    assert (
+        ArtifactPrecondition(
+            check="inspect_only",
+            status="fail",
+            repair=inspect,
+        ).repair
+        is inspect
+    )
 
 
 @pytest.mark.parametrize(
@@ -406,6 +542,9 @@ def test_delta_contract_fails_unconditionally_invalid_attribution(
     assert reason_fragment in (precondition.reason or "")
     assert precondition.repair is not None
     assert precondition.repair.help_target.canonical_id == "attribute"
+    expected_kind = "inspect" if additivity is None else "semantic_authoring"
+    assert precondition.repair.kind == expected_kind
+    assert precondition.repair.snippet is None
 
 
 def test_delta_contract_surfaces_semi_additive_axis_condition() -> None:
@@ -425,6 +564,31 @@ def test_delta_contract_surfaces_semi_additive_axis_condition() -> None:
     assert "sales.inventory.snapshot_at" in (precondition.reason or "")
     assert precondition.repair is not None
     assert "exclude" in precondition.repair.action
+    assert precondition.repair.kind == "inspect"
+    assert precondition.repair.snippet is None
+
+
+def test_delta_cumulative_attribution_is_inspect_not_placeholder_retry() -> None:
+    frame = _delta_contract_frame(additivity="additive")
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": {
+                "kind": "cumulative",
+                "base": "sales.revenue",
+                "over": "sales.orders.created_at",
+                "anchor": "all_history",
+            }
+        }
+    )
+
+    precondition = next(
+        item
+        for item in _attribute_affordance(frame).preconditions
+        if item.check == "cumulative_attribution_unsupported"
+    )
+    assert precondition.repair is not None
+    assert precondition.repair.kind == "inspect"
+    assert precondition.repair.snippet is None
 
 
 @pytest.mark.parametrize("composition_kind", ["ratio", "weighted_mean"])

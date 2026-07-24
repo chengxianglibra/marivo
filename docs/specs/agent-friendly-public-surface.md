@@ -153,8 +153,10 @@ without drowning, and still recover the moment it inspects any object.
 ## Three surfaces, one pipeline
 
 The public surface is deliberately just three modules, because they are the
-three stages of one pipeline. Refs flow strictly forward; nothing downstream
-depends on the file layout or internals of anything upstream.
+three stages of one pipeline. Semantic identity flows strictly forward:
+qualifying runtime calls may receive a current entry, but only its canonical ref
+continues into persistence and recovery. Nothing downstream depends on the file
+layout or internals of anything upstream.
 
 | Surface | Alias | Answers | Produces |
 |---|---|---|---|
@@ -170,7 +172,7 @@ depends on the file layout or internals of anything upstream.
 The hand-offs are typed and one-directional:
 
 ```text
-md (physical)  ──evidence──▶  ms (business contract)  ──semantic refs──▶  mv (typed analysis)
+md (physical)  ──evidence──▶  ms (business contract)  ──current entry or exact ref──▶  mv (typed analysis)
 ```
 
 - `md` supplies the *physical facts* an agent needs to author semantics, but it
@@ -178,8 +180,11 @@ md (physical)  ──evidence──▶  ms (business contract)  ──semantic r
 - `ms` turns those facts into an explicit, statically-readable business contract.
   Python files are the source of truth; business meaning is never guessed from
   column names, table names, or natural language.
-- `mv` consumes only stable semantic refs and materialized expressions. It never
-  reaches into a user project's Python file layout.
+- `mv` accepts an exact current catalog entry or its exact ref at qualifying
+  catalog-bound runtime inputs, normalizes immediately to the ref, and otherwise
+  consumes closed runtime expressions. Persistence, lineage, evidence, replay,
+  and recovery remain ref-based. It never reaches into a user project's Python
+  file layout.
 
 Because there are exactly three surfaces and each is snapshot-gated, an agent can
 hold the whole public vocabulary in mind. Surface growth is a reviewed event:
@@ -303,12 +308,12 @@ dt = ms.time_dimension_column(
 
 # 6. reload the typed object, verify statically, then preview against the snapshot
 catalog = ms.load()
-dt_ref = catalog.require(ms.ref.time_dimension("sales.orders.order_date")).ref
-catalog.verify(dt_ref).show()
-catalog.preview(dt_ref, using=snapshot).show()
+dt_entry = catalog.time_dimensions.get("sales.orders.order_date")
+catalog.verify(dt_entry).show()
+catalog.preview(dt_entry, using=snapshot).show()
 
 # 7. readiness — zero-query certification for the authored change
-catalog.readiness(refs=[dt_ref]).show()
+catalog.readiness(refs=[dt_entry]).show()
 ```
 
 The disclosure discipline here is what makes authoring safe for an agent: the
@@ -329,8 +334,8 @@ artifact** ([frame/result interface simplification](../superpowers/specs/2026-06
 ```python
 session    = mv.session.get_or_create(name="revenue_drop")
 catalog    = session.catalog
-revenue    = catalog.require(ms.ref.metric("sales.revenue")).ref
-created_at = catalog.require(ms.ref.time_dimension("sales.orders.created_at")).ref
+revenue    = catalog.metrics.get("sales.revenue")
+created_at = catalog.time_dimensions.get("sales.orders.created_at")
 
 cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
 base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
@@ -347,6 +352,11 @@ operator, read `contract()`; use `to_pandas()` only for terminal custom work.**
 Everything else that used to be a near-peer exit — `summary()`, `schema()`,
 `preview()`, `next_intents()` — was removed from the public frame surface so the
 agent never has to choose a reading order before doing real work.
+
+`RawSqlResult` exposes bounded `shape`, returned `row_count`, ordered columns,
+and isolated pandas export, but no `.contract()` or typed re-entry. Typed
+regression remains unsupported; when required, it is terminal custom analysis
+rather than a hidden typed capability.
 
 Crucially, `contract().affordances` are **neutral mechanical compatibility
 facts**, not ranked recommendations. They say "this operator *can* be wired to
@@ -383,8 +393,9 @@ Two rules keep this vocabulary trustworthy:
   `CandidateSet[driver_axis]`, and so on. A closed enum of shapes fails loudly at
   the boundary; an optional-field mega-class would fail silently three steps
   later. On the semantic side the same idea appears as `CatalogCollection` /
-  `CatalogEntry` for discovery, with one sealed generic `Ref[kind]` value
-  flowing into analysis.
+  `CatalogEntry` for discovery. A current entry may cross a qualifying runtime
+  boundary, but one sealed generic `Ref[kind]` value is what flows beyond
+  normalization and into persistence.
 
 ## What this buys, and what keeps it true
 

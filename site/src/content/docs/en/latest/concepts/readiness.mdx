@@ -138,13 +138,14 @@ not block certification.
 
 ## Scope the check
 
-Pass exact refs or closed `RuntimeMetricExpr` values through `refs=` to scope
-readiness to the objects and runtime roots being certified. Mixed lists retain
-their order. Marivo resolves governed leaves and their full dependency closure
+Pass exact current entries, their exact refs, or closed `RuntimeMetricExpr`
+values through `refs=` to scope readiness to the objects and runtime roots being
+certified. Entries normalize immediately to refs, and mixed lists retain their
+order. Marivo resolves governed leaves and their full dependency closure
 (metrics, measures, dimensions, entities, and datasources) for you:
 
 ```python
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
 if report.preview_required_refs:  # required for authoring closeout; optional for routine analysis
     catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
@@ -172,7 +173,7 @@ routine analysis. There is no second transfer object.
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()

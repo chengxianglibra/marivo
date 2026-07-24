@@ -78,10 +78,10 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
             status="fail",
             reason="attribute does not support cumulative deltas, including derived wrappers",
             repair=AnalysisRepair(
-                kind="retry",
+                kind="inspect",
                 action=(
-                    "Attribute the underlying flow metrics separately; cumulative wrapper "
-                    "attribution is not supported."
+                    "Inspect the underlying flow metric frames; this cumulative wrapper "
+                    "has no mechanically valid attribution retry."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
             ),
@@ -108,29 +108,31 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
                 f"{status_time_dimension!r}"
             ),
             repair=AnalysisRepair(
-                kind="retry",
+                kind="inspect",
                 action=(
-                    "Choose attribution axes that exclude "
-                    f"{status_time_dimension!r}, then retry attribute."
+                    "Inspect the available attribution axes and exclude the status "
+                    f"time dimension {status_time_dimension!r} explicitly."
                 ),
                 help_target=help_target,
             ),
         )
     if meta.additivity is None or meta.additivity == "semi_additive":
         reason = "delta lacks complete persisted additivity metadata required by attribute"
-        action = "Re-run observe and compare with the current semantic model, then retry attribute."
+        action = "Inspect the current metric additivity and rebuild the source frames if needed."
+        repair_kind: Literal["inspect", "semantic_authoring"] = "inspect"
     else:
         reason = "non-additive metric delta requires component-aware attribution math"
         action = (
-            "Model the metric as a ratio or weighted average, or attribute its additive "
-            "numerator and denominator separately."
+            "Author an approved ratio or weighted-mean composition before requesting "
+            "typed attribution."
         )
+        repair_kind = "semantic_authoring"
     return ArtifactPrecondition(
         check="attribution_additivity_compatible",
         status="fail",
         reason=reason,
         repair=AnalysisRepair(
-            kind="retry",
+            kind=repair_kind,
             action=action,
             help_target=help_target,
         ),

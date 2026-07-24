@@ -11,7 +11,9 @@ Codex) through a write-run-read loop. The alias throughout is `mv`
 (`import marivo.analysis as mv`). It builds on the semantic layer
 ([`../semantic/overview.md`](../semantic/overview.md)):
 analysis consumes stable semantic refs and materialized metrics and never guesses
-business meaning from column or table names.
+business meaning from column or table names. At qualifying catalog-bound runtime
+inputs it may receive the exact current catalog entry or its exact ref; both
+normalize immediately to the same ref before planning or persistence.
 
 ## Design goals
 
@@ -144,14 +146,15 @@ results to decide the next step:
 import marivo.analysis as mv
 
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
+dau = session.catalog.metrics.get("analytics.dau")
 
 current = session.observe(
-    metric=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
+    metric=dau,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )
 baseline = session.observe(
-    metric=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
+    metric=dau,
     time_scope={"start": "2026-06-11", "end": "2026-06-18"},
     grain="day",
 )
@@ -169,14 +172,62 @@ patterns, and report shape are the agent's responsibility; the `marivo-analysis`
 skill owns boundaries and handoffs only. The mechanical next actions from any
 given artifact come from its `contract()`.
 
+### Catalog-backed semantic inputs
+
+For a top-level runtime parameter that already consumes a catalog-backed
+`Ref[K]` and has one authoritative current catalog, the annotation-level
+contract is:
+
+```python
+SemanticInput[K] = Ref[K] | CatalogEntry[K]
+```
+
+`SemanticInput` is not a public constructor, export, or help topic. The runtime
+accepts only exact refs and registered concrete entry classes owned by the
+current compiled catalog. It validates ownership, exact kind, and current
+membership, then extracts the canonical ref immediately. Bare strings,
+wrong-kind refs/entries, cross-catalog or stale entries, arbitrary subclasses,
+and duck-typed `.ref` objects fail before backend work. A mechanically unique
+stale same-path reacquisition may produce a retry at the semantic catalog
+boundary. An analysis boundary exposes it as inspection unless it can render
+the complete public analysis call; partial reacquisition snippets must not be
+labelled as retries. Other failures require inspection or semantic authoring
+without selecting a replacement.
+
+The frozen analysis consumer matrix is:
+
+| Public boundary | Catalog-backed parameters |
+| --- | --- |
+| `Session.observe` | catalog metric root(s), `dimensions`, `slice_by` keys, `time_dimension` |
+| `Session.attribute` | `axes` |
+| `SessionDiscoverNamespace.driver_axes` | `search_space` |
+| `SessionDiscoverNamespace.interesting_slices` | `search_space` |
+| `SessionDiscoverNamespace.cross_sectional_outliers` | `peer_scope` |
+| `frame.transform.slice` | `slice_by` keys |
+| `frame.transform.rollup` | `drop_axes` |
+
+The semantic catalog applies the same entry/ref boundary to `verify`, `preview`,
+`preview_many`, and catalog-leaf readiness inputs; its strict
+`catalog.require(ref)` lookup remains ref-only. After normalization, planners,
+executors, job parameters, artifact metadata, evidence, replay, and recovery
+contain refs or existing runtime-expression payloads only. An entry call and
+its ref twin have equivalent value identity, lineage, persistence, evidence,
+and replay behavior.
+
+This widening does not apply to semantic authoring or datasource APIs, runtime
+metric constructor leaves, nested Event values such as `PatternStep`,
+participant roles or completeness declarations, persisted selector/replay
+DTOs, or bare semantic strings.
+
 ### Typed metric composition
 
 `Session.observe(...)` is the only public initial `MetricFrame` materializer.
-Its roots are exact `Ref[metric]` values or closed values built with
-`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, and `.ratio`; loaded catalog objects,
-generic refs, bare ids, frame arithmetic, and arbitrary formula nodes do not
-cross this boundary. A non-empty list or tuple forms one ordered mixed forest
-with one outer scope.
+Its catalog roots are exact current `MetricEntry` values or exact
+`Ref[metric]` values; it also accepts closed values built with
+`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, and `.ratio`.
+Generic refs, stale/cross-catalog entries, bare ids, frame arithmetic, and
+arbitrary formula nodes do not cross this boundary. A non-empty list or tuple
+forms one ordered mixed forest with one outer scope.
 
 The same ordered catalog/runtime roots may be passed to
 `catalog.readiness(refs=[...])` before observation. Readiness lowers the forest,
@@ -213,8 +264,10 @@ narrower signal that the root also supports numerical decomposition.
 
 The analysis layer does not: dress arbitrary Ibis/SQL as a core operator; pass
 generic pandas/sklearn wrappers off as canonical artifact producers; do causal
-inference or what-if simulation; auto-generate business conclusions; emit free text
-as its primary output; or map one BI chart template to one core operator.
+inference or what-if simulation; provide typed regression or a generic
+statistical planner; auto-generate business conclusions; emit free text as its
+primary output; map one BI chart template to one core operator; or admit
+`RawSqlResult`/pandas values back into typed analysis.
 
 ## Document map
 

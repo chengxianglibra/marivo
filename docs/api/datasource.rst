@@ -122,6 +122,14 @@ Metadata & sources
 Results
 -------
 
+``md.raw_sql(...)`` returns a bounded terminal ``RawSqlResult``. Its ``shape``
+and ``row_count`` describe returned bounded rows:
+``row_count == shape[0] == returned_row_count``. Read
+``requested_limit`` and ``is_truncated`` alongside that count; it is not
+full-source cardinality. Ordered ``columns`` and isolated ``to_pandas()`` are
+available, but ``RawSqlResult`` has no ``contract()``, typed affordances, or
+typed-analysis re-entry.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:

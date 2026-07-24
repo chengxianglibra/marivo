@@ -113,9 +113,9 @@ def render_root_help() -> str:
     lines.extend(
         (
             "",
-            "Identity handoff: navigate to a CatalogEntry, then pass entry.ref to "
-            "verify, preview, readiness, or analysis; use ms.ref.<kind>(path) when "
-            "the exact identity is already known.",
+            "Identity handoff: pass a current CatalogEntry directly to verify, "
+            "preview, readiness, or qualifying analysis APIs; use entry.ref or "
+            "ms.ref.<kind>(path) for persisted, configured, or already-known identity.",
             "",
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
             "Errors: " + ", ".join(ERROR_TYPES),
@@ -186,7 +186,11 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.callable_path is not None:
         callable_obj = import_callable(descriptor.callable_path)
         assert callable(callable_obj)
-        lines.append(f"  Signature: {inspect.signature(callable_obj)}")
+        signature = str(inspect.signature(callable_obj)).replace(
+            "_SemanticInput",
+            "SemanticInput",
+        )
+        lines.append(f"  Signature: {signature}")
     if descriptor.input_requirements:
         lines.append("  Input families:")
         for requirement in descriptor.input_requirements:
@@ -268,8 +272,8 @@ def _render_type(type_name: str, original: object | None) -> str:
                 "  Construction: use one exact factory such as "
                 "ms.ref.metric('sales.revenue') or "
                 "ms.ref.dimension('sales.orders.region').",
-                "  Catalog handoff: entry = catalog.require(ms.ref.metric('sales.revenue')); "
-                "metric_ref = entry.ref.",
+                "  Persisted/config identity: "
+                "entry = catalog.metrics.get('sales.revenue'); metric_ref = entry.ref.",
                 "  Field application: Ref values are never callable; use "
                 "ms.bind(field_ref, entity_alias) inside a registered semantic "
                 "expression body.",
@@ -282,8 +286,9 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if type_name == "CatalogEntry":
         lines.append(
-            "  Identity handoff: pass entry.ref to catalog.verify, catalog.preview, "
-            "catalog.readiness, or analysis APIs."
+            "  Runtime handoff: pass the current entry directly to catalog.verify, "
+            "catalog.preview, catalog.readiness, or qualifying analysis APIs; use "
+            "entry.ref only when a stable configured or persisted identity is needed."
         )
     if "details" in contract.public_methods:
         lines.append(

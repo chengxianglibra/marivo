@@ -122,6 +122,20 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert list(loaded.to_pandas().columns) == list(result.columns)
 
 
+def test_attribute_accepts_current_catalog_axis_entry() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US", "CN"], "delta": [10.0, -2.0]}),
+    )
+    region = session.catalog.dimensions.get("sales.orders.region")
+
+    out = session.attribute(frame, axes=[region])
+
+    assert out.meta.params["axes"] == ["sales.orders.region"]
+    assert list(out.to_pandas()["region"]) == ["US", "CN"]
+
+
 def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(

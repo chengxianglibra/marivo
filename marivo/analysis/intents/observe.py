@@ -114,6 +114,7 @@ from marivo.analysis.intents._observe_inputs import (  # noqa: F401
     _normalize_time_dimension_boundary,
     _normalize_where_boundary,
     _params_digest,
+    _preflight_observe_temporal_suitability,
     _resolve_timescope,
     _Result,
     _validate_dimension_ids,
@@ -149,7 +150,7 @@ from marivo.analysis.runtime_metric import (
     replay_payload,
 )
 from marivo.analysis.semantic_inputs import (
-    normalize_metric_input,
+    normalize_metric_ref_input,
 )
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import (
@@ -164,7 +165,7 @@ from marivo.analysis.windows.spec import (
     dump_window,
 )
 from marivo.refs import (
-    FieldKind,
+    DimensionKind,
     MetricKind,
     Ref,
     RefPayloadV1,
@@ -177,6 +178,7 @@ from marivo.refs import (
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SimpleMetricDetails,
+    _SemanticInput,
 )
 from marivo.semantic.ir import (
     CumulativeComposition,
@@ -577,23 +579,27 @@ def _cumulative_graph_marker(
 
 def observe(
     metric: (
-        Ref[MetricKind]
+        _SemanticInput[MetricKind]
         | RuntimeMetricExpr
-        | list[Ref[MetricKind] | RuntimeMetricExpr]
-        | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+        | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
+        | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
     ),
     *,
     time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
-    dimensions: list[Ref[FieldKind]] | None = None,
-    slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
-    time_dimension: Ref[TimeDimensionKind] | None = None,
+    dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    slice_by: Mapping[
+        _SemanticInput[DimensionKind | TimeDimensionKind],
+        SliceValue,
+    ]
+    | None = None,
+    time_dimension: _SemanticInput[TimeDimensionKind] | None = None,
     expect_shape: SemanticShape | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     if isinstance(metric, (list, tuple)):
-        metric_items: list[Ref[MetricKind] | RuntimeMetricExpr] = list(metric)
+        metric_items: list[_SemanticInput[MetricKind] | RuntimeMetricExpr] = list(metric)
         if not metric_items:
             raise SemanticKindMismatchError(
                 message="observe requires at least one metric",
@@ -611,7 +617,7 @@ def observe(
                 analysis_purpose=analysis_purpose,
                 session=session,
             )
-        single_metric: Ref[MetricKind] | RuntimeMetricExpr = metric_items[0]
+        single_metric: _SemanticInput[MetricKind] | RuntimeMetricExpr = metric_items[0]
     else:
         single_metric = metric
     if session is None:
@@ -621,27 +627,16 @@ def observe(
     catalog._require_index()
     metric_ir: Any
     planner_scope: set[str]
-    is_catalog_root = type(single_metric) is Ref
-    if is_catalog_root:
-        assert type(single_metric) is Ref
-        if single_metric.kind is not SemanticKind.METRIC:
-            raise SemanticKindMismatchError(
-                message="metric requires exact Ref[metric] or RuntimeMetricExpr",
-                context={"actual_kind": single_metric.kind.value},
-            )
-        metric_id = _normalize_metric_boundary(catalog, single_metric)
-        model_name, metric_name = metric_id.split(".", 1)
-        metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
-        assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
-        metric_ir = _planned_metric(metric_details)
-        planner_scope = _metric_planner_scope(catalog, metric_ir)
-    elif isinstance(
+    normalized_metric: Ref[MetricKind] | RuntimeMetricExpr
+    if isinstance(
         single_metric,
         RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
     ):
+        normalized_metric = single_metric
+        is_catalog_root = False
         metric_id = "runtime.pending"
         model_name = "runtime"
-        metric_name = single_metric.label
+        metric_name = normalized_metric.label
         metric_ir = SimpleNamespace(
             semantic_id=metric_id,
             name=metric_name,
@@ -657,19 +652,19 @@ def observe(
         )
         planner_scope = set()
     else:
-        raise SemanticKindMismatchError(
-            message=(
-                "metric requires exact Ref[metric] or RuntimeMetricExpr; "
-                f"got {type(single_metric).__name__}."
-            ),
-            hint="Pass loaded_metric.ref or a value returned by mv.runtime_metric.*.",
-            context={
-                "argument": "metric",
-                "expected_type": "Ref[metric] or RuntimeMetricExpr",
-                "actual_type": type(single_metric).__name__,
-                "repair": "Use loaded_metric.ref.",
-            },
+        normalized_metric = normalize_metric_ref_input(
+            catalog,
+            single_metric,
+            argument="observe.metric",
         )
+        is_catalog_root = True
+        metric_id = _normalize_metric_boundary(catalog, normalized_metric)
+        model_name, metric_name = metric_id.split(".", 1)
+        metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
+        assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
+        metric_ir = _planned_metric(metric_details)
+        planner_scope = _metric_planner_scope(catalog, metric_ir)
+    single_metric = normalized_metric
     time_dimension_id = (
         _normalize_time_dimension_boundary(catalog, time_dimension)
         if time_dimension is not None
@@ -681,7 +676,6 @@ def observe(
         dimensions,
         scoped_entity_refs=planner_scope,
     )
-    resolver = catalog._semantic_resolver(connections=session._connection_runtime)
     resolved_window, original_timescope = _resolve_timescope(
         time_scope,
         grain=grain,
@@ -730,6 +724,12 @@ def observe(
     planner_time_dimension_id = (
         resolved_window.time_dimension if resolved_window is not None else time_dimension_id
     )
+    _preflight_observe_temporal_suitability(
+        catalog,
+        metric_inputs=(normalized_metric,),
+        resolved_window=resolved_window,
+        supplied_time_dimension=time_dimension_id,
+    )
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -752,6 +752,7 @@ def observe(
                 },
             )
     if metric_ir.metric_type in {"simple", "derived", "runtime"}:
+        resolver = catalog._semantic_resolver(connections=session._connection_runtime)
         all_entity_refs = _all_entity_ids(catalog)
         _, _, all_dataset_irs, all_dataset_fns = _entity_adapter_maps(
             catalog=catalog,
@@ -1302,13 +1303,17 @@ def _forest_output_columns(
 
 
 def _observe_metric_forest(
-    metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
+    metric_inputs: tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...],
     *,
     time_scope: TimeScopeInput,
     grain: GrainInput,
-    dimensions: list[Ref[FieldKind]] | None,
-    slice_by: Mapping[Ref[FieldKind], SliceValue] | None,
-    time_dimension: Ref[TimeDimensionKind] | None,
+    dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None,
+    slice_by: Mapping[
+        _SemanticInput[DimensionKind | TimeDimensionKind],
+        SliceValue,
+    ]
+    | None,
+    time_dimension: _SemanticInput[TimeDimensionKind] | None,
     expect_shape: SemanticShape | None,
     analysis_purpose: str | None,
     session: Session | None,
@@ -1319,25 +1324,36 @@ def _observe_metric_forest(
     ensure_session_writable(session)
     catalog = session.catalog
     catalog._require_index()
+    normalized_metric_inputs: list[Ref[MetricKind] | RuntimeMetricExpr] = []
     for metric_input in metric_inputs:
-        if type(metric_input) is Ref:
-            if metric_input.kind is not SemanticKind.METRIC:
-                raise SemanticKindMismatchError(
-                    message="observe metric sequences require exact Ref[metric] values",
-                    context={"actual_kind": metric_input.kind.value},
-                )
-            normalize_metric_input(catalog, metric_input)
-        elif not isinstance(
+        if isinstance(
             metric_input,
             RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
         ):
-            raise SemanticKindMismatchError(
-                message=(
-                    "observe metric sequences require exact Ref[metric] or RuntimeMetricExpr "
-                    f"items; got {type(metric_input).__name__}."
-                ),
-                context={"argument": "metric", "actual_type": type(metric_input).__name__},
+            normalized_metric_inputs.append(metric_input)
+        else:
+            normalized_metric_inputs.append(
+                normalize_metric_ref_input(
+                    catalog,
+                    metric_input,
+                    argument="observe.metric",
+                )
             )
+    canonical_metric_inputs = tuple(normalized_metric_inputs)
+    catalog_root_keys = [
+        metric_input.key for metric_input in canonical_metric_inputs if type(metric_input) is Ref
+    ]
+    duplicate_root_keys = sorted(
+        key for key in set(catalog_root_keys) if catalog_root_keys.count(key) > 1
+    )
+    if duplicate_root_keys:
+        raise SemanticKindMismatchError(
+            message="observe metric roots must be distinct after semantic input normalization",
+            expected="unique catalog metric roots",
+            received=", ".join(duplicate_root_keys),
+            location="metric",
+            context={"duplicate_metric_refs": duplicate_root_keys},
+        )
     time_dimension_id = (
         _normalize_time_dimension_boundary(catalog, time_dimension)
         if time_dimension is not None
@@ -1357,6 +1373,12 @@ def _observe_metric_forest(
         time_dimension=time_dimension_id,
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
+    _preflight_observe_temporal_suitability(
+        catalog,
+        metric_inputs=canonical_metric_inputs,
+        resolved_window=resolved_window,
+        supplied_time_dimension=time_dimension_id,
+    )
     if expect_shape is not None:
         predicted_shape = observe_output_shape(
             has_grain=is_time_series,
@@ -1387,7 +1409,7 @@ def _observe_metric_forest(
         graph_plan = plan_metric_graph_observe(
             catalog=catalog,
             session=session,
-            metric_inputs=metric_inputs,
+            metric_inputs=canonical_metric_inputs,
             dataset_irs=all_dataset_irs,
             dataset_fns=all_dataset_fns,
             dimensions=dimension_refs,
@@ -1420,10 +1442,13 @@ def _observe_metric_forest(
             if resolved_window is not None
             else None
         )
-        output_columns = _forest_output_columns(metric_inputs, graph_plan.forest.identities)
+        output_columns = _forest_output_columns(
+            canonical_metric_inputs,
+            graph_plan.forest.identities,
+        )
         params = {
             "metric_identities": canonical_value(graph_plan.forest.identities),
-            "replay_expressions": [replay_payload(item) for item in metric_inputs],
+            "replay_expressions": [replay_payload(item) for item in canonical_metric_inputs],
             "timescope": params_timescope,
             "dimension_refs": _dimension_ref_payloads(session.catalog, dimension_refs),
             "slice_predicates": canonical_value(_slice_predicates(session.catalog, stored_where)),

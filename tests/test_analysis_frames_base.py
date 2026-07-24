@@ -13,6 +13,7 @@ from marivo.analysis.evidence.types import (
     ArtifactDigest,
     ChangeFact,
     DerivationRule,
+    DigestReadContract,
     EvidenceAvailabilityIssue,
     InferenceBoundary,
     OmissionSummary,
@@ -128,6 +129,21 @@ def test_frame_is_immutable_and_to_pandas_returns_a_copy():
         frame["other"] = 1
 
 
+def test_frame_row_count_matches_materialized_shape() -> None:
+    frame = BaseFrame(_df=pd.DataFrame({"value": [1.0, 2.0]}), meta=_meta())
+
+    assert frame.row_count == 2
+    assert frame.row_count == frame.shape[0]
+
+
+def test_frame_row_count_fails_closed_on_persisted_metadata_drift() -> None:
+    with pytest.raises(ValueError, match="frame row count mismatch"):
+        BaseFrame(
+            _df=pd.DataFrame({"value": [1.0, 2.0]}),
+            meta=_meta(row_count=3),
+        )
+
+
 def test_frame_column_read_copies_only_the_selected_result(monkeypatch):
     frame = BaseFrame(
         _df=pd.DataFrame({"selected": [1.0], "unselected": [2.0]}),
@@ -162,7 +178,7 @@ def test_contract_is_the_only_structured_issue_path():
     )
     frame = BaseFrame(
         _df=pd.DataFrame({"value": [1.0]}),
-        meta=_meta(evidence_status="partial", issues=(issue,)),
+        meta=_meta(row_count=1, evidence_status="partial", issues=(issue,)),
     )
 
     assert frame.contract().issues == (issue,)
@@ -237,6 +253,19 @@ def test_digest_is_session_local_for_content_identity_and_renders_before_preview
     rendered = frame.render(max_output_bytes=None)
     assert "evidence: no evidence findings emitted" in rendered
     assert rendered.index("evidence:") < rendered.index("preview:")
+
+
+def test_artifact_digest_contract_returns_structural_read_contract() -> None:
+    contract = _digest().contract()
+
+    assert isinstance(contract, DigestReadContract)
+    assert contract.exact_reads == (
+        "session.evidence.digest('frame_abc')",
+        "session.evidence.findings(artifact_ref='frame_abc')",
+        "session.get_frame('frame_abc')",
+    )
+    assert "DigestReadContract" in repr(contract)
+    assert "call .show()" in repr(contract)
 
 
 def test_show_points_to_full_rows_when_digest_items_are_omitted():

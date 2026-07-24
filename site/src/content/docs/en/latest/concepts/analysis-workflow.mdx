@@ -88,11 +88,11 @@ invocation, but is not required before every API call.
 
 When analysis needs a newly authored or changed object, close out that change
 first: `md.inspect(...)` → explicit scope → `inspection.sample(...)` once →
-snapshot projections → one Python declaration → exact ref → `catalog.verify(ref)` →
-`catalog.preview(ref, using=snapshot)` → zero-query
-`catalog.readiness(refs=[ref])`. Routine analysis of unchanged objects does not
-repeat this authoring evidence flow. Uncommon formats and semantic judgments
-remain agent-owned.
+snapshot projections → one Python declaration → current entry →
+`catalog.verify(entry)` → `catalog.preview(entry, using=snapshot)` → zero-query
+`catalog.readiness(refs=[entry])`. The equivalent exact-ref form remains valid.
+Routine analysis of unchanged objects does not repeat this authoring evidence
+flow. Uncommon formats and semantic judgments remain agent-owned.
 
 :::note[Artifacts are immutable]
 An artifact never changes after it is produced. Use `repr(artifact)` for a
@@ -101,7 +101,8 @@ cheap single-line hint, then `artifact.show()` for a bounded read and
 `artifact.to_pandas()` only as a terminal step when you need a mutable local
 copy. Every artifact carries lineage and is persisted under project-local
 `.marivo/`, so later steps can recover it by ref without re-querying the
-datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
+datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`;
+for every frame, `row_count == shape[0]`.
 :::
 
 ## Open a session
@@ -109,13 +110,11 @@ datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue_object = catalog.require(ms.ref.metric("sales.revenue"))
-region_object = catalog.require(ms.ref.dimension("sales.orders.region"))
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
 
-revenue_object.details().show()     # definition, candidate axes, and measure lineage
-region_object.details().show()
-revenue = revenue_object.ref
-region = region_object.ref
+revenue.details().show()     # definition, candidate axes, and measure lineage
+region.details().show()
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -127,7 +126,7 @@ with the question, read/write status, report timezone, timestamps, and the
 available catalog/job/frame inspection paths; `session.render()` returns the
 same text without writing stdout.
 
-Use `catalog.domains.show()` and scoped navigation to discover refs, then inspect
+Use `catalog.domains.show()` and scoped navigation to discover entries, then inspect
 every metric, dimension, and time dimension used by the analysis with
 `.details().show()`. The details output is where authored `ai_context`, metric
 composition, effective entities, candidate axes, and measure lineage appear.
@@ -141,8 +140,9 @@ provisionally, while semantic authoring waits for closeout approval.
 :::note[When to run readiness]
 Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,
 or when a workflow requires technical certification. The same call accepts an
-ordered mixed list of catalog refs and closed `RuntimeMetricExpr` roots and
-returns passing roots through `analysis_ready_inputs`. Analysis APIs do not
+ordered mixed list of current catalog entries, exact refs, and closed
+`RuntimeMetricExpr` roots, normalizes entries immediately, and returns canonical
+passing roots through `analysis_ready_inputs`. Analysis APIs do not
 invoke it automatically, and routine analysis does not need to refresh authoring
 snapshots before every `observe`. A blocked report means the selected objects
 have not completed that certification; repair them before declaring the semantic
@@ -212,13 +212,13 @@ quality/evidence records retain each input's
 
 ## How an intent is specified
 
-Operators take exact typed refs/expressions and a few shared value objects. You will reuse these
+Operators take exact current entries/refs, closed expressions, and a few shared value objects. You will reuse these
 across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.require(ms.ref.metric("sales.revenue")).ref` | Exact `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
-| dimension input | `catalog.require(ms.ref.dimension("sales.orders.region")).ref` | Exact `Ref[dimension]` / `Ref[time_dimension]` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| metric input | `catalog.metrics.get("sales.revenue")` | Exact current `MetricEntry` or `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; stale/cross-catalog entries, generic refs, and strings are rejected. |
+| dimension input | `catalog.dimensions.get("sales.orders.region")` | Exact current dimension/time-dimension entry or matching ref (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and axes. |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -251,13 +251,19 @@ segments.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `metric` | `Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact catalog ref or closed runtime expression; loaded objects, generic refs, and bare strings are rejected. |
+| `metric` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact current metric entry/ref or closed runtime expression; stale/cross-catalog entries, generic refs, and bare strings are rejected. |
 | `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
-| `dimensions` | `list[Ref[dimension] | Ref[time_dimension]]` | No | `None` | Exact typed segment axes. |
-| `slice_by` | `Mapping[AnalysisRef[dimension], SliceValue]` | No | `None` | Global pre-aggregation row filter. |
-| `time_dimension` | `Ref[time_dimension]` | No | entity default | Pick the time axis when the entity declares several. |
+| `dimensions` | entry/ref sequence | No | `None` | Exact current dimension/time-dimension entries or refs. |
+| `slice_by` | entry/ref-keyed mapping | No | `None` | Global pre-aggregation row filter. |
+| `time_dimension` | time-dimension entry/ref | No | entity default | Pick the time axis when the entity declares several. |
 | `expect_shape` | shape | No | `None` | Guard; raises before backend work if the predicted shape differs. |
+
+Current entries are also accepted for `Session.attribute(axes=...)`, discovery
+search-space/peer axes, and transform slice/rollup axes. Every qualifying call
+normalizes entries to canonical refs before planning, persistence, evidence, or
+replay; `catalog.require(ref)` remains the strict ref-only path for identity
+recovered from configuration, logs, or persisted state.
 
 ```python
 current = session.observe(
@@ -268,10 +274,19 @@ current = session.observe(
 )
 ```
 
+When a temporal request has no candidate time dimension, receives an ordinary
+dimension as its time axis, has ambiguous candidates, resolves different
+implicit axes across metric roots, or requests an incompatible encoding/grain,
+Marivo fails before backend execution whenever compiled catalog facts are
+sufficient. The structured repair exposes exact current candidates without
+guessing a time axis; a retry appears only when the replacement is mechanically
+unique.
+
 Pass a sequence to observe several same-scope metrics in one frame. Marivo
-fuses same-datasource metrics into one query and outer-joins cross-datasource
-metrics on the time axis. Use `frame.metric(id)` to project an arity-1 frame
-for drill-down on a single metric.
+requires temporal roots to resolve the same exact time-dimension ref, fuses
+same-datasource metrics into one query, and outer-joins compatible
+cross-datasource metrics on that shared time axis. Use `frame.metric(id)` to
+project an arity-1 frame for drill-down on a single metric.
 
 Every public read of a single-metric `MetricFrame` uses the metric short name for
 its value column, including `show()`, `columns`, `contract()`, indexing, and
@@ -288,12 +303,16 @@ afterward, read the result with `filtered[filtered.value_columns[0]]` or
 
 ```python
 report = session.observe(
-    [revenue, catalog.require(ms.ref.metric("sales.total_orders")).ref],
+    [revenue, catalog.metrics.get("sales.total_orders")],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
 revenue_only = report.metric("sales.revenue")
 ```
+
+When a downstream capability requires one metric, a multi-metric
+`frame.contract()` exposes one executable full-id `frame.metric(...)`
+projection for every carried root. It does not choose one.
 
 When the catalog does not contain the required analysis-only caliber, build a
 closed expression and still materialize it through `session.observe(...)`:
@@ -622,7 +641,11 @@ calculation still cannot be expressed through `session.observe(...)`, use
 `md.raw_sql(...)` — the sole terminal raw SQL execution path. It enforces
 a timeout, bounds returned rows, and runs read-only. The result is a
 `RawSqlResult` that cannot re-enter typed analysis; call
-`RawSqlResult.to_pandas()` for the terminal pandas exit.
+`RawSqlResult.to_pandas()` for the terminal pandas exit. Its ordered `columns`,
+`shape`, and `row_count` describe returned bounded rows only:
+`row_count == shape[0] == returned_row_count`. Read `requested_limit` and
+`is_truncated` alongside that count. It has no `.contract()` or typed
+affordances.
 
 A semantic gap may also use this path without prior approval. The agent may
 infer a temporary metric, dimension, relationship, or filter definition, but
@@ -645,6 +668,9 @@ Use `artifact.to_pandas()` for terminal local pandas work from a typed
 frame. Neither `md.raw_sql(...)` results nor `to_pandas()` exports can
 re-enter typed analysis. Raw SQL does not repair missing business semantics:
 the closeout still requests approval for the smallest semantic change.
+Typed regression is not supported by the current Marivo operator surface; a
+regression task therefore remains explicit terminal custom analysis and cannot
+be promoted back into the typed chain.
 
 ## Read and recover artifacts
 
@@ -694,7 +720,9 @@ approval before semantic authoring.
 
 ### Semantic authoring
 
-Typed analysis consumes stable semantic refs and never guesses business meaning.
+Typed analysis accepts exact current catalog entries or stable semantic refs at
+the qualifying runtime boundaries, normalizes both forms immediately to refs,
+and never guesses business meaning.
 If a required metric, dimension, or time dimension is missing or disputed, the
 affected typed branch stops. The agent may infer temporary semantics only in a
 terminal `md.raw_sql(...)` branch and must disclose the datasource, purpose,
@@ -744,8 +772,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
-region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
 
 current = session.observe(
     revenue,

@@ -5,7 +5,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
-from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis.errors import SemanticKindMismatchError, TemporalSuitabilityError
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
@@ -42,17 +42,17 @@ def test_boundary_empty_sequence_rejected(sales_session):
     assert "at least one metric" in str(excinfo.value)
 
 
-def test_duplicate_roots_preserve_order_with_distinct_output_columns(sales_session):
+def test_duplicate_entry_and_ref_roots_are_rejected_after_normalization(sales_session):
     catalog = sales_session.catalog
-    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
-    frame = observe(
-        [revenue, revenue],
-        time_scope=WINDOW,
-        grain="day",
-        session=sales_session,
-    )
-    assert frame.value_columns == ("revenue", "revenue_2")
-    assert frame.to_pandas()["revenue"].equals(frame.to_pandas()["revenue_2"])
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(
+            [revenue, revenue.ref],
+            time_scope=WINDOW,
+            grain="day",
+            session=sales_session,
+        )
+    assert exc_info.value._context["duplicate_metric_refs"] == ["metric:sales.revenue"]
 
 
 def test_boundary_single_element_sequence_equals_scalar_observe(sales_session):
@@ -77,7 +77,7 @@ def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session)
     catalog = sales_session.catalog
     frame = sales_session.observe(
         (
-            catalog.require(ms.ref.metric("sales.revenue")).ref,
+            catalog.require(ms.ref.metric("sales.revenue")),
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ),
         time_scope=WINDOW,
@@ -180,32 +180,88 @@ def test_fused_values_match_single_observes(sales_session):
     )
 
 
-def test_cross_entity_metrics_join_on_time_axis(sales_session, monkeypatch):
-    import marivo.analysis.intents._observe_base as base_execute
-
+def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
+    sales_session,
+    monkeypatch,
+):
     calls: list[int] = []
-    real_execute = base_execute.execute
 
-    def counting_execute(*args, **kwargs):
+    def unexpected_query_capture() -> None:
         calls.append(1)
-        return real_execute(*args, **kwargs)
+        raise AssertionError("temporal preflight must fail before query capture")
 
-    monkeypatch.setattr(base_execute, "execute", counting_execute)
-    catalog = sales_session.catalog
-    frame = observe(
-        [
-            catalog.require(ms.ref.metric("sales.revenue")).ref,
-            catalog.require(ms.ref.metric("sales.user_count")).ref,
-        ],
-        time_scope=WINDOW,
-        grain="day",
-        session=sales_session,
+    monkeypatch.setattr(
+        sales_session._connection_runtime,
+        "begin_query_capture",
+        unexpected_query_capture,
     )
-    assert len(calls) == 2
-    df = frame.to_pandas()
-    # users has a signup on 2026-07-03 where orders has no rows: outer join keeps it.
-    assert len(df) == 3
-    assert df["revenue"].isna().sum() == 1
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain="day",
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.kind == "inspect"
+    assert error.repair.snippet is None
+    assert error.repair.candidates == (
+        "sales.revenue -> time_dimension:sales.orders.order_date",
+        "sales.user_count -> time_dimension:sales.users.signup_date",
+    )
+    assert error._context["candidate_time_dimensions"] == {
+        "sales.revenue": ("sales.orders.order_date",),
+        "sales.user_count": ("sales.users.signup_date",),
+    }
+    assert calls == []
+    assert sales_session.jobs() == []
+    assert sales_session.frame_summaries().items == ()
+
+
+def test_cross_entity_subday_grain_reports_axis_conflict_without_partial_retry(
+    sales_session,
+    monkeypatch,
+):
+    calls: list[int] = []
+
+    def unexpected_query_capture() -> None:
+        calls.append(1)
+        raise AssertionError("temporal preflight must fail before query capture")
+
+    monkeypatch.setattr(
+        sales_session._connection_runtime,
+        "begin_query_capture",
+        unexpected_query_capture,
+    )
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain="hour",
+            session=sales_session,
+        )
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert repair.snippet is None
+    assert repair.candidates == (
+        "sales.revenue -> time_dimension:sales.orders.order_date",
+        "sales.user_count -> time_dimension:sales.users.signup_date",
+    )
+    assert calls == []
 
 
 def test_segmented_multi_metric(sales_session):
