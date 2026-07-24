@@ -10,9 +10,11 @@ from marivo._authoring.model import AuthoringCapability
 from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.datasource.errors import DatasourceHelpTargetError
 from marivo.introspection.live.errors import build_help_target_error_payload
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
+    build_string_target_index,
     build_suggestion_index,
 )
 
@@ -38,6 +40,10 @@ def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn
 
 
 def _cross_surface_owner(target: object) -> str | None:
+    from marivo.refs import Ref
+
+    if type(target) is Ref:
+        return "semantic"
     callable_target = getattr(target, "__func__", target)
     module = getattr(callable_target, "__module__", None)
     if not isinstance(module, str):
@@ -53,6 +59,14 @@ def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
     """Resolve concrete datasource runtime values before callable dispatch."""
     error_type = type(target)
     if ERROR_TYPES.get(error_type.__name__) is error_type:
+        repair = getattr(target, "repair", None)
+        help_target = getattr(repair, "help_target", None)
+        if not isinstance(help_target, LiveHelpTarget):
+            return ResolvedLiveTarget(
+                kind="error_contract",
+                surface="datasource",
+                error_name=error_type.__name__,
+            )
         return ResolvedLiveTarget(
             kind="error_briefing",
             surface="datasource",
@@ -88,6 +102,10 @@ def _build_surface() -> LiveSurface[AuthoringCapability]:
         default_suggestions=("inspect", "duckdb", "register", "help"),
         help_target_error=_help_target_error,
         enrich=_enrich,
+        string_target_index=build_string_target_index(
+            REGISTRY,
+            public_type_names=frozenset(type_index.values()),
+        ),
         suggestion_index=build_suggestion_index(REGISTRY),
     )
 

@@ -60,8 +60,13 @@ import marivo.semantic as ms
 python -m marivo help analysis
 ```
 
-使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。然后深入具体能力，例如
-`mv.help("observe")`、`mv.help("compare")` 或 `mv.help("MetricFrame")`，再编写调用。每个 focused help 主题都自包含一次正确的最小调用。
+使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境
+指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。进入分析时只需
+验证一次该指纹。此后优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的
+组合操作前读取 `.contract()`。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
+`mv.help("observe")`、`mv.help("compare")`、`mv.help("MetricFrame")` 等 focused topic。
+失败后按照结构化修复指引继续。每个 focused help 主题都自包含一次正确的最小调用，但不是
+每次 API 调用的前置步骤。
 :::
 
 analysis 需要新建或刚修改的 object 时，先完成该变更的 authoring closeout：

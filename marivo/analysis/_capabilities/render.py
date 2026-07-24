@@ -31,7 +31,11 @@ from marivo.analysis._capabilities.registry import (
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.constraints import CONSTRAINTS, get_constraint
 from marivo.introspection.constraints import Constraint
-from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerprint
+from marivo.introspection.live.model import (
+    SURFACE_LIMITS,
+    EnvironmentFingerprint,
+    LiveHelpTarget,
+)
 from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
@@ -44,6 +48,7 @@ if TYPE_CHECKING:
 # datasource/semantic surfaces). Help text uses ``mv.`` throughout, so every
 # page states the import so examples run from a cold start (see issue #22).
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
+_SEMANTIC_IMPORT = "import marivo.semantic as ms"
 
 # Focused help pages that teach exact ``ms.ref.<kind>(path)`` construction.
 _REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.require"})
@@ -92,14 +97,17 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
 
 
 def _with_python_imports(text: str) -> str:
-    """Prefix a focused help page with the ``mv`` import so it runs cold-start."""
+    """Prefix a focused page with the surface imports its text references."""
     lines = text.splitlines()
+    imports = [_ANALYSIS_IMPORT]
+    if "ms." in text:
+        imports.insert(0, _SEMANTIC_IMPORT)
     return enforce_budget(
         "\n".join(
             (
                 lines[0],
                 "  Python imports:",
-                f"    {_ANALYSIS_IMPORT}",
+                *(f"    {statement}" for statement in imports),
                 "",
                 *lines[1:],
             )
@@ -598,6 +606,11 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             for cl in cleaned_lines:
                 lines.append(cl)
 
+    for additional_example in desc.additional_examples:
+        lines.append("")
+        lines.append(f"  {additional_example.label}:")
+        lines.extend(f"    {line}" for line in additional_example.code.splitlines())
+
     # Exact Ref path format for the focused semantic-input pages.
     if desc.help_target in _REF_ID_FORMAT_TARGETS:
         lines.extend(_ref_id_format_lines())
@@ -822,6 +835,18 @@ def _render_error_contract(error_name: str) -> str:
     )
 
 
+def _render_next_help_call(target: LiveHelpTarget) -> str:
+    """Render the exact owning public help invocation for a repair target."""
+    adapter = {
+        "analysis": "mv.help",
+        "semantic": "ms.help",
+        "datasource": "md.help",
+    }[target.surface]
+    if target.canonical_id is None:
+        return f"{adapter}()"
+    return f'{adapter}("{target.canonical_id}")'
+
+
 def _render_error_briefing(error_name: str, error_kind: str | None, error_instance: object) -> str:
     """Render concrete repair for an error instance."""
     lines: list[str] = []
@@ -860,9 +885,8 @@ def _render_error_briefing(error_name: str, error_kind: str | None, error_instan
         if action:
             lines.append(f"    action: {action}")
         help_target = getattr(repair, "help_target", None)
-        if help_target:
-            display = getattr(help_target, "display", None) or str(help_target)
-            lines.append(f"    help_target: {display}")
+        if isinstance(help_target, LiveHelpTarget):
+            lines.append(f"    next_help: {_render_next_help_call(help_target)}")
         snippet = getattr(repair, "snippet", None)
         if snippet:
             lines.append("    snippet:")

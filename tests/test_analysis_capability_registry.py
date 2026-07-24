@@ -27,6 +27,7 @@ from marivo.analysis._capabilities import (
     RecoveryCapability,
     SameAsInputFamily,
 )
+from marivo.analysis._capabilities.model import HelpExample
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.introspection.live.model import SURFACE_LIMITS, SurfaceLimits
 
@@ -178,6 +179,7 @@ def test_capability_base_required_fields() -> None:
     assert "root_visibility" in field_names
     assert "constraint_ids" in field_names
     assert "callable_path" in field_names
+    assert "additional_examples" in field_names
 
 
 def test_capability_base_defaults() -> None:
@@ -191,6 +193,48 @@ def test_capability_base_defaults() -> None:
     )
     assert base.constraint_ids == ()
     assert base.callable_path is None
+    assert base.additional_examples == ()
+
+
+@pytest.mark.parametrize(
+    "example,error",
+    (
+        (HelpExample(label="", code="test.call()"), "label"),
+        (HelpExample(label="Empty", code=""), "code"),
+        (HelpExample(label="Placeholder", code="test.call(...)"), "placeholder"),
+        (HelpExample(label="Syntax", code="test.call("), "parseable"),
+        (HelpExample(label="Wrong owner", code="other.call()"), "must call"),
+        (HelpExample(label="Owner prefix", code="test.callback()"), "must call"),
+    ),
+)
+def test_registry_rejects_invalid_additional_examples(
+    example: HelpExample,
+    error: str,
+) -> None:
+    from marivo.analysis._capabilities.registry import _finalize_registry
+
+    descriptor = ReadCapability(
+        id="test.call",
+        public_entrypoint="test.call()",
+        help_target="test.call",
+        summary="test",
+        root_group="artifact_inspection",
+        root_visibility="direct",
+        additional_examples=(example,),
+    )
+    with pytest.raises(ValueError, match=error):
+        _finalize_registry((descriptor,))
+
+
+def test_registry_additional_examples_are_owned_by_two_capabilities_only() -> None:
+    owners = {
+        descriptor.id: descriptor.additional_examples
+        for descriptor in REGISTRY.descriptors
+        if descriptor.additional_examples
+    }
+    assert tuple(owners) == ("observe", "correlate")
+    assert len(owners["observe"]) == 1
+    assert len(owners["correlate"]) == 1
 
 
 def test_operator_capability_defaults() -> None:

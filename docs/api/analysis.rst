@@ -13,8 +13,16 @@ catalog entries or strings.
 Help and agent surface
 ----------------------
 
-Start with ``python -m marivo help analysis``. Live help owns callable
-signatures, accepted input families, constraints, and recovery guidance.
+At analysis entry, use the project interpreter to run
+``python -m marivo help analysis`` once and verify the environment fingerprint.
+After entry, use the public object already in hand: ``show()`` reports current
+state, while ``contract()`` describes mechanically valid next actions. Open
+focused ``mv.help(...)`` only when that object contract is insufficient or
+before first use of an unfamiliar capability. After a failure, follow the
+structured repair. Focused help is not required before every API call.
+
+Live help owns callable signatures, accepted input families, constraints, and
+recovery guidance.
 
 .. autosummary::
    :toctree: api/

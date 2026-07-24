@@ -5,6 +5,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -14,7 +15,11 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.introspection.live.model import LiveHelpTarget
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import (
+    bootstrap_multi_metric_sales_project,
+    make_metric_frame,
+    seed_multi_metric_tables,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -111,6 +116,27 @@ def test_correlate_common_key_alignment():
     df = out.to_pandas()
     assert df.iloc[0]["driver_field"] == "bucket"
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
+
+
+def test_registered_cross_sectional_ref_example_executes(tmp_path):
+    import ibis
+
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    bootstrap_multi_metric_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    seed_multi_metric_tables(con)
+    con.raw_sql("INSERT INTO orders VALUES (4, DATE '2026-07-03', 10.0, 'north', 300)")
+    session = session_attach.get_or_create(
+        name="help_example",
+        backends={"warehouse": lambda: con},
+    )
+    example = REGISTRY.by_id("correlate").additional_examples[0]
+    namespace = {"session": session, "ms": ms}
+    exec(compile(example.code, "<correlate-help-example>", "exec"), namespace)
+    result = namespace["result"]
+    assert isinstance(result, AssociationResult)
+    assert result.meta.semantic_kinds == ["segmented", "segmented"]
 
 
 def test_correlate_resolves_public_value_names_and_excludes_numeric_axes():

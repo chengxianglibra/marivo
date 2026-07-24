@@ -10,6 +10,8 @@ All names are private to ``marivo.analysis``.  Nothing is added to
 
 from __future__ import annotations
 
+import ast
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -20,6 +22,7 @@ from marivo.analysis._capabilities.model import (
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
+    HelpExample,
     InputFamily,
     OperatorCapability,
     ReadCapability,
@@ -332,6 +335,19 @@ def _build_registry() -> CapabilityRegistry:
                 "time_scope": frozenset({"TimeScopeInput"}),
             },
             output_family="MetricFrame",
+            additional_examples=(
+                HelpExample(
+                    label="Direct Ref segmented time series",
+                    code=(
+                        "frame = session.observe(\n"
+                        '    ms.ref.metric("sales.revenue"),\n'
+                        '    time_scope={"start": "2026-07-01", "end": "2026-07-04"},\n'
+                        '    grain="day",\n'
+                        '    dimensions=[ms.ref.dimension("sales.orders.region")],\n'
+                        ")"
+                    ),
+                ),
+            ),
         )
     )
 
@@ -437,6 +453,21 @@ def _build_registry() -> CapabilityRegistry:
                 "sampling": frozenset({"SamplingPolicy"}),
             },
             output_family="AssociationResult",
+            additional_examples=(
+                HelpExample(
+                    label="Common-key cross-sectional frames from exact Refs",
+                    code=(
+                        'region = ms.ref.dimension("sales.orders.region")\n'
+                        "a = session.observe(\n"
+                        '    ms.ref.metric("sales.revenue"), dimensions=[region]\n'
+                        ")\n"
+                        "b = session.observe(\n"
+                        '    ms.ref.metric("sales.order_count"), dimensions=[region]\n'
+                        ")\n"
+                        "result = session.correlate(a, b)"
+                    ),
+                ),
+            ),
         )
     )
 
@@ -1390,6 +1421,7 @@ def _finalize_registry(
     for desc in descriptors:
         if desc.id in by_id:
             raise ValueError(f"duplicate capability id: {desc.id}")
+        _validate_additional_examples(desc)
         by_id[desc.id] = desc
 
     # Validate no duplicate help_targets
@@ -1437,6 +1469,47 @@ def _finalize_registry(
         _constructor_consumers=MappingProxyType(constructor_consumers_frozen),
         _algebra_rows=algebra_rows,
     )
+
+
+def _validate_additional_examples(descriptor: CapabilityDescriptor) -> None:
+    """Validate bounded examples and their ownership before indexing."""
+    if not descriptor.additional_examples:
+        return
+    owned_call = descriptor.public_entrypoint.split("(", 1)[0].strip()
+    for example in descriptor.additional_examples:
+        if not example.label.strip():
+            raise ValueError(f"{descriptor.id}: additional example label must not be empty")
+        code = example.code.strip()
+        if not code:
+            raise ValueError(f"{descriptor.id}: additional example code must not be empty")
+        if "..." in code or re.search(r"<[^>]+>", code):
+            raise ValueError(f"{descriptor.id}: additional example contains a placeholder")
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as exc:
+            raise ValueError(f"{descriptor.id}: additional example is not parseable") from exc
+        matching_calls = tuple(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _call_name(node.func) == owned_call
+        )
+        if owned_call and len(matching_calls) != 1:
+            raise ValueError(
+                f"{descriptor.id}: additional example must call {owned_call!r} exactly once"
+            )
+
+
+def _call_name(node: ast.expr) -> str | None:
+    """Return one static dotted call name without evaluating the expression."""
+    parts: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    parts.append(current.id)
+    return ".".join(reversed(parts))
 
 
 def _generate_algebra_rows(

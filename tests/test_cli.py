@@ -257,6 +257,18 @@ def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str])
     assert captured.out.strip() == f"marivo {__version__}"
 
 
+def test_version_subcommand_repairs_to_canonical_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["version"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Use `marivo --version`."
+
+
 def test_doctor_command_prints_text(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -492,19 +504,49 @@ def test_cli_help_semantic_unknown_target_exits_2(
     assert "not registered" in captured.err or "semantic help target" in captured.err
 
 
-def test_help_unknown_track_suggests_valid_tracks_and_target_form(
+@pytest.mark.parametrize(
+    ("target", "track"),
+    (("observe", "analysis"), ("inspect", "datasource"), ("metric", "semantic")),
+)
+def test_help_target_without_track_identifies_unique_owner(
+    target: str,
+    track: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An unknown CLI help track must teach the valid tracks and the
-    `marivo help <track> <target>` form, not just argparse's 'invalid choice'.
-    See issue #35.
-    """
     with pytest.raises(SystemExit) as exc_info:
-        main(["help", "catalog"])
+        main(["help", target])
+
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    err = captured.err
-    assert "analysis" in err and "datasource" in err and "semantic" in err
-    # Hint the target form so 'catalog' (a target, not a track) is recoverable
-    # with a concrete suggested command, beyond argparse's bare 'invalid choice'.
-    assert "marivo help analysis catalog" in err
+    assert captured.out == ""
+    assert f"Specify the owning track: `marivo help {track} {target}`." in captured.err
+
+
+def test_help_shared_target_without_track_does_not_guess(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["help", "help"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "shared by help tracks: analysis, datasource, semantic" in captured.err
+    assert "marivo help analysis help" in captured.err
+    assert "marivo help datasource help" in captured.err
+    assert "marivo help semantic help" in captured.err
+
+
+def test_help_unknown_target_without_track_lists_valid_forms(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["help", "not-a-help-target"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "neither a help track nor a registered help target" in captured.err
+    assert "marivo help analysis [target]" in captured.err
+    assert "marivo help datasource [target]" in captured.err
+    assert "marivo help semantic [target]" in captured.err

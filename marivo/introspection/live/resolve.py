@@ -101,6 +101,7 @@ class LiveSurface[DescriptorT: ResolvableHelpDescriptor]:
     default_suggestions: tuple[str, ...] = ()
     help_target_error: Callable[[object, tuple[str, ...]], NoReturn] = _default_help_target_error
     enrich: Callable[[object], ResolvedLiveTarget[DescriptorT] | None] | None = None
+    string_target_index: Mapping[str, str] | None = None
     suggestion_index: LiveSuggestionIndex | None = None
 
 
@@ -145,6 +146,13 @@ def _resolve_string[DescriptorT: ResolvableHelpDescriptor](
             return _resolved_descriptor(surface.registry.by_canonical_id(candidate), surface)
         except KeyError:
             pass
+        if surface.string_target_index is not None:
+            canonical_id = surface.string_target_index.get(candidate)
+            if canonical_id is not None:
+                return _resolved_descriptor(
+                    surface.registry.by_canonical_id(canonical_id),
+                    surface,
+                )
         for type_name in surface.type_index.values():
             if type_name == candidate:
                 return ResolvedLiveTarget(
@@ -196,6 +204,53 @@ def _help_target_candidates(target: str) -> tuple[str, ...]:
     if normalized and normalized != target:
         return (target, normalized)
     return (target,)
+
+
+def _public_entrypoint_path(public_entrypoint: str) -> str:
+    """Return the receiver/callable path before a trailing call expression."""
+    normalized = public_entrypoint.strip()
+    call_start = normalized.find("(")
+    if call_start > 0 and normalized.endswith(")"):
+        return normalized[:call_start].rstrip()
+    return normalized
+
+
+def build_string_target_index[DescriptorT: ResolvableHelpDescriptor](
+    registry: LiveSurfaceRegistry[DescriptorT],
+    *,
+    public_type_names: frozenset[str],
+) -> Mapping[str, str]:
+    """Build registered public string identities without walking attributes.
+
+    Ambiguous presentation paths such as ``frame.components`` are deliberately
+    absent. Their concrete owner/member forms remain available through the
+    registered public type paths, so registry order can never select a winner.
+    """
+    candidates: dict[str, str] = {}
+    ambiguous: set[str] = set()
+
+    for canonical_id in registry.canonical_ids():
+        descriptor = registry.by_canonical_id(canonical_id)
+        identities = [descriptor.canonical_id]
+        if descriptor.public_entrypoint:
+            identities.append(_public_entrypoint_path(descriptor.public_entrypoint))
+        if descriptor.callable_path:
+            callable_parts = descriptor.callable_path.split(".")
+            if len(callable_parts) >= 2 and callable_parts[-2] in public_type_names:
+                identities.append(".".join(callable_parts[-2:]))
+
+        for identity in identities:
+            normalized = _normalize_help_target(identity)
+            if not normalized or normalized in ambiguous:
+                continue
+            previous = candidates.get(normalized)
+            if previous is None or previous == canonical_id:
+                candidates[normalized] = canonical_id
+                continue
+            candidates.pop(normalized, None)
+            ambiguous.add(normalized)
+
+    return MappingProxyType(candidates)
 
 
 def _resolve_callable[DescriptorT: ResolvableHelpDescriptor](

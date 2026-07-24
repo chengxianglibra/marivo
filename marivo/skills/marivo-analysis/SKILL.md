@@ -36,8 +36,7 @@ rather than guessing.
 Use the same project interpreter for discovery and execution. Start with
 `<analysis-python> -m marivo help analysis` or the corresponding
 `<venv>/bin/marivo help analysis`, verify the rendered Marivo version,
-resolved Python executable, and package path, then follow focused live help
-topics for every API contract.
+resolved Python executable, and package path.
 
 A bare `marivo` resolved from `PATH` is not authoritative unless its
 rendered fingerprint matches the interpreter and package used by the
@@ -51,6 +50,12 @@ After entry:
 - semantic object details own the business-object contract;
 - artifact reads own current-state facts and mechanical compatibility;
 - structured errors own repair guidance.
+
+Use the public object already in hand. Read `.show()` for its current state and
+`.contract()` before an unfamiliar composition. Query focused live help when
+the object contract is insufficient or before first use of an unfamiliar
+capability. After a failure, follow the structured repair. Focused help is not
+required before every API call.
 
 Focused help is responsible for being self-contained for one correct
 minimal invocation. Complex legal investigations may consult as many focused

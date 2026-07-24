@@ -26,6 +26,7 @@ _GROUPS = (
 
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
+_ANALYSIS_IMPORT = "import marivo.analysis as mv"
 
 
 def _bounded(text: str, *, root: bool = False) -> str:
@@ -52,6 +53,8 @@ def _with_python_imports(text: str) -> str:
     imports = [_SEMANTIC_IMPORT]
     if "md." in text:
         imports.insert(0, _DATASOURCE_IMPORT)
+    if "mv." in text:
+        imports.insert(0, _ANALYSIS_IMPORT)
     lines = text.splitlines()
     return _bounded(
         "\n".join(
@@ -302,19 +305,93 @@ def _render_type(type_name: str, original: object | None) -> str:
     return _bounded("\n".join(lines))
 
 
-def _render_error(error_name: str, original: object | None) -> str:
-    lines = [error_name, "  Semantic error contract."]
-    if original is not None:
-        for name in ("message", "location", "expected", "received"):
-            value = getattr(original, name, None)
-            if value is not None:
-                lines.append(f"  {name.title()}: {value}")
-        repair = getattr(original, "repair", None)
-        if repair is not None:
-            lines.append(f"  Repair: {repair.action}")
-            if repair.candidates:
-                lines.append("  Candidates: " + ", ".join(repair.candidates))
-    lines.append('  Use ms.help("<target>") to inspect the recommended capability.')
+def _help_invocation(target: LiveHelpTarget) -> str:
+    adapter = {
+        "analysis": "mv.help",
+        "datasource": "md.help",
+        "semantic": "ms.help",
+    }[target.surface]
+    if target.canonical_id is None:
+        return f"{adapter}()"
+    return f'{adapter}("{target.canonical_id}")'
+
+
+def _render_error_contract(error_name: str) -> str:
+    lines = [
+        error_name,
+        "  Semantic error contract.",
+        "  Concrete repair guidance is available only when an instance carries repair.help_target.",
+    ]
+    return _bounded("\n".join(lines))
+
+
+def _render_error_briefing(error_name: str, original: object) -> str:
+    lines = [error_name, "  Semantic error repair."]
+    for name in ("message", "expected", "received", "location", "location_label"):
+        value = getattr(original, name, None)
+        if value is not None:
+            label = "Location" if name == "location_label" else name.title()
+            lines.append(f"  {label}: {value}")
+
+    repair = getattr(original, "repair", None)
+    help_target = getattr(repair, "help_target", None)
+    if repair is None or not isinstance(help_target, LiveHelpTarget):
+        raise RuntimeError("error_briefing requires repair.help_target")
+    lines.extend(
+        (
+            "  Repair:",
+            f"    Kind: {repair.kind}",
+            f"    Action: {repair.action}",
+        )
+    )
+    if repair.snippet is not None:
+        lines.append("    Snippet:")
+        lines.extend(f"      {line}" for line in repair.snippet.splitlines())
+    if repair.candidates:
+        lines.append("    Candidates: " + ", ".join(repair.candidates))
+    lines.append(f"    Next help: {_help_invocation(help_target)}")
+    return _bounded("\n".join(lines))
+
+
+def _render_reference(reference_id: str, original: object) -> str:
+    """Render an object-near semantic identity without loading or querying."""
+    from marivo.refs import Ref
+    from marivo.semantic.catalog import CatalogEntry
+
+    inspection_calls: tuple[str, ...]
+    if isinstance(original, CatalogEntry):
+        ref = original.ref
+        object_name = type(original).__name__
+        inspection_calls = (
+            "entry.ref",
+            "entry.show()",
+            "entry.details().show()",
+            "entry.contract().show()",
+        )
+    elif type(original) is Ref:
+        ref = original
+        object_name = "Ref"
+        inspection_calls = (
+            "ref.kind",
+            "ref.path",
+            "entry = catalog.require(ref)",
+            "entry.show()",
+            "entry.details().show()",
+            "entry.contract().show()",
+        )
+    else:
+        raise RuntimeError(f"expected exact Ref or CatalogEntry, got {type(original).__name__}")
+    if ref.path != reference_id:
+        raise RuntimeError("reference briefing identity mismatch")
+
+    lines = [
+        f"{ref.kind.value}: {ref.path}",
+        f"  Object: {object_name}",
+        f"  Kind: {ref.kind.value}",
+        f"  Path: {ref.path}",
+        "  Object-near inspection:",
+        *(f"    {call}" for call in inspection_calls),
+    ]
     return _bounded("\n".join(lines))
 
 
@@ -328,6 +405,14 @@ def render_help_target(
         return _with_python_imports(_render_descriptor(resolved.descriptor))
     if resolved.kind == "type_contract" and resolved.type_name is not None:
         return _with_python_imports(_render_type(resolved.type_name, original_target))
-    if resolved.kind in {"error_contract", "error_briefing"} and resolved.error_name is not None:
-        return _with_python_imports(_render_error(resolved.error_name, resolved.original))
+    if resolved.kind == "reference_briefing" and resolved.reference_id is not None:
+        if resolved.original is None:
+            raise RuntimeError("reference_briefing requires original target")
+        return _with_python_imports(_render_reference(resolved.reference_id, resolved.original))
+    if resolved.kind == "error_contract" and resolved.error_name is not None:
+        return _with_python_imports(_render_error_contract(resolved.error_name))
+    if resolved.kind == "error_briefing" and resolved.error_name is not None:
+        if resolved.original is None:
+            raise RuntimeError("error_briefing requires original target")
+        return _with_python_imports(_render_error_briefing(resolved.error_name, resolved.original))
     raise RuntimeError(f"unsupported semantic help resolution: {resolved.kind}")

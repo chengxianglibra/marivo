@@ -14,6 +14,7 @@ import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._authoring.model import AuthoringRepair
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import (
@@ -38,7 +39,7 @@ from marivo.datasource.inspection import (
 )
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.datasource.source import TableSource
-from marivo.introspection.live.model import SURFACE_LIMITS
+from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 
 
 @pytest.mark.parametrize(
@@ -54,6 +55,25 @@ from marivo.introspection.live.model import SURFACE_LIMITS
 def test_help_resolves_supported_target_kinds(target: object, canonical_id: str) -> None:
     text = md.help_text(target)  # type: ignore[arg-type]
     assert canonical_id in text
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "SourceInspection.sample",
+        "inspection.sample",
+        "md.SourceInspection.sample",
+        "md.inspection.sample",
+    ),
+)
+def test_registered_sample_string_paths_resolve_to_one_descriptor(target: str) -> None:
+    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
+    assert resolved.kind == "descriptor"
+    assert resolved.canonical_id == "SourceInspection.sample"
+    assert md.help_text(target).startswith("SourceInspection.sample\n")
 
 
 def test_unknown_string_raises_typed_bounded_error() -> None:
@@ -198,12 +218,22 @@ def test_projection_result_help_points_to_contract_and_repair_without_values() -
 def test_help_rejects_cross_surface_private_and_ambiguous_targets() -> None:
     from marivo.analysis import MetricFrame
     from marivo.datasource.authoring import _SpecBase
+    from marivo.refs import Ref
 
-    for target in (ms.ref.metric("sales.revenue"), MetricFrame, _SpecBase, object(), "source"):
+    for target in (
+        ms.ref.metric("sales.revenue"),
+        MetricFrame,
+        _SpecBase,
+        object(),
+        "source",
+        "help.help_text",
+    ):
         with pytest.raises(DatasourceHelpTargetError) as exc_info:
             md.help_text(target)  # type: ignore[arg-type]
         if target is MetricFrame:
             assert "mv.help" in str(exc_info.value)
+        if type(target) is Ref:
+            assert "ms.help" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -219,6 +249,56 @@ def test_cross_surface_callable_rejection_names_owning_adapter(
     with pytest.raises(DatasourceHelpTargetError) as exc_info:
         md.help_text(target)  # type: ignore[arg-type]
     assert adapter in str(exc_info.value)
+
+
+def test_loaded_semantic_entry_rejection_names_semantic_adapter(
+    authoring_evidence_project: object,
+) -> None:
+    catalog = ms.load()
+    entry = catalog.require(ms.ref.metric("sales.revenue"))
+
+    with pytest.raises(DatasourceHelpTargetError) as exc_info:
+        md.help_text(entry)  # type: ignore[arg-type]
+
+    assert "ms.help" in str(exc_info.value)
+
+
+def test_error_help_kind_depends_on_concrete_repair_target() -> None:
+    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
+    from marivo.introspection.live.resolve import resolve_live_target
+
+    with_repair = DatasourceMissingError(
+        message="warehouse is missing",
+        expected="registered datasource",
+        received="warehouse",
+        location="datasource catalog",
+        repair=AuthoringRepair(
+            kind="inspect",
+            help_target=LiveHelpTarget(surface="semantic"),
+            action="Inspect semantic help before continuing.",
+            snippet="ms.help()",
+            candidates=("load",),
+        ),
+    )
+    without_repair = DatasourceMissingError(message="warehouse is missing")
+
+    briefing = resolve_live_target(with_repair, DATASOURCE_LIVE_SURFACE)
+    contract = resolve_live_target(without_repair, DATASOURCE_LIVE_SURFACE)
+    error_class = resolve_live_target(DatasourceMissingError, DATASOURCE_LIVE_SURFACE)
+
+    assert briefing.kind == "error_briefing"
+    assert contract.kind == "error_contract"
+    assert error_class.kind == "error_contract"
+    assert contract == error_class
+    assert md.help_text(without_repair) == md.help_text(DatasourceMissingError)
+    text = md.help_text(with_repair)
+    assert "Kind: inspect" in text
+    assert "Expected: registered datasource" in text
+    assert "Received: warehouse" in text
+    assert "Location: datasource catalog" in text
+    assert "Next help: ms.help()" in text
+    assert "Snippet:" in text
+    assert "Candidates: load" in text
 
 
 def test_live_help_performs_no_datasource_effects(

@@ -94,6 +94,14 @@ OutputFamily = ArtifactFamily | SameAsInputFamily
 
 
 @dataclass(frozen=True)
+class HelpExample:
+    """One bounded, labeled additional focused-help example."""
+
+    label: str
+    code: str
+
+
+@dataclass(frozen=True)
 class CapabilityBase:
     """Shared identity fields carried by every capability variant.
 
@@ -126,6 +134,7 @@ class CapabilityBase:
     root_visibility: RootVisibility
     constraint_ids: tuple[str, ...] = ()
     callable_path: str | None = None
+    additional_examples: tuple[HelpExample, ...] = ()
 
     @property
     def canonical_id(self) -> str:
