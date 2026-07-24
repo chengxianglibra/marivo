@@ -11,7 +11,8 @@ import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
 from marivo._authoring.model import AuthoringContract, AuthoringStateRef
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
-from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.evidence.types import DigestReadContract
+from marivo.analysis.frames.base import ArtifactContract, BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
@@ -507,6 +508,64 @@ def _metric_frame() -> MetricFrame:
         semantic_model="sales",
     )
     return MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
+
+
+def _artifact_contract() -> ArtifactContract:
+    return _metric_frame().contract()
+
+
+def _digest_read_contract() -> DigestReadContract:
+    return DigestReadContract(
+        exact_reads=(
+            "session.evidence.digest('frame_protocol_test')",
+            "session.evidence.findings(artifact_ref='frame_protocol_test')",
+            "session.get_frame('frame_protocol_test')",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        pytest.param(
+            lambda: AuthoringContract(
+                subject_refs=("sales.revenue",),
+                states=(
+                    AuthoringStateRef(
+                        id="semantic.loaded",
+                        subject_refs=("sales.revenue",),
+                    ),
+                ),
+                transitions=(),
+            ),
+            id="AuthoringContract",
+        ),
+        pytest.param(_artifact_contract, id="ArtifactContract"),
+        pytest.param(_digest_read_contract, id="DigestReadContract"),
+    ],
+)
+def test_contract_result_protocol_is_structural_and_side_effect_free(
+    builder: Callable[[], object],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    contract = builder()
+
+    rendered = contract.render()  # type: ignore[attr-defined]
+    assert repr(contract)
+    assert capsys.readouterr().out == ""
+    assert rendered == contract.render()  # type: ignore[attr-defined]
+    assert len(rendered.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert contract.model_dump()  # type: ignore[attr-defined]
+
+    lines = rendered.splitlines()
+    available_index = lines.index("available:")
+    for line in lines[available_index + 1 :]:
+        assert line.startswith("- .")
+        member = line.removeprefix("- .").split("(", 1)[0]
+        assert hasattr(contract, member), (type(contract).__name__, member)
+
+    assert contract.show() is None  # type: ignore[attr-defined]
+    assert capsys.readouterr().out == rendered + "\n"
 
 
 def test_metric_frame_contract_warns_for_cumulative_values() -> None:

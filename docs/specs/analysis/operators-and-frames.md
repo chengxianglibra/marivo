@@ -89,11 +89,12 @@ Calendar and holiday alignment are specified in
 
 ### Semantic refs
 
-Every semantic entry point is a catalog-resolved exact ref, never a guessed
-string. Metrics and dimensions are passed as the `.ref` from
-`session.catalog.require(ref)`; catalog entries themselves are rejected. Calendars and artifacts use
-`CalendarRef` / `ArtifactRef`. An agent holding only a string resolves it through
-the catalog before submitting a step.
+Every qualifying catalog-bound runtime input accepts an exact current
+`CatalogEntry[K]` or its exact `Ref[K]`, never a guessed string. The boundary
+validates catalog ownership, exact kind, and current membership, then normalizes
+immediately to the ref. Calendars and artifacts continue to use `CalendarRef` /
+`ArtifactRef`. An agent holding only a semantic string resolves it through the
+owning typed catalog collection before submitting a step.
 
 ## Agent-facing core operator surface
 
@@ -156,18 +157,24 @@ resolves a semantic metric and returns a `MetricFrame` whose shape follows the
 requested axes:
 
 ```python
+revenue = session.catalog.metrics.get("analytics.dau")
+platform = session.catalog.dimensions.get("analytics.events.platform")
+
 series = session.observe(
-    metric=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
+    metric=revenue,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
-    dimensions=[session.catalog.require(ms.ref.dimension("analytics.events.platform")).ref],
+    dimensions=[platform],
 )
 ```
 
 **Multi-metric.** The `metric` argument accepts a single metric or a non-empty
-list of same-scope metrics. Simple metrics on one datasource are merged into one
-query (cross-datasource metrics are grouped per datasource and outer-joined on
-the time axis). The result carries multiple measure columns;
+list of same-scope metrics. For temporal observations, every root must resolve
+to the same exact time-dimension ref; roots with different implicit axes fail
+before backend work rather than merging semantically different buckets. Simple
+metrics on one datasource are merged into one query (compatible
+cross-datasource metrics are grouped per datasource and outer-joined on the
+shared time axis). The result carries multiple measure columns;
 `frame.meta.measures` records each metric's `metric_id`, `column`, and `unit`,
 and `frame.meta.metric_id` is `None`. On an arity-N frame, `frame.metric(id)`
 returns an arity-1 `MetricFrame` without re-querying; an unknown id raises
@@ -202,6 +209,19 @@ grains (`day`, `week`, `month`, `quarter`, `year`) require `count == 1`. Sub-day
 grains (`5minute`, `15minute`, `30minute`, `1hour`, `4hour`) must (1) be no finer
 than the metric time field's declared `granularity` (else `GrainUnsupportedError`)
 and (2) divide a day evenly (`7minute` is rejected).
+
+**Temporal suitability preflight.** After semantic inputs, window, and grain
+normalize—but before connection acquisition, query capture, backend
+execute/fetch, or state writes—`observe` validates the complete metric forest
+against compiled candidate time dimensions. It distinguishes no candidate time
+axis, an ordinary dimension supplied as the time axis, ambiguous candidates,
+different implicit axes across metric roots, and incompatible encoding/grain.
+No-axis and wrong-kind cases use
+`semantic_authoring` repair when the requested temporal analysis cannot remain
+typed; ambiguity exposes exact candidates without choosing one; incompatible
+grain is retryable only when the legal replacement is mechanically unique.
+Executor checks remain defensive backstops for runtime dtype facts and preserve
+the same structured repair shape.
 
 **Cumulative frames.** Cumulative `MetricFrame`s store running totals whose
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,
@@ -394,8 +414,8 @@ a terminal report. A source artifact records at most a
 ## Result contract and read protocol
 
 Analysis operators never write to stdout; every result is silent and returns a
-typed object. Results share one protocol so an agent can read them cheaply and
-recover them across script turns. The layered read order is:
+typed object. Typed artifacts share one protocol so an agent can read them
+cheaply and recover them across script turns. The layered read order is:
 
 ```text
 repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  result.to_pandas()
@@ -409,12 +429,16 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 - `result.to_pandas()` — an isolated defensive DataFrame copy (tabular frames
   only). It is the only method that returns a mutable copy.
 
+Terminal `RawSqlResult` supports the same bounded row/column reads but omits
+`contract()` because it has no typed continuation.
+
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
 `.to_pandas()`. Frames also expose `.id` (a read-only alias of `.ref`), `.ref`,
 `.kind`, `.lineage`, `.state`,
 `.quality_summary`, `.evidence_status`, `.evidence_digest`, `.columns`, and
-`.shape`. The
+`.shape`. Every frame also exposes read-only `.row_count`, with
+`frame.row_count == frame.shape[0]` at creation and recovery boundaries. The
 `BaseFrame.describe()` and `BaseFrame.plot()` methods are intentionally removed;
 accessing them raises `AttributeError`. Use `frame.show()` for bounded inspection
 and `frame.to_pandas()` for terminal custom analysis.
@@ -452,7 +476,31 @@ only — it never ranks, recommends, or narrates:
   `frame.to_pandas()` and `md.raw_sql(...)`; results from either cannot
   re-enter typed analysis.
 
-Affordances are not recommendations and do not enumerate invocation options.
+Every public value returned by `.contract()`—currently `AuthoringContract`,
+`ArtifactContract`, and `DigestReadContract`—structurally provides a bounded
+one-line `repr`, deterministic bounded `render()`, and `show()` that prints the
+same card. Typed fields and `model_dump()` remain available; this conformance
+does not introduce a cross-layer contract base class.
+
+A failed artifact precondition remains visible only with a usable repair. The
+common case carries one `repair`; a closed choice set uses ordered
+`repair_options`. A retry repair always has an executable snippet; otherwise the
+repair is `inspect`, `semantic_authoring`, or `environment`. An affordance whose
+failed precondition has no visible repair is suppressed.
+
+When a downstream capability requires arity 1, an arity-N `MetricFrame`
+contract exposes one ordered projection repair for every full metric identity:
+
+```python
+frame.metric("sales.revenue")
+frame.metric("sales.order_count")
+```
+
+The contract names `frame` as the receiver and never chooses a projection.
+Single-metric frames and capabilities that do not require arity 1 receive no
+projection repair.
+
+Affordances are not recommendations.
 Marivo says which parameters can accept which artifact families; the agent
 decides which valid call matters for the question and whether to stop.
 
@@ -522,11 +570,15 @@ There are two one-way terminal exits from typed analysis. Results from either
 cannot re-enter the typed artifact chain.
 
 - **`md.raw_sql(...)`** — the sole public raw SQL execution path. Returns a
-  `RawSqlResult` with timeout enforcement, exact row bounding, and
-  `RawSqlResult.to_pandas()` as the terminal pandas exit. Use for custom
-  analysis that cannot be expressed through `session.observe(...)`, including
-  an analysis branch blocked by a semantic gap. Temporary inferred semantics
-  must be disclosed and remain terminal-only.
+  `RawSqlResult` with timeout enforcement, exact row bounding, ordered
+  `columns`, isolated `to_pandas()`, and basic reads `shape` and `row_count`.
+  Here `row_count == shape[0] == returned_row_count` means returned bounded
+  rows, not full-source cardinality. Its card keeps `requested_limit` and exact
+  `is_truncated` adjacent and states `terminal_only: true` and
+  `typed_reentry: false`. It has no `.contract()` or typed affordances. Use it
+  for custom analysis that cannot be expressed through
+  `session.observe(...)`, including an analysis branch blocked by a semantic
+  gap. Temporary inferred semantics must be disclosed and remain terminal-only.
 - **`frame.to_pandas()`** — any tabular frame exposes `.to_pandas()`, returning
   an isolated defensive copy for ad-hoc pandas exploration, plotting, or
   modeling.
@@ -555,7 +607,8 @@ canonical `MetricFrame` producer.
 ## Non-goals
 
 The operator layer does not: dress arbitrary Ibis/SQL as a core operator; pass
-generic pandas/sklearn wrappers off as canonical artifact producers; do causal
-inference or what-if simulation; auto-generate business conclusions; emit free
-text as its primary output (`explain`/narrative `diagnose`); or map one BI chart
-template to one core operator.
+generic pandas/sklearn wrappers off as canonical artifact producers; provide
+typed regression or a generic statistical planner; do causal inference or
+what-if simulation; auto-generate business conclusions; emit free text as its
+primary output (`explain`/narrative `diagnose`); map one BI chart template to one
+core operator; or allow `RawSqlResult`/pandas values to re-enter typed analysis.

@@ -216,4 +216,4 @@ def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_fac
 
     message = str(exc_info.value)
     assert "measure" in message
-    assert "exact Ref[dimension | time_dimension]" in message
+    assert "exact Ref or current CatalogEntry" in message

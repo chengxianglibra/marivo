@@ -28,10 +28,14 @@ from marivo.analysis.intents.decompose import (
     decompose,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.refs import FieldKind, Ref
+from marivo.refs import DimensionKind, TimeDimensionKind
+from marivo.semantic.catalog import _SemanticInput
 
 
-def _normalize_attribute_axes(session: Session, axes: list[Ref[FieldKind]]) -> list[str]:
+def _normalize_attribute_axes(
+    session: Session,
+    axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
+) -> list[str]:
     if not axes:
         raise SemanticKindMismatchError(
             message="attribute requires at least one axis",
@@ -95,7 +99,7 @@ def _load_metric_source(
 def attribute(
     frame: DeltaFrame,
     *,
-    axes: list[Ref[FieldKind]],
+    axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
     mode: AttributionMode | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,

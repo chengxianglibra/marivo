@@ -119,12 +119,13 @@ string references 与 SQL parity 状态。它不检查 GitHub/GitLab 审批状�
 
 ## 限定检查范围
 
-通过 `refs=` 传入 exact refs 或封闭 `RuntimeMetricExpr`，把 readiness 限定到正在明确认证的
-objects 与 runtime roots；mixed list 保持原顺序。Marivo 会解析 governed leaves 及其完整依赖闭包
-（metrics、measures、dimensions、entities 与 datasources）：
+通过 `refs=` 传入精确 current entries、它们的精确 refs 或封闭 `RuntimeMetricExpr`，把
+readiness 限定到正在明确认证的 objects 与 runtime roots。Entries 会立即归一化为 refs，
+mixed list 保持原顺序。Marivo 会解析 governed leaves 及其完整依赖闭包（metrics、measures、
+dimensions、entities 与 datasources）：
 
 ```python
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
 if report.preview_required_refs:  # authoring closeout 必须修复；日常分析可选
     catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
@@ -148,7 +149,7 @@ Batch preview 会在连接前校验全部 bindings，合并兼容的 entity/fiel
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()

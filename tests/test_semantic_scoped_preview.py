@@ -16,7 +16,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.preview import PreviewLimitError
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog import MetricEntry, SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 
 
@@ -174,6 +174,109 @@ def test_preview_requires_using(scoped_catalog) -> None:
 
     with pytest.raises(TypeError):
         catalog.preview(revenue)  # type: ignore[call-arg]
+
+
+def test_preview_entry_and_ref_have_equivalent_public_payload(scoped_catalog) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.metrics.get("sales.revenue")
+
+    by_entry = catalog.preview(revenue, using=orders_snapshot)
+    by_ref = catalog.preview(revenue.ref, using=orders_snapshot)
+
+    assert by_entry.kind == by_ref.kind
+    assert by_entry.ref == by_ref.ref
+    assert by_entry.columns == by_ref.columns
+    assert by_entry.rows == by_ref.rows
+    assert by_entry.status == by_ref.status
+
+
+def test_preview_many_normalizes_complete_batch_before_connection(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.metrics.get("sales.revenue")
+
+    class UnregisteredMetricEntry(MetricEntry):
+        pass
+
+    forged = UnregisteredMetricEntry(
+        ref=revenue.ref,
+        _details=revenue.details(),
+        _catalog=catalog,
+    )
+    monkeypatch.setattr(
+        catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="not a registered concrete"):
+        catalog.preview_many([revenue, forged], using=orders_snapshot)
+    with pytest.raises(SemanticRuntimeError, match="duplicate"):
+        catalog.preview_many([revenue, revenue.ref], using=orders_snapshot)
+
+
+def test_preview_rejects_stale_entry_before_connection(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    stale_revenue = old_catalog.metrics.get("sales.revenue")
+    current_catalog = SemanticCatalog(old_catalog._project)
+    monkeypatch.setattr(
+        current_catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="earlier catalog instance"):
+        current_catalog.preview(stale_revenue, using=orders_snapshot)
+
+
+def test_preview_rejects_cross_catalog_entry_before_connection(
+    scoped_catalog,
+    semantic_project_factory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    foreign_workspace = tmp_path / "foreign"
+    foreign_workspace.mkdir()
+    foreign_project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Foreign', default=True)\n"
+            ),
+            "sales/models.py": textwrap.dedent(
+                """\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                )
+
+                @ms.metric(entities=[orders], additivity="additive")
+                def revenue(orders):
+                    return orders.amount.sum()
+                """
+            ),
+        },
+        workspace_dir=foreign_workspace,
+    )
+    foreign_revenue = SemanticCatalog(foreign_project).metrics.get("sales.revenue")
+    monkeypatch.setattr(
+        catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="another catalog"):
+        catalog.preview(foreign_revenue, using=orders_snapshot)
 
 
 @pytest.mark.parametrize("invalid", ["snapshot-id", ()])
@@ -937,6 +1040,22 @@ def test_batch_preview_accepts_exact_union_mapping_for_multi_entity_refs(
     assert result.results[0].rows == ({"value": 30.0},)
     assert result.results[1].rows == ({"value": 30.0},)
     assert query_spy.user_data_queries == 2
+
+
+def test_batch_preview_accepts_ordered_entry_and_ref_inputs(
+    scoped_catalog,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    region = catalog.dimensions.get("sales.orders.region")
+    revenue = catalog.metrics.get("sales.revenue")
+
+    result = catalog.preview_many(
+        [region, revenue.ref],
+        using=orders_snapshot,
+    )
+
+    assert result.refs == ("sales.orders.region", "sales.revenue")
+    assert tuple(item.ref for item in result.results) == result.refs
 
 
 def test_batch_group_failure_does_not_persist_group_checks(

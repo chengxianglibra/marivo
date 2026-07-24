@@ -64,37 +64,36 @@ def make_single_frame() -> MetricFrame:
 
 
 def make_multi_frame() -> MetricFrame:
+    return make_multi_frame_for(
+        ("sales.revenue", "revenue"),
+        ("sales.order_count", "order_count"),
+    )
+
+
+def make_multi_frame_for(*metrics: tuple[str, str]) -> MetricFrame:
+    metric_ids = tuple(metric_id for metric_id, _column in metrics)
     meta = MetricFrameMeta(
-        **make_test_multi_metric_contract("sales.revenue", "sales.order_count"),
+        **make_test_multi_metric_contract(*metric_ids),
         metric_id=None,
         measure={},
         measures=[
             {
-                "metric_id": "sales.revenue",
-                "name": "revenue",
-                "column": "revenue",
-                "unit": "usd",
+                "metric_id": metric_id,
+                "name": metric_id.rsplit(".", 1)[-1],
+                "column": column,
+                "unit": "usd" if metric_id == "sales.revenue" else None,
                 "additivity": "additive",
                 "reaggregatable": True,
-            },
-            {
-                "metric_id": "sales.order_count",
-                "name": "order_count",
-                "column": "order_count",
-                "unit": None,
-                "additivity": "additive",
-                "reaggregatable": True,
-            },
+            }
+            for metric_id, column in metrics
         ],
         **_meta_kwargs(),
     )
-    df = pd.DataFrame(
-        {
-            "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
-            "revenue": [10.0, 50.0],
-            "order_count": [1, 2],
-        }
-    )
+    values = {
+        column: [float(index + 1), float(index + 2)]
+        for index, (_metric_id, column) in enumerate(metrics)
+    }
+    df = pd.DataFrame({"bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]), **values})
     return MetricFrame(_df=df, meta=meta)
 
 
@@ -317,7 +316,67 @@ def test_multi_frame_contract_marks_single_metric_gate():
     assert "single_metric" in checks
     unmet = next(p for p in compare_affordance.preconditions if p.check == "single_metric")
     assert unmet.status == "fail"
-    assert 'metric("sales.revenue")' in (unmet.reason or "")
+    assert unmet.repair is None
+    assert tuple(repair.snippet for repair in unmet.repair_options) == (
+        'frame.metric("sales.revenue")',
+        'frame.metric("sales.order_count")',
+    )
+
+
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [
+        (
+            make_multi_frame(),
+            ("sales.revenue", "sales.order_count"),
+        ),
+        (
+            make_multi_frame_for(
+                ("sales.revenue", "revenue"),
+                ("sales.order_count", "order_count"),
+                ("sales.average_order_value", "average_order_value"),
+            ),
+            ("sales.revenue", "sales.order_count", "sales.average_order_value"),
+        ),
+        (
+            make_multi_frame_for(
+                ("sales.revenue", "sales_revenue"),
+                ("finance.revenue", "finance_revenue"),
+            ),
+            ("sales.revenue", "finance.revenue"),
+        ),
+    ],
+)
+def test_multi_metric_contract_lists_every_full_id_projection_once(
+    frame: MetricFrame,
+    expected: tuple[str, ...],
+) -> None:
+    affordance = next(
+        item for item in frame.contract().affordances if item.capability_id == "compare"
+    )
+    precondition = next(item for item in affordance.preconditions if item.check == "single_metric")
+
+    assert tuple(repair.snippet for repair in precondition.repair_options) == tuple(
+        f'frame.metric("{metric_id}")' for metric_id in expected
+    )
+    assert len(precondition.repair_options) == len(set(expected))
+    rendered = frame.contract().render()
+    for metric_id in expected:
+        assert rendered.count(f'frame.metric("{metric_id}")') >= 1
+
+
+def test_every_emitted_projection_snippet_executes_with_frame_bound(sales_session) -> None:
+    frame = _fused(sales_session)
+    affordance = next(
+        item for item in frame.contract().affordances if item.capability_id == "compare"
+    )
+    precondition = next(item for item in affordance.preconditions if item.check == "single_metric")
+
+    for repair in precondition.repair_options:
+        assert repair.snippet is not None
+        projected = eval(repair.snippet, {}, {"frame": frame})
+        assert projected.arity == 1
+        assert projected.metrics == (repair.snippet.split('"')[1],)
 
 
 def test_single_frame_contract_has_no_arity_precondition():

@@ -146,6 +146,18 @@ Details types
 Catalog & objects
 -----------------
 
+Typed collections resolve a local name, a full semantic path, or an exact
+same-kind ``Ref`` within the collection's current scope. Scoped collections do
+not widen to out-of-scope objects. ``catalog.require(ref)`` remains the strict,
+global, ref-only lookup for configured, persisted, or logged identity.
+
+``catalog.verify(...)``, ``catalog.preview(...)``,
+``catalog.preview_many(...)``, and catalog-leaf
+``catalog.readiness(refs=[...])`` accept either an exact entry owned by the
+current compiled catalog or its exact ref. Entries normalize immediately to
+refs; readiness results, preview evidence, persistence, and recovery remain
+ref-based.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:

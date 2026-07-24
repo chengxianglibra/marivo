@@ -71,17 +71,18 @@ python -m marivo help analysis
 
 analysis 需要新建或刚修改的 object 时，先完成该变更的 authoring closeout：
 `md.inspect(...)` → explicit scope → 一次 `inspection.sample(...)` → snapshot
-projections → 一个 Python declaration → exact ref → `catalog.verify(ref)` →
-`catalog.preview(ref, using=snapshot)` → 零查询 `catalog.readiness(refs=[ref])`。
-日常分析复用未变化的 object 时，不重复这条 authoring evidence 流程。Uncommon formats 和
-semantic judgments 仍由 agent 负责。
+projections → 一个 Python declaration → current entry → `catalog.verify(entry)` →
+`catalog.preview(entry, using=snapshot)` → 零查询 `catalog.readiness(refs=[entry])`。
+等价的精确 ref 形式仍然有效。日常分析复用未变化的 object 时，不重复这条 authoring
+evidence 流程。Uncommon formats 和 semantic judgments 仍由 agent 负责。
 
 :::note[Artifacts 是不可变的]
 Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
 `artifact.show()` 做有界读取，用 `artifact.contract()` 查看接口上可执行的下一步。
 只有需要可变本地副本时才调用 `artifact.to_pandas()`，且仅作为终端步骤。每个 artifact
 都携带 lineage，并持久化在 project 本地 `.marivo/` 下，因此后续脚本可以用 ref 恢复它，
-而不必重新查询 datasource。`artifact.id` 是 canonical `artifact.ref` 的只读别名。
+而不必重新查询 datasource。`artifact.id` 是 canonical `artifact.ref` 的只读别名；
+每个 frame 都满足 `row_count == shape[0]`。
 :::
 
 ## 打开 session
@@ -89,13 +90,11 @@ Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行�
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue_object = catalog.require(ms.ref.metric("sales.revenue"))
-region_object = catalog.require(ms.ref.dimension("sales.orders.region"))
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
 
-revenue_object.details().show()     # 读取定义、候选轴和 measure lineage
-region_object.details().show()
-revenue = revenue_object.ref
-region = region_object.ref
+revenue.details().show()     # 读取定义、候选轴和 measure lineage
+region.details().show()
 ```
 
 `get_or_create` 是幂等的：它会附着到同名的已有 session，或创建一个新 session，并设为当前
@@ -106,7 +105,7 @@ session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(n
 时间戳以及 catalog/job/frame 检查入口的 bounded state card。`session.render()` 返回同一文本，
 但不写 stdout。
 
-用 `catalog.domains.show()` 和 scoped navigation 发现 refs，然后对本次分析会使用的每个
+用 `catalog.domains.show()` 和 scoped navigation 发现 entries，然后对本次分析会使用的每个
 metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输出会展示已编写
 的 `ai_context`；metric details 还会展示 composition、effective entities、候选轴和 measure
 lineage。候选轴只用于静态发现，relationship 与 fanout 的有效性仍以 `observe` 为准。
@@ -116,8 +115,9 @@ semantic authoring 处理。
 
 :::note[什么时候运行 readiness]
 新建或修改 semantic objects 后，或者某个 workflow 要求 technical certification 时，
-运行 `catalog.readiness(refs=[...])`。同一调用接受由 catalog refs 与封闭 `RuntimeMetricExpr`
-roots 组成的有序 mixed list，并通过 `analysis_ready_inputs` 返回通过的 roots。Analysis APIs 不会自动调用它；日常分析也不需要在每次
+运行 `catalog.readiness(refs=[...])`。同一调用接受由当前 catalog entries、精确 refs 与
+封闭 `RuntimeMetricExpr` roots 组成的有序 mixed list，立即归一化 entries，并通过
+`analysis_ready_inputs` 返回 canonical roots。Analysis APIs 不会自动调用它；日常分析也不需要在每次
 `observe` 前刷新 authoring snapshots。Blocked report 表示所选 objects 尚未完成这次认证；
 先修复它们，再声明 semantic change 已完成。
 :::
@@ -181,12 +181,12 @@ observed watermark 优先于 declaration。artifact 及其 quality/evidence reco
 
 ## 一个 intent 如何被指定
 
-Operators 接受精确 typed ref/expression 和若干共享值对象。多数 intent 都会复用这些输入：
+Operators 接受精确的当前 entry/ref、封闭 expression 和若干共享值对象。多数 intent 都会复用这些输入：
 
 | 值 | 形态 | 含义 |
 | --- | --- | --- |
-| metric 输入 | `catalog.require(ms.ref.metric("sales.revenue")).ref` | 精确 `Ref[metric]`，或 observe 使用的封闭 `RuntimeMetricExpr`；拒绝 loaded object、generic ref 与字符串。 |
-| dimension 输入 | `catalog.require(ms.ref.dimension("sales.orders.region")).ref` | 精确 `Ref[dimension]` / `Ref[time_dimension]`（见 [Semantic refs](/zh-cn/latest/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`slice_by` key 与 `axis`。 |
+| metric 输入 | `catalog.metrics.get("sales.revenue")` | 精确 current `MetricEntry` 或 `Ref[metric]`，也可传 observe 使用的封闭 `RuntimeMetricExpr`；拒绝 stale/cross-catalog entry、generic ref 与字符串。 |
+| dimension 输入 | `catalog.dimensions.get("sales.orders.region")` | 精确 current dimension/time-dimension entry 或匹配的 ref（见 [Semantic refs](/zh-cn/latest/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`slice_by` key 与 axes。 |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | 半开时间区间 —— `start` 含、`end` 不含。 |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
 | `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
@@ -217,13 +217,19 @@ key 是 catalog dimension；value 为标量（`==`）、列表（`in`），或�
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `metric` | `Ref[metric] | RuntimeMetricExpr`，或非空序列 | 是 | — | 精确 catalog ref 或封闭 runtime expression；拒绝 loaded object、generic ref 与裸字符串。 |
+| `metric` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`，或非空序列 | 是 | — | 精确 current metric entry/ref 或封闭 runtime expression；拒绝 stale/cross-catalog entry、generic ref 与裸字符串。 |
 | `time_scope` | dict | 否 | `None` | 半开 `{"start", "end"}` 窗口。 |
 | `grain` | grain | 否 | `None` | 时间桶；存在 ⇒ time series 或 panel。 |
-| `dimensions` | `list[Ref[dimension] | Ref[time_dimension]]` | 否 | `None` | 精确类型化分段轴。 |
-| `slice_by` | `Mapping[AnalysisRef[dimension], SliceValue]` | 否 | `None` | 全局聚合前行过滤。 |
-| `time_dimension` | `Ref[time_dimension]` | 否 | entity 默认 | 当 entity 声明多个时间轴时选择其一。 |
+| `dimensions` | entry/ref 序列 | 否 | `None` | 精确 current dimension/time-dimension entry 或 ref。 |
+| `slice_by` | 以 entry/ref 为 key 的 mapping | 否 | `None` | 全局聚合前行过滤。 |
+| `time_dimension` | time-dimension entry/ref | 否 | entity 默认 | 当 entity 声明多个时间轴时选择其一。 |
 | `expect_shape` | shape | 否 | `None` | 守卫；若预测形状不符，在访问 backend 前抛错。 |
+
+当前 entries 也可以直接用于 `Session.attribute(axes=...)`、discovery 的
+search-space/peer axes，以及 transform 的 slice/rollup axes。所有符合条件的调用都会在
+planning、持久化、evidence 或 replay 前把 entry 归一化为 canonical ref；
+`catalog.require(ref)` 仍是从配置、日志或持久化状态恢复 identity 时使用的严格 ref-only
+路径。
 
 ```python
 current = session.observe(
@@ -234,10 +240,15 @@ current = session.observe(
 )
 ```
 
-传入序列即可在一个 frame 中观测多个 same-scope metric。Marivo 会把同一
-datasource 的 metric 合并为一次查询，跨 datasource 的 metric 按时间轴
-outer-join。用 `frame.metric(id)` 投影出 arity-1 frame，对单个 metric 做
-drill-down。
+当 temporal request 没有候选 time dimension、把普通 dimension 当作 time axis、存在多个
+歧义候选、不同 metric root 解析出不同的隐式时间轴，或 encoding/grain 不兼容时，只要
+compiled catalog facts 足够，Marivo 就会在 backend execution 前失败。结构化 repair 会
+暴露精确的当前候选项，不会猜测 time axis；只有替换项机械唯一时才提供 retry。
+
+传入序列即可在一个 frame 中观测多个 same-scope metric。temporal root 必须解析到同一个
+精确 time-dimension ref；Marivo 会把同一 datasource 的 metric 合并为一次查询，并把
+兼容的跨 datasource metric 按该共享时间轴 outer-join。用 `frame.metric(id)` 投影出
+arity-1 frame，对单个 metric 做 drill-down。
 
 单指标 `MetricFrame` 的所有公开读取路径都使用 metric 短名作为值列名，包括
 `show()`、`columns`、`contract()`、索引和 `to_pandas()`；经过 transform 后列名
@@ -252,12 +263,15 @@ typed transform 内部仍使用 canonical `value` 列。例如
 
 ```python
 report = session.observe(
-    [revenue, catalog.require(ms.ref.metric("sales.total_orders")).ref],
+    [revenue, catalog.metrics.get("sales.total_orders")],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
 revenue_only = report.metric("sales.revenue")
 ```
+
+当下游 capability 要求单指标时，multi-metric `frame.contract()` 会为每个 carried root
+提供一条可执行的 full-id `frame.metric(...)` projection，但不会代替 agent 选择。
 
 当 catalog 没有需要的临时分析口径时，可构造封闭 expression，并且仍只通过
 `session.observe(...)` 物化：
@@ -551,7 +565,9 @@ base_frame = session.observe(active_users, ...)
 才使用 `md.raw_sql(...)`——唯一的终端
 raw SQL 执行路径。它强制 timeout、限制返回行数、只读执行。结果是一个
 `RawSqlResult`，无法回到类型化分析；调用 `RawSqlResult.to_pandas()` 获取终端
-pandas 导出。
+pandas 导出。它的 ordered `columns`、`shape` 与 `row_count` 只描述有界返回行：
+`row_count == shape[0] == returned_row_count`。读取行数时还应同时检查
+`requested_limit` 和 `is_truncated`。它没有 `.contract()` 或 typed affordance。
 
 任何语义缺口也可以无需事前审批使用该出口。智能体可以临时推断 metric、dimension、
 relationship 或过滤口径，但必须记录全部假设，并将 raw-SQL-supported claims 与 canonical
@@ -572,6 +588,8 @@ df = result.to_pandas()
 需要从类型化 frame 做终端本地 pandas 工作时，使用 `artifact.to_pandas()`。
 `md.raw_sql(...)` 结果和 `to_pandas()` 导出都无法回到类型化分析。Raw SQL 不会修复缺失的
 业务语义；closeout 仍然必须请求批准最小语义修订。
+当前 Marivo operator surface 不支持 typed regression；回归任务仍是显式的终端 custom
+analysis，不能提升回类型化链。
 
 ## 读取与恢复 artifacts
 
@@ -615,8 +633,9 @@ Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 
 
 ### 语义交接
 
-Typed analysis 消费稳定的 semantic refs，绝不猜测业务含义。如果缺少或有争议的 metric、
-dimension 或 time dimension，受影响的 typed branch 会停止。智能体只可以在终端 `md.raw_sql(...)`
+Typed analysis 在符合条件的 runtime boundary 接受精确 current catalog entry 或稳定的
+semantic ref，并立即把两种形式归一化为 ref，绝不猜测业务含义。如果缺少或有争议的
+metric、dimension 或 time dimension，受影响的 typed branch 会停止。智能体只可以在终端 `md.raw_sql(...)`
 分支临时推断口径，并必须披露 datasource、目的、全部假设、有界结果，以及 canonical identity、
 lineage 和 evidence continuity 的缺失。它在 closeout 提出最小正式语义修订，并且只在用户
 明确批准后进入 `marivo-semantic`。语义层拥有业务对象契约；分析层拥有基于这些对象的
@@ -659,8 +678,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
-region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
+revenue = catalog.metrics.get("sales.revenue")
+region = catalog.dimensions.get("sales.orders.region")
 
 current = session.observe(
     revenue,

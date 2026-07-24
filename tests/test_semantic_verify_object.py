@@ -65,7 +65,7 @@ def test_verify_object_rejects_string_refs(semantic_project_factory, ref: str) -
         SemanticCatalog(project).verify(ref)  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "exact Ref[kind]" in str(exc_info.value)
+    assert "exact Ref or registered CatalogEntry" in str(exc_info.value)
 
 
 def test_verify_object_does_not_require_datasource_connectivity(

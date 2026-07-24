@@ -11,13 +11,13 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-import marivo.semantic as ms
 from marivo.analysis import (
     AlignmentPolicy,
     AttributionFrame,
     DeltaFrame,
     MetricFrame,
 )
+from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.frames.attribution import AttributionFrameMeta
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
@@ -1251,8 +1251,11 @@ def test_transform_rollup_rejects_time_axis_dimension_ref(tmp_path):
 
 def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     frame = _make_panel(tmp_path)
+    country = session_attach.current().catalog.dimensions.get("sales.orders.country")
     rolled = _active_transform(
-        frame, op="rollup", drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
+        frame,
+        op="rollup",
+        drop_axes=[country],
     )
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.axes
@@ -1361,13 +1364,46 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     assert sliced.meta.where["sales.orders.country"] == "US"
 
 
-def test_transform_slice_accepts_catalog_dimension_ref(tmp_path):
+def test_transform_slice_accepts_catalog_dimension_entry(tmp_path):
     frame = _make_segmented(tmp_path)
-    country = session_attach.current().catalog.require(ms.ref.dimension("sales.orders.country")).ref
+    country = session_attach.current().catalog.dimensions.get("sales.orders.country")
 
     sliced = _active_transform(frame, op="slice", slice_by={country: "US"})
 
     assert sliced.meta.where == {"sales.orders.country": "US"}
+
+
+def test_transform_slice_rejects_entry_ref_key_collision(tmp_path):
+    frame = _make_segmented(tmp_path)
+    country = session_attach.current().catalog.dimensions.get("sales.orders.country")
+
+    with pytest.raises(
+        SemanticKindMismatchError,
+        match="must remain unique after semantic input normalization",
+    ):
+        _active_transform(
+            frame,
+            op="slice",
+            slice_by={country: "US", country.ref: "CA"},
+        )
+
+
+def test_transform_slice_preserves_time_dimension_kind_in_collision_repair(tmp_path):
+    frame = _make_time_series(tmp_path)
+    order_date = session_attach.current().catalog.time_dimensions.get("sales.orders.order_date")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        _active_transform(
+            frame,
+            op="slice",
+            slice_by={
+                order_date: "2026-07-01",
+                order_date.ref: "2026-07-02",
+            },
+        )
+
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.candidates == ("time_dimension:sales.orders.order_date",)
 
 
 def test_transform_slice_requires_dimension_ref_keys(tmp_path):

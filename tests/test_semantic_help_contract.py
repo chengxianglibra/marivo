@@ -125,14 +125,17 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
         ("snapshot", "partition_field=snapshot_date, grain='day'"),
         ("validity", "valid_from=valid_from, valid_to=valid_to"),
         ("semi_additive", "over=snapshot_date, fold='last'"),
-        ("verify", "catalog.verify(revenue.ref)"),
+        ("verify", "catalog.verify(revenue)"),
         (
             "preview",
-            "catalog.preview(revenue.ref, using=orders_snapshot)",
+            "catalog.preview(revenue, using=orders_snapshot)",
         ),
     ],
 )
-def test_help_examples_use_typed_refs_and_required_evidence(target: str, expected: str) -> None:
+def test_help_examples_use_typed_inputs_and_required_evidence(
+    target: str,
+    expected: str,
+) -> None:
     assert expected in ms.help_text(target)
 
 
@@ -179,8 +182,9 @@ def test_help_text_readiness_report_type() -> None:
 def test_help_text_readiness_accepts_runtime_metric_expressions() -> None:
     text = ms.help_text("readiness")
 
-    assert "Sequence[Ref[SemanticKindTag] | RuntimeMetricExpr]" in text
-    assert "subject: Ref | RuntimeMetricExpression" in text
+    assert "Sequence[SemanticInput[SemanticKindTag] | RuntimeMetricExpr]" in text
+    assert "_SemanticInput" not in text
+    assert "subject: CatalogEntry | Ref | RuntimeMetricExpression" in text
     assert "catalog.readiness(refs=[revenue, runtime_revenue])" in text
 
 

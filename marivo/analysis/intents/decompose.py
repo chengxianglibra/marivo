@@ -42,7 +42,8 @@ from marivo.analysis.semantic_inputs import normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import FieldKind, Ref
+from marivo.refs import DimensionKind, TimeDimensionKind
+from marivo.semantic.catalog import _SemanticInput
 
 
 def _bucket_column_for_panel(frame: DeltaFrame) -> str:
@@ -70,8 +71,16 @@ def _panel_dimension_columns(frame: DeltaFrame) -> list[str]:
     return sorted(columns)
 
 
-def _normalize_axis_boundary(session: Session, axis: Ref[FieldKind]) -> str:
-    return normalize_dimension_boundary(session.catalog, axis, argument="axis")
+def _normalize_axis_boundary(
+    session: Session,
+    axis: _SemanticInput[DimensionKind | TimeDimensionKind],
+) -> str:
+    return normalize_dimension_boundary(
+        session.catalog,
+        axis,
+        argument="axis",
+        help_target="attribute",
+    )
 
 
 def _resolve_axis_column(frame: DeltaFrame, axis_id: str, columns: list[str]) -> str | None:
@@ -1073,8 +1082,8 @@ def _component_multi_axis_output(
 
 def _normalize_axes_boundary(
     session: Session,
-    axes: list[Ref[FieldKind]] | None,
-    axis: Ref[FieldKind] | None,
+    axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None,
+    axis: _SemanticInput[DimensionKind | TimeDimensionKind] | None,
 ) -> list[str]:
     if axes is None and axis is not None:
         axes = [axis]
@@ -1353,8 +1362,8 @@ def _multi_axis_hierarchy_output(
 def decompose(
     frame: DeltaFrame,
     *,
-    axes: list[Ref[FieldKind]] | None = None,
-    axis: Ref[FieldKind] | None = None,
+    axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    axis: _SemanticInput[DimensionKind | TimeDimensionKind] | None = None,
     mode: AttributionMode | None = None,
     session: Session | None = None,
     _intent: str = "decompose",

@@ -28,6 +28,11 @@ provisional answer, but it remains separate from canonical Marivo evidence; the
 agent proposes the smallest semantic change at closeout and enters
 `marivo-semantic` only after approval.
 
+Catalog navigation returns current typed entries that qualifying semantic and
+analysis runtime calls accept directly; exact refs remain valid for
+configuration and recovery. Marivo normalizes either form to the ref before
+planning, evidence, persistence, or replay.
+
 The agent verifies the live analysis environment once with
 `python -m marivo help analysis` using the project interpreter. After entry, it
 works from the public object already in hand: `.show()` reports current state,
@@ -38,6 +43,9 @@ repair. Focused help is not a prerequisite for every API call.
 
 The typed boundary (`session.observe` in, `frame.to_pandas()` / `md.raw_sql`
 out) keeps custom analysis from breaking the evidence chain.
+`RawSqlResult.shape` and `.row_count` describe returned bounded rows only; the
+result has no `.contract()` or typed re-entry. Typed regression is not a Marivo
+capability yet and remains explicit terminal custom analysis.
 
 Those mechanics are owned by live help, frames, and structured errors — they do
 not need to appear in your prompt.

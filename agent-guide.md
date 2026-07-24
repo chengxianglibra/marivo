@@ -92,13 +92,12 @@ These rules govern every public surface change:
 - `__repr__` is the floor: every public result type has a bounded,
   single-line repr carrying kind and identity, pointing to `.show()` for
   detail. Default dataclass reprs are not acceptable on public result types.
-- Terminal results (objects an agent stops to read) implement the shared
-  result protocol: bounded `.show()` output, `.contract()` for mechanically
-  valid next actions, deterministic ordering, and closing affordance hints
-  generated from real state. State-bearing datasource and semantic
-  objects/results expose `.contract()` matching the analysis artifact
-  convention, so every agent-facing surface agrees on mechanically valid
-  next actions.
+- Terminal results (objects an agent stops to read) implement bounded
+  `.show()` output with deterministic ordering and closing affordance hints
+  generated from real state. Typed artifacts and state-bearing datasource and
+  semantic objects/results additionally expose `.contract()` for mechanically
+  valid next actions. Explicit terminal boundaries such as `RawSqlResult`
+  remain contract-free when no typed continuation is valid.
 - Surface growth is gated: public `__all__` sets are pinned by a snapshot
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff

@@ -6,9 +6,18 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-Semantic identities are exact ``marivo.semantic.Ref`` values. Catalog entries
-are documented under :doc:`semantic`; analysis inputs accept refs rather than
-catalog entries or strings.
+At qualifying catalog-bound runtime parameters, analysis accepts an exact
+current ``marivo.semantic.CatalogEntry`` or its exact
+``marivo.semantic.Ref``. The boundary validates ownership, kind, and current
+membership, then normalizes immediately to the ref. Bare semantic strings,
+stale or cross-catalog entries, arbitrary entry subclasses, and duck-typed
+``.ref`` objects are rejected. Runtime metric constructors and nested Event
+handles retain their existing exact input contracts.
+
+Typed regression is not part of the current analysis operator surface. Work
+that requires it remains explicit terminal custom analysis through
+``frame.to_pandas()`` or ``md.raw_sql(...)``; neither terminal result can
+re-enter typed Marivo analysis.
 
 Help and agent surface
 ----------------------
@@ -34,10 +43,18 @@ recovery guidance.
 Frames
 ------
 
-Public artifacts expose ``ref``, ``kind``, ``show()``, ``contract()``,
+Public artifacts expose ``ref``, ``kind``, ``shape``, ``row_count``,
+``columns``, ``show()``, ``contract()``,
 ``quality_summary``, ``evidence_status``, ``evidence_digest``, ``lineage``,
-``state``, and ``to_pandas()``. ``contract().issues`` contains typed issues;
-role-preserving affordances describe mechanical compatibility only.
+``state``, and ``to_pandas()``. ``row_count == shape[0]``.
+``contract().issues`` contains typed issues; role-preserving affordances
+describe mechanical compatibility only. A multi-metric contract exposes one
+exact full-id ``frame.metric(...)`` projection repair per carried metric when a
+consumer requires arity 1; it never selects one.
+
+Every public value returned by ``.contract()`` has bounded ``repr``,
+``render()``, and ``show()`` while retaining its structured fields. This is
+structural conformance, not a shared public contract base class.
 
 .. autosummary::
    :toctree: api/

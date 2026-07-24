@@ -373,9 +373,10 @@ def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     """The observe example must show filtering by a dimension combination."""
     text = _text("observe")
     example_section = text[text.index("Example:") :]
-    assert (
-        'channel = catalog.require(ms.ref.dimension("sales.orders.channel")).ref' in example_section
-    )
+    assert 'channel = catalog.dimensions.get("sales.orders.channel")' in example_section
+    assert 'revenue = catalog.metrics.get("sales.revenue")' in example_section
+    assert "_SemanticInput" not in text
+    assert "SemanticInput[MetricKind]" in text
     assert 'slice_by={country: "US", channel: "online"}' in example_section
 
 

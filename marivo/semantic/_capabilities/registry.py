@@ -42,6 +42,8 @@ INPUT_FAMILIES = frozenset(
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
         "CatalogEntry",
+        "CatalogEntry | Ref",
+        "CatalogEntry | Ref | RuntimeMetricExpression",
         "SemanticCatalog",
         "DiscoverySnapshot",
         "HelpTarget",
@@ -734,15 +736,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "verify",
             "marivo.semantic.catalog.SemanticCatalog.verify",
-            "Statically verify one exact loaded ref.",
+            "Statically verify one current catalog entry or exact ref.",
             kind="method",
             output="VerifyResult",
             inputs=_inputs(
                 ("receiver", "SemanticCatalog"),
-                ("subject", "Ref"),
+                ("subject", "CatalogEntry | Ref"),
             ),
             effects=_LOCAL,
-            example="catalog.verify(revenue.ref)",
+            example="catalog.verify(revenue)",
             produced_state="semantic.verified",
             required_states=_states("semantic.loaded"),
             public_entrypoint="catalog.verify",
@@ -750,19 +752,22 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "preview",
             "marivo.semantic.catalog.SemanticCatalog.preview",
-            "Run one scoped data preview for an exact loaded ref.",
+            "Run one scoped data preview for a current catalog entry or exact ref.",
             kind="method",
             output="PreviewResult",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                AuthoringInputRequirement(role="subject", family="Ref"),
+                AuthoringInputRequirement(
+                    role="subject",
+                    family="CatalogEntry | Ref",
+                ),
                 AuthoringInputRequirement(
                     role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
                 ),
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview(revenue.ref, using=orders_snapshot)",
+            example="catalog.preview(revenue, using=orders_snapshot)",
             preconditions=("semantic.loaded",),
             produced_state="semantic.previewed",
             required_states=_states("semantic.loaded"),
@@ -772,13 +777,16 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "preview_many",
             "marivo.semantic.catalog.SemanticCatalog.preview_many",
-            "Run scoped data previews for a non-empty exact ref sequence.",
+            "Run scoped data previews for a non-empty entry/ref sequence.",
             kind="method",
             output="PreviewBatchResult",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
-                    role="subject", family="Ref", min_count=1, max_count=None
+                    role="subject",
+                    family="CatalogEntry | Ref",
+                    min_count=1,
+                    max_count=None,
                 ),
                 AuthoringInputRequirement(
                     role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
@@ -799,12 +807,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Certify loaded refs or runtime metric expressions through governed leaves and fixed graph budgets.",
+            "Certify current entries, exact refs, or runtime metric expressions through governed leaves and fixed graph budgets.",
             kind="method",
             output="ReadinessReport",
             inputs=_inputs(
                 ("receiver", "SemanticCatalog"),
-                ("subject", "Ref | RuntimeMetricExpression"),
+                ("subject", "CatalogEntry | Ref | RuntimeMetricExpression"),
             ),
             effects=_LOCAL,
             example="catalog.readiness(refs=[revenue, runtime_revenue])",

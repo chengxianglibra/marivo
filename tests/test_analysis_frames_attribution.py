@@ -23,7 +23,7 @@ def _now():
     return datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC)
 
 
-def _meta(session_id="sess_x", project_root="/p"):
+def _meta(session_id="sess_x", project_root="/p", row_count=1):
     return AttributionFrameMeta(
         kind="attribution_frame",
         ref="frame_attr_001",
@@ -31,7 +31,7 @@ def _meta(session_id="sess_x", project_root="/p"):
         project_root=project_root,
         produced_by_job="job_attr",
         created_at=_now(),
-        row_count=2,
+        row_count=row_count,
         byte_size=128,
         lineage=Lineage(
             steps=[
@@ -88,7 +88,11 @@ def test_to_pandas_returns_copy():
 def test_load_frame_round_trips_attribution_frame(tmp_path):
     session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame({"region": ["north", "south"], "contribution": [10.0, -2.0]})
-    meta = _meta(session_id=session.id, project_root=str(session.project_root))
+    meta = _meta(
+        session_id=session.id,
+        project_root=str(session.project_root),
+        row_count=2,
+    )
     written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
 
     loaded = session.get_frame(written.ref)

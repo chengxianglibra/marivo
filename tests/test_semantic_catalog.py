@@ -439,7 +439,13 @@ def test_catalog_object_equality_is_concrete_type_and_typed_id(
     assert first == second
     assert hash(first) == hash(second)
     assert first != catalog.require(ms.ref.domain("sales"))
-    assert "business_definition:" in first.render(max_output_bytes=None)
+    rendered = first.render(max_output_bytes=None)
+    assert "kind: metric" in rendered
+    assert "path: sales.revenue" in rendered
+    assert "ref: metric:sales.revenue" in rendered
+    assert "parents:" in rendered
+    assert "business_definition:" in rendered
+    assert "- .ref" in rendered
 
 
 # --- CatalogEntry agent result protocol ---
@@ -1426,7 +1432,11 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
     metric_card = catalog.require(ms.ref.metric("sales.cache_hit_rate")).render()
     assert "composition: ratio (2 components)" in metric_card
     assert "analysis_scope: 1 effective entities; 1 candidate dimensions;" in metric_card
-    assert ".details().show() for definition, candidate axes, and measure lineage" in metric_card
+    assert "effective_entities: entity:sales.queries" in metric_card
+    assert "candidate_dimensions: dimension:sales.queries.cluster" in metric_card
+    assert "candidate_time_dimensions: time_dimension:sales.queries.occurred_at" in metric_card
+    assert "component_metrics:" in metric_card
+    assert "measure_lineage:" in metric_card
 
 
 def test_catalog_time_dimension_details_include_sample_interval(semantic_project_factory):
@@ -1935,6 +1945,24 @@ def test_catalog_readiness_accepts_semantic_ref_values(semantic_project_factory)
     assert isinstance(report, ReadinessReport)
 
 
+def test_catalog_readiness_normalizes_entry_and_ref_to_same_public_payload(
+    semantic_project_factory,
+) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    revenue = catalog.metrics.get("sales.revenue")
+
+    by_entry = catalog.readiness(refs=[revenue])
+    by_ref = catalog.readiness(refs=[revenue.ref])
+
+    assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs
+    assert by_entry.analysis_ready_refs == by_ref.analysis_ready_refs
+    assert by_entry.input_summary == by_ref.input_summary
+    assert all(type(value) is Ref for value in by_entry.analysis_ready_inputs)
+
+    with pytest.raises(SemanticRuntimeError, match="unique exact refs"):
+        catalog.readiness(refs=[revenue, revenue.ref])
+
+
 def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
     semantic_project_factory,
 ) -> None:
@@ -1945,7 +1973,8 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
         }
     )
     catalog = SemanticCatalog(project)
-    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    revenue_entry = catalog.metrics.get("sales.revenue")
+    revenue = revenue_entry.ref
     amount = catalog.require(ms.ref.measure("sales.orders.amount")).ref
     region = catalog.require(ms.ref.dimension("sales.orders.region")).ref
     runtime_total = mv.runtime_metric.aggregate(
@@ -1964,7 +1993,7 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
         label="Runtime north ratio",
     )
 
-    report = catalog.readiness(refs=[revenue, expression])
+    report = catalog.readiness(refs=[revenue_entry, expression])
 
     assert report.status == "ready_with_warnings"
     assert report.analysis_ready_refs == (revenue,)

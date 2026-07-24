@@ -11,6 +11,7 @@ from marivo.analysis._pages import _BoundedPage
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.refs import RefPayloadV1
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
@@ -712,6 +713,27 @@ ArtifactIssueAdapter: TypeAdapter[ArtifactIssue] = TypeAdapter(ArtifactIssue)
 
 class DigestReadContract(_FrozenModel):
     exact_reads: tuple[str, ...]
+
+    def _repr_identity(self) -> str:
+        return f"DigestReadContract exact_reads={len(self.exact_reads)}"
+
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Render exact persisted reads without reading SQLite or raw rows."""
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(".exact_reads", ".model_dump()", ".render()", ".show()"),
+            )
+            .listing("exact persisted reads", self.exact_reads)
+            .render(max_output_bytes=max_output_bytes)
+        )
+
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        """Print exact persisted reads without executing them."""
+        print(self.render(max_output_bytes=max_output_bytes))
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
 
 
 class ArtifactDigest(_FrozenModel):

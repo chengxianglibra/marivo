@@ -124,14 +124,16 @@ perform, are:
   dependencies matter.
 - Ask the user only when semantic intent or business policy is still unresolved
   after the evidence pass.
-- Author exactly one semantic object in Python, reload, require its exact ref,
-  and inspect the resulting catalog entry.
+- Author exactly one semantic object in Python, reload, navigate to the exact
+  current catalog entry, and inspect it. Use the strict ref-only
+  `catalog.require(ref)` path when identity comes from configuration,
+  persistence, or logs.
 
 Authoring several objects and validating later is forbidden — each object is
 verified before the next. Verification is result-local (a current `VerifyResult`
 proves one check passed) and not a persisted gate; the skill enforces
 verify-before-preview as policy, while the runtime leaves preview mechanically
-callable from an exact loaded ref.
+callable from an exact current entry or its exact ref.
 
 ## Datasource evidence handoff
 

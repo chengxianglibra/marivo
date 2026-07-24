@@ -6,6 +6,7 @@ import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis.errors import TemporalSuitabilityError
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
 from marivo.semantic.catalog import SemanticKind
@@ -194,7 +195,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
     assert list(frame.to_pandas().columns) == ["bucket_start", "revenue"]
 
 
-def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
+def test_windowed_time_series_requires_explicit_axis_for_multi_dataset_metric(tmp_path):
     _bootstrap_multi_dataset(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_multi_dataset(con)
@@ -203,9 +204,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
         backends={"warehouse": lambda: con},
     )
 
-    from marivo.analysis.intents.observe_errors import ObservePlanningError
-
-    with pytest.raises(ObservePlanningError) as exc_info:
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
         observe(
             make_ref("sales.net", SemanticKind.METRIC),
             time_scope={"start": "2026-05-01", "end": "2026-05-24"},
@@ -213,7 +212,15 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
             session=s,
         )
 
-    assert exc_info.value._context["code"] == "path-missing"
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.snippet is None
+    assert exc_info.value._context["candidate_time_dimensions"] == {
+        "sales.net": (
+            "sales.orders.order_date",
+            "sales.refunds.refund_date",
+        )
+    }
     assert s.jobs() == []
     assert s.frame_summaries().items == ()
 

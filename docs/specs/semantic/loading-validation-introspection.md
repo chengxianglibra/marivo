@@ -80,12 +80,12 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by typed ID. |
-| `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.refs`, `.get(key)`, `.show()`. |
-| `catalog.verify(ref)` | Static, zero-query validation of one exact ref. |
-| `catalog.preview(ref, using=snapshot_or_mapping)` | Scoped runtime preview for one ref, bound to matching snapshot evidence. |
-| `catalog.preview_many(refs, using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
-| `catalog.readiness(refs=[ref_or_runtime_expr])` | Zero-query readiness gate scoped to exact semantic refs or closed runtime metric expressions. |
+| `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by exact typed ref; this global lookup remains ref-only. |
+| `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, or exact same-kind ref within that collection's scope. |
+| `catalog.verify(entry_or_ref)` | Static, zero-query validation of one exact current entry or ref. |
+| `catalog.preview(entry_or_ref, using=snapshot_or_mapping)` | Scoped runtime preview for one current entry or ref, bound to matching snapshot evidence. |
+| `catalog.preview_many(entries_or_refs, using=snapshot_or_mapping)` | Normalize an ordered batch before execution, then persist an independent preview check for every canonical ref. |
+| `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
@@ -115,18 +115,29 @@ Every container object's bounded `render()` / `show()` card advertises its live
 navigation properties and counts. A domain card includes a `navigation:` section
 listing each valid child collection with its count, so the agent discovers
 `.entities`, `.metrics`, etc. from real state rather than memorizing a matrix.
-Leaf object cards advertise `details()`, `contract()`, `render()`, and `show()`.
-Metric cards additionally summarize composition and candidate-axis counts, and
-point to `details().show()` for the full authored definition and static analysis
-scope.
+Every entry card names its exact kind and full path, exposes `.ref`, and
+advertises `details()`, `contract()`, `render()`, `show()`, and bounded
+navigation. Metric cards additionally render bounded exact refs for effective
+entities, candidate dimensions, candidate time dimensions, required
+relationships, and component/measure lineage when present. An empty time-axis
+set is explicit (`candidate_time_dimensions: none`). Omitted members include an
+omitted count and a concrete full read such as `details().show()`; cards never
+rank axes or recommend an operator.
 
 ### Lookup rules
 
-`CatalogCollection.get(key)` accepts an exact typed ID or a local name that is
-unique within that collection view. It rejects bare semantic IDs. If a short
-name is ambiguous, lookup raises a structured error listing bounded typed-ID
-candidates. `catalog.require(ref)` accepts only typed IDs; rejected short names are
-still searched for teaching-error suggestions but never resolved implicitly.
+`CatalogCollection.get(key)` accepts a local name, a full semantic path, or an
+exact same-kind `Ref`. A local name must be unique in the current collection
+view; a full path or ref must still be visible within that view. A scoped
+collection therefore cannot be escaped by passing a global path or ref. If a
+local name is ambiguous, lookup raises a structured error listing bounded exact
+full-path calls. Wrong-kind refs point to the owning global collection without
+being resolved implicitly.
+
+`catalog.require(ref)` remains the strict cross-kind global membership operation
+and accepts only exact typed refs. It does not share the collection string
+grammar; rejected short names may be searched for teaching suggestions but are
+never resolved implicitly.
 
 ### Structured lookup errors
 
@@ -134,13 +145,16 @@ Catalog lookup errors follow the shared semantic error model. They state the
 expected input, received input, relevant scope, and a concrete next call derived
 from the loaded index:
 
-- **Ambiguous short name:** list bounded typed-ID candidates and show
-  `collection.get("<typed-id>")`.
+- **Ambiguous local name:** list bounded exact full paths and show
+  `collection.get("<full-path>")`.
 - **Wrong object type:** identify the typed ID's real type and point to the
   corresponding global collection.
 - **Outside current scope:** state that the object exists globally, identify its
-  owning path, and show the valid scoped or global lookup.
+  owning path, and show the strict global `catalog.require(ref)` alternative.
 - **Not found:** show bounded close matches from the current collection.
+- **Stale/cross-catalog entry:** reject the ephemeral handle. A stale
+  same-project entry receives an exact reacquisition retry only when the same
+  path and kind still exist; entries owned by another catalog do not.
 
 `catalog.require(ref).details()` returns a structured details dataclass (not just
 text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
@@ -193,11 +207,18 @@ through the catalog:
 
 ```python
 catalog = ms.load()
-revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+revenue = catalog.metrics.get("sales.revenue")
 catalog.verify(revenue).show()
 catalog.preview(revenue, using=snapshot).show()
 catalog.readiness(refs=[revenue]).show()
 ```
+
+These runtime methods accept an exact entry from the current compiled catalog or
+its exact ref and normalize immediately to the canonical ref. Ordered batches
+are normalized completely before preview begins. No `CatalogEntry`, catalog
+pointer, or object identity reaches preview evidence, readiness output,
+persistence, replay, or recovery. Semantic authoring constructors and
+decorators remain ref-only.
 
 Backend resolution rules:
 
@@ -293,9 +314,11 @@ style. The mapping from error kind to agent action is mechanical:
 
 Two checks sit at the end of the write loop:
 
-- **`catalog.readiness(refs=[ref_or_runtime_expr])`** runs pure in-memory checks
-  over the governed dependency closure of exact refs and closed runtime metric
-  expressions selected for certification. Runtime expressions lower through
+- **`catalog.readiness(refs=[entry_or_ref_or_runtime_expr])`** runs pure
+  in-memory checks over the governed dependency closure of exact current
+  entries, refs, and closed runtime metric expressions selected for
+  certification. Entries normalize to refs before duplicate detection or
+  dependency lowering. Runtime expressions lower through
   the same bounded graph contract as analysis, including weighted-mean,
   datasource-domain, depth, and occurrence checks. It is
   the explicit certification and diagnostic at the end of an authoring change,
@@ -318,7 +341,7 @@ Two checks sit at the end of the write loop:
   ranking from example questions, analysis intents, run-history refs, and the
   build purpose.
 
-`catalog.verify(ref)` completes the static per-ref surface. A current
+`catalog.verify(entry_or_ref)` completes the static per-object surface. A current
 `VerifyResult` proves that one explicit check passed, but verification is
 **result-local**: it is not persisted as a workflow checkpoint and is not a
 runtime prerequisite for preview. The `marivo-semantic` skill enforces
@@ -344,23 +367,29 @@ catalog fingerprint, semantic dependency digest, entity-snapshot bindings, and
 backend all match the active compiled catalog.
 
 The report does not create a second transfer object or validation token. After
-readiness succeeds, an agent passes only the listed refs to the ordinary analysis
-APIs. Analysis resolves those refs against its current catalog at the actual
-operation boundary. Readiness remains explicit and is not invoked automatically
-by `session.observe(...)` or another analysis operator.
+readiness succeeds, an agent passes the listed canonical refs or runtime
+expressions to the ordinary analysis APIs. Independently navigated current
+catalog entries are also valid at the qualifying analysis boundaries; both
+forms normalize to refs at the actual operation boundary. Readiness remains
+explicit and is not invoked automatically by `session.observe(...)` or another
+analysis operator.
 
 ## Relationship to analysis
 
 The boundary is firm: `semantic` owns *what an object is, what its caliber is, and
 how it materializes*; `analysis` owns *observe / compare / attribute / correlate
-over those objects, with session persistence and lineage*. Analysis reads objects
-through semantic refs and never re-defines a caliber, guesses an entity or time
-dimension, or bypasses the registry to read a table directly. When an analysis
-needs a new business object, extend `semantic` first, then let `analysis` consume
-it — business definitions do not hide inside one-off analysis scripts.
+over those objects, with session persistence and lineage*. At qualifying
+catalog-bound runtime inputs, analysis accepts an exact current `CatalogEntry`
+or its exact `Ref`, then immediately normalizes to the ref. It never re-defines a
+caliber, guesses an entity or time dimension, persists an entry, or bypasses the
+registry to read a table directly. When an analysis needs a new business object,
+extend `semantic` first, then let `analysis` consume it — business definitions do
+not hide inside one-off analysis scripts.
 
-Semantic readiness is the explicit certification boundary: analysis uses only
-`analysis_ready_refs` from the current report. A missing required semantic object
-activates `marivo-semantic` through the structured `semantic_authoring` repair and
-returns to the same semantic entry, requiring matching scoped readiness before
+Semantic readiness is the explicit certification boundary:
+`analysis_ready_inputs` carries the requested canonical refs or runtime
+expressions whose dependency closures passed; `analysis_ready_refs` remains the
+refs-only projection. A missing required semantic object activates
+`marivo-semantic` through the structured `semantic_authoring` repair and returns
+to the same semantic entry, requiring matching scoped readiness before
 resuming.

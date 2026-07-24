@@ -191,6 +191,7 @@ class EventFrame(BaseFrame):
 
     def __post_init__(self) -> None:
         self._restore_persisted_identity_columns()
+        super().__post_init__()
 
     def _restore_persisted_identity_columns(self) -> None:
         restore_event_identity_columns(self._df)

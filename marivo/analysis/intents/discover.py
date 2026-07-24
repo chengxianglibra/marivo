@@ -62,7 +62,8 @@ from marivo.analysis.semantic_inputs import (
 )
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.refs import FieldKind, Ref
+from marivo.refs import DimensionKind, TimeDimensionKind
+from marivo.semantic.catalog import _SemanticInput
 
 _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
@@ -136,13 +137,23 @@ def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
     return objective in _VALID_OBJECTIVES
 
 
-def _normalize_dimension_boundary(session: Session, value: Ref[FieldKind], *, argument: str) -> str:
-    return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
+def _normalize_dimension_boundary(
+    session: Session,
+    value: _SemanticInput[DimensionKind | TimeDimensionKind],
+    *,
+    argument: str,
+) -> str:
+    return normalize_catalog_dimension_boundary(
+        session.catalog,
+        value,
+        argument=argument,
+        help_target="discover",
+    )
 
 
 def _normalize_dimension_inputs_boundary(
     session: Session,
-    values: list[Ref[FieldKind]] | None,
+    values: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None,
     *,
     argument: str,
 ) -> list[str] | None:
@@ -162,8 +173,8 @@ def _discover_dispatch(
     value: str | None = None,
     threshold: float | None = None,
     limit: int | None = _DEFAULT_DISCOVER_LIMIT,
-    search_space: list[Ref[FieldKind]] | None = None,
-    peer_scope: list[Ref[FieldKind]] | None = None,
+    search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    peer_scope: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
     session: Session | None = None,
     analysis_purpose: str | None = None,
 ) -> CandidateSet:
@@ -419,7 +430,7 @@ class DiscoverAPI:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[Ref[FieldKind]],
+        search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
         value: str | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
@@ -439,7 +450,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[Ref[FieldKind]] | None = None,
+        search_space: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
@@ -481,7 +492,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[Ref[FieldKind]] | None = None,
+        peer_scope: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,

@@ -11,6 +11,7 @@ from marivo.analysis.evidence.types import (
     AnalysisScope,
     DeltaFindingValue,
     DerivationRule,
+    DigestReadContract,
     EventAnalysisScope,
     EventJourneyObservationValue,
     EventSubject,
@@ -162,6 +163,27 @@ def test_evidence_union_rejects_pre_v4_untagged_subject_and_scope() -> None:
         EvidenceSubjectAdapter.validate_python({"analysis_axis": "scalar"})
     with pytest.raises(ValidationError):
         EvidenceScopeAdapter.validate_python({"assumptions": []})
+
+
+def test_digest_read_contract_renders_exact_calls_without_executing_reads(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    contract = DigestReadContract(
+        exact_reads=(
+            "session.evidence.digest('frame_abc')",
+            "session.evidence.findings(artifact_ref='frame_abc')",
+            "session.get_frame('frame_abc')",
+        )
+    )
+
+    rendered = contract.render()
+    assert capsys.readouterr().out == ""
+    assert "session.evidence.digest('frame_abc')" in rendered
+    assert "session.evidence.findings(artifact_ref='frame_abc')" in rendered
+    assert "session.get_frame('frame_abc')" in rendered
+    assert contract.model_dump()["exact_reads"] == contract.exact_reads
+    assert contract.show() is None
+    assert capsys.readouterr().out == rendered + "\n"
 
 
 @pytest.mark.parametrize(

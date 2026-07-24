@@ -154,6 +154,7 @@ def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> Non
     frame = _event_frame(session)
 
     assert classify_input_family(frame) == "EventFrame"
+    assert frame.row_count == frame.shape[0]
     assert classify_input_family(frame.meta.pattern) == "EventPattern"
     assert classify_input_family(frame.meta.matching) == "EventMatchingPolicy"
     validate_capability_inputs("assess_quality", target=frame)

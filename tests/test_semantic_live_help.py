@@ -122,14 +122,15 @@ def test_help_resolves_type_target() -> None:
     assert "SemanticCatalog" in text
 
 
-def test_root_and_ref_help_teach_one_entry_to_ref_handoff() -> None:
+def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> None:
     root = ms.help_text()
     focused = ms.help_text(ms.Ref)
 
     assert "CatalogEntry" in root
     assert "entry.ref" in root
+    assert "pass a current CatalogEntry directly" in root
     assert "ms.ref.<kind>(path)" in root
-    assert "entry = catalog.require(ms.ref.metric('sales.revenue'))" in focused
+    assert "entry = catalog.metrics.get('sales.revenue')" in focused
     assert "metric_ref = entry.ref" in focused
     assert "ms.bind(field_ref, entity_alias)" in focused
     assert "bind" in root
@@ -141,6 +142,13 @@ def test_root_and_ref_help_teach_one_entry_to_ref_handoff() -> None:
 
     bind = ms.help_text(ms.bind)
     assert "ms.bind(amount, orders)" in bind
+
+
+@pytest.mark.parametrize("target", ["verify", "preview", "preview_many", "readiness"])
+def test_runtime_help_uses_public_semantic_input_name(target: str) -> None:
+    text = ms.help_text(target)
+    assert "_SemanticInput" not in text
+    assert "SemanticInput" in text
 
 
 def test_help_resolves_error_type_target() -> None:

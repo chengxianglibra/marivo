@@ -10,7 +10,7 @@ from datetime import date, datetime, time
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -24,7 +24,7 @@ from marivo.analysis.evidence.types import (
     QualitySummary,
 )
 from marivo.analysis.lineage import Lineage
-from marivo.render import Card, RenderableResult
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
 
 CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v6"] = "analysis-artifact/v6"
 
@@ -139,6 +139,23 @@ class ArtifactPrecondition(BaseModel):
     status: ArtifactPreconditionStatus
     reason: str | None = None
     repair: AnalysisRepair | None = None
+    repair_options: tuple[AnalysisRepair, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_repairs(self) -> ArtifactPrecondition:
+        has_repair = self.repair is not None
+        has_options = bool(self.repair_options)
+        if has_repair and has_options:
+            raise ValueError("repair and repair_options are mutually exclusive")
+        if self.status == "fail" and not (has_repair or has_options):
+            raise ValueError("failed precondition requires repair or repair_options")
+        repairs = (self.repair,) if self.repair is not None else self.repair_options
+        for item in repairs:
+            if not item.action.strip():
+                raise ValueError("precondition repair action must be non-empty")
+            if item.kind == "retry" and not (item.snippet and item.snippet.strip()):
+                raise ValueError("retry precondition repair requires a runnable snippet")
+        return self
 
 
 class ArtifactInputRequirement(BaseModel):
@@ -190,6 +207,22 @@ class ArtifactContract(BaseModel):
     affordances: tuple[ArtifactAffordance, ...] = ()
     boundary_ports: tuple[ArtifactBoundaryPort, ...] = ()
 
+    def _repr_identity(self) -> str:
+        return (
+            f"ArtifactContract kind={self.kind} ref={self.ref} affordances={len(self.affordances)}"
+        )
+
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Render the bounded mechanical contract without reading artifact rows."""
+        return _artifact_contract_card(self).render(max_output_bytes=max_output_bytes)
+
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        """Print the bounded mechanical contract."""
+        print(self.render(max_output_bytes=max_output_bytes))
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
 
 class ArtifactState(BaseModel):
     """Baseline runtime facts for a materialized artifact."""
@@ -234,7 +267,129 @@ def _visible_precondition(precondition: ArtifactPrecondition) -> bool:
     """
     if precondition.status == "pass":
         return bool(precondition.reason and precondition.reason.strip())
-    return bool(precondition.repair and precondition.repair.action.strip())
+    if precondition.repair is not None:
+        return _visible_repair(precondition.repair)
+    return bool(precondition.repair_options) and all(
+        _visible_repair(repair) for repair in precondition.repair_options
+    )
+
+
+def _visible_repair(repair: AnalysisRepair) -> bool:
+    if not repair.action.strip():
+        return False
+    return repair.kind != "retry" or bool(repair.snippet and repair.snippet.strip())
+
+
+def _affordance_visible(affordance: ArtifactAffordance) -> bool:
+    """Suppress only failed preconditions that lack executable or inspectable repair."""
+    return not any(
+        precondition.status == "fail" and not _visible_precondition(precondition)
+        for precondition in affordance.preconditions
+    )
+
+
+def _artifact_contract_card(contract: ArtifactContract) -> Card:
+    """Build the bounded contract card from already-materialized typed facts."""
+    semantic_shape = contract.artifact_schema.semantic_shape or "unspecified"
+    card = (
+        Card(
+            identity=contract._repr_identity(),
+            available=(
+                ".artifact_schema",
+                ".issues",
+                ".affordances",
+                ".boundary_ports",
+                ".model_dump()",
+                ".render()",
+                ".show()",
+            ),
+        )
+        .field("canonical_state", "canonical" if contract.is_canonical else "non_canonical")
+        .field("receiver", "frame")
+        .field("semantic_shape", semantic_shape)
+        .listing(
+            "columns",
+            (
+                f"{column.name}: dtype={column.dtype} nullable={str(column.nullable).lower()} "
+                f"role={column.role}"
+                for column in contract.artifact_schema.columns
+            ),
+        )
+    )
+    if contract.issues:
+        from marivo.analysis.evidence.summary import render_artifact_issue
+
+        card.listing(
+            "issues/blockers",
+            (
+                f"{issue.severity} {issue.kind}: {render_artifact_issue(issue)}"
+                for issue in contract.issues
+            ),
+        )
+
+    affordances = tuple(
+        affordance for affordance in contract.affordances if _affordance_visible(affordance)
+    )
+    card.listing("typed affordances", (_render_affordance(item) for item in affordances))
+    precondition_lines = tuple(
+        line
+        for affordance in affordances
+        for precondition in affordance.preconditions
+        if _visible_precondition(precondition)
+        for line in _render_precondition(affordance.capability_id, precondition)
+    )
+    if precondition_lines:
+        card.listing("preconditions and repairs", precondition_lines)
+    card.listing(
+        "terminal boundary ports",
+        (
+            f"{port.capability_id}: {port.public_entrypoint}; help={port.help_target}; "
+            f"preserves={', '.join(port.preserves)}; "
+            f"does_not_preserve={', '.join(port.does_not_preserve)}"
+            for port in contract.boundary_ports
+        ),
+    )
+    return card
+
+
+def _render_affordance(affordance: ArtifactAffordance) -> str:
+    bindings = "; ".join(
+        (
+            f"{requirement.parameter}={','.join(requirement.accepted_families)} "
+            f"(current_artifact={str(requirement.bindable_from_current_artifact).lower()})"
+        )
+        for requirement in affordance.input_requirements
+    )
+    return (
+        f"{affordance.capability_id}: {affordance.public_entrypoint}; "
+        f"help={affordance.help_target}; inputs={bindings or 'none'}; "
+        f"output={affordance.expected_output_family or 'none'}"
+    )
+
+
+def _render_precondition(
+    capability_id: str,
+    precondition: ArtifactPrecondition,
+) -> tuple[str, ...]:
+    reason = precondition.reason or "none"
+    lines = [f"{capability_id}.{precondition.check}: status={precondition.status}; reason={reason}"]
+    repairs = (
+        (precondition.repair,) if precondition.repair is not None else precondition.repair_options
+    )
+    for index, repair in enumerate(repairs, start=1):
+        snippet = repair.snippet.replace("\n", "\\n") if repair.snippet is not None else "none"
+        target = repair.help_target
+        help_target = (
+            f"{target.surface}:{target.canonical_id}"
+            if target.canonical_id is not None
+            else target.surface
+        )
+        option = f" option={index}" if len(repairs) > 1 else ""
+        lines.append(
+            f"{capability_id}.{precondition.check}{option}: repair={repair.kind}; "
+            f"action={repair.action}; help={help_target}; snippet={snippet}"
+        )
+    return tuple(lines)
 
 
 def _output_family_str(desc: Any) -> str:
@@ -292,6 +447,17 @@ class BaseFrame(RenderableResult):
         ".contract()",
         ".to_pandas()",
     )
+
+    def __post_init__(self) -> None:
+        self._assert_row_count_consistent()
+
+    def _assert_row_count_consistent(self) -> None:
+        materialized = int(self._df.shape[0])
+        if self.meta.row_count != materialized:
+            raise ValueError(
+                "frame row count mismatch: "
+                f"meta.row_count={self.meta.row_count}, materialized={materialized}"
+            )
 
     @property
     def ref(self) -> str:
@@ -395,8 +561,7 @@ class BaseFrame(RenderableResult):
                 expected_output_family=output_family,
             )
             # Suppress affordances with failed preconditions that lack visible repair.
-            visible = all(_visible_precondition(p) for p in affordance.preconditions)
-            if visible:
+            if _affordance_visible(affordance):
                 affordances.append(affordance)
         return ArtifactContract(
             kind=self.meta.kind,
@@ -436,6 +601,12 @@ class BaseFrame(RenderableResult):
     @property
     def shape(self) -> tuple[int, int]:
         return self._df.shape
+
+    @property
+    def row_count(self) -> int:
+        """Return materialized rows and fail closed on persisted metadata drift."""
+        self._assert_row_count_consistent()
+        return int(self._df.shape[0])
 
     @property
     def columns(self) -> list[str]:

@@ -320,9 +320,19 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
 
 def _format_input_families(desc: OperatorCapability) -> list[str]:
     """Format accepted input families for display."""
+    display = {
+        "MetricSemantic": "MetricSemantic (MetricEntry | Ref[metric])",
+        "DimensionSemantic": (
+            "DimensionSemantic (DimensionEntry | TimeDimensionEntry | "
+            "Ref[dimension | time_dimension])"
+        ),
+        "TimeDimensionSemantic": (
+            "TimeDimensionSemantic (TimeDimensionEntry | Ref[time_dimension])"
+        ),
+    }
     rows: list[str] = []
     for param, families in desc.accepted_inputs.items():
-        family_list = ", ".join(sorted(families))
+        family_list = ", ".join(display.get(family, family) for family in sorted(families))
         rows.append(f"  {param}: {family_list}")
     return rows
 
@@ -510,7 +520,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                     if isinstance(ann, type):
                         part += f": {ann.__name__}"
                     elif isinstance(ann, str):
-                        part += f": {ann}"
+                        part += f": {ann.replace('_SemanticInput', 'SemanticInput')}"
                 if p.default is not inspect.Parameter.empty:
                     if p.default is None:
                         part += " = None"
@@ -1016,7 +1026,7 @@ def _render_reference_briefing(
     lines.append("")
     lines.append(
         "use: catalog.metrics.show() to enumerate; "
-        "pass catalog.metrics.get('<local_name>').ref to session.observe(...)"
+        "pass catalog.metrics.get('<local_name>') directly to session.observe(...)"
     )
 
     text = "\n".join(lines)
