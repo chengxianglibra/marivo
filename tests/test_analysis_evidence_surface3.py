@@ -50,11 +50,11 @@ def _compare(session):
     from marivo.semantic.catalog import SemanticKind
 
     current = session.observe(
-        metric=make_ref("sales.revenue", SemanticKind.METRIC),
+        metrics=make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-05-01", "end": "2026-05-07"},
     )
     baseline = session.observe(
-        metric=make_ref("sales.revenue", SemanticKind.METRIC),
+        metrics=make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-04-24", "end": "2026-04-30"},
     )
     return session.compare(current, baseline)

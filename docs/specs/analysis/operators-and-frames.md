@@ -103,7 +103,7 @@ This is the single analysis API an agent learns on the main path. Each entry is 
 
 | Operator | Output | Notes |
 | --- | --- | --- |
-| `session.observe(...)` | `MetricFrame` | Materialize one metric (or a same-scope metric list) over a window. |
+| `session.observe(...)` | `MetricFrame` | Materialize one metric or a same-scope metric list over a window. |
 | `session.compare(current, baseline, ...)` | `DeltaFrame` | Frame-to-frame delta only; no metric+windows shorthand. |
 | `session.attribute(delta, axes=[...], ...)` | `AttributionFrame` | Deterministic attribution over explicit axes. |
 | `session.discover.<objective>(...)` | `CandidateSet` | Objective-specific candidate discovery. |
@@ -161,15 +161,16 @@ revenue = session.catalog.metrics.get("analytics.dau")
 platform = session.catalog.dimensions.get("analytics.events.platform")
 
 series = session.observe(
-    metric=revenue,
+    metrics=revenue,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
     dimensions=[platform],
 )
 ```
 
-**Multi-metric.** The `metric` argument accepts a single metric or a non-empty
-list of same-scope metrics. For temporal observations, every root must resolve
+**Multi-metric.** The `metrics` argument accepts a single metric or a non-empty
+list of same-scope metrics. A single metric may also be passed positionally.
+For temporal observations, every root must resolve
 to the same exact time-dimension ref; roots with different implicit axes fail
 before backend work rather than merging semantically different buckets. Simple
 metrics on one datasource are merged into one query (compatible
@@ -262,8 +263,8 @@ Window/grain/dimension choices are made explicitly in the two `observe` calls, s
 `compare` never guesses windows:
 
 ```python
-current = session.observe(metric=m, time_scope={"start": "2026-06-18", "end": "2026-06-25"}, grain="day")
-baseline = session.observe(metric=m, time_scope={"start": "2026-06-11", "end": "2026-06-18"}, grain="day")
+current = session.observe(metrics=m, time_scope={"start": "2026-06-18", "end": "2026-06-25"}, grain="day")
+baseline = session.observe(metrics=m, time_scope={"start": "2026-06-11", "end": "2026-06-18"}, grain="day")
 delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
 

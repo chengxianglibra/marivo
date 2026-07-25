@@ -613,7 +613,7 @@ class Session(RenderableResult):
 
     def observe(
         self,
-        metric: (
+        metrics: (
             _SemanticInput[MetricKind]
             | RuntimeMetricExpr
             | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
@@ -633,7 +633,7 @@ class Session(RenderableResult):
         cohort: SubjectSet | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
-        """Materialize a metric into a typed MetricFrame.
+        """Materialize one or more metric roots into a typed MetricFrame.
 
         When to use: starting point for any metric analysis workflow.
 
@@ -649,7 +649,7 @@ class Session(RenderableResult):
         metadata rather than catalog authority or value identity.
 
         Args:
-            metric: Exact current-catalog metric entry/ref,
+            metrics: Exact current-catalog metric entry/ref,
                 ``RuntimeMetricExpr``, or a non-empty list/tuple of either over
                 one shared scope. Bare strings and stale or cross-catalog
                 entries are rejected. Catalog and runtime roots may be
@@ -701,6 +701,9 @@ class Session(RenderableResult):
             ...     analysis_purpose="确认三季度按国家收入走势",
             ... )
             >>> frame.show()
+            >>> order_count = catalog.metrics.get("sales.order_count")
+            >>> report = session.observe(metrics=[revenue, order_count])
+            >>> report.show()
             >>> # Filter to a subset before aggregation with slice_by:
             >>> us_online_frame = session.observe(
             ...     revenue,
@@ -725,7 +728,7 @@ class Session(RenderableResult):
         ) as telemetry_operation:
             validate_capability_inputs("observe", time_scope=time_scope, cohort=cohort)
             result = observe(
-                metric,
+                metrics,
                 time_scope=time_scope,
                 grain=grain,
                 dimensions=dimensions,

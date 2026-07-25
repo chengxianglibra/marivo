@@ -321,7 +321,7 @@ segments.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `metric` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact current metric entry/ref or closed runtime expression; stale/cross-catalog entries, generic refs, and bare strings are rejected. |
+| `metrics` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact current metric entry/ref or closed runtime expression; accepts one value or a sequence. Stale/cross-catalog entries, generic refs, and bare strings are rejected. |
 | `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
 | `dimensions` | entry/ref sequence | No | `None` | Exact current dimension/time-dimension entries or refs. |
@@ -352,8 +352,10 @@ sufficient. The structured repair exposes exact current candidates without
 guessing a time axis; a retry appears only when the replacement is mechanically
 unique.
 
-Pass a sequence to observe several same-scope metrics in one frame. Marivo
-requires temporal roots to resolve the same exact time-dimension ref, fuses
+Pass a sequence through `metrics=` to observe several same-scope metrics in one
+frame. `metrics` also accepts a single metric, while the single-metric
+positional form remains valid. The former `metric=` keyword is not an alias.
+Marivo requires temporal roots to resolve the same exact time-dimension ref, fuses
 same-datasource metrics into one query, and outer-joins compatible
 cross-datasource metrics on that shared time axis. Use `frame.metric(id)` to
 project an arity-1 frame for drill-down on a single metric.
@@ -373,7 +375,7 @@ afterward, read the result with `filtered[filtered.value_columns[0]]` or
 
 ```python
 report = session.observe(
-    [revenue, catalog.metrics.get("sales.total_orders")],
+    metrics=[revenue, catalog.metrics.get("sales.total_orders")],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )

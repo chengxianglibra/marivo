@@ -1,5 +1,7 @@
 """observe with a metric sequence: boundary, fusion, meta, evidence."""
 
+import inspect
+
 import ibis
 import pytest
 
@@ -88,10 +90,40 @@ def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session)
     assert frame.arity == 2
 
 
+def test_public_session_observe_uses_plural_metrics_keyword(sales_session):
+    catalog = sales_session.catalog
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    order_count = catalog.require(ms.ref.metric("sales.order_count")).ref
+
+    parameters = inspect.signature(type(sales_session).observe).parameters
+    assert "metrics" in parameters
+    assert "metric" not in parameters
+
+    scalar = sales_session.observe(metrics=revenue)
+    forest = sales_session.observe(metrics=[revenue, order_count])
+
+    assert scalar.meta.metric_id == "sales.revenue"
+    assert forest.metrics == ("sales.revenue", "sales.order_count")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'metric'"):
+        sales_session.observe(metric=revenue)  # type: ignore[call-arg]
+
+
+def test_public_session_observe_rejects_empty_metrics_sequence(sales_session):
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        sales_session.observe(metrics=[])
+
+    assert exc_info.value._context["argument"] == "metrics"
+
+
 def test_registered_direct_ref_segmented_example_executes(sales_session):
     from marivo.analysis._capabilities.registry import REGISTRY
 
-    example = REGISTRY.by_id("observe").additional_examples[0]
+    example = next(
+        item
+        for item in REGISTRY.by_id("observe").additional_examples
+        if item.label == "Direct Ref segmented time series"
+    )
     namespace = {"session": sales_session, "ms": ms}
     exec(compile(example.code, "<observe-help-example>", "exec"), namespace)
     frame = namespace["frame"]

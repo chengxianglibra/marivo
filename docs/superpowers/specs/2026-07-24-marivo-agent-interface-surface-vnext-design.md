@@ -1,8 +1,37 @@
 # Marivo Agent Execution Continuity Interface Design
 
-Status: proposed, implementation not started
+Status: implemented through Phase 4; Phase 5 unified-help breaking amendment approved, implementation not started
 
 Date: 2026-07-24
+
+Phase 4 candidate: `797f81a762d65b388e0ab6607f1692f4c5df80a8`
+
+The deterministic gates, installed-wheel smoke, and complete frozen DAComp-DA
+comparison pass for this exact candidate. Across three trials for each of ten
+tasks, the candidate completed 29/30 trials versus 26/30 for the frozen
+baseline, raised the non-visual rubric median from 91.15 to 94.38, and reduced
+median help and failed calls without increasing median turns or tool calls.
+Transcript review found remaining signature, help-routing, datasource
+connection/ref, and task-specific composition friction, but no repeatable
+contract-level regression that blocks cutover. The external execution record,
+adjudication rules, per-task dispersion, and follow-up list live in
+`../../../../marivo-agent-evals/suites/dacomp_da/mvp_v1/PHASE4_AGENT_SURFACE_REPORT.md`.
+
+The implemented post-cutover follow-up keeps these boundaries narrow:
+
+- `Session.observe(metrics=...)` names its scalar-or-sequence input consistently
+  while retaining positional single-metric calls and rejecting the old
+  `metric=` spelling;
+- analysis help rejects foreign callables with an exact owning-surface
+  continuation instead of copying help across surfaces;
+- `md.inspect(...)` remains a strict datasource-ref entry point and now teaches
+  direct inspection plus the complete bounded inspection actions.
+
+The Phase 5 amendment in this document supersedes only the earlier public help
+ownership and environment-entry contract. It does not invalidate the Phase 4
+candidate, evaluation evidence, typed semantic input work, result protocols,
+or operator behavior. Where the completed Phase 1 help entry conflicts with
+Public Contract 1 or Phase 5 below, the Phase 5 contract is normative.
 
 ## Summary
 
@@ -24,6 +53,12 @@ terminal escape.
 
 This design closes that gap by:
 
+- replacing the three public `md.help(...)`, `ms.help(...)`, and `mv.help(...)`
+  surfaces with one canonical `marivo.help(...)` entry while preserving
+  surface-native descriptor ownership behind private render adapters;
+- making `python -m marivo help` a bootstrap-only environment check that
+  teaches the verified Python import and never competes with focused Python
+  help;
 - accepting an exact loaded `CatalogEntry[K]` at catalog-bound runtime inputs
   that currently accept its corresponding `Ref[K]`, while normalizing
   immediately to `Ref[K]` and keeping persistence ref-only;
@@ -186,7 +221,8 @@ operator selection.
 
 | Owner | Owns | Must not own |
 | --- | --- | --- |
-| Top-level module and CLI | Environment-bound routing into the three public surfaces | Analysis workflow or semantic inference |
+| Top-level module | Canonical help routing, global help topics, and object briefing composition | Domain descriptor semantics, analysis workflow, or semantic inference |
+| CLI help bootstrap | Environment fingerprint and the verified `import marivo; marivo.help(...)` handoff | Focused target help or object introspection |
 | Capability kernel | Canonical ids, public entrypoints, input/output families, help targets, examples, constraint links | Natural-language planning or ranked recommendations |
 | Semantic catalog | Loaded business objects, exact identity, graph navigation, available axes, readiness facts | Operator selection |
 | Public input normalizer | Entry/ref ownership, kind, membership, and canonical ref extraction | String-to-kind guessing or semantic fallback |
@@ -212,10 +248,13 @@ membership, immutability, lineage, or persisted identity.
 
 ### Canonical help ownership
 
-Equivalent spellings of one callable resolve to one capability descriptor.
-Runtime objects, semantic entries/refs, and error instances resolve to their
-own canonical type, reference, or repair briefing. The resolver never invents
-an operator identity for a semantic object that has several legal consumers.
+`marivo.help(...)` is the only public Python help entry. Equivalent spellings of
+one callable resolve to one surface-native capability descriptor through the
+shared resolver. Runtime objects, semantic entries/refs, and error instances
+resolve to their own canonical type, object, or repair briefing. The top-level
+router composes help; it does not flatten datasource, semantic, and analysis
+descriptor models or invent an operator identity for a semantic object that
+has several legal consumers.
 
 ### Focused-help sufficiency
 
@@ -254,7 +293,7 @@ This design does not:
 - add typed regression, generalized linear models, model comparison, delta
   R-squared, interaction modeling, or another new statistical operator;
 - add a public natural-language planner or question-to-operator router;
-- expose the private capability registry through `mv.describe(...)`, JSON, or a
+- expose the private capability registry through `marivo.describe(...)`, JSON, or a
   public mutable registry;
 - accept bare semantic-id strings in analysis operators;
 - infer that an ordinary dimension named Date, Year, Month, or Timestamp is a
@@ -266,6 +305,9 @@ This design does not:
   persistence schemas except where entry values are normalized before those
   layers;
 - make help prose or layout a stable machine-readable schema;
+- expose a public `help_text`, JSON help projection, or mutable help registry;
+- add `marivo.load(kind=...)` or another top-level dispatcher that replaces
+  typed datasource and semantic operations;
 - add shape selectors, exhaustive help matrices, or other public APIs solely to
   make an evaluation harness easier to score;
 - turn catalog cards, readiness reports, evidence summaries, or paginated
@@ -281,87 +323,228 @@ single lookup scope, so accepting a bare string there would require guessing.
 
 ## Public Contract 1: Environment-Bound Entry
 
-### Top-level module
+### Top-level Python API
 
-The top-level `marivo` package continues to export only `__version__`. It gains
-a module docstring so `help(marivo)` teaches the supported surface without
-adding convenience exports:
+The top-level package exports one canonical help callable in addition to its
+version:
 
 ```python
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis.observe")
+```
+
+`marivo.help(target)` prints bounded deterministic help and returns `None`.
+There is no public `marivo.help_text`, structured help projection, or format
+selector. The CLI and tests may call a private string renderer; test
+convenience does not justify a second public API.
+
+The public annotation is a closed union of the registered string, callable,
+type, `Ref`, `CatalogEntry`, public result, and public error target families
+plus `None`. It does not use `Any`, an unrestricted `object`, duck typing, or a
+stringly typed object surrogate.
+
+The datasource, semantic, and analysis modules no longer expose `help` or
+`help_text`. Removing those names from `__all__` is insufficient: after the
+breaking cutover, all of these checks are false:
+
+```python
+hasattr(md, "help")
+hasattr(ms, "help")
+hasattr(mv, "help")
+```
+
+The private datasource, semantic, and analysis registries and renderers remain
+the authoritative owners of their descriptor semantics. The top-level help
+router lazily adapts to those owners; it does not copy or flatten them.
+
+### Bootstrap-only CLI
+
+The canonical environment entry is:
+
+```text
+<selected-python> -m marivo help
+```
+
+The equivalent console-script command may be used after its interpreter is
+known:
+
+```text
+marivo help
+```
+
+The command accepts no track or target. It prints:
+
+- the Marivo version;
+- the selected Python executable;
+- the loaded package path;
+- the supported execution imports;
+- `marivo.help()` as the only focused-help handoff;
+- concise examples for a string target and an object target.
+
+The execution imports remain:
+
+```python
+import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.analysis as mv
 ```
 
-The docstring points to:
+`marivo --help` continues to describe CLI syntax. `marivo help` verifies the
+installed Python environment and teaches the Python API. These are distinct
+roles.
+
+The CLI does not accept any of these forms:
 
 ```text
-<analysis-python> -m marivo help analysis
-<analysis-python> -m marivo help semantic
-<analysis-python> -m marivo help datasource
-```
-
-`dir(marivo)` remains small. There is no `marivo.session`, `marivo.project`,
-top-level `marivo.help`, or lazy submodule bridge.
-
-### CLI repair
-
-The canonical CLI grammar remains:
-
-```text
-marivo --version
-marivo help <track> [target]
-```
-
-Common invalid spellings do not become compatibility aliases, but their errors
-teach the canonical call:
-
-```text
-marivo version
-  -> "Use `marivo --version`."
-
 marivo help observe
-  -> "Specify the owning track: `marivo help analysis observe`."
+marivo help analysis observe
+marivo help semantic load
+marivo help datasource inspect
 ```
 
-The same environment fingerprint is rendered by:
+Extra arguments exit with status 2 and state that CLI help is bootstrap-only,
+then show `import marivo; marivo.help(...)`. The CLI never implements focused
+target routing, so the agent does not choose between two partially overlapping
+help systems.
 
-- `<analysis-python> -m marivo help analysis`;
-- the corresponding environment's `marivo help analysis`;
-- `mv.help()`.
+The environment fingerprint remains diagnostic state and must not enter
+persisted artifacts, evidence, or user deliverables.
 
-The fingerprint remains diagnostic state and must not enter persisted
-artifacts, evidence, or user deliverables.
+### Global target grammar
 
-### Help-target equivalence
+`marivo.help()` renders a short global index organized around datasource
+evidence, semantic authoring, and analysis. It is not the concatenation of the
+three native root pages. It stays inside the shared root-help budget and points
+to global composition topics or qualified focused targets for detail.
 
-These targets resolve to the same `observe` descriptor:
+Qualified string targets use:
+
+```text
+datasource.<canonical-id>
+semantic.<canonical-id>
+analysis.<canonical-id>
+```
+
+Only the first surface prefix is consumed by the global router. The remainder
+is resolved by the owning native surface, so nested ids such as
+`analysis.events.match` retain their full domain identity.
+
+For an unqualified string:
+
+1. one owner routes automatically;
+2. no owner raises one global help-target error with bounded suggestions;
+3. multiple owners render an explicitly registered global composition topic
+   when one exists;
+4. otherwise a global ambiguity error lists qualified targets and never picks
+   the first surface.
+
+Unknown and ambiguous public targets raise one top-level help-target error
+contract. Surface-specific help-target exceptions are implementation details
+and do not cross the `marivo.help(...)` boundary.
+
+These targets resolve to the same analysis descriptor:
 
 ```python
-mv.help("observe")
-mv.help("Session.observe")
-mv.help("session.observe")
-mv.help(mv.Session.observe)
-mv.help(session.observe)
+marivo.help("observe")
+marivo.help("analysis.observe")
+marivo.help("Session.observe")
+marivo.help("session.observe")
+marivo.help(mv.Session.observe)
+marivo.help(session.observe)
 ```
 
 This is target normalization, not several public capability aliases. Rendered
-help always names `observe` as the canonical id and
-`session.observe(...)` as the public invocation.
+help names the native canonical id and public invocation.
 
-Other target categories keep their existing owner:
+### Global composition topics
+
+`marivo.help("authoring")` is one bounded end-to-end workflow topic:
+
+```text
+datasource declaration
+  -> inspection
+  -> explicit scoped sampling
+  -> evidence projection
+  -> semantic authoring
+  -> verify
+  -> preview
+  -> readiness
+  -> analysis handoff
+```
+
+Its focused components remain addressable as
+`datasource.authoring` and `semantic.authoring`. The page composes two domain
+state machines; it does not merge their state or ownership.
+
+`marivo.help("load")` is a comparison topic, not an operation dispatcher. It
+distinguishes:
+
+```text
+datasource.load -> md.load() -> DatasourceCatalog
+semantic.load   -> ms.load() -> SemanticCatalog
+```
+
+`md.load()` and `ms.load()` remain separate typed operations.
+`marivo.load(kind=...)` does not exist.
+
+The former domain `help` and `help_text` descriptors are removed rather than
+becoming global composition topics.
+
+### Target-kind equivalence
 
 | Target | Canonical help result |
 | --- | --- |
-| Equivalent strings, callables, or bound methods for one public call | One capability descriptor |
+| Equivalent strings, callables, or bound methods for one public call | One surface-native capability descriptor |
 | Public result object or type | Its registered type contract |
-| Exact semantic ref or catalog entry | A bounded reference briefing for that semantic object |
-| Error instance with a repair help target | Concrete error briefing plus that canonical help target |
+| Exact `Ref` or `CatalogEntry` | One canonical semantic-object briefing |
+| Error instance with a repair help target | Concrete error briefing plus the qualified canonical target |
 | Error instance without a repair help target, or an error class | Generic registered error contract |
 
-A semantic ref or entry is not assigned to one operator descriptor: it may have
-several mechanically legal consumers. An error without a concrete repair target
-does not guess the capability that raised it.
+An error without a concrete repair target does not guess the capability that
+raised it.
+
+### Canonical semantic-object briefing
+
+`marivo.help(ref)` and `marivo.help(entry)` use one object-centered renderer.
+The namespace from which the object originated does not change its facts.
+
+A bare `Ref[K]` is pure typed identity. Its help may show:
+
+- kind and path;
+- how to load the semantic catalog and require the ref;
+- bounded object-inspection calls.
+
+It must not claim that the ref exists in a current project, that it is ready,
+or that an analysis operator is currently legal. It must not discover or load a
+project implicitly.
+
+A `CatalogEntry[K]` is already owned by one compiled catalog. Its help may
+compose:
+
+- identity from `entry.ref`;
+- business definition, unit, guardrails, composition, and lineage from
+  `entry.details()`;
+- current semantic continuations from `entry.contract()`;
+- conditional, kind-specific analysis consumers from the analysis registry.
+
+Potential analysis consumers are labeled conditional until readiness proves
+the handoff. Datasource connectivity and inspection evidence are never inferred
+from a semantic ref or entry. The renderer performs no datasource query.
+
+The object briefing is a composition boundary:
+
+| Fact | Authoritative owner |
+| --- | --- |
+| Kind and path | `Ref` |
+| Definition, unit, guardrails, and lineage | `CatalogEntry.details()` |
+| Semantic continuation | `CatalogEntry.contract()` |
+| Analysis readiness | `ReadinessReport` |
+| Operator contract | Analysis capability registry |
+| Physical evidence | Datasource runtime result and contract |
 
 ## Public Contract 2: Typed Semantic Inputs
 
@@ -379,7 +562,7 @@ help-index entry.
 The contract applies to runtime calls that already have one authoritative
 compiled catalog against which an entry can be checked:
 
-- `Session.observe.metric`;
+- `Session.observe.metrics`;
 - `Session.observe.dimensions`;
 - `Session.observe.time_dimension`;
 - `Session.observe.slice_by` keys;
@@ -560,6 +743,9 @@ No card recommends an operator.
 ## Public Contract 4: Focused Help
 
 ### Focused-help sufficiency
+
+Every focused page is reached through `marivo.help(...)`; "focused help" names
+the rendered contract, not another public callable.
 
 An invokable focused help target includes:
 
@@ -806,11 +992,12 @@ The packaged `marivo-analysis` skill remains a one-file boundary kernel.
 It requires one environment-bound verification before analysis begins:
 
 ```text
-<analysis-python> -m marivo help analysis
+<analysis-python> -m marivo help
 ```
 
 After the fingerprint is verified:
 
+- use `marivo.help(...)` as the only public help entry;
 - use the public object already in hand;
 - inspect `.show()` for state;
 - inspect `.contract()` before an unfamiliar composition;
@@ -856,6 +1043,11 @@ An error instance without a repair help target, and an error class, resolve to
 the generic registered error contract and never guess which capability raised
 it.
 
+The structured `help_target` remains a surface-qualified internal identity.
+Rendered repair guidance always expresses its public continuation as
+`marivo.help("<surface>.<canonical-id>")`; it never points back to `md.help`,
+`ms.help`, or `mv.help`.
+
 ### Executability
 
 A retry snippet:
@@ -882,9 +1074,18 @@ which inspection, authoring, or user judgment is required.
 ## Capability Kernel Changes
 
 The private capability descriptor keeps its existing identity, input/output,
-constraint, and help ownership. It gains only what the ordinary focused page
+constraint, and domain ownership. It gains only what the ordinary focused page
 needs: a bounded tuple of labeled runnable examples where one example is
 insufficient.
+
+The neutral live resolver remains shared infrastructure. Datasource, semantic,
+and analysis keep their native descriptor richness and private render
+adapters. The top-level router owns global qualification, ambiguity handling,
+composition topics, and object briefing composition only.
+
+The domain registries no longer register `help` or `help_text` as ordinary
+capabilities. A public help surface describing itself through three duplicated
+domain descriptors is not a business capability.
 
 Registry validation proves:
 
@@ -894,7 +1095,21 @@ Registry validation proves:
 - artifact contracts and family gates use the same descriptor identity.
 
 The example metadata remains private. This design does not add a shape matrix,
-shape selector, `mv.describe(...)`, or another registry projection.
+shape selector, `marivo.describe(...)`, or another registry projection.
+
+### Help telemetry
+
+Python help records one logical `help` capability with bounded routing
+attributes:
+
+- target kind: root, string, callable, type, ref, entry, result, or error;
+- resolved owner: global, datasource, semantic, or analysis;
+- resolved canonical id when one exists;
+- outcome: success, unknown, or ambiguous.
+
+The bootstrap command records a separate `help_bootstrap` CLI operation. It is
+not recorded as focused help. Telemetry never records full business
+definitions, guardrails, object details, or rendered error bodies.
 
 ## Persistence And Recovery
 
@@ -926,15 +1141,12 @@ Tests must prove that entry and ref inputs produce equivalent:
 
 ## Implementation Plan
 
-Implementation is split so interface improvements can be implemented and
-verified without waiting for any deferred statistical capability work.
-
-Phases 0-3 are internal implementation and verification slices, not
-independently user-releasable public phases. Their code may be developed and
-tested incrementally, but the existing public contract remains the release
-contract until Phase 4 cuts runtime, annotations, help, docs, skill, errors, and
-examples over together. In particular, entry-based help examples are not
-published before the Phase 2 entry boundary is complete.
+Phases 0-4 below describe the implemented execution-continuity cutover. Phase 5
+is a separate breaking public amendment that narrows help ownership after the
+Phase 4 transcript review. Phase 5 may be developed incrementally, but its
+Python API, CLI, errors, docs, skills, examples, and tests cut over atomically.
+There is no supported release with both the old domain help paths and the new
+canonical path.
 
 ### Phase 0: Contract freeze
 
@@ -955,7 +1167,7 @@ published before the Phase 2 entry boundary is complete.
 
 No runtime behavior changes in this phase.
 
-### Phase 1: Entry and help continuity
+### Phase 1: Entry and help continuity (implemented; help entry superseded by Phase 5)
 
 Owning areas:
 
@@ -966,7 +1178,7 @@ Owning areas:
 - packaged `marivo-analysis` skill;
 - latest English and Chinese site documentation.
 
-Deliver:
+Historical Phase 1 delivery:
 
 - useful top-level module help without new exports;
 - canonical CLI repair;
@@ -1047,20 +1259,88 @@ discovery, correct terminal result behavior, and no false claim that a typed
 regression capability exists. Completion parity for an unsupported statistical
 method is not an interface-only release gate.
 
+### Phase 5: Unified help ownership
+
+Owning areas:
+
+- `marivo/__init__.py`;
+- a new private `marivo/_help/` coordinator;
+- `marivo/cli.py`;
+- datasource, semantic, and analysis live surfaces and renderers;
+- public exports, structured errors, contracts, and affordance hints;
+- packaged skills and latest English and Chinese documentation.
+
+Deliver:
+
+- one public `marivo.help(...)` callable returning `None`;
+- no public `help_text`;
+- no public `md.help`, `ms.help`, or `mv.help`, including hidden module
+  attributes outside `__all__`;
+- lazy adaptation to the three private native live surfaces;
+- qualified and unique-owner string routing with deterministic global
+  ambiguity errors;
+- bounded global `authoring` and `load` composition topics;
+- one no-I/O `Ref`/`CatalogEntry` briefing;
+- bootstrap-only `python -m marivo help`;
+- one logical help telemetry capability plus a separate CLI bootstrap event;
+- removal of old help invocations from active runtime guidance, errors,
+  contracts, skills, examples, and latest docs.
+
+Suggested private ownership:
+
+```text
+marivo/_help/model.py
+  global target and error models
+
+marivo/_help/route.py
+  qualification, owner resolution, and ambiguity
+
+marivo/_help/topics.py
+  root, authoring, and load composition topics
+
+marivo/_help/object_briefing.py
+  Ref, CatalogEntry, result, and error composition
+
+marivo/_help/render.py
+  bounded rendering and the public print boundary
+
+marivo/_help/bootstrap.py
+  CLI environment fingerprint and Python handoff
+```
+
+Exact file splitting may be reduced when implementation shows a smaller private
+shape is sufficient. The required boundary is one coordinator over private
+domain adapters, not this directory layout itself.
+
 ## Verification Strategy
 
 ### Deterministic surface tests
 
-- top-level `help(marivo)` shows the three public imports and environment-bound
-  commands while `marivo.__all__` remains version-only;
-- CLI invalid spellings produce the exact canonical next command;
+- `marivo.help` is public, prints bounded help, and returns `None`;
+- `md`, `ms`, and `mv` expose neither `help` nor `help_text`, and
+  `marivo.help_text` does not exist;
+- `python -m marivo help` and `marivo help` print the environment fingerprint
+  and canonical Python handoff;
+- CLI help rejects every track or target argument as bootstrap-only;
+- every qualified registry target resolves through its native descriptor;
+- every unique unqualified target routes to its one owner;
+- every unregistered multi-owner target raises a bounded global ambiguity
+  error instead of selecting by surface order;
+- `authoring` and `load` render their explicit global composition topics;
 - equivalent callable target forms resolve to one descriptor, while result,
   reference, and error targets resolve to their canonical target kind;
+- bare `Ref` help performs no project load or datasource call and makes no
+  readiness claim;
+- `CatalogEntry` help composes loaded details and current contract without a
+  datasource call;
+- conditional analysis consumers are kind-specific and do not claim legality
+  before readiness;
 - an error instance with a repair resolves through its existing repair help
   target, while an instance without one stays on the generic error contract;
 - every declared focused-help example executes against a fixture;
 - root/focused help remains inside shared surface limits;
-- no current help or error points to a skill attachment.
+- no current help or error points to a skill attachment or an old domain help
+  path.
 
 ### Semantic input tests
 
@@ -1125,18 +1405,25 @@ For every parameter in the frozen catalog-bound runtime inventory:
 Run the narrowest affected tests first, then:
 
 ```text
-make test
-make typecheck
-make lint
+make check
 make docs-api
 make pypi-build
 make pypi-check
+git diff --check
 ```
 
 Run the current site content verification and build commands for the latest
 English and Chinese documentation. If the repository does not provide one of
 the named Make targets at implementation time, record the actual supported
 replacement rather than adding a compatibility target solely for this plan.
+
+Build and install the wheel into an isolated environment, then smoke:
+
+```text
+python -m marivo help
+import marivo; marivo.help()
+import marivo; marivo.help("analysis.observe")
+```
 
 ## External Agent Evaluation
 
@@ -1218,7 +1505,18 @@ interface cutover. A candidate must not publish entry-based examples from Phase
 before its returned-row and truncation semantics are truthful.
 
 No persisted-state migration is required because persisted identity remains
-ref-only.
+ref-only. Phase 5 is nevertheless an intentional source-level breaking change:
+the six public `md`/`ms`/`mv` `help` and `help_text` symbols are removed and one
+top-level `marivo.help` symbol is added.
+
+There are no deprecated aliases. Removing old names only from `__all__` is not
+a completed migration. Active runtime hints, structured repairs, contracts,
+skills, examples, API docs, and latest English and Chinese site content must
+move to `marivo.help(...)` in the same cutover.
+
+Historical versioned documentation and published release notes retain their
+historical API text. Superseded design records are not mechanically rewritten;
+this document is the normative Phase 5 contract.
 
 The public input widening is additive in accepted values, but help, error, and
 contract rendering changes are atomic surface changes. If implementation also
@@ -1232,6 +1530,9 @@ The implementation must not add:
 - raw-string operator inputs;
 - implicit `CatalogEntry.__getattr__` forwarding to `Ref`;
 - duplicate old/new help paths;
+- a public `help_text` retained for tests or CLI implementation convenience;
+- focused target or track arguments on the bootstrap-only CLI help command;
+- implicit project loading or datasource access from semantic-object help;
 - terminal re-entry shims;
 - an undocumented structured help API.
 
@@ -1239,8 +1540,20 @@ The implementation must not add:
 
 The design is implemented when:
 
-- a cold agent can reach the environment-bound analysis surface without
-  private reflection;
+- a cold agent verifies the selected environment with
+  `<selected-python> -m marivo help` and is handed directly to
+  `import marivo; marivo.help(...)`;
+- `marivo.help(...)` is the only public Python help entry, and no public
+  `help_text`, `md.help`, `ms.help`, or `mv.help` remains;
+- CLI help is bootstrap-only and cannot become a competing focused-help path;
+- every native capability remains reachable through a qualified global target,
+  and unique unqualified targets route without a retry;
+- `authoring` and `load` resolve through explicit global composition topics
+  without merging domain state machines or typed load operations;
+- one `Ref` or `CatalogEntry` produces one canonical object briefing regardless
+  of datasource, semantic, or analysis context;
+- semantic-object help performs no implicit project load or datasource query
+  and does not overstate readiness;
 - equivalent callable help forms resolve through one capability identity, while
   objects, entries/refs, and errors resolve through their canonical target kind;
 - every catalog-bound runtime consumer in the frozen inventory accepts exact
@@ -1275,6 +1588,11 @@ object—catalog collection, catalog entry, session, artifact, contract, termina
 result, or structured error—and reach one mechanically correct next typed call
 or terminal read without reconstructing identity, consulting private reflection,
 parsing an undocumented registry, or relying on a cached API manual.
+
+At cold start, the agent makes one environment-bound CLI call. After import,
+the agent never decides among datasource, semantic, analysis, CLI, or
+string-returning help APIs; every focused, object, and error lookup begins at
+`marivo.help(...)`.
 
 For a terminal result, success means discovering the bounded read/export and
 closeout actions plus the explicit absence of typed continuation. It does not

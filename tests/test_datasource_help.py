@@ -48,9 +48,24 @@ def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...
     for needle in needles:
         assert needle in text
     assert _DATASOURCE_IMPORT in text
-    assert (_SEMANTIC_IMPORT in text) == (target in {"inspect", "raw_sql"})
+    assert (_SEMANTIC_IMPORT in text) == (
+        target in {"inspect", "raw_sql", "SourceInspection.sample"}
+    )
     assert text.count("\n") + 1 <= SURFACE_LIMITS.focused_help_max_lines
     assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
+
+
+def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
+    inspect_text = md.help_text("inspect")
+    partitions_text = md.help_text("SourceInspection.partitions")
+    sample_text = md.help_text("SourceInspection.sample")
+
+    assert "inspection = md.inspect(" in inspect_text
+    assert "inspection.show()" in inspect_text
+    assert "inspection.partitions().show()" in partitions_text
+    assert "inspection = md.inspect(" in sample_text
+    assert "inspection.sample(" in sample_text
+    assert ").show()" in sample_text
 
 
 def test_authoring_is_a_generated_datasource_state_boundary() -> None:

@@ -133,13 +133,13 @@ def test_actionable_analysis_error_exposes_typed_repair() -> None:
         message="metric is not registered",
         expected="registered metric semantic object",
         received="metric.sales.revene",
-        location="observe.metric",
+        location="observe.metrics",
         repair=repair,
     )
 
     assert error.expected == "registered metric semantic object"
     assert error.received == "metric.sales.revene"
-    assert error.location == "observe.metric"
+    assert error.location == "observe.metrics"
     assert error.repair == repair
     assert "Help: mv.help('observe')" in str(error)
 

@@ -134,7 +134,9 @@ class SourceInspection(RenderableResult):
             identity=self._repr_identity(),
             available=(
                 ".contract()",
+                ".partitions()",
                 ".render()",
+                ".sample(...)",
                 ".show()",
             ),
         )
@@ -619,16 +621,34 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         execution-capability evidence.
 
     Example:
-        ``md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))``
+        >>> inspection = md.inspect(
+        ...     ms.ref.datasource("warehouse"),
+        ...     md.table("orders"),
+        ... )
+        >>> inspection.show()
 
     Constraints:
         Executes no user-data query. CSV and JSON paths are never opened and
         use only the authored schema. Parquet reads footer schema only.
+        ``datasource`` is the typed ref itself; do not call ``md.connect``
+        before inspection.
     """
     if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
+        received = type(datasource).__name__
+        if received == "DatasourceConnection":
+            raise TypeError(
+                "datasource must be Ref[datasource], got DatasourceConnection. "
+                "md.inspect does not require md.connect; use "
+                'md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).'
+            )
+        if isinstance(datasource, str):
+            raise TypeError(
+                "datasource must be Ref[datasource], got a bare string. Use "
+                'md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).'
+            )
         raise TypeError(
             "datasource must be Ref[datasource] from a datasource spec's .ref or "
-            "ref_factory.datasource('warehouse')."
+            f"ms.ref.datasource('warehouse'); got {received}."
         )
     if not isinstance(source, TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR):
         raise TypeError("source must be built by md.table, md.parquet, md.csv, or md.json.")

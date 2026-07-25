@@ -87,6 +87,37 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     assert inspection.schema
     assert query_spy.user_data_queries == 0
 
+    rendered = inspection.render()
+    assert ".partitions()" in rendered
+    assert ".sample(...)" in rendered
+
+
+def test_inspect_rejects_connection_with_direct_ref_guidance(project_root: Path) -> None:
+    path = _register_duckdb(project_root)
+    _create_orders(path)
+    connection = md.connect("warehouse")
+
+    try:
+        with pytest.raises(TypeError) as exc_info:
+            md.inspect(connection, md.table("orders"))  # type: ignore[arg-type]
+    finally:
+        connection.disconnect()
+
+    message = str(exc_info.value)
+    assert "DatasourceConnection" in message
+    assert "does not require md.connect" in message
+    assert 'md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))' in message
+
+
+def test_inspect_rejects_bare_datasource_name_and_invalid_source() -> None:
+    with pytest.raises(TypeError) as datasource_error:
+        md.inspect("warehouse", md.table("orders"))  # type: ignore[arg-type]
+    assert "bare string" in str(datasource_error.value)
+    assert "ms.ref.datasource" in str(datasource_error.value)
+
+    with pytest.raises(TypeError, match=r"md\.table, md\.parquet, md\.csv, or md\.json"):
+        md.inspect(ms.ref.datasource("warehouse"), object())  # type: ignore[arg-type]
+
 
 @pytest.mark.parametrize(
     ("factory", "expected_name"),

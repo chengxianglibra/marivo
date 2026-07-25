@@ -2,16 +2,18 @@
 
 ## Status
 
-Accepted design for implementation planning.
+Implemented; public parameter naming revised after Phase 4 evaluation.
 
 Date: 2026-07-07
+Revision: 2026-07-25
 
 ## Context
 
-`mv.observe(metric=...)` is a single-metric API over a single-metric
-execution path. A report-style task over four metrics with identical scope
-(same datasource, entities, time window, grain, dimensions, and slice)
-becomes four `observe` calls and four full scans of the same fact table.
+`session.observe(metrics=...)` is an observation API whose implementation began
+as a single-metric execution path. A report-style task over four metrics with
+identical scope (same datasource, entities, time window, grain, dimensions, and
+slice) otherwise becomes four `observe` calls and four full scans of the same
+fact table.
 
 Three existing commitments shape the solution:
 
@@ -35,7 +37,7 @@ hardcoded into the current API.
 Fold metric arity into `observe` and `MetricFrame` instead of adding a
 parallel batch entry point.
 
-1. `observe(metric: MetricInput | Sequence[MetricInput], ...)` always
+1. `observe(metrics: MetricInput | Sequence[MetricInput], ...)` always
    returns one `MetricFrame`. Arity-1 behavior is unchanged.
 2. `MetricFrame` carries one value column per metric over shared axes.
    Frame reads (`show()`, `summary()`, `to_pandas()`, `contract()`) work at
@@ -97,8 +99,8 @@ parallel batch entry point.
 
 ```python
 catalog = session.catalog
-frame = mv.observe(
-    [
+frame = session.observe(
+    metrics=[
         catalog.get("analytics.dau"),
         catalog.get("analytics.new_users"),
         catalog.get("analytics.orders"),
@@ -111,7 +113,7 @@ frame.show()                      # time axis + four value columns
 dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
 ```
 
-- `metric` accepts a single `MetricInput` or a non-empty sequence of
+- `metrics` accepts a single `MetricInput` or a non-empty sequence of
   `MetricInput`. The element contract is unchanged: catalog objects or
   `SemanticRef`s, bare strings stay rejected (projection takes string
   ids because the frame's own `metrics` list makes them unambiguous).
@@ -123,6 +125,8 @@ dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
 - All other parameters are unchanged and apply to every metric:
   `time_scope`, `grain`, `dimensions`, `slice_by`, `time_dimension`,
   `expect_shape`, `analysis_purpose`, `session`.
+- The former `metric=` keyword is removed without a compatibility alias.
+  Single-metric positional calls remain valid.
 - Dimension and slice inputs must resolve within every metric's planner
   scope. A dimension that resolves for some metrics but not others raises
   the existing dimension-resolution error, extended to name the failing

@@ -336,7 +336,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.session.core.Session.observe",
             receiver="Session",
             accepted_inputs={
-                "metric": frozenset({"MetricSemantic", "RuntimeMetricExpression"}),
+                "metrics": frozenset({"MetricSemantic", "RuntimeMetricExpression"}),
                 "time_scope": frozenset({"TimeScopeInput"}),
                 "dimensions": _FIELD_SEMANTIC,
                 "slice_by": _FIELD_SEMANTIC,

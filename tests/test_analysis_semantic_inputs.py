@@ -64,7 +64,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
 @pytest.mark.parametrize(
     ("owner", "parameter"),
     [
-        ("Session.observe", "metric"),
+        ("Session.observe", "metrics"),
         ("Session.observe", "dimensions"),
         ("Session.observe", "slice_by"),
         ("Session.observe", "time_dimension"),
