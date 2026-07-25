@@ -245,7 +245,7 @@ class RawSqlResult(RenderableResult):
             .table(self.columns, preview_rows, row_count=self.returned_row_count)
             .field(
                 "scope",
-                'bounded returned rows do not guarantee a cheap diagnostic; see md.help("raw_sql")',
+                'bounded returned rows do not guarantee a cheap diagnostic; see marivo.help("datasource.raw_sql")',
             )
         )
         if self.warnings:

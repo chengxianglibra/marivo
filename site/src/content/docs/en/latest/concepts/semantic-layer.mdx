@@ -914,9 +914,10 @@ ms.relationship(
 ### Inspect, sample once, then author
 
 For datasource-backed authoring, use one explicit evidence snapshot.
-Consult `md.help("authoring")` for datasource inspection and scope,
-`ms.help("authoring")` for the semantic dependency ladder, and
-`md.help("ai_context")` for the shared `ms.ai_context(...)` contract:
+Consult `marivo.help("datasource.authoring")` for datasource inspection and
+scope, `marivo.help("semantic.authoring")` for the semantic dependency ladder,
+and `marivo.help("datasource.ai_context")` for the shared
+`ms.ai_context(...)` contract:
 
 ```python
 warehouse = ms.ref.datasource("warehouse")

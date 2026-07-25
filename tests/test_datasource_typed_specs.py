@@ -26,6 +26,7 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from tests.shared_fixtures import rendered_help
 from tests.test_agent_result_protocol import assert_conforms
 
 
@@ -252,7 +253,7 @@ def test_spec_ai_context_maps_to_ir() -> None:
 
 def test_trino_help_has_signature_without_description() -> None:
     signature = inspect.signature(md.trino)
-    result = md.help_text("trino")
+    result = rendered_help("trino", owner="datasource")
 
     assert "host" in signature.parameters
     assert "catalog" in signature.parameters
@@ -264,7 +265,7 @@ def test_trino_help_has_signature_without_description() -> None:
 
 def test_duckdb_help_has_signature_without_description() -> None:
     signature = inspect.signature(md.duckdb)
-    result = md.help_text("duckdb")
+    result = rendered_help("duckdb", owner="datasource")
 
     assert "name" in signature.parameters
     assert "path" in signature.parameters
@@ -276,7 +277,7 @@ def test_duckdb_help_has_signature_without_description() -> None:
 
 def test_sqlite_help_exposes_typed_connection_fields() -> None:
     signature = inspect.signature(md.sqlite)
-    result = md.help_text("sqlite")
+    result = rendered_help("sqlite", owner="datasource")
 
     assert {"name", "path", "read_only", "type_map", "ai_context"} <= set(signature.parameters)
     assert "SQLite" in result

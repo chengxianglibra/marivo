@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 
 import marivo.datasource as md
@@ -10,9 +11,9 @@ from marivo.datasource import constraints, errors, evidence, inspection
 
 def test_phase2_removes_legacy_datasource_guidance_contracts() -> None:
     """Datasource guidance has no compatibility bridge into Phase 1 or skills."""
-    import marivo.datasource.help as help_module
-
-    assert not hasattr(help_module, "_surface")
+    assert importlib.util.find_spec("marivo.datasource.help") is None
+    assert not hasattr(md, "help")
+    assert not hasattr(md, "help_text")
     for module in (inspection, evidence):
         source = inspect.getsource(module)
         assert "next_calls" not in source

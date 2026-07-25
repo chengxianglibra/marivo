@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TYPE_CHECKING
 
 from marivo._authoring.model import (
     AuthoringContract,
@@ -16,13 +17,22 @@ from marivo._authoring.model import (
     TransitionKind,
 )
 from marivo._authoring.normalize import normalize_contract as _normalize_contract
-from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.errors import repair
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import ref as ref_factory
 
 type ContractSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
+
+if TYPE_CHECKING:
+    from marivo.datasource._capabilities.model import DatasourceCapabilityRegistry
+
+
+def _registry() -> DatasourceCapabilityRegistry:
+    """Load the immutable registry only when a contract is requested."""
+    from marivo.datasource._capabilities.registry import REGISTRY
+
+    return REGISTRY
 
 
 def _subject(name: str) -> tuple[str, ...]:
@@ -45,7 +55,7 @@ def _state(state_id: AuthoringStateId, subject_refs: tuple[str, ...]) -> Authori
 
 
 def _effects(canonical_id: str) -> AuthoringEffects:
-    effects = REGISTRY.by_canonical_id(canonical_id).effects
+    effects = _registry().by_canonical_id(canonical_id).effects
     assert effects is not None
     return effects.model_copy(deep=True)
 
@@ -61,7 +71,7 @@ def _transition(
     input_requirements: tuple[AuthoringInputRequirement, ...] = (),
     blocked_by: tuple[str, ...] = (),
 ) -> AuthoringTransition:
-    descriptor = REGISTRY.by_canonical_id(canonical_id)
+    descriptor = _registry().by_canonical_id(canonical_id)
     return AuthoringTransition(
         kind=kind,
         help_target=LiveHelpTarget(surface="datasource", canonical_id=descriptor.canonical_id),
@@ -187,7 +197,7 @@ def _scope_transition(
             if canonical_id == "partition" and requirement.role == "mapping_key"
             else {}
         )
-        for requirement in REGISTRY.by_canonical_id(canonical_id).input_requirements
+        for requirement in _registry().by_canonical_id(canonical_id).input_requirements
     )
     inspected = _state("source.inspected", subject_refs)
     return _transition(
@@ -322,7 +332,7 @@ def contract_for_snapshot(
                     required_states=(acquired,),
                     produced_state=projected,
                     available=True,
-                    input_requirements=REGISTRY.by_canonical_id(canonical_id).input_requirements,
+                    input_requirements=_registry().by_canonical_id(canonical_id).input_requirements,
                 )
                 for canonical_id in projection_ids
             ),

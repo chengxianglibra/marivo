@@ -20,12 +20,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
+from marivo._help.render import render_help_text
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.cli import main
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.introspection.live.model import SURFACE_LIMITS
 
@@ -113,12 +113,12 @@ def test_richness_is_silent(semantic_project_factory, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_mv_help_returns_none() -> None:
-    assert mv.help() is None
+def test_marivo_help_returns_none() -> None:
+    assert marivo.help() is None
 
 
-def test_mv_help_with_target_returns_none() -> None:
-    assert mv.help("observe") is None
+def test_marivo_help_with_target_returns_none() -> None:
+    assert marivo.help("analysis.observe") is None
 
 
 # ---------------------------------------------------------------------------
@@ -126,49 +126,17 @@ def test_mv_help_with_target_returns_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_mv_help_no_format_parameter() -> None:
-    sig = inspect.signature(mv.help)
-    assert "format" not in sig.parameters
-
-
-def test_ms_help_no_format_parameter() -> None:
-    sig = inspect.signature(ms.help)
-    assert "format" not in sig.parameters
-
-
-def test_cli_exposes_datasource_and_semantic_help_tracks(capsys) -> None:
-    """Both datasource and semantic CLI help tracks are live in Phase 3."""
-    main(["help", "datasource", "inspect"])
-    assert capsys.readouterr().out.strip() == md.help_text("inspect")
-    assert ms.help.__module__ == "marivo.semantic.help"
-
-    main(["help", "semantic"])
-    semantic_output = capsys.readouterr().out
-    assert "marivo.semantic" in semantic_output
-    assert "Capabilities:" in semantic_output
-
-
-def test_md_help_no_format_or_print_parameter() -> None:
-    sig = inspect.signature(md.help)
+def test_marivo_help_has_no_format_or_print_parameter() -> None:
+    sig = inspect.signature(marivo.help)
     assert "format" not in sig.parameters
     assert "print" not in sig.parameters
 
 
-def test_mv_help_raises_on_format_kwarg() -> None:
+def test_marivo_help_rejects_removed_options() -> None:
     with pytest.raises(TypeError):
-        mv.help("observe", format="json")  # type: ignore[call-arg]
-
-
-def test_ms_help_raises_on_format_kwarg() -> None:
+        marivo.help("analysis.observe", format="json")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        ms.help("metric", format="json")  # type: ignore[call-arg]
-
-
-def test_md_help_raises_on_format_or_print_kwarg() -> None:
-    with pytest.raises(TypeError):
-        md.help("trino", format="json")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        md.help("trino", print=False)  # type: ignore[call-arg]
+        marivo.help("analysis.observe", print=False)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +264,7 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 
 
 def test_analysis_help_teaches_two_artifact_exits() -> None:
-    rendered = mv.help_text("MetricFrame")
+    rendered = render_help_text("analysis.MetricFrame")[0]
     assert ".show()" in rendered
     assert ".contract()" in rendered
     assert ".to_pandas()" in rendered
@@ -306,26 +274,26 @@ def test_analysis_help_teaches_two_artifact_exits() -> None:
     assert ".next_intents()" not in rendered
 
 
-def test_mv_help_top_level_within_budget(capsys) -> None:
-    mv.help()
+def test_marivo_help_top_level_within_budget(capsys) -> None:
+    marivo.help()
     captured = capsys.readouterr()
     assert len(captured.out.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
 
 
-def test_mv_help_topic_within_budget(capsys) -> None:
-    mv.help("observe")
+def test_marivo_help_topic_within_budget(capsys) -> None:
+    marivo.help("analysis.observe")
     captured = capsys.readouterr()
     assert len(captured.out.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
 
 
 def test_observe_help_teaches_zero_division_policy() -> None:
-    rendered = mv.help_text("observe")
+    rendered = render_help_text("analysis.observe")[0]
     assert 'zero_division="null"' in rendered
     assert "zero_denominator_rows" in rendered
 
 
-def test_ms_help_topic_within_budget(capsys) -> None:
-    ms.help("metric")
+def test_semantic_help_topic_within_budget(capsys) -> None:
+    marivo.help("semantic.metric")
     captured = capsys.readouterr()
     assert len(captured.out.splitlines()) <= 100
 
@@ -373,8 +341,6 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "SliceSelection",
         "TestDecision",
         "WindowSelection",
-        "help",
-        "help_text",
         "session",
         "runtime_metric",
         "declared_complete_through",

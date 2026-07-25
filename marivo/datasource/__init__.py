@@ -18,7 +18,6 @@ from marivo.datasource.authoring import (
     trino,
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
-from marivo.datasource.help import help, help_text
 from marivo.datasource.inspection import (
     ExecutionCapabilities,
     Partitioning,
@@ -82,8 +81,6 @@ __all__ = [
     "csv",
     "describe",
     "duckdb",
-    "help",
-    "help_text",
     "inspect",
     "json",
     "list",

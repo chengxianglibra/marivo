@@ -110,10 +110,10 @@ def test_simple_metric_details_render_includes_additivity(semantic_project_facto
 
 
 def test_help_topics_reflect_split():
-    import marivo.semantic as ms
+    from tests.shared_fixtures import rendered_help
 
     # The help index text must mention metric-related capabilities
-    index = ms.help_text()
+    index = rendered_help(owner="semantic")
     assert "metric" in index
     assert "ratio" in index
     assert "linear" in index
@@ -121,5 +121,5 @@ def test_help_topics_reflect_split():
     assert "weighted_mean" in index
 
     # The metric capability help must reference the constructor family
-    metric_help = ms.help_text("metric")
+    metric_help = rendered_help("metric", owner="semantic")
     assert "ms.metric" in metric_help

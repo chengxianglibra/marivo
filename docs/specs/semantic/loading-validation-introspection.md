@@ -174,10 +174,10 @@ a promise that every cross-entity relationship or fanout plan is executable;
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 
-`ms.help(symbol=None)` is the module-level static contract helper, usable without
-an active project. `ms.help("constraints")` is the single entry to the authoring
-/ validation constraint catalog. Help describes what parameters must satisfy; it
-carries no runtime data.
+`marivo.help(target=None)` is the global static contract helper, usable without
+an active project. `marivo.help("semantic.constraints")` is the focused entry
+to the authoring / validation constraint catalog. Help describes what
+parameters must satisfy; it carries no runtime data.
 
 ## Result contract
 

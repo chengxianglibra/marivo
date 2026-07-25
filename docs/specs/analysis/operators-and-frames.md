@@ -138,7 +138,7 @@ exit has the capability id `boundary.to_pandas`.
 ### Internal / expert surface
 
 These exist for debugging, implementation decomposition, and a few expert cases.
-They are reachable via focused `mv.help("<target>")` calls but are never taught
+They are reachable via focused `marivo.help("analysis.<target>")` calls but are never taught
 alongside the core surface:
 
 | API | Output | Notes |
@@ -234,7 +234,7 @@ metric); `trailing` is allowed when both frames share the same trailing anchor
 payload; `grain_to_date` is allowed for a single reset-boundary-anchored period
 that spans at most one reset period and equal elapsed length. `transform.rollup`
 re-aggregates with `rollup_fold="last"`. The anchor-specific caveat is surfaced
-by `contract()`, `show()`, and `mv.help(ref)`.
+by `contract()`, `show()`, and `marivo.help(ref)`.
 
 For a derived metric, compare applies the same anchor rules only when every
 outer component is cumulative and every component has exactly the same anchor.
@@ -300,7 +300,7 @@ the persisted row layout (`"joint"`, `"hierarchy"`, or `None` for single-axis
 and legacy artifacts). It is intentionally distinct from
 `AttributionFrame.attribution_shape` / `meta.method`, which identify the
 attribution math. Both layouts may therefore report `method="weighted_mix"`.
-`mv.help("AttributionMode")` owns this focused contract.
+`marivo.help("analysis.AttributionMode")` owns this focused contract.
 
 Every contribution row uses explicit denominators: `share_of_total_delta` is
 the signed contribution divided by the independently computed overall delta;
@@ -466,7 +466,7 @@ only — it never ranks, recommends, or narrates:
 - `affordances: ArtifactAffordance[]` — each a gate that mechanically exists:
   `capability_id` (the stable registry id such as `compare` or
   `discover.driver_axes`), `public_entrypoint` (the public API path),
-  `help_target` (the canonical `mv.help(...)` target), role-preserving
+  `help_target` (the canonical `marivo.help("analysis.<target>")` target), role-preserving
   `inputs` (`parameter`, accepted artifact families, and whether the current
   artifact can bind that parameter), `preconditions`
   (`(check, pass|fail, reason)`), and `expected_output_family`.

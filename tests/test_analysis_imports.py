@@ -76,8 +76,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
 
     # Public surface exports listed in __all__.
     default_exports = {
-        "help",
-        "help_text",
         "session",
         "Session",
         "MetricFrame",

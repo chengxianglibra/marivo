@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed association analysis results."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class AssociationResultMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class AssociationResult(BaseFrame):
-    """Call mv.help(AssociationResult) for its public consumption contract."""
+    """Call marivo.help(AssociationResult) for its public consumption contract."""
 
     meta: AssociationResultMeta
 

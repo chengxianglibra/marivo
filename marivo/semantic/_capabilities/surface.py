@@ -31,10 +31,12 @@ def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn
         candidates=suggestions,
     )
     if owner is not None:
-        adapter = {"analysis": "mv.help", "datasource": "md.help"}[owner]
         payload = replace(
             payload,
-            message=f"{payload.message} This target belongs to {owner}; use {adapter}(...).",
+            message=(
+                f"{payload.message} This target belongs to {owner}; "
+                f'use marivo.help("{owner}.<target>").'
+            ),
         )
     raise SemanticHelpTargetError(payload)
 
@@ -114,7 +116,7 @@ def _build_surface() -> LiveSurface[AuthoringCapability]:
         type_index=type_index,
         error_types=ERROR_TYPES,
         error_base=_NeverSemanticError,
-        default_suggestions=("load", "verify", "preview", "readiness", "help"),
+        default_suggestions=("load", "verify", "preview", "readiness", "metric"),
         help_target_error=_help_target_error,
         enrich=_enrich,
         string_target_index=build_string_target_index(

@@ -34,9 +34,10 @@ rather than guessing.
 ## Live-contract rule
 
 Use the same project interpreter for discovery and execution. Start with
-`<analysis-python> -m marivo help analysis` or the corresponding
-`<venv>/bin/marivo help analysis`, verify the rendered Marivo version,
-resolved Python executable, and package path.
+`<analysis-python> -m marivo help` or the corresponding
+`<venv>/bin/marivo help`, verify the rendered Marivo version, resolved Python
+executable, and package path. Then `import marivo` and use
+`marivo.help("analysis.<target>")` for focused contracts.
 
 A bare `marivo` resolved from `PATH` is not authoritative unless its
 rendered fingerprint matches the interpreter and package used by the
@@ -138,9 +139,9 @@ session, or agent transitions.
 Leaving typed Marivo analysis, adding semantic objects, and producing or
 publishing deliverables must use the corresponding public boundary.
 `session.observe(...)` is the sole producer of an initial canonical
-`MetricFrame`; follow focused `mv.help("events.match")` for the separate typed
-Event Journey entry, then use the returned artifact `.contract()` or focused
-live help for registered reducers and typed cohort selection.
+`MetricFrame`; follow focused `marivo.help("analysis.events.match")` for the
+separate typed Event Journey entry, then use the returned artifact `.contract()`
+or focused live help for registered reducers and typed cohort selection.
 `frame.to_pandas()` and `md.raw_sql(...)` are the sole
 terminal exits; results from either cannot re-enter typed analysis.
 Missing business semantics remain unresolved until approved semantic
@@ -179,7 +180,7 @@ analysis, become a semantic object, or erase the underlying semantic gap.
 | --- | --- |
 | A required business object is missing or must change | Stop the affected typed branch; optionally use terminal `md.raw_sql(...)`; defer `marivo-semantic` until closeout approval |
 | Semantic authoring returns ready inputs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_inputs` through the ordinary analysis APIs (`analysis_ready_refs` is the refs-only projection) |
-| The task asks how subjects move through typed semantic Events | Start with focused `mv.help("events.match")`; for conversion/loss, elapsed time, or a typed dropout cohort follow the returned artifact `.contract()` and the registered `events.funnel`, `events.time_to_event`, or `select_subjects` help target; retain and disclose watermark, declaration, unknown-coverage, and censoring evidence |
+| The task asks how subjects move through typed semantic Events | Start with focused `marivo.help("analysis.events.match")`; for conversion/loss, elapsed time, or a typed dropout cohort follow the returned artifact `.contract()` and the registered `events.funnel`, `events.time_to_event`, or `select_subjects` help target; retain and disclose watermark, declaration, unknown-coverage, and censoring evidence |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |

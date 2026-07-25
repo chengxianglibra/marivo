@@ -613,7 +613,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_NONE,
             constraints=("expression_binding",),
-            example="ms.bind(amount, orders)",
+            example=(
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue')\n"
+                "def revenue_metric(orders):\n"
+                "    return ms.bind(amount, orders).sum()"
+            ),
         ),
         _capability(
             "metric",
@@ -794,7 +798,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview_many(report.preview_required_refs, using=orders_snapshot)",
+            example="catalog.preview_many([revenue], using=orders_snapshot)",
             preconditions=("semantic.loaded",),
             produced_state="semantic.previewed",
             required_states=_states("semantic.loaded"),
@@ -854,25 +858,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             repair_kinds=("reauthor",),
         ),
         # ------------------------------------------------------------------
-        # help capabilities
-        # ------------------------------------------------------------------
-        _capability(
-            "help",
-            "marivo.semantic.help.help",
-            "Render the semantic help surface or one target.",
-            output="Text",
-            inputs=(_optional_input("subject", "HelpTarget"),),
-            example="ms.help()",
-        ),
-        _capability(
-            "help_text",
-            "marivo.semantic.help.help_text",
-            "Return semantic help as plain text.",
-            output="Text",
-            inputs=(_optional_input("subject", "HelpTarget"),),
-            example="ms.help_text('load')",
-        ),
-        # ------------------------------------------------------------------
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
@@ -930,7 +915,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             "verify_preview": ("verify", "preview", "preview_many"),
             "readiness": ("readiness",),
-            "diagnostics_boundaries": ("richness", "parity_check", "help", "help_text"),
+            "diagnostics_boundaries": ("richness", "parity_check"),
         }
     )
     return SemanticCapabilityRegistry(

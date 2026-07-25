@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis time-window specifications."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def is_date_only(value: str) -> bool:
 
 
 class AbsoluteWindow(BaseModel):
-    """Call mv.help(AbsoluteWindow) for its public consumption contract.
+    """Call marivo.help(AbsoluteWindow) for its public consumption contract.
 
     Half-open time interval [start, end) with optional grain and time
     dimension.  For date-only strings like ``"2026-07-31"``, the exclusive
@@ -69,7 +69,7 @@ class AbsoluteWindow(BaseModel):
 
 
 class TimeScope(BaseModel):
-    """Call mv.help(TimeScope) for its public consumption contract.
+    """Call marivo.help(TimeScope) for its public consumption contract.
 
     Half-open time interval [start, end) for observe time_scope.
     """

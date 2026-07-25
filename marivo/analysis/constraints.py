@@ -166,7 +166,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("transform", "MetricFrame", "DeltaFrame"),
         "Transform operators require their documented keyword arguments.",
         "Each transform op has a specific parameter contract; missing or contradictory kwargs produce ambiguous frames.",
-        "Inspect mv.help('transform') and pass the required args for the selected op.",
+        'Inspect marivo.help("analysis.transform") and pass the required args for the selected op.',
         help_target="transform",
     ),
     ConstraintId.TRANSFORM_FRAME_SHAPE: _constraint(
@@ -176,7 +176,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("transform", "MetricFrame", "DeltaFrame"),
         "Transform operators require compatible axes and value columns.",
         "Shape-changing transforms can only preserve lineage when the requested axes exist on the frame.",
-        "Use frame.columns, frame.meta.axes, or mv.help('transform') before topk, rollup, slice, or rank.",
+        'Use frame.columns, frame.meta.axes, or marivo.help("analysis.transform") before topk, rollup, slice, or rank.',
         help_target="transform",
     ),
     ConstraintId.TRANSFORM_OPERATOR_SUPPORTED: _constraint(

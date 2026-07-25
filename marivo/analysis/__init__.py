@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Marivo's typed analysis runtime."""
 
 from typing import Any as _Any
 
@@ -73,7 +73,6 @@ from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.frames.subject import SubjectSet
-from marivo.analysis.help import help, help_text
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
@@ -179,8 +178,6 @@ __all__ = [
     "dropped_before",
     "every_start",
     "first_per_subject",
-    "help",
-    "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
     "runtime_metric",

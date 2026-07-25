@@ -456,20 +456,22 @@ def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
     assert "secret_table" not in path.read_text(encoding="utf-8")
 
 
-def test_semantic_help_failure_is_tracked_as_semantic_operation(
+def test_unified_help_failure_is_tracked_as_one_global_operation(
     telemetry_project: Path,
 ) -> None:
-    import marivo.semantic as ms
+    import marivo
+    from marivo._help.model import MarivoHelpTargetError
 
-    with pytest.raises(ms.errors.SemanticHelpTargetError):
-        ms.help_text("not-a-semantic-capability")
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help("not-a-semantic-capability")
 
     path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
-    completed = _attrs(_capability_records(path, "help_text")[-1])
-    assert completed["marivo.surface"] == "semantic"
+    completed = _attrs(_capability_records(path, "help")[-1])
+    assert completed["marivo.surface"] == "help"
     assert completed["marivo.operation.status"] == "error"
-    assert completed["marivo.error.domain"] == "semantic"
-    assert completed["marivo.repair.help_surface"] == "semantic"
+    assert completed["marivo.error.class"] == "MarivoHelpTargetError"
+    assert completed["marivo.help.outcome"] == "unknown"
+    assert completed["marivo.help.resolved_owner"] == "global"
 
 
 def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) -> None:
@@ -650,14 +652,14 @@ def test_cli_help_and_doctor_commands_write_operation_pairs(
     )
     monkeypatch.setattr("marivo.doctor.run_doctor", lambda _options: report)
 
-    main(["help", "analysis", "observe"])
+    main(["help"])
     main(["doctor", "--project-root", str(telemetry_project), "--format", "json"])
     capsys.readouterr()
 
     path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
     cli_help = [
         record
-        for record in _capability_records(path, "help")
+        for record in _capability_records(path, "help_bootstrap")
         if _attrs(record)["marivo.surface"] == "cli"
     ]
     assert len(cli_help) == 2

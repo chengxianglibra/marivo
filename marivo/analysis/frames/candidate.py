@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis candidate results."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ CandidateSelection = Annotated[
 
 @dataclass(repr=False)
 class CandidateSet(BaseFrame):
-    """Call mv.help(CandidateSet) for its public consumption contract."""
+    """Call marivo.help(CandidateSet) for its public consumption contract."""
 
     meta: CandidateSetMeta
 

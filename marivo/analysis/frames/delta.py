@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed delta analysis frames."""
 
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ class DeltaFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class DeltaFrame(BaseFrame):
-    """Call mv.help(DeltaFrame) for its public consumption contract."""
+    """Call marivo.help(DeltaFrame) for its public consumption contract."""
 
     meta: DeltaFrameMeta
 

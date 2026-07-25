@@ -49,22 +49,24 @@ Runtime 由以下部分组成：
   特定 artifact family，并产出另一个。
 
 ```python
+import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
 :::note[Agent discovery]
-从命令行开始，先用 `marivo --help` 查看 CLI 入口。要获取完整的 analysis 能力索引与环境指纹，运行：
+从命令行开始，先用 `marivo --help` 查看 CLI 入口。要验证选定环境并获取 Python handoff，运行：
 
 ```bash
-python -m marivo help analysis
+python -m marivo help
 ```
 
 使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境
 指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。进入分析时只需
 验证一次该指纹。此后优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的
 组合操作前读取 `.contract()`。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
-`mv.help("observe")`、`mv.help("compare")`、`mv.help("MetricFrame")` 等 focused topic。
+`marivo.help("analysis.observe")`、`marivo.help("analysis.compare")`、
+`marivo.help("analysis.MetricFrame")` 等 focused topic。
 失败后按照结构化修复指引继续。每个 focused help 主题都自包含一次正确的最小调用，但不是
 每次 API 调用的前置步骤。
 :::
@@ -467,7 +469,7 @@ hierarchy 输出；additive 单轴归因的 `attribution_shape` 为 `"sum"`。
 歧义的列。Evidence 协议字段通过 metadata 显式映射，不会占用用户维度名。
 `attribution.attribution_mode` 表示行布局，而 `attribution.attribution_shape` / `meta.method`
 表示归因数学，因此两种布局都可能显示 `method="weighted_mix"`。可调用
-`mv.help("AttributionMode")` 查看这一 focused contract。
+`marivo.help("analysis.AttributionMode")` 查看这一 focused contract。
 
 Contribution share 会显式说明分母：
 
@@ -692,7 +694,8 @@ details 包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包
 （`retry`、`inspect`、`user_choice`、`semantic_authoring`、`environment`）、
 `action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选
 `candidates`。`user_choice` 表示仍有多个机械上合法的方案，需要业务判断选择其一。
-按照修复指引操作即可；它会指向失败能力的确切 `mv.help(...)` 目标。
+按照修复指引操作即可；它会指向失败能力的确切
+`marivo.help("analysis.<target>")` 目标。
 
 Event continuation error 沿用同一契约：matching policy 和 step 选择使用
 `user_choice`；stale artifact 与 unknown coverage 使用 `inspect`；不安全的
@@ -731,7 +734,7 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 `frame_summaries()` 返回 `FrameSummaryPage`。`has_more` 为 true 时把不透明的
 `next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
 
-使用 `mv.help("recovery")` 查看这些真实的 Session 成员。`recovery` 与 `artifacts`
+使用 `marivo.help("analysis.recovery")` 查看这些真实的 Session 成员。`recovery` 与 `artifacts`
 是 help topic，并不是 `session.recovery` / `session.artifacts` namespace。
 
 ## 证据链与审计

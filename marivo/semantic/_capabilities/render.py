@@ -27,6 +27,7 @@ _GROUPS = (
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
+_MARIVO_IMPORT = "import marivo"
 
 
 def _bounded(text: str, *, root: bool = False) -> str:
@@ -50,7 +51,7 @@ def _target_text(target: LiveHelpTarget) -> str:
 
 def _with_python_imports(text: str) -> str:
     """Make a focused semantic help page executable from a cold start."""
-    imports = [_SEMANTIC_IMPORT]
+    imports = [_MARIVO_IMPORT, _SEMANTIC_IMPORT]
     if "md." in text:
         imports.insert(0, _DATASOURCE_IMPORT)
     if "mv." in text:
@@ -120,7 +121,7 @@ def render_root_help() -> str:
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
             "Errors: " + ", ".join(ERROR_TYPES),
             "",
-            'Call ms.help("<target>") for a capability, public type, result, or semantic error.',
+            'Call marivo.help("semantic.<target>") for a capability, public type, result, or semantic error.',
         )
     )
     return _bounded("\n".join(lines), root=True)
@@ -141,7 +142,7 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         (
             "",
             "  Semantic guidance ends at semantic.ready and the analysis handoff.",
-            '  Continue datasource authoring with md.help("authoring").',
+            '  Continue datasource authoring with marivo.help("datasource.authoring").',
         )
     )
     return _bounded("\n".join(lines))
@@ -311,14 +312,9 @@ def _render_type(type_name: str, original: object | None) -> str:
 
 
 def _help_invocation(target: LiveHelpTarget) -> str:
-    adapter = {
-        "analysis": "mv.help",
-        "datasource": "md.help",
-        "semantic": "ms.help",
-    }[target.surface]
     if target.canonical_id is None:
-        return f"{adapter}()"
-    return f'{adapter}("{target.canonical_id}")'
+        return "marivo.help()"
+    return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 
 def _render_error_contract(error_name: str) -> str:

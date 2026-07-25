@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 # page states the import so examples run from a cold start (see issue #22).
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
+_MARIVO_IMPORT = "import marivo"
 
 # Focused help pages that teach exact ``ms.ref.<kind>(path)`` construction.
 _REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.require"})
@@ -99,7 +100,7 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
 def _with_python_imports(text: str) -> str:
     """Prefix a focused page with the surface imports its text references."""
     lines = text.splitlines()
-    imports = [_ANALYSIS_IMPORT]
+    imports = [_MARIVO_IMPORT, _ANALYSIS_IMPORT]
     if "ms." in text:
         imports.insert(0, _SEMANTIC_IMPORT)
     return enforce_budget(
@@ -260,7 +261,7 @@ def render_root_help() -> str:
     lines.append("")
 
     # Drill-down instruction
-    lines.append('Call mv.help("<target>") for detail on any capability.')
+    lines.append('Call marivo.help("analysis.<target>") for detail on any capability.')
 
     text = "\n".join(lines)
     return enforce_budget(
@@ -810,7 +811,7 @@ def _render_type_help(type_name: str) -> str:
             lines.append(f"    {c}")
         lines.append("")
 
-    lines.append(f'  Call mv.help("{type_name}") for updates.')
+    lines.append(f'  Call marivo.help("analysis.{type_name}") for updates.')
 
     text = "\n".join(lines)
     return enforce_budget(
@@ -844,7 +845,7 @@ def _render_error_contract(error_name: str) -> str:
             lines.append(f"    {c.id}: {c.title}")
         lines.append("")
 
-    lines.append(f"  Call mv.help({error_name}) for the concrete repair on an instance.")
+    lines.append(f"  Call marivo.help({error_name}) for the concrete repair on an instance.")
 
     text = "\n".join(lines)
     return enforce_budget(
@@ -856,14 +857,9 @@ def _render_error_contract(error_name: str) -> str:
 
 def _render_next_help_call(target: LiveHelpTarget) -> str:
     """Render the exact owning public help invocation for a repair target."""
-    adapter = {
-        "analysis": "mv.help",
-        "semantic": "ms.help",
-        "datasource": "md.help",
-    }[target.surface]
     if target.canonical_id is None:
-        return f"{adapter}()"
-    return f'{adapter}("{target.canonical_id}")'
+        return "marivo.help()"
+    return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 
 def _render_error_briefing(error_name: str, error_kind: str | None, error_instance: object) -> str:
@@ -937,113 +933,10 @@ def _render_reference_briefing(
     project: SemanticProject | None,
 ) -> str:
     """Render bounded semantic object briefing."""
-    from marivo.refs import Ref
-    from marivo.semantic.catalog import CatalogEntry
+    del reference_id, project
+    from marivo._help.object_briefing import render_semantic_object
 
-    # CatalogEntry wraps a Ref; unwrap it so the renderer
-    # works with the untyped id that IR lookups expect.
-    if isinstance(ref, CatalogEntry):
-        ref = ref.ref
-
-    if type(ref) is not Ref:
-        raise RuntimeError(f"expected exact Ref, got {type(ref).__name__}")
-
-    # Resolve project if not provided.
-    resolved_project = project
-    if resolved_project is None:
-        try:
-            from marivo.semantic.loader import find_project
-
-            resolved_project = find_project()
-            if resolved_project is not None:
-                resolved_project.load()
-        except Exception:
-            resolved_project = None
-
-    if resolved_project is None:
-        from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-
-        _raise(
-            ErrorKind.INVALID_REF,
-            (
-                f"Cannot resolve project for mv.help({ref.path!r}). "
-                "No loaded semantic project found. "
-                "Pass project=project explicitly: mv.help(ref, project=project)."
-            ),
-            cls=SemanticRuntimeError,
-        )
-
-    reg = getattr(resolved_project, "_registry", None)
-    if reg is None:
-        from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"Call ms.load() to load the semantic project before mv.help({ref.path!r}).",
-            cls=SemanticRuntimeError,
-        )
-
-    # Look up the IR.
-    ir: object = None
-    kind_str = str(ref.kind) if hasattr(ref, "kind") else "semantic"
-
-    if hasattr(ref, "kind"):
-        ref_kind = ref.kind
-        if ref_kind == SemanticKind.METRIC:
-            ir = reg.metrics.get(ref.path)
-        elif ref_kind == SemanticKind.ENTITY:
-            ir = reg.entities.get(ref.path)
-        elif ref_kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-            ir = reg.dimensions.get(ref.path)
-        elif ref_kind == SemanticKind.MEASURE:
-            ir = reg.measures.get(ref.path)
-        elif ref_kind == SemanticKind.RELATIONSHIP:
-            ir = reg.relationships.get(ref.path)
-
-    if ir is None:
-        from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-
-        _raise(
-            ErrorKind.INVALID_REF,
-            (
-                f"{kind_str} {ref.path!r} not found in loaded project. "
-                "Call catalog.metrics.show() to browse available refs."
-            ),
-            cls=SemanticRuntimeError,
-        )
-
-    # Build the briefing lines.
-    lines: list[str] = [f"{kind_str}: {ref.path}"]
-
-    unit = getattr(ir, "unit", None)
-    if unit:
-        lines.append(f"unit: {unit}")
-
-    ai = getattr(ir, "ai_context", None)
-    if ai is not None:
-        if getattr(ai, "business_definition", None):
-            lines.append(f"business_definition: {ai.business_definition}")
-        if getattr(ai, "guardrails", None):
-            lines.append("guardrails:")
-            for g in list(ai.guardrails)[:3]:
-                lines.append(f"  - {g}")
-    composition = getattr(ir, "composition", None)
-    comp_kind = getattr(composition, "kind", None)
-    if comp_kind == "cumulative":
-        lines.extend(_cumulative_composition_briefing(composition))
-
-    lines.append("")
-    lines.append(
-        "use: catalog.metrics.show() to enumerate; "
-        "pass catalog.metrics.get('<local_name>') directly to session.observe(...)"
-    )
-
-    text = "\n".join(lines)
-    return enforce_budget(
-        text,
-        max_lines=SURFACE_LIMITS.focused_help_max_lines,
-        max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
-    )
+    return render_semantic_object(ref)
 
 
 def _cumulative_composition_briefing(composition: object) -> list[str]:

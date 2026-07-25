@@ -5,7 +5,7 @@ from __future__ import annotations
 import marivo.analysis as mv
 import marivo.analysis.intents as intents
 import marivo.analysis.session as session_attach
-from tests.shared_fixtures import make_test_delta_contract
+from tests.shared_fixtures import make_test_delta_contract, rendered_help
 
 
 def test_intents_export_hypothesis_test_not_test_alias() -> None:
@@ -48,7 +48,7 @@ def test_top_level_analysis_no_longer_exports_scratch_or_promotion_types() -> No
 
 
 def test_help_default_operator_surface_is_phase2_core() -> None:
-    text = mv.help_text()
+    text = rendered_help(owner="analysis")
 
     for expected in (
         "observe",

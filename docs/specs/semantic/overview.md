@@ -98,7 +98,8 @@ let analysis consume it — business definitions never hide in one-off scripts.
 Authoring guidance is split so each surface has one job (elaborated in
 [authoring-workflow.md](authoring-workflow.md)):
 
-- **`ms.help` / `md.help` — static contract.** Constructors, required and
+- **`marivo.help(...)` — static contract.** Qualified semantic and datasource
+  targets expose constructors, required and
   optional parameters, allowed values, defaults, omit rules, and static
   constraints. Help says *what must be settled*; it carries no runtime data.
 - **`md.inspect` and snapshots — runtime evidence.** Metadata inspection precedes
@@ -115,16 +116,17 @@ The `marivo-semantic` skill owns workflow and routing only:
 help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
 ```
 
-It does not duplicate parameter tables from `ms.help` or `md.help`. Uncommon
+It does not duplicate parameter tables from `marivo.help(...)`. Uncommon
 formats and semantic judgments remain agent-owned.
 
 ## Ownership
 
-The live `ms.help(...)` / `md.help(...)` surfaces own the static contracts;
-the registry behind them owns mechanical continuation facts but is not itself a
-public API; the `marivo-semantic` skill owns workflow and routing only; the
-runtime has no canonical link to packaged skill files, so skill content is never
-read or executed by the library. This mirrors the ownership split stated in
+The public `marivo.help(...)` coordinator routes qualified targets to the
+native semantic and datasource registries that own static contracts and
+mechanical continuation facts. Those registries are not public APIs; the
+`marivo-semantic` skill owns workflow and routing only; the runtime has no
+canonical link to packaged skill files, so skill content is never read or
+executed by the library. This mirrors the ownership split stated in
 `agent-guide.md`.
 
 | Concern | Canonical owner |

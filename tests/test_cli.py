@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 import marivo
-import marivo.datasource as md
 import marivo.skills
 from marivo import __version__
 from marivo.cli import init_project, main
@@ -188,10 +187,7 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
         main(["--help"])
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
-    assert "Analysis workflow:" in captured.out
-    assert "marivo help analysis" in captured.out
-    assert "Use the Python interpreter where marivo is installed." in captured.out
-    assert ".venv/bin/python" not in captured.out
+    assert "marivo help" in captured.out
     assert "marivo doctor --semantic" in captured.out
     assert "marivo doctor --datasource <name> --connect" in captured.out
     # The CLI command set is init, doctor, and help.
@@ -200,43 +196,57 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
     # "marivo <cmd>".
     assert "{init,doctor,help}" in captured.out
     assert "marivo doctor" in captured.out
-    # Root help advertises the CLI analysis help subcommand.
-    assert "marivo help analysis" in captured.out
-    assert "marivo help datasource" in captured.out
-    # Semantic authoring routing block points agents to the CLI semantic track.
-    assert "Semantic authoring workflow:" in captured.out
-    assert "marivo help semantic" in captured.out
+    assert "marivo help analysis" not in captured.out
+    assert "marivo help datasource" not in captured.out
+    assert "marivo help semantic" not in captured.out
 
 
-def test_cli_datasource_help_matches_python_adapter(
+def test_cli_help_is_bootstrap_only(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Datasource CLI help must dispatch to the live Python adapter unchanged."""
-    main(["help", "datasource", "inspect"])
+    main(["help"])
 
-    output = capsys.readouterr().out.strip()
-    assert output == md.help_text("inspect")
+    output = capsys.readouterr().out
+    assert f"Marivo: {marivo.__version__}" in output
+    assert f"Python: {sys.executable}" in output
+    assert f"Package: {Path(marivo.__file__).resolve()}" in output
+    assert "import marivo" in output
     assert "import marivo.datasource as md" in output
     assert "import marivo.semantic as ms" in output
+    assert "import marivo.analysis as mv" in output
+    assert "marivo.help()" in output
+    assert 'marivo.help("analysis.observe")' in output
 
 
-def test_cli_datasource_unknown_target_exits_two(
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ("observe",),
+        ("analysis", "observe"),
+        ("semantic", "load"),
+        ("datasource", "inspect"),
+    ),
+)
+def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
+    arguments: tuple[str, ...],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Datasource target errors are typed CLI errors, never tracebacks."""
     with pytest.raises(SystemExit) as exc_info:
-        main(["help", "datasource", "inspekt"])
+        main(["help", *arguments])
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert "DatasourceHelpTargetError" in captured.err
+    assert captured.out == ""
+    assert "bootstrap-only" in captured.err
+    assert "import marivo" in captured.err
+    assert "marivo.help" in captured.err
     assert "Traceback" not in captured.err
 
 
-def test_module_datasource_help_uses_subprocess_environment_fingerprint() -> None:
+def test_module_help_uses_subprocess_environment_fingerprint() -> None:
     """Module CLI help reports the interpreter and package that executed it."""
     result = subprocess.run(
-        [sys.executable, "-m", "marivo", "help", "datasource"],
+        [sys.executable, "-m", "marivo", "help"],
         capture_output=True,
         check=False,
         text=True,
@@ -463,90 +473,3 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
 
     captured = capsys.readouterr()
     assert captured.out == "FIX SNAP WINS\n"
-
-
-# ---------------------------------------------------------------------------
-# help semantic track
-# ---------------------------------------------------------------------------
-
-
-def test_cli_help_semantic_root_prints_environment(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    main(["help", "semantic"])
-
-    output = capsys.readouterr().out
-    assert "marivo.semantic" in output
-    assert "Capabilities:" in output
-    assert "import marivo.semantic as ms" in output
-    assert "import marivo.datasource as md" not in output
-
-
-def test_cli_help_semantic_target_prints_focused_help(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    main(["help", "semantic", "authoring"])
-
-    output = capsys.readouterr().out
-    assert "authoring" in output
-    assert "import marivo.datasource as md" in output
-    assert "import marivo.semantic as ms" in output
-
-
-def test_cli_help_semantic_unknown_target_exits_2(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", "semantic", "nonexistent_target"])
-
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert "not registered" in captured.err or "semantic help target" in captured.err
-
-
-@pytest.mark.parametrize(
-    ("target", "track"),
-    (("observe", "analysis"), ("inspect", "datasource"), ("metric", "semantic")),
-)
-def test_help_target_without_track_identifies_unique_owner(
-    target: str,
-    track: str,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", target])
-
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert f"Specify the owning track: `marivo help {track} {target}`." in captured.err
-
-
-def test_help_shared_target_without_track_does_not_guess(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", "help"])
-
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "shared by help tracks: analysis, datasource, semantic" in captured.err
-    assert "marivo help analysis help" in captured.err
-    assert "marivo help datasource help" in captured.err
-    assert "marivo help semantic help" in captured.err
-
-
-def test_help_unknown_target_without_track_lists_valid_forms(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", "not-a-help-target"])
-
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "neither a help track nor a registered help target" in captured.err
-    assert "marivo help analysis [target]" in captured.err
-    assert "marivo help datasource [target]" in captured.err
-    assert "marivo help semantic [target]" in captured.err

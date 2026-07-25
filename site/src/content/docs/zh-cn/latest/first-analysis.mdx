@@ -27,11 +27,11 @@ Catalog navigation 返回当前 typed entry；符合条件的 semantic 和 analy
 可以直接接收它，配置与 recovery 仍可使用精确 ref。Marivo 会在 planning、evidence、
 持久化或 replay 之前把两种输入都归一化为 ref。
 
-智能体先使用项目解释器运行一次 `python -m marivo help analysis`，验证实时分析环境。
+智能体先使用项目解释器运行一次 `python -m marivo help`，验证实时环境。
 进入分析后，智能体优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合
 操作前读取 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询 focused
-`mv.help(...)`。发生失败后，智能体按照结构化修复指引继续。Focused help 并不是每次 API
-调用的前置步骤。
+`marivo.help(...)`（先 `import marivo`）。发生失败后，智能体按照结构化修复指引继续。
+Focused help 并不是每次 API 调用的前置步骤。
 
 类型化边界（`session.observe` 入、`frame.to_pandas()` / `md.raw_sql` 出）确保自定义分析
 不会断开证据链。

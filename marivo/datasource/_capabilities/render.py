@@ -28,6 +28,7 @@ _GROUPS = (
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
+_MARIVO_IMPORT = "import marivo"
 
 
 def _bounded(text: str, *, root: bool = False) -> str:
@@ -52,7 +53,7 @@ def _target_text(target: LiveHelpTarget) -> str:
 def _with_python_imports(text: str) -> str:
     """Make a focused datasource help page executable from a cold start."""
     lines = text.splitlines()
-    imports = [_DATASOURCE_IMPORT]
+    imports = [_MARIVO_IMPORT, _DATASOURCE_IMPORT]
     if "ms." in text:
         imports.append(_SEMANTIC_IMPORT)
     if "mv." in text:
@@ -119,7 +120,7 @@ def render_root_help() -> str:
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
             "Errors: " + ", ".join(ERROR_TYPES),
             "",
-            'Call md.help("<target>") for a capability, public type, result, or datasource error.',
+            'Call marivo.help("datasource.<target>") for a capability, public type, result, or datasource error.',
         )
     )
     return _bounded("\n".join(lines), root=True)
@@ -142,7 +143,7 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         (
             "",
             "  Datasource guidance ends at evidence.projected.",
-            '  Continue semantic authoring with ms.help("authoring").',
+            '  Continue semantic authoring with marivo.help("semantic.authoring").',
         )
     )
     return _bounded("\n".join(lines))
@@ -257,14 +258,9 @@ def _render_type(type_name: str, original: object | None) -> str:
 
 
 def _help_invocation(target: LiveHelpTarget) -> str:
-    adapter = {
-        "analysis": "mv.help",
-        "datasource": "md.help",
-        "semantic": "ms.help",
-    }[target.surface]
     if target.canonical_id is None:
-        return f"{adapter}()"
-    return f'{adapter}("{target.canonical_id}")'
+        return "marivo.help()"
+    return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 
 def _render_error_contract(error_name: str) -> str:

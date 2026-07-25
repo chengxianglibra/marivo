@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 
 import marivo.semantic as ms
 from marivo.semantic import constraints, dtos, errors, preview_checks, readiness
-from marivo.semantic import help as help_mod
 
 
 def test_phase3_removes_authoring_question() -> None:
@@ -48,8 +48,9 @@ def test_phase3_removes_suggested_action_from_readiness_and_preview() -> None:
 
 
 def test_phase3_removes_old_help_surface_function() -> None:
-    assert not hasattr(help_mod, "_surface")
-    assert not hasattr(help_mod, "_authoring_contracts")
+    assert importlib.util.find_spec("marivo.semantic.help") is None
+    assert not hasattr(ms, "help")
+    assert not hasattr(ms, "help_text")
 
 
 def test_phase3_does_not_publish_private_contract_types() -> None:

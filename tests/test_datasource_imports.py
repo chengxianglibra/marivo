@@ -25,6 +25,7 @@ for name in list(sys.modules):
         del sys.modules[name]
 
 import marivo.datasource as md
+from marivo.datasource._capabilities.render import render_root_help
 
 after_import = {
     "duckdb_present": md.duckdb is not None,
@@ -32,7 +33,7 @@ after_import = {
     "analysis_loaded": "marivo.analysis" in sys.modules,
     "packaged_skills_loaded": "marivo.skills" in sys.modules,
 }
-help_text = md.help_text()
+help_text = render_root_help()
 after_help = {
     "help_mentions_datasource": "marivo.datasource" in help_text,
     "semantic_loaded": "marivo.semantic" in sys.modules,

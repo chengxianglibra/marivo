@@ -7,15 +7,21 @@ import inspect
 import pytest
 
 import marivo.datasource as md
+from marivo._help.model import MarivoHelpTargetError
 from marivo.datasource.errors import DatasourceHelpTargetError
 from marivo.introspection.live.model import SURFACE_LIMITS
+from tests.shared_fixtures import rendered_help
 
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 
 
+def _text(target: object | None = None) -> str:
+    return rendered_help(target, owner="datasource")
+
+
 def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> None:
-    text = md.help_text()
+    text = _text()
 
     for target in ("inspect", "SourceInspection.sample", "raw_sql", "partition", "unpruned"):
         assert target in text
@@ -44,7 +50,7 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
     ],
 )
 def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...]) -> None:
-    text = md.help_text(target)
+    text = _text(target)
     for needle in needles:
         assert needle in text
     assert _DATASOURCE_IMPORT in text
@@ -56,9 +62,9 @@ def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...
 
 
 def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
-    inspect_text = md.help_text("inspect")
-    partitions_text = md.help_text("SourceInspection.partitions")
-    sample_text = md.help_text("SourceInspection.sample")
+    inspect_text = _text("inspect")
+    partitions_text = _text("SourceInspection.partitions")
+    sample_text = _text("SourceInspection.sample")
 
     assert "inspection = md.inspect(" in inspect_text
     assert "inspection.show()" in inspect_text
@@ -69,18 +75,18 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
 
 
 def test_authoring_is_a_generated_datasource_state_boundary() -> None:
-    text = md.help_text("authoring")
+    text = _text("authoring")
 
     assert "datasource.declared" in text
     assert "evidence.projected" in text
     assert _DATASOURCE_IMPORT in text
-    assert _SEMANTIC_IMPORT in text
-    assert 'ms.help("authoring")' in text
+    assert _SEMANTIC_IMPORT not in text
+    assert 'marivo.help("semantic.authoring")' in text
     assert "1." not in text
 
 
 def test_consumed_type_help_uses_only_registered_public_contract() -> None:
-    text = md.help_text(md.SourceInspection)
+    text = _text(md.SourceInspection)
 
     assert "Producers: inspect" in text
     assert "Public fields:" in text
@@ -92,20 +98,20 @@ def test_consumed_type_help_uses_only_registered_public_contract() -> None:
 
 
 def test_help_accepts_registered_receiver_path_and_rejects_private_names() -> None:
-    assert md.help_text("snapshot.entity").startswith("DiscoverySnapshot.entity\n")
+    assert _text("snapshot.entity").startswith("DiscoverySnapshot.entity\n")
 
     for target in ("ai_context", "datasource_name_global", "_surface"):
-        with pytest.raises(DatasourceHelpTargetError):
-            md.help_text(target)
+        with pytest.raises(MarivoHelpTargetError):
+            _text(target)
 
 
 def test_help_keeps_public_callable_signatures_authoritative() -> None:
     for callable_target in (md.duckdb, md.partition, md.SourceInspection.sample):
-        assert str(inspect.signature(callable_target)) in md.help_text(callable_target)
+        assert str(inspect.signature(callable_target)) in _text(callable_target)
 
 
 def test_error_help_includes_only_the_datasource_import() -> None:
-    text = md.help_text(DatasourceHelpTargetError)
+    text = _text(DatasourceHelpTargetError)
 
     assert _DATASOURCE_IMPORT in text
     assert _SEMANTIC_IMPORT not in text
@@ -115,6 +121,6 @@ def test_all_focused_help_defines_every_alias_it_uses() -> None:
     from marivo.datasource._capabilities.registry import REGISTRY
 
     for target in REGISTRY.canonical_ids():
-        text = md.help_text(target)
+        text = _text(target)
         assert _DATASOURCE_IMPORT in text
         assert (_SEMANTIC_IMPORT in text) == ("ms." in text), target

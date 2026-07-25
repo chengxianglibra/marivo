@@ -173,8 +173,8 @@ def _resolve_string[DescriptorT: ResolvableHelpDescriptor](
 
 # Prefixes users paste from help output / CLI invocations. Canonical ids never
 # start with these, so stripping them is safe and lets
-# ``mv.help("mv.session.get_or_create")`` or
-# ``mv.help("analysis mv.session.get_or_create")`` resolve. See issue #32.
+# pasted legacy aliases such as ``mv.session.get_or_create`` still normalize
+# to the registered native id. See issue #32.
 _HELP_TARGET_PREFIXES = (
     "analysis ",
     "semantic ",

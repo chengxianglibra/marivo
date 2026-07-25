@@ -20,11 +20,17 @@ python3 -m venv .venv
 .venv/bin/python -c "import marivo; print(marivo.__name__)"
 ```
 
-After install, the native CLI is the canonical way to discover the live authoring
-and analysis contracts. Run `marivo help semantic`, `marivo help datasource`, or
-`marivo help analysis` to print the fingerprinted capability index for each
-surface — these mirror the in-Python `ms.help(...)` / `md.help(...)` /
-`mv.help(...)` adapters and are the entry point agents consult before authoring.
+After install, run `python -m marivo help` with the selected interpreter to
+verify the Marivo version, Python executable, and loaded package path. The CLI
+is a bootstrap check only. After entry, use Python for focused live contracts:
+
+```python
+import marivo
+
+marivo.help("datasource.<target>")
+marivo.help("semantic.<target>")
+marivo.help("analysis.<target>")
+```
 
 For a project using a published release, install the required backend extra as
 described in [Installation](/en/latest/installation/), then run `marivo init` in

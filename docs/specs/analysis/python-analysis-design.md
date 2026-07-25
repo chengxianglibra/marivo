@@ -118,12 +118,13 @@ Layers 1–4 and the artifact algebra are specified in
 Three layers own analysis guidance, each with one job — an agent consults the right
 one instead of a single monolithic manual:
 
-- **Live surfaces — capabilities and runtime guidance.** The CLI route
-  `python -m marivo help analysis [target]` and `mv.help(...)` own the static
-  contract: signatures, artifact families, constraints, return types, errors, and
-  runnable examples. `mv.help()` is a short index grouped by capability family;
-  `mv.help("<target>")` (e.g. `observe`, `compare`, `recover`) expands one
-  capability with a minimal example. Frames and results own dynamic guidance:
+- **Live surfaces — capabilities and runtime guidance.**
+  `python -m marivo help` verifies the selected environment and hands off to
+  Python. `marivo.help()` is a short global index, while focused
+  `marivo.help("analysis.<target>")` (for example `analysis.observe`,
+  `analysis.compare`, or `analysis.recover`) owns signatures, artifact
+  families, constraints, return types, errors, and runnable examples. Frames
+  and results own dynamic guidance:
   `show()` describes an artifact's current state; `contract()` describes the
   mechanically valid next actions from where it is now. Structured errors own
   repair guidance with typed `AnalysisRepair` instructions. Judgment stays with

@@ -84,6 +84,20 @@ The installer prepares the local environment and initializes the current directo
 For manual installation, datasource extras, supported platforms, and troubleshooting,
 see [Installation](https://marivo.io/en/latest/installation/).
 
+Verify the selected environment once, then use Python for focused help:
+
+```bash
+python -m marivo help
+```
+
+```python
+import marivo
+
+marivo.help()
+marivo.help("semantic.metric")
+marivo.help("analysis.observe")
+```
+
 If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.
 For a new project, tell the agent which datasource and business outcome you need, then
 confirm the proposed metric meaning before analysis.

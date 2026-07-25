@@ -48,7 +48,8 @@ def test_semantic_help_target_error_carries_payload() -> None:
     err = SemanticHelpTargetError(payload)
     assert err.repair is not None
     assert err.repair.candidates == ("entity", "metric")
-    assert "ms.help" in str(err)
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic")
+    assert "ms.help" not in str(err)
 
 
 def test_semantic_contract_scope_error_carries_repair() -> None:

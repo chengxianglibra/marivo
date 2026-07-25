@@ -42,7 +42,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
         '  session.observe(metric, time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
         in rendered
     )
-    assert "Help: mv.help('observe')" in rendered
+    assert "Help: marivo.help('analysis.observe')" in rendered
 
 
 def test_base_template_omits_missing_optional_sections() -> None:
@@ -136,7 +136,7 @@ def test_metric_not_found_renders_repair_with_candidates() -> None:
     assert "  Use a registered metric id from the catalog." in rendered
     assert "  catalog.metrics.show()" in rendered
     assert "sales.revenue, sales.orders" in rendered
-    assert "Help: mv.help('observe')" in rendered
+    assert "Help: marivo.help('analysis.observe')" in rendered
 
 
 def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
@@ -166,7 +166,7 @@ def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
     assert "Repair:" in rendered
     assert 'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))' in rendered
     assert "  delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
-    assert "Help: mv.help('compare')" in rendered
+    assert "Help: marivo.help('analysis.compare')" in rendered
 
 
 def test_semantic_kind_mismatch_without_repair_is_bare() -> None:
@@ -283,7 +283,7 @@ def test_no_backend_factory_renders_repair_snippet() -> None:
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
     assert "md.register" in rendered
     assert "@ms.datasource" not in rendered
-    assert "Help: mv.help('datasources')" in rendered
+    assert "Help: marivo.help('analysis.datasources')" in rendered
 
 
 def test_no_backend_factory_without_context_uses_session_backend_template() -> None:
@@ -307,4 +307,4 @@ def test_no_backend_factory_without_context_uses_session_backend_template() -> N
     assert "mv.session.get_or_create" in rendered
     assert "md.register" in rendered
     assert "backend_factory=" in rendered
-    assert "Help: mv.help('datasources')" in rendered
+    assert "Help: marivo.help('analysis.datasources')" in rendered

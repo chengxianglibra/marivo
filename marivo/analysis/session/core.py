@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis session runtime."""
 
 from __future__ import annotations
 
@@ -230,7 +230,7 @@ def _read_frame_summary_page(
 
 
 class Session(RenderableResult):
-    """Call mv.help(Session) for its public consumption contract."""
+    """Call marivo.help(Session) for its public consumption contract."""
 
     __slots__ = (
         "_calendars",

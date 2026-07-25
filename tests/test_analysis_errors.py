@@ -141,7 +141,7 @@ def test_actionable_analysis_error_exposes_typed_repair() -> None:
     assert error.received == "metric.sales.revene"
     assert error.location == "observe.metrics"
     assert error.repair == repair
-    assert "Help: mv.help('observe')" in str(error)
+    assert "Help: marivo.help('analysis.observe')" in str(error)
 
 
 def test_analysis_error_has_no_details_property() -> None:
@@ -193,7 +193,7 @@ def test_help_target_error_renders_received_type_for_non_string() -> None:
     err = HelpTargetError(target=123, suggestions=("observe",))
     rendered = str(err)
     assert "int" in rendered
-    assert "mv.help('help')" in rendered
+    assert "marivo.help('analysis')" in rendered
 
 
 def test_help_target_error_renders_received_string() -> None:
@@ -213,7 +213,7 @@ def test_help_target_error_carries_suggestions_as_candidates() -> None:
 
 def test_help_target_error_location_is_help_target() -> None:
     err = HelpTargetError(target="observ", suggestions=("observe",))
-    assert err.location == "mv.help.target"
+    assert err.location == "marivo.help.target"
 
 
 # ---------------------------------------------------------------------------

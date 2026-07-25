@@ -26,6 +26,29 @@ _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
 
 
+def rendered_help(target: object | None = None, *, owner: str | None = None) -> str:
+    """Return private unified-help text for behavioral assertions.
+
+    ``owner`` qualifies native string targets and selects a native root page.
+    Public API tests should call ``marivo.help`` and capture stdout instead.
+    """
+    if owner is not None and target is None:
+        if owner == "datasource":
+            from marivo.datasource._capabilities.render import render_root_help
+        elif owner == "semantic":
+            from marivo.semantic._capabilities.render import render_root_help
+        elif owner == "analysis":
+            from marivo.analysis._capabilities.render import render_root_help
+        else:
+            raise ValueError(f"unknown help owner: {owner!r}")
+        return render_root_help()
+    if owner is not None and isinstance(target, str):
+        target = f"{owner}.{target}"
+    from marivo._help.render import render_help_text
+
+    return render_help_text(target)[0]
+
+
 def make_test_metric_contract(
     df: Any,
     *,

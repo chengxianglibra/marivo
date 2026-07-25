@@ -645,8 +645,8 @@ def test_session_display_reads_registered() -> None:
 
 def test_help_and_help_text_registered() -> None:
     ids = set(REGISTRY.capability_ids)
-    assert "help" in ids
-    assert "help_text" in ids
+    assert "help" not in ids
+    assert "help_text" not in ids
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +681,7 @@ def test_grouping_descriptors_are_not_invokable() -> None:
     ):
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} grouping must not be invokable"
-        assert desc.public_entrypoint == f'mv.help("{topic}")'
+        assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'
 
 
 # ---------------------------------------------------------------------------

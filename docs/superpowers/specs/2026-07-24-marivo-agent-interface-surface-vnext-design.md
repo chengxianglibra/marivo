@@ -1,6 +1,6 @@
 # Marivo Agent Execution Continuity Interface Design
 
-Status: implemented through Phase 4; Phase 5 unified-help breaking amendment approved, implementation not started
+Status: implemented through Phase 5; unified-help breaking cutover complete
 
 Date: 2026-07-24
 
@@ -1259,7 +1259,7 @@ discovery, correct terminal result behavior, and no false claim that a typed
 regression capability exists. Completion parity for an unsupported statistical
 method is not an interface-only release gate.
 
-### Phase 5: Unified help ownership
+### Phase 5: Unified help ownership (implemented)
 
 Owning areas:
 
@@ -1285,6 +1285,26 @@ Deliver:
 - one logical help telemetry capability plus a separate CLI bootstrap event;
 - removal of old help invocations from active runtime guidance, errors,
   contracts, skills, examples, and latest docs.
+
+Implementation evidence:
+
+- `marivo.help(...)` is the sole public Python help entry; the three domain
+  modules expose neither `help` nor `help_text`, and their former public help
+  modules are removed;
+- the private `marivo/_help/` coordinator performs deterministic qualified,
+  unique-owner, ambiguity, global-topic, callable, result, error, `Ref`, and
+  `CatalogEntry` routing while leaving descriptor semantics with the native
+  private capability surfaces;
+- object briefings for refs and entries are no-I/O, and the CLI help command is
+  bootstrap-only with a verified Python handoff;
+- active runtime hints, API documentation, packaged skills, README files, and
+  latest English and Chinese site content use the canonical entry;
+- deterministic tests cover the full routing inventory, output bounds,
+  telemetry, bootstrap behavior, old-path absence, no-I/O object handling, and
+  real execution of all 77 datasource and semantic focused-help examples;
+- `make check`, `make docs-api`, package build/check, isolated installed-wheel
+  smoke, site content verification/build, and `git diff --check` pass for the
+  cutover.
 
 Suggested private ownership:
 

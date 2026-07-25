@@ -60,8 +60,6 @@ def test_registry_covers_all_public_callables() -> None:
     for name in ms.__all__:
         exported = getattr(ms, name)
         if callable(exported) and not isinstance(exported, type):
-            if name in {"help", "help_text"}:
-                continue
             assert REGISTRY.by_callable(exported), (
                 f"{name} is not registered in the semantic registry"
             )

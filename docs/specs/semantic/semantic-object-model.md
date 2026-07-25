@@ -13,8 +13,8 @@ See also:
 - [overview.md](overview.md) — design goals and where the object model sits.
 - [datasource-layer.md](datasource-layer.md) — the refs and evidence entities
   build on.
-- `ms.help("<constructor>")` — the always-current static contract (required and
-  optional parameters, defaults, omit rules) for any object below.
+- `marivo.help("semantic.<constructor>")` — the always-current static contract
+  (required and optional parameters, defaults, omit rules) for any object below.
 
 Python files under `models/semantic/<domain>/` are the source of truth. An
 object is declared once, is statically readable, and is referenced everywhere

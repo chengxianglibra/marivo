@@ -28,6 +28,8 @@ def test_candidate_workflow_types_are_not_exported():
 
 
 def test_help_lists_remaining_dtos(capsys):
-    text = ms.help_text("VerifyResult")
+    from tests.shared_fixtures import rendered_help
+
+    text = rendered_help("VerifyResult", owner="semantic")
     assert "VerifyResult" in text
     assert "show" in text or "contract" in text

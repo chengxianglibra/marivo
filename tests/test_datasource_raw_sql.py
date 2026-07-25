@@ -79,7 +79,7 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert "escape_hatch" not in rendered
     assert "diagnose order amount sample" in rendered
     assert "expensive" in rendered
-    assert 'md.help("raw_sql")' in rendered
+    assert 'marivo.help("datasource.raw_sql")' in rendered
 
 
 def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
