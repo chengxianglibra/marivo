@@ -7,7 +7,7 @@ renderer.  The root help now teaches the default surface directly; see
 
 from __future__ import annotations
 
-import marivo.analysis as mv
+from tests.shared_fixtures import rendered_help
 
 CORE_OPERATORS = (
     "observe",
@@ -22,7 +22,7 @@ CORE_OPERATORS = (
 
 
 def test_root_help_teaches_core_operators() -> None:
-    text = mv.help_text()
+    text = rendered_help(owner="analysis")
 
     for operator in CORE_OPERATORS:
         assert operator in text, operator

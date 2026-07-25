@@ -17,10 +17,12 @@ from pathlib import Path
 
 import pytest
 
-import marivo.datasource as md
+import marivo
 import marivo.semantic as ms
+from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis.constraints import CONSTRAINTS as ANALYSIS_CONSTRAINTS
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
+from tests.shared_fixtures import rendered_help
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,7 +81,6 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "transform",
         "session",
         "datasources",
-        "help",
         "artifacts",
         "recovery",
         "boundary.to_pandas",
@@ -111,13 +112,13 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
 
 
 def test_no_inherited_or_module_docstring_leaks() -> None:
-    text = md.help_text("trino")
+    text = rendered_help("trino", owner="datasource")
     assert "Signature:" in text
     assert "__init__" not in text
 
 
 def test_semantic_catalog_help_lists_workflow_methods() -> None:
-    text = ms.help_text(ms.SemanticCatalog)
+    text = rendered_help(ms.SemanticCatalog, owner="semantic")
     assert "SemanticCatalog" in text
     assert "require" in text
     assert "readiness" in text
@@ -125,14 +126,14 @@ def test_semantic_catalog_help_lists_workflow_methods() -> None:
 
 
 def test_semantic_load_help_mentions_entrypoint() -> None:
-    text = ms.help_text("load")
+    text = rendered_help("load", owner="semantic")
     assert "ms.load" in text
     assert "Signature:" in text
     assert "SemanticCatalog" in text
 
 
 def test_semantic_metric_help_contains_constructor_and_constraints() -> None:
-    text = ms.help_text("metric")
+    text = rendered_help("metric", owner="semantic")
     assert "ms.metric" in text
     assert "Signature:" in text
     assert "Constraints:" in text
@@ -141,14 +142,12 @@ def test_semantic_metric_help_contains_constructor_and_constraints() -> None:
 
 
 def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:
-    assert "datasource_secret_env_ref" in md.help_text("trino")
+    assert "datasource_secret_env_ref" in rendered_help("trino", owner="datasource")
 
 
 def test_datasource_help_does_not_resolve_private_symbols() -> None:
-    from marivo.datasource.errors import DatasourceHelpTargetError
-
-    with pytest.raises(DatasourceHelpTargetError):
-        md.help_text("_build_ai_context")
+    with pytest.raises(MarivoHelpTargetError):
+        rendered_help("_build_ai_context", owner="datasource")
 
 
 def test_datasource_constraint_defaults_use_error_kind_only() -> None:
@@ -160,30 +159,30 @@ def test_datasource_constraint_defaults_use_error_kind_only() -> None:
     assert constraint.id == "datasource_file_loadable"
 
 
-def test_datasource_text_help_prints_and_help_text_returns_string(
+def test_public_help_prints_and_private_renderer_returns_string(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    result = md.help("trino")
+    result = marivo.help("datasource.trino")
 
     captured = capsys.readouterr()
     assert result is None
     assert captured.out.startswith("trino\n")
 
-    text = md.help_text("trino")
+    text = rendered_help("trino", owner="datasource")
     captured = capsys.readouterr()
     assert text.startswith("trino\n")
     assert captured.out == ""
 
 
-def test_datasource_help_rejects_format_and_print_kwargs() -> None:
+def test_public_help_rejects_format_and_print_kwargs() -> None:
     with pytest.raises(TypeError):
-        md.help("trino", format="json")  # type: ignore[call-arg]
+        marivo.help("datasource.trino", format="json")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        md.help("trino", print=False)  # type: ignore[call-arg]
+        marivo.help("datasource.trino", print=False)  # type: ignore[call-arg]
 
 
-def test_datasource_help_has_no_format_or_print_parameter() -> None:
-    sig = inspect.signature(md.help)
+def test_public_help_has_no_format_or_print_parameter() -> None:
+    sig = inspect.signature(marivo.help)
     assert "format" not in sig.parameters
     assert "print" not in sig.parameters
 

@@ -55,7 +55,7 @@ def test_analysis_skill_uses_demand_driven_help_after_environment_entry() -> Non
     section = text[text.index("## Live-contract rule") : text.index("## Script workspace")]
     normalized = " ".join(section.split())
 
-    environment_entry = normalized.index("<analysis-python> -m marivo help analysis")
+    environment_entry = normalized.index("<analysis-python> -m marivo help")
     state_read = normalized.index("`.show()`")
     contract_read = normalized.index("`.contract()`")
     focused_help = normalized.index("object contract is insufficient")
@@ -148,7 +148,7 @@ def test_analysis_skill_routes_event_journeys_to_live_help_and_coverage_evidence
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     for required in (
         "typed semantic Events",
-        'mv.help("events.match")',
+        'marivo.help("analysis.events.match")',
         "events.funnel",
         "events.time_to_event",
         "select_subjects",
@@ -175,22 +175,18 @@ def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
         assert required in text, f"Required section {required!r} missing from semantic SKILL.md"
 
 
-def test_marivo_semantic_skill_defines_aliases_before_first_use() -> None:
-    """Cold-start agents must see each public alias before its first help call."""
+def test_marivo_semantic_skill_imports_marivo_before_first_help_call() -> None:
+    """Cold-start agents must import the sole public help owner before use."""
     skill_path = SEMANTIC_SKILL_DIR / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
-    for import_statement, first_use in (
-        ("import marivo.datasource as md", "md.help("),
-        ("import marivo.semantic as ms", "ms.help("),
-    ):
-        import_position = text.find(import_statement)
-        use_position = text.find(first_use)
-        assert import_position >= 0, f"Missing public alias declaration: {import_statement}"
-        assert use_position >= 0, f"Missing live help route: {first_use}"
-        assert import_position < use_position, (
-            f"Public alias must be defined before first use: {import_statement}"
-        )
+    import_position = text.find("import marivo")
+    canonical_route = text.index("## Canonical route")
+    assert import_position >= 0
+    assert import_position < canonical_route
+    assert "md.help(" not in text
+    assert "ms.help(" not in text
+    assert "mv.help(" not in text
 
 
 def test_no_active_source_references_deleted_semantic_paths() -> None:

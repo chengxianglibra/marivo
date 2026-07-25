@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed attribution analysis frames."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class AttributionFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class AttributionFrame(BaseFrame):
-    """Call mv.help(AttributionFrame) for its public consumption contract."""
+    """Call marivo.help(AttributionFrame) for its public consumption contract."""
 
     meta: AttributionFrameMeta
 

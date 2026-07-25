@@ -184,7 +184,7 @@ def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
     hint = default_hint_for_error_kind(kind.value)
     if hint is not None:
         return hint
-    return "Run ms.help('constraints') to inspect semantic constraints."
+    return 'Run marivo.help("semantic.constraints") to inspect semantic constraints.'
 
 
 HINTS: dict[ErrorKind, Callable[..., str]] = {
@@ -278,7 +278,8 @@ class SemanticError(Exception):
                 lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
             target = self.repair.help_target
             if target.canonical_id is not None:
-                lines.append(f"Help: ms.help({target.canonical_id!r})")
+                qualified = f"{target.surface}.{target.canonical_id}"
+                lines.append(f"Help: marivo.help({qualified!r})")
         return "\n".join(lines)
 
 
@@ -309,9 +310,9 @@ class SemanticHelpTargetError(SemanticError):
             expected=f"accepted semantic help target ({', '.join(payload.accepted_kinds)})",
             received=payload.received,
             location_label=f"{owning_surface} help surface",
-            repair=repair(
+            repair=AuthoringRepair(
                 kind="retry",
-                canonical_id="help",
+                help_target=LiveHelpTarget(surface="semantic"),
                 action="Retry with a registered semantic help target.",
                 candidates=payload.candidates,
             ),

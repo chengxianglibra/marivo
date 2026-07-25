@@ -61,16 +61,17 @@ The runtime pieces are:
   another.
 
 ```python
+import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
 :::note[Agent discovery]
 From the command line, start with `marivo --help` for the CLI entry point.
-For the full analysis capability index and fingerprint, run:
+Verify the selected environment and discover the Python handoff with:
 
 ```bash
-python -m marivo help analysis
+python -m marivo help
 ```
 
 Use the Python interpreter where `marivo` is installed. The rendered version,
@@ -79,11 +80,12 @@ Python executable, and package path form the environment fingerprint — a bare
 matches the analysis interpreter. Verify this fingerprint once at analysis
 entry. After that, use the public object already in hand: read `.show()` for
 current state and `.contract()` before an unfamiliar composition. Open a
-focused topic such as `mv.help("observe")`, `mv.help("compare")`, or
-`mv.help("MetricFrame")` only when the object contract is insufficient or
-before first use of an unfamiliar capability. After a failure, follow the
-structured repair. Focused help is self-contained for one correct minimal
-invocation, but is not required before every API call.
+focused topic such as `marivo.help("analysis.observe")`,
+`marivo.help("analysis.compare")`, or
+`marivo.help("analysis.MetricFrame")` only when the object contract is
+insufficient or before first use of an unfamiliar capability. After a failure,
+follow the structured repair. Focused help is self-contained for one correct
+minimal invocation, but is not required before every API call.
 :::
 
 When analysis needs a newly authored or changed object, close out that change
@@ -528,7 +530,7 @@ do not reserve user dimension names.
 `attribution.attribution_mode` exposes the row
 layout, while `attribution.attribution_shape` / `meta.method` expose the
 attribution math. Both layouts can therefore report `method="weighted_mix"`.
-Use `mv.help("AttributionMode")` for the focused distinction.
+Use `marivo.help("analysis.AttributionMode")` for the focused distinction.
 
 Contribution shares name their denominator explicitly:
 
@@ -778,7 +780,7 @@ with `kind` (`retry`, `inspect`, `user_choice`, `semantic_authoring`,
 `environment`), `action`, `help_target`, optional `snippet`, and optional
 `candidates` drawn from live state. `user_choice` means several mechanically
 legal alternatives remain and business judgment must select one. Follow the
-repair guidance; it points to the exact `mv.help(...)` target for the failing
+repair guidance; it points to the exact `marivo.help("analysis.<target>")` target for the failing
 capability.
 
 Event continuation errors use the same contract. Matching-policy and step
@@ -828,7 +830,7 @@ prior = mv.session.inspect(history.items[0].name) if history.items else None
 `next_cursor` when `has_more` is true. Pages use ordinary keyset semantics, not
 snapshot isolation.
 
-Use `mv.help("recovery")` to list these real Session members. `recovery` and
+Use `marivo.help("analysis.recovery")` to list these real Session members. `recovery` and
 `artifacts` are help topics, not `session.recovery` / `session.artifacts`
 namespaces.
 

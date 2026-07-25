@@ -400,22 +400,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example='md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="check connectivity")',
         ),
         _capability(
-            "help",
-            "marivo.datasource.help.help",
-            "Render the datasource help surface or one target.",
-            output="Text",
-            inputs=(_optional_input("subject", "HelpTarget"),),
-            example="md.help()",
-        ),
-        _capability(
-            "help_text",
-            "marivo.datasource.help.help_text",
-            "Return datasource help as plain text.",
-            output="Text",
-            inputs=(_optional_input("subject", "HelpTarget"),),
-            example='md.help_text("inspect")',
-        ),
-        _capability(
             "DatasourceCatalog.list",
             "marivo.datasource.catalog.DatasourceCatalog.list",
             "List configured datasources from a loaded catalog.",

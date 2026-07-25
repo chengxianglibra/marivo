@@ -221,7 +221,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "derived_metric", "sum", "ratio", "weighted_mean"),
         "Metrics need a supported composition builder.",
         "Composition declares how metric values compose during drilldown and derived calculations.",
-        "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
+        'Run marivo.help("semantic.composition") to inspect supported builders; SQL aggregation belongs in the metric body.',
     ),
     ConstraintId.CUMULATIVE_ANCHOR: _constraint(
         ConstraintId.CUMULATIVE_ANCHOR,

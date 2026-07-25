@@ -523,7 +523,9 @@ def test_projection_cards_contracts_and_help_are_query_free(
     for result in results:
         assert result.contract().transitions == ()
         assert result.show() is None
-        assert md.help_text(result)
+        from tests.shared_fixtures import rendered_help
+
+        assert rendered_help(result)
 
 
 def test_rendering_is_bounded_without_truncating_structured_mapping() -> None:

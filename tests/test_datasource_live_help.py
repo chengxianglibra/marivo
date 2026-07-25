@@ -3,33 +3,24 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
 import marivo
-import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
-from marivo.datasource.authoring import DatasourceSpec
+from marivo._help.model import MarivoHelpTargetError
 from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import (
-    DatasourceError,
-    DatasourceHelpTargetError,
     DatasourceMissingError,
     repair,
 )
 from marivo.datasource.evidence import (
-    DimensionEvidenceResult,
     DimensionValuesResult,
     EntityEvidenceResult,
-    MeasureEvidenceResult,
-    RelationshipEvidenceResult,
-    TimeEvidenceResult,
 )
 from marivo.datasource.inspection import (
     ExecutionCapabilities,
@@ -38,8 +29,12 @@ from marivo.datasource.inspection import (
     SourceInspection,
 )
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
-from marivo.datasource.source import TableSource
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from tests.shared_fixtures import rendered_help
+
+
+def _text(target: object | None = None) -> str:
+    return rendered_help(target, owner="datasource")
 
 
 @pytest.mark.parametrize(
@@ -53,7 +48,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
     ],
 )
 def test_help_resolves_supported_target_kinds(target: object, canonical_id: str) -> None:
-    text = md.help_text(target)  # type: ignore[arg-type]
+    text = _text(target)
     assert canonical_id in text
 
 
@@ -73,60 +68,23 @@ def test_registered_sample_string_paths_resolve_to_one_descriptor(target: str) -
     resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
     assert resolved.kind == "descriptor"
     assert resolved.canonical_id == "SourceInspection.sample"
-    assert md.help_text(target).startswith("SourceInspection.sample\n")
+    assert _text(target).startswith("SourceInspection.sample\n")
 
 
 def test_unknown_string_raises_typed_bounded_error() -> None:
-    with pytest.raises(DatasourceHelpTargetError) as exc_info:
-        md.help_text("inspekt")
+    with pytest.raises(MarivoHelpTargetError) as exc_info:
+        _text("inspekt")
 
-    assert exc_info.value.repair is not None
-    assert len(exc_info.value.repair.candidates) <= SURFACE_LIMITS.help_suggestion_limit
-    assert "inspect" in exc_info.value.repair.candidates
+    assert len(exc_info.value.candidates) <= SURFACE_LIMITS.help_suggestion_limit
+    assert "datasource.inspect" in exc_info.value.candidates
 
 
 def test_root_help_reveals_current_environment() -> None:
-    text = md.help_text()
+    text = _text()
 
     assert f"Marivo: {marivo.__version__}" in text
     assert f"Python: {sys.executable}" in text
     assert f"Package: {Path(marivo.__file__).resolve()}" in text
-
-
-def test_public_help_annotations_keep_the_exact_concrete_target_union() -> None:
-    from marivo.datasource.help import PublicDatasourceHelpTarget
-
-    evidence_result = (
-        EntityEvidenceResult
-        | DimensionEvidenceResult
-        | DimensionValuesResult
-        | TimeEvidenceResult
-        | MeasureEvidenceResult
-        | RelationshipEvidenceResult
-    )
-    expected = (
-        str
-        | Callable[..., object]
-        | type[object]
-        | DatasourceSpec
-        | md.DatasourceCatalog
-        | md.DatasourceSummary
-        | md.DatasourceDescription
-        | md.DatasourceTestResult
-        | md.DatasourceConnection
-        | TableSource
-        | md.PartitionScope
-        | md.UnprunedScope
-        | md.SourceInspection
-        | md.DiscoverySnapshot
-        | evidence_result
-        | DatasourceError
-        | None
-    )
-
-    assert PublicDatasourceHelpTarget == expected
-    assert get_type_hints(md.help_text)["target"] == expected
-    assert get_type_hints(md.help)["target"] == expected
 
 
 @pytest.fixture
@@ -183,7 +141,7 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
     for target in datasource_runtime_targets:
-        text = md.help_text(target)  # type: ignore[arg-type]
+        text = _text(target)
         assert text.strip()
 
 
@@ -208,59 +166,11 @@ def test_projection_result_help_points_to_contract_and_repair_without_values() -
         ),
     )
 
-    text = md.help_text(result)
+    text = _text(result)
 
     assert "Continuation: call .contract()" in text
     assert "repair" in text
     assert "private-region-value" not in text
-
-
-def test_help_rejects_cross_surface_private_and_ambiguous_targets() -> None:
-    from marivo.analysis import MetricFrame
-    from marivo.datasource.authoring import _SpecBase
-    from marivo.refs import Ref
-
-    for target in (
-        ms.ref.metric("sales.revenue"),
-        MetricFrame,
-        _SpecBase,
-        object(),
-        "source",
-        "help.help_text",
-    ):
-        with pytest.raises(DatasourceHelpTargetError) as exc_info:
-            md.help_text(target)  # type: ignore[arg-type]
-        if target is MetricFrame:
-            assert "mv.help" in str(exc_info.value)
-        if type(target) is Ref:
-            assert "ms.help" in str(exc_info.value)
-
-
-@pytest.mark.parametrize(
-    ("target", "adapter"),
-    [
-        (ms.metric, "ms.help"),
-        (mv.Session, "mv.help"),
-    ],
-)
-def test_cross_surface_callable_rejection_names_owning_adapter(
-    target: object, adapter: str
-) -> None:
-    with pytest.raises(DatasourceHelpTargetError) as exc_info:
-        md.help_text(target)  # type: ignore[arg-type]
-    assert adapter in str(exc_info.value)
-
-
-def test_loaded_semantic_entry_rejection_names_semantic_adapter(
-    authoring_evidence_project: object,
-) -> None:
-    catalog = ms.load()
-    entry = catalog.require(ms.ref.metric("sales.revenue"))
-
-    with pytest.raises(DatasourceHelpTargetError) as exc_info:
-        md.help_text(entry)  # type: ignore[arg-type]
-
-    assert "ms.help" in str(exc_info.value)
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
@@ -276,7 +186,7 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
             kind="inspect",
             help_target=LiveHelpTarget(surface="semantic"),
             action="Inspect semantic help before continuing.",
-            snippet="ms.help()",
+            snippet="marivo.help()",
             candidates=("load",),
         ),
     )
@@ -290,13 +200,14 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     assert contract.kind == "error_contract"
     assert error_class.kind == "error_contract"
     assert contract == error_class
-    assert md.help_text(without_repair) == md.help_text(DatasourceMissingError)
-    text = md.help_text(with_repair)
+    assert _text(without_repair) == _text(DatasourceMissingError)
+    text = _text(with_repair)
     assert "Kind: inspect" in text
     assert "Expected: registered datasource" in text
     assert "Received: warehouse" in text
     assert "Location: datasource catalog" in text
-    assert "Next help: ms.help()" in text
+    assert "Next help: marivo.help()" in text
+    assert "ms.help" not in text
     assert "Snippet:" in text
     assert "Candidates: load" in text
 
@@ -312,6 +223,6 @@ def test_live_help_performs_no_datasource_effects(
     monkeypatch.setattr("marivo.datasource.authoring_store.AuthoringStore.write_snapshot", fail)
     monkeypatch.setattr("marivo.config.load_project_config", fail)
 
-    assert md.help_text()
+    assert _text()
     for target in ("inspect", md.SourceInspection, *datasource_runtime_targets):
-        assert md.help_text(target)  # type: ignore[arg-type]
+        assert _text(target)

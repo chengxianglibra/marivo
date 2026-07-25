@@ -44,15 +44,17 @@ Authority is divided explicitly:
 ## Live-contract rule
 
 Use the same project interpreter for discovery and execution. Start with
-`<selected-python> -m marivo help semantic` (or the corresponding
-`<venv>/bin/marivo help semantic`), verify the rendered Marivo version,
-resolved Python executable, and package path, then follow focused live help
-topics for every API contract.
+`<selected-python> -m marivo help` (or the corresponding
+`<venv>/bin/marivo help`), verify the rendered Marivo version, resolved Python
+executable, and package path, then follow focused
+`marivo.help("datasource.<target>")` or
+`marivo.help("semantic.<target>")` topics for API contracts.
 
 Use the standard public module aliases shown by live help before calling the
 Python surfaces:
 
 ```python
+import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 ```
@@ -65,10 +67,10 @@ user state, authoring semantic files, or using refs in analysis.
 
 After entry:
 
-- live `md.help(...)` owns datasource contracts, inspection, scope, snapshot,
-  and diagnostic mechanics;
-- live `ms.help(...)` owns semantic constructor parameters, constraints, and
-  examples;
+- focused `marivo.help("datasource.<target>")` owns datasource contracts,
+  inspection, scope, snapshot, and diagnostic mechanics;
+- focused `marivo.help("semantic.<target>")` owns semantic constructor
+  parameters, constraints, and examples;
 - result `.show()` output, `.contract()`, and structured errors own
   state-specific next calls and typed repair;
 - the agent owns evidence-based drafting and technical handling, including
@@ -93,8 +95,9 @@ help/browse -> inspect -> explicit scope -> sample once -> project evidence -> s
 Each step names the live help target that owns its exact mechanics — never a
 signature, transition call, or parameter table from this file:
 
-1. **help/browse** — open `md.help("authoring")` and `ms.help("authoring")`,
-   then browse existing objects through the live catalog's typed collections.
+1. **help/browse** — open `marivo.help("authoring")`, then use the qualified
+   datasource or semantic authoring topic when one component needs more detail,
+   and browse existing objects through the live catalog's typed collections.
 2. **inspect** — inspect the source via the live datasource inspection
    capability; read physical extent, partition state, schema, and execution
    capabilities before any user-data query.
@@ -303,7 +306,7 @@ options are forbidden.
 - Advisory richness is not readiness and cannot create a required object by
   itself.
 - Event authoring follows the one registered Event entry point shown by current
-  `ms.help(...)`. The agent does not invent a body-free or filtered-Event
+  `marivo.help("semantic.event")`. The agent does not invent a body-free or filtered-Event
   constructor from cached examples. Participant roles belong to the Event
   definition; ordered EventPattern steps and matching policy belong to
   `marivo-analysis`.

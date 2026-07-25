@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed metric analysis frames."""
 
 from __future__ import annotations
 
@@ -402,11 +402,11 @@ class MetricFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class MetricFrame(BaseFrame):
-    """Metric artifact: public metric names, canonical internal value; call mv.help(MetricFrame).
+    """Metric artifact; call marivo.help(MetricFrame) for its public contract.
 
     Single-metric frames expose the metric name consistently through every
     public read path while typed analysis retains an internal canonical
-    ``"value"`` column. Call ``mv.help(MetricFrame)`` for the full consumption
+    ``"value"`` column. Call ``marivo.help(MetricFrame)`` for the full consumption
     contract.
     """
 

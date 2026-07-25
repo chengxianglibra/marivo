@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis errors with unified Marivo help repairs."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class AnalysisRepair(BaseModel):
     action:
         One-sentence concrete next step.
     help_target:
-        Canonical ``mv.help(...)`` target the agent should consult.
+        Canonical surface-qualified ``marivo.help(...)`` target to consult.
     snippet:
         Optional paste-ready code snippet.
     candidates:
@@ -71,7 +71,7 @@ class _DerivedFields(TypedDict, total=False):
 
 
 class AnalysisError(Exception):
-    """Call mv.help(AnalysisError) for its public consumption contract.
+    """Call marivo.help(AnalysisError) for its public consumption contract.
 
     Base class for all analysis errors.
     """
@@ -142,7 +142,13 @@ class AnalysisError(Exception):
                 lines.extend(f"  {line}" for line in self.repair.snippet.splitlines())
             if self.repair.candidates:
                 lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
-            lines.append(f"Help: mv.help('{self.repair.help_target.display}')")
+            target = self.repair.help_target
+            qualified = (
+                target.surface
+                if target.canonical_id is None
+                else f"{target.surface}.{target.canonical_id}"
+            )
+            lines.append(f"Help: marivo.help({qualified!r})")
 
         return "\n".join(lines)
 
@@ -1008,7 +1014,7 @@ DatasourceMetadataError = _datasource_errors.DatasourceMetadataError
 
 
 class HelpTargetError(AnalysisError):
-    """Call mv.help(HelpTargetError) for its public consumption contract."""
+    """Private analysis-surface rejection adapted by unified help."""
 
     def __init__(
         self,
@@ -1022,9 +1028,7 @@ class HelpTargetError(AnalysisError):
         if owning_surface is not None:
             callable_target = getattr(target, "__func__", target)
             target_name = getattr(callable_target, "__qualname__", type(target).__qualname__)
-            public_alias = {"datasource": "md", "semantic": "ms"}[owning_surface]
-            adapter = {"datasource": "md.help", "semantic": "ms.help"}[owning_surface]
-            retry_call = f"{adapter}({public_alias}.{target_name})"
+            retry_call = f'marivo.help("{owning_surface}.{target_name}")'
             message += f". This target belongs to {owning_surface}; use {retry_call} instead."
             action = f"Retry with the owning surface: {retry_call}."
             help_target = LiveHelpTarget(
@@ -1032,8 +1036,8 @@ class HelpTargetError(AnalysisError):
                 canonical_id=target_name,
             )
         else:
-            action = "Use a canonical registered target from mv.help()."
-            help_target = LiveHelpTarget(surface="analysis", canonical_id="help")
+            action = "Use marivo.help() to browse registered targets."
+            help_target = LiveHelpTarget(surface="analysis")
         if suggestions and owning_surface is None:
             # Surface fuzzy candidates on the first line. See issue #35.
             message += f". Did you mean: {', '.join(suggestions)}?"
@@ -1044,7 +1048,7 @@ class HelpTargetError(AnalysisError):
                 "public analysis object, semantic object/ref, or AnalysisError"
             ),
             received=str(received),
-            location="mv.help.target",
+            location="marivo.help.target",
             repair=AnalysisRepair(
                 kind="retry" if owning_surface is not None else "inspect",
                 action=action,

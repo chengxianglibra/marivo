@@ -563,8 +563,8 @@ def test_format_family_block_lists_members() -> None:
 
     block = format_family_block(
         (FamilyFold(label="References", members=("ARef", "BRef")),),
-        help_call="ms.help",
+        help_call="marivo.help",
     )
     text = "\n".join(block)
-    assert "Families (call ms.help('<name>') for any member):" in text
+    assert "Families (call marivo.help('<name>') for any member):" in text
     assert "References (2): ARef, BRef" in text

@@ -92,7 +92,6 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
 from marivo.semantic.event import Participant, ParticipantRoleHandle
-from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     AggregateFoldInput,
     AggregateFoldValue,
@@ -234,8 +233,6 @@ __all__ = [
     "event",
     "from_sql",
     "grain_to_date",
-    "help",
-    "help_text",
     "hour_prefix",
     "join_on",
     "linear",

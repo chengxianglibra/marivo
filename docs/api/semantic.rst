@@ -114,15 +114,11 @@ ref to a direct entity alias inside a decorated expression body.
    Ref
    load
 
-Discovery
----------
+Focused help
+------------
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   help
-   help_text
+Use ``marivo.help("semantic.<target>")`` for bounded constructor, catalog, and
+validation contracts.
 
 Details types
 -------------

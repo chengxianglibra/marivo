@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis quality results."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class QualityReportMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class QualityReport(BaseFrame):
-    """Call mv.help(QualityReport) for its public consumption contract."""
+    """Call marivo.help(QualityReport) for its public consumption contract."""
 
     meta: QualityReportMeta
 

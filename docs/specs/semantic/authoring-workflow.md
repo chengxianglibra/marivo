@@ -13,22 +13,23 @@ See also:
 - [loading-validation-introspection.md](loading-validation-introspection.md) —
   what `ms.load()`, `catalog.verify(...)`, scoped preview, and
   `catalog.readiness(...)` return.
-- `ms.help("authoring")` / `md.help("authoring")` — the runnable checklists.
+- `marivo.help("authoring")` — the composed runnable workflow; use
+  `marivo.help("semantic.authoring")` or
+  `marivo.help("datasource.authoring")` for a focused component.
 
 ## Current public flow
 
 The semantic-authoring lifecycle is a registered state model, not a hardcoded
-method-by-method runbook. `ms.help("authoring")` renders the lifecycle view
-generated from registered authoring states; `md.help("authoring")` renders the
-matching datasource lifecycle ending at acquired/projected evidence and linking
-to the semantic root. The conceptual policy order is:
+method-by-method runbook. `marivo.help("authoring")` composes the registered
+datasource and semantic lifecycle views without merging their state ownership.
+The conceptual policy order is:
 
 ```text
 help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
 ```
 
 Invocation details — exact signatures, required inputs, effects, and
-preconditions — live in focused `ms.help(<target>)` and the current object's
+preconditions — live in focused `marivo.help("semantic.<target>")` and the current object's
 `.contract()`, not in this document. Each state-bearing result exposes
 `.contract()` for its mechanically available continuations, and each structured
 error exposes typed repair pointing back to live help. This document states the
@@ -45,7 +46,7 @@ values before authoring one object.
 
 Each layer of guidance has exactly one job:
 
-- **`ms.help("<constructor-or-object>")` — static authoring contract.**
+- **`marivo.help("semantic.<constructor-or-object>")` — static authoring contract.**
   Constructors, required and optional parameters, allowed values, defaults, omit
   rules, nested parse shapes, and static constraints. Help says *what must be
   settled*; it carries no runtime data.
@@ -111,7 +112,7 @@ when the kind requires it.
 The per-object cycle is the registered lifecycle applied to one object. Its
 mechanical transitions — load, verify, preview, and readiness —
 and their exact inputs, effects, and preconditions are disclosed by focused
-`ms.help(<target>)` and the current object/result's `.contract()`, not restated
+`marivo.help("semantic.<target>")` and the current object/result's `.contract()`, not restated
 here as a second runbook. `CatalogEntry.contract()` exposes the exact
 object-bound verify, preview, and readiness continuations; this is the canonical
 read point after `ms.load()`. The judgment-shaped steps, which no registry can

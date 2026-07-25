@@ -135,6 +135,8 @@ def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_
 
 
 def test_help_examples_teach_analysis_purpose() -> None:
+    from tests.shared_fixtures import rendered_help
+
     for topic in ("observe",):
-        text = mv.help_text(topic)
+        text = rendered_help(topic, owner="analysis")
         assert "analysis_purpose" in text, topic

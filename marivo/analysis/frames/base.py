@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Base typed analysis frame contracts."""
 
 from __future__ import annotations
 
@@ -436,7 +436,7 @@ def _column_role(column_name: str) -> ArtifactColumnRole:
 
 @dataclass(repr=False)
 class BaseFrame(RenderableResult):
-    """Call mv.help(BaseFrame) for its public consumption contract."""
+    """Call marivo.help(BaseFrame) for its public consumption contract."""
 
     _df: pd.DataFrame
     meta: BaseFrameMeta

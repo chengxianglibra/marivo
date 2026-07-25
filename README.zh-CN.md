@@ -54,6 +54,20 @@ curl -fsSL https://marivo.io/install.sh | bash
 
 安装脚本会准备本地环境并初始化当前目录。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/latest/installation/)。
 
+先验证一次选定的运行环境，再进入 Python 查询 focused help：
+
+```bash
+python -m marivo help
+```
+
+```python
+import marivo
+
+marivo.help()
+marivo.help("semantic.metric")
+marivo.help("analysis.observe")
+```
+
 如果项目已经包含 `marivo.toml` 和 `models/`，直接复用现有语义层。新项目只需告诉智能体要使用的数据源和业务目标，再在分析前确认智能体提出的指标含义。
 
 指标准备就绪后，可以直接提出业务问题：

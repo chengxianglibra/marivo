@@ -2,7 +2,7 @@
 
 The old JSON ``_surface()`` infrastructure was removed in Phase 3 for both
 the semantic and analysis surfaces.  The semantic surface now uses the
-live capability-registry renderer (``ms.help_text()``).  This file retains
+live capability-registry renderer. This file retains
 catalog-level and analysis-surface regression tests that do not depend on
 the removed ``_surface`` function.
 """
@@ -47,26 +47,20 @@ def test_semantic_catalog_has_no_legacy_list_method(semantic_project_factory) ->
 def test_analysis_no_longer_uses_json_surface() -> None:
     """The analysis surface has moved to the capability-registry-based renderer.
 
-    ``_surface`` is no longer available on ``marivo.analysis.help``; this test
-    pins that the old JSON Surface infrastructure is gone for analysis.
+    The old public analysis help module and JSON Surface are both gone.
     """
-    import pytest
+    import marivo.analysis as mv
 
-    from marivo.analysis import help as analysis_help
-    from marivo.analysis import help_text as mv_help_text
-
-    assert not hasattr(analysis_help, "_surface")
-
-    # The new help system does not accept format= or json= kwargs.
-    with pytest.raises(TypeError):
-        mv_help_text("observe", format="json")  # type: ignore[call-arg]
+    assert not hasattr(mv, "help")
+    assert not hasattr(mv, "help_text")
 
 
 def test_semantic_help_no_longer_uses_json_surface() -> None:
     """The semantic surface has moved to the capability-registry-based renderer.
 
-    ``_surface`` is no longer available on ``marivo.semantic.help``.
+    The old public semantic help module is gone.
     """
-    from marivo.semantic import help as semantic_help
+    import marivo.semantic as ms
 
-    assert not hasattr(semantic_help, "_surface")
+    assert not hasattr(ms, "help")
+    assert not hasattr(ms, "help_text")

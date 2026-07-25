@@ -128,7 +128,7 @@ class CapabilityBase:
     public_entrypoint:
         Exact public invocation shape (e.g. ``session.observe(...)``).
     help_target:
-        Canonical target accepted by ``mv.help(...)``.
+        Canonical target accepted by ``marivo.help("analysis.<target>")``.
     summary:
         One bounded factual sentence describing the capability.
     root_group:

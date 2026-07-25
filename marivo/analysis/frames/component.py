@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed component analysis frames."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ class ComponentFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class ComponentFrame(BaseFrame):
-    """Call mv.help(ComponentFrame) for its public consumption contract."""
+    """Call marivo.help(ComponentFrame) for its public consumption contract."""
 
     meta: ComponentFrameMeta
 

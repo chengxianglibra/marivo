@@ -297,7 +297,9 @@ def test_validator_rejects_cumulative_over_derived_base() -> None:
 
 
 def test_cumulative_semantic_help_explains_derived_compare_boundary() -> None:
-    text = ms.help_text("cumulative")
+    from tests.shared_fixtures import rendered_help
+
+    text = rendered_help("cumulative", owner="semantic")
 
     assert "same trailing or grain_to_date anchor" in text
     assert "all_history" in text

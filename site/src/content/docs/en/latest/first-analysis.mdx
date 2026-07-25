@@ -33,13 +33,13 @@ analysis runtime calls accept directly; exact refs remain valid for
 configuration and recovery. Marivo normalizes either form to the ref before
 planning, evidence, persistence, or replay.
 
-The agent verifies the live analysis environment once with
-`python -m marivo help analysis` using the project interpreter. After entry, it
-works from the public object already in hand: `.show()` reports current state,
-`.contract()` guides unfamiliar composition, and focused `mv.help(...)` is
-needed only when that contract is insufficient or before first use of an
-unfamiliar capability. After a failure, the agent follows the structured
-repair. Focused help is not a prerequisite for every API call.
+The agent verifies the live environment once with `python -m marivo help` using
+the project interpreter. After entry, it works from the public object already
+in hand: `.show()` reports current state, `.contract()` guides unfamiliar
+composition, and focused `marivo.help(...)` after `import marivo` is needed only
+when that contract is insufficient or before first use of an unfamiliar
+capability. After a failure, the agent follows the structured repair. Focused
+help is not a prerequisite for every API call.
 
 The typed boundary (`session.observe` in, `frame.to_pandas()` / `md.raw_sql`
 out) keeps custom analysis from breaking the evidence chain.

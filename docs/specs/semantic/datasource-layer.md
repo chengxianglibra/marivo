@@ -12,7 +12,8 @@ See also:
   consumed while authoring semantic objects.
 - [semantic-object-model.md](semantic-object-model.md) — how entities reference
   a datasource and a physical source.
-- `md.help("authoring")` — the runnable, always-current authoring checklist.
+- `marivo.help("datasource.authoring")` — the runnable, always-current
+  datasource authoring checklist.
 
 ## Role in the architecture
 
@@ -125,7 +126,7 @@ native temporal column instead.
 - **`ai_context=`** accepts an `ms.ai_context(...)` value (never a raw dict) so a
   datasource can carry business annotations; text belongs in
   `business_definition`. There is no `md.ai_context` constructor — the semantic
-  module owns that value type (see `md.help("ai_context")`).
+  module owns that value type (see `marivo.help("datasource.ai_context")`).
 - **`name`** is the global datasource key. Datasource names are never
   `<domain>.<datasource>`; a datasource does not belong to a semantic domain.
 

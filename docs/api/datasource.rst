@@ -72,15 +72,15 @@ Scope helpers
    partition
    unpruned
 
-Help & description
-------------------
+Description
+-----------
+
+Use ``marivo.help("datasource.<target>")`` for bounded focused help.
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   help
-   help_text
    describe
 
 Catalog & refs

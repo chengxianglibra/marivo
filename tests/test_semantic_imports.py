@@ -94,7 +94,6 @@ def test_all_list_matches_expected() -> None:
         "TimeDimensionEntry",
         "TimeDimensionDetails",
         "VerifyResult",
-        "help_text",
         "load",
         "domain",
         "entity",
@@ -132,7 +131,6 @@ def test_all_list_matches_expected() -> None:
         "timestamp",
         "trailing",
         "validity",
-        "help",
         "typing",
         "errors",
         "where",
@@ -277,15 +275,15 @@ def test_raise_helper() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[str]) -> None:
-    ms.help()
+def test_semantic_native_root_is_compact_directory() -> None:
+    from tests.shared_fixtures import rendered_help
 
-    captured = capsys.readouterr()
-    assert "marivo.semantic" in captured.out
-    assert "entity" in captured.out
-    assert "metric" in captured.out
-    assert "Capabilities:" in captured.out
-    assert "ms.help(" in captured.out
+    text = rendered_help(owner="semantic")
+    assert "marivo.semantic" in text
+    assert "entity" in text
+    assert "metric" in text
+    assert "Capabilities:" in text
+    assert "marivo.help(" in text
 
 
 def test_constraint_example_paths_exist() -> None:
@@ -298,7 +296,7 @@ def test_constraint_example_paths_exist() -> None:
 def test_invalid_composition_hint_points_to_composition_help() -> None:
     constraint = get_constraint("composition_shape")
     assert constraint is not None
-    assert "ms.help('composition')" in constraint.hint
+    assert 'marivo.help("semantic.composition")' in constraint.hint
 
 
 def test_derived_fanout_policy_hint_uses_flat_constructors() -> None:
@@ -788,29 +786,35 @@ def test_reader_project_load_reloads() -> None:
         assert result.status == "ready"
 
 
-def test_help_semi_additive_documents_fold_semantics(capsys) -> None:
-    ms.help("semi_additive")
-    out = capsys.readouterr().out
+def test_help_semi_additive_documents_fold_semantics() -> None:
+    from tests.shared_fixtures import rendered_help
+
+    out = rendered_help("semi_additive", owner="semantic")
     assert "semi_additive" in out
     assert "ms.semi_additive" in out
     assert "fold" in out
 
 
-def test_help_metric_mentions_body(capsys) -> None:
-    ms.help("metric")
-    out = capsys.readouterr().out
+def test_help_metric_mentions_body() -> None:
+    from tests.shared_fixtures import rendered_help
+
+    out = rendered_help("metric", owner="semantic")
     assert "body" in out
 
 
 def test_help_text_documents_column_helpers() -> None:
-    text = ms.help_text()
+    from tests.shared_fixtures import rendered_help
+
+    text = rendered_help(owner="semantic")
     assert "dimension_column" in text
     assert "measure_column" in text
     assert "time_dimension_column" in text
 
 
 def test_help_text_measure_mentions_additivity() -> None:
-    text = ms.help_text("measure")
+    from tests.shared_fixtures import rendered_help
+
+    text = rendered_help("measure", owner="semantic")
     assert "additivity" in text
 
 

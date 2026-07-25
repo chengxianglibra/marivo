@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed coverage analysis frames."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class CoverageFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class CoverageFrame(BaseFrame):
-    """Call mv.help(CoverageFrame) for its public consumption contract."""
+    """Call marivo.help(CoverageFrame) for its public consumption contract."""
 
     meta: CoverageFrameMeta
 

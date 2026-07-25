@@ -4,8 +4,8 @@ Status: synthesis design note. This document explains the design thinking behind
 Marivo's public Python surface — why it is shaped the way it is, how it is
 layered, and how each core API progressively discloses itself to a coding agent.
 It is a conceptual overview, not an API reference. The generated API reference
-lives under [`docs/api/`](../api/README.md) and in each surface's `help()`
-output; the per-surface contracts live in
+lives under [`docs/api/`](../api/README.md) and in the global
+`marivo.help(...)` output; the domain contracts live in
 [`specs/semantic/overview.md`](semantic/overview.md)
 and [`specs/analysis/python-analysis-design.md`](analysis/python-analysis-design.md).
 
@@ -16,9 +16,11 @@ sources of truth.
 
 ## Who the reader is
 
-Marivo's public surface is the Python library, exposed as exactly three modules:
+Marivo's public surface is the Python library: one global help coordinator and
+three execution modules:
 
 ```python
+import marivo                    # bounded global and focused help
 import marivo.datasource as md   # physical connections + datasource evidence
 import marivo.semantic  as ms    # the business-object contract
 import marivo.analysis  as mv    # typed, composable analysis operators
@@ -79,8 +81,9 @@ They are review criteria and, increasingly, test-enforced contracts:
 - **Surface growth is gated.** Public `__all__` sets are pinned by snapshot
   tests. Adding a public symbol is a deliberate, reviewed decision, not an
   incidental export.
-- **Discovery is progressive and bounded.** `help()` is a short, family-grouped
-  index; detail is reached by drilling in, never by dumping a full catalog.
+- **Discovery is progressive and bounded.** `marivo.help()` is a short,
+  family-grouped index; detail is reached by drilling in, never by dumping a
+  full catalog.
 - **Precise types over optional-field mega-classes.** The surface prefers one
   entry shape with closed, kind-dispatched variants (e.g. `MetricFrame[time_series]`)
   over a single class riddled with optional fields. Precise types fail loudly at
@@ -93,8 +96,8 @@ makes the write-run-read loop *safe*. It comes from the
 [agent-friendly public API result design](../superpowers/specs/2026-06-09-agent-friendly-public-api-design.md).
 
 **Result-producing APIs compute and return; they never print.** Help APIs are
-the sole, explicit exception: calling `help(...)` *is* the inspection action, so
-it prints bounded text and returns `None`.
+the sole, explicit exception: calling `marivo.help(...)` *is* the inspection
+action, so it prints bounded text and returns `None`.
 
 ```python
 frame = session.observe(revenue, time_scope={"start": "2026-06-01", "end": "2026-06-08"})
@@ -186,11 +189,11 @@ md (physical)  ──evidence──▶  ms (business contract)  ──current en
   and recovery remain ref-based. It never reaches into a user project's Python
   file layout.
 
-Because there are exactly three surfaces and each is snapshot-gated, an agent can
-hold the whole public vocabulary in mind. Surface growth is a reviewed event:
-`tests/test_public_surface.py` pins each `__all__`, and `help()` folds
-supporting types (refs, detail shapes, IR) into families so the top-level index
-stays short even as the surface grows.
+Because the three execution surfaces are snapshot-gated and share one help
+coordinator, an agent can hold the public vocabulary in mind. Surface growth is
+a reviewed event: `tests/test_public_surface.py` pins each `__all__`, and
+`marivo.help()` folds supporting types (refs, detail shapes, IR) into families
+so the top-level index stays short even as the surface grows.
 
 ## Guidance layering: contract vs. process vs. judgment
 
@@ -210,7 +213,7 @@ enforced, not aspirational
 The test that keeps these separate is the **eviction test**: for any line in a
 skill file, ask *"could the library teach this from real state at the call
 site?"* If yes, it is contract — delete it from the skill and repoint to
-`help('<x>')` or the structured error. If no (it requires cross-object or
+`marivo.help("<qualified-target>")` or the structured error. If no (it requires cross-object or
 cross-step judgment), it is process and it stays. Applied at review time — and
 backed by deterministic skill-shape, live-help, and API-drift tests — the test
 keeps field tables and error catalogs from re-accumulating as a second,
@@ -221,15 +224,16 @@ contract the code already emits.
 This layering is instantiated once per domain:
 
 - **Authoring** ([authoring guidance layering](../superpowers/specs/2026-06-26-authoring-guidance-layering-design.md)):
-  `ms.help(...)` owns the static authoring contract (constructor, required and
+  `marivo.help("semantic.<target>")` owns the static authoring contract (constructor, required and
   optional parameters, types, defaults, omit rules, parse shapes). `md.discover_*`
   owns runtime datasource **evidence** only — profiles, detected formats,
   issues — never parameter tables or semantic-selection judgments. Discovery
   deliberately dropped names like `candidates` and `judgment_targets` precisely
   because they implied a selection the library must not make.
 - **Analysis**: environment-verified live surfaces own capabilities and runtime
-  guidance. `mv.help(...)` and the CLI route `python -m marivo help analysis`
-  own the static analysis contract. Frames and results own *dynamic* guidance:
+  guidance. `python -m marivo help` verifies the environment; focused
+  `marivo.help("analysis.<target>")` owns the static analysis contract. Frames
+  and results own *dynamic* guidance:
   `show()` describes the current state, `contract()` describes the mechanically
   valid next actions, and structured errors own repair guidance. The
   `marivo-analysis` skill owns hard boundaries, handoffs, evidence continuity,
@@ -244,21 +248,23 @@ call away.
 
 There are three disclosure ladders, and they compose:
 
-1. **Static contract, on demand.** `help()` opens as a compact, typed directory
+1. **Static contract, on demand.** `marivo.help()` opens as a compact, typed directory
    (~2–3 KB), not a 70 KB manual
    ([help progressive disclosure](../superpowers/plans/2026-06-02-help-progressive-disclosure.md)).
    The agent drills from the index into a symbol, and only then sees full
    parameters, constraints, and a runnable example.
 
    ```python
-   ms.help()                     # compact top-level index, grouped by family
-   ms.help("time_dimension_column")  # full authoring contract for one constructor
-   mv.help()                     # the analysis capability index, then mv.help("observe") for one operator
+   import marivo
+
+   marivo.help()  # compact global index, grouped by family
+   marivo.help("semantic.time_dimension_column")  # one constructor contract
+   marivo.help("analysis.observe")  # one analysis operator contract
    ```
 
-   `help()` prints bounded text and returns `None`. It has exactly one output
-   shape — it does not accept `format=` or emit JSON-as-a-payload; structured
-   data comes from result-producing APIs, never from help.
+   `marivo.help()` prints bounded text and returns `None`. It has exactly one
+   output shape — it does not accept `format=` or emit JSON-as-a-payload;
+   structured data comes from result-producing APIs, never from help.
 
 2. **Dynamic state, from the object in hand.** A returned result discloses in
    three steps of increasing commitment: `repr()` (free, one line) →
@@ -283,7 +289,9 @@ Each step discloses just enough for the next:
 
 ```python
 # 1. help — learn the static contract for the object you're about to author
-ms.help("time_dimension_column")
+import marivo
+
+marivo.help("semantic.time_dimension_column")
 
 # 2. inspect and sample once under an explicit scope
 inspection = md.inspect(warehouse, md.table("orders"))
@@ -325,7 +333,7 @@ recommendation to author.
 ### The analysis loop
 
 ```text
-help() → load catalog → observe → show → contract → compose → closeout
+marivo.help() → load catalog → observe → show → contract → compose → closeout
 ```
 
 Analysis deliberately narrows the agent's mental model to **two exits per
@@ -403,7 +411,7 @@ Taken together, the design delivers three properties an agent depends on:
 
 - **Context safety** — quiet-by-default results plus bounded cards mean a
   multi-step script never floods the context window.
-- **A self-teaching surface** — `help()`, `repr()`, `show()`/`contract()`, and
+- **A self-teaching surface** — `marivo.help()`, `repr()`, `show()`/`contract()`, and
   structured errors mean the agent re-derives the contract from real state at
   every call, instead of relying on stale memory.
 - **Low drift** — the library is the single source of every contract fact, and
@@ -417,7 +425,7 @@ snapshot-with-allowlist spirit throughout:
 - `tests/test_agent_result_protocol.py` — every terminal result conforms to the
   bounded `repr`/`render`/`show` protocol, and every `available:` entry names a
   real method.
-- `tests/test_introspection_help_folding.py` — the top-level `help()` family
+- `tests/test_introspection_help_folding.py` — the top-level `marivo.help()` family
   partition is pinned, so new symbols are classified deliberately.
 - `tests/test_marivo_analysis_skill_contract.py` — packaged skills remain
   bounded one-file routing kernels with no deleted attachment paths.

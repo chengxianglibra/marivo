@@ -1,19 +1,5 @@
-"""Private semantic live capability infrastructure."""
+"""Private semantic live capability infrastructure.
 
-from __future__ import annotations
-
-from marivo.semantic._capabilities.model import (
-    SemanticCapabilityRegistry,
-    SemanticRootGroup,
-    SemanticTypeContract,
-)
-from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
-
-__all__ = [
-    "ERROR_TYPES",
-    "REGISTRY",
-    "TYPE_CONTRACTS",
-    "SemanticCapabilityRegistry",
-    "SemanticRootGroup",
-    "SemanticTypeContract",
-]
+Import concrete model, registry, surface, or render modules directly so the
+package initializer never constructs a registry during semantic imports.
+"""

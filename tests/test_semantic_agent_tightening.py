@@ -2,11 +2,10 @@
 
 
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
-    import marivo.datasource as md
-    import marivo.semantic as ms
+    from tests.shared_fixtures import rendered_help
 
-    semantic_text = ms.help_text()
-    datasource_text = md.help_text()
+    semantic_text = rendered_help(owner="semantic")
+    datasource_text = rendered_help(owner="datasource")
 
     for name in ("VerifyResult", "domain", "entity", "metric"):
         assert name in semantic_text, f"semantic help missing {name}"

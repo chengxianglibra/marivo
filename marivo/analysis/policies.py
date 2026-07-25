@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed analysis alignment and sampling policies."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _semantic_anchor_id(
 
 
 class AlignmentPolicy(BaseModel):
-    """Call mv.help(AlignmentPolicy) for its public consumption contract.
+    """Call marivo.help(AlignmentPolicy) for its public consumption contract.
 
     Immutable policy governing how two observation windows are aligned
     before comparison, correlation, or hypothesis testing.
@@ -264,7 +264,7 @@ def holiday_and_dow_aligned(
 
 
 class SamplingPolicy(BaseModel):
-    """Call mv.help(SamplingPolicy) for its public consumption contract.
+    """Call marivo.help(SamplingPolicy) for its public consumption contract.
 
     Immutable policy controlling paired-sample extraction for compare,
     correlate, and hypothesis_test.

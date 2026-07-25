@@ -1,4 +1,4 @@
-"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+"""Typed hypothesis-test results."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class HypothesisTestResultMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class HypothesisTestResult(BaseFrame):
-    """Call mv.help(HypothesisTestResult) for its public consumption contract."""
+    """Call marivo.help(HypothesisTestResult) for its public consumption contract."""
 
     meta: HypothesisTestResultMeta
 

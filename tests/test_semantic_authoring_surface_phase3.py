@@ -184,25 +184,29 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
 
 def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() -> None:
+    from tests.shared_fixtures import rendered_help
+
     assert hasattr(ms, "MeasureDetails")
 
-    index = ms.help_text()
+    index = rendered_help(owner="semantic")
     assert "MeasureDetails" in index
     assert "measure" in index
 
-    measure_topic = ms.help_text("measure")
+    measure_topic = rendered_help("measure", owner="semantic")
     assert "Declare a calculated measure" in measure_topic
     assert "additivity" in measure_topic
 
-    metric_topic = ms.help_text("metric")
+    metric_topic = rendered_help("metric", owner="semantic")
     assert "ms.metric" in metric_topic
     assert "Signature:" in metric_topic
 
 
 def test_phase3_cumulative_constructor_is_describable() -> None:
+    from tests.shared_fixtures import rendered_help
+
     assert hasattr(ms, "cumulative")
 
-    cumulative_topic = ms.help_text("cumulative")
+    cumulative_topic = rendered_help("cumulative", owner="semantic")
     assert "ms.cumulative" in cumulative_topic
     assert "cumulative" in cumulative_topic.lower()
     assert "anchor" in cumulative_topic.lower()

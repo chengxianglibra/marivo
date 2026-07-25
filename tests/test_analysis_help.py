@@ -1,21 +1,14 @@
-"""Semantic invariant tests for the analysis help renderer.
-
-These tests pin structural invariants of ``mv.help()`` / ``mv.help_text()``
-without snapshotting full rendered prose, whitespace, or wrapping.
-"""
+"""Semantic invariants for the native analysis renderer behind unified help."""
 
 from __future__ import annotations
 
 import inspect
-import io
-from contextlib import redirect_stdout
 
 import pytest
 
 import marivo
 import marivo.analysis as mv
-import marivo.datasource as md
-import marivo.semantic as ms
+from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
     OperatorCapability,
@@ -24,7 +17,6 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
-    HelpTargetError,
     MetricNotFoundError,
 )
 from marivo.analysis.frames.base import BaseFrame
@@ -33,6 +25,7 @@ from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.shared_fixtures import rendered_help
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,16 +33,15 @@ from tests.ref_helpers import make_ref
 
 
 def _capture(target: object = None, **kwargs: object) -> str:
-    """Capture stdout from mv.help(target)."""
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        mv.help(target, **kwargs)  # type: ignore[arg-type]
-    return buf.getvalue()
+    """Return native text with the public print boundary newline."""
+    assert not kwargs
+    return _text(target) + "\n"
 
 
 def _text(target: object = None, **kwargs: object) -> str:
-    """Return mv.help_text(target) without printing."""
-    return mv.help_text(target, **kwargs)  # type: ignore[arg-type]
+    """Return native analysis text through the private unified router."""
+    assert not kwargs
+    return rendered_help(target, owner="analysis")
 
 
 # ---------------------------------------------------------------------------
@@ -124,13 +116,13 @@ def test_root_help_never_advertises_grouping_topics_as_session_members() -> None
         "session.boundary",
     ):
         assert fake_entrypoint not in text
-    assert 'mv.help("recovery")' in text
-    assert 'mv.help("artifacts")' in text
+    assert 'marivo.help("analysis.recovery")' in text
+    assert 'marivo.help("analysis.artifacts")' in text
 
 
 def test_focused_grouping_help_lists_real_members() -> None:
     recovery = _text("recovery")
-    assert 'Entrypoint: mv.help("recovery")' in recovery
+    assert 'Entrypoint: marivo.help("analysis.recovery")' in recovery
     assert "Members:" in recovery
     assert "session.get_frame(ref)" in recovery
     assert "session.recent_jobs(limit=5)" in recovery
@@ -138,7 +130,7 @@ def test_focused_grouping_help_lists_real_members() -> None:
     assert "mv.session.inspect(name)" in recovery
 
     artifacts = _text("artifacts")
-    assert 'Entrypoint: mv.help("artifacts")' in artifacts
+    assert 'Entrypoint: marivo.help("analysis.artifacts")' in artifacts
     assert "frame.show()" in artifacts
     assert "frame.contract()" in artifacts
     assert "frame.to_pandas()" in artifacts
@@ -179,7 +171,7 @@ def test_root_help_contains_terminal_boundary_row() -> None:
 
 def test_root_help_contains_drill_down_instruction() -> None:
     text = _text()
-    assert "mv.help(" in text
+    assert "marivo.help(" in text
 
 
 # ---------------------------------------------------------------------------
@@ -230,12 +222,12 @@ def test_focused_help_within_codepoint_budget() -> None:
 
 
 # ---------------------------------------------------------------------------
-# help() equals help_text() plus newline
+# Public printing adds exactly one newline to the private renderer.
 # ---------------------------------------------------------------------------
 
 
-def test_help_output_equals_help_text_plus_newline() -> None:
-    for target in (None, "observe", "compare", "help"):
+def test_public_help_output_equals_private_text_plus_newline() -> None:
+    for target in (None, "observe", "compare"):
         captured = _capture(target)
         text = _text(target)
         assert captured == text + "\n", f"mismatch for target={target!r}"
@@ -326,27 +318,6 @@ def test_observe_capability_registers_only_the_plural_metrics_input() -> None:
 
     assert "metrics" in accepted_inputs
     assert "metric" not in accepted_inputs
-
-
-@pytest.mark.parametrize(
-    ("target", "surface", "adapter"),
-    [
-        (md.raw_sql, "datasource", "md.help(md.raw_sql)"),
-        (ms.metric, "semantic", "ms.help(ms.metric)"),
-    ],
-)
-def test_help_rejects_cross_surface_callable_with_exact_owner(
-    target: object,
-    surface: str,
-    adapter: str,
-) -> None:
-    with pytest.raises(HelpTargetError) as exc_info:
-        mv.help_text(target)  # type: ignore[arg-type]
-
-    assert f"belongs to {surface}" in str(exc_info.value)
-    assert adapter in str(exc_info.value)
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.help_target.surface == surface
 
 
 def test_sequence_help_preserves_variadic_signature() -> None:
@@ -638,9 +609,6 @@ def test_type_help_lists_registry_allowlist_members() -> None:
     for method in PUBLIC_FRAME_METHODS.get("MetricFrame", ()):
         assert method in text, f"missing method: {method}"
 
-    assert "public metric names" in text
-    assert "canonical internal value" in text
-
 
 # ---------------------------------------------------------------------------
 # Error help
@@ -672,7 +640,7 @@ def test_error_instance_help_shows_concrete_repair() -> None:
     assert (
         "retry" in text.lower() or "semantic_authoring" in text.lower() or "inspect" in text.lower()
     )
-    assert "next_help: ms.help()" in text
+    assert "next_help: marivo.help()" in text
 
 
 def test_error_instance_help_renders_exact_cross_surface_target() -> None:
@@ -684,7 +652,7 @@ def test_error_instance_help_renders_exact_cross_surface_target() -> None:
             help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
         ),
     )
-    assert 'next_help: md.help("inspect")' in _text(err)
+    assert 'next_help: marivo.help("datasource.inspect")' in _text(err)
 
 
 def test_repair_free_error_instance_matches_generic_contract() -> None:
@@ -701,13 +669,16 @@ def test_base_error_class_help() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_semantic_ref_help_without_project_raises() -> None:
+def test_semantic_ref_help_without_project_is_identity_only() -> None:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    with pytest.raises(Exception):
-        mv.help(ref)
+    text = _text(ref)
+    assert "typed identity only" in text
+    assert "sales.revenue" in text
 
 
-def test_semantic_ref_help_with_project(semantic_project_factory, capsys) -> None:
+def test_semantic_ref_help_does_not_implicitly_use_available_project(
+    semantic_project_factory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -731,14 +702,13 @@ def test_semantic_ref_help_with_project(semantic_project_factory, capsys) -> Non
             ),
         }
     )
-    mv.help(make_ref("sales.revenue", SemanticKind.METRIC), project=project)
-    out = capsys.readouterr().out
-    assert "revenue" in out
-    assert "unit: CNY" in out
+    text = _text(make_ref("sales.revenue", SemanticKind.METRIC))
+    assert "revenue" in text
+    assert "typed identity only" in text
+    assert "unit: CNY" not in text
 
 
-def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) -> None:
-    """mv.help(catalog_object) must render, not crash with RuntimeError."""
+def test_catalog_object_help_renders_briefing(semantic_project_factory) -> None:
     from marivo.semantic.catalog import SemanticCatalog
 
     project = semantic_project_factory(
@@ -767,10 +737,9 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) 
     catalog = SemanticCatalog(project)
     revenue_obj = catalog.require(make_ref("sales.revenue", SemanticKind.METRIC))
     assert revenue_obj is not None
-    mv.help(revenue_obj, project=project)
-    out = capsys.readouterr().out
-    assert "revenue" in out
-    assert "unit: CNY" in out
+    text = _text(revenue_obj)
+    assert "revenue" in text
+    assert "unit: CNY" in text
 
 
 # ---------------------------------------------------------------------------
@@ -825,25 +794,19 @@ def test_error_subclass_resolves_same_as_string() -> None:
 
 
 def test_help_has_no_format_parameter() -> None:
-    sig = inspect.signature(mv.help)
+    sig = inspect.signature(marivo.help)
     assert "format" not in sig.parameters
     assert "json" not in sig.parameters
 
 
-def test_help_text_has_no_format_parameter() -> None:
-    sig = inspect.signature(mv.help_text)
-    assert "format" not in sig.parameters
-    assert "json" not in sig.parameters
+def test_analysis_module_exposes_no_help_attributes() -> None:
+    assert not hasattr(mv, "help")
+    assert not hasattr(mv, "help_text")
 
 
 def test_help_rejects_format_kwarg() -> None:
     with pytest.raises(TypeError):
-        mv.help("observe", format="json")  # type: ignore[call-arg]
-
-
-def test_help_text_rejects_format_kwarg() -> None:
-    with pytest.raises(TypeError):
-        mv.help_text("observe", format="json")  # type: ignore[call-arg]
+        marivo.help("analysis.observe", format="json")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -852,8 +815,8 @@ def test_help_text_rejects_format_kwarg() -> None:
 
 
 def test_empty_string_is_not_root() -> None:
-    with pytest.raises(HelpTargetError):
-        mv.help_text("")
+    with pytest.raises(MarivoHelpTargetError):
+        _text("")
 
 
 def test_none_is_root() -> None:
@@ -868,8 +831,8 @@ def test_none_is_root() -> None:
 
 
 def test_unknown_string_raises_help_target_error() -> None:
-    with pytest.raises(HelpTargetError):
-        mv.help_text("nonexistent_thing_xyz")
+    with pytest.raises(MarivoHelpTargetError):
+        _text("nonexistent_thing_xyz")
 
 
 # ---------------------------------------------------------------------------
@@ -879,22 +842,22 @@ def test_unknown_string_raises_help_target_error() -> None:
 
 def test_analysis_module_docstring_first_line() -> None:
     first_line = mv.__doc__.strip().splitlines()[0] if mv.__doc__ else ""
-    assert "mv.help()" in first_line
+    assert "mv.help" not in first_line
 
 
 def test_session_class_docstring_first_line() -> None:
     first_line = Session.__doc__.strip().splitlines()[0] if Session.__doc__ else ""
-    assert "mv.help" in first_line
+    assert "marivo.help" in first_line
 
 
 def test_metric_frame_class_docstring_first_line() -> None:
     first_line = MetricFrame.__doc__.strip().splitlines()[0] if MetricFrame.__doc__ else ""
-    assert "mv.help" in first_line
+    assert "marivo.help" in first_line
 
 
 def test_base_frame_class_docstring_first_line() -> None:
     first_line = BaseFrame.__doc__.strip().splitlines()[0] if BaseFrame.__doc__ else ""
-    assert "mv.help" in first_line
+    assert "marivo.help" in first_line
 
 
 # ---------------------------------------------------------------------------
@@ -956,8 +919,6 @@ def test_analysis_all_is_pinned() -> None:
         "SubjectSet",
         "TimeScope",
         "dow_aligned",
-        "help",
-        "help_text",
         "holiday_aligned",
         "holiday_and_dow_aligned",
         "session",
@@ -983,11 +944,11 @@ def test_analysis_dir_matches_all() -> None:
 
 
 def test_help_returns_none() -> None:
-    assert mv.help() is None
+    assert marivo.help() is None
 
 
 def test_help_with_target_returns_none() -> None:
-    assert mv.help("observe") is None
+    assert marivo.help("analysis.observe") is None
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +966,7 @@ def test_root_help_does_not_silently_exceed_budget() -> None:
 
 def test_focused_help_does_not_silently_exceed_budget() -> None:
     """Focused help must stay within SURFACE_LIMITS; overflow is a build failure."""
-    for target in ("observe", "compare", "forecast", "help", "Session", "MetricFrame"):
+    for target in ("observe", "compare", "forecast", "Session", "MetricFrame"):
         text = _text(target)
         lines = text.replace("\r\n", "\n").splitlines()
         assert len(lines) <= SURFACE_LIMITS.focused_help_max_lines, (

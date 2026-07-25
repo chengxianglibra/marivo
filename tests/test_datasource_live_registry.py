@@ -34,8 +34,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "unpruned",
     "inspect",
     "raw_sql",
-    "help",
-    "help_text",
     "DatasourceCatalog.list",
     "DatasourceCatalog.get",
     "DatasourceCatalog.describe",
@@ -103,8 +101,6 @@ EXPECTED_EFFECTS = {
         connection="opens_connection",
         flags=("requires_positive_row_guard",),
     ),
-    "help": AuthoringEffects(data_access="none", connection="none"),
-    "help_text": AuthoringEffects(data_access="none", connection="none"),
     "DatasourceCatalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),

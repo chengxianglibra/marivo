@@ -100,7 +100,8 @@ class DatasourceError(Exception):
                 lines.append(f"  Preserves evidence: {self.repair.preserves_evidence}")
             target = self.repair.help_target
             if target.canonical_id is not None:
-                lines.append(f"Help: md.help({target.canonical_id!r})")
+                qualified = f"{target.surface}.{target.canonical_id}"
+                lines.append(f"Help: marivo.help({qualified!r})")
         return "\n".join(lines)
 
 
@@ -139,9 +140,9 @@ class DatasourceHelpTargetError(DatasourceError):
             expected=f"accepted datasource help target ({', '.join(payload.accepted_kinds)})",
             received=payload.received,
             location=f"{owning_surface} help surface",
-            repair=repair(
+            repair=AuthoringRepair(
                 kind="retry",
-                canonical_id="help",
+                help_target=LiveHelpTarget(surface="datasource"),
                 action="Retry with a registered datasource help target.",
                 candidates=payload.candidates,
             ),

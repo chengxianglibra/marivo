@@ -30,6 +30,7 @@ from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputC
 from marivo.analysis.intents._quality_checks import run_event_journey_checks
 from marivo.analysis.lineage import Lineage
 from marivo.refs import RefPayloadV1
+from tests.shared_fixtures import rendered_help
 
 
 def _event_frame(session: mv.Session) -> EventFrame:
@@ -424,8 +425,8 @@ def test_event_quality_blocks_forged_observed_coverage_without_receipts(
 
 
 def test_event_watermark_types_have_registered_public_help() -> None:
-    request_help = mv.help_text(mv.EventWatermarkRequest)
-    receipt_help = mv.help_text("EventWatermarkReceipt")
+    request_help = rendered_help(mv.EventWatermarkRequest, owner="analysis")
+    receipt_help = rendered_help("EventWatermarkReceipt", owner="analysis")
 
     assert request_help.startswith("EventWatermarkRequest")
     assert "event_fingerprint" in request_help
@@ -492,12 +493,12 @@ def test_phase_two_event_capabilities_are_discoverable(tmp_path, monkeypatch) ->
         "lifecycle.transition",
     }.isdisjoint(REGISTRY.capability_ids)
 
-    rendered = mv.help_text("events.match")
+    rendered = rendered_help("events.match", owner="analysis")
     assert "session.events.match" in rendered
     assert "EventFrame" in rendered
     assert 'mv.every_start(completion_assignment="exclusive")' in rendered
     assert 'mv.every_start(completion_assignment="shared")' in rendered
-    quality_help = mv.help_text("QualityReport")
+    quality_help = rendered_help("QualityReport", owner="analysis")
     assert "QualityReport[event_journey]" in quality_help
     assert "QualityReport[event_funnel]" in quality_help
     assert "QualityReport[event_time_to_event]" in quality_help
@@ -512,14 +513,14 @@ def test_phase_two_event_capabilities_are_discoverable(tmp_path, monkeypatch) ->
         ("events.funnel", session.events.funnel),
         ("events.time_to_event", session.events.time_to_event),
     ):
-        canonical_help = mv.help_text(canonical)
-        assert mv.help_text(f"session.{canonical}") == canonical_help
-        assert mv.help_text(f"Session.{canonical}") == canonical_help
-        assert mv.help_text(bound) == canonical_help
-    select_help = mv.help_text("select_subjects")
-    assert mv.help_text("Session.select_subjects") == select_help
-    assert mv.help_text(session.select_subjects) == select_help
-    assert "subject_identity" in mv.help_text("SubjectSet")
+        canonical_help = rendered_help(canonical, owner="analysis")
+        assert rendered_help(f"session.{canonical}", owner="analysis") == canonical_help
+        assert rendered_help(f"Session.{canonical}", owner="analysis") == canonical_help
+        assert rendered_help(bound, owner="analysis") == canonical_help
+    select_help = rendered_help("select_subjects", owner="analysis")
+    assert rendered_help("Session.select_subjects", owner="analysis") == select_help
+    assert rendered_help(session.select_subjects, owner="analysis") == select_help
+    assert "subject_identity" in rendered_help("SubjectSet", owner="analysis")
     assert not hasattr(session, "lifecycle")
 
 

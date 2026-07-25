@@ -173,7 +173,7 @@ def _make_grouping_descriptor(
     """Create a non-invokable grouping descriptor for a collapsed topic."""
     return ConstructorCapability(
         id=topic,
-        public_entrypoint=f'mv.help("{topic}")',
+        public_entrypoint=f'marivo.help("analysis.{topic}")',
         help_target=topic,
         summary=summary,
         root_group=root_group,
@@ -1420,40 +1420,6 @@ def _build_registry() -> CapabilityRegistry:
                 read_bound="bounded",
             )
         )
-
-    # -- help / help_text reads -------------------------------------------
-
-    descriptors.append(
-        ReadCapability(
-            id="help",
-            public_entrypoint="mv.help(target)",
-            help_target="help",
-            summary="Print bounded help text for a Marivo analysis symbol or semantic ref.",
-            root_group="artifact_inspection",
-            root_visibility="direct",
-            constraint_ids=(),
-            callable_path="marivo.analysis.help.help",
-            receiver_family="module",
-            result_kind="terminal_text",
-            read_bound="bounded",
-        )
-    )
-
-    descriptors.append(
-        ReadCapability(
-            id="help_text",
-            public_entrypoint="mv.help_text(target)",
-            help_target="help_text",
-            summary="Return analysis help text as a string without printing.",
-            root_group="artifact_inspection",
-            root_visibility="direct",
-            constraint_ids=(),
-            callable_path="marivo.analysis.help.help_text",
-            receiver_family="module",
-            result_kind="terminal_text",
-            read_bound="bounded",
-        )
-    )
 
     # -- Semantic catalog reads -------------------------------------------
 

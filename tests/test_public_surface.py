@@ -71,8 +71,6 @@ SEMANTIC_PUBLIC = {
     "event",
     "from_sql",
     "grain_to_date",
-    "help",
-    "help_text",
     "hour_prefix",
     "join_on",
     "linear",
@@ -137,8 +135,6 @@ ANALYSIS_PUBLIC = {
     "SliceSelection",
     "TestDecision",
     "WindowSelection",
-    "help",
-    "help_text",
     "session",
     "declared_complete_through",
     "dropped_before",
@@ -196,8 +192,6 @@ DATASOURCE_PUBLIC = {
     "csv",
     "describe",
     "duckdb",
-    "help",
-    "help_text",
     "inspect",
     "json",
     "list",
@@ -223,9 +217,10 @@ def test_top_level_help_teaches_supported_surface_imports_and_cli_routes() -> No
     assert "import marivo.datasource as md" in rendered
     assert "import marivo.semantic as ms" in rendered
     assert "import marivo.analysis as mv" in rendered
-    assert "python -m marivo help datasource" in rendered
-    assert "python -m marivo help semantic" in rendered
-    assert "python -m marivo help analysis" in rendered
+    assert "python -m marivo help" in rendered
+    assert "marivo.help(...)" in rendered
+    assert "for all focused help" in rendered
+    assert "python -m marivo help datasource" not in rendered
 
 
 def test_top_level_package_does_not_add_public_convenience_exports() -> None:
@@ -242,7 +237,7 @@ def test_top_level_package_does_not_add_public_convenience_exports() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == ["__version__"]
+    assert json.loads(result.stdout) == ["__version__", "help"]
 
 
 def test_semantic_all_is_pinned() -> None:

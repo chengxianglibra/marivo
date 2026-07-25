@@ -34,15 +34,15 @@ every coding task.
 
 The public Marivo surface is the Python library:
 
+- `marivo.help`
 - `marivo.datasource`
 - `marivo.semantic`
 - `marivo.analysis`
 
-Import each surface under its conventional alias — `import marivo.datasource as
-md`, `import marivo.semantic as ms`, `import marivo.analysis as mv`. The
-top-level `marivo` package exports only `__version__`; `marivo.session` and
-similar are not available without importing the surface. Help text and examples
-use these `md` / `ms` / `mv` prefixes throughout.
+Import `marivo` for focused help and each execution surface under its
+conventional alias — `import marivo.datasource as md`, `import marivo.semantic
+as ms`, `import marivo.analysis as mv`. `marivo.session` and similar execution
+aliases are not available at the top level.
 
 Rules for this surface:
 
@@ -70,9 +70,11 @@ Rules for this surface:
 - Cross-session frame ownership is mandatory for helpers that consume frames.
 - Public API functions must have a docstring that covers: function purpose,
   parameter descriptions, return value, a usage example, and brief constraints.
-  Each public API symbol resolves through its owning help adapter:
-  `md.help(...)` for datasource symbols and `ms.help(...)` for semantic
-  symbols. `md.describe(name)` remains a datasource-domain read for one
+  Each public API symbol resolves through the one public help coordinator:
+  `marivo.help("datasource.<target>")` for datasource symbols,
+  `marivo.help("semantic.<target>")` for semantic symbols, and
+  `marivo.help("analysis.<target>")` for analysis symbols.
+  `md.describe(name)` remains a datasource-domain read for one
   registered datasource; it is not a generic symbol-introspection API and
   this cutover adds no `ms.describe(...)` or cross-surface
   `describe(symbol)` alias.
@@ -102,20 +104,20 @@ These rules govern every public surface change:
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
   types stay out of the top-level help index.
-- Discovery is progressive and bounded: `help()` is a short index grouped
-  by family; the owning `md.help(...)` / `ms.help(...)` adapter includes a
-  minimal runnable example for each symbol.
+- Discovery is progressive and bounded: `marivo.help()` is a short global
+  index grouped by family; a qualified focused target includes a minimal
+  runnable example for the owning symbol.
 - Prefer one entry shape with closed, kind-dispatched variants over
   optional-field mega-classes: precise types fail loudly, optional-field
   unions fail silently.
 
 ## Authoring Guidance Layering
 
-`ms.help` owns the static authoring contract — constructor, required/optional
-parameters, types, defaults, omit rules, and cross-parameter constraints — as
-the single source agents consult before authoring; the CLI route
-`marivo help semantic` is the matching terminal entry point. `md.help` owns
-datasource contracts; `md.inspect(...)`, an explicitly scoped
+`marivo.help("semantic.<target>")` owns the static semantic-authoring contract
+— constructor, required/optional parameters, types, defaults, omit rules, and
+cross-parameter constraints — as the single source agents consult before
+authoring. `marivo.help("datasource.<target>")` owns datasource contracts;
+`md.inspect(...)`, an explicitly scoped
 `inspection.sample(...)`, and query-free snapshot projections own runtime
 datasource evidence. They never own semantic-selection judgments. The
 `marivo-semantic` skill owns workflow and routing only:
@@ -130,22 +132,24 @@ drafting and technical handling, including uncommon physical formats. The user o
 business owner owns unresolved business-semantic decisions and approves metric
 meaning before analysis handoff.
 
-Ownership split: the live `ms.help(...)` / `md.help(...)` surfaces own the
-static contracts; the registry behind them owns mechanical continuation facts
-but is not itself a public API; the `marivo-semantic` skill owns workflow and
-routing only; the runtime has no canonical link to packaged skill files, so
-skill content is never read or executed by the library.
+Ownership split: the public `marivo.help(...)` coordinator routes to the native
+datasource and semantic registries that own the static contracts and mechanical
+continuation facts. Those registries are not public APIs; the
+`marivo-semantic` skill owns workflow and routing only; the runtime has no
+canonical link to packaged skill files, so skill content is never read or
+executed by the library.
 
 ## Analysis Guidance Layering
 
-Environment-verified live surfaces own capabilities and runtime guidance: the
-CLI route `python -m marivo help analysis [target]` and the Python
-`mv.help(...)` surface own the static analysis contract — signatures, artifact
-families, constraints, return types, errors, and runnable examples. Frames and
-results own dynamic guidance — `show()` describes current state, `contract()`
-describes mechanically valid next actions, and structured errors own repair
-guidance. The `marivo-analysis` skill owns hard boundaries, handoffs, evidence
-continuity, and closeout obligations. The agent owns planning and judgment.
+Environment-verified live surfaces own capabilities and runtime guidance.
+`python -m marivo help` verifies the selected environment and hands off to
+`marivo.help("analysis.<target>")`, which owns the static analysis contract —
+signatures, artifact families, constraints, return types, errors, and runnable
+examples. Frames and results own dynamic guidance — `show()` describes current
+state, `contract()` describes mechanically valid next actions, and structured
+errors own repair guidance. The `marivo-analysis` skill owns hard boundaries,
+handoffs, evidence continuity, and closeout obligations. The agent owns
+planning and judgment.
 
 The skill is a one-file boundary kernel. It does not duplicate the help
 contract, frame/result guidance, or error repair guidance. It does not
@@ -178,7 +182,7 @@ When working on a task, read the right docs first:
 
 | Task Type | Read First |
 |-----------|------------|
-| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` + live `ms.help(...)` / `md.help(...)` surface |
+| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` + focused `marivo.help("semantic.<target>")` / `marivo.help("datasource.<target>")` |
 | Datasource declarations, discovery | `docs/specs/semantic/datasource-layer.md` |
 | Python semantic object model | `docs/specs/semantic/semantic-object-model.md` |
 | Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |

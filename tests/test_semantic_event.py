@@ -485,11 +485,13 @@ def test_event_preview_checks_identity_and_participant_cardinality(
 
 
 def test_event_public_help_has_one_authoring_path() -> None:
-    event_help = ms.help_text("event")
+    from tests.shared_fixtures import rendered_help
+
+    event_help = rendered_help("event", owner="semantic")
     assert "Declare a filtered or explicit all-rows" in event_help
-    assert "return ms.all_rows()" in ms.help_text("all_rows")
-    assert "participant_role" in ms.help_text("participant_role")
-    assert "event_fingerprint" not in ms.help_text("participant_role")
+    assert "return ms.all_rows()" in rendered_help("all_rows", owner="semantic")
+    assert "participant_role" in rendered_help("participant_role", owner="semantic")
+    assert "event_fingerprint" not in rendered_help("participant_role", owner="semantic")
     assert not hasattr(ms, "filtered_event")
 
     example = event_help.split("  Example:\n", maxsplit=1)[1]
