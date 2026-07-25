@@ -144,7 +144,7 @@ def _validate_job_subject(value: object, *, role: str) -> None:
             if type(comparison[field]) is not str or not comparison[field]:
                 raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
         return
-    if kind == "event":
+    if kind in {"event", "subject_set"}:
         payload = _require_exact_object(
             value,
             fields={"kind", "subject_entity_ref", "subject_identity_signature"},
@@ -166,6 +166,112 @@ def _validate_job_subject(value: object, *, role: str) -> None:
     raise ValueError(f"analysis job {role}.kind is invalid")
 
 
+def _validate_cohort_payload(value: object) -> None:
+    from marivo.analysis.frames.subject import SubjectCohortBinding
+
+    if type(value) is not dict:
+        raise ValueError("analysis job cohort must be an object")
+    SubjectCohortBinding.model_validate(value)
+
+
+def _validate_event_reducer_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.event import EventMatchingPolicy, PatternStep
+    from marivo.analysis.frames.event import (
+        GroupedFunnelReconciliationReceipt,
+        SubjectAxisBinding,
+    )
+
+    if type(value) is not dict:
+        raise ValueError("analysis job event_reducer must be an object")
+    kind = value.get("kind")
+    common_fields = {
+        "kind",
+        "source_artifact_ref",
+        "source_artifact_fingerprint",
+        "pattern_fingerprint",
+        "matching",
+        "coverage_basis",
+    }
+    shape_fields = {
+        "funnel": {
+            "axes",
+            "grouped_reconciliation",
+            "source_unused_event_count",
+        },
+        "time_to_event": {
+            "start_step",
+            "end_step",
+            "source_unused_end_count",
+        },
+    }
+    if kind not in shape_fields:
+        raise ValueError("analysis job event_reducer.kind is invalid")
+    payload = _require_exact_object(
+        value,
+        fields=common_fields | shape_fields[kind],
+        role="event_reducer",
+    )
+    for field in (
+        "source_artifact_ref",
+        "source_artifact_fingerprint",
+        "pattern_fingerprint",
+    ):
+        if type(payload[field]) is not str or not payload[field]:
+            raise ValueError(f"analysis job event_reducer.{field} must be non-empty")
+    TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
+    if payload["coverage_basis"] not in {
+        "observed_watermark",
+        "declared_complete",
+        "mixed",
+        "unknown",
+    }:
+        raise ValueError("analysis job event_reducer.coverage_basis is invalid")
+    if kind == "funnel":
+        TypeAdapter(list[SubjectAxisBinding]).validate_python(payload["axes"])
+        GroupedFunnelReconciliationReceipt.model_validate(payload["grouped_reconciliation"])
+        count_field = "source_unused_event_count"
+    else:
+        TypeAdapter(PatternStep).validate_json(json.dumps(payload["start_step"]))
+        TypeAdapter(PatternStep).validate_json(json.dumps(payload["end_step"]))
+        count_field = "source_unused_end_count"
+    if type(payload[count_field]) is not int or payload[count_field] < 0:
+        raise ValueError(f"analysis job event_reducer.{count_field} must be non-negative")
+
+
+def _validate_subject_set_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.frames.subject import SubjectSetSourceBinding
+    from marivo.analysis.subject import SubjectSelection
+
+    payload = _require_exact_object(
+        value,
+        fields={
+            "source",
+            "selection",
+            "selection_fingerprint",
+            "selected_count",
+            "excluded_coverage_censored_count",
+            "coverage_status",
+        },
+        role="subject_set",
+    )
+    SubjectSetSourceBinding.model_validate(payload["source"])
+    selection = TypeAdapter(SubjectSelection).validate_json(json.dumps(payload["selection"]))
+    if payload["selection_fingerprint"] != selection.fingerprint:
+        raise ValueError("analysis job subject_set.selection_fingerprint must match selection")
+    for field in ("selected_count", "excluded_coverage_censored_count"):
+        if type(payload[field]) is not int or payload[field] < 0:
+            raise ValueError(f"analysis job subject_set.{field} must be non-negative")
+    expected_coverage = (
+        "coverage_censored" if payload["excluded_coverage_censored_count"] > 0 else "ready"
+    )
+    if payload["coverage_status"] != expected_coverage:
+        raise ValueError(f"analysis job subject_set.coverage_status must be {expected_coverage!r}")
+
+
 def _validate_event_journey_payload(value: object) -> None:
     payload = _require_exact_object(
         value,
@@ -181,6 +287,8 @@ def _validate_event_journey_payload(value: object) -> None:
             "event_identity_components",
             "role_endpoints",
             "query_refs",
+            "unused_event_count",
+            "unused_event_counts_by_step",
         },
         role="event_journey",
     )
@@ -207,7 +315,7 @@ def _validate_event_journey_payload(value: object) -> None:
             raise ValueError("analysis job event_journey pattern participant event is invalid")
         participant["event"] = _decode_ref_payload(event_payload)
         decoded_steps.append({**raw_step, "participant": participant})
-    EventPattern.model_validate({**pattern_payload, "steps": decoded_steps})
+    pattern = EventPattern.model_validate({**pattern_payload, "steps": decoded_steps})
     TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
     TimeScope.model_validate(payload["cohort_window"])
     completeness_payload = payload["completeness"]
@@ -277,6 +385,20 @@ def _validate_event_journey_payload(value: object) -> None:
         type(query_ref) is not str or not query_ref for query_ref in query_refs
     ):
         raise ValueError("analysis job event_journey.query_refs must be strings")
+    unused_event_count = payload["unused_event_count"]
+    if type(unused_event_count) is not int or unused_event_count < 0:
+        raise ValueError("analysis job event_journey.unused_event_count must be non-negative")
+    unused_by_step = payload["unused_event_counts_by_step"]
+    expected_step_keys = {step.key for step in pattern.steps}
+    if (
+        type(unused_by_step) is not dict
+        or set(unused_by_step) != expected_step_keys
+        or any(type(value) is not int or value < 0 for value in unused_by_step.values())
+    ):
+        raise ValueError(
+            "analysis job event_journey.unused_event_counts_by_step must contain "
+            "one non-negative count per PatternStep"
+        )
 
 
 def _validate_dependency_digest_payload(value: object, *, role: str) -> None:
@@ -616,10 +738,14 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             raise ValueError("analysis job subjects must be a non-empty list")
         for index, subject in enumerate(subjects):
             _validate_job_subject(subject, role=f"subjects[{index}]")
-    is_event_journey = "event_journey" in record
-    if is_event_journey:
+    if "cohort" in record:
+        _validate_cohort_payload(record["cohort"])
+    event_roles = {"event_journey", "event_reducer"} & set(record)
+    if len(event_roles) > 1:
+        raise ValueError("analysis Event job requires exactly one Event semantic role")
+    if event_roles:
         if has_subjects or record["subject"].get("kind") != "event":
-            raise ValueError("analysis Event Journey job requires one event subject")
+            raise ValueError("analysis Event job requires one event subject")
         forbidden_event_fields = {
             "semantic_dependency_digest",
             "semantic_dependency_digests",
@@ -632,7 +758,10 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
                 "analysis Event Journey job rejects metric semantic fields "
                 f"{sorted(forbidden_event_fields)}"
             )
-        _validate_event_journey_payload(record["event_journey"])
+        if "event_journey" in event_roles:
+            _validate_event_journey_payload(record["event_journey"])
+        else:
+            _validate_event_reducer_payload(record["event_reducer"])
         persisted = {"schema": "marivo.analysis_job/v2", **record}
         write_job_record(session._layout, persisted)
         finished_at = persisted.get("finished_at")
@@ -650,8 +779,40 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             ),
         )
         return
-    if "event_journey" in record:
-        raise ValueError("analysis metric job cannot carry event_journey")
+    if "subject_set" in record:
+        if has_subjects or record["subject"].get("kind") != "subject_set":
+            raise ValueError("analysis SubjectSet job requires one subject_set subject")
+        forbidden_subject_fields = {
+            "semantic_dependency_digest",
+            "semantic_dependency_digests",
+            "dimension_refs",
+            "time_dimension_ref",
+            "slice_predicates",
+            "cohort",
+        } & set(record)
+        if forbidden_subject_fields:
+            raise ValueError(
+                "analysis SubjectSet job rejects unrelated semantic fields "
+                f"{sorted(forbidden_subject_fields)}"
+            )
+        _validate_subject_set_payload(record["subject_set"])
+        persisted = {"schema": "marivo.analysis_job/v2", **record}
+        write_job_record(session._layout, persisted)
+        finished_at = persisted.get("finished_at")
+        session._store.record_job(
+            session_id=session.id,
+            job_id=persisted["id"],
+            intent=persisted["intent"],
+            status=persisted["status"],
+            started_at=persisted["started_at"],
+            finished_at=finished_at if isinstance(finished_at, str) else None,
+            output_artifact_id=persisted.get("output_frame_ref")
+            or persisted.get("output_artifact_id"),
+            record_path=session._layout.relative_path(
+                session._layout.jobs_dir / f"{persisted['id']}.json"
+            ),
+        )
+        return
     has_digest = "semantic_dependency_digest" in record
     has_digests = "semantic_dependency_digests" in record
     if has_digest == has_digests:

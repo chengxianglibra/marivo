@@ -342,6 +342,7 @@ def _commit_observe_metric_frame(
     metric_ids: list[str] | None = None,
     models: list[str] | None = None,
     semantic_anchors: dict[str, Any] | None = None,
+    input_refs: list[str] | None = None,
 ) -> MetricFrame:
     """Commit a MetricFrame through the evidence pipeline (shared tail).
 
@@ -356,7 +357,7 @@ def _commit_observe_metric_frame(
             frames_dir=session._layout.frames_dir,
             frame=frame,
             step_type=step_type,
-            inputs=CommitInputs(input_refs=[]),
+            inputs=CommitInputs(input_refs=input_refs or []),
             params=CommitParams(values=params),
             semantic_anchors=CommitSemanticAnchors.from_frame(frame),
             subject=Subject(

@@ -12,8 +12,10 @@ from marivo.analysis.evidence.types import (
     ContributionFact,
     DataQualityIssue,
     DigestItem,
+    EventFunnelObservationValue,
     EventJourneyObservationValue,
     EventSubject,
+    EventTimeToEventObservationValue,
     EvidenceAvailabilityIssue,
     ForecastOutput,
     ObservationFact,
@@ -21,6 +23,8 @@ from marivo.analysis.evidence.types import (
     QualityCheckResult,
     ScalarObservationValue,
     SegmentedObservationValue,
+    SubjectSetObservationValue,
+    SubjectSetSubject,
     TestDecision,
     TimeSeriesObservationValue,
 )
@@ -50,7 +54,9 @@ def _segments(value: SegmentedObservationValue | PanelObservationValue) -> str:
 def _subject(digest: ArtifactDigest) -> str:
     subject = digest.subject
     if isinstance(subject, EventSubject):
-        return f"{subject.subject_entity_ref.path}[journey]"
+        return f"{subject.subject_entity_ref.path}[{subject.analysis_axis}]"
+    if isinstance(subject, SubjectSetSubject):
+        return f"{subject.subject_entity_ref.path}[subject_set]"
     base = subject.metric or subject.entity or "subject"
     if not subject.slice:
         return base
@@ -126,6 +132,27 @@ def render_digest_item(item: DigestItem) -> str:
                 f"complete={value.complete_count} incomplete={value.incomplete_count} "
                 f"coverage_censored={value.coverage_censored_count} "
                 f"unused_events={value.unused_event_count}"
+            )
+        if isinstance(value, EventFunnelObservationValue):
+            return (
+                f"event_funnel cohort={value.cohort_count} steps={value.step_count} "
+                f"axis_tuples={value.axis_tuple_count} grouped={value.grouped} "
+                f"reconciled={value.reconciliation_passed} "
+                f"source_unused_events={value.source_unused_event_count}"
+            )
+        if isinstance(value, EventTimeToEventObservationValue):
+            return (
+                f"event_time_to_event qualifying={value.qualifying_count} "
+                f"complete={value.complete_count} incomplete={value.incomplete_count} "
+                f"coverage_censored={value.coverage_censored_count} "
+                f"source_unused_ends={value.source_unused_end_count} "
+                f"median_seconds={_number(value.median_duration_seconds)}"
+            )
+        if isinstance(value, SubjectSetObservationValue):
+            return (
+                f"subject_set selected={value.selected_count} "
+                f"excluded_censored={value.excluded_coverage_censored_count} "
+                f"coverage={value.coverage_status}"
             )
     if isinstance(item, ChangeFact):
         return (

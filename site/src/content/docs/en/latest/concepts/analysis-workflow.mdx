@@ -175,9 +175,8 @@ journeys = session.events.match(
 
 The cohort window is half-open: only first-step occurrences in `[start, end)`
 anchor journeys. `completion_through` is inclusive follow-up and must be at
-least `end`. Phase 1 does not accept a cohort/SubjectSet argument, and does not
-advertise funnel, time-to-event, selection, comparison, or attribution
-continuations.
+least `end`. An optional ready `SubjectSet` further restricts the subject
+membership; it does not replace or infer the cohort window.
 
 Use an explicit repeated-attempt policy when every first-step occurrence should
 anchor an attempt. `exclusive` assigns one completion to at most one open
@@ -223,6 +222,58 @@ journeys = session.events.match(
     completeness=(coverage,),
 )
 ```
+
+## Reduce Event journeys and compose a typed cohort
+
+A first-per-subject journey has three Phase 2 continuations. Funnel reduction
+uses persisted occurrence assignment and performs no Event query. With axes,
+only governed subject-Dimension enrichment at the first-step occurrence time
+may query a datasource:
+
+```python
+funnel = session.events.funnel(
+    journeys,
+    axes=[acquisition_channel],
+    analysis_purpose="Measure checkout conversion by entry channel.",
+)
+
+elapsed = session.events.time_to_event(
+    journeys,
+    start_step=checkout_step,
+    end_step=payment_step,
+    analysis_purpose="Measure checkout-to-payment elapsed time.",
+)
+
+dropouts = session.select_subjects(
+    journeys,
+    selection=mv.dropped_before(step=payment_step),
+)
+```
+
+`EventFrame[funnel]` keeps additive counts, censoring-aware rates, and grouped
+reconciliation evidence. `EventFrame[time_to_event]` keeps the exact source
+start/end assignment and never rematches an alternative completion.
+`SubjectSet` exposes only its governed `subject_identity` tuples. Raw identities
+do not appear in cards, jobs, evidence, structured errors, or consumer metadata.
+
+Only a ready SubjectSet can scope `observe` or a later `events.match`:
+
+```python
+dropout_revenue = session.observe(revenue, cohort=dropouts)
+return_journeys = session.events.match(
+    pattern=return_pattern,
+    cohort=dropouts,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+Subjects whose loss remains `coverage_censored` are excluded from selection and
+counted in SubjectSet metadata. Such a SubjectSet remains readable and
+recoverable, but cohort admission raises `event_coverage_unknown`. Funnel and
+`dropped_before` require `first_per_subject`; time-to-event also accepts
+repeated-attempt journeys because it preserves one row per assigned attempt.
 
 Observed watermarks take precedence over declarations. The artifact and its
 quality/evidence records retain each input's
@@ -727,6 +778,11 @@ with `kind` (`retry`, `inspect`, `user_choice`, `semantic_authoring`,
 legal alternatives remain and business judgment must select one. Follow the
 repair guidance; it points to the exact `mv.help(...)` target for the failing
 capability.
+
+Event continuation errors use the same contract. Matching-policy and step
+choices are `user_choice`; stale artifacts and unknown coverage are `inspect`;
+unsafe relationship paths or temporal authoring gaps are
+`semantic_authoring`.
 
 ### Terminal boundary exits
 

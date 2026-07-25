@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         CompletenessDeclaration,
         EventMatchingPolicy,
         EventPattern,
+        PatternStep,
     )
     from marivo.analysis.evidence import (
         ArtifactDigest,
@@ -42,12 +43,14 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.runtime_metric import RuntimeMetricExpr
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
+    from marivo.analysis.subject import SubjectSelection
     from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
     from marivo.refs import DimensionKind, MetricKind, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
@@ -323,7 +326,8 @@ class Session(RenderableResult):
             identity=self._repr_identity(),
             available=(
                 ".catalog",
-                ".events.match()",
+                ".events",
+                ".select_subjects(...)",
                 ".frame_summaries()",
                 ".recent_jobs()",
                 ".render()",
@@ -555,8 +559,57 @@ class Session(RenderableResult):
 
     @property
     def events(self) -> SessionEvents:
-        """Return the Phase 1 typed Event Journey analysis namespace."""
+        """Return the typed Event Journey materialization and reducer namespace."""
         return SessionEvents(self)
+
+    def select_subjects(
+        self,
+        artifact: EventFrame,
+        *,
+        selection: SubjectSelection,
+        analysis_purpose: str | None = None,
+    ) -> SubjectSet:
+        """Select a persisted typed SubjectSet from a canonical Event journey.
+
+        Args:
+            artifact: Exact ``EventFrame[journey]`` produced in this session.
+            selection: Closed typed selection such as
+                ``mv.dropped_before(step=payment_step)``.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``SubjectSet`` containing only governed identity tuples.
+
+        Example:
+            >>> dropouts = session.select_subjects(
+            ...     journeys,
+            ...     selection=mv.dropped_before(step=payment_step),
+            ... )
+
+        Constraints:
+            Phase 2 accepts only first-per-subject journeys and an exact
+            non-initial PatternStep retained by the source pattern.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.subjects import select_subjects
+
+        validate_capability_inputs(
+            "select_subjects",
+            artifact=artifact,
+            selection=selection,
+        )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.select_subjects",
+            family="subjects",
+            intent="select_subjects",
+        ):
+            return select_subjects(
+                artifact,
+                selection=selection,
+                analysis_purpose=analysis_purpose,
+                session=self,
+            )
 
     def observe(
         self,
@@ -577,6 +630,7 @@ class Session(RenderableResult):
         | None = None,
         time_dimension: _SemanticInput[TimeDimensionKind] | None = None,
         expect_shape: SemanticShape | None = None,
+        cohort: SubjectSet | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Materialize a metric into a typed MetricFrame.
@@ -620,6 +674,8 @@ class Session(RenderableResult):
             expect_shape: Optional guard. If set, observe predicts the output shape
                 from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
                 before any backend work when the prediction differs.
+            cohort: Optional ready ``SubjectSet``. Membership is applied to every
+                metric leaf before aggregation through the governed subject path.
 
         Raises:
             MetricNotFoundError: A catalog metric ref is unknown.
@@ -667,7 +723,7 @@ class Session(RenderableResult):
             intent="observe",
             attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
         ) as telemetry_operation:
-            validate_capability_inputs("observe", time_scope=time_scope)
+            validate_capability_inputs("observe", time_scope=time_scope, cohort=cohort)
             result = observe(
                 metric,
                 time_scope=time_scope,
@@ -676,6 +732,7 @@ class Session(RenderableResult):
                 slice_by=slice_by,
                 time_dimension=time_dimension,
                 expect_shape=expect_shape,
+                cohort=cohort,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
@@ -1225,7 +1282,7 @@ ensure_session_writable = ensure_session_can_execute
 
 @dataclass(frozen=True, repr=False)
 class SessionEvents(RenderableResult):
-    """Session-bound Phase 1 Event Journey operators."""
+    """Session-bound Event Journey materialization and reducer operators."""
 
     _session: Session
 
@@ -1235,8 +1292,14 @@ class SessionEvents(RenderableResult):
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),
-            available=(".match(...)", ".render()", ".show()"),
-        ).status("phase=event_journey")
+            available=(
+                ".match(...)",
+                ".funnel(...)",
+                ".time_to_event(...)",
+                ".render()",
+                ".show()",
+            ),
+        ).status("phase=event_reducers")
 
     def match(
         self,
@@ -1246,6 +1309,7 @@ class SessionEvents(RenderableResult):
         completion_through: str,
         matching: EventMatchingPolicy,
         completeness: tuple[CompletenessDeclaration, ...] = (),
+        cohort: SubjectSet | None = None,
         analysis_purpose: str | None = None,
     ) -> EventFrame:
         """Match typed Event occurrences into dense subject journeys.
@@ -1266,6 +1330,7 @@ class SessionEvents(RenderableResult):
             matching: ``mv.first_per_subject()`` or an explicit
                 ``mv.every_start(completion_assignment=...)`` policy.
             completeness: Optional exact Event completeness declarations.
+            cohort: Optional ready ``SubjectSet`` with the exact pattern subject.
             analysis_purpose: Optional business purpose retained in lineage.
 
         Returns:
@@ -1309,6 +1374,7 @@ class SessionEvents(RenderableResult):
             cohort_window=cohort_window,
             matching=matching,
             completeness=completeness,
+            cohort=cohort,
         )
         with _track_session_operation(
             self._session,
@@ -1326,6 +1392,113 @@ class SessionEvents(RenderableResult):
                 completion_through=completion_through,
                 matching=matching,
                 completeness=completeness,
+                cohort=cohort,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def funnel(
+        self,
+        journeys: EventFrame,
+        *,
+        axes: Sequence[_SemanticInput[DimensionKind]] = (),
+        analysis_purpose: str | None = None,
+    ) -> EventFrame:
+        """Reduce first-per-subject journeys into a reconciled Event funnel.
+
+        With ``axes=()`` this reads only the persisted journey artifact. Each
+        declared Dimension axis is enriched at the first-step occurrence time
+        through one governed, fanout-safe subject path.
+
+        Args:
+            journeys: Exact same-session ``EventFrame[journey]`` matched with
+                ``mv.first_per_subject()``.
+            axes: Current-catalog Dimension entries or exact Dimension refs.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``EventFrame[funnel]`` with exact additive counts,
+            censoring-aware rates, and grouped reconciliation evidence.
+
+        Example:
+            >>> funnel = session.events.funnel(
+            ...     journeys,
+            ...     axes=[acquisition_channel],
+            ...     analysis_purpose="Measure checkout conversion by entry channel.",
+            ... )
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.event_reducers import funnel
+
+        validate_capability_inputs(
+            "events.funnel",
+            journeys=journeys,
+            axes=axes,
+        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.events.funnel",
+            family="events",
+            intent="events.funnel",
+        ):
+            return funnel(
+                journeys,
+                axes=axes,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def time_to_event(
+        self,
+        journeys: EventFrame,
+        *,
+        start_step: PatternStep,
+        end_step: PatternStep,
+        analysis_purpose: str | None = None,
+    ) -> EventFrame:
+        """Project persisted Event assignments into exact elapsed durations.
+
+        The reducer never queries or rematches Event inputs. ``start_step`` and
+        ``end_step`` must be the exact typed steps retained by the source
+        pattern, and the start must precede the end.
+
+        Args:
+            journeys: Exact same-session ``EventFrame[journey]``.
+            start_step: Exact reached step from the persisted source pattern.
+            end_step: Exact later step from the persisted source pattern.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``EventFrame[time_to_event]`` with one row per source
+            journey that reached ``start_step``.
+
+        Example:
+            >>> elapsed = session.events.time_to_event(
+            ...     journeys,
+            ...     start_step=checkout_step,
+            ...     end_step=payment_step,
+            ...     analysis_purpose="Measure checkout-to-payment elapsed time.",
+            ... )
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.event_reducers import time_to_event
+
+        validate_capability_inputs(
+            "events.time_to_event",
+            journeys=journeys,
+            start_step=start_step,
+            end_step=end_step,
+        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.events.time_to_event",
+            family="events",
+            intent="events.time_to_event",
+        ):
+            return time_to_event(
+                journeys,
+                start_step=start_step,
+                end_step=end_step,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

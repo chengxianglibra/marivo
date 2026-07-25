@@ -118,14 +118,20 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
         }
         if len(signatures) != 1:
             raise ValueError("analysis job Event frames disagree on journey semantics")
-        return {
+        event_payload: dict[str, Any] = {
             "catalog_definition_fingerprint": next(iter(fingerprints), None),
             "subject": {
                 "kind": "event",
                 "subject_entity_ref": first.subject_entity_ref.to_dict(),
                 "subject_identity_signature": list(first.subject_identity),
             },
-            "event_journey": {
+        }
+        semantic_kinds = {meta.semantic_kind for meta in event_metas}
+        if len(semantic_kinds) != 1:
+            raise ValueError("analysis job Event frames disagree on semantic shape")
+        semantic_kind = next(iter(semantic_kinds))
+        if semantic_kind == "journey":
+            event_payload["event_journey"] = {
                 "pattern": first.pattern.model_dump(mode="json"),
                 "matching": first.matching.model_dump(mode="json"),
                 "cohort_window": first.cohort_window.model_dump(mode="json"),
@@ -142,6 +148,68 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
                     key: value.to_dict() for key, value in sorted(first.role_endpoints.items())
                 },
                 "query_refs": list(first.query_refs),
+                "unused_event_count": first.unused_event_count,
+                "unused_event_counts_by_step": dict(
+                    sorted(first.unused_event_counts_by_step.items())
+                ),
+            }
+        elif semantic_kind == "funnel":
+            event_payload["event_reducer"] = {
+                "kind": "funnel",
+                "source_artifact_ref": first.source_journey_ref,
+                "source_artifact_fingerprint": first.source_journey_fingerprint,
+                "pattern_fingerprint": first.pattern.fingerprint,
+                "matching": first.matching.model_dump(mode="json"),
+                "coverage_basis": first.coverage_basis,
+                "axes": [item.model_dump(mode="json") for item in first.axes],
+                "grouped_reconciliation": first.grouped_reconciliation.model_dump(mode="json"),
+                "source_unused_event_count": first.source_unused_event_count,
+            }
+        elif semantic_kind == "time_to_event":
+            event_payload["event_reducer"] = {
+                "kind": "time_to_event",
+                "source_artifact_ref": first.source_journey_ref,
+                "source_artifact_fingerprint": first.source_journey_fingerprint,
+                "pattern_fingerprint": first.pattern.fingerprint,
+                "matching": first.matching.model_dump(mode="json"),
+                "coverage_basis": first.coverage_basis,
+                "start_step": first.start_step.model_dump(mode="json"),
+                "end_step": first.end_step.model_dump(mode="json"),
+                "source_unused_end_count": first.source_unused_end_count,
+            }
+        else:
+            raise ValueError(f"unsupported Event semantic shape {semantic_kind!r}")
+        cohorts = {meta.cohort for meta in event_metas}
+        if len(cohorts) > 1:
+            raise ValueError("analysis job Event frames disagree on SubjectSet cohort")
+        cohort = next(iter(cohorts))
+        if cohort is not None:
+            event_payload["cohort"] = cohort.model_dump(mode="json")
+        return event_payload
+
+    subject_sets = tuple(frame for frame in frames if frame.meta.kind == "subject_set")
+    if subject_sets:
+        from marivo.analysis.frames.subject import SubjectSetMeta
+
+        if len(subject_sets) != len(frames) or len(subject_sets) != 1:
+            raise ValueError("analysis job SubjectSet semantics require exactly one SubjectSet")
+        meta = subject_sets[0].meta
+        if not isinstance(meta, SubjectSetMeta):
+            raise ValueError("analysis job SubjectSet frame has invalid metadata")
+        return {
+            "catalog_definition_fingerprint": next(iter(fingerprints), None),
+            "subject": {
+                "kind": "subject_set",
+                "subject_entity_ref": meta.subject_entity_ref.to_dict(),
+                "subject_identity_signature": list(meta.subject_identity),
+            },
+            "subject_set": {
+                "source": meta.source.model_dump(mode="json"),
+                "selection": meta.selection.model_dump(mode="json"),
+                "selection_fingerprint": meta.selection_fingerprint,
+                "selected_count": meta.selected_count,
+                "excluded_coverage_censored_count": (meta.excluded_coverage_censored_count),
+                "coverage_status": meta.coverage_status,
             },
         }
 
@@ -215,6 +283,13 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
         payload["subject"] = subject(identities[0])
     else:
         payload["subjects"] = [subject(identity) for identity in identities]
+    cohorts = {
+        cohort for frame in frames if (cohort := getattr(frame.meta, "cohort", None)) is not None
+    }
+    if len(cohorts) > 1:
+        raise ValueError("analysis job Metric frames disagree on SubjectSet cohort")
+    if cohorts:
+        payload["cohort"] = next(iter(cohorts)).model_dump(mode="json")
     return payload
 
 

@@ -12,13 +12,25 @@ All names are private to ``marivo.analysis``.  Nothing is added to
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from marivo.analysis._capabilities.model import (
+    ARTIFACT_FAMILIES,
+    ArtifactAdmissionRule,
     BoundaryCapability,
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.errors import (
+    AnalysisError,
+    AnalysisRepair,
+    EventCoverageUnknownError,
+    InvalidEventMatchingPolicyError,
+    InvalidSubjectAxisError,
+    PatternStepMismatchError,
+    QualityShapeUnsupportedError,
+    SubjectSetMismatchError,
+)
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.telemetry import staged
 
@@ -47,11 +59,14 @@ def _classify_frame(value: object) -> str | None:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.frames.subject import SubjectSet
 
     if isinstance(value, MetricFrame):
         return "MetricFrame"
     if isinstance(value, EventFrame):
         return "EventFrame"
+    if isinstance(value, SubjectSet):
+        return "SubjectSet"
     if isinstance(value, DeltaFrame):
         return "DeltaFrame"
     if isinstance(value, AttributionFrame):
@@ -122,6 +137,7 @@ def _classify_policy_or_spec(value: object) -> str | None:
         FirstPerSubject,
     )
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
+    from marivo.analysis.subject import DroppedBefore
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
     if isinstance(value, AlignmentPolicy):
@@ -136,6 +152,8 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "EventMatchingPolicy"
     if isinstance(value, CompletenessDeclaration):
         return "CompletenessDeclaration"
+    if isinstance(value, DroppedBefore):
+        return "SubjectSelection"
     # A plain dict is acceptable as a TimeScopeInput (normalized later by
     # the capability-specific validator, which may reject relative windows).
     if isinstance(value, dict):
@@ -225,6 +243,167 @@ def classify_input_family(value: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ArtifactAdmissionResult:
+    """One registry-owned artifact predicate evaluation."""
+
+    allowed: bool
+    expected: str | None = None
+    received: str | None = None
+    predicate: str | None = None
+
+
+def _raise_typed_event_family_error(
+    *,
+    capability_id: str,
+    param_name: str,
+    received: str,
+    help_target: str,
+) -> None:
+    """Preserve the closed Event/SubjectSet repair contract at the family gate."""
+
+    key = (capability_id, param_name)
+    if key == ("events.funnel", "axes"):
+        raise InvalidSubjectAxisError(
+            message="events.funnel axes must be exact governed Dimension inputs.",
+            expected="DimensionEntry | Ref[dimension]",
+            received=received,
+            location="session.events.funnel.axes",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action="Choose an exact subject Dimension from the current catalog.",
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=help_target,
+                ),
+            ),
+        )
+    if key == ("select_subjects", "selection"):
+        raise PatternStepMismatchError(
+            message="select_subjects requires a closed typed subject selection.",
+            expected="mv.dropped_before(step=<PatternStep>)",
+            received=received,
+            location="session.select_subjects.selection",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action=(
+                    "Choose an exact non-initial PatternStep from the source journey "
+                    "and build mv.dropped_before(step=...)."
+                ),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=help_target,
+                ),
+            ),
+        )
+    if key in {
+        ("events.match", "cohort"),
+        ("observe", "cohort"),
+    }:
+        raise SubjectSetMismatchError(
+            message=f"{capability_id} cohort must be an exact persisted SubjectSet.",
+            expected="SubjectSet",
+            received=received,
+            location=f"session.{capability_id}.cohort",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=("Pass the persisted SubjectSet returned by session.select_subjects(...)."),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=help_target,
+                ),
+            ),
+        )
+    if key in {
+        ("events.funnel", "journeys"),
+        ("events.time_to_event", "journeys"),
+        ("select_subjects", "artifact"),
+    }:
+        argument = "journeys" if capability_id.startswith("events.") else "artifact"
+        raise SubjectSetMismatchError(
+            message=f"{capability_id} requires a canonical EventFrame[journey].",
+            expected="EventFrame semantic_kind='journey'",
+            received=received,
+            location=f"session.{capability_id}.{argument}",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=("Pass the persisted source journey returned by session.events.match(...)."),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=help_target,
+                ),
+            ),
+        )
+
+
+def _artifact_fact(value: object, attribute: str) -> str | None:
+    meta = getattr(value, "meta", None)
+    fact = getattr(meta, attribute, None)
+    return fact if isinstance(fact, str) and fact else None
+
+
+def _matching_kind(value: object) -> str | None:
+    meta = getattr(value, "meta", None)
+    matching = getattr(meta, "matching", None)
+    kind = getattr(matching, "kind", None)
+    return kind if isinstance(kind, str) and kind else None
+
+
+def evaluate_artifact_admission(
+    capability_id: str,
+    parameter: str,
+    value: object,
+) -> ArtifactAdmissionResult:
+    """Evaluate the descriptor's closed artifact predicates for one value."""
+    descriptor = REGISTRY.by_id(capability_id)
+    if not isinstance(descriptor, OperatorCapability):
+        return ArtifactAdmissionResult(allowed=True)
+    rule: ArtifactAdmissionRule | None = descriptor.artifact_admission.get(parameter)
+    if rule is None:
+        return ArtifactAdmissionResult(allowed=True)
+    try:
+        family = classify_input_family(value)
+    except AnalysisError:
+        return ArtifactAdmissionResult(allowed=True)
+    if family not in ARTIFACT_FAMILIES:
+        return ArtifactAdmissionResult(allowed=True)
+    artifact_family = family
+
+    shapes = rule.semantic_shapes.get(artifact_family)
+    if shapes:
+        received = _artifact_fact(value, "semantic_kind")
+        if received not in shapes:
+            return ArtifactAdmissionResult(
+                allowed=False,
+                expected=" | ".join(sorted(shapes)),
+                received=received or "<missing>",
+                predicate="semantic_shape",
+            )
+
+    matching_kinds = rule.matching_kinds.get(artifact_family)
+    if matching_kinds:
+        received = _matching_kind(value)
+        if received not in matching_kinds:
+            return ArtifactAdmissionResult(
+                allowed=False,
+                expected=" | ".join(sorted(matching_kinds)),
+                received=received or "<missing>",
+                predicate="matching",
+            )
+
+    coverage_statuses = rule.coverage_statuses.get(artifact_family)
+    if coverage_statuses:
+        received = _artifact_fact(value, "coverage_status")
+        if received not in coverage_statuses:
+            return ArtifactAdmissionResult(
+                allowed=False,
+                expected=" | ".join(sorted(coverage_statuses)),
+                received=received or "<missing>",
+                predicate="coverage_status",
+            )
+    return ArtifactAdmissionResult(allowed=True)
+
+
 @staged("validate")
 def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
     """Validate that each family-bearing argument matches the registry.
@@ -291,6 +470,12 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
             None,
         )
         if rejected_family is not None:
+            _raise_typed_event_family_error(
+                capability_id=capability_id,
+                param_name=param_name,
+                received=rejected_family,
+                help_target=descriptor.help_target,
+            )
             accepted_str = " | ".join(sorted(accepted_families))
             raise AnalysisError(
                 message=(
@@ -303,6 +488,110 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(f"Pass a value whose family is one of: {accepted_str}."),
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id=descriptor.help_target
+                    ),
+                ),
+            )
+
+        for item in values:
+            admission = evaluate_artifact_admission(capability_id, param_name, item)
+            if admission.allowed:
+                continue
+            predicate = admission.predicate or "artifact"
+            if classify_input_family(item) == "SubjectSet" and predicate == "coverage_status":
+                raise EventCoverageUnknownError(
+                    message=(f"{capability_id} cannot consume a coverage-censored SubjectSet."),
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=f"session.{capability_id}.{param_name}",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Inspect the SubjectSet coverage and rebuild it from "
+                            "authoritatively resolved journey loss."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id=descriptor.help_target,
+                        ),
+                    ),
+                )
+            if capability_id == "events.funnel" and predicate == "matching":
+                raise InvalidEventMatchingPolicyError(
+                    message="events.funnel requires first_per_subject matching.",
+                    expected=admission.expected,
+                    received=admission.received,
+                    location="session.events.funnel.journeys.matching",
+                    repair=AnalysisRepair(
+                        kind="user_choice",
+                        action=(
+                            "Match the source EventPattern with "
+                            "mv.first_per_subject() before funnel reduction."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="events.funnel",
+                        ),
+                        candidates=("first_per_subject",),
+                    ),
+                )
+            if capability_id == "assess_quality" and predicate == "semantic_shape":
+                raise QualityShapeUnsupportedError(
+                    message="assess_quality does not support this EventFrame shape.",
+                    expected=admission.expected,
+                    received=admission.received,
+                    location="session.assess_quality.target.semantic_shape",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action="Inspect the artifact contract for supported quality shapes.",
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id="assess_quality",
+                        ),
+                    ),
+                )
+            if predicate == "semantic_shape" and capability_id in {
+                "events.funnel",
+                "events.time_to_event",
+                "select_subjects",
+            }:
+                public_location = (
+                    f"session.{capability_id}.journeys"
+                    if capability_id.startswith("events.")
+                    else "session.select_subjects.artifact"
+                )
+                raise SubjectSetMismatchError(
+                    message=f"{capability_id} requires a canonical EventFrame[journey].",
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=public_location,
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Pass the persisted source journey returned by "
+                            "session.events.match(...)."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id=descriptor.help_target,
+                        ),
+                    ),
+                )
+            raise AnalysisError(
+                message=(
+                    f"{capability_id} parameter {param_name!r} failed the "
+                    f"registered {predicate} admission predicate."
+                ),
+                expected=admission.expected,
+                received=admission.received,
+                location=f"{capability_id}.{param_name}.{predicate}",
+                repair=AnalysisRepair(
+                    kind="inspect",
+                    action=(
+                        "Inspect the artifact contract and pass an artifact whose "
+                        f"{predicate} satisfies this capability."
+                    ),
                     help_target=LiveHelpTarget(
                         surface="analysis", canonical_id=descriptor.help_target
                     ),

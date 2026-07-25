@@ -10,9 +10,12 @@ from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     EventAnalysisScope,
+    EventFunnelAnalysisScope,
+    EventTimeToEventAnalysisScope,
     EvidenceScope,
     JsonValue,
     QualitySummary,
+    SubjectSetAnalysisScope,
 )
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.refs import RefPayloadV1
@@ -121,7 +124,7 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
 
 
 def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
-    """Derive a typed metric or Event Journey scope from frame metadata."""
+    """Derive a typed metric, Event, or SubjectSet scope from frame metadata."""
     meta = frame.meta
     if getattr(meta, "kind", None) == "event_frame":
         event_meta = cast("Any", meta)
@@ -143,7 +146,8 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
             "basis": event_meta.coverage_basis,
             "inputs": tuple(item.model_dump(mode="json") for item in input_coverage),
         }
-        return EventAnalysisScope(
+        cohort = getattr(event_meta, "cohort", None)
+        journey_scope = EventAnalysisScope(
             pattern=cast("dict[str, JsonValue]", pattern.model_dump(mode="json")),
             roles=cast("tuple[dict[str, JsonValue], ...]", roles),
             matching=cast("dict[str, JsonValue]", matching.model_dump(mode="json")),
@@ -153,6 +157,52 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
             ),
             completion_through=str(event_meta.completion_through),
             coverage=cast("dict[str, JsonValue]", coverage),
+            cohort_binding=(
+                cast("dict[str, JsonValue]", cohort.model_dump(mode="json"))
+                if cohort is not None
+                else None
+            ),
+        )
+        semantic_kind = getattr(event_meta, "semantic_kind", None)
+        if semantic_kind == "funnel":
+            return EventFunnelAnalysisScope(
+                source_artifact_ref=str(event_meta.source_journey_ref),
+                source_scope=journey_scope,
+                axes=tuple(
+                    cast("dict[str, JsonValue]", axis.model_dump(mode="json"))
+                    for axis in event_meta.axes
+                ),
+                grouped_reconciliation=cast(
+                    "dict[str, JsonValue]",
+                    event_meta.grouped_reconciliation.model_dump(mode="json"),
+                ),
+            )
+        if semantic_kind == "time_to_event":
+            return EventTimeToEventAnalysisScope(
+                source_artifact_ref=str(event_meta.source_journey_ref),
+                source_scope=journey_scope,
+                start_step=cast(
+                    "dict[str, JsonValue]",
+                    event_meta.start_step.model_dump(mode="json"),
+                ),
+                end_step=cast(
+                    "dict[str, JsonValue]",
+                    event_meta.end_step.model_dump(mode="json"),
+                ),
+            )
+        return journey_scope
+
+    if getattr(meta, "kind", None) == "subject_set":
+        subject_meta = cast("Any", meta)
+        return SubjectSetAnalysisScope(
+            source_artifact_ref=subject_meta.source.artifact_ref,
+            source_artifact_fingerprint=subject_meta.source.artifact_fingerprint,
+            selection=cast(
+                "dict[str, JsonValue]",
+                subject_meta.selection.model_dump(mode="json"),
+            ),
+            selection_fingerprint=subject_meta.selection_fingerprint,
+            coverage_status=subject_meta.coverage_status,
         )
 
     metric_identities: tuple[MetricIdentity, ...] = ()

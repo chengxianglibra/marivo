@@ -6,7 +6,7 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe_planner``.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.analysis.executor.runner import apply_slice_to_dataset
 from marivo.analysis.executor.windowing import (
@@ -58,6 +58,9 @@ from marivo.analysis.intents.sampled_fold import ensure_status_time_dimension_ma
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
+if TYPE_CHECKING:
+    from marivo.analysis.intents._subject_cohort import ResolvedSubjectCohort
+
 
 def plan_base_observe(
     *,
@@ -70,6 +73,7 @@ def plan_base_observe(
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
+    subject_cohort: ResolvedSubjectCohort | None = None,
     allow_unqualified_outside_scope: bool = False,
 ) -> BaseObservePlan:
     if catalog is None:
@@ -97,6 +101,15 @@ def plan_base_observe(
     required_datasets = {root, *metric_ir.entities}
     required_datasets.update(_entity_id(field) for field in resolved_fields.dimensions)
     required_datasets.update(_entity_id(field) for field in resolved_fields.where_fields.values())
+    if subject_cohort is not None:
+        from marivo.analysis.intents._subject_cohort import validate_metric_cohort_path
+
+        validate_metric_cohort_path(
+            catalog=catalog,
+            root_entity=root,
+            cohort=subject_cohort,
+        )
+        required_datasets.add(subject_cohort.subject_entity_ref.path)
 
     datasource_names = {dataset_irs[dataset_id].datasource_name for dataset_id in required_datasets}
     if len(datasource_names) != 1:
@@ -383,6 +396,14 @@ def plan_base_observe(
         widened_table = apply_slice_to_dataset(
             widened_table, joined_where, dataset_ir=dataset_irs[root]
         )
+    if subject_cohort is not None:
+        from marivo.analysis.intents._subject_cohort import apply_subject_membership
+
+        widened_table = apply_subject_membership(
+            catalog=catalog,
+            table=widened_table,
+            cohort=subject_cohort,
+        )
 
     planned_dimensions = [
         PlannedDimension(field=_planned_field(field), column=field.name)
@@ -443,6 +464,11 @@ def plan_base_observe(
             "relationships": edge_metadata,
             "snapshots": snapshot_metadata,
             "version_resolutions": version_resolutions,
+            "cohort": (
+                subject_cohort.binding.model_dump(mode="json")
+                if subject_cohort is not None
+                else None
+            ),
             "time_fold": metric_ir.time_fold.label() if metric_ir.time_fold is not None else None,
             "status_time_dimension": metric_ir.status_time_dimension,
         },

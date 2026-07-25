@@ -56,10 +56,16 @@ from marivo.analysis.executor.windowing import (
     effective_time_context,
 )
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
+from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.intents._derived import gen_ref, params_digest
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
     _entity_details,
+)
+from marivo.analysis.intents._subject_cohort import (
+    ResolvedSubjectCohort,
+    apply_event_subject_membership,
+    resolve_subject_cohort,
 )
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import (
@@ -705,6 +711,7 @@ def _query_events(
     cohort_window: TimeScope,
     completion_through: str,
     completion: pd.Timestamp,
+    cohort: ResolvedSubjectCohort | None,
 ) -> tuple[
     dict[tuple[Ref[EventKind], str], tuple[_Occurrence, ...]],
     tuple[Any, ...],
@@ -718,6 +725,12 @@ def _query_events(
         for event_ref, role_names, representative in _event_groups(resolved):
             event_ir = registry.events[event_ref.path]
             table = resolver.event(event_ref, participants=role_names)
+            if cohort is not None:
+                table = apply_event_subject_membership(
+                    table=table,
+                    cohort=cohort,
+                    participant_names=role_names,
+                )
             entity_adapter, occurred_adapter = _time_adapter(
                 session=session,
                 resolver=resolver,
@@ -770,6 +783,19 @@ def _query_events(
                 report_tz=report_tz,
                 datasource_read_tz=read_tz,
             )
+            if cohort is not None:
+                # One EventRef may serve multiple selected roles. The Ibis
+                # semi-join excludes rows outside every role; this per-role
+                # guard keeps each occurrence set exact.
+                allowed_identities = set(cohort.identities)
+                normalized = {
+                    key: tuple(
+                        occurrence
+                        for occurrence in occurrences
+                        if occurrence.subject_identity in allowed_identities
+                    )
+                    for key, occurrences in normalized.items()
+                }
             occurrence_sets.update(
                 {
                     key: tuple(
@@ -1056,7 +1082,7 @@ def _match_rows(
     cohort_start: pd.Timestamp,
     cohort_end: pd.Timestamp,
     coverage_complete: bool,
-) -> tuple[pd.DataFrame, int]:
+) -> tuple[pd.DataFrame, int, dict[str, int]]:
     materialized_pattern_fingerprint = _stable_digest(
         {
             "pattern": pattern.fingerprint,
@@ -1095,6 +1121,9 @@ def _match_rows(
 
     exclusive_final: set[tuple[str, tuple[object, ...]]] = set()
     used_occurrences: set[tuple[str, tuple[object, ...]]] = set()
+    used_occurrences_by_step: dict[str, set[tuple[str, tuple[object, ...]]]] = {
+        item.step.key: set() for item in resolved
+    }
     rows: list[dict[str, object]] = []
     for anchor in selected_anchors:
         matched = _attempt(
@@ -1129,6 +1158,7 @@ def _match_rows(
                 elapsed_previous: pd.Timedelta | None = None
             else:
                 used_occurrences.add(item.occurrence_key)
+                used_occurrences_by_step[resolved_step.step.key].add(item.occurrence_key)
                 event_identity = item.event_identity
                 occurred_at = item.occurred_at
                 elapsed_start = item.occurred_at - anchor.occurred_at
@@ -1157,12 +1187,19 @@ def _match_rows(
         for occurrence in occurrences
     }
     unused_count = len(all_occurrences - used_occurrences)
+    unused_counts_by_step = {
+        resolved_step.step.key: len(
+            {occurrence.occurrence_key for occurrence in step_occurrences[index]}
+            - used_occurrences_by_step[resolved_step.step.key]
+        )
+        for index, resolved_step in enumerate(resolved)
+    }
     frame = pd.DataFrame(rows, columns=_ROW_COLUMNS)
     if not frame.empty:
         frame["occurred_at"] = pd.to_datetime(frame["occurred_at"], utc=True)
         frame["elapsed_from_start"] = pd.to_timedelta(frame["elapsed_from_start"])
         frame["elapsed_from_previous"] = pd.to_timedelta(frame["elapsed_from_previous"])
-    return frame, unused_count
+    return frame, unused_count, unused_counts_by_step
 
 
 def _coverage(
@@ -1338,6 +1375,7 @@ def match(
     completion_through: str,
     matching: EventMatchingPolicy,
     completeness: tuple[CompletenessDeclaration, ...] = (),
+    cohort: SubjectSet | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> EventFrame:
@@ -1358,6 +1396,13 @@ def match(
         completion_through=completion_through,
         completeness=completeness,
     )
+    resolved_cohort = resolve_subject_cohort(
+        session=resolved_session,
+        cohort=cohort,
+        consumer="events.match",
+        expected_subject_entity=RefPayloadV1.from_ref(resolved[0].endpoint),
+        expected_subject_identity=resolved[0].subject_identity,
+    )
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -1367,6 +1412,7 @@ def match(
         cohort_window=cohort_window,
         completion_through=completion_through,
         completion=completion,
+        cohort=resolved_cohort,
     )
     input_coverage, coverage_basis = _coverage(
         session=resolved_session,
@@ -1375,7 +1421,7 @@ def match(
         completion_through=completion_through,
         declaration_by_event=declaration_by_event,
     )
-    output, unused_count = _match_rows(
+    output, unused_count, unused_counts_by_step = _match_rows(
         pattern=pattern,
         matching=matching,
         resolved=resolved,
@@ -1412,6 +1458,9 @@ def match(
             for key, components in sorted(event_identity_components.items())
         },
         "role_endpoints": {key: value.to_dict() for key, value in sorted(role_endpoints.items())},
+        "cohort": (
+            resolved_cohort.binding.model_dump(mode="json") if resolved_cohort is not None else None
+        ),
         "snapshot_fingerprint": _snapshot_fingerprint(occurrence_sets),
     }
     subject_identity = resolved[0].subject_identity
@@ -1433,7 +1482,15 @@ def match(
                         intent="events.match",
                         job_ref=job_ref,
                         inputs=[
-                            item.key for item in dict.fromkeys(step.event for step in pattern.steps)
+                            *[
+                                item.key
+                                for item in dict.fromkeys(step.event for step in pattern.steps)
+                            ],
+                            *(
+                                [resolved_cohort.binding.artifact_ref]
+                                if resolved_cohort is not None
+                                else []
+                            ),
                         ],
                         params_digest=params_digest(params),
                         params={
@@ -1444,7 +1501,14 @@ def match(
                     )
                 ],
                 external_inputs=sorted(
-                    item.key for item in dict.fromkeys(step.event for step in pattern.steps)
+                    [
+                        *[item.key for item in dict.fromkeys(step.event for step in pattern.steps)],
+                        *(
+                            [resolved_cohort.binding.artifact_ref]
+                            if resolved_cohort is not None
+                            else []
+                        ),
+                    ]
                 ),
             ),
             catalog_definition_fingerprint=resolved_session.catalog.definition_fingerprint,
@@ -1462,11 +1526,14 @@ def match(
             role_endpoints=role_endpoints,
             query_refs=query_refs,
             unused_event_count=unused_count,
+            unused_event_counts_by_step=unused_counts_by_step,
+            cohort=resolved_cohort.binding if resolved_cohort is not None else None,
         ),
     )
-    commit_inputs = CommitInputs(
-        input_refs=[item.key for item in dict.fromkeys(step.event for step in pattern.steps)]
-    )
+    input_refs = [item.key for item in dict.fromkeys(step.event for step in pattern.steps)]
+    if resolved_cohort is not None:
+        input_refs.append(resolved_cohort.binding.artifact_ref)
+    commit_inputs = CommitInputs(input_refs=input_refs)
     commit_params = CommitParams(values=params)
     commit_anchors = CommitSemanticAnchors(
         catalog_definition_fingerprint=resolved_session.catalog.definition_fingerprint,
@@ -1506,7 +1573,9 @@ def match(
                 **job_semantics_from_frames(frame),
                 "analysis_purpose": analysis_purpose,
                 "params": params,
-                "input_frame_refs": [],
+                "input_frame_refs": (
+                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+                ),
                 "output_frame_ref": frame.meta.artifact_id or frame.ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),

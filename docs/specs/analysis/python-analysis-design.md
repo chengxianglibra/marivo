@@ -200,6 +200,7 @@ The frozen analysis consumer matrix is:
 | --- | --- |
 | `Session.observe` | catalog metric root(s), `dimensions`, `slice_by` keys, `time_dimension` |
 | `Session.attribute` | `axes` |
+| `SessionEvents.funnel` | subject `axes` |
 | `SessionDiscoverNamespace.driver_axes` | `search_space` |
 | `SessionDiscoverNamespace.interesting_slices` | `search_space` |
 | `SessionDiscoverNamespace.cross_sectional_outliers` | `peer_scope` |
@@ -218,6 +219,33 @@ This widening does not apply to semantic authoring or datasource APIs, runtime
 metric constructor leaves, nested Event values such as `PatternStep`,
 participant roles or completeness declarations, persisted selector/replay
 DTOs, or bare semantic strings.
+
+### Typed Event composition
+
+`SessionEvents.match(...)` materializes the canonical dense
+`EventFrame[journey]`. Phase 2 adds only closed reducers and the governed
+SubjectSet bridge:
+
+```text
+EventFrame[journey, first_per_subject] -> events.funnel -> EventFrame[funnel]
+EventFrame[journey] -> events.time_to_event -> EventFrame[time_to_event]
+EventFrame[journey, first_per_subject] -> select_subjects -> SubjectSet
+SubjectSet[ready] -> observe(cohort=...) | events.match(cohort=...)
+```
+
+Reducers consume the persisted journey assignment rather than rematching Event
+inputs. Funnel without axes and time-to-event perform no datasource query.
+Funnel axes are exact current Dimension entries/refs and may only enrich the
+journey subject through one unique directed to-one path at cohort entry.
+Grouped additive counts must reconcile exactly to the ungrouped funnel.
+
+`mv.dropped_before(step=...)` is the only Phase 2 SubjectSelection. It accepts
+one exact non-initial PatternStep from a first-per-subject journey, selects only
+resolved loss, and excludes coverage-censored truth. A SubjectSet persists only
+ordered identity tuples as artifact rows; identity values never enter metadata,
+jobs, evidence, cards, or errors. A ready same-session SubjectSet may scope
+`observe` and `events.match`; a coverage-censored SubjectSet remains readable
+but fails admission with `event_coverage_unknown`.
 
 ### Typed metric composition
 

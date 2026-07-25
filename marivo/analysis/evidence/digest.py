@@ -89,6 +89,48 @@ _RULES: dict[str, _RuleEntry] = {
         ),
         sort_key=_default_sort_key,
     ),
+    "events.funnel": _RuleEntry(
+        rule_id="digest.event_funnel",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=(
+            "value.cohort_count",
+            "value.step_count",
+            "value.axis_tuple_count",
+            "value.reconciliation_passed",
+            "value.source_unused_event_count",
+            "value.steps",
+        ),
+        sort_key=_default_sort_key,
+    ),
+    "events.time_to_event": _RuleEntry(
+        rule_id="digest.event_time_to_event",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=(
+            "value.qualifying_count",
+            "value.complete_count",
+            "value.incomplete_count",
+            "value.coverage_censored_count",
+            "value.source_unused_end_count",
+            "value.median_duration_seconds",
+        ),
+        sort_key=_default_sort_key,
+    ),
+    "select_subjects": _RuleEntry(
+        rule_id="digest.subject_set",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=(
+            "value.selected_count",
+            "value.excluded_coverage_censored_count",
+            "value.coverage_status",
+        ),
+        sort_key=_default_sort_key,
+    ),
     "compare": _RuleEntry(
         rule_id="digest.compare",
         rule_version="v1",
@@ -412,7 +454,7 @@ def _boundaries(
                 required_evidence=("causal_design",),
             )
         )
-    elif operator == "attribute":
+    elif operator in {"attribute", "events.funnel"}:
         result.append(
             InferenceBoundary(
                 kind="causal_effect_not_estimated",

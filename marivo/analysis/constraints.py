@@ -36,6 +36,10 @@ class ConstraintId(StrEnum):
     EVENT_PATTERN_VALID = "event_pattern_valid"
     EVENT_WINDOW_VALID = "event_window_valid"
     EVENT_COMPLETENESS_VALID = "event_completeness_valid"
+    EVENT_REDUCER_SOURCE_VALID = "event_reducer_source_valid"
+    EVENT_SUBJECT_AXIS_VALID = "event_subject_axis_valid"
+    EVENT_STEP_PAIR_VALID = "event_step_pair_valid"
+    SUBJECT_SELECTION_VALID = "subject_selection_valid"
     FRAME_IMMUTABLE = "frame_immutable"
     FRAME_READ_BOUNDS = "frame_read_bounds"
     BACKEND_FACTORY_CONFIGURED = "backend_factory_configured"
@@ -214,6 +218,46 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A journey can only be matched when every step selects the same cardinality-one participant endpoint.",
         "Build each step with mv.step(participant=ms.participant_role(...), key='snake_case') and combine them with mv.sequence(...).",
         help_target="events.match",
+    ),
+    ConstraintId.EVENT_REDUCER_SOURCE_VALID: _constraint(
+        ConstraintId.EVENT_REDUCER_SOURCE_VALID,
+        "SubjectSetMismatch",
+        "runtime",
+        ("events.funnel", "events.time_to_event", "select_subjects", "EventFrame"),
+        "Event reducers consume an exact registered EventFrame[journey].",
+        "Reducer lineage and occurrence assignment are inherited from the persisted source artifact.",
+        "Pass the same-session journey returned by session.events.match(...), not a reducer output or copied DataFrame.",
+        help_target="events.funnel",
+    ),
+    ConstraintId.EVENT_SUBJECT_AXIS_VALID: _constraint(
+        ConstraintId.EVENT_SUBJECT_AXIS_VALID,
+        "InvalidSubjectAxis",
+        "runtime",
+        ("events.funnel", "Dimension", "EventFrame"),
+        "Funnel axes must resolve through one governed fanout-safe subject path.",
+        "Grouped counts reconcile only when each subject has one deterministic cohort-entry axis value.",
+        "Pass exact current-catalog Dimension entries or refs reachable by a unique directed to-one path.",
+        help_target="events.funnel",
+    ),
+    ConstraintId.EVENT_STEP_PAIR_VALID: _constraint(
+        ConstraintId.EVENT_STEP_PAIR_VALID,
+        "PatternStepMismatch",
+        "runtime",
+        ("events.time_to_event", "PatternStep", "EventPattern"),
+        "Time-to-event steps must be exact ordered members of the source pattern.",
+        "The reducer preserves source occurrence assignment and cannot infer steps from names or positions.",
+        "Pass exact PatternStep values retained by source.meta.pattern, with start before end.",
+        help_target="events.time_to_event",
+    ),
+    ConstraintId.SUBJECT_SELECTION_VALID: _constraint(
+        ConstraintId.SUBJECT_SELECTION_VALID,
+        "SubjectSetMismatch",
+        "runtime",
+        ("select_subjects", "DroppedBefore", "SubjectSet"),
+        "Subject selection uses one closed typed selection over a canonical journey.",
+        "Only resolved loss can create a cohort without silently treating censored subjects as dropouts.",
+        "Use mv.dropped_before(step=<exact non-initial source PatternStep>) on a first-per-subject journey.",
+        help_target="select_subjects",
     ),
     ConstraintId.EVENT_WINDOW_VALID: _constraint(
         ConstraintId.EVENT_WINDOW_VALID,

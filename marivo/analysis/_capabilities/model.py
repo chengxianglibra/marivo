@@ -37,6 +37,7 @@ RootGroup = Literal[
 ArtifactFamily = Literal[
     "MetricFrame",
     "EventFrame",
+    "SubjectSet",
     "DeltaFrame",
     "AttributionFrame",
     "ForecastFrame",
@@ -62,6 +63,7 @@ InputFamily = (
         "EventPattern",
         "EventMatchingPolicy",
         "CompletenessDeclaration",
+        "SubjectSelection",
     ]
 )
 
@@ -86,6 +88,20 @@ class SameAsInputFamily:
 
 
 OutputFamily = ArtifactFamily | SameAsInputFamily
+
+
+@dataclass(frozen=True)
+class ArtifactAdmissionRule:
+    """Closed runtime predicates for one artifact-bearing parameter.
+
+    The accepted family remains owned by ``accepted_inputs``. These optional
+    predicates narrow that family by persisted artifact facts without
+    duplicating operator-specific planning.
+    """
+
+    semantic_shapes: Mapping[ArtifactFamily, frozenset[str]] = field(default_factory=dict)
+    matching_kinds: Mapping[ArtifactFamily, frozenset[str]] = field(default_factory=dict)
+    coverage_statuses: Mapping[ArtifactFamily, frozenset[str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +177,7 @@ class OperatorCapability(CapabilityBase):
     kind: Literal["operator"] = "operator"
     receiver: str = ""
     accepted_inputs: Mapping[str, frozenset[InputFamily]] = field(default_factory=dict)
+    artifact_admission: Mapping[str, ArtifactAdmissionRule] = field(default_factory=dict)
     output_family: OutputFamily = "MetricFrame"
 
 
@@ -286,6 +303,7 @@ ROOT_GROUP_ORDER: tuple[RootGroup, ...] = (
 ARTIFACT_FAMILIES: tuple[ArtifactFamily, ...] = (
     "MetricFrame",
     "EventFrame",
+    "SubjectSet",
     "DeltaFrame",
     "AttributionFrame",
     "ForecastFrame",

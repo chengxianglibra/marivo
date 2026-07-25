@@ -21,16 +21,24 @@ from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.event import ParticipantRoleHandle
 
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+type EventHelpTarget = Literal[
+    "dropped_before",
+    "events.funnel",
+    "events.match",
+    "events.time_to_event",
+    "select_subjects",
+]
 
 
 def _event_repair(
     *,
     kind: RepairKind,
     action: str,
+    help_target: EventHelpTarget = "events.match",
     snippet: str | None = None,
     candidates: tuple[str, ...] = (),
 ) -> AnalysisRepair:
-    """Build one truthful Event repair owned by the events.match contract."""
+    """Build one truthful repair owned by a closed Event analysis contract."""
     if not action.strip():
         raise ValueError("Event repair action must be non-empty")
     if kind == "retry" and not (snippet and snippet.strip()):
@@ -40,7 +48,7 @@ def _event_repair(
     return AnalysisRepair(
         kind=kind,
         action=action,
-        help_target=LiveHelpTarget(surface="analysis", canonical_id="events.match"),
+        help_target=LiveHelpTarget(surface="analysis", canonical_id=help_target),
         snippet=snippet,
         candidates=candidates,
     )

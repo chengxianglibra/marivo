@@ -16,7 +16,12 @@ class QualityReportMeta(BaseFrameMeta):
 
     kind: Literal["quality_report"] = "quality_report"
     source_refs: list[str]
-    report_shape: Literal["metric", "event_journey"]
+    report_shape: Literal[
+        "metric",
+        "event_journey",
+        "event_funnel",
+        "event_time_to_event",
+    ]
     target_kind: Literal["metric_frame", "event_frame"]
     target_metric_id: str | None = None
     target_semantic_model: str | None = None
@@ -26,6 +31,8 @@ class QualityReportMeta(BaseFrameMeta):
         "segmented",
         "panel",
         "journey",
+        "funnel",
+        "time_to_event",
     ]
     target_event_pattern_fingerprint: str | None = None
     target_coverage_basis: (
@@ -52,14 +59,18 @@ class QualityReportMeta(BaseFrameMeta):
             if self.target_coverage_basis is not None:
                 raise ValueError("metric quality reports cannot carry Event coverage")
             return self
-        if self.target_kind != "event_frame" or self.target_semantic_kind != "journey":
-            raise ValueError("event_journey quality reports require an EventFrame[journey] target")
+        expected_semantic_kind = self.report_shape.removeprefix("event_")
+        if self.target_kind != "event_frame" or self.target_semantic_kind != expected_semantic_kind:
+            raise ValueError(
+                f"{self.report_shape} quality reports require an "
+                f"EventFrame[{expected_semantic_kind}] target"
+            )
         if not self.target_event_pattern_fingerprint:
-            raise ValueError("event_journey quality reports require a pattern fingerprint")
+            raise ValueError("Event quality reports require a pattern fingerprint")
         if self.target_coverage_basis is None:
-            raise ValueError("event_journey quality reports require a coverage basis")
+            raise ValueError("Event quality reports require a coverage basis")
         if self.target_metric_id is not None or self.target_semantic_model is not None:
-            raise ValueError("event_journey quality reports cannot carry metric target fields")
+            raise ValueError("Event quality reports cannot carry metric target fields")
         return self
 
 

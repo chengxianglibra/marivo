@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.intents._observe_planner_base import plan_base_observe
@@ -52,6 +52,9 @@ from marivo.semantic.metric_graph_lowering import (
     lower_catalog_metrics,
 )
 from marivo.semantic.unit_algebra import tier1_unit
+
+if TYPE_CHECKING:
+    from marivo.analysis.intents._subject_cohort import ResolvedSubjectCohort
 
 type PhysicalLeafPlanV1 = BaseObservePlan | CumulativePhysicalLeafPlanV1
 
@@ -776,6 +779,7 @@ def _plan_cumulative_physical_leaf(
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
+    subject_cohort: ResolvedSubjectCohort | None,
 ) -> CumulativePhysicalLeafPlanV1:
     registry = catalog._require_index().registry
     composition = registry.metrics[metric_id].composition
@@ -792,6 +796,7 @@ def _plan_cumulative_physical_leaf(
         where=where,
         resolved_window=resolved_window,
         time_dimension=composition.over or time_dimension,
+        subject_cohort=subject_cohort,
         allow_unqualified_outside_scope=True,
     )
     return CumulativePhysicalLeafPlanV1(
@@ -815,6 +820,7 @@ def _plan_metric_expression_forest(
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
+    subject_cohort: ResolvedSubjectCohort | None,
 ) -> MetricGraphObservePlanV1:
     """Recursively plan one already-lowered expression forest."""
 
@@ -873,6 +879,7 @@ def _plan_metric_expression_forest(
                     where=leaf_where,
                     resolved_window=resolved_window,
                     time_dimension=time_dimension,
+                    subject_cohort=subject_cohort,
                 )
                 base_plan = physical_plan.base_plan
             else:
@@ -886,6 +893,7 @@ def _plan_metric_expression_forest(
                     where=leaf_where,
                     resolved_window=resolved_window,
                     time_dimension=time_dimension,
+                    subject_cohort=subject_cohort,
                     allow_unqualified_outside_scope=True,
                 )
                 base_plan = physical_plan
@@ -904,6 +912,7 @@ def _plan_metric_expression_forest(
                     where=leaf_where,
                     resolved_window=None,
                     time_dimension=time_dimension,
+                    subject_cohort=subject_cohort,
                 )
                 base_plan = physical_plan.base_plan
             else:
@@ -917,6 +926,7 @@ def _plan_metric_expression_forest(
                     where=leaf_where,
                     resolved_window=None,
                     time_dimension=time_dimension,
+                    subject_cohort=subject_cohort,
                     allow_unqualified_outside_scope=True,
                 )
                 base_plan = physical_plan
@@ -1026,6 +1036,7 @@ def plan_metric_graph_observe(
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
+    subject_cohort: ResolvedSubjectCohort | None = None,
 ) -> MetricGraphObservePlanV1:
     """Lower and plan one ordered catalog/runtime expression forest."""
     forest = lower_metric_inputs(
@@ -1043,6 +1054,7 @@ def plan_metric_graph_observe(
         where=where,
         resolved_window=resolved_window,
         time_dimension=time_dimension,
+        subject_cohort=subject_cohort,
     )
 
 
@@ -1057,6 +1069,7 @@ def plan_catalog_metric_graph_observe(
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
+    subject_cohort: ResolvedSubjectCohort | None = None,
 ) -> MetricGraphObservePlanV1:
     """Plan one ordered catalog forest through the unified graph planner."""
     forest = lower_catalog_metrics(
@@ -1074,6 +1087,7 @@ def plan_catalog_metric_graph_observe(
         where=where,
         resolved_window=resolved_window,
         time_dimension=time_dimension,
+        subject_cohort=subject_cohort,
     )
 
 
