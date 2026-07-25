@@ -1010,10 +1010,31 @@ DatasourceMetadataError = _datasource_errors.DatasourceMetadataError
 class HelpTargetError(AnalysisError):
     """Call mv.help(HelpTargetError) for its public consumption contract."""
 
-    def __init__(self, *, target: object, suggestions: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        *,
+        target: object,
+        suggestions: tuple[str, ...],
+        owning_surface: Literal["datasource", "semantic"] | None = None,
+    ) -> None:
         received = target if isinstance(target, str) else type(target).__name__
         message = "analysis help target is not registered"
-        if suggestions:
+        if owning_surface is not None:
+            callable_target = getattr(target, "__func__", target)
+            target_name = getattr(callable_target, "__qualname__", type(target).__qualname__)
+            public_alias = {"datasource": "md", "semantic": "ms"}[owning_surface]
+            adapter = {"datasource": "md.help", "semantic": "ms.help"}[owning_surface]
+            retry_call = f"{adapter}({public_alias}.{target_name})"
+            message += f". This target belongs to {owning_surface}; use {retry_call} instead."
+            action = f"Retry with the owning surface: {retry_call}."
+            help_target = LiveHelpTarget(
+                surface=owning_surface,
+                canonical_id=target_name,
+            )
+        else:
+            action = "Use a canonical registered target from mv.help()."
+            help_target = LiveHelpTarget(surface="analysis", canonical_id="help")
+        if suggestions and owning_surface is None:
             # Surface fuzzy candidates on the first line. See issue #35.
             message += f". Did you mean: {', '.join(suggestions)}?"
         super().__init__(
@@ -1025,10 +1046,10 @@ class HelpTargetError(AnalysisError):
             received=str(received),
             location="mv.help.target",
             repair=AnalysisRepair(
-                kind="inspect",
-                action="Use a canonical registered target from mv.help().",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
-                candidates=suggestions,
+                kind="retry" if owning_surface is not None else "inspect",
+                action=action,
+                help_target=help_target,
+                candidates=() if owning_surface is not None else suggestions,
             ),
         )
 

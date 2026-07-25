@@ -477,7 +477,7 @@ def test_session_observe_rejects_bare_metric_string(sales_session):
     with pytest.raises(AnalysisError) as exc:
         sales_session.observe("sales.revenue")
 
-    assert exc.value.location == "observe.metric"
+    assert exc.value.location == "observe.metrics"
 
 
 def test_observe_applies_window(tmp_path):

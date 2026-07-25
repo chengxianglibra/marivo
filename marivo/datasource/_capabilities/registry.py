@@ -371,7 +371,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
             constraints=constraints["configured"],
-            example='md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))',
+            example=(
+                'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
+                "inspection.show()"
+            ),
             preconditions=("datasource.registered",),
             produced_state="source.inspected",
             required_states=_states("datasource.registered"),
@@ -488,7 +491,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             kind="method",
             output="PartitionInspection",
             inputs=_inputs(("receiver", "SourceInspection")),
-            example='inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\ninspection.partitions()',
+            example=(
+                'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
+                "inspection.partitions().show()"
+            ),
             public_entrypoint="inspection.partitions",
         ),
         _capability(
@@ -513,7 +519,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                     "may_persist_plaintext_values",
                 ),
             ),
-            example='inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), columns=("order_id", "amount"))',
+            example=(
+                'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
+                "inspection.sample(\n"
+                "    scope=md.unpruned(max_rows=1000, timeout_seconds=30),\n"
+                '    columns=("order_id", "amount"),\n'
+                ").show()"
+            ),
             preconditions=("source.inspected", "scope.explicit"),
             produced_state="evidence.acquired",
             required_states=_states("source.inspected", "scope.explicit"),

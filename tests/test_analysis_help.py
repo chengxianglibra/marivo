@@ -14,6 +14,8 @@ import pytest
 
 import marivo
 import marivo.analysis as mv
+import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
     OperatorCapability,
@@ -246,10 +248,13 @@ def test_help_output_equals_help_text_plus_newline() -> None:
 
 def test_focused_help_includes_live_signature() -> None:
     text = _text("observe")
-    sig = str(inspect.signature(Session.observe))
+    parameters = inspect.signature(Session.observe).parameters
     # The signature text should appear in the rendered help (without 'self').
     assert "observe(" in text
-    assert "metric" in text
+    assert "metrics" in parameters
+    assert "metric" not in parameters
+    assert "metrics" in text
+    assert "metrics=[" in text
     assert "time_scope" in text
 
 
@@ -310,11 +315,38 @@ def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
 
 def test_focused_help_signature_matches_inspect() -> None:
     text = _text("observe")
-    sig = str(inspect.signature(Session.observe))
     # Extract the portion after 'self' — the public signature.
     # The help text should contain the parameter names from the signature.
-    for param_name in ("metric", "time_scope", "grain", "dimensions", "analysis_purpose"):
+    for param_name in ("metrics", "time_scope", "grain", "dimensions", "analysis_purpose"):
         assert param_name in text
+
+
+def test_observe_capability_registers_only_the_plural_metrics_input() -> None:
+    accepted_inputs = REGISTRY.by_id("observe").accepted_inputs
+
+    assert "metrics" in accepted_inputs
+    assert "metric" not in accepted_inputs
+
+
+@pytest.mark.parametrize(
+    ("target", "surface", "adapter"),
+    [
+        (md.raw_sql, "datasource", "md.help(md.raw_sql)"),
+        (ms.metric, "semantic", "ms.help(ms.metric)"),
+    ],
+)
+def test_help_rejects_cross_surface_callable_with_exact_owner(
+    target: object,
+    surface: str,
+    adapter: str,
+) -> None:
+    with pytest.raises(HelpTargetError) as exc_info:
+        mv.help_text(target)  # type: ignore[arg-type]
+
+    assert f"belongs to {surface}" in str(exc_info.value)
+    assert adapter in str(exc_info.value)
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.surface == surface
 
 
 def test_sequence_help_preserves_variadic_signature() -> None:

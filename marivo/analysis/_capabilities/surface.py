@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from types import MappingProxyType
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 
 from marivo.analysis._capabilities.model import CapabilityDescriptor
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -146,7 +146,26 @@ ERROR_TYPES = _build_error_registry()
 
 
 def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn:
-    raise HelpTargetError(target=target, suggestions=suggestions)
+    raise HelpTargetError(
+        target=target,
+        suggestions=suggestions,
+        owning_surface=_cross_surface_owner(target),
+    )
+
+
+def _cross_surface_owner(
+    target: object,
+) -> Literal["datasource", "semantic"] | None:
+    """Return the owner of a public callable rejected by analysis help."""
+    callable_target = getattr(target, "__func__", target)
+    module = getattr(callable_target, "__module__", None)
+    if not isinstance(module, str):
+        module = type(target).__module__
+    if module.startswith("marivo.datasource"):
+        return "datasource"
+    if module.startswith("marivo.semantic"):
+        return "semantic"
+    return None
 
 
 def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:

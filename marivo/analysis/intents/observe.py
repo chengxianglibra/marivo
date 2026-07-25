@@ -580,7 +580,7 @@ def _cumulative_graph_marker(
 
 
 def observe(
-    metric: (
+    metrics: (
         _SemanticInput[MetricKind]
         | RuntimeMetricExpr
         | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
@@ -601,12 +601,12 @@ def observe(
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
-    if isinstance(metric, (list, tuple)):
-        metric_items: list[_SemanticInput[MetricKind] | RuntimeMetricExpr] = list(metric)
+    if isinstance(metrics, (list, tuple)):
+        metric_items: list[_SemanticInput[MetricKind] | RuntimeMetricExpr] = list(metrics)
         if not metric_items:
             raise SemanticKindMismatchError(
                 message="observe requires at least one metric",
-                context={"argument": "metric", "got": "empty sequence"},
+                context={"argument": "metrics", "got": "empty sequence"},
             )
         if len(metric_items) > 1:
             return _observe_metric_forest(
@@ -623,7 +623,7 @@ def observe(
             )
         single_metric: _SemanticInput[MetricKind] | RuntimeMetricExpr = metric_items[0]
     else:
-        single_metric = metric
+        single_metric = metrics
     if session is None:
         session = require_current_session()
     ensure_session_writable(session)
@@ -664,7 +664,7 @@ def observe(
         normalized_metric = normalize_metric_ref_input(
             catalog,
             single_metric,
-            argument="observe.metric",
+            argument="observe.metrics",
         )
         is_catalog_root = True
         metric_id = _normalize_metric_boundary(catalog, normalized_metric)
@@ -1376,7 +1376,7 @@ def _observe_metric_forest(
                 normalize_metric_ref_input(
                     catalog,
                     metric_input,
-                    argument="observe.metric",
+                    argument="observe.metrics",
                 )
             )
     canonical_metric_inputs = tuple(normalized_metric_inputs)
@@ -1391,7 +1391,7 @@ def _observe_metric_forest(
             message="observe metric roots must be distinct after semantic input normalization",
             expected="unique catalog metric roots",
             received=", ".join(duplicate_root_keys),
-            location="metric",
+            location="observe.metrics",
             context={"duplicate_metric_refs": duplicate_root_keys},
         )
     time_dimension_id = (
