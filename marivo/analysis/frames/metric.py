@@ -21,6 +21,7 @@ from marivo.analysis.frames.base import (
     BaseFrameMeta,
     assert_semantic_shape,
 )
+from marivo.analysis.frames.subject import SubjectCohortBinding
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.render import Card
@@ -296,6 +297,7 @@ class MetricFrameMeta(BaseFrameMeta):
     coverage_summary: dict[str, Any] | None = None
     cumulative: dict[str, Any] | None = None
     rollup_fold: Literal["last"] | None = None
+    cohort: SubjectCohortBinding | None = None
 
     @model_validator(mode="after")
     def _validate_metric_identities(self) -> MetricFrameMeta:

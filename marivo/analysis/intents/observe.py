@@ -37,6 +37,7 @@ from marivo.analysis.executor.windowing import (
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 from marivo.analysis.frames.metric import MetricExecutionStatsV1, MetricFrame, MetricFrameMeta
+from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.intents._metric_evaluators import align_metric_children_v1
 from marivo.analysis.intents._metric_graph_execute import (
     component_graph_payload_v1,
@@ -134,6 +135,7 @@ from marivo.analysis.intents._observe_persist import (
 from marivo.analysis.intents._observe_planner_fields import _all_entity_ids
 from marivo.analysis.intents._observe_planner_types import CumulativePhysicalLeafPlanV1
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
+from marivo.analysis.intents._subject_cohort import resolve_subject_cohort
 from marivo.analysis.intents.observe_planner import (
     _planned_metric,
 )
@@ -595,6 +597,7 @@ def observe(
     | None = None,
     time_dimension: _SemanticInput[TimeDimensionKind] | None = None,
     expect_shape: SemanticShape | None = None,
+    cohort: SubjectSet | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
@@ -614,6 +617,7 @@ def observe(
                 slice_by=slice_by,
                 time_dimension=time_dimension,
                 expect_shape=expect_shape,
+                cohort=cohort,
                 analysis_purpose=analysis_purpose,
                 session=session,
             )
@@ -625,6 +629,11 @@ def observe(
     ensure_session_writable(session)
     catalog = session.catalog
     catalog._require_index()
+    resolved_cohort = resolve_subject_cohort(
+        session=session,
+        cohort=cohort,
+        consumer="observe",
+    )
     metric_ir: Any
     planner_scope: set[str]
     normalized_metric: Ref[MetricKind] | RuntimeMetricExpr
@@ -771,6 +780,7 @@ def observe(
                 where=where_by_id,
                 resolved_window=resolved_window,
                 time_dimension=planner_time_dimension_id,
+                subject_cohort=resolved_cohort,
             )
             if not is_catalog_root:
                 registry = catalog._require_index().registry
@@ -850,6 +860,11 @@ def observe(
                 "warnings": list(graph_plan.warnings),
                 "lineage_metadata": graph_plan.lineage_metadata,
                 "metric_semantics": _metric_semantics_payload(metric_ir),
+                "cohort": (
+                    resolved_cohort.binding.model_dump(mode="json")
+                    if resolved_cohort is not None
+                    else None
+                ),
             }
             root_leaf_lineage = (
                 graph_plan.lineage_metadata["physical_leaves"][0]["lineage_metadata"]
@@ -922,7 +937,11 @@ def observe(
         )
         prospective_id = compute_prospective_artifact_id(
             step_type="observe",
-            inputs=CommitInputs(input_refs=[]),
+            inputs=CommitInputs(
+                input_refs=(
+                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+                )
+            ),
             params=CommitParams(values=params),
             semantic_anchors=commit_anchors,
         )
@@ -974,6 +993,11 @@ def observe(
                 "dimension_refs": _dimension_ref_payloads(catalog, dimension_refs),
                 "slice_predicates": canonical_value(_slice_predicates(catalog, stored_where)),
                 "report_tz": session.report_tz_name,
+                "cohort": (
+                    resolved_cohort.binding.model_dump(mode="json")
+                    if resolved_cohort is not None
+                    else None
+                ),
             }
         )
         key_fields = tuple(
@@ -1067,7 +1091,11 @@ def observe(
                     LineageStep(
                         intent="observe",
                         job_ref=job_ref,
-                        inputs=[],
+                        inputs=(
+                            [resolved_cohort.binding.artifact_ref]
+                            if resolved_cohort is not None
+                            else []
+                        ),
                         params_digest=_params_digest(params),
                         analysis_purpose=analysis_purpose,
                         params=params,
@@ -1107,6 +1135,7 @@ def observe(
             status_time_dimension=metric_ir.status_time_dimension,
             cumulative=cumulative_meta,
             zero_denominator_rows=root_execution.quality.zero_division_rows,
+            cohort=resolved_cohort.binding if resolved_cohort is not None else None,
             rollup_fold=(
                 "last"
                 if cumulative_meta is not None and cumulative_meta["kind"] == "cumulative"
@@ -1241,6 +1270,9 @@ def observe(
             stored_where=stored_where,
             semantic_kind=root_execution.semantic_kind,
             subject_grain=grain_token,
+            input_refs=(
+                [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+            ),
         )
         _output_ref = frame.meta.artifact_id or frame.ref
         persist_job_record(
@@ -1252,7 +1284,9 @@ def observe(
                 **_observe_job_semantics(frame),
                 "analysis_purpose": analysis_purpose,
                 "params": params,
-                "input_frame_refs": [],
+                "input_frame_refs": (
+                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+                ),
                 "output_frame_ref": _output_ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
@@ -1315,6 +1349,7 @@ def _observe_metric_forest(
     | None,
     time_dimension: _SemanticInput[TimeDimensionKind] | None,
     expect_shape: SemanticShape | None,
+    cohort: SubjectSet | None,
     analysis_purpose: str | None,
     session: Session | None,
 ) -> MetricFrame:
@@ -1324,6 +1359,11 @@ def _observe_metric_forest(
     ensure_session_writable(session)
     catalog = session.catalog
     catalog._require_index()
+    resolved_cohort = resolve_subject_cohort(
+        session=session,
+        cohort=cohort,
+        consumer="observe",
+    )
     normalized_metric_inputs: list[Ref[MetricKind] | RuntimeMetricExpr] = []
     for metric_input in metric_inputs:
         if isinstance(
@@ -1418,6 +1458,7 @@ def _observe_metric_forest(
             time_dimension=(
                 resolved_window.time_dimension if resolved_window is not None else time_dimension_id
             ),
+            subject_cohort=resolved_cohort,
         )
         registry = catalog._require_index().registry
         models = {
@@ -1459,6 +1500,11 @@ def _observe_metric_forest(
             "lineage_metadata": graph_plan.lineage_metadata,
             "warnings": list(graph_plan.warnings),
             "output_columns": output_columns,
+            "cohort": (
+                resolved_cohort.binding.model_dump(mode="json")
+                if resolved_cohort is not None
+                else None
+            ),
         }
         anchor_time_path = (
             resolved_window.time_dimension if resolved_window is not None else time_dimension_id
@@ -1511,7 +1557,11 @@ def _observe_metric_forest(
     )
     prospective_id = compute_prospective_artifact_id(
         step_type="observe",
-        inputs=CommitInputs(input_refs=[]),
+        inputs=CommitInputs(
+            input_refs=(
+                [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+            )
+        ),
         params=CommitParams(values=params),
         semantic_anchors=commit_anchors,
     )
@@ -1558,6 +1608,11 @@ def _observe_metric_forest(
             "dimension_refs": _dimension_ref_payloads(session.catalog, dimension_refs),
             "slice_predicates": canonical_value(_slice_predicates(session.catalog, stored_where)),
             "report_tz": session.report_tz_name,
+            "cohort": (
+                resolved_cohort.binding.model_dump(mode="json")
+                if resolved_cohort is not None
+                else None
+            ),
         }
     )
     key_fields = tuple(
@@ -1657,7 +1712,11 @@ def _observe_metric_forest(
                 LineageStep(
                     intent="observe",
                     job_ref=job_ref,
-                    inputs=[],
+                    inputs=(
+                        [resolved_cohort.binding.artifact_ref]
+                        if resolved_cohort is not None
+                        else []
+                    ),
                     params_digest=_params_digest(params),
                     analysis_purpose=analysis_purpose,
                     params=params,
@@ -1691,6 +1750,7 @@ def _observe_metric_forest(
         reaggregatable=all(bool(item["reaggregatable"]) for item in measures),
         additivity=None,
         zero_denominator_rows=None,
+        cohort=resolved_cohort.binding if resolved_cohort is not None else None,
     )
     frame = MetricFrame(_df=merged, meta=meta)
     frame.meta = frame.meta.model_copy(
@@ -1741,6 +1801,7 @@ def _observe_metric_forest(
         ),
         metric_ids=[str(item["metric_id"]) for item in measures],
         models=[model_name],
+        input_refs=([resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []),
     )
     output_ref = frame.meta.artifact_id or frame.ref
     persist_job_record(
@@ -1752,7 +1813,9 @@ def _observe_metric_forest(
             **_observe_job_semantics(frame),
             "analysis_purpose": analysis_purpose,
             "params": params,
-            "input_frame_refs": [],
+            "input_frame_refs": (
+                [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+            ),
             "output_frame_ref": output_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),

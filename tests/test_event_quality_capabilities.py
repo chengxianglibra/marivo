@@ -21,6 +21,9 @@ from marivo.analysis.errors import (
     InvalidCompletenessDeclarationError,
     InvalidEventMatchingPolicyError,
     InvalidEventPatternError,
+    InvalidSubjectAxisError,
+    PatternStepMismatchError,
+    SubjectSetMismatchError,
 )
 from marivo.analysis.event import _event_repair, first_per_subject, sequence, step
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
@@ -109,6 +112,7 @@ def _event_frame(session: mv.Session) -> EventFrame:
             "payment": RefPayloadV1.from_ref(user),
         },
         unused_event_count=1,
+        unused_event_counts_by_step={"cart": 0, "payment": 1},
     )
     return EventFrame(_df=rows, meta=meta)
 
@@ -217,7 +221,92 @@ def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> Non
     assert captured.value.location == "events.match.pattern"
 
     affordances = {item.capability_id for item in frame.contract().affordances}
-    assert affordances == {"assess_quality"}
+    assert affordances == {
+        "assess_quality",
+        "events.funnel",
+        "events.time_to_event",
+        "select_subjects",
+    }
+
+
+@pytest.mark.parametrize(
+    ("capability_id", "parameter", "value", "error_type", "location", "repair_kind"),
+    [
+        (
+            "events.funnel",
+            "axes",
+            ["channel"],
+            InvalidSubjectAxisError,
+            "session.events.funnel.axes",
+            "user_choice",
+        ),
+        (
+            "select_subjects",
+            "selection",
+            "payment",
+            PatternStepMismatchError,
+            "session.select_subjects.selection",
+            "user_choice",
+        ),
+        (
+            "events.match",
+            "cohort",
+            "dropouts",
+            SubjectSetMismatchError,
+            "session.events.match.cohort",
+            "inspect",
+        ),
+        (
+            "observe",
+            "cohort",
+            "dropouts",
+            SubjectSetMismatchError,
+            "session.observe.cohort",
+            "inspect",
+        ),
+        (
+            "events.funnel",
+            "journeys",
+            "journeys",
+            SubjectSetMismatchError,
+            "session.events.funnel.journeys",
+            "inspect",
+        ),
+        (
+            "events.time_to_event",
+            "journeys",
+            "journeys",
+            SubjectSetMismatchError,
+            "session.events.time_to_event.journeys",
+            "inspect",
+        ),
+        (
+            "select_subjects",
+            "artifact",
+            "journeys",
+            SubjectSetMismatchError,
+            "session.select_subjects.artifact",
+            "inspect",
+        ),
+    ],
+)
+def test_phase2_family_gate_preserves_structured_event_repairs(
+    capability_id: str,
+    parameter: str,
+    value: object,
+    error_type: type[AnalysisError],
+    location: str,
+    repair_kind: str,
+) -> None:
+    with pytest.raises(error_type) as captured:
+        validate_capability_inputs(capability_id, **{parameter: value})
+
+    error = captured.value
+    assert error.location == location
+    assert error.repair is not None
+    assert error.repair.kind == repair_kind
+    assert error.repair.help_target.canonical_id == capability_id
+    assert not (error.repair.kind == "retry" and error.repair.snippet is None)
 
 
 def test_event_quality_blocks_dense_row_and_coverage_contract_violations(
@@ -346,20 +435,59 @@ def test_event_watermark_types_have_registered_public_help() -> None:
     assert "authority" in receipt_help
 
 
-def test_only_phase_one_event_capabilities_are_discoverable(tmp_path, monkeypatch) -> None:
+def test_event_contract_filters_first_per_subject_only_continuations(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create(name="event_contract_matrix", use_datasources=False)
+    first = _event_frame(session)
+    repeated = EventFrame(
+        _df=first.to_pandas(),
+        meta=first.meta.model_copy(
+            update={
+                "matching": mv.every_start(completion_assignment="exclusive"),
+            }
+        ),
+    )
+
+    first_ids = {item.capability_id for item in first.contract().affordances}
+    repeated_ids = {item.capability_id for item in repeated.contract().affordances}
+    assert {
+        "events.funnel",
+        "events.time_to_event",
+        "select_subjects",
+        "assess_quality",
+    }.issubset(first_ids)
+    assert "events.funnel" not in repeated_ids
+    assert "select_subjects" not in repeated_ids
+    assert {"events.time_to_event", "assess_quality"}.issubset(repeated_ids)
+
+    session._connection_runtime.begin_query_capture()
+    with pytest.raises(InvalidEventMatchingPolicyError) as captured:
+        session.events.funnel(repeated)
+    assert captured.value.location == "session.events.funnel.journeys.matching"
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "user_choice"
+    assert captured.value.repair.candidates == ("first_per_subject",)
+    assert session._connection_runtime.take_captured_queries() == []
+
+
+def test_phase_two_event_capabilities_are_discoverable(tmp_path, monkeypatch) -> None:
     expected = {
         "events.match",
+        "events.funnel",
+        "events.time_to_event",
+        "select_subjects",
         "step",
         "sequence",
         "first_per_subject",
         "every_start",
         "declared_complete_through",
+        "dropped_before",
     }
     assert expected.issubset(REGISTRY.capability_ids)
     assert {
-        "events.funnel",
-        "events.time_to_event",
-        "select_subjects",
         "lifecycle.match",
         "lifecycle.transition",
     }.isdisjoint(REGISTRY.capability_ids)
@@ -369,19 +497,29 @@ def test_only_phase_one_event_capabilities_are_discoverable(tmp_path, monkeypatc
     assert "EventFrame" in rendered
     assert 'mv.every_start(completion_assignment="exclusive")' in rendered
     assert 'mv.every_start(completion_assignment="shared")' in rendered
-    assert "QualityReport[event_journey]" in mv.help_text("QualityReport")
+    quality_help = mv.help_text("QualityReport")
+    assert "QualityReport[event_journey]" in quality_help
+    assert "QualityReport[event_funnel]" in quality_help
+    assert "QualityReport[event_time_to_event]" in quality_help
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="event_discovery", use_datasources=False)
-    assert ".events.match()" in session.render()
+    assert ".events" in session.render()
+    assert ".select_subjects(...)" in session.render()
     assert callable(session.events.match)
-    canonical_help = mv.help_text("events.match")
-    assert mv.help_text("session.events.match") == canonical_help
-    assert mv.help_text("Session.events.match") == canonical_help
-    assert mv.help_text(session.events.match) == canonical_help
-    assert not hasattr(session.events, "funnel")
-    assert not hasattr(session.events, "time_to_event")
-    assert not hasattr(session, "select_subjects")
+    for canonical, bound in (
+        ("events.match", session.events.match),
+        ("events.funnel", session.events.funnel),
+        ("events.time_to_event", session.events.time_to_event),
+    ):
+        canonical_help = mv.help_text(canonical)
+        assert mv.help_text(f"session.{canonical}") == canonical_help
+        assert mv.help_text(f"Session.{canonical}") == canonical_help
+        assert mv.help_text(bound) == canonical_help
+    select_help = mv.help_text("select_subjects")
+    assert mv.help_text("Session.select_subjects") == select_help
+    assert mv.help_text(session.select_subjects) == select_help
+    assert "subject_identity" in mv.help_text("SubjectSet")
     assert not hasattr(session, "lifecycle")
 
 

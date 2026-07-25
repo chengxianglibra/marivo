@@ -19,11 +19,17 @@ from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.frames.event import EventFrame, EventFrameMeta
+from marivo.analysis.frames.event import (
+    EventFrame,
+    EventFrameMeta,
+    EventFunnelFrameMeta,
+    EventTimeToEventFrameMeta,
+)
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
+from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
 from marivo.analysis.refs import ArtifactRef
 from marivo.semantic.metric_graph_canonical import (
     MetricGraphContractError,
@@ -43,6 +49,7 @@ _FRAME_CLASSES = {
     "hypothesis_test_result": (HypothesisTestResult, HypothesisTestResultMeta),
     "forecast_frame": (ForecastFrame, ForecastFrameMeta),
     "event_frame": (EventFrame, EventFrameMeta),
+    "subject_set": (SubjectSet, SubjectSetMeta),
     "quality_report": (QualityReport, QualityReportMeta),
     "component_frame": (ComponentFrame, ComponentFrameMeta),
     "coverage_frame": (CoverageFrame, CoverageFrameMeta),
@@ -337,6 +344,24 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
+    if kind == "event_frame":
+        semantic_kind = meta.get("semantic_kind")
+        event_meta_classes = {
+            "journey": EventFrameMeta,
+            "funnel": EventFunnelFrameMeta,
+            "time_to_event": EventTimeToEventFrameMeta,
+        }
+        if semantic_kind not in event_meta_classes:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' has an unsupported Event semantic shape",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "got_semantic_kind": semantic_kind,
+                    "expected_semantic_kinds": tuple(event_meta_classes),
+                },
+            )
+        meta_cls = event_meta_classes[semantic_kind]
     if kind == "delta_frame" and "comparison_identity" not in meta:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its required delta identity",
@@ -360,7 +385,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     try:
         parsed_meta = (
             cast("Any", meta_cls).model_validate_json(json.dumps(meta))
-            if kind == "event_frame"
+            if kind in {"event_frame", "subject_set"}
             else meta_cls(**meta)
         )
     except ValidationError as exc:

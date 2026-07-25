@@ -64,6 +64,7 @@ structural conformance, not a shared public contract base class.
    BaseFrameMeta
    MetricFrame
    EventFrame
+   SubjectSet
    ComponentFrame
    DeltaFrame
    CoverageFrame
@@ -147,12 +148,18 @@ Scopes and windows
    TimeScope
    AbsoluteWindow
 
-Event Journey
--------------
+Event Journey and typed cohorts
+-------------------------------
 
 ``session.events.match(...)`` consumes typed participant roles and a closed
 ``EventPattern``. The first step uses the half-open ``TimeScope`` cohort
 window; ``completion_through`` is an inclusive follow-up bound.
+``session.events.funnel(...)`` and ``session.events.time_to_event(...)`` reduce
+the persisted journey assignment without rematching Events.
+``session.select_subjects(...)`` materializes the closed
+``dropped_before(...)`` selection as a persisted ``SubjectSet``. A ready
+SubjectSet may scope ``observe(..., cohort=...)`` and
+``events.match(..., cohort=...)``.
 
 .. autosummary::
    :toctree: api/
@@ -163,6 +170,7 @@ window; ``completion_through`` is an inclusive follow-up bound.
    FirstPerSubject
    EveryStart
    CompletenessDeclaration
+   DroppedBefore
    EventWatermarkRequest
    EventWatermarkReceipt
    step
@@ -170,6 +178,7 @@ window; ``completion_through`` is an inclusive follow-up bound.
    first_per_subject
    every_start
    declared_complete_through
+   dropped_before
 
 Policies
 --------

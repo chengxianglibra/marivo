@@ -859,9 +859,12 @@ class QualityShapeUnsupportedError(AnalysisError):
             location="session.assess_quality target",
             repair=AnalysisRepair(
                 kind="retry",
-                action=("assess_quality accepts MetricFrame or EventFrame[journey] targets."),
+                action=(
+                    "assess_quality accepts MetricFrame or registered EventFrame "
+                    "journey, funnel, and time-to-event shapes."
+                ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="assess_quality"),
-                snippet="report = session.assess_quality(metric_frame_or_event_journey)",
+                snippet="report = session.assess_quality(frame)",
             ),
         )
 
@@ -1469,3 +1472,35 @@ class EventParticipantCardinalityError(AnalysisError):
     @property
     def kind(self) -> str:
         return "invalid_event_participant_cardinality"
+
+
+class InvalidSubjectAxisError(AnalysisError):
+    """A requested Event reducer axis is not a governed subject axis."""
+
+    @property
+    def kind(self) -> str:
+        return "invalid_subject_axis"
+
+
+class GroupedReconciliationFailedError(AnalysisError):
+    """Grouped Event counts failed exact reconciliation to the ungrouped source."""
+
+    @property
+    def kind(self) -> str:
+        return "grouped_reconciliation_failed"
+
+
+class EventCoverageUnknownError(AnalysisError):
+    """A continuation requires subject truth that is coverage-censored."""
+
+    @property
+    def kind(self) -> str:
+        return "event_coverage_unknown"
+
+
+class SubjectSetMismatchError(AnalysisError):
+    """A SubjectSet is incompatible with the requested typed consumer."""
+
+    @property
+    def kind(self) -> str:
+        return "subject_set_mismatch"

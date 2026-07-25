@@ -10,6 +10,7 @@ from __future__ import annotations
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    ArtifactAdmissionRule,
     ArtifactFamily,
     BoundaryCapability,
     CapabilityBase,
@@ -29,6 +30,7 @@ from marivo.analysis._capabilities.model import (
 __all__ = [
     "ARTIFACT_FAMILIES",
     "ROOT_GROUP_ORDER",
+    "ArtifactAdmissionRule",
     "ArtifactFamily",
     "BoundaryCapability",
     "CapabilityBase",

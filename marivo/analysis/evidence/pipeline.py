@@ -25,13 +25,18 @@ from marivo.analysis.evidence.extraction.composition import (
 )
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
-from marivo.analysis.evidence.extraction.event import extract_event_journey_finding
+from marivo.analysis.evidence.extraction.event import (
+    extract_event_funnel_finding,
+    extract_event_journey_finding,
+    extract_event_time_to_event_finding,
+)
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
 from marivo.analysis.evidence.extraction.observation import (
     extract_metric_value_findings,
     extract_observation_digest_finding,
 )
 from marivo.analysis.evidence.extraction.quality import extract_quality_check_findings
+from marivo.analysis.evidence.extraction.subject import extract_subject_set_finding
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.identity import (
     canonical_json,
@@ -55,6 +60,7 @@ from marivo.analysis.evidence.types import (
     QualitySummary,
     RawFallback,
     Subject,
+    SubjectSetSubject,
 )
 from marivo.analysis.frames._content_hash import compute_frame_content_hash
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope, compute_quality_summary
@@ -358,6 +364,38 @@ def _extract_findings(
     if extractor_family == "event_frame":
         if not isinstance(subject, EventSubject):
             raise TypeError("event_frame evidence requires EventSubject")
+        event_meta = cast("Any", meta)
+        if semantic_kind == "funnel":
+            return [
+                extract_event_funnel_finding(
+                    df=df,
+                    artifact_id=artifact_id,
+                    session_id=session_id,
+                    subject=subject,
+                    committed_at=committed_at,
+                    step_order=tuple(step.key for step in event_meta.pattern.steps),
+                    axis_columns=tuple(axis.output_column for axis in event_meta.axes),
+                    reconciliation_passed=(
+                        event_meta.grouped_reconciliation.status == "pass"
+                        and event_meta.grouped_reconciliation.ungrouped_hash
+                        == event_meta.grouped_reconciliation.grouped_hash
+                    ),
+                    source_unused_event_count=event_meta.source_unused_event_count,
+                    source_refs=(event_meta.source_journey_ref,),
+                )
+            ]
+        if semantic_kind == "time_to_event":
+            return [
+                extract_event_time_to_event_finding(
+                    df=df,
+                    artifact_id=artifact_id,
+                    session_id=session_id,
+                    subject=subject,
+                    committed_at=committed_at,
+                    source_unused_end_count=event_meta.source_unused_end_count,
+                    source_refs=(event_meta.source_journey_ref,),
+                )
+            ]
         return [
             extract_event_journey_finding(
                 df=df,
@@ -367,6 +405,22 @@ def _extract_findings(
                 committed_at=committed_at,
                 unused_event_count=int(getattr(meta, "unused_event_count", 0)),
                 source_refs=tuple(sorted(getattr(meta, "event_fingerprints", {}))),
+            )
+        ]
+    if extractor_family == "subject_set":
+        if not isinstance(subject, SubjectSetSubject):
+            raise TypeError("subject_set evidence requires SubjectSetSubject")
+        subject_meta = cast("Any", meta)
+        return [
+            extract_subject_set_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                committed_at=committed_at,
+                excluded_coverage_censored_count=(subject_meta.excluded_coverage_censored_count),
+                coverage_status=subject_meta.coverage_status,
+                source_refs=(subject_meta.source.artifact_ref,),
             )
         ]
     if extractor_family == "quality_report":
@@ -563,6 +617,8 @@ def _extract_findings(
 def _operator_for(step_type: str, extractor_family: str) -> str:
     if step_type in {"transform", "select_metric"}:
         return step_type
+    if extractor_family == "event_frame":
+        return step_type
     return {
         "metric_frame": "observe",
         "delta_frame": "compare",
@@ -572,7 +628,7 @@ def _operator_for(step_type: str, extractor_family: str) -> str:
         "hypothesis_test_result": "hypothesis_test",
         "forecast_frame": "forecast",
         "quality_report": "assess_quality",
-        "event_frame": "events.match",
+        "subject_set": "select_subjects",
     }.get(extractor_family, step_type)
 
 
@@ -816,11 +872,23 @@ def _bind_typed_metric_subject(
 
 
 def event_subject_for_frame(frame: BaseFrame) -> EventSubject:
-    """Build the identity-safe evidence subject for an Event Journey frame."""
+    """Build the identity-safe evidence subject for an Event frame."""
     meta = cast("Any", frame.meta)
     if getattr(meta, "kind", None) != "event_frame":
         raise TypeError("event_subject_for_frame requires EventFrame")
     return EventSubject(
+        subject_entity_ref=meta.subject_entity_ref,
+        subject_identity_signature=tuple(meta.subject_identity),
+        analysis_axis=meta.semantic_kind,
+    )
+
+
+def subject_set_subject_for_frame(frame: BaseFrame) -> SubjectSetSubject:
+    """Build the identity-safe evidence subject for a SubjectSet."""
+    meta = cast("Any", frame.meta)
+    if getattr(meta, "kind", None) != "subject_set":
+        raise TypeError("subject_set_subject_for_frame requires SubjectSet")
+    return SubjectSetSubject(
         subject_entity_ref=meta.subject_entity_ref,
         subject_identity_signature=tuple(meta.subject_identity),
     )
@@ -874,6 +942,8 @@ def commit_result(
         subject = subject.model_copy(update={"slice_predicates": slice_predicates})
     if getattr(frame.meta, "kind", None) == "event_frame":
         subject = event_subject_for_frame(frame)
+    elif getattr(frame.meta, "kind", None) == "subject_set":
+        subject = subject_set_subject_for_frame(frame)
     elif isinstance(subject, Subject) and isinstance(scope, AnalysisScope):
         subject = _bind_typed_metric_subject(
             frame=frame,
@@ -1051,4 +1121,5 @@ __all__ = [
     "event_subject_for_frame",
     "frame_exists_on_disk",
     "rollback_committed_result",
+    "subject_set_subject_for_frame",
 ]

@@ -38,7 +38,7 @@ from marivo.analysis.intents._derived import (
     params_digest,
     resolve_session,
 )
-from marivo.analysis.intents._quality_checks import run_event_journey_checks, run_metric_checks
+from marivo.analysis.intents._quality_checks import run_event_checks, run_metric_checks
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import (
@@ -58,7 +58,10 @@ def assess_quality(
     ensure_session_writable(session)
     if not isinstance(frame, (MetricFrame, EventFrame)):
         raise QualityShapeUnsupportedError(
-            message="assess_quality supports MetricFrame and EventFrame[journey] inputs",
+            message=(
+                "assess_quality supports MetricFrame and registered EventFrame "
+                "journey, funnel, and time-to-event shapes"
+            ),
             context={"frame_kind": frame.meta.kind},
         )
     if isinstance(frame, MetricFrame):
@@ -70,15 +73,18 @@ def assess_quality(
     rows = (
         run_metric_checks(frame, tz=session.report_tz_name if session.report_tz else None)
         if isinstance(frame, MetricFrame)
-        else run_event_journey_checks(frame)
+        else run_event_checks(frame)
     )
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
     issues = _quality_issues(frame, output)
     overall = _overall_status(output)
+    report_shape = (
+        "metric" if isinstance(frame, MetricFrame) else f"event_{frame.meta.semantic_kind}"
+    )
     params = {
         "source_ref": frame.ref,
-        "report_shape": "metric" if isinstance(frame, MetricFrame) else "event_journey",
+        "report_shape": report_shape,
         "frame_kind": frame.meta.kind,
         "checks_run": checks_run,
     }
@@ -106,7 +112,10 @@ def assess_quality(
             ),
         ),
         source_refs=[frame.ref],
-        report_shape="metric" if isinstance(frame, MetricFrame) else "event_journey",
+        report_shape=cast(
+            "Literal['metric', 'event_journey', 'event_funnel', 'event_time_to_event']",
+            report_shape,
+        ),
         target_kind="metric_frame" if isinstance(frame, MetricFrame) else "event_frame",
         target_metric_id=frame.meta.metric_id if isinstance(frame, MetricFrame) else None,
         target_semantic_model=(
@@ -229,6 +238,18 @@ def _quality_issues(frame: MetricFrame | EventFrame, output: pd.DataFrame) -> li
             kind = "event_censoring_present"
             observed = int(details["coverage_censored_count"])
             expectation = "coverage_censored_count == 0"
+        elif row["check_kind"] in {
+            "event_funnel_row_contract",
+            "event_funnel_math",
+            "event_funnel_axes",
+            "event_funnel_reconciliation",
+            "event_time_to_event_row_contract",
+            "event_time_to_event_identity",
+            "event_time_to_event_duration",
+        }:
+            kind = "event_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
         if kind is None or expectation is None:
             continue
         issues.append(

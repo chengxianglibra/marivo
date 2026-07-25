@@ -535,6 +535,7 @@ class BaseFrame(RenderableResult):
         model_module = importlib.import_module("marivo.analysis._capabilities.model")
         registry = registry_module.REGISTRY
         operator_cls = model_module.OperatorCapability
+        validation_module = importlib.import_module("marivo.analysis._capabilities.validation")
 
         family = type(self).__name__
         consumer_ids = registry.constructor_consumers.get(family, ())
@@ -544,6 +545,20 @@ class BaseFrame(RenderableResult):
                 continue
             desc = registry.by_id(cap_id)
             assert isinstance(desc, operator_cls)
+            artifact_parameters = tuple(
+                parameter
+                for parameter, families in desc.accepted_inputs.items()
+                if family in {str(item) for item in families}
+            )
+            if artifact_parameters and not any(
+                validation_module.evaluate_artifact_admission(
+                    desc.id,
+                    parameter,
+                    self,
+                ).allowed
+                for parameter in artifact_parameters
+            ):
+                continue
             input_requirements = tuple(
                 ArtifactInputRequirement(
                     parameter=parameter,

@@ -69,7 +69,9 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.session.core import FrameSummaryEntry, FrameSummaryPage, Session
+    from marivo.analysis.subject import DroppedBefore
 
     return MappingProxyType(
         {
@@ -77,6 +79,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             BaseFrame: "BaseFrame",
             MetricFrame: "MetricFrame",
             EventFrame: "EventFrame",
+            SubjectSet: "SubjectSet",
             DeltaFrame: "DeltaFrame",
             AttributionFrame: "AttributionFrame",
             CandidateSet: "CandidateSet",
@@ -116,6 +119,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             FirstPerSubject: "FirstPerSubject",
             EveryStart: "EveryStart",
             CompletenessDeclaration: "CompletenessDeclaration",
+            DroppedBefore: "DroppedBefore",
             EventWatermarkRequest: "EventWatermarkRequest",
             EventWatermarkReceipt: "EventWatermarkReceipt",
             cast("type", ArtifactIssue): "ArtifactIssue",

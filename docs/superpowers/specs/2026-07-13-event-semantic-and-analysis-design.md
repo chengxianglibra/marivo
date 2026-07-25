@@ -1,7 +1,7 @@
 # Marivo Event and Lifecycle Semantic and Analysis Design
 
-Status: architecture revised; phase 1 and the coordinated agent-interface
-vNext cutover implemented; phases 2-5 pending
+Status: architecture revised; phases 1-2 and the coordinated agent-interface
+vNext cutover implemented; phases 3-5 pending
 
 Date: 2026-07-13
 

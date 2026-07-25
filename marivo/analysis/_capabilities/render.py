@@ -322,10 +322,7 @@ def _format_input_families(desc: OperatorCapability) -> list[str]:
     """Format accepted input families for display."""
     display = {
         "MetricSemantic": "MetricSemantic (MetricEntry | Ref[metric])",
-        "DimensionSemantic": (
-            "DimensionSemantic (DimensionEntry | TimeDimensionEntry | "
-            "Ref[dimension | time_dimension])"
-        ),
+        "DimensionSemantic": ("DimensionSemantic (DimensionEntry | Ref[dimension])"),
         "TimeDimensionSemantic": (
             "TimeDimensionSemantic (TimeDimensionEntry | Ref[time_dimension])"
         ),
@@ -723,15 +720,27 @@ def _render_type_help(type_name: str) -> str:
             "WindowSelection",
             "CrossSectionalOutlierSelection",
         ),
+        "EventFrame": (
+            "EventFrame[journey]",
+            "EventFrame[funnel]",
+            "EventFrame[time_to_event]",
+        ),
         "QualityReport": (
             "QualityReport[metric]",
             "QualityReport[event_journey]",
+            "QualityReport[event_funnel]",
+            "QualityReport[event_time_to_event]",
         ),
     }.get(type_name)
     if variants:
         lines.append("  Closed variants:")
         for variant in variants:
             lines.append(f"    {variant}")
+        lines.append("")
+
+    if type_name == "SubjectSet":
+        lines.append("  Row contract:")
+        lines.append("    subject_identity: governed identity tuple")
         lines.append("")
 
     model_fields = getattr(type_obj, "model_fields", None)

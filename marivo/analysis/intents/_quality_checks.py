@@ -4,13 +4,23 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
+from numbers import Real
 from typing import Any, Literal
 
 import pandas as pd
 
 from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
-from marivo.analysis.frames.event import EventFrame, EventInputCoverage
+from marivo.analysis.frames.event import (
+    EventFrame,
+    EventFunnelFrameMeta,
+    EventInputCoverage,
+    EventTimeToEventFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.intents._event_funnel import (
+    FUNNEL_ADDITIVE_COLUMNS,
+    funnel_reconciliation_hash,
+)
 
 _FREQ = GRAIN_FREQ
 
@@ -39,6 +49,46 @@ def run_event_journey_checks(frame: EventFrame) -> list[dict[str, str]]:
     rows.append(_event_declaration_check(frame))
     rows.append(_event_censoring_check(df))
     return rows
+
+
+def run_event_funnel_checks(frame: EventFrame) -> list[dict[str, str]]:
+    """Return deterministic quality predicates for a funnel-shaped EventFrame."""
+    df = frame._dataframe_copy()
+    rows = [
+        _event_funnel_row_contract_check(df, frame),
+        _event_funnel_math_check(df, frame),
+        _event_funnel_axis_check(df, frame),
+        _event_funnel_reconciliation_check(frame),
+        _event_funnel_censoring_check(df),
+    ]
+    rows.extend(_event_coverage_checks(frame))
+    rows.append(_event_declaration_check(frame))
+    return rows
+
+
+def run_event_time_to_event_checks(frame: EventFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for a time-to-event EventFrame."""
+    df = frame._dataframe_copy()
+    rows = [
+        _event_time_to_event_contract_check(df, frame),
+        _event_time_to_event_identity_check(df),
+        _event_time_to_event_duration_check(df),
+    ]
+    rows.extend(_event_coverage_checks(frame))
+    rows.append(_event_declaration_check(frame))
+    rows.append(_event_censoring_check(df))
+    return rows
+
+
+def run_event_checks(frame: EventFrame) -> list[dict[str, str]]:
+    """Dispatch Event quality by the frame's closed semantic shape."""
+    if frame.meta.semantic_kind == "journey":
+        return run_event_journey_checks(frame)
+    if frame.meta.semantic_kind == "funnel":
+        return run_event_funnel_checks(frame)
+    if frame.meta.semantic_kind == "time_to_event":
+        return run_event_time_to_event_checks(frame)
+    raise ValueError(f"unsupported EventFrame shape {frame.meta.semantic_kind!r}")
 
 
 def _result(
@@ -222,6 +272,413 @@ _EVENT_JOURNEY_COLUMNS = (
     "elapsed_from_start",
     "elapsed_from_previous",
 )
+
+_EVENT_FUNNEL_COUNT_COLUMNS = (
+    "cohort_count",
+    "resolved_cohort_count",
+    "entry_count",
+    "resolved_entry_count",
+    "reached_count",
+    "lost_count",
+    "coverage_censored_count",
+)
+_EVENT_FUNNEL_RATE_COLUMNS = (
+    "conversion_from_first",
+    "conversion_from_previous",
+    "loss_rate_from_previous",
+)
+_EVENT_TIME_TO_EVENT_COLUMNS = (
+    "journey_id",
+    "subject_identity",
+    "start_event_identity",
+    "start_time",
+    "end_event_identity",
+    "end_time",
+    "duration",
+    "completion_status",
+)
+
+
+def _event_funnel_row_contract_check(
+    df: pd.DataFrame,
+    frame: EventFrame,
+) -> dict[str, str]:
+    meta = frame.meta
+    if not isinstance(meta, EventFunnelFrameMeta):
+        raise ValueError("funnel quality requires EventFrame[funnel]")
+    expected_axes = tuple(axis.output_column for axis in meta.axes)
+    expected_columns = (
+        *expected_axes,
+        "step_key",
+        *_EVENT_FUNNEL_COUNT_COLUMNS[:-1],
+        *_EVENT_FUNNEL_RATE_COLUMNS,
+        "coverage_censored_count",
+    )
+    missing_columns = tuple(column for column in expected_columns if column not in df.columns)
+    extra_columns = tuple(column for column in df.columns if column not in expected_columns)
+    column_order_mismatch = tuple(df.columns) != expected_columns
+    step_order = tuple(step.key for step in frame.meta.pattern.steps)
+    invalid_groups = 0
+    duplicate_rows = 0
+    if not missing_columns:
+        group_columns = list(expected_axes)
+        duplicate_rows = int(df.duplicated(subset=[*group_columns, "step_key"], keep=False).sum())
+        groups = (
+            df.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), df),)
+        )
+        for _, group in groups:
+            if tuple(group["step_key"].astype(str)) != step_order:
+                invalid_groups += 1
+    invalid_count = (
+        len(missing_columns)
+        + len(extra_columns)
+        + int(column_order_mismatch)
+        + duplicate_rows
+        + invalid_groups
+    )
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_funnel_row_contract",
+        "event_funnel_row_contract",
+        severity,
+        severity,
+        (
+            "funnel row contract is valid"
+            if not invalid_count
+            else f"funnel row contract has {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing_columns,
+            "extra_columns": extra_columns,
+            "column_order_mismatch": column_order_mismatch,
+            "duplicate_rows": duplicate_rows,
+            "invalid_step_order_groups": invalid_groups,
+            "expected_columns": expected_columns,
+        },
+    )
+
+
+def _rate_matches(value: Any, expected: float | None) -> bool:
+    if expected is None:
+        return bool(pd.isna(value))
+    if bool(pd.isna(value)):
+        return False
+    return abs(float(value) - expected) <= 1e-12
+
+
+def _event_funnel_math_check(df: pd.DataFrame, frame: EventFrame) -> dict[str, str]:
+    required = {
+        "step_key",
+        *_EVENT_FUNNEL_COUNT_COLUMNS,
+        *_EVENT_FUNNEL_RATE_COLUMNS,
+    }
+    violations = 0
+    non_integer_or_negative = 0
+    if required.issubset(df.columns):
+        step_order = tuple(step.key for step in frame.meta.pattern.steps)
+        meta = frame.meta
+        if not isinstance(meta, EventFunnelFrameMeta):
+            raise ValueError("funnel quality requires EventFrame[funnel]")
+        group_columns = [axis.output_column for axis in meta.axes]
+        groups = (
+            df.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), df),)
+        )
+        for _, group in groups:
+            previous_reached: int | None = None
+            for row in group.to_dict("records"):
+                row_invalid = False
+                for column in _EVENT_FUNNEL_COUNT_COLUMNS:
+                    value = row[column]
+                    valid = (
+                        isinstance(value, Real)
+                        and not isinstance(value, bool)
+                        and float(value).is_integer()
+                        and float(value) >= 0
+                    )
+                    non_integer_or_negative += int(not valid)
+                    row_invalid = row_invalid or not valid
+                if row_invalid:
+                    continue
+                first = str(row["step_key"]) == step_order[0]
+                cohort = int(row["cohort_count"])
+                resolved_cohort = int(row["resolved_cohort_count"])
+                entry = int(row["entry_count"])
+                resolved_entry = int(row["resolved_entry_count"])
+                reached = int(row["reached_count"])
+                lost = int(row["lost_count"])
+                censored = int(row["coverage_censored_count"])
+                if first:
+                    violations += int(
+                        not (
+                            cohort == resolved_cohort == entry == resolved_entry == reached
+                            and lost == 0
+                            and censored == 0
+                        )
+                    )
+                    violations += int(not pd.isna(row["conversion_from_previous"]))
+                    violations += int(not pd.isna(row["loss_rate_from_previous"]))
+                else:
+                    violations += int(previous_reached is None or entry != previous_reached)
+                    violations += int(resolved_entry != entry - censored)
+                    violations += int(lost != resolved_entry - reached)
+                violations += int(resolved_cohort > cohort)
+                violations += int(
+                    not _rate_matches(
+                        row["conversion_from_first"],
+                        reached / resolved_cohort if resolved_cohort else None,
+                    )
+                )
+                violations += int(
+                    not _rate_matches(
+                        row["conversion_from_previous"],
+                        (reached / resolved_entry if not first and resolved_entry else None),
+                    )
+                )
+                violations += int(
+                    not _rate_matches(
+                        row["loss_rate_from_previous"],
+                        lost / resolved_entry if not first and resolved_entry else None,
+                    )
+                )
+                previous_reached = reached
+    else:
+        violations = len(required - set(df.columns))
+    invalid_count = violations + non_integer_or_negative
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_funnel_math",
+        "event_funnel_math",
+        severity,
+        severity,
+        (
+            "funnel count and rate equations reconcile"
+            if not invalid_count
+            else f"funnel math has {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "equation_violations": violations,
+            "non_integer_or_negative_counts": non_integer_or_negative,
+        },
+    )
+
+
+def _event_funnel_axis_check(df: pd.DataFrame, frame: EventFrame) -> dict[str, str]:
+    meta = frame.meta
+    if not isinstance(meta, EventFunnelFrameMeta):
+        raise ValueError("funnel quality requires EventFrame[funnel]")
+    axes = tuple(meta.axes)
+    missing_columns = tuple(axis.output_column for axis in axes if axis.output_column not in df)
+    invalid_anchor_count = sum(axis.anchor != "cohort_entry" for axis in axes)
+    invalid_null_contract_count = sum(axis.null_group != "explicit" for axis in axes)
+    invalid_count = len(missing_columns) + invalid_anchor_count + invalid_null_contract_count
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_funnel_axes",
+        "event_funnel_axes",
+        severity,
+        severity,
+        (
+            "funnel axes retain governed cohort-entry contracts"
+            if not invalid_count
+            else f"funnel axes have {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing_columns,
+            "invalid_anchor_count": invalid_anchor_count,
+            "invalid_null_contract_count": invalid_null_contract_count,
+            "axis_count": len(axes),
+        },
+    )
+
+
+def _event_funnel_reconciliation_check(frame: EventFrame) -> dict[str, str]:
+    meta = frame.meta
+    if not isinstance(meta, EventFunnelFrameMeta):
+        raise ValueError("funnel quality requires EventFrame[funnel]")
+    receipt = meta.grouped_reconciliation
+    step_keys = tuple(step.key for step in meta.pattern.steps)
+    current_grouped_hash: str | None = None
+    try:
+        grouped_totals = (
+            frame._dataframe_copy()
+            .groupby("step_key", dropna=False, sort=False)[list(FUNNEL_ADDITIVE_COLUMNS)]
+            .sum()
+            .reindex(step_keys, fill_value=0)
+            .reset_index()
+        )
+        current_grouped_hash = funnel_reconciliation_hash(
+            grouped_totals,
+            step_keys=step_keys,
+        )
+    except (KeyError, TypeError, ValueError):
+        pass
+    valid = bool(
+        receipt.status == "pass"
+        and current_grouped_hash
+        and receipt.ungrouped_hash == receipt.grouped_hash == current_grouped_hash
+    )
+    return _result(
+        "event_funnel_reconciliation",
+        "event_funnel_reconciliation",
+        "ok" if valid else "blocking",
+        "ok" if valid else "blocking",
+        (
+            "grouped funnel reconciles to the ungrouped source"
+            if valid
+            else "grouped funnel reconciliation receipt is invalid"
+        ),
+        {
+            "invalid_count": 0 if valid else 1,
+            "status": receipt.status,
+            "additive_columns": receipt.additive_columns,
+            "current_grouped_hash_matches": (
+                current_grouped_hash == receipt.grouped_hash
+                if current_grouped_hash is not None
+                else False
+            ),
+        },
+    )
+
+
+def _event_funnel_censoring_check(df: pd.DataFrame) -> dict[str, str]:
+    count = int(df["coverage_censored_count"].sum()) if "coverage_censored_count" in df else 0
+    severity = "warning" if count else "ok"
+    return _result(
+        "event_censoring",
+        "event_censoring",
+        severity,
+        severity,
+        f"funnel coverage-censored population is {count}",
+        {"coverage_censored_count": count},
+    )
+
+
+def _event_time_to_event_contract_check(
+    df: pd.DataFrame,
+    frame: EventFrame,
+) -> dict[str, str]:
+    meta = frame.meta
+    if not isinstance(meta, EventTimeToEventFrameMeta):
+        raise ValueError("time-to-event quality requires EventFrame[time_to_event]")
+    missing = tuple(column for column in _EVENT_TIME_TO_EVENT_COLUMNS if column not in df)
+    extra = tuple(column for column in df.columns if column not in _EVENT_TIME_TO_EVENT_COLUMNS)
+    column_order_mismatch = tuple(df.columns) != _EVENT_TIME_TO_EVENT_COLUMNS
+    invalid_statuses = 0
+    null_consistency = 0
+    duplicate_journeys = 0
+    if not missing:
+        statuses = set(df["completion_status"].dropna().astype(str))
+        invalid_statuses = len(statuses - {"complete", "incomplete", "coverage_censored"})
+        duplicate_journeys = int(df["journey_id"].duplicated(keep=False).sum())
+        completed = df["completion_status"].astype(str) == "complete"
+        end_present = df["end_time"].notna()
+        null_consistency += int((completed != end_present).sum())
+        null_consistency += int(
+            (completed != df["end_event_identity"].map(_identity_is_present)).sum()
+        )
+        null_consistency += int((completed != df["duration"].notna()).sum())
+    invalid_count = (
+        len(missing)
+        + len(extra)
+        + int(column_order_mismatch)
+        + invalid_statuses
+        + null_consistency
+        + duplicate_journeys
+    )
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_time_to_event_row_contract",
+        "event_time_to_event_row_contract",
+        severity,
+        severity,
+        (
+            "time-to-event row contract is valid"
+            if not invalid_count
+            else f"time-to-event row contract has {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing,
+            "extra_columns": extra,
+            "column_order_mismatch": column_order_mismatch,
+            "invalid_statuses": invalid_statuses,
+            "null_consistency_violations": null_consistency,
+            "duplicate_journeys": duplicate_journeys,
+            "start_step": meta.start_step.key,
+            "end_step": meta.end_step.key,
+        },
+    )
+
+
+def _event_time_to_event_identity_check(df: pd.DataFrame) -> dict[str, str]:
+    required = {
+        "journey_id",
+        "subject_identity",
+        "start_event_identity",
+        "start_time",
+        "end_event_identity",
+        "end_time",
+    }
+    invalid_count = len(required - set(df.columns))
+    if required.issubset(df.columns):
+        invalid_count += int(df["journey_id"].isna().sum())
+        invalid_count += int((~df["subject_identity"].map(_identity_is_present)).sum())
+        invalid_count += int((~df["start_event_identity"].map(_identity_is_present)).sum())
+        invalid_count += int(df["start_time"].isna().sum())
+        end_present = df["end_time"].notna()
+        invalid_count += int(
+            (end_present != df["end_event_identity"].map(_identity_is_present)).sum()
+        )
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_time_to_event_identity",
+        "event_time_to_event_identity",
+        severity,
+        severity,
+        (
+            "time-to-event identities are valid"
+            if not invalid_count
+            else f"time-to-event has {invalid_count} identity violation(s)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _event_time_to_event_duration_check(df: pd.DataFrame) -> dict[str, str]:
+    required = {"start_time", "end_time", "duration"}
+    invalid_count = len(required - set(df.columns))
+    negative_count = 0
+    mismatch_count = 0
+    if required.issubset(df.columns):
+        start = pd.to_datetime(df["start_time"], errors="coerce", utc=True)
+        end = pd.to_datetime(df["end_time"], errors="coerce", utc=True)
+        duration = pd.to_timedelta(df["duration"], errors="coerce")
+        complete = end.notna()
+        negative_count = int((duration.loc[complete] < pd.Timedelta(0)).sum())
+        mismatch_count = int(
+            (duration.loc[complete] != (end.loc[complete] - start.loc[complete])).sum()
+        )
+        invalid_count += negative_count + mismatch_count
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_time_to_event_duration",
+        "event_time_to_event_duration",
+        severity,
+        severity,
+        (
+            "time-to-event durations are exact and non-negative"
+            if not invalid_count
+            else f"time-to-event has {invalid_count} duration violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "negative_count": negative_count,
+            "mismatch_count": mismatch_count,
+        },
+    )
 
 
 def _event_row_contract_check(df: pd.DataFrame, frame: EventFrame) -> dict[str, str]:

@@ -149,6 +149,10 @@ def test_analysis_skill_routes_event_journeys_to_live_help_and_coverage_evidence
     for required in (
         "typed semantic Events",
         'mv.help("events.match")',
+        "events.funnel",
+        "events.time_to_event",
+        "select_subjects",
+        ".contract()",
         "watermark",
         "declaration",
         "unknown-coverage",

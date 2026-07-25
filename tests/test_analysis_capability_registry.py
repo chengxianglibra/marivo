@@ -67,6 +67,7 @@ def test_root_group_order_has_no_duplicates() -> None:
 EXPECTED_ARTIFACT_FAMILIES = (
     "MetricFrame",
     "EventFrame",
+    "SubjectSet",
     "DeltaFrame",
     "AttributionFrame",
     "ForecastFrame",
@@ -79,8 +80,8 @@ EXPECTED_ARTIFACT_FAMILIES = (
 )
 
 
-def test_artifact_families_has_eleven_members() -> None:
-    assert len(ARTIFACT_FAMILIES) == 11
+def test_artifact_families_has_twelve_members() -> None:
+    assert len(ARTIFACT_FAMILIES) == 12
 
 
 def test_artifact_families_matches_expected_vocabulary() -> None:
@@ -233,8 +234,8 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         if descriptor.additional_examples
     }
     assert tuple(owners) == ("observe", "events.match", "correlate")
-    assert len(owners["observe"]) == 1
-    assert len(owners["events.match"]) == 2
+    assert len(owners["observe"]) == 2
+    assert len(owners["events.match"]) == 3
     assert len(owners["correlate"]) == 1
 
 
@@ -717,6 +718,7 @@ _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "EventPattern",
     "EventMatchingPolicy",
     "CompletenessDeclaration",
+    "SubjectSelection",
 }
 
 _VALID_OUTPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {

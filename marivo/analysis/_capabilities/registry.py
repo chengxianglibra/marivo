@@ -19,6 +19,7 @@ from typing import Literal
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
+    ArtifactAdmissionRule,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -58,6 +59,7 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         "AttributionFrame": ("as_sum", "as_ratio_mix", "as_weighted_mix"),
         "EventFrame": (),
+        "SubjectSet": (),
         "CandidateSet": (
             "select",
             "as_point_anomaly",
@@ -279,6 +281,7 @@ class CapabilityRegistry:
 
 _MF: frozenset[InputFamily] = frozenset({"MetricFrame"})
 _EF: frozenset[InputFamily] = frozenset({"EventFrame"})
+_SS: frozenset[InputFamily] = frozenset({"SubjectSet"})
 _DF: frozenset[InputFamily] = frozenset({"DeltaFrame"})
 _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
 _CS: frozenset[InputFamily] = frozenset({"CandidateSet"})
@@ -309,6 +312,7 @@ def _build_registry() -> CapabilityRegistry:
         window_bucket,
     )
     from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
+    from marivo.analysis.subject import dropped_before
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
     all_artifact_families: frozenset[InputFamily] = frozenset(ARTIFACT_FAMILIES)
@@ -337,6 +341,12 @@ def _build_registry() -> CapabilityRegistry:
                 "dimensions": _FIELD_SEMANTIC,
                 "slice_by": _FIELD_SEMANTIC,
                 "time_dimension": frozenset({"TimeDimensionSemantic"}),
+                "cohort": _SS,
+            },
+            artifact_admission={
+                "cohort": ArtifactAdmissionRule(
+                    coverage_statuses={"SubjectSet": frozenset({"ready"})},
+                ),
             },
             output_family="MetricFrame",
             additional_examples=(
@@ -348,6 +358,15 @@ def _build_registry() -> CapabilityRegistry:
                         '    time_scope={"start": "2026-07-01", "end": "2026-07-04"},\n'
                         '    grain="day",\n'
                         '    dimensions=[ms.ref.dimension("sales.orders.region")],\n'
+                        ")"
+                    ),
+                ),
+                HelpExample(
+                    label="Metric scoped by a typed SubjectSet",
+                    code=(
+                        "scoped_metric = session.observe(\n"
+                        '    ms.ref.metric("commerce.event_count"),\n'
+                        "    cohort=subjects,\n"
                         ")"
                     ),
                 ),
@@ -378,6 +397,12 @@ def _build_registry() -> CapabilityRegistry:
                 "cohort_window": frozenset({"TimeScopeInput"}),
                 "matching": frozenset({"EventMatchingPolicy"}),
                 "completeness": frozenset({"CompletenessDeclaration"}),
+                "cohort": _SS,
+            },
+            artifact_admission={
+                "cohort": ArtifactAdmissionRule(
+                    coverage_statuses={"SubjectSet": frozenset({"ready"})},
+                ),
             },
             output_family="EventFrame",
             additional_examples=(
@@ -415,7 +440,100 @@ def _build_registry() -> CapabilityRegistry:
                         ")"
                     ),
                 ),
+                HelpExample(
+                    label="Journey matching scoped by a typed SubjectSet",
+                    code=(
+                        "scoped_journeys = session.events.match(\n"
+                        "    pattern=pattern,\n"
+                        "    cohort=subjects,\n"
+                        "    cohort_window=mv.TimeScope(\n"
+                        '        start="2026-07-01T00:00:00Z",\n'
+                        '        end="2026-07-02T00:00:00Z",\n'
+                        "    ),\n"
+                        '    completion_through="2026-07-02T00:00:00Z",\n'
+                        "    matching=mv.first_per_subject(),\n"
+                        "    completeness=completeness,\n"
+                        ")"
+                    ),
+                ),
             ),
+        )
+    )
+
+    descriptors.append(
+        OperatorCapability(
+            id="events.funnel",
+            public_entrypoint="session.events.funnel(...)",
+            help_target="events.funnel",
+            summary=(
+                "Reduce first-per-subject journeys into censoring-aware funnel "
+                "counts with optional governed subject axes."
+            ),
+            root_group="typed_analysis",
+            root_visibility="direct",
+            constraint_ids=("event_reducer_source_valid", "event_subject_axis_valid"),
+            callable_path="marivo.analysis.session.core.SessionEvents.funnel",
+            receiver="SessionEvents",
+            accepted_inputs={
+                "journeys": _EF,
+                "axes": frozenset({"DimensionSemantic"}),
+            },
+            artifact_admission={
+                "journeys": ArtifactAdmissionRule(
+                    semantic_shapes={"EventFrame": frozenset({"journey"})},
+                    matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
+                ),
+            },
+            output_family="EventFrame",
+        )
+    )
+
+    descriptors.append(
+        OperatorCapability(
+            id="events.time_to_event",
+            public_entrypoint="session.events.time_to_event(...)",
+            help_target="events.time_to_event",
+            summary=(
+                "Project exact persisted journey assignments into time-to-event rows "
+                "without querying or rematching Events."
+            ),
+            root_group="typed_analysis",
+            root_visibility="direct",
+            constraint_ids=("event_reducer_source_valid", "event_step_pair_valid"),
+            callable_path="marivo.analysis.session.core.SessionEvents.time_to_event",
+            receiver="SessionEvents",
+            accepted_inputs={"journeys": _EF},
+            artifact_admission={
+                "journeys": ArtifactAdmissionRule(
+                    semantic_shapes={"EventFrame": frozenset({"journey"})},
+                ),
+            },
+            output_family="EventFrame",
+        )
+    )
+
+    descriptors.append(
+        OperatorCapability(
+            id="select_subjects",
+            public_entrypoint="session.select_subjects(...)",
+            help_target="select_subjects",
+            summary=("Materialize a closed typed SubjectSet from resolved Event Journey loss."),
+            root_group="typed_analysis",
+            root_visibility="direct",
+            constraint_ids=("event_reducer_source_valid", "subject_selection_valid"),
+            callable_path="marivo.analysis.session.core.Session.select_subjects",
+            receiver="Session",
+            accepted_inputs={
+                "artifact": _EF,
+                "selection": frozenset({"SubjectSelection"}),
+            },
+            artifact_admission={
+                "artifact": ArtifactAdmissionRule(
+                    semantic_shapes={"EventFrame": frozenset({"journey"})},
+                    matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
+                ),
+            },
+            output_family="SubjectSet",
         )
     )
 
@@ -554,7 +672,7 @@ def _build_registry() -> CapabilityRegistry:
             id="assess_quality",
             public_entrypoint="session.assess_quality(...)",
             help_target="assess_quality",
-            summary="Run fixed quality checks over a MetricFrame or EventFrame[journey].",
+            summary="Run fixed quality checks over supported MetricFrame and EventFrame shapes.",
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=("quality_target_shape",),
@@ -562,6 +680,13 @@ def _build_registry() -> CapabilityRegistry:
             receiver="Session",
             accepted_inputs={
                 "target": _MF | _EF,
+            },
+            artifact_admission={
+                "target": ArtifactAdmissionRule(
+                    semantic_shapes={
+                        "EventFrame": frozenset({"journey", "funnel", "time_to_event"}),
+                    },
+                ),
             },
             output_family="QualityReport",
         )
@@ -949,6 +1074,14 @@ def _build_registry() -> CapabilityRegistry:
             "CompletenessDeclaration",
         ),
         (
+            "dropped_before",
+            "mv.dropped_before(...)",
+            "dropped_before",
+            "Select resolved subjects lost before one exact EventPattern step.",
+            dropped_before,
+            "DroppedBefore",
+        ),
+        (
             "window_bucket",
             "mv.window_bucket()",
             "window_bucket",
@@ -1014,7 +1147,19 @@ def _build_registry() -> CapabilityRegistry:
                 help_target=target,
                 summary=summary,
                 root_group="policies_builders",
-                root_visibility="direct",
+                root_visibility=(
+                    "grouped"
+                    if cap_id
+                    in {
+                        "dropped_before",
+                        "dow_aligned",
+                        "holiday_aligned",
+                        "holiday_and_dow_aligned",
+                        "AbsoluteWindow",
+                        "SamplingPolicy",
+                    }
+                    else "direct"
+                ),
                 constraint_ids=(),
                 callable_path=_module_path_for(callable_obj),
                 output_type=output_type,

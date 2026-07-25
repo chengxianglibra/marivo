@@ -348,6 +348,55 @@ def test_event_journey_help_explains_business_policy_and_coverage_choices() -> N
     assert "observed backend watermark" in match_guidance
 
 
+@pytest.mark.parametrize(
+    ("canonical", "aliases"),
+    (
+        (
+            "events.funnel",
+            ("session.events.funnel", "Session.events.funnel"),
+        ),
+        (
+            "events.time_to_event",
+            ("session.events.time_to_event", "Session.events.time_to_event"),
+        ),
+        (
+            "select_subjects",
+            ("Session.select_subjects",),
+        ),
+    ),
+)
+def test_phase2_event_help_aliases_resolve_to_one_descriptor(
+    canonical: str,
+    aliases: tuple[str, ...],
+) -> None:
+    expected = _text(canonical)
+    assert all(_text(alias) == expected for alias in aliases)
+
+
+def test_phase2_event_focused_help_has_exact_examples_and_axis_kind() -> None:
+    observe = _text("observe")
+    assert "cohort=subjects" in observe
+
+    match = _text("events.match")
+    assert "cohort=subjects" in match
+
+    funnel = _text("events.funnel")
+    assert "session.events.funnel(" in funnel
+    assert "axes=[acquisition_channel]" in funnel
+    assert "DimensionEntry | Ref[dimension]" in funnel
+    assert "TimeDimensionEntry" not in funnel
+
+    elapsed = _text("events.time_to_event")
+    assert "session.events.time_to_event(" in elapsed
+    assert "start_step=checkout_step" in elapsed
+    assert "end_step=payment_step" in elapsed
+
+    selection = _text("select_subjects")
+    assert "session.select_subjects(" in selection
+    assert "mv.dropped_before(step=payment_step)" in selection
+    assert "subject_identity" in _text("SubjectSet")
+
+
 def test_focused_help_includes_accepted_and_output_families() -> None:
     text = _text("observe")
     assert "MetricFrame" in text
@@ -837,6 +886,7 @@ def test_analysis_all_is_pinned() -> None:
         "CrossSectionalOutlierSelection",
         "DataQualityIssue",
         "DriverAxisSelection",
+        "DroppedBefore",
         "EvidenceAvailabilityIssue",
         "EvidenceDerivationTrace",
         "EventFrame",
@@ -871,6 +921,7 @@ def test_analysis_all_is_pinned() -> None:
         "MetricFrame",
         "QualityReport",
         "Session",
+        "SubjectSet",
         "TimeScope",
         "dow_aligned",
         "help",
@@ -881,6 +932,7 @@ def test_analysis_all_is_pinned() -> None:
         "window_bucket",
         "runtime_metric",
         "declared_complete_through",
+        "dropped_before",
         "every_start",
         "first_per_subject",
         "sequence",

@@ -72,6 +72,7 @@ from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
+from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.help import help, help_text
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
@@ -97,6 +98,7 @@ from marivo.analysis.slice_types import (
     SliceScalar,
     SliceValue,
 )
+from marivo.analysis.subject import DroppedBefore, dropped_before
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     TimeScope,
@@ -143,6 +145,7 @@ __all__ = [
     "DataQualityIssue",
     "DeltaFrame",
     "DriverAxisSelection",
+    "DroppedBefore",
     "EventFrame",
     "EventPattern",
     "EventWatermarkReceipt",
@@ -167,11 +170,13 @@ __all__ = [
     "QualityReport",
     "Session",
     "SliceSelection",
+    "SubjectSet",
     "TestDecision",
     "TimeScope",
     "WindowSelection",
     "declared_complete_through",
     "dow_aligned",
+    "dropped_before",
     "every_start",
     "first_per_subject",
     "help",

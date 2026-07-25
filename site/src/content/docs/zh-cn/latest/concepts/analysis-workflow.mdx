@@ -148,8 +148,8 @@ journeys = session.events.match(
 
 cohort window 是半开区间：只有 `[start, end)` 内的首 step occurrence 能建立
 journey。`completion_through` 是包含端点的 follow-up bound，并且不得早于 `end`。
-阶段一不接收 cohort/SubjectSet 参数，也不宣传 funnel、time-to-event、selection、
-comparison 或 attribution continuation。
+可选的 ready `SubjectSet` 会进一步限制 subject membership；它不会替代或推导
+cohort window。
 
 当每个首 step occurrence 都应建立 attempt 时，必须显式选择 repeated-attempt
 policy。`exclusive` 最多把一个 completion 分配给一个 open attempt；`shared`
@@ -193,6 +193,57 @@ journeys = session.events.match(
     completeness=(coverage,),
 )
 ```
+
+## 归约 Event journey 并组合 typed cohort
+
+first-per-subject journey 在阶段二有三个 continuation。Funnel 只归约已持久化的
+occurrence assignment，不重新查询 Event。指定 axes 时，唯一允许的数据源工作是按
+首 step occurrence 时刻执行受治理的 subject-Dimension enrichment：
+
+```python
+funnel = session.events.funnel(
+    journeys,
+    axes=[acquisition_channel],
+    analysis_purpose="Measure checkout conversion by entry channel.",
+)
+
+elapsed = session.events.time_to_event(
+    journeys,
+    start_step=checkout_step,
+    end_step=payment_step,
+    analysis_purpose="Measure checkout-to-payment elapsed time.",
+)
+
+dropouts = session.select_subjects(
+    journeys,
+    selection=mv.dropped_before(step=payment_step),
+)
+```
+
+`EventFrame[funnel]` 保留 additive counts、censoring-aware rates 和 grouped
+reconciliation evidence。`EventFrame[time_to_event]` 精确保留 source 的 start/end
+assignment，绝不重新匹配另一个 completion。`SubjectSet` 只暴露受治理的
+`subject_identity` tuple；原始 identity 不会进入 card、job、evidence、structured
+error 或 consumer metadata。
+
+只有 ready SubjectSet 能限定 `observe` 或后续 `events.match`：
+
+```python
+dropout_revenue = session.observe(revenue, cohort=dropouts)
+return_journeys = session.events.match(
+    pattern=return_pattern,
+    cohort=dropouts,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+loss 仍为 `coverage_censored` 的 subject 会被排除，并计入 SubjectSet metadata。
+该 SubjectSet 仍可读取和恢复，但用作 cohort 时会抛出
+`event_coverage_unknown`。Funnel 与 `dropped_before` 要求
+`first_per_subject`；time-to-event 也接受 repeated-attempt journey，因为它为每个
+已分配 attempt 保留一行。
 
 observed watermark 优先于 declaration。artifact 及其 quality/evidence records
 会保留每个输入的 `observed_watermark | declared_complete | unknown` basis，以及
@@ -642,6 +693,10 @@ details 包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包
 `action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选
 `candidates`。`user_choice` 表示仍有多个机械上合法的方案，需要业务判断选择其一。
 按照修复指引操作即可；它会指向失败能力的确切 `mv.help(...)` 目标。
+
+Event continuation error 沿用同一契约：matching policy 和 step 选择使用
+`user_choice`；stale artifact 与 unknown coverage 使用 `inspect`；不安全的
+relationship path 或 temporal authoring 缺口使用 `semantic_authoring`。
 
 ### 终端边界出口
 

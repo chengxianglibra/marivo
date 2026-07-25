@@ -63,6 +63,9 @@ ObservationShape = Literal[
     "segmented",
     "panel",
     "event_journey",
+    "event_funnel",
+    "event_time_to_event",
+    "subject_set",
 ]
 
 
@@ -158,12 +161,12 @@ class AnalysisScope(_FrozenModel):
 
 
 class EventSubject(_FrozenModel):
-    """Identity-safe subject descriptor for an Event Journey artifact."""
+    """Identity-safe subject descriptor for an Event artifact."""
 
     kind: Literal["event"] = "event"
     subject_entity_ref: RefPayloadV1
     subject_identity_signature: tuple[str, ...]
-    analysis_axis: Literal["journey"] = "journey"
+    analysis_axis: Literal["journey", "funnel", "time_to_event"] = "journey"
 
 
 class EventAnalysisScope(_FrozenModel):
@@ -177,11 +180,62 @@ class EventAnalysisScope(_FrozenModel):
     completion_through: str
     coverage: dict[str, JsonValue]
     assumptions: tuple[str, ...] = ()
+    cohort_binding: dict[str, JsonValue] | None = None
 
 
-EvidenceSubject = Annotated[Subject | EventSubject, Field(discriminator="kind")]
+class EventFunnelAnalysisScope(_FrozenModel):
+    """Typed Event funnel scope derived from one committed journey."""
+
+    kind: Literal["event_funnel"] = "event_funnel"
+    source_artifact_ref: str
+    source_scope: EventAnalysisScope
+    axes: tuple[dict[str, JsonValue], ...] = ()
+    grouped_reconciliation: dict[str, JsonValue]
+
+
+class EventTimeToEventAnalysisScope(_FrozenModel):
+    """Typed time-to-event scope derived from one committed journey."""
+
+    kind: Literal["event_time_to_event"] = "event_time_to_event"
+    source_artifact_ref: str
+    source_scope: EventAnalysisScope
+    start_step: dict[str, JsonValue]
+    end_step: dict[str, JsonValue]
+
+
+class SubjectSetSubject(_FrozenModel):
+    """Identity-safe subject descriptor for a persisted SubjectSet."""
+
+    kind: Literal["subject_set"] = "subject_set"
+    subject_entity_ref: RefPayloadV1
+    subject_identity_signature: tuple[str, ...]
+    analysis_axis: Literal["subject_set"] = "subject_set"
+
+
+class SubjectSetAnalysisScope(_FrozenModel):
+    """Typed SubjectSet scope without selected identity rows."""
+
+    kind: Literal["subject_set"] = "subject_set"
+    source_artifact_ref: str
+    source_artifact_fingerprint: str
+    selection: dict[str, JsonValue]
+    selection_fingerprint: str
+    coverage_status: Literal["ready", "coverage_censored"]
+
+
+EvidenceSubject = Annotated[
+    Subject | EventSubject | SubjectSetSubject,
+    Field(discriminator="kind"),
+]
 EvidenceSubjectAdapter: TypeAdapter[EvidenceSubject] = TypeAdapter(EvidenceSubject)
-EvidenceScope = Annotated[AnalysisScope | EventAnalysisScope, Field(discriminator="kind")]
+EvidenceScope = Annotated[
+    AnalysisScope
+    | EventAnalysisScope
+    | EventFunnelAnalysisScope
+    | EventTimeToEventAnalysisScope
+    | SubjectSetAnalysisScope,
+    Field(discriminator="kind"),
+]
 EvidenceScopeAdapter: TypeAdapter[EvidenceScope] = TypeAdapter(EvidenceScope)
 
 
@@ -273,12 +327,86 @@ class EventJourneyObservationValue(_FrozenModel):
         return self
 
 
+class EventFunnelStepObservation(_FrozenModel):
+    """One bounded identity-safe funnel step summary."""
+
+    step_key: str
+    reached_count: int = Field(ge=0)
+    lost_count: int = Field(ge=0)
+    coverage_censored_count: int = Field(ge=0)
+    conversion_from_first: float | None = Field(default=None, ge=0.0, le=1.0)
+    conversion_from_previous: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class EventFunnelObservationValue(_FrozenModel):
+    shape: Literal["event_funnel"] = "event_funnel"
+    cohort_count: int = Field(ge=0)
+    step_count: int = Field(ge=0)
+    axis_tuple_count: int = Field(ge=0)
+    source_unused_event_count: int = Field(ge=0)
+    grouped: bool
+    reconciliation_passed: bool
+    steps: tuple[EventFunnelStepObservation, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_step_bound(self) -> EventFunnelObservationValue:
+        if len(self.steps) > 5:
+            raise ValueError("event funnel evidence retains at most five step summaries")
+        if len(self.steps) > self.step_count:
+            raise ValueError("step summaries cannot exceed step_count")
+        return self
+
+
+class EventTimeToEventObservationValue(_FrozenModel):
+    shape: Literal["event_time_to_event"] = "event_time_to_event"
+    qualifying_count: int = Field(ge=0)
+    complete_count: int = Field(ge=0)
+    incomplete_count: int = Field(ge=0)
+    coverage_censored_count: int = Field(ge=0)
+    source_unused_end_count: int = Field(ge=0)
+    duration_count: int = Field(ge=0)
+    min_duration_seconds: float | None = Field(default=None, ge=0.0)
+    median_duration_seconds: float | None = Field(default=None, ge=0.0)
+    max_duration_seconds: float | None = Field(default=None, ge=0.0)
+
+    @model_validator(mode="after")
+    def _validate_partition(self) -> EventTimeToEventObservationValue:
+        represented = self.complete_count + self.incomplete_count + self.coverage_censored_count
+        if represented != self.qualifying_count:
+            raise ValueError(
+                "qualifying_count must equal complete_count + incomplete_count + "
+                "coverage_censored_count"
+            )
+        if self.duration_count != self.complete_count:
+            raise ValueError("duration_count must equal complete_count")
+        durations = (
+            self.min_duration_seconds,
+            self.median_duration_seconds,
+            self.max_duration_seconds,
+        )
+        if self.duration_count == 0 and any(value is not None for value in durations):
+            raise ValueError("empty duration summaries must be null")
+        if self.duration_count > 0 and any(value is None for value in durations):
+            raise ValueError("non-empty duration summaries must be complete")
+        return self
+
+
+class SubjectSetObservationValue(_FrozenModel):
+    shape: Literal["subject_set"] = "subject_set"
+    selected_count: int = Field(ge=0)
+    excluded_coverage_censored_count: int = Field(ge=0)
+    coverage_status: Literal["ready", "coverage_censored"]
+
+
 ObservationValue = Annotated[
     ScalarObservationValue
     | TimeSeriesObservationValue
     | SegmentedObservationValue
     | PanelObservationValue
-    | EventJourneyObservationValue,
+    | EventJourneyObservationValue
+    | EventFunnelObservationValue
+    | EventTimeToEventObservationValue
+    | SubjectSetObservationValue,
     Field(discriminator="shape"),
 ]
 
