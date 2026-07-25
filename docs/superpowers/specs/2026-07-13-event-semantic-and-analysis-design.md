@@ -619,8 +619,11 @@ paid_state = ms.model_state(model=order_lifecycle, name="paid")
 StateModel ref remains data-only without a dynamic `.states` namespace.
 The StateModel fingerprint covers the exact subject, ordered LifecycleState
 names and initial/terminal flags, canonically resolved Event/participant triggers,
-transitions, and semantic context. A ModelStateHandle carries that parent
-fingerprint and local state name.
+transitions, and semantic context. A standalone ModelStateHandle carries only
+the parent StateModel ref and local state name because it has no active catalog
+from which to obtain an authoritative definition fingerprint. The consuming
+catalog-bound operation resolves and validates the current parent fingerprint,
+then persists that fingerprint with the artifact.
 
 ## StateProjection Semantic
 
@@ -780,8 +783,11 @@ versioning fingerprint, inferred subject and `subject_path` refs, `state_field`
 ref, ordered NormalizedState definitions, and semantic context. `source_values`
 order is not semantic and is canonically normalized within each normalized
 state; the declared `normalized_states` order remains the stable display order.
-A ProjectionStateHandle carries the parent projection fingerprint so a
-same-named state from another projection cannot compare equal.
+A standalone ProjectionStateHandle carries only the parent StateProjection ref
+and local state name. The consuming catalog-bound operation resolves and
+validates the current parent fingerprint, so a same-named state from another
+projection cannot compare equal, and persists that fingerprint with the
+artifact.
 
 StateProjection does not claim conformance to a StateModel merely because
 values share names. Projection-to-model correspondence is a typed analysis
@@ -1211,7 +1217,7 @@ order_model = session.catalog.state_models.get(order_lifecycle)
 
 history = session.lifecycle.replay(
     order_model,
-    window=mv.window(start, end),
+    window=mv.TimeScope(start=start, end=end),
     seed=mv.from_inception(),
 )
 ```
@@ -1244,6 +1250,15 @@ v1. The fixed contract belongs to the replay operator version, not the
 StateModel fingerprint. Events absent from StateModel are not replay inputs or
 violations.
 
+`from_inception()` uses the first qualifying inception occurrence for one
+subject. Modeled occurrences before that inception are outside the established
+lifecycle and are not violations because no `model_state_at_event` exists.
+After inception, another inception occurrence is an `illegal_transition`, or
+`transition_from_terminal` when the current state is terminal, and leaves state
+unchanged. When complete replay inputs prove that a subject with modeled input
+has no inception, replay raises `insufficient_state_history`; with unknown
+prior coverage the subject remains coverage-censored instead.
+
 Within one subject, replay orders Events by normalized `occurred_at` and a
 compatible identity order. If ambiguous same-time order changes state, replay
 fails with `ambiguous_event_order`.
@@ -1274,8 +1289,8 @@ versioning. Every temporally versioned source requires one explicit scope:
 | --- | --- |
 | no versioning | omit `scope`; current capture is the only legal operation |
 | `ms.snapshot(...)` | `mv.as_of(t)` selecting the governed partition for `t` |
-| `ms.changes(...)` | `mv.as_of(t)` or `mv.window(start, end)` |
-| `ms.validity(...)` | `mv.as_of(t)` or `mv.window(start, end)` |
+| `ms.changes(...)` | `mv.as_of(t)` or `mv.TimeScope(start=start, end=end)` |
+| `ms.validity(...)` | `mv.as_of(t)` or `mv.TimeScope(start=start, end=end)` |
 
 An ordinary current-state Entity is captured at the concrete read instant. It
 cannot answer a historical as-of request. A snapshot Entity establishes state
@@ -1364,7 +1379,7 @@ The alignment carries its exact StateProjection and StateModel identities, so
 ```python
 observed_order_history = session.lifecycle.observe(
     alignment=order_state_alignment,
-    scope=mv.window(start, end),
+    scope=mv.TimeScope(start=start, end=end),
 )
 ```
 
@@ -1450,7 +1465,10 @@ including the null-axis group reconcile exactly to the ungrouped count. `share`
 is recomputed against the known-state population within each axis tuple and is
 never summed across groups.
 
-`lifecycle.transitions(history)` emits one row per model-state pair:
+`lifecycle.transitions(history)` emits one row for every distinct modeled
+`(from_state, to_state)` pair declared by the StateModel, including zero-count
+pairs, in declared state order. Projection history may append observed
+unmodeled pairs when phase 5 lands:
 
 ```text
 from_model_state
