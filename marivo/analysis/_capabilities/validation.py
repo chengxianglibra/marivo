@@ -27,6 +27,7 @@ from marivo.analysis.errors import (
     EventCoverageUnknownError,
     InvalidEventMatchingPolicyError,
     InvalidSubjectAxisError,
+    ModelStateMismatchError,
     PatternStepMismatchError,
     QualityShapeUnsupportedError,
     SubjectSetMismatchError,
@@ -57,6 +58,7 @@ def _classify_frame(value: object) -> str | None:
     from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
+    from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
@@ -65,6 +67,8 @@ def _classify_frame(value: object) -> str | None:
         return "MetricFrame"
     if isinstance(value, EventFrame):
         return "EventFrame"
+    if isinstance(value, LifecycleFrame):
+        return "LifecycleFrame"
     if isinstance(value, SubjectSet):
         return "SubjectSet"
     if isinstance(value, DeltaFrame):
@@ -108,6 +112,8 @@ def _classify_semantic_ref(value: object) -> str | None:
         return "DimensionSemantic"
     if kind == SemanticKind.TIME_DIMENSION:
         return "TimeDimensionSemantic"
+    if kind == SemanticKind.STATE_MODEL:
+        return "StateModelSemantic"
     return None
 
 
@@ -136,6 +142,7 @@ def _classify_policy_or_spec(value: object) -> str | None:
         EveryStart,
         FirstPerSubject,
     )
+    from marivo.analysis.lifecycle import FromInception, InState
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.subject import DroppedBefore
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
@@ -152,7 +159,9 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "EventMatchingPolicy"
     if isinstance(value, CompletenessDeclaration):
         return "CompletenessDeclaration"
-    if isinstance(value, DroppedBefore):
+    if isinstance(value, FromInception):
+        return "LifecycleSeed"
+    if isinstance(value, (DroppedBefore, InState)):
         return "SubjectSelection"
     # A plain dict is acceptable as a TimeScopeInput (normalized later by
     # the capability-specific validator, which may reject relative windows).
@@ -253,14 +262,15 @@ class ArtifactAdmissionResult:
     predicate: str | None = None
 
 
-def _raise_typed_event_family_error(
+def _raise_typed_family_error(
     *,
     capability_id: str,
     param_name: str,
     received: str,
     help_target: str,
+    artifact: object | None,
 ) -> None:
-    """Preserve the closed Event/SubjectSet repair contract at the family gate."""
+    """Preserve closed typed repair contracts at the shared family gate."""
 
     key = (capability_id, param_name)
     if key == ("events.funnel", "axes"):
@@ -279,6 +289,24 @@ def _raise_typed_event_family_error(
             ),
         )
     if key == ("select_subjects", "selection"):
+        if _classify_frame(artifact) == "LifecycleFrame":
+            raise ModelStateMismatchError(
+                message="Lifecycle subject selection requires a typed state and instant.",
+                expected=("mv.in_state(state=<ModelStateHandle>, as_of=<timezone-aware instant>)"),
+                received=received,
+                location="session.select_subjects.selection",
+                repair=AnalysisRepair(
+                    kind="user_choice",
+                    action=(
+                        "Choose an exact ModelStateHandle retained by the source history "
+                        "and build mv.in_state(state=..., as_of=...)."
+                    ),
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id=help_target,
+                    ),
+                ),
+            )
         raise PatternStepMismatchError(
             message="select_subjects requires a closed typed subject selection.",
             expected="mv.dropped_before(step=<PatternStep>)",
@@ -298,6 +326,7 @@ def _raise_typed_event_family_error(
         )
     if key in {
         ("events.match", "cohort"),
+        ("lifecycle.replay", "cohort"),
         ("observe", "cohort"),
     }:
         raise SubjectSetMismatchError(
@@ -470,11 +499,12 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
             None,
         )
         if rejected_family is not None:
-            _raise_typed_event_family_error(
+            _raise_typed_family_error(
                 capability_id=capability_id,
                 param_name=param_name,
                 received=rejected_family,
                 help_target=descriptor.help_target,
+                artifact=kwargs.get("artifact"),
             )
             accepted_str = " | ".join(sorted(accepted_families))
             raise AnalysisError(
@@ -571,6 +601,29 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
                         action=(
                             "Pass the persisted source journey returned by "
                             "session.events.match(...)."
+                        ),
+                        help_target=LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id=descriptor.help_target,
+                        ),
+                    ),
+                )
+            if predicate == "semantic_shape" and capability_id in {
+                "lifecycle.distribution",
+                "lifecycle.transitions",
+                "lifecycle.dwell",
+                "lifecycle.violations",
+            }:
+                raise SubjectSetMismatchError(
+                    message=f"{capability_id} requires canonical replay history.",
+                    expected=admission.expected,
+                    received=admission.received,
+                    location=f"session.{capability_id}.history",
+                    repair=AnalysisRepair(
+                        kind="inspect",
+                        action=(
+                            "Pass the persisted source history returned by "
+                            "session.lifecycle.replay(...)."
                         ),
                         help_target=LiveHelpTarget(
                             surface="analysis",

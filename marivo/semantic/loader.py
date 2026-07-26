@@ -44,7 +44,7 @@ from marivo.semantic.ir import (
     MeasureIR,
     MetricIR,
 )
-from marivo.semantic.validator import Registry, assembly_validate
+from marivo.semantic.validator import Registry, assembly_validate, canonicalize_state_models
 
 if TYPE_CHECKING:
     from marivo.semantic._authoring_context import PendingDefinition
@@ -614,7 +614,7 @@ def _build_registry(
     all_contexts: list[LoaderContext],
     *,
     datasource_irs: tuple[DatasourceIR, ...] = (),
-) -> tuple[Registry, CompiledExpressionSidecar]:
+) -> tuple[Registry, CompiledExpressionSidecar, tuple[SemanticError, ...]]:
     """Build a registry and immutable compiled expression sidecar.
 
     Pass 2: assemble all pending IR objects into the registry.
@@ -625,12 +625,14 @@ def _build_registry(
         EventIR,
         MetricIR,
         RelationshipIR,
+        StateModelDeclarationIR,
     )
 
     registry = Registry()
     bodies = {}
     field_owners = {}
     catalog_refs: set[Ref[SemanticKindTag]] = set()
+    state_model_declarations: list[StateModelDeclarationIR] = []
     for datasource_ir in datasource_irs:
         registry.datasources[datasource_ir.semantic_id] = datasource_ir
         catalog_refs.add(ref_factory.datasource(datasource_ir.semantic_id))
@@ -662,6 +664,8 @@ def _build_registry(
                 registry.relationships[sid] = ir
             elif isinstance(ir, EventIR):
                 registry.events[sid] = ir
+            elif isinstance(ir, StateModelDeclarationIR):
+                state_model_declarations.append(ir)
             if expression_body is not None:
                 bodies[ref] = expression_body
 
@@ -673,7 +677,11 @@ def _build_registry(
         field_owners=field_owners,
         catalog_refs=frozenset(catalog_refs),
     )
-    return registry, expression_sidecar
+    state_model_errors = canonicalize_state_models(
+        registry,
+        tuple(state_model_declarations),
+    )
+    return registry, expression_sidecar, tuple(state_model_errors)
 
 
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
@@ -980,10 +988,11 @@ def load_project(
             if ctx is not None:
                 all_contexts.append(ctx)
 
-        registry, expression_sidecar = _build_registry(
+        registry, expression_sidecar, state_model_errors = _build_registry(
             all_contexts,
             datasource_irs=tuple(datasource_irs),
         )
+        errors.extend(state_model_errors)
 
         errors.extend(_semantic_duplicate_errors(all_contexts))
 

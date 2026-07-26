@@ -40,6 +40,10 @@ class ConstraintId(StrEnum):
     EVENT_SUBJECT_AXIS_VALID = "event_subject_axis_valid"
     EVENT_STEP_PAIR_VALID = "event_step_pair_valid"
     SUBJECT_SELECTION_VALID = "subject_selection_valid"
+    LIFECYCLE_MODEL_VALID = "lifecycle_model_valid"
+    LIFECYCLE_WINDOW_VALID = "lifecycle_window_valid"
+    LIFECYCLE_SEED_VALID = "lifecycle_seed_valid"
+    LIFECYCLE_REDUCER_SOURCE_VALID = "lifecycle_reducer_source_valid"
     FRAME_IMMUTABLE = "frame_immutable"
     FRAME_READ_BOUNDS = "frame_read_bounds"
     BACKEND_FACTORY_CONFIGURED = "backend_factory_configured"
@@ -258,6 +262,52 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Only resolved loss can create a cohort without silently treating censored subjects as dropouts.",
         "Use mv.dropped_before(step=<exact non-initial source PatternStep>) on a first-per-subject journey.",
         help_target="select_subjects",
+    ),
+    ConstraintId.LIFECYCLE_MODEL_VALID: _constraint(
+        ConstraintId.LIFECYCLE_MODEL_VALID,
+        "InvalidStateTransition",
+        "runtime",
+        ("lifecycle.replay", "StateModel"),
+        "Lifecycle replay requires one exact current, analysis-ready StateModel.",
+        "Replay consumes the model's canonical subject, state, inception, and transition truth.",
+        "Pass a current StateModel entry or exact Ref[state_model] with one usable inception.",
+        help_target="lifecycle.replay",
+    ),
+    ConstraintId.LIFECYCLE_WINDOW_VALID: _constraint(
+        ConstraintId.LIFECYCLE_WINDOW_VALID,
+        "WindowInvalid",
+        "runtime",
+        ("lifecycle.replay", "TimeScope"),
+        "Lifecycle replay windows are explicit timezone-aware half-open intervals.",
+        "Replay reconstructs earlier state before clipping intervals to the requested window.",
+        "Pass mv.TimeScope(start=<aware instant>, end=<later aware instant>).",
+        help_target="lifecycle.replay",
+    ),
+    ConstraintId.LIFECYCLE_SEED_VALID: _constraint(
+        ConstraintId.LIFECYCLE_SEED_VALID,
+        "InvalidLifecycleSeed",
+        "runtime",
+        ("lifecycle.replay", "FromInception"),
+        "Phase 3 replay requires the exact explicit from-inception seed.",
+        "No initial state is assumed at the replay window boundary.",
+        "Pass seed=mv.from_inception() to an inception-ready StateModel.",
+        help_target="lifecycle.replay",
+    ),
+    ConstraintId.LIFECYCLE_REDUCER_SOURCE_VALID: _constraint(
+        ConstraintId.LIFECYCLE_REDUCER_SOURCE_VALID,
+        "SubjectSetMismatch",
+        "runtime",
+        (
+            "lifecycle.distribution",
+            "lifecycle.transitions",
+            "lifecycle.dwell",
+            "lifecycle.violations",
+            "LifecycleFrame",
+        ),
+        "Lifecycle reducers consume one exact registered LifecycleFrame[history].",
+        "Reducers preserve committed replay authority and do not query or replay Event inputs.",
+        "Pass the same-session history returned by session.lifecycle.replay(...).",
+        help_target="lifecycle.replay",
     ),
     ConstraintId.EVENT_WINDOW_VALID: _constraint(
         ConstraintId.EVENT_WINDOW_VALID,

@@ -90,9 +90,10 @@ analysis DAG. Four constraints follow, and they shape the runtime
 The API is five layers. The agent-facing surface is the small core; the rest is
 either family-preserving reshaping or controlled escape.
 
-1. **Source-to-artifact** — read a semantic metric into the start of a chain:
-   `observe -> MetricFrame`. `session.observe(...)` is the sole canonical
-   `MetricFrame` producer.
+1. **Source-to-artifact** — materialize governed semantics into the start of a
+   typed chain: `observe -> MetricFrame`, `events.match -> EventFrame[journey]`,
+   and `lifecycle.replay -> LifecycleFrame[history]`.
+   `session.observe(...)` remains the sole canonical `MetricFrame` producer.
 2. **Family-preserving transform** — reshape/scope/rank an artifact without changing
    its family: `session.transform.<op>` over a `MetricFrame` or `DeltaFrame`. The
    output family follows the input; cross-family derivation must use a named
@@ -202,6 +203,8 @@ The frozen analysis consumer matrix is:
 | `Session.observe` | catalog metric root(s), `dimensions`, `slice_by` keys, `time_dimension` |
 | `Session.attribute` | `axes` |
 | `SessionEvents.funnel` | subject `axes` |
+| `SessionLifecycle.replay` | `model` |
+| `SessionLifecycle.distribution` | subject `axes` |
 | `SessionDiscoverNamespace.driver_axes` | `search_space` |
 | `SessionDiscoverNamespace.interesting_slices` | `search_space` |
 | `SessionDiscoverNamespace.cross_sectional_outliers` | `peer_scope` |
@@ -247,6 +250,55 @@ ordered identity tuples as artifact rows; identity values never enter metadata,
 jobs, evidence, cards, or errors. A ready same-session SubjectSet may scope
 `observe` and `events.match`; a coverage-censored SubjectSet remains readable
 but fails admission with `event_coverage_unknown`.
+
+### Replay-based Lifecycle composition
+
+A `StateModel` is the normative semantic contract; replay window, seed,
+completeness, cohort, and violation observations belong to analysis. Phase 3
+adds one replay materializer and four reducers:
+
+```text
+StateModel + explicit inception seed -> lifecycle.replay -> LifecycleFrame[history]
+LifecycleFrame[history] -> lifecycle.distribution -> LifecycleFrame[distribution]
+LifecycleFrame[history] -> lifecycle.transitions -> LifecycleFrame[transitions]
+LifecycleFrame[history] -> lifecycle.dwell -> LifecycleFrame[dwell]
+LifecycleFrame[history] -> lifecycle.violations -> LifecycleFrame[violations]
+LifecycleFrame[history] + in_state -> select_subjects -> SubjectSet
+```
+
+`session.lifecycle.replay(...)` accepts one exact current StateModel entry/ref,
+a timezone-aware half-open `TimeScope`, and the required exact
+`mv.from_inception()` seed. Optional completeness declarations may cover only
+Events consumed by that StateModel; an optional ready SubjectSet must have the
+same subject Entity and identity signature. Each distinct trigger Event is
+queried at most once. Event predicate, participant, ordering, watermark, and
+declaration semantics reuse the Event core.
+
+Replay evaluates modeled occurrences before the requested window end, then
+emits only clipped intervals that overlap the window. Legal triggers change
+state. A modeled trigger that is illegal in the current state leaves the state
+unchanged and enters the persisted violation trace. Events outside the
+StateModel are neither queried nor violations. Same-time cross-Event order is
+rejected only when it changes the resulting state or violation outcome.
+
+`LifecycleFrame[history]` contains ordered, non-overlapping intervals with
+`completed | right_censored | coverage_censored` status. Reducers consume the
+committed history and private violation trace without rematching Events or
+replaying transitions:
+
+- `distribution` is dense over requested instants and declared states; governed
+  subject axes resolve at each instant and grouped counts must reconcile.
+- `transitions` emits every distinct modeled state pair, including zero counts.
+- `dwell` emits every declared state and computes duration statistics only from
+  completed clipped intervals, while retaining explicit censor counts.
+- `violations` exposes a typed copy of the committed replay trace; it does not
+  relabel observations as policy breaches, quality failures, or causal facts.
+
+`mv.in_state(...)` accepts an exact `ModelStateHandle`, not a bare state string.
+`session.select_subjects(...)` selects subjects whose state is established at
+the requested instant. Unknown or coverage-censored truth is excluded and
+retained as censoring metadata. Only a ready resulting SubjectSet can scope
+later `observe`, `events.match`, or `lifecycle.replay` calls.
 
 ### Typed metric composition
 

@@ -1,11 +1,11 @@
 # Marivo Event and Lifecycle Semantic and Analysis Design
 
-Status: architecture revised; phases 1-2 and the coordinated agent-interface
-vNext cutover implemented; phases 3-5 pending
+Status: architecture revised; phases 1-3 and the coordinated agent-interface
+vNext cutover implemented; phases 4-5 pending
 
 Date: 2026-07-13
 
-Last revised: 2026-07-24
+Last revised: 2026-07-25
 
 > This document is one of two specifications split from the original
 > `Marivo Executable Semantic and Ontology Extension Design`. It owns the

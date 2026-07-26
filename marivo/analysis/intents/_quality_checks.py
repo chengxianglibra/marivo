@@ -5,10 +5,15 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 import json
 from numbers import Real
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo.analysis.frames._content_hash import (
+    compute_file_content_hash,
+    compute_frame_content_hash,
+)
 from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
 from marivo.analysis.frames.event import (
     EventFrame,
@@ -16,10 +21,31 @@ from marivo.analysis.frames.event import (
     EventInputCoverage,
     EventTimeToEventFrameMeta,
 )
+from marivo.analysis.frames.lifecycle import (
+    LIFECYCLE_DISTRIBUTION_VALUE_COLUMNS,
+    LIFECYCLE_DWELL_COLUMNS,
+    LIFECYCLE_HISTORY_COLUMNS,
+    LIFECYCLE_TRANSITIONS_COLUMNS,
+    LIFECYCLE_VIOLATIONS_COLUMNS,
+    LifecycleDistributionFrameMeta,
+    LifecycleDwellFrameMeta,
+    LifecycleFrame,
+    LifecycleHistoryFrameMeta,
+    LifecycleTransitionsFrameMeta,
+    LifecycleViolationsFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._event_funnel import (
     FUNNEL_ADDITIVE_COLUMNS,
     funnel_reconciliation_hash,
+)
+from marivo.analysis.intents._event_occurrences import stable_digest
+from marivo.analysis.intents._lifecycle_dwell import reduce_lifecycle_dwell
+from marivo.analysis.intents._lifecycle_transitions import (
+    reduce_lifecycle_transitions,
+)
+from marivo.analysis.intents._lifecycle_violations import (
+    reduce_lifecycle_violations,
 )
 
 _FREQ = GRAIN_FREQ
@@ -89,6 +115,1069 @@ def run_event_checks(frame: EventFrame) -> list[dict[str, str]]:
     if frame.meta.semantic_kind == "time_to_event":
         return run_event_time_to_event_checks(frame)
     raise ValueError(f"unsupported EventFrame shape {frame.meta.semantic_kind!r}")
+
+
+def run_lifecycle_history_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Return deterministic row-, trace-, coverage-, and model-quality checks."""
+    if not isinstance(frame.meta, LifecycleHistoryFrameMeta):
+        raise ValueError("Lifecycle history quality requires LifecycleFrame[history]")
+    df = frame._dataframe_copy()
+    return [
+        _lifecycle_history_row_contract_check(df, frame),
+        _lifecycle_history_state_check(df, frame),
+        _lifecycle_history_interval_check(df, frame),
+        _lifecycle_history_count_check(df, frame),
+        _lifecycle_trace_check(frame),
+        *_lifecycle_coverage_checks(frame),
+        _lifecycle_declaration_check(frame),
+        _lifecycle_censoring_check(df, frame),
+    ]
+
+
+def run_lifecycle_distribution_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for Lifecycle state distribution."""
+    if not isinstance(frame.meta, LifecycleDistributionFrameMeta):
+        raise ValueError("Lifecycle distribution quality requires LifecycleFrame[distribution]")
+    df = frame._dataframe_copy()
+    return [
+        _lifecycle_distribution_row_contract_check(df, frame),
+        _lifecycle_distribution_math_check(df, frame),
+        _lifecycle_distribution_reconciliation_check(df, frame),
+        _lifecycle_source_history_check(frame),
+    ]
+
+
+def run_lifecycle_transitions_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for Lifecycle transition reduction."""
+    if not isinstance(frame.meta, LifecycleTransitionsFrameMeta):
+        raise ValueError("Lifecycle transitions quality requires LifecycleFrame[transitions]")
+    df = frame._dataframe_copy()
+    return [
+        _lifecycle_transitions_row_contract_check(df, frame),
+        _lifecycle_transitions_math_check(df, frame),
+        _lifecycle_source_history_check(frame),
+    ]
+
+
+def run_lifecycle_dwell_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for Lifecycle dwell reduction."""
+    if not isinstance(frame.meta, LifecycleDwellFrameMeta):
+        raise ValueError("Lifecycle dwell quality requires LifecycleFrame[dwell]")
+    df = frame._dataframe_copy()
+    return [
+        _lifecycle_dwell_row_contract_check(df, frame),
+        _lifecycle_dwell_math_check(df, frame),
+        _lifecycle_source_history_check(frame),
+    ]
+
+
+def run_lifecycle_violations_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for exposed Lifecycle replay violations."""
+    if not isinstance(frame.meta, LifecycleViolationsFrameMeta):
+        raise ValueError("Lifecycle violations quality requires LifecycleFrame[violations]")
+    df = frame._dataframe_copy()
+    return [
+        _lifecycle_violations_row_contract_check(df, frame),
+        _lifecycle_violations_math_check(df, frame),
+        _lifecycle_source_history_check(frame),
+    ]
+
+
+def run_lifecycle_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    """Dispatch Lifecycle quality by its closed Phase 3 artifact shape."""
+    if frame.meta.semantic_kind == "history":
+        return run_lifecycle_history_checks(frame)
+    if frame.meta.semantic_kind == "distribution":
+        return run_lifecycle_distribution_checks(frame)
+    if frame.meta.semantic_kind == "transitions":
+        return run_lifecycle_transitions_checks(frame)
+    if frame.meta.semantic_kind == "dwell":
+        return run_lifecycle_dwell_checks(frame)
+    if frame.meta.semantic_kind == "violations":
+        return run_lifecycle_violations_checks(frame)
+    raise ValueError(f"unsupported LifecycleFrame shape {frame.meta.semantic_kind!r}")
+
+
+def _lifecycle_expected_columns(frame: LifecycleFrame) -> tuple[str, ...]:
+    meta = frame.meta
+    if isinstance(meta, LifecycleHistoryFrameMeta):
+        return LIFECYCLE_HISTORY_COLUMNS
+    if isinstance(meta, LifecycleDistributionFrameMeta):
+        return (
+            *(axis.output_column for axis in meta.axes),
+            *LIFECYCLE_DISTRIBUTION_VALUE_COLUMNS,
+        )
+    if isinstance(meta, LifecycleTransitionsFrameMeta):
+        return LIFECYCLE_TRANSITIONS_COLUMNS
+    if isinstance(meta, LifecycleDwellFrameMeta):
+        return LIFECYCLE_DWELL_COLUMNS
+    return LIFECYCLE_VIOLATIONS_COLUMNS
+
+
+def _lifecycle_row_contract_result(
+    *,
+    check_id: str,
+    df: pd.DataFrame,
+    expected_columns: tuple[str, ...],
+    invalid_rows: int = 0,
+) -> dict[str, str]:
+    missing_columns = tuple(column for column in expected_columns if column not in df.columns)
+    extra_columns = tuple(column for column in df.columns if column not in expected_columns)
+    order_mismatch = tuple(df.columns) != expected_columns
+    invalid_count = len(missing_columns) + len(extra_columns) + int(order_mismatch) + invalid_rows
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        check_id,
+        check_id,
+        severity,
+        severity,
+        (
+            f"{check_id.replace('_', ' ')} is valid"
+            if not invalid_count
+            else f"{check_id.replace('_', ' ')} has {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing_columns,
+            "extra_columns": extra_columns,
+            "column_order_mismatch": order_mismatch,
+            "invalid_row_count": invalid_rows,
+            "expected_columns": expected_columns,
+        },
+    )
+
+
+def _identity_is_valid(value: object, *, components: int) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == components
+        and all(component is not None for component in value)
+    )
+
+
+def _safe_missing(value: object) -> bool:
+    try:
+        result = pd.isna(cast("Any", value))
+    except (TypeError, ValueError):
+        return False
+    if isinstance(result, bool):
+        return result
+    item = getattr(result, "item", None)
+    return bool(item()) if callable(item) else False
+
+
+def _is_utc_value(value: object) -> bool:
+    try:
+        timestamp = pd.Timestamp(cast("Any", value))
+    except (TypeError, ValueError):
+        return False
+    offset = timestamp.utcoffset()
+    return timestamp.tzinfo is not None and offset is not None and offset.total_seconds() == 0
+
+
+def _lifecycle_history_row_contract_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    components = len(frame.meta.subject_identity)
+    invalid_rows = 0
+    if set(LIFECYCLE_HISTORY_COLUMNS).issubset(df.columns):
+        states = {item.state.name for item in frame.meta.states}
+        for row in df.to_dict("records"):
+            completed = row["interval_status"] == "completed"
+            exit_complete = (
+                isinstance(row["exited_by_event_ref"], str)
+                and bool(row["exited_by_event_ref"])
+                and isinstance(row["exited_by_event_identity"], tuple)
+            )
+            valid = (
+                _identity_is_valid(row["subject_identity"], components=components)
+                and row["model_state"] in states
+                and _is_utc_value(row["valid_from"])
+                and _is_utc_value(row["valid_to"])
+                and pd.Timestamp(row["valid_from"]) < pd.Timestamp(row["valid_to"])
+                and isinstance(row["entered_by_event_ref"], str)
+                and bool(row["entered_by_event_ref"])
+                and isinstance(row["entered_by_event_identity"], tuple)
+                and row["interval_status"] in {"completed", "right_censored", "coverage_censored"}
+                and completed == exit_complete
+            )
+            invalid_rows += int(not valid)
+    return _lifecycle_row_contract_result(
+        check_id="lifecycle_history_row_contract",
+        df=df,
+        expected_columns=LIFECYCLE_HISTORY_COLUMNS,
+        invalid_rows=invalid_rows,
+    )
+
+
+def _lifecycle_history_state_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    initial_states = tuple(item.state.name for item in meta.states if item.initial)
+    inception_targets = tuple(
+        trigger.to_state for trigger in meta.triggers if trigger.kind == "inception"
+    )
+    invalid_count = int(
+        meta.seed.kind != "from_inception"
+        or len(initial_states) != 1
+        or not inception_targets
+        or any(target != initial_states[0] for target in inception_targets)
+    )
+    if set(LIFECYCLE_HISTORY_COLUMNS).issubset(df.columns):
+        trigger_targets = {(trigger.event_ref.path, trigger.to_state) for trigger in meta.triggers}
+        transition_triggers = {
+            (
+                trigger.from_state,
+                trigger.to_state,
+                trigger.event_ref.path,
+            )
+            for trigger in meta.triggers
+            if trigger.kind == "transition"
+        }
+        for _subject, subject_rows in df.groupby("subject_identity", sort=False):
+            records = subject_rows.sort_values("valid_from", kind="stable").to_dict("records")
+            for index, row in enumerate(records):
+                invalid_count += int(
+                    (
+                        str(row["entered_by_event_ref"]),
+                        str(row["model_state"]),
+                    )
+                    not in trigger_targets
+                )
+                if row["interval_status"] != "completed":
+                    continue
+                if index + 1 >= len(records):
+                    invalid_count += 1
+                    continue
+                following = records[index + 1]
+                exit_matches_entry = (
+                    row["exited_by_event_ref"] == following["entered_by_event_ref"]
+                    and row["exited_by_event_identity"] == following["entered_by_event_identity"]
+                )
+                trigger_matches = (
+                    str(row["model_state"]),
+                    str(following["model_state"]),
+                    str(row["exited_by_event_ref"]),
+                ) in transition_triggers
+                invalid_count += int(not exit_matches_entry or not trigger_matches)
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_history_state",
+        "lifecycle_history_state",
+        severity,
+        severity,
+        (
+            "Lifecycle history rows use declared states and trigger bindings"
+            if not invalid_count
+            else f"Lifecycle history has {invalid_count} state/trigger violation(s)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _lifecycle_history_interval_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    window_start = pd.Timestamp(meta.window.start)
+    window_end = pd.Timestamp(meta.window.end)
+    invalid_count = 0
+    if set(LIFECYCLE_HISTORY_COLUMNS).issubset(df.columns):
+        ordering: list[tuple[str, pd.Timestamp]] = []
+        expected_final = (
+            "coverage_censored" if meta.coverage_basis == "unknown" else "right_censored"
+        )
+        for subject, subject_rows in df.groupby("subject_identity", sort=False):
+            records = subject_rows.to_dict("records")
+            previous: dict[Any, Any] | None = None
+            for row in records:
+                start = pd.Timestamp(row["valid_from"])
+                end = pd.Timestamp(row["valid_to"])
+                ordering.append(
+                    (
+                        json.dumps(subject, sort_keys=True, default=str),
+                        start,
+                    )
+                )
+                invalid_count += int(
+                    start < window_start
+                    or end > window_end
+                    or start >= end
+                    or (
+                        previous is not None
+                        and (
+                            previous["interval_status"] != "completed"
+                            or pd.Timestamp(cast("Any", previous["valid_to"])) != start
+                        )
+                    )
+                )
+                previous = row
+            if previous is not None:
+                invalid_count += int(previous["interval_status"] != expected_final)
+        invalid_count += int(ordering != sorted(ordering))
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_history_intervals",
+        "lifecycle_history_intervals",
+        severity,
+        severity,
+        (
+            "Lifecycle history intervals are ordered, adjacent, and inside the window"
+            if not invalid_count
+            else f"Lifecycle history has {invalid_count} interval violation(s)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _lifecycle_history_count_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    seeded = int(df["subject_identity"].nunique()) if "subject_identity" in df.columns else 0
+    invalid_count = sum(
+        (
+            int(len(df) != meta.interval_count),
+            int(len(df) != meta.row_count),
+            int(seeded != meta.seeded_subject_count),
+            int(meta.seeded_subject_count > meta.population_count),
+            int(
+                meta.coverage_censored_subject_count
+                > meta.population_count - meta.seeded_subject_count
+            ),
+        )
+    )
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_history_counts",
+        "lifecycle_history_counts",
+        severity,
+        severity,
+        (
+            "Lifecycle history row and subject counts reconcile"
+            if not invalid_count
+            else f"Lifecycle history has {invalid_count} count mismatch(es)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "row_count": len(df),
+            "metadata_interval_count": meta.interval_count,
+            "seeded_subject_count": seeded,
+            "metadata_seeded_subject_count": meta.seeded_subject_count,
+            "population_count": meta.population_count,
+            "coverage_censored_subject_count": meta.coverage_censored_subject_count,
+        },
+    )
+
+
+def _lifecycle_frame_dir(
+    frame: LifecycleFrame,
+    *,
+    artifact_ref: str,
+) -> Path:
+    return (
+        Path(frame.meta.project_root)
+        / ".marivo"
+        / "analysis"
+        / "sessions"
+        / frame.meta.session_id
+        / "frames"
+        / artifact_ref
+    )
+
+
+def _load_lifecycle_source_history(
+    frame: LifecycleFrame,
+) -> tuple[pd.DataFrame, LifecycleHistoryFrameMeta] | None:
+    meta = frame.meta
+    if not isinstance(
+        meta,
+        (
+            LifecycleDistributionFrameMeta,
+            LifecycleTransitionsFrameMeta,
+            LifecycleDwellFrameMeta,
+            LifecycleViolationsFrameMeta,
+        ),
+    ):
+        return None
+    frame_dir = _lifecycle_frame_dir(frame, artifact_ref=meta.source_history_ref)
+    data_path = frame_dir / "data.parquet"
+    meta_path = frame_dir / "meta.json"
+    if not data_path.is_file() or not meta_path.is_file():
+        return None
+    try:
+        source_meta = LifecycleHistoryFrameMeta.model_validate_json(
+            meta_path.read_text(encoding="utf-8")
+        )
+        source_df = pd.read_parquet(
+            data_path,
+            engine="pyarrow",
+            to_pandas_kwargs={},
+        )
+        trace_path = frame_dir / source_meta.violation_trace.filename
+        if (
+            source_meta.violation_trace.content_hash is None
+            or not trace_path.is_file()
+            or compute_file_content_hash(trace_path) != source_meta.violation_trace.content_hash
+            or len(
+                pd.read_parquet(
+                    trace_path,
+                    engine="pyarrow",
+                    to_pandas_kwargs={},
+                )
+            )
+            != source_meta.violation_trace.row_count
+        ):
+            return None
+    except (OSError, TypeError, ValueError):
+        return None
+    for column in (
+        "subject_identity",
+        "entered_by_event_identity",
+        "exited_by_event_identity",
+    ):
+        if column in source_df:
+            source_df[column] = source_df[column].map(
+                lambda value: (
+                    tuple(value)
+                    if isinstance(value, list)
+                    else tuple(value.tolist())
+                    if callable(getattr(value, "tolist", None)) and isinstance(value.tolist(), list)
+                    else value
+                )
+            )
+    if (
+        source_meta.ref != meta.source_history_ref
+        or source_meta.content_hash is None
+        or source_meta.content_hash != meta.source_history_fingerprint
+        or compute_frame_content_hash(meta=source_meta, data_path=data_path)
+        != source_meta.content_hash
+        or source_meta.state_model_ref != meta.state_model_ref
+        or source_meta.state_model_fingerprint != meta.state_model_fingerprint
+    ):
+        return None
+    return source_df, source_meta
+
+
+def _lifecycle_source_history_check(frame: LifecycleFrame) -> dict[str, str]:
+    loaded = _load_lifecycle_source_history(frame)
+    valid = loaded is not None
+    return _result(
+        "lifecycle_source_history",
+        "lifecycle_source_history",
+        "ok" if valid else "blocking",
+        "ok" if valid else "blocking",
+        (
+            "Lifecycle reducer source history and content fingerprint are current"
+            if valid
+            else "Lifecycle reducer source history is missing, corrupt, or stale"
+        ),
+        {"invalid_count": int(not valid)},
+    )
+
+
+def _lifecycle_trace_check(frame: LifecycleFrame) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    trace = frame._auxiliary_frames.get(meta.violation_trace.filename)
+    invalid_count = 0
+    if trace is None:
+        invalid_count += 1
+    else:
+        invalid_count += int(tuple(trace.columns) != LIFECYCLE_VIOLATIONS_COLUMNS)
+        invalid_count += int(len(trace) != meta.violation_trace.row_count)
+        if set(LIFECYCLE_VIOLATIONS_COLUMNS).issubset(trace.columns):
+            states = {item.state.name for item in meta.states}
+            trigger_refs = {item.event_ref.path for item in meta.triggers}
+            components = len(meta.subject_identity)
+            invalid_count += sum(
+                int(
+                    not _identity_is_valid(
+                        row["subject_identity"],
+                        components=components,
+                    )
+                    or row["model_state_at_event"] not in states
+                    or row["trigger_event_ref"] not in trigger_refs
+                    or not isinstance(row["trigger_event_identity"], tuple)
+                    or not _is_utc_value(row["occurred_at"])
+                    or row["violation_kind"]
+                    not in {"illegal_transition", "transition_from_terminal"}
+                )
+                for row in trace.to_dict("records")
+            )
+    if meta.violation_trace.content_hash is not None:
+        artifact_ref = meta.artifact_id or meta.ref
+        trace_path = (
+            _lifecycle_frame_dir(frame, artifact_ref=artifact_ref) / meta.violation_trace.filename
+        )
+        invalid_count += int(
+            not trace_path.is_file()
+            or compute_file_content_hash(trace_path) != meta.violation_trace.content_hash
+        )
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_trace",
+        "lifecycle_trace",
+        severity,
+        severity,
+        (
+            "Lifecycle replay trace matches its closed manifest"
+            if not invalid_count
+            else f"Lifecycle replay trace has {invalid_count} integrity violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "trace_row_count": 0 if trace is None else len(trace),
+            "metadata_trace_row_count": meta.violation_trace.row_count,
+        },
+    )
+
+
+def _coverage_entry_issues(
+    coverage: EventInputCoverage,
+    *,
+    required_through: pd.Timestamp,
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    if coverage.basis == "observed_watermark":
+        if coverage.receipt is None:
+            issues.append("missing_watermark_receipt")
+        else:
+            try:
+                complete_through = pd.Timestamp(coverage.receipt.complete_through)
+            except (TypeError, ValueError):
+                issues.append("invalid_complete_through")
+            else:
+                if complete_through.tzinfo is None or complete_through < required_through:
+                    issues.append("watermark_before_window_end")
+    elif coverage.basis == "declared_complete":
+        if not coverage.declaration_fingerprint or not coverage.declaration_rationale:
+            issues.append("missing_declaration_evidence")
+    elif coverage.basis != "unknown":
+        issues.append("invalid_basis")
+    return tuple(issues)
+
+
+def _lifecycle_coverage_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    required_through = pd.Timestamp(meta.window.end)
+    expected_refs = tuple(dict.fromkeys(item.event_ref.path for item in meta.triggers))
+    coverage_by_ref: dict[str, list[EventInputCoverage]] = {}
+    for item in meta.input_coverage:
+        coverage_by_ref.setdefault(item.event_ref.path, []).append(item)
+    rows: list[dict[str, str]] = []
+    for event_ref in expected_refs:
+        matches = coverage_by_ref.get(event_ref, [])
+        coverage = matches[0] if len(matches) == 1 else None
+        issues = (
+            _coverage_entry_issues(
+                coverage,
+                required_through=required_through,
+            )
+            if coverage is not None
+            else ("missing_or_duplicate_coverage",)
+        )
+        unknown = coverage is not None and coverage.basis == "unknown"
+        severity = "blocking" if issues else "warning" if unknown else "ok"
+        rows.append(
+            _result(
+                f"lifecycle_coverage:{event_ref}",
+                "lifecycle_coverage",
+                severity,
+                severity,
+                (
+                    f"Lifecycle coverage is unknown for {event_ref}"
+                    if unknown and not issues
+                    else (
+                        f"Lifecycle coverage for {event_ref} is invalid"
+                        if issues
+                        else f"Lifecycle coverage for {event_ref} is supported"
+                    )
+                ),
+                {
+                    "event_ref": event_ref,
+                    "basis": coverage.basis if coverage is not None else None,
+                    "invalid_count": len(issues),
+                    "unknown_count": int(unknown),
+                    "evidence_issues": issues,
+                },
+            )
+        )
+    expected_basis = _expected_coverage_basis(meta.input_coverage)
+    aggregate_valid = meta.coverage_basis == expected_basis and set(coverage_by_ref) == set(
+        expected_refs
+    )
+    rows.append(
+        _result(
+            "lifecycle_coverage:aggregate",
+            "lifecycle_coverage",
+            "ok" if aggregate_valid else "blocking",
+            "ok" if aggregate_valid else "blocking",
+            (
+                "Lifecycle aggregate coverage matches its per-Event evidence"
+                if aggregate_valid
+                else "Lifecycle aggregate coverage does not match its per-Event evidence"
+            ),
+            {
+                "basis": meta.coverage_basis,
+                "expected_basis": expected_basis,
+                "invalid_count": int(not aggregate_valid),
+                "unknown_count": int(meta.coverage_basis == "unknown"),
+            },
+        )
+    )
+    return rows
+
+
+def _lifecycle_declaration_check(frame: LifecycleFrame) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    declared = [item for item in meta.input_coverage if item.basis == "declared_complete"]
+    count = len(declared)
+    severity = "warning" if count else "ok"
+    return _result(
+        "declared_completeness_used",
+        "declared_completeness_used",
+        severity,
+        severity,
+        (
+            f"{count} Lifecycle Event input(s) rely on caller-declared completeness"
+            if count
+            else "no caller completeness declaration was used"
+        ),
+        {
+            "declared_input_count": count,
+            "event_refs": [item.event_ref.path for item in declared],
+        },
+    )
+
+
+def _lifecycle_censoring_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleHistoryFrameMeta", frame.meta)
+    interval_count = (
+        int((df["interval_status"] == "coverage_censored").sum()) if "interval_status" in df else 0
+    )
+    subject_count = meta.coverage_censored_subject_count
+    present = interval_count > 0 or subject_count > 0
+    return _result(
+        "lifecycle_censoring",
+        "lifecycle_censoring",
+        "warning" if present else "ok",
+        "warning" if present else "ok",
+        (
+            "Lifecycle replay contains coverage-censored state"
+            if present
+            else "Lifecycle replay has no coverage-censored state"
+        ),
+        {
+            "coverage_censored_interval_count": interval_count,
+            "coverage_censored_subject_count": subject_count,
+            "invalid_count": 0,
+        },
+    )
+
+
+def _lifecycle_distribution_row_contract_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleDistributionFrameMeta", frame.meta)
+    expected_columns = _lifecycle_expected_columns(frame)
+    invalid_rows = 0
+    if set(expected_columns).issubset(df.columns):
+        keys = [*(axis.output_column for axis in meta.axes), "as_of", "model_state"]
+        invalid_rows += int(df.duplicated(subset=keys, keep=False).sum())
+        state_order = tuple(item.state.name for item in meta.states)
+        axis_columns = [axis.output_column for axis in meta.axes]
+        group_columns = [*axis_columns, "as_of"]
+        groups = (
+            df.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), df),)
+        )
+        for _key, group in groups:
+            invalid_rows += int(tuple(group["model_state"]) != state_order)
+        invalid_rows += int(not set(df["as_of"]).issubset(set(meta.at)))
+    return _lifecycle_row_contract_result(
+        check_id="lifecycle_distribution_row_contract",
+        df=df,
+        expected_columns=expected_columns,
+        invalid_rows=invalid_rows,
+    )
+
+
+def _nonnegative_integer(value: object) -> bool:
+    return (
+        isinstance(value, Real)
+        and not isinstance(value, bool)
+        and float(value).is_integer()
+        and float(value) >= 0
+    )
+
+
+def _lifecycle_distribution_math_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleDistributionFrameMeta", frame.meta)
+    invalid_count = 0
+    required = {*_lifecycle_expected_columns(frame)}
+    if required.issubset(df.columns):
+        axis_columns = [axis.output_column for axis in meta.axes]
+        for _key, group in df.groupby(
+            [*axis_columns, "as_of"],
+            dropna=False,
+            sort=False,
+        ):
+            valid_counts = all(_nonnegative_integer(value) for value in group["subject_count"])
+            invalid_count += int(not valid_counts)
+            if not valid_counts:
+                continue
+            denominator = int(pd.to_numeric(group["subject_count"]).sum())
+            for count, share in zip(
+                group["subject_count"],
+                group["share"],
+                strict=True,
+            ):
+                if denominator == 0:
+                    invalid_count += int(not _safe_missing(share))
+                else:
+                    invalid_count += int(
+                        _safe_missing(share)
+                        or abs(float(share) - float(count) / denominator) > 1e-12
+                    )
+        for instant in meta.at:
+            instant_rows = df.loc[df["as_of"] == instant]
+            observed = int(pd.to_numeric(instant_rows["subject_count"]).sum())
+            invalid_count += int(observed != meta.known_subject_counts[instant])
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_distribution_math",
+        "lifecycle_distribution_math",
+        severity,
+        severity,
+        (
+            "Lifecycle distribution counts and shares reconcile"
+            if not invalid_count
+            else f"Lifecycle distribution has {invalid_count} math violation(s)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _source_state_counts(
+    source: pd.DataFrame,
+    *,
+    instants: tuple[str, ...],
+    states: tuple[str, ...],
+) -> dict[tuple[str, str], int]:
+    return {
+        (instant, state): int(
+            (
+                (pd.to_datetime(source["valid_from"], utc=True) <= pd.Timestamp(instant))
+                & (pd.to_datetime(source["valid_to"], utc=True) > pd.Timestamp(instant))
+                & (source["model_state"] == state)
+            ).sum()
+        )
+        for instant in instants
+        for state in states
+    }
+
+
+def _lifecycle_distribution_reconciliation_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleDistributionFrameMeta", frame.meta)
+    loaded = _load_lifecycle_source_history(frame)
+    invalid_count = 0
+    hash_matches = False
+    if loaded is None:
+        invalid_count = 1
+    else:
+        source, source_meta = loaded
+        states = tuple(item.state.name for item in meta.states)
+        expected = _source_state_counts(
+            source,
+            instants=meta.at,
+            states=states,
+        )
+        axis_columns = [axis.output_column for axis in meta.axes]
+        reconciliation: list[dict[str, object]] = []
+        for instant in meta.at:
+            for state in states:
+                current = df.loc[(df["as_of"] == instant) & (df["model_state"] == state)]
+                grouped_count = int(
+                    pd.to_numeric(current["subject_count"], errors="coerce").fillna(0).sum()
+                )
+                source_count = expected[(instant, state)]
+                invalid_count += int(grouped_count != source_count)
+                reconciliation.append(
+                    {
+                        "as_of": instant,
+                        "model_state": state,
+                        "ungrouped_count": source_count,
+                        "grouped_count": grouped_count,
+                    }
+                )
+            known = sum(expected[(instant, state)] for state in states)
+            invalid_count += int(meta.known_subject_counts[instant] != known)
+            invalid_count += int(
+                meta.coverage_censored_subject_counts[instant]
+                != source_meta.population_count - known
+            )
+        hash_matches = stable_digest(reconciliation) == meta.grouped_reconciliation_hash
+        invalid_count += int(not hash_matches)
+        del axis_columns
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_distribution_reconciliation",
+        "lifecycle_distribution_reconciliation",
+        severity,
+        severity,
+        (
+            "Lifecycle grouped distribution reconciles to committed history"
+            if not invalid_count
+            else f"Lifecycle distribution has {invalid_count} reconciliation violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "receipt_matches_current_rows": hash_matches,
+        },
+    )
+
+
+def _lifecycle_transitions_row_contract_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleTransitionsFrameMeta", frame.meta)
+    invalid_rows = 0
+    if set(LIFECYCLE_TRANSITIONS_COLUMNS).issubset(df.columns):
+        actual_pairs = tuple(
+            zip(
+                df["from_model_state"],
+                df["to_model_state"],
+                strict=True,
+            )
+        )
+        expected_pairs = tuple((pair.from_state, pair.to_state) for pair in meta.modeled_pairs)
+        invalid_rows += int(actual_pairs != expected_pairs)
+        invalid_rows += int(set(df["transition_status"]) != ({"modeled"} if len(df) else set()))
+    return _lifecycle_row_contract_result(
+        check_id="lifecycle_transitions_row_contract",
+        df=df,
+        expected_columns=LIFECYCLE_TRANSITIONS_COLUMNS,
+        invalid_rows=invalid_rows,
+    )
+
+
+def _dataframes_match(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    *,
+    columns: tuple[str, ...],
+) -> bool:
+    if tuple(left.columns) != columns or tuple(right.columns) != columns:
+        return False
+    try:
+        pd.testing.assert_frame_equal(
+            left.reset_index(drop=True),
+            right.reset_index(drop=True),
+            check_dtype=False,
+            check_like=False,
+        )
+    except AssertionError:
+        return False
+    return True
+
+
+def _lifecycle_transitions_math_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleTransitionsFrameMeta", frame.meta)
+    loaded = _load_lifecycle_source_history(frame)
+    invalid_count = 0
+    if loaded is None:
+        invalid_count = 1
+    else:
+        source, source_meta = loaded
+        expected = reduce_lifecycle_transitions(
+            source,
+            triggers=source_meta.triggers,
+        )
+        invalid_count += int(
+            not _dataframes_match(
+                df,
+                expected.rows,
+                columns=LIFECYCLE_TRANSITIONS_COLUMNS,
+            )
+        )
+        invalid_count += int(meta.modeled_transition_count != expected.modeled_transition_count)
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_transitions_math",
+        "lifecycle_transitions_math",
+        severity,
+        severity,
+        (
+            "Lifecycle transitions exactly recompute from committed history"
+            if not invalid_count
+            else f"Lifecycle transitions have {invalid_count} source mismatch(es)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _lifecycle_dwell_row_contract_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    expected_states = tuple(item.state.name for item in frame.meta.states)
+    invalid_rows = (
+        int(tuple(df["model_state"]) != expected_states) if "model_state" in df.columns else 0
+    )
+    return _lifecycle_row_contract_result(
+        check_id="lifecycle_dwell_row_contract",
+        df=df,
+        expected_columns=LIFECYCLE_DWELL_COLUMNS,
+        invalid_rows=invalid_rows,
+    )
+
+
+def _lifecycle_dwell_math_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleDwellFrameMeta", frame.meta)
+    loaded = _load_lifecycle_source_history(frame)
+    invalid_count = 0
+    if loaded is None:
+        invalid_count = 1
+    else:
+        source, _source_meta = loaded
+        expected = reduce_lifecycle_dwell(
+            source,
+            state_order=tuple(item.state.name for item in meta.states),
+        )
+        invalid_count += int(
+            not _dataframes_match(
+                df,
+                expected.rows,
+                columns=LIFECYCLE_DWELL_COLUMNS,
+            )
+        )
+        invalid_count += int(meta.source_interval_count != expected.source_interval_count)
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_dwell_math",
+        "lifecycle_dwell_math",
+        severity,
+        severity,
+        (
+            "Lifecycle dwell exactly recomputes from committed history"
+            if not invalid_count
+            else f"Lifecycle dwell has {invalid_count} source mismatch(es)"
+        ),
+        {"invalid_count": invalid_count},
+    )
+
+
+def _lifecycle_violations_row_contract_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    components = len(frame.meta.subject_identity)
+    invalid_rows = 0
+    if set(LIFECYCLE_VIOLATIONS_COLUMNS).issubset(df.columns):
+        states = {item.state.name for item in frame.meta.states}
+        for row in df.to_dict("records"):
+            invalid_rows += int(
+                not _identity_is_valid(
+                    row["subject_identity"],
+                    components=components,
+                )
+                or row["model_state_at_event"] not in states
+                or not isinstance(row["trigger_event_ref"], str)
+                or not isinstance(row["trigger_event_identity"], tuple)
+                or not _is_utc_value(row["occurred_at"])
+                or row["violation_kind"] not in {"illegal_transition", "transition_from_terminal"}
+            )
+    return _lifecycle_row_contract_result(
+        check_id="lifecycle_violations_row_contract",
+        df=df,
+        expected_columns=LIFECYCLE_VIOLATIONS_COLUMNS,
+        invalid_rows=invalid_rows,
+    )
+
+
+def _lifecycle_violations_math_check(
+    df: pd.DataFrame,
+    frame: LifecycleFrame,
+) -> dict[str, str]:
+    meta = cast("LifecycleViolationsFrameMeta", frame.meta)
+    loaded = _load_lifecycle_source_history(frame)
+    invalid_count = 0
+    if loaded is None:
+        invalid_count = 1
+    else:
+        _source, source_meta = loaded
+        source_dir = _lifecycle_frame_dir(
+            frame,
+            artifact_ref=meta.source_history_ref,
+        )
+        trace_path = source_dir / source_meta.violation_trace.filename
+        if (
+            not trace_path.is_file()
+            or source_meta.violation_trace.content_hash is None
+            or compute_file_content_hash(trace_path) != source_meta.violation_trace.content_hash
+            or source_meta.violation_trace.content_hash != meta.source_trace_content_hash
+        ):
+            invalid_count += 1
+        else:
+            trace = pd.read_parquet(
+                trace_path,
+                engine="pyarrow",
+                to_pandas_kwargs={},
+            )
+            for column in ("subject_identity", "trigger_event_identity"):
+                trace[column] = trace[column].map(
+                    lambda value: (
+                        tuple(value)
+                        if isinstance(value, list)
+                        else tuple(value.tolist())
+                        if callable(getattr(value, "tolist", None))
+                        and isinstance(value.tolist(), list)
+                        else value
+                    )
+                )
+            expected = reduce_lifecycle_violations(trace)
+            invalid_count += int(
+                not _dataframes_match(
+                    df,
+                    expected.rows,
+                    columns=LIFECYCLE_VIOLATIONS_COLUMNS,
+                )
+            )
+            invalid_count += int(meta.violation_count != expected.violation_count)
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "lifecycle_violations_math",
+        "lifecycle_violations_math",
+        severity,
+        severity,
+        (
+            "Lifecycle violations exactly reproduce the committed replay trace"
+            if not invalid_count
+            else f"Lifecycle violations have {invalid_count} source mismatch(es)"
+        ),
+        {"invalid_count": invalid_count},
+    )
 
 
 def _result(

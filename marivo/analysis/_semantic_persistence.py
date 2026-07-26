@@ -102,6 +102,94 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
     if len(fingerprints) > 1:
         raise ValueError("job frames disagree on catalog definition fingerprint")
 
+    lifecycle_frames = tuple(frame for frame in frames if frame.meta.kind == "lifecycle_frame")
+    if lifecycle_frames:
+        if len(lifecycle_frames) != len(frames) or len(lifecycle_frames) != 1:
+            raise ValueError("analysis job Lifecycle semantics require exactly one LifecycleFrame")
+        meta = cast("Any", lifecycle_frames[0].meta)
+        lifecycle_payload: dict[str, Any] = {
+            "catalog_definition_fingerprint": next(iter(fingerprints), None),
+            "subject": {
+                "kind": "lifecycle",
+                "subject_entity_ref": meta.subject_entity_ref.to_dict(),
+                "subject_identity_signature": list(meta.subject_identity),
+            },
+        }
+        common = {
+            "state_model_ref": meta.state_model_ref.to_dict(),
+            "state_model_fingerprint": meta.state_model_fingerprint,
+            "states": [item.model_dump(mode="json") for item in meta.states],
+        }
+        if meta.semantic_kind == "history":
+            lifecycle_payload["lifecycle_history"] = {
+                **common,
+                "seed": meta.seed.model_dump(mode="json"),
+                "window": meta.window.model_dump(mode="json"),
+                "violation_behavior_id": meta.violation_behavior_id,
+                "triggers": [item.model_dump(mode="json") for item in meta.triggers],
+                "completeness": [item.model_dump(mode="json") for item in meta.completeness],
+                "input_coverage": [item.model_dump(mode="json") for item in meta.input_coverage],
+                "coverage_basis": meta.coverage_basis,
+                "event_fingerprints": dict(sorted(meta.event_fingerprints.items())),
+                "event_identity_components": {
+                    key: [component.to_dict() for component in components]
+                    for key, components in sorted(meta.event_identity_components.items())
+                },
+                "query_refs": list(meta.query_refs),
+                "population_count": meta.population_count,
+                "seeded_subject_count": meta.seeded_subject_count,
+                "coverage_censored_subject_count": (meta.coverage_censored_subject_count),
+                "interval_count": meta.interval_count,
+                "violation_count": meta.violation_count,
+                "pre_inception_ignored_counts": dict(
+                    sorted(meta.pre_inception_ignored_counts.items())
+                ),
+                "violation_trace": meta.violation_trace.model_dump(mode="json"),
+            }
+            if meta.cohort is not None:
+                lifecycle_payload["cohort"] = meta.cohort.model_dump(mode="json")
+        else:
+            reducer_payload: dict[str, Any] = {
+                **common,
+                "kind": meta.semantic_kind,
+                "source_artifact_ref": meta.source_history_ref,
+                "source_artifact_fingerprint": meta.source_history_fingerprint,
+            }
+            if meta.semantic_kind == "distribution":
+                reducer_payload.update(
+                    {
+                        "at": list(meta.at),
+                        "axes": [item.model_dump(mode="json") for item in meta.axes],
+                        "known_subject_counts": dict(sorted(meta.known_subject_counts.items())),
+                        "coverage_censored_subject_counts": dict(
+                            sorted(meta.coverage_censored_subject_counts.items())
+                        ),
+                        "grouped_reconciliation_hash": (meta.grouped_reconciliation_hash),
+                    }
+                )
+            elif meta.semantic_kind == "transitions":
+                reducer_payload.update(
+                    {
+                        "modeled_pairs": [
+                            item.model_dump(mode="json") for item in meta.modeled_pairs
+                        ],
+                        "modeled_transition_count": meta.modeled_transition_count,
+                    }
+                )
+            elif meta.semantic_kind == "dwell":
+                reducer_payload["source_interval_count"] = meta.source_interval_count
+            elif meta.semantic_kind == "violations":
+                reducer_payload.update(
+                    {
+                        "violation_count": meta.violation_count,
+                        "source_trace_content_hash": meta.source_trace_content_hash,
+                    }
+                )
+            else:
+                raise ValueError(f"unsupported Lifecycle semantic shape {meta.semantic_kind!r}")
+            lifecycle_payload["lifecycle_reducer"] = reducer_payload
+        return lifecycle_payload
+
     event_frames = tuple(frame for frame in frames if frame.meta.kind == "event_frame")
     if event_frames:
         if len(event_frames) != len(frames):

@@ -31,6 +31,7 @@ from marivo.analysis.evidence.extraction.event import (
     extract_event_time_to_event_finding,
 )
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
+from marivo.analysis.evidence.extraction.lifecycle import extract_lifecycle_finding
 from marivo.analysis.evidence.extraction.observation import (
     extract_metric_value_findings,
     extract_observation_digest_finding,
@@ -56,15 +57,27 @@ from marivo.analysis.evidence.types import (
     EvidenceScope,
     EvidenceSubject,
     Finding,
+    LifecycleSubject,
     OperatorSemantics,
     QualitySummary,
     RawFallback,
     Subject,
     SubjectSetSubject,
 )
-from marivo.analysis.frames._content_hash import compute_frame_content_hash
-from marivo.analysis.frames._meta_defaults import compute_analysis_scope, compute_quality_summary
-from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
+from marivo.analysis.frames._content_hash import (
+    compute_file_content_hash,
+    compute_frame_content_hash,
+)
+from marivo.analysis.frames._meta_defaults import (
+    compute_analysis_scope,
+    compute_quality_summary,
+)
+from marivo.analysis.frames.base import (
+    CURRENT_ARTIFACT_SCHEMA_VERSION,
+    BaseFrame,
+    _FrameAuxiliaryReceipt,
+)
+from marivo.analysis.frames.lifecycle import LifecycleFrameMetaVariant
 from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
@@ -407,6 +420,19 @@ def _extract_findings(
                 source_refs=tuple(sorted(getattr(meta, "event_fingerprints", {}))),
             )
         ]
+    if extractor_family == "lifecycle_frame":
+        if not isinstance(subject, LifecycleSubject):
+            raise TypeError("lifecycle_frame evidence requires LifecycleSubject")
+        return [
+            extract_lifecycle_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                committed_at=committed_at,
+                meta=cast("LifecycleFrameMetaVariant", meta),
+            )
+        ]
     if extractor_family == "subject_set":
         if not isinstance(subject, SubjectSetSubject):
             raise TypeError("subject_set evidence requires SubjectSetSubject")
@@ -617,7 +643,7 @@ def _extract_findings(
 def _operator_for(step_type: str, extractor_family: str) -> str:
     if step_type in {"transform", "select_metric"}:
         return step_type
-    if extractor_family == "event_frame":
+    if extractor_family in {"event_frame", "lifecycle_frame"}:
         return step_type
     return {
         "metric_frame": "observe",
@@ -810,7 +836,7 @@ def _reuse_committed_result(
             )
         persisted_meta = (
             type(frame.meta).model_validate_json(json.dumps(persisted_payload))
-            if getattr(frame.meta, "kind", None) == "event_frame"
+            if getattr(frame.meta, "kind", None) in {"event_frame", "lifecycle_frame"}
             else type(frame.meta).model_validate(persisted_payload)
         )
         persisted_df = pd.read_parquet(parquet_path, engine="pyarrow", to_pandas_kwargs={})
@@ -820,8 +846,39 @@ def _reuse_committed_result(
         return None
     if persisted_meta.artifact_id != artifact_id or persisted_meta.ref != artifact_id:
         return None
+    auxiliary_frames: dict[str, pd.DataFrame] = {}
+    if (
+        getattr(persisted_meta, "kind", None) == "lifecycle_frame"
+        and getattr(persisted_meta, "semantic_kind", None) == "history"
+    ):
+        lifecycle_meta = cast("Any", persisted_meta)
+        manifest = lifecycle_meta.violation_trace
+        if manifest.content_hash is None:
+            return None
+        artifact_dir = parquet_path.parent.resolve()
+        trace_path = (artifact_dir / manifest.filename).resolve()
+        if trace_path.parent != artifact_dir or not trace_path.is_file():
+            return None
+        if compute_file_content_hash(trace_path) != manifest.content_hash:
+            return None
+        try:
+            trace = pd.read_parquet(
+                trace_path,
+                engine="pyarrow",
+                to_pandas_kwargs={},
+            )
+        except Exception:
+            return None
+        if len(trace) != manifest.row_count:
+            return None
+        if lifecycle_meta.content_hash != compute_frame_content_hash(
+            meta=lifecycle_meta, data_path=parquet_path
+        ):
+            return None
+        auxiliary_frames[manifest.filename] = trace
     frame.meta = persisted_meta
     frame._df = persisted_df
+    frame._auxiliary_frames = auxiliary_frames
     restore_persisted_columns = getattr(
         frame,
         "_restore_persisted_identity_columns",
@@ -883,6 +940,18 @@ def event_subject_for_frame(frame: BaseFrame) -> EventSubject:
     )
 
 
+def lifecycle_subject_for_frame(frame: BaseFrame) -> LifecycleSubject:
+    """Build the identity-safe evidence subject for a Lifecycle frame."""
+    meta = cast("Any", frame.meta)
+    if getattr(meta, "kind", None) != "lifecycle_frame":
+        raise TypeError("lifecycle_subject_for_frame requires LifecycleFrame")
+    return LifecycleSubject(
+        subject_entity_ref=meta.subject_entity_ref,
+        subject_identity_signature=tuple(meta.subject_identity),
+        analysis_axis=meta.semantic_kind,
+    )
+
+
 def subject_set_subject_for_frame(frame: BaseFrame) -> SubjectSetSubject:
     """Build the identity-safe evidence subject for a SubjectSet."""
     meta = cast("Any", frame.meta)
@@ -934,6 +1003,22 @@ def commit_result(
         return reused
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
+    auxiliary_receipts: list[_FrameAuxiliaryReceipt] = []
+    auxiliary_filenames: set[str] = set()
+    for table in frame._auxiliary_tables():
+        if table.filename in auxiliary_filenames:
+            raise ValueError("frame auxiliary table filenames must be unique")
+        auxiliary_filenames.add(table.filename)
+        path = artifact_dir / table.filename
+        auxiliary_sha = _atomic_write_parquet(table.dataframe, path)
+        auxiliary_receipts.append(
+            _FrameAuxiliaryReceipt(
+                filename=table.filename,
+                row_count=len(table.dataframe),
+                byte_size=path.stat().st_size,
+                content_hash=f"sha256:{auxiliary_sha}",
+            )
+        )
     scope = frame.meta.analysis_scope or compute_analysis_scope(frame)
     slice_predicates = getattr(frame.meta, "slice_predicates", ())
     if not slice_predicates:
@@ -942,6 +1027,8 @@ def commit_result(
         subject = subject.model_copy(update={"slice_predicates": slice_predicates})
     if getattr(frame.meta, "kind", None) == "event_frame":
         subject = event_subject_for_frame(frame)
+    elif getattr(frame.meta, "kind", None) == "lifecycle_frame":
+        subject = lifecycle_subject_for_frame(frame)
     elif getattr(frame.meta, "kind", None) == "subject_set":
         subject = subject_set_subject_for_frame(frame)
     elif isinstance(subject, Subject) and isinstance(scope, AnalysisScope):
@@ -1083,6 +1170,16 @@ def commit_result(
     if hasattr(frame.meta, "affordances"):
         meta_update["affordances"] = []
     new_meta = frame.meta.model_copy(update=meta_update)
+    new_meta = frame._bind_auxiliary_receipts(
+        new_meta,
+        tuple(auxiliary_receipts),
+    )
+    new_meta = new_meta.model_copy(
+        update={
+            "byte_size": parquet_path.stat().st_size
+            + sum(item.byte_size for item in auxiliary_receipts)
+        }
+    )
     new_meta = new_meta.model_copy(
         update={"content_hash": compute_frame_content_hash(meta=new_meta, data_path=parquet_path)}
     )
@@ -1120,6 +1217,7 @@ __all__ = [
     "compute_prospective_artifact_id",
     "event_subject_for_frame",
     "frame_exists_on_disk",
+    "lifecycle_subject_for_frame",
     "rollback_committed_result",
     "subject_set_subject_for_frame",
 ]

@@ -99,6 +99,15 @@ def test_every_datasource_minimal_example_executes(
 def _semantic_authoring_namespace() -> dict[str, object]:
     orders = ms.ref.entity("sales.orders")
     customers = ms.ref.entity("sales.customers")
+    created = ms.lifecycle_state(name="created", initial=True)
+    paid = ms.lifecycle_state(name="paid", terminal=True)
+    order_created = ms.ref.event("commerce.order_created")
+    payment_captured = ms.ref.event("commerce.payment_captured")
+    paid_transition = ms.transition(
+        from_state=created,
+        on=payment_captured,
+        to_state=paid,
+    )
     return {
         "md": md,
         "ms": ms,
@@ -123,6 +132,10 @@ def _semantic_authoring_namespace() -> dict[str, object]:
         "volume": ms.ref.measure("sales.orders.volume"),
         "event_to_buyer": ms.ref.relationship("sales.event_to_buyer"),
         "payment_succeeded": ms.ref.event("sales.payment_succeeded"),
+        "created": created,
+        "paid": paid,
+        "order_created": order_created,
+        "paid_transition": paid_transition,
     }
 
 

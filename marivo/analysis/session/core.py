@@ -41,18 +41,20 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
+    from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
+    from marivo.analysis.lifecycle import FromInception
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.runtime_metric import RuntimeMetricExpr
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.subject import SubjectSelection
     from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
-    from marivo.refs import DimensionKind, MetricKind, TimeDimensionKind
+    from marivo.refs import DimensionKind, MetricKind, StateModelKind, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
 
 
@@ -327,6 +329,7 @@ class Session(RenderableResult):
             available=(
                 ".catalog",
                 ".events",
+                ".lifecycle",
                 ".select_subjects(...)",
                 ".frame_summaries()",
                 ".recent_jobs()",
@@ -562,19 +565,26 @@ class Session(RenderableResult):
         """Return the typed Event Journey materialization and reducer namespace."""
         return SessionEvents(self)
 
+    @property
+    def lifecycle(self) -> SessionLifecycle:
+        """Return replay-based Lifecycle materialization and reducer operators."""
+        return SessionLifecycle(self)
+
     def select_subjects(
         self,
-        artifact: EventFrame,
+        artifact: EventFrame | LifecycleFrame,
         *,
         selection: SubjectSelection,
         analysis_purpose: str | None = None,
     ) -> SubjectSet:
-        """Select a persisted typed SubjectSet from a canonical Event journey.
+        """Select a persisted typed SubjectSet from a journey or replay history.
 
         Args:
-            artifact: Exact ``EventFrame[journey]`` produced in this session.
-            selection: Closed typed selection such as
-                ``mv.dropped_before(step=payment_step)``.
+            artifact: Exact ``EventFrame[journey]`` or ``LifecycleFrame[history]``
+                produced in this session.
+            selection: Closed typed selection matching the source artifact —
+                ``mv.dropped_before(step=...)`` for a journey, or
+                ``mv.in_state(state=..., as_of=...)`` for replay history.
             analysis_purpose: Optional business purpose retained in lineage.
 
         Returns:
@@ -585,10 +595,16 @@ class Session(RenderableResult):
             ...     journeys,
             ...     selection=mv.dropped_before(step=payment_step),
             ... )
+            >>> paid = session.select_subjects(
+            ...     history,
+            ...     selection=mv.in_state(paid_state, as_of="2026-07-15T00:00:00Z"),
+            ... )
 
         Constraints:
-            Phase 2 accepts only first-per-subject journeys and an exact
-            non-initial PatternStep retained by the source pattern.
+            Journeys accept only first-per-subject matching and an exact
+            non-initial PatternStep retained by the source pattern. Replay
+            history accepts only an exact retained ``ModelStateHandle`` and an
+            ``as_of`` inside the closed source replay window.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.subjects import select_subjects
@@ -1502,6 +1518,295 @@ class SessionEvents(RenderableResult):
                 journeys,
                 start_step=start_step,
                 end_step=end_step,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+
+@dataclass(frozen=True, repr=False)
+class SessionLifecycle(RenderableResult):
+    """Session-bound replay-based Lifecycle operators."""
+
+    _session: Session
+
+    def _repr_identity(self) -> str:
+        return f"SessionLifecycle session={self._session.id}"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(
+                ".replay(...)",
+                ".distribution(...)",
+                ".transitions(...)",
+                ".dwell(...)",
+                ".violations(...)",
+                ".render()",
+                ".show()",
+            ),
+        ).status("phase=lifecycle_replay")
+
+    def replay(
+        self,
+        model: _SemanticInput[StateModelKind],
+        *,
+        window: TimeScope,
+        seed: FromInception,
+        completeness: tuple[CompletenessDeclaration, ...] = (),
+        cohort: SubjectSet | None = None,
+        analysis_purpose: str | None = None,
+    ) -> LifecycleFrame:
+        """Replay one StateModel from its explicit inception seed.
+
+        State is reconstructed from the first qualifying inception, which may
+        precede ``window``; only the resulting intervals are clipped to the
+        half-open ``[start, end)`` window. Each modeled Event is queried once
+        however many triggers it serves, and Events outside the StateModel are
+        never read.
+
+        Args:
+            model: Current-catalog ``StateModelEntry`` or exact
+                ``Ref[state_model]`` declaring at least one inception trigger.
+            window: Half-open timezone-aware replay output window.
+            seed: ``mv.from_inception()``; replay has no default seed.
+            completeness: Optional exact declarations covering only Events used
+                by the current StateModel triggers.
+            cohort: Optional ready ``SubjectSet`` over the model subject Entity.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``LifecycleFrame[history]`` with one row per clipped
+            state interval, bound to a private fixed-contract violation trace.
+
+        Guidance:
+            Violation handling is the fixed v1 replay contract rather than a
+            policy slot: an occurrence that no modeled transition admits
+            records a violation-trace row and leaves state unchanged, and
+            modeled occurrences before inception are ignored rather than
+            counted as violations. Completeness governs censoring, not
+            correctness — without an authoritative watermark or a declaration
+            covering ``window.end``, open intervals are ``coverage_censored``
+            and subjects with no observed inception are censored instead of
+            failing. Prefer an observed watermark; use
+            ``mv.declared_complete_through(...)`` only as an explicit governed
+            assumption with a rationale.
+
+        Example:
+            >>> history = session.lifecycle.replay(
+            ...     order_lifecycle,
+            ...     window=mv.TimeScope(
+            ...         start="2026-07-01T00:00:00Z",
+            ...         end="2026-08-01T00:00:00Z",
+            ...     ),
+            ...     seed=mv.from_inception(),
+            ...     analysis_purpose="Read order state duration before the price change.",
+            ... )
+
+        Constraints:
+            Subject identity comes from the StateModel subject Entity primary
+            key. Same-time occurrences of different modeled Events are
+            rejected when their order would change state or violation
+            classification.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.lifecycle import replay
+
+        validate_capability_inputs(
+            "lifecycle.replay",
+            window=window,
+            completeness=completeness,
+            cohort=cohort,
+        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.lifecycle.replay",
+            family="lifecycle",
+            intent="lifecycle.replay",
+        ):
+            return replay(
+                model,
+                window=window,
+                seed=seed,
+                completeness=completeness,
+                cohort=cohort,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def distribution(
+        self,
+        history: LifecycleFrame,
+        *,
+        at: Sequence[str],
+        axes: Sequence[_SemanticInput[DimensionKind]] = (),
+        analysis_purpose: str | None = None,
+    ) -> LifecycleFrame:
+        """Reduce replay history into dense point-in-time state distributions.
+
+        Args:
+            history: Exact same-session ``LifecycleFrame[history]``.
+            at: Non-empty timezone-aware instants inside the replay window.
+            axes: Current-catalog Dimension entries or exact Dimension refs
+                reachable from the subject through one to-one path.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``LifecycleFrame[distribution]`` that is dense over
+            modeled states and reconciles exactly to ungrouped counts.
+
+        Example:
+            >>> spread = session.lifecycle.distribution(
+            ...     history,
+            ...     at=("2026-07-15T00:00:00Z",),
+            ... )
+
+        Constraints:
+            Reads only the committed history artifact; axis enrichment queries
+            governed subject Dimensions and never rereads Events.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.lifecycle_reducers import distribution
+
+        validate_capability_inputs(
+            "lifecycle.distribution",
+            history=history,
+            axes=axes,
+        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.lifecycle.distribution",
+            family="lifecycle",
+            intent="lifecycle.distribution",
+        ):
+            return distribution(
+                history,
+                at=at,
+                axes=axes,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def transitions(
+        self,
+        history: LifecycleFrame,
+        *,
+        analysis_purpose: str | None = None,
+    ) -> LifecycleFrame:
+        """Count dense modeled transitions from one committed replay history.
+
+        Args:
+            history: Exact same-session ``LifecycleFrame[history]``.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``LifecycleFrame[transitions]`` dense over the distinct
+            modeled state pairs, including zero counts, in declared order.
+
+        Example:
+            >>> moves = session.lifecycle.transitions(history)
+
+        Constraints:
+            Reads only the committed history artifact. Illegal occurrences are
+            not transitions; read them with ``session.lifecycle.violations``.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.lifecycle_reducers import transitions
+
+        validate_capability_inputs("lifecycle.transitions", history=history)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.lifecycle.transitions",
+            family="lifecycle",
+            intent="lifecycle.transitions",
+        ):
+            return transitions(
+                history,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def dwell(
+        self,
+        history: LifecycleFrame,
+        *,
+        analysis_purpose: str | None = None,
+    ) -> LifecycleFrame:
+        """Summarize completed and censored interval dwell by modeled state.
+
+        Args:
+            history: Exact same-session ``LifecycleFrame[history]``.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``LifecycleFrame[dwell]`` with one row per modeled
+            state and separate completed, right-censored, and
+            coverage-censored interval counts.
+
+        Example:
+            >>> durations = session.lifecycle.dwell(history)
+
+        Constraints:
+            Reads only the committed history artifact. Censored intervals are
+            reported separately and are never treated as completed durations.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.lifecycle_reducers import dwell
+
+        validate_capability_inputs("lifecycle.dwell", history=history)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.lifecycle.dwell",
+            family="lifecycle",
+            intent="lifecycle.dwell",
+        ):
+            return dwell(
+                history,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
+
+    def violations(
+        self,
+        history: LifecycleFrame,
+        *,
+        analysis_purpose: str | None = None,
+    ) -> LifecycleFrame:
+        """Expose the persisted fixed-contract replay violation trace.
+
+        Args:
+            history: Exact same-session ``LifecycleFrame[history]``.
+            analysis_purpose: Optional business purpose retained in lineage.
+
+        Returns:
+            A persisted ``LifecycleFrame[violations]`` with one row per
+            occurrence that no modeled transition admitted, carrying the state
+            that was left unchanged.
+
+        Guidance:
+            These rows are model-versus-data disagreements, not a data-quality
+            verdict. Read them as evidence that the StateModel is incomplete or
+            that the source Events are out of contract, and resolve that
+            business question before treating the replayed history as final.
+
+        Example:
+            >>> trace = session.lifecycle.violations(history)
+
+        Constraints:
+            Reads only the committed private trace bound to ``history``; it
+            never replays or rereads Events.
+        """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.intents.lifecycle_reducers import violations
+
+        validate_capability_inputs("lifecycle.violations", history=history)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.lifecycle.violations",
+            family="lifecycle",
+            intent="lifecycle.violations",
+        ):
+            return violations(
+                history,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

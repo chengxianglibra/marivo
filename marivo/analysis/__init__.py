@@ -70,9 +70,11 @@ from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.event import EventFrame
 from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
+from marivo.analysis.frames.lifecycle import LifecycleFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.frames.subject import SubjectSet
+from marivo.analysis.lifecycle import FromInception, InState, from_inception, in_state
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
@@ -159,7 +161,10 @@ __all__ = [
     "ForecastOutput",
     "FrameSummaryEntry",
     "FrameSummaryPage",
+    "FromInception",
     "HypothesisTestResult",
+    "InState",
+    "LifecycleFrame",
     "MetricFrame",
     "ObservationFact",
     "PatternStep",
@@ -178,8 +183,10 @@ __all__ = [
     "dropped_before",
     "every_start",
     "first_per_subject",
+    "from_inception",
     "holiday_aligned",
     "holiday_and_dow_aligned",
+    "in_state",
     "runtime_metric",
     "sequence",
     "session",

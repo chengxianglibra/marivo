@@ -18,6 +18,12 @@ from marivo.analysis.evidence.types import (
     EventTimeToEventObservationValue,
     EvidenceAvailabilityIssue,
     ForecastOutput,
+    LifecycleDistributionObservationValue,
+    LifecycleDwellObservationValue,
+    LifecycleHistoryObservationValue,
+    LifecycleSubject,
+    LifecycleTransitionsObservationValue,
+    LifecycleViolationsObservationValue,
     ObservationFact,
     PanelObservationValue,
     QualityCheckResult,
@@ -55,6 +61,8 @@ def _subject(digest: ArtifactDigest) -> str:
     subject = digest.subject
     if isinstance(subject, EventSubject):
         return f"{subject.subject_entity_ref.path}[{subject.analysis_axis}]"
+    if isinstance(subject, LifecycleSubject):
+        return f"{subject.subject_entity_ref.path}[lifecycle:{subject.analysis_axis}]"
     if isinstance(subject, SubjectSetSubject):
         return f"{subject.subject_entity_ref.path}[subject_set]"
     base = subject.metric or subject.entity or "subject"
@@ -147,6 +155,38 @@ def render_digest_item(item: DigestItem) -> str:
                 f"coverage_censored={value.coverage_censored_count} "
                 f"source_unused_ends={value.source_unused_end_count} "
                 f"median_seconds={_number(value.median_duration_seconds)}"
+            )
+        if isinstance(value, LifecycleHistoryObservationValue):
+            return (
+                f"lifecycle_history population={value.population_count} "
+                f"seeded={value.seeded_subject_count} intervals={value.interval_count} "
+                f"coverage_censored={value.coverage_censored_interval_count} "
+                f"violations={value.violation_count}"
+            )
+        if isinstance(value, LifecycleDistributionObservationValue):
+            return (
+                f"lifecycle_distribution instants={value.instant_count} "
+                f"states={value.state_count} rows={value.row_count} "
+                f"grouped={value.grouped} reconciled={value.reconciliation_passed}"
+            )
+        if isinstance(value, LifecycleTransitionsObservationValue):
+            return (
+                f"lifecycle_transitions modeled_pairs={value.modeled_pair_count} "
+                f"transitions={value.transition_count} "
+                f"nonzero_pairs={value.nonzero_pair_count}"
+            )
+        if isinstance(value, LifecycleDwellObservationValue):
+            return (
+                f"lifecycle_dwell states={value.state_count} "
+                f"intervals={value.interval_count} completed={value.completed_count} "
+                f"right_censored={value.right_censored_count} "
+                f"coverage_censored={value.coverage_censored_count}"
+            )
+        if isinstance(value, LifecycleViolationsObservationValue):
+            return (
+                f"lifecycle_violations total={value.violation_count} "
+                f"illegal={value.illegal_transition_count} "
+                f"terminal={value.transition_from_terminal_count}"
             )
         if isinstance(value, SubjectSetObservationValue):
             return (

@@ -187,6 +187,7 @@ def resolve_subject_axes(
     *,
     subject_entity: Ref[EntityKind],
     axes: Sequence[object],
+    _reserved_columns: frozenset[str] = _RESERVED_FUNNEL_COLUMNS,
 ) -> tuple[ResolvedSubjectAxis, ...]:
     """Resolve exact Dimension inputs to unique directed to-one subject paths."""
 
@@ -245,7 +246,7 @@ def resolve_subject_axes(
         if not isinstance(details, DimensionDetails):
             raise AssertionError(f"Dimension entry carried {type(details).__name__}")
         output_column = details.name
-        if output_column in _RESERVED_FUNNEL_COLUMNS or output_column in seen_columns:
+        if output_column in _reserved_columns or output_column in seen_columns:
             raise _axis_error(
                 "funnel axis output column collides with another public column",
                 expected="unique Dimension expression names outside the funnel row contract",

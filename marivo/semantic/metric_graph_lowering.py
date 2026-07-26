@@ -168,6 +168,7 @@ def _ref_payload(kind: str, path: str) -> RefPayloadV1:
         "metric": ref_factory.metric,
         "relationship": ref_factory.relationship,
         "event": ref_factory.event,
+        "state_model": ref_factory.state_model,
     }
     factory = factories.get(kind)
     if factory is None:
@@ -212,6 +213,7 @@ def _entry_for(
             SemanticKind.METRIC: ref_factory.metric,
             SemanticKind.RELATIONSHIP: ref_factory.relationship,
             SemanticKind.EVENT: ref_factory.event,
+            SemanticKind.STATE_MODEL: ref_factory.state_model,
         }[ref_payload.kind]
         body = sidecar.bodies.get(factory(ref_payload.path))
     bindings = body.bindings if body is not None else ()
@@ -330,6 +332,19 @@ def _entry_for(
                 occurred_at_ref=_ref_payload("time_dimension", event.occurred_at),
                 participants=event.participants,
                 predicate_kind=event.predicate_kind,
+            ),
+        )
+    if semantic_kind == "state_model":
+        model = registry.state_models[semantic_id]
+        return SemanticDependencyEntryV1(
+            ref=_ref_payload("state_model", semantic_id),
+            body_digest=None,
+            fields=_fields(
+                subject_ref=_ref_payload("entity", model.subject),
+                states=model.states,
+                inceptions=model.inceptions,
+                transitions=model.transitions,
+                ai_context=model.ai_context,
             ),
         )
     raise AssertionError(f"unsupported dependency kind: {semantic_kind}")
@@ -487,6 +502,27 @@ class _DependencyCollector:
                         )
                     )
             self._collect_expression_bindings(ref)
+            return
+        if ref.kind is SemanticKind.STATE_MODEL:
+            model = self.registry.state_models.get(ref.path)
+            if model is None:
+                raise KeyError(ref.path)
+            self._add("state_model", ref.path)
+            self.collect_entity(model.subject)
+            for inception in model.inceptions:
+                self.collect_ref(
+                    cast(
+                        "Ref[SemanticKindTag]",
+                        ref_factory.event(inception.trigger.event_ref),
+                    )
+                )
+            for transition in model.transitions:
+                self.collect_ref(
+                    cast(
+                        "Ref[SemanticKindTag]",
+                        ref_factory.event(transition.trigger.event_ref),
+                    )
+                )
             return
         if ref.kind is SemanticKind.DATASOURCE:
             if ref.path not in self.registry.datasources:

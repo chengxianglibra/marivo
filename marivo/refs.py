@@ -32,6 +32,7 @@ class SemanticKind(StrEnum):
     METRIC = "metric"
     RELATIONSHIP = "relationship"
     EVENT = "event"
+    STATE_MODEL = "state_model"
 
 
 class SemanticKindTag:
@@ -76,6 +77,10 @@ class EventKind(SemanticKindTag):
     __slots__ = ()
 
 
+class StateModelKind(SemanticKindTag):
+    __slots__ = ()
+
+
 type FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
 
 
@@ -89,6 +94,7 @@ _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
     MetricKind: frozenset({SemanticKind.METRIC}),
     RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
     EventKind: frozenset({SemanticKind.EVENT}),
+    StateModelKind: frozenset({SemanticKind.STATE_MODEL}),
 }
 
 _SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -102,6 +108,7 @@ _SEGMENT_COUNT = {
     SemanticKind.METRIC: 2,
     SemanticKind.RELATIONSHIP: 2,
     SemanticKind.EVENT: 2,
+    SemanticKind.STATE_MODEL: 2,
 }
 
 
@@ -314,6 +321,9 @@ class _RefFactory:
     def event(self, path: str) -> Ref[EventKind]:
         return cast("Ref[EventKind]", _create_ref(SemanticKind.EVENT, path))
 
+    def state_model(self, path: str) -> Ref[StateModelKind]:
+        return cast("Ref[StateModelKind]", _create_ref(SemanticKind.STATE_MODEL, path))
+
 
 ref = _RefFactory()
 
@@ -395,6 +405,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
         ref.relationship,
     ),
     SemanticKind.EVENT: cast("Callable[[str], Ref[SemanticKindTag]]", ref.event),
+    SemanticKind.STATE_MODEL: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        ref.state_model,
+    ),
 }
 
 

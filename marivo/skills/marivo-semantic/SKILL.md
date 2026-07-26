@@ -1,6 +1,6 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects including Events, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
+description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects including Events and StateModels, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
 ---
 
 # marivo-semantic
@@ -313,6 +313,12 @@ options are forbidden.
 - Event occurrence completeness is runtime analysis evidence, not semantic
   readiness. The agent never promotes maximum observed Event time, query time,
   or a lateness SLA into a semantic completeness guarantee.
+- A StateModel owns normative states and Event-driven legal transitions only.
+  The business owner resolves disputed lifecycle meaning; the agent does not
+  move replay windows, seeds, cohorts, completeness assumptions, observed
+  violations, or analysis policy into semantic authoring. A loadable model
+  without an inception is not silently treated as replay-ready: follow the
+  current entry, readiness result, and structured repair.
 
 ### Diagnostics and parity
 

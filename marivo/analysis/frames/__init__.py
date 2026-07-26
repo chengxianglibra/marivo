@@ -19,6 +19,15 @@ from marivo.analysis.frames.event import (
 )
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
+from marivo.analysis.frames.lifecycle import (
+    LifecycleDistributionFrameMeta,
+    LifecycleDwellFrameMeta,
+    LifecycleFrame,
+    LifecycleFrameMetaBase,
+    LifecycleHistoryFrameMeta,
+    LifecycleTransitionsFrameMeta,
+    LifecycleViolationsFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
@@ -49,6 +58,13 @@ __all__ = [
     "GroupedFunnelReconciliationReceipt",
     "HypothesisTestResult",
     "HypothesisTestResultMeta",
+    "LifecycleDistributionFrameMeta",
+    "LifecycleDwellFrameMeta",
+    "LifecycleFrame",
+    "LifecycleFrameMetaBase",
+    "LifecycleHistoryFrameMeta",
+    "LifecycleTransitionsFrameMeta",
+    "LifecycleViolationsFrameMeta",
     "MetricFrame",
     "MetricFrameMeta",
     "QualityReport",

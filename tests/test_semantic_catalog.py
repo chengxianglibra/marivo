@@ -130,6 +130,8 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
+        SemanticKind.EVENT: ref_factory.event,
+        SemanticKind.STATE_MODEL: ref_factory.state_model,
     }.items()
 }
 

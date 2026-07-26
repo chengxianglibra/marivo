@@ -5,8 +5,9 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 import importlib
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
+from pathlib import PurePath
 from typing import Any, Literal
 
 import pandas as pd
@@ -258,6 +259,34 @@ class BaseFrameMeta(BaseModel):
     content_hash: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _FrameAuxiliaryTable:
+    """One private frame-owned table written beside the public artifact rows."""
+
+    filename: str
+    dataframe: pd.DataFrame
+
+    def __post_init__(self) -> None:
+        path = PurePath(self.filename)
+        if (
+            not self.filename
+            or path.is_absolute()
+            or len(path.parts) != 1
+            or path.name != self.filename
+        ):
+            raise ValueError("auxiliary table filename must be one safe basename")
+
+
+@dataclass(frozen=True, slots=True)
+class _FrameAuxiliaryReceipt:
+    """Persistence receipt bound into shape-specific frame metadata."""
+
+    filename: str
+    row_count: int
+    byte_size: int
+    content_hash: str
+
+
 def _visible_precondition(precondition: ArtifactPrecondition) -> bool:
     """Return True when a precondition is visible (has actionable content).
 
@@ -440,6 +469,7 @@ class BaseFrame(RenderableResult):
 
     _df: pd.DataFrame
     meta: BaseFrameMeta
+    _auxiliary_frames: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
 
     _NEXT_INTENTS: tuple[str, ...] = ()
     _AVAILABLE_ENTRIES: tuple[str, ...] = (
@@ -591,6 +621,26 @@ class BaseFrame(RenderableResult):
     def _dataframe_copy(self) -> pd.DataFrame:
         """Return an internal defensive copy without public export shaping."""
         return self._df.copy()
+
+    def _auxiliary_tables(self) -> tuple[_FrameAuxiliaryTable, ...]:
+        """Return private persisted payloads owned by this frame.
+
+        Base frames own no auxiliary data. Shape-specific frames may override
+        this hook, but private tables never participate in public row reads.
+        """
+        if self._auxiliary_frames:
+            raise ValueError(f"{type(self).__name__} does not accept auxiliary tables")
+        return ()
+
+    def _bind_auxiliary_receipts(
+        self,
+        meta: BaseFrameMeta,
+        receipts: tuple[_FrameAuxiliaryReceipt, ...],
+    ) -> BaseFrameMeta:
+        """Bind written auxiliary hashes into shape-specific metadata."""
+        if receipts:
+            raise ValueError(f"{type(self).__name__} does not accept auxiliary receipts")
+        return meta
 
     def _public_column_names(self) -> list[str]:
         """Return the column names shared by every public frame read path."""

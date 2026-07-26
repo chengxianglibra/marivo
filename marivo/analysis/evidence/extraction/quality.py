@@ -76,6 +76,49 @@ def _predicate(
             {"expected": 0},
             count == 0,
         )
+    lifecycle_invalid_count_checks = {
+        "lifecycle_history_row_contract",
+        "lifecycle_history_state",
+        "lifecycle_history_intervals",
+        "lifecycle_history_counts",
+        "lifecycle_trace",
+        "lifecycle_distribution_row_contract",
+        "lifecycle_distribution_math",
+        "lifecycle_distribution_reconciliation",
+        "lifecycle_transitions_row_contract",
+        "lifecycle_transitions_math",
+        "lifecycle_dwell_row_contract",
+        "lifecycle_dwell_math",
+        "lifecycle_violations_row_contract",
+        "lifecycle_violations_math",
+        "lifecycle_source_history",
+    }
+    if check_kind in lifecycle_invalid_count_checks:
+        count = int(details.get("invalid_count", 0))
+        return (
+            count,
+            "invalid_count_equals_zero",
+            {"expected": 0},
+            count == 0,
+        )
+    if check_kind == "lifecycle_coverage":
+        count = int(details.get("unknown_count", 0)) + int(details.get("invalid_count", 0))
+        return (
+            count,
+            "unknown_or_invalid_coverage_count_equals_zero",
+            {"expected": 0},
+            count == 0,
+        )
+    if check_kind == "lifecycle_censoring":
+        count = int(details.get("coverage_censored_interval_count", 0)) + int(
+            details.get("coverage_censored_subject_count", 0)
+        )
+        return (
+            count,
+            "coverage_censored_count_equals_zero",
+            {"expected": 0},
+            count == 0,
+        )
     raise ValueError(f"unsupported quality check kind: {check_kind}")
 
 

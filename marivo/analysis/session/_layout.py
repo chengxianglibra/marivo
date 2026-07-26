@@ -6,7 +6,10 @@ belongs to the SQLite store in ``_store.py``).  This module owns:
 - ``PersistenceLayout`` — directory paths for a session.
 - ``_atomic_write_text`` — safe text writes via temp + rename.
 - ``write_job_record`` / ``read_job_record`` / ``list_job_ids`` — job JSON I/O.
-- ``write_frame_to_disk`` / ``read_frame_from_disk`` — frame parquet + meta.json I/O.
+- ``write_frame_to_disk`` — public frame parquet, private frame-owned
+  auxiliary Parquet payloads, and meta.json I/O.
+- ``read_frame_from_disk`` — low-level public frame parquet and meta.json I/O;
+  typed cold recovery validates auxiliary payloads in ``session._load``.
 
 This module does **not** expose ``read_session_meta`` or
 ``write_session_meta``; session metadata lives in the SQLite store.
@@ -24,8 +27,15 @@ from typing import Any, cast
 
 import pandas as pd
 
-from marivo.analysis.frames._content_hash import compute_frame_content_hash
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.frames._content_hash import (
+    compute_file_content_hash,
+    compute_frame_content_hash,
+)
+from marivo.analysis.frames.base import (
+    BaseFrame,
+    BaseFrameMeta,
+    _FrameAuxiliaryReceipt,
+)
 from marivo.analysis.refs import ArtifactRef
 
 
@@ -163,8 +173,9 @@ def list_job_ids(layout: PersistenceLayout) -> list[str]:
 def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFrameMeta:
     """Write a frame's data and metadata to the session frames directory.
 
-    Writes a ``data.parquet`` file and a ``meta.json`` sidecar.  The
-    parquet write uses a temp + rename to avoid partial writes.
+    Writes ``data.parquet``, any private frame-owned auxiliary tables, and a
+    ``meta.json`` sidecar. Every Parquet write uses temp + rename. Auxiliary
+    receipts are bound into metadata before the parent content hash is built.
 
     Args:
         layout: Session layout providing directory paths.
@@ -178,15 +189,55 @@ def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFram
     frame_dir.mkdir(parents=True, exist_ok=True)
 
     data_path = frame_dir / "data.parquet"
-    tmp_parquet = frame_dir / f".tmp_data_{frame.meta.ref}.parquet"
-    frame._df.to_parquet(tmp_parquet, engine="pyarrow", compression="snappy", index=False)
-    os.replace(tmp_parquet, data_path)
+    _atomic_write_parquet(frame._df, data_path)
 
-    without_hash = frame.meta.model_copy(update={"byte_size": data_path.stat().st_size})
+    auxiliary_tables = frame._auxiliary_tables()
+    filenames = tuple(table.filename for table in auxiliary_tables)
+    if len(set(filenames)) != len(filenames):
+        raise ValueError("frame auxiliary table filenames must be unique")
+    receipts: list[_FrameAuxiliaryReceipt] = []
+    for table in auxiliary_tables:
+        auxiliary_path = frame_dir / table.filename
+        _atomic_write_parquet(table.dataframe, auxiliary_path)
+        receipts.append(
+            _FrameAuxiliaryReceipt(
+                filename=table.filename,
+                row_count=len(table.dataframe),
+                byte_size=auxiliary_path.stat().st_size,
+                content_hash=compute_file_content_hash(auxiliary_path),
+            )
+        )
+
+    byte_size = data_path.stat().st_size + sum(item.byte_size for item in receipts)
+    without_hash = frame.meta.model_copy(update={"byte_size": byte_size})
+    without_hash = frame._bind_auxiliary_receipts(without_hash, tuple(receipts))
     content_hash = compute_frame_content_hash(meta=without_hash, data_path=data_path)
     updated = without_hash.model_copy(update={"content_hash": content_hash})
     _atomic_write_text(frame_dir / "meta.json", updated.model_dump_json(indent=2))
     return updated
+
+
+def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
+    """Write one Parquet payload atomically beside its final destination."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=".tmp_",
+        suffix=f"_{path.name}",
+    )
+    os.close(fd)
+    try:
+        frame.to_parquet(
+            tmp_name,
+            engine="pyarrow",
+            compression="snappy",
+            index=False,
+        )
+        os.replace(tmp_name, path)
+    except Exception:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
 
 
 def read_frame_from_disk(

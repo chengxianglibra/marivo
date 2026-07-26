@@ -111,6 +111,9 @@ class ErrorKind(StrEnum):
     INVALID_EVENT_PREDICATE = "invalid_event_predicate"
     INVALID_EVENT_PARTICIPANT_PATH = "invalid_event_participant_path"
     INVALID_EVENT_PARTICIPANT_CARDINALITY = "invalid_event_participant_cardinality"
+    INVALID_STATE_MODEL = "invalid_state_model"
+    AMBIGUOUS_PARTICIPANT_ROLE = "ambiguous_participant_role"
+    MODEL_STATE_MISMATCH = "model_state_mismatch"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"

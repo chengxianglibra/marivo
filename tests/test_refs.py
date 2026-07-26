@@ -50,7 +50,7 @@ def test_datasource_ref_uses_the_same_sealed_value_type() -> None:
     assert ref == ref_factory.datasource("warehouse")
 
 
-def test_semantic_kind_has_nine_members() -> None:
+def test_semantic_kind_has_ten_members() -> None:
     assert {str(k) for k in SemanticKind} == {
         "domain",
         "datasource",
@@ -61,4 +61,5 @@ def test_semantic_kind_has_nine_members() -> None:
         "metric",
         "relationship",
         "event",
+        "state_model",
     }

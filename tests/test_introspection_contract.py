@@ -77,6 +77,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "events.match",
         "events.funnel",
         "events.time_to_event",
+        "lifecycle.replay",
         "select_subjects",
         "transform",
         "session",

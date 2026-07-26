@@ -39,6 +39,11 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def compute_file_content_hash(path: Path) -> str:
+    """Return the canonical content hash for one persisted auxiliary payload."""
+    return f"sha256:{_sha256_file(path)}"
+
+
 def stable_meta_payload(meta: BaseFrameMeta) -> dict[str, Any]:
     """Return metadata fields that define artifact content, excluding local identity."""
     payload = meta.model_dump(mode="json")
@@ -58,3 +63,6 @@ def compute_frame_content_hash(*, meta: BaseFrameMeta, data_path: Path) -> str:
     }
     digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+__all__ = ["compute_file_content_hash", "compute_frame_content_hash", "stable_meta_payload"]

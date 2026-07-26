@@ -60,6 +60,13 @@ from marivo.semantic._authoring_values import (
 from marivo.semantic._expression_binding import bind
 from marivo.semantic.event import all_rows, participant, participant_role
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
+from marivo.semantic.state_model import (
+    inception,
+    lifecycle_state,
+    model_state,
+    state_model,
+    transition,
+)
 
 __all__ = [
     "AggregateFoldInput",
@@ -79,22 +86,27 @@ __all__ = [
     "from_sql",
     "grain_to_date",
     "hour_prefix",
+    "inception",
     "join_on",
+    "lifecycle_state",
     "linear",
     "measure",
     "measure_column",
     "metric",
+    "model_state",
     "participant",
     "participant_role",
     "ratio",
     "relationship",
     "semi_additive",
     "snapshot",
+    "state_model",
     "strptime",
     "time_dimension",
     "time_dimension_column",
     "timestamp",
     "trailing",
+    "transition",
     "validity",
     "weighted_mean",
     "where",

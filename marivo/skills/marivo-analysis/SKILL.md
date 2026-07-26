@@ -1,6 +1,6 @@
 ---
 name: marivo-analysis
-description: Use for Marivo metric or Event Journey analysis: observe, match typed event patterns, compare, attribute, discover, correlate, hypothesis_test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session.
+description: Use for Marivo metric, Event Journey, or replay-based Lifecycle analysis, quality assessment, evidence-aware investigation, or continuing an analysis session.
 ---
 
 # marivo-analysis
@@ -9,7 +9,7 @@ description: Use for Marivo metric or Event Journey analysis: observe, match typ
 
 Use this skill when the task involves:
 
-- analysis over Marivo semantic metrics or typed semantic Events;
+- analysis over Marivo semantic metrics, typed semantic Events, or StateModels;
 - continuation of an existing Marivo analysis session;
 - review of conclusions backed by Marivo artifacts;
 - decisions about staying in typed flow, using a terminal custom-analysis
@@ -103,13 +103,15 @@ against the current semantic catalog, runtime fingerprint, and analysis scope.
 
 ### Semantic authority
 
-Business metrics, Events, participant roles, dimensions, time dimensions,
-relationships, and caliber come from the semantic catalog. Analysis code must
-not infer or redefine business objects inside the semantic layer. A missing or
-disputed semantic object stops the affected typed branch. EventPattern steps and
-matching policies are analysis values, not new semantic objects. During analysis the agent must not
-add, edit, or remove semantic definitions; durable
-authoring is deferred until the user approves the closeout proposal.
+Business metrics, Events, StateModels, participant roles, dimensions, time
+dimensions, relationships, and caliber come from the semantic catalog.
+Analysis code must not infer or redefine business objects inside the semantic
+layer. A missing or disputed semantic object stops the affected typed branch.
+EventPattern steps, matching policies, replay windows, seeds, cohorts, and
+completeness declarations are analysis values, not new semantic objects.
+During analysis the agent must not
+add, edit, or remove semantic definitions; durable authoring is deferred until
+the user approves the closeout proposal.
 
 ### Live-state authority
 
@@ -141,7 +143,10 @@ publishing deliverables must use the corresponding public boundary.
 `session.observe(...)` is the sole producer of an initial canonical
 `MetricFrame`; follow focused `marivo.help("analysis.events.match")` for the
 separate typed Event Journey entry, then use the returned artifact `.contract()`
-or focused live help for registered reducers and typed cohort selection.
+or focused live help for registered reducers and typed cohort selection. For
+normative state reconstruction, follow focused
+`marivo.help("analysis.lifecycle.replay")`, then continue only through the
+returned artifact contract or registered focused help.
 `frame.to_pandas()` and `md.raw_sql(...)` are the sole
 terminal exits; results from either cannot re-enter typed analysis.
 Missing business semantics remain unresolved until approved semantic
@@ -156,6 +161,14 @@ observed Event time, query time, nor an SLA establishes completeness. Preserve
 non-completion. Read the current EventFrame `.contract()` for continuations and
 do not synthesize an Event reducer or cross-family operation that the installed
 phase has not registered.
+
+For Lifecycle replay, keep the exact StateModel separate from the explicit
+analysis window, seed, cohort, and completeness evidence. Do not turn an
+illegal modeled trigger into a policy breach, quality failure, or causal claim;
+preserve the typed violation observation and censoring evidence exposed by the
+current artifact. Do not invent projection-backed state, snapshot, or
+reconciliation continuations that live help and the artifact contract do not
+register.
 
 Choose a terminal exit deliberately from current artifact state and mechanical
 compatibility. Familiarity with local pandas, SQL, or prior scripts is not a
@@ -181,6 +194,7 @@ analysis, become a semantic object, or erase the underlying semantic gap.
 | A required business object is missing or must change | Stop the affected typed branch; optionally use terminal `md.raw_sql(...)`; defer `marivo-semantic` until closeout approval |
 | Semantic authoring returns ready inputs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_inputs` through the ordinary analysis APIs (`analysis_ready_refs` is the refs-only projection) |
 | The task asks how subjects move through typed semantic Events | Start with focused `marivo.help("analysis.events.match")`; for conversion/loss, elapsed time, or a typed dropout cohort follow the returned artifact `.contract()` and the registered `events.funnel`, `events.time_to_event`, or `select_subjects` help target; retain and disclose watermark, declaration, unknown-coverage, and censoring evidence |
+| The task asks which normative state subjects occupied or how modeled state changed | Start with focused `marivo.help("analysis.lifecycle.replay")`; keep the StateModel semantic contract separate from replay choices, then follow the returned artifact `.contract()` for reducers or typed state-cohort selection; retain and disclose completeness, violation, and censoring evidence |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |

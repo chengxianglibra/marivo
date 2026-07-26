@@ -67,11 +67,14 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
+    from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
+    from marivo.analysis.lifecycle import FromInception, InState
     from marivo.analysis.session.core import FrameSummaryEntry, FrameSummaryPage, Session
     from marivo.analysis.subject import DroppedBefore
+    from marivo.semantic.state_model import ModelStateHandle
 
     return MappingProxyType(
         {
@@ -79,6 +82,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             BaseFrame: "BaseFrame",
             MetricFrame: "MetricFrame",
             EventFrame: "EventFrame",
+            LifecycleFrame: "LifecycleFrame",
             SubjectSet: "SubjectSet",
             DeltaFrame: "DeltaFrame",
             AttributionFrame: "AttributionFrame",
@@ -120,6 +124,9 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             EveryStart: "EveryStart",
             CompletenessDeclaration: "CompletenessDeclaration",
             DroppedBefore: "DroppedBefore",
+            FromInception: "FromInception",
+            InState: "InState",
+            ModelStateHandle: "ModelStateHandle",
             EventWatermarkRequest: "EventWatermarkRequest",
             EventWatermarkReceipt: "EventWatermarkReceipt",
             cast("type", ArtifactIssue): "ArtifactIssue",

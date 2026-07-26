@@ -19,6 +19,7 @@ from marivo.analysis.evidence.pipeline import (
     CommitSemanticAnchors,
     commit_result,
     event_subject_for_frame,
+    lifecycle_subject_for_frame,
 )
 from marivo.analysis.evidence.types import (
     ArtifactIssue,
@@ -29,6 +30,10 @@ from marivo.analysis.evidence.types import (
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.event import EventFrame
+from marivo.analysis.frames.lifecycle import (
+    LifecycleFrame,
+    LifecycleHistoryFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.intents._derived import (
@@ -38,7 +43,11 @@ from marivo.analysis.intents._derived import (
     params_digest,
     resolve_session,
 )
-from marivo.analysis.intents._quality_checks import run_event_checks, run_metric_checks
+from marivo.analysis.intents._quality_checks import (
+    run_event_checks,
+    run_lifecycle_checks,
+    run_metric_checks,
+)
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import (
@@ -56,11 +65,12 @@ def assess_quality(
 ) -> QualityReport:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if not isinstance(frame, (MetricFrame, EventFrame)):
+    if not isinstance(frame, (MetricFrame, EventFrame, LifecycleFrame)):
         raise QualityShapeUnsupportedError(
             message=(
-                "assess_quality supports MetricFrame and registered EventFrame "
-                "journey, funnel, and time-to-event shapes"
+                "assess_quality supports MetricFrame, registered EventFrame "
+                "journey/funnel/time-to-event shapes, and registered LifecycleFrame "
+                "history/distribution/transitions/dwell/violations shapes"
             ),
             context={"frame_kind": frame.meta.kind},
         )
@@ -70,18 +80,25 @@ def assess_quality(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    rows = (
-        run_metric_checks(frame, tz=session.report_tz_name if session.report_tz else None)
-        if isinstance(frame, MetricFrame)
-        else run_event_checks(frame)
-    )
+    if isinstance(frame, MetricFrame):
+        rows = run_metric_checks(
+            frame,
+            tz=session.report_tz_name if session.report_tz else None,
+        )
+    elif isinstance(frame, EventFrame):
+        rows = run_event_checks(frame)
+    else:
+        rows = run_lifecycle_checks(frame)
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
     issues = _quality_issues(frame, output)
     overall = _overall_status(output)
-    report_shape = (
-        "metric" if isinstance(frame, MetricFrame) else f"event_{frame.meta.semantic_kind}"
-    )
+    if isinstance(frame, MetricFrame):
+        report_shape = "metric"
+    elif isinstance(frame, EventFrame):
+        report_shape = f"event_{frame.meta.semantic_kind}"
+    else:
+        report_shape = f"lifecycle_{frame.meta.semantic_kind}"
     params = {
         "source_ref": frame.ref,
         "report_shape": report_shape,
@@ -91,6 +108,13 @@ def assess_quality(
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     finished_at = datetime.now(UTC)
+    target_coverage_basis = (
+        frame.meta.coverage_basis
+        if isinstance(frame, EventFrame)
+        else frame.meta.coverage_basis
+        if isinstance(frame, LifecycleFrame) and isinstance(frame.meta, LifecycleHistoryFrameMeta)
+        else None
+    )
     meta = QualityReportMeta(
         kind="quality_report",
         ref=frame_ref,
@@ -113,10 +137,19 @@ def assess_quality(
         ),
         source_refs=[frame.ref],
         report_shape=cast(
-            "Literal['metric', 'event_journey', 'event_funnel', 'event_time_to_event']",
+            "Literal['metric', 'event_journey', 'event_funnel', "
+            "'event_time_to_event', 'lifecycle_history', "
+            "'lifecycle_distribution', 'lifecycle_transitions', "
+            "'lifecycle_dwell', 'lifecycle_violations']",
             report_shape,
         ),
-        target_kind="metric_frame" if isinstance(frame, MetricFrame) else "event_frame",
+        target_kind=(
+            "metric_frame"
+            if isinstance(frame, MetricFrame)
+            else "event_frame"
+            if isinstance(frame, EventFrame)
+            else "lifecycle_frame"
+        ),
         target_metric_id=frame.meta.metric_id if isinstance(frame, MetricFrame) else None,
         target_semantic_model=(
             frame.meta.semantic_model if isinstance(frame, MetricFrame) else None
@@ -125,9 +158,13 @@ def assess_quality(
         target_event_pattern_fingerprint=(
             frame.meta.pattern.fingerprint if isinstance(frame, EventFrame) else None
         ),
-        target_coverage_basis=(
-            frame.meta.coverage_basis if isinstance(frame, EventFrame) else None
+        target_state_model_ref=(
+            frame.meta.state_model_ref if isinstance(frame, LifecycleFrame) else None
         ),
+        target_state_model_fingerprint=(
+            frame.meta.state_model_fingerprint if isinstance(frame, LifecycleFrame) else None
+        ),
+        target_coverage_basis=target_coverage_basis,
         checks_run=checks_run,
         overall_status=overall,
         blocking_issue_count=int((output["severity"] == "blocking").sum()),
@@ -183,12 +220,17 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
     return "ok"
 
 
-def _quality_issues(frame: MetricFrame | EventFrame, output: pd.DataFrame) -> list[ArtifactIssue]:
+def _quality_issues(
+    frame: MetricFrame | EventFrame | LifecycleFrame,
+    output: pd.DataFrame,
+) -> list[ArtifactIssue]:
     issues: list[ArtifactIssue] = []
     scope = frame.meta.analysis_scope or compute_analysis_scope(frame)
     for row in output.to_dict("records"):
         severity = str(row["severity"])
-        if severity != "blocking" and not (isinstance(frame, EventFrame) and severity == "warning"):
+        if severity != "blocking" and not (
+            isinstance(frame, (EventFrame, LifecycleFrame)) and severity == "warning"
+        ):
             continue
         details = json.loads(str(row["details_json"]))
         kind: str | None = None
@@ -250,6 +292,42 @@ def _quality_issues(frame: MetricFrame | EventFrame, output: pd.DataFrame) -> li
             kind = "event_row_contract_invalid"
             observed = int(details["invalid_count"])
             expectation = "invalid_count == 0"
+        elif row["check_kind"] in {
+            "lifecycle_history_row_contract",
+            "lifecycle_history_state",
+            "lifecycle_history_intervals",
+            "lifecycle_history_counts",
+            "lifecycle_distribution_row_contract",
+            "lifecycle_distribution_math",
+            "lifecycle_distribution_reconciliation",
+            "lifecycle_transitions_row_contract",
+            "lifecycle_transitions_math",
+            "lifecycle_dwell_row_contract",
+            "lifecycle_dwell_math",
+            "lifecycle_violations_row_contract",
+            "lifecycle_violations_math",
+        }:
+            kind = "lifecycle_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "lifecycle_source_history":
+            kind = "lifecycle_source_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "lifecycle_trace":
+            kind = "lifecycle_trace_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "lifecycle_coverage":
+            kind = "lifecycle_coverage_unknown"
+            observed = int(details.get("unknown_count", 0))
+            expectation = "coverage evidence is valid and authoritative basis is disclosed"
+        elif row["check_kind"] == "lifecycle_censoring":
+            kind = "lifecycle_censoring_present"
+            observed = int(details["coverage_censored_interval_count"]) + int(
+                details["coverage_censored_subject_count"]
+            )
+            expectation = "coverage_censored_count == 0"
         if kind is None or expectation is None:
             continue
         issues.append(
@@ -271,9 +349,13 @@ def _quality_issues(frame: MetricFrame | EventFrame, output: pd.DataFrame) -> li
     return issues
 
 
-def _quality_subject(frame: MetricFrame | EventFrame) -> EvidenceSubject:
+def _quality_subject(
+    frame: MetricFrame | EventFrame | LifecycleFrame,
+) -> EvidenceSubject:
     if isinstance(frame, EventFrame):
         return event_subject_for_frame(frame)
+    if isinstance(frame, LifecycleFrame):
+        return lifecycle_subject_for_frame(frame)
     return Subject(
         grain=getattr(frame.meta, "grain", None),
         analysis_axis="quality",

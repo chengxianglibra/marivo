@@ -270,6 +270,21 @@ _RULES: dict[str, _RuleEntry] = {
         sort_key=_default_sort_key,
     ),
 }
+for _lifecycle_operator in (
+    "lifecycle.replay",
+    "lifecycle.distribution",
+    "lifecycle.transitions",
+    "lifecycle.dwell",
+    "lifecycle.violations",
+):
+    _RULES[_lifecycle_operator] = _RuleEntry(
+        rule_id=f"digest.{_lifecycle_operator}",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=("value.row_count", "value.value"),
+        sort_key=_default_sort_key,
+    )
 _OPERATOR_ALIASES = {"decompose": "attribute", "test": "hypothesis_test"}
 
 
@@ -460,6 +475,21 @@ def _boundaries(
                 kind="causal_effect_not_estimated",
                 reason="requires_independent_evidence",
                 required_evidence=("causal_design",),
+            )
+        )
+    elif operator.startswith("lifecycle."):
+        result.extend(
+            (
+                InferenceBoundary(
+                    kind="raw_rows_omitted",
+                    reason="artifact_does_not_contain",
+                    required_evidence=("raw_rows",),
+                ),
+                InferenceBoundary(
+                    kind="causal_effect_not_estimated",
+                    reason="requires_independent_evidence",
+                    required_evidence=("causal_design",),
+                ),
             )
         )
     elif operator == "hypothesis_test" and any(
