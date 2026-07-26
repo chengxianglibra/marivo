@@ -65,6 +65,11 @@ ObservationShape = Literal[
     "event_journey",
     "event_funnel",
     "event_time_to_event",
+    "lifecycle_history",
+    "lifecycle_distribution",
+    "lifecycle_transitions",
+    "lifecycle_dwell",
+    "lifecycle_violations",
     "subject_set",
 ]
 
@@ -169,6 +174,21 @@ class EventSubject(_FrozenModel):
     analysis_axis: Literal["journey", "funnel", "time_to_event"] = "journey"
 
 
+class LifecycleSubject(_FrozenModel):
+    """Identity-safe subject descriptor for a Lifecycle artifact."""
+
+    kind: Literal["lifecycle"] = "lifecycle"
+    subject_entity_ref: RefPayloadV1
+    subject_identity_signature: tuple[str, ...]
+    analysis_axis: Literal[
+        "history",
+        "distribution",
+        "transitions",
+        "dwell",
+        "violations",
+    ]
+
+
 class EventAnalysisScope(_FrozenModel):
     """Typed Event Journey scope without raw subject or event identities."""
 
@@ -203,6 +223,28 @@ class EventTimeToEventAnalysisScope(_FrozenModel):
     end_step: dict[str, JsonValue]
 
 
+class LifecycleAnalysisScope(_FrozenModel):
+    """Typed replay/reducer scope without raw subject or Event identities."""
+
+    kind: Literal["lifecycle"] = "lifecycle"
+    state_model_ref: RefPayloadV1
+    state_model_fingerprint: str
+    analysis_axis: Literal[
+        "history",
+        "distribution",
+        "transitions",
+        "dwell",
+        "violations",
+    ]
+    source_history_ref: str | None = None
+    window: dict[str, JsonValue] | None = None
+    coverage: dict[str, JsonValue] | None = None
+    cohort_binding: dict[str, JsonValue] | None = None
+    replay_semantics: dict[str, JsonValue] | None = None
+    reducer: dict[str, JsonValue] | None = None
+    assumptions: tuple[str, ...] = ()
+
+
 class SubjectSetSubject(_FrozenModel):
     """Identity-safe subject descriptor for a persisted SubjectSet."""
 
@@ -224,7 +266,7 @@ class SubjectSetAnalysisScope(_FrozenModel):
 
 
 EvidenceSubject = Annotated[
-    Subject | EventSubject | SubjectSetSubject,
+    Subject | EventSubject | LifecycleSubject | SubjectSetSubject,
     Field(discriminator="kind"),
 ]
 EvidenceSubjectAdapter: TypeAdapter[EvidenceSubject] = TypeAdapter(EvidenceSubject)
@@ -233,6 +275,7 @@ EvidenceScope = Annotated[
     | EventAnalysisScope
     | EventFunnelAnalysisScope
     | EventTimeToEventAnalysisScope
+    | LifecycleAnalysisScope
     | SubjectSetAnalysisScope,
     Field(discriminator="kind"),
 ]
@@ -391,6 +434,79 @@ class EventTimeToEventObservationValue(_FrozenModel):
         return self
 
 
+class LifecycleHistoryObservationValue(_FrozenModel):
+    shape: Literal["lifecycle_history"] = "lifecycle_history"
+    population_count: int = Field(ge=0)
+    seeded_subject_count: int = Field(ge=0)
+    coverage_censored_subject_count: int = Field(ge=0)
+    interval_count: int = Field(ge=0)
+    completed_interval_count: int = Field(ge=0)
+    right_censored_interval_count: int = Field(ge=0)
+    coverage_censored_interval_count: int = Field(ge=0)
+    violation_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_intervals(self) -> LifecycleHistoryObservationValue:
+        represented = (
+            self.completed_interval_count
+            + self.right_censored_interval_count
+            + self.coverage_censored_interval_count
+        )
+        if represented != self.interval_count:
+            raise ValueError("Lifecycle interval statuses must partition interval_count")
+        if self.seeded_subject_count > self.population_count:
+            raise ValueError("seeded_subject_count cannot exceed population_count")
+        return self
+
+
+class LifecycleDistributionObservationValue(_FrozenModel):
+    shape: Literal["lifecycle_distribution"] = "lifecycle_distribution"
+    instant_count: int = Field(ge=0)
+    state_count: int = Field(ge=0)
+    row_count: int = Field(ge=0)
+    grouped: bool
+    reconciliation_passed: bool
+
+
+class LifecycleTransitionsObservationValue(_FrozenModel):
+    shape: Literal["lifecycle_transitions"] = "lifecycle_transitions"
+    modeled_pair_count: int = Field(ge=0)
+    transition_count: int = Field(ge=0)
+    nonzero_pair_count: int = Field(ge=0)
+
+
+class LifecycleDwellObservationValue(_FrozenModel):
+    shape: Literal["lifecycle_dwell"] = "lifecycle_dwell"
+    state_count: int = Field(ge=0)
+    interval_count: int = Field(ge=0)
+    completed_count: int = Field(ge=0)
+    right_censored_count: int = Field(ge=0)
+    coverage_censored_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_partition(self) -> LifecycleDwellObservationValue:
+        represented = (
+            self.completed_count + self.right_censored_count + self.coverage_censored_count
+        )
+        if represented != self.interval_count:
+            raise ValueError("Lifecycle dwell statuses must partition interval_count")
+        return self
+
+
+class LifecycleViolationsObservationValue(_FrozenModel):
+    shape: Literal["lifecycle_violations"] = "lifecycle_violations"
+    violation_count: int = Field(ge=0)
+    illegal_transition_count: int = Field(ge=0)
+    transition_from_terminal_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_partition(self) -> LifecycleViolationsObservationValue:
+        represented = self.illegal_transition_count + self.transition_from_terminal_count
+        if represented != self.violation_count:
+            raise ValueError("Lifecycle violation kinds must partition violation_count")
+        return self
+
+
 class SubjectSetObservationValue(_FrozenModel):
     shape: Literal["subject_set"] = "subject_set"
     selected_count: int = Field(ge=0)
@@ -406,6 +522,11 @@ ObservationValue = Annotated[
     | EventJourneyObservationValue
     | EventFunnelObservationValue
     | EventTimeToEventObservationValue
+    | LifecycleHistoryObservationValue
+    | LifecycleDistributionObservationValue
+    | LifecycleTransitionsObservationValue
+    | LifecycleDwellObservationValue
+    | LifecycleViolationsObservationValue
     | SubjectSetObservationValue,
     Field(discriminator="shape"),
 ]
@@ -781,6 +902,11 @@ DataQualityIssueKind = Literal[
     "event_row_contract_invalid",
     "event_censoring_present",
     "declared_completeness_used",
+    "lifecycle_row_contract_invalid",
+    "lifecycle_source_invalid",
+    "lifecycle_trace_invalid",
+    "lifecycle_coverage_unknown",
+    "lifecycle_censoring_present",
 ]
 ComparabilityIssueKind = Literal[
     "comparability_incompatible",
@@ -972,6 +1098,13 @@ __all__ = [
     "InferenceBoundary",
     "InferenceBoundaryKind",
     "InferenceBoundaryReason",
+    "LifecycleAnalysisScope",
+    "LifecycleDistributionObservationValue",
+    "LifecycleDwellObservationValue",
+    "LifecycleHistoryObservationValue",
+    "LifecycleSubject",
+    "LifecycleTransitionsObservationValue",
+    "LifecycleViolationsObservationValue",
     "MetricValueFindingValue",
     "ObservationFact",
     "ObservationFindingValue",

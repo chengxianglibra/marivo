@@ -21,6 +21,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.RELATIONSHIP: cast(
         "Callable[[str], Ref[SemanticKindTag]]", ref_factory.relationship
     ),
+    SemanticKind.EVENT: cast("Callable[[str], Ref[SemanticKindTag]]", ref_factory.event),
+    SemanticKind.STATE_MODEL: cast(
+        "Callable[[str], Ref[SemanticKindTag]]", ref_factory.state_model
+    ),
 }
 
 

@@ -49,6 +49,7 @@ AuthoringObjectKind = Literal[
     "derived_metric",
     "relationship",
     "event",
+    "state_model",
 ]
 
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]

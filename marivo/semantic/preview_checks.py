@@ -167,6 +167,28 @@ def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tu
                 if endpoint not in event_entities:
                     event_entities.append(endpoint)
         return tuple(event_entities)
+    if kind == SemanticKind.STATE_MODEL:
+        model = registry.state_models[ref]
+        model_entities: list[str] = []
+        event_refs = tuple(
+            dict.fromkeys(
+                (
+                    *(item.trigger.event_ref for item in model.inceptions),
+                    *(item.trigger.event_ref for item in model.transitions),
+                )
+            )
+        )
+        for event_ref in event_refs:
+            for entity_id in _dependency_entities(
+                event_ref,
+                SemanticKind.EVENT,
+                registry,
+            ):
+                if entity_id not in model_entities:
+                    model_entities.append(entity_id)
+        if model.subject not in model_entities:
+            model_entities.append(model.subject)
+        return tuple(model_entities)
     if kind != SemanticKind.METRIC:
         return ()
 
@@ -276,6 +298,8 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         return SemanticKind.RELATIONSHIP
     if ref in registry.events:
         return SemanticKind.EVENT
+    if ref in registry.state_models:
+        return SemanticKind.STATE_MODEL
     raise KeyError(ref)
 
 
@@ -288,6 +312,7 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
+        SemanticKind.STATE_MODEL: ref_factory.state_model,
     }.get(kind)
     if factory is None:
         raise AssertionError(f"unsupported preview ref kind: {kind}")

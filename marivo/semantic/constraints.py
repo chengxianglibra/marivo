@@ -97,6 +97,9 @@ class ConstraintId(StrEnum):
     EVENT_PARTICIPANT_CARDINALITY = "event_participant_cardinality"
     EVENT_PARTICIPANT_MEMBERSHIP = "event_participant_membership"
     EVENT_ALL_ROWS_COMPLETE_RETURN = "event_all_rows_complete_return"
+    STATE_MODEL_SHAPE = "state_model_shape"
+    STATE_MODEL_TRIGGER = "state_model_trigger"
+    MODEL_STATE_MEMBERSHIP = "model_state_membership"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -174,6 +177,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "metric",
             "derived_metric",
             "relationship",
+            "event",
+            "state_model",
         ),
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
@@ -209,7 +214,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.REF_SHAPE,
         "invalid_ref",
         "decorator",
-        ("entity", "dimension", "time_dimension", "metric", "relationship", "ref"),
+        (
+            "entity",
+            "dimension",
+            "time_dimension",
+            "metric",
+            "relationship",
+            "event",
+            "state_model",
+            "ref",
+        ),
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         'Use ms.ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
@@ -322,7 +336,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.AI_CONTEXT_SCHEMA,
         "invalid_ai_context",
         "decorator",
-        ("domain", "entity", "dimension", "time_dimension", "metric", "relationship"),
+        (
+            "domain",
+            "entity",
+            "dimension",
+            "time_dimension",
+            "metric",
+            "relationship",
+            "event",
+            "state_model",
+        ),
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
         "Use business_definition and guardrails.",
@@ -345,6 +368,33 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Inline the expression directly as return <ibis expression>.",
         ast_spec=_EXPR_BODY_AST_SPEC,
+    ),
+    ConstraintId.STATE_MODEL_SHAPE: _constraint(
+        ConstraintId.STATE_MODEL_SHAPE,
+        "invalid_state_model",
+        "assembly",
+        ("lifecycle_state", "inception", "transition", "state_model"),
+        "StateModel states and transitions form one closed deterministic finite model.",
+        "One model is the normative owner of state names, initial and terminal meaning, and legal transitions.",
+        "Use exact LifecycleState values, exactly one initial state, and deterministic typed Event triggers.",
+    ),
+    ConstraintId.STATE_MODEL_TRIGGER: _constraint(
+        ConstraintId.STATE_MODEL_TRIGGER,
+        "ambiguous_participant_role",
+        "assembly",
+        ("inception", "transition", "participant_role"),
+        "Each StateModel trigger resolves to one cardinality-one Event participant at the subject Entity.",
+        "Replay must associate every occurrence with exactly one governed subject identity.",
+        "Pass the Event ref when exactly one role qualifies; otherwise pass an exact ms.participant_role(...) handle.",
+    ),
+    ConstraintId.MODEL_STATE_MEMBERSHIP: _constraint(
+        ConstraintId.MODEL_STATE_MEMBERSHIP,
+        "model_state_mismatch",
+        "runtime",
+        ("model_state",),
+        "ModelStateHandle names one state owned by its exact StateModel ref.",
+        "Typed state ownership prevents equal local names from different models from being mixed.",
+        "Inspect catalog.state_models.get(...).details() and rebuild ms.model_state(...) with a current state name.",
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
         ConstraintId.AST_FORBIDDEN_STATEMENT,

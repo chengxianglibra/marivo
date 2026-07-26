@@ -1,4 +1,4 @@
-"""Materialize typed subject selections from canonical Event journeys."""
+"""Materialize typed subject selections from journeys or replayed state."""
 
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ import pandas as pd
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     InvalidEventMatchingPolicyError,
+    ModelStateMismatchError,
     PatternStepMismatchError,
     SubjectSetMismatchError,
+    WindowInvalidError,
 )
 from marivo.analysis.event import FirstPerSubject, _event_repair
 from marivo.analysis.evidence.pipeline import (
@@ -26,15 +28,19 @@ from marivo.analysis.evidence.pipeline import (
     compute_prospective_artifact_id,
     event_subject_for_frame,
     frame_exists_on_disk,
+    lifecycle_subject_for_frame,
     rollback_committed_result,
 )
+from marivo.analysis.evidence.types import EventSubject, LifecycleSubject
 from marivo.analysis.frames.event import EventFrame
+from marivo.analysis.frames.lifecycle import LifecycleFrame, LifecycleHistoryFrameMeta
 from marivo.analysis.frames.subject import (
     SubjectSet,
     SubjectSetMeta,
     SubjectSetSourceBinding,
 )
 from marivo.analysis.intents._derived import gen_ref, params_digest
+from marivo.analysis.lifecycle import InState
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import (
     persist_job_record,
@@ -43,6 +49,8 @@ from marivo.analysis.session._runtime import (
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.subject import DroppedBefore, SubjectSelection
+from marivo.refs import RefPayloadV1
+from marivo.semantic.catalog import StateModelEntry
 
 
 def _subject_error(
@@ -66,44 +74,64 @@ def _subject_error(
     )
 
 
+def _require_ownership(*, session: Session, artifact: EventFrame | LifecycleFrame) -> None:
+    """Reject any source artifact not owned by the current session and catalog."""
+    label = "journey" if type(artifact) is EventFrame else "replay history"
+    kind = "an EventFrame" if type(artifact) is EventFrame else "a LifecycleFrame"
+    if artifact.meta.session_id != session.id:
+        raise _subject_error(
+            message=f"The source {label} belongs to a different analysis session.",
+            expected=f"{kind} owned by the current session",
+            received="different_session",
+            location="session.select_subjects.artifact",
+            action=f"Load or rebuild the {label} in the current session.",
+        )
+    if Path(artifact.meta.project_root).resolve() != session.project_root.resolve():
+        raise _subject_error(
+            message=f"The source {label} belongs to a different Marivo project.",
+            expected=f"{kind} owned by the current project",
+            received="different_project",
+            location="session.select_subjects.artifact",
+            action=f"Rebuild the {label} from the current project catalog.",
+        )
+    if artifact.meta.catalog_definition_fingerprint != session.catalog.definition_fingerprint:
+        raise _subject_error(
+            message=f"The source {label} was produced from a different catalog definition.",
+            expected=f"{kind} built from the active catalog fingerprint",
+            received="catalog_definition_changed",
+            location="session.select_subjects.artifact",
+            action=f"Reload the active catalog and rebuild the source {label}.",
+        )
+
+
+def _require_registered_source(
+    *,
+    session: Session,
+    artifact: EventFrame | LifecycleFrame,
+    label: str,
+) -> tuple[str, str]:
+    """Return the exact registered source artifact ref and content fingerprint."""
+    artifact_ref = artifact.meta.artifact_id or artifact.meta.ref
+    source_fingerprint = artifact.meta.content_hash
+    row = session._store.get_artifact(session.id, artifact_ref)
+    if source_fingerprint is None or row is None or row["content_hash"] != source_fingerprint:
+        raise _subject_error(
+            message=f"The source {label} artifact is missing or stale in this session.",
+            expected="a registered source artifact with the retained content fingerprint",
+            received="source=unavailable_or_changed",
+            location="session.select_subjects.artifact",
+            action=f"Inspect the source {label} and rebuild it before selecting subjects.",
+        )
+    return artifact_ref, source_fingerprint
+
+
 def _require_source(
     *,
     session: Session,
     artifact: EventFrame,
     selection: SubjectSelection,
 ) -> tuple[DroppedBefore, int]:
-    if type(artifact) is not EventFrame:
-        raise _subject_error(
-            message="select_subjects requires an exact EventFrame.",
-            expected="EventFrame[journey]",
-            received=type(artifact).__name__,
-            location="session.select_subjects.artifact",
-            action="Pass the canonical journey returned by session.events.match(...).",
-        )
-    if artifact.meta.session_id != session.id:
-        raise _subject_error(
-            message="The source journey belongs to a different analysis session.",
-            expected="an EventFrame owned by the current session",
-            received="different_session",
-            location="session.select_subjects.artifact",
-            action="Load or rebuild the journey in the current session.",
-        )
-    if Path(artifact.meta.project_root).resolve() != session.project_root.resolve():
-        raise _subject_error(
-            message="The source journey belongs to a different Marivo project.",
-            expected="an EventFrame owned by the current project",
-            received="different_project",
-            location="session.select_subjects.artifact",
-            action="Rebuild the journey from the current project catalog.",
-        )
-    if artifact.meta.catalog_definition_fingerprint != session.catalog.definition_fingerprint:
-        raise _subject_error(
-            message="The source journey was produced from a different catalog definition.",
-            expected="an EventFrame built from the active catalog fingerprint",
-            received="catalog_definition_changed",
-            location="session.select_subjects.artifact",
-            action="Reload the active catalog and rebuild the source journey.",
-        )
+    _require_ownership(session=session, artifact=artifact)
     if artifact.meta.semantic_kind != "journey":
         raise _subject_error(
             message="select_subjects accepts only canonical journey rows.",
@@ -171,17 +199,7 @@ def _require_source(
             ),
         )
 
-    artifact_ref = artifact.meta.artifact_id or artifact.meta.ref
-    source_fingerprint = artifact.meta.content_hash
-    row = session._store.get_artifact(session.id, artifact_ref)
-    if source_fingerprint is None or row is None or row["content_hash"] != source_fingerprint:
-        raise _subject_error(
-            message="The source journey artifact is missing or stale in this session.",
-            expected="a registered source artifact with the retained content fingerprint",
-            received="source=unavailable_or_changed",
-            location="session.select_subjects.artifact",
-            action="Inspect the source journey and rebuild it before selecting subjects.",
-        )
+    _require_registered_source(session=session, artifact=artifact, label="journey")
     return selection, target_index
 
 
@@ -256,6 +274,194 @@ def _select_rows(
     return pd.DataFrame({"subject_identity": ordered}), len(censored)
 
 
+def _state_error(
+    *,
+    message: str,
+    expected: str,
+    received: str,
+    location: str,
+    action: str,
+    candidates: tuple[str, ...] = (),
+) -> ModelStateMismatchError:
+    return ModelStateMismatchError(
+        message=message,
+        expected=expected,
+        received=received,
+        location=location,
+        repair=_event_repair(
+            kind="user_choice",
+            action=action,
+            help_target="select_subjects",
+            candidates=candidates,
+        ),
+    )
+
+
+def _parse_as_of(value: str) -> pd.Timestamp:
+    location = "session.select_subjects.selection.as_of"
+    action = "Pass as_of as a timezone-aware ISO-8601 instant inside the replay window."
+    raw = value.strip()
+    normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError) as exc:
+        raise WindowInvalidError(
+            message="in_state as_of is not a valid ISO-8601 instant",
+            expected="a timezone-aware ISO-8601 instant",
+            received=repr(value),
+            location=location,
+            repair=_event_repair(
+                kind="user_choice",
+                action=action,
+                help_target="select_subjects",
+            ),
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise WindowInvalidError(
+            message="in_state as_of must carry an explicit timezone offset",
+            expected="a timezone-aware ISO-8601 instant",
+            received=repr(value),
+            location=location,
+            repair=_event_repair(
+                kind="user_choice",
+                action=action,
+                help_target="select_subjects",
+            ),
+        )
+    return pd.Timestamp(parsed.astimezone(UTC))
+
+
+def _require_lifecycle_source(
+    *,
+    session: Session,
+    artifact: LifecycleFrame,
+    selection: SubjectSelection,
+) -> tuple[InState, pd.Timestamp]:
+    """Validate one history artifact and its exact current-catalog state handle."""
+    _require_ownership(session=session, artifact=artifact)
+    if artifact.meta.semantic_kind != "history":
+        raise _subject_error(
+            message="select_subjects accepts only canonical replay history rows.",
+            expected="LifecycleFrame semantic_kind='history'",
+            received=f"semantic_kind={artifact.meta.semantic_kind!r}",
+            location="session.select_subjects.artifact",
+            action="Use the source LifecycleFrame[history], not a reducer output.",
+        )
+    meta = artifact.meta
+    if type(selection) is not InState:
+        raise _state_error(
+            message="LifecycleFrame[history] selection requires a typed in_state value.",
+            expected="mv.in_state(state=<ModelStateHandle>, as_of=<instant>)",
+            received=type(selection).__name__,
+            location="session.select_subjects.selection",
+            action="Build the selection with mv.in_state(ms.model_state(...), as_of=...).",
+        )
+
+    state_names = tuple(item.state.name for item in meta.states)
+    entry = session.catalog.state_models.get(meta.state_model_ref.path)
+    if not isinstance(entry, StateModelEntry):
+        raise _state_error(
+            message="The retained StateModel is no longer in the current catalog.",
+            expected=f"state_model:{meta.state_model_ref.path} in the active catalog",
+            received="state_model=absent",
+            location="session.select_subjects.artifact",
+            action="Reload the active catalog and replay the StateModel again.",
+            candidates=tuple(item.ref.key for item in session.catalog.state_models.items[:5]),
+        )
+    if entry.details().definition_fingerprint != meta.state_model_fingerprint:
+        raise _state_error(
+            message="The StateModel definition changed after the source replay.",
+            expected="the retained StateModel definition fingerprint",
+            received="state_model_definition_changed",
+            location="session.select_subjects.artifact",
+            action="Replay the current StateModel before selecting subjects.",
+        )
+    if RefPayloadV1.from_ref(selection.state.model) != meta.state_model_ref:
+        raise _state_error(
+            message="The in_state handle belongs to a different StateModel.",
+            expected=f"a state of state_model:{meta.state_model_ref.path}",
+            received=selection.state.key,
+            location="session.select_subjects.selection.state",
+            action="Choose a state of the StateModel that produced this history.",
+            candidates=(f"state_model:{meta.state_model_ref.path}",),
+        )
+    if selection.state.name not in state_names:
+        raise _state_error(
+            message="The in_state handle names a state outside the replayed StateModel.",
+            expected="one exact state retained by the source history",
+            received=selection.state.key,
+            location="session.select_subjects.selection.state",
+            action="Choose one exact state retained by the source replay history.",
+            candidates=state_names[:5],
+        )
+
+    as_of = _parse_as_of(selection.as_of)
+    window_start = _parse_as_of(meta.window.start)
+    window_end = _parse_as_of(meta.window.end)
+    if not window_start <= as_of <= window_end:
+        raise WindowInvalidError(
+            message="in_state as_of is outside the source replay window.",
+            expected=f"{meta.window.start!r} <= as_of <= {meta.window.end!r}",
+            received=selection.as_of,
+            location="session.select_subjects.selection.as_of",
+            repair=_event_repair(
+                kind="user_choice",
+                action="Choose an instant inside the closed source replay window.",
+                help_target="select_subjects",
+                candidates=(meta.window.start, meta.window.end),
+            ),
+        )
+    _require_registered_source(session=session, artifact=artifact, label="replay history")
+    return selection, as_of
+
+
+def _select_state_rows(
+    artifact: LifecycleFrame,
+    *,
+    selection: InState,
+    as_of: pd.Timestamp,
+) -> tuple[pd.DataFrame, int]:
+    """Select subjects whose proven replayed state covers ``as_of``."""
+    meta = cast("LifecycleHistoryFrameMeta", artifact.meta)
+    window_end = _parse_as_of(meta.window.end)
+    rows = artifact._dataframe_copy()
+    selected: set[tuple[object, ...]] = set()
+    censored: set[tuple[object, ...]] = set()
+    matched: set[tuple[object, ...]] = set()
+
+    for row in rows.itertuples(index=False):
+        valid_from = cast("pd.Timestamp", row.valid_from)
+        valid_to = cast("pd.Timestamp", row.valid_to)
+        # Half-open membership, with the exclusive replay end accepted as the
+        # observation boundary of the one final open interval per subject.
+        covers = valid_from <= as_of < valid_to or (as_of == window_end and valid_to == window_end)
+        if not covers:
+            continue
+        identity_value = row.subject_identity
+        identity = (
+            identity_value
+            if isinstance(identity_value, tuple)
+            else tuple(cast("Any", identity_value))
+        )
+        if identity in matched:
+            raise _subject_error(
+                message="The source history does not satisfy the disjoint interval contract.",
+                expected="at most one state interval per subject and instant",
+                received="overlapping_intervals",
+                location="session.select_subjects.artifact.rows",
+                action="Inspect and rebuild the source LifecycleFrame[history].",
+            )
+        matched.add(identity)
+        if row.interval_status == "coverage_censored":
+            censored.add(identity)
+        elif row.model_state == selection.state.name:
+            selected.add(identity)
+
+    ordered = sorted(selected, key=_identity_sort_key)
+    excluded = len(censored) + meta.coverage_censored_subject_count
+    return pd.DataFrame({"subject_identity": ordered}), excluded
+
+
 def _rollback_subject_commit(
     *,
     session: Session,
@@ -287,25 +493,49 @@ def _rollback_subject_commit(
 
 
 def select_subjects(
-    artifact: EventFrame,
+    artifact: EventFrame | LifecycleFrame,
     *,
     selection: SubjectSelection,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> SubjectSet:
-    """Materialize one closed subject selection from an EventFrame[journey]."""
+    """Materialize one closed subject selection from a journey or replay history."""
 
     resolved_session = session if session is not None else require_current_session()
     ensure_session_writable(resolved_session)
-    normalized_selection, target_index = _require_source(
-        session=resolved_session,
-        artifact=artifact,
-        selection=selection,
-    )
-    output, excluded_censored_count = _select_rows(
-        artifact,
-        target_index=target_index,
-    )
+    normalized_selection: SubjectSelection
+    evidence_subject: EventSubject | LifecycleSubject
+    if type(artifact) is EventFrame:
+        normalized_selection, target_index = _require_source(
+            session=resolved_session,
+            artifact=artifact,
+            selection=selection,
+        )
+        output, excluded_censored_count = _select_rows(artifact, target_index=target_index)
+        evidence_subject = event_subject_for_frame(artifact)
+    elif type(artifact) is LifecycleFrame:
+        normalized_selection, as_of = _require_lifecycle_source(
+            session=resolved_session,
+            artifact=artifact,
+            selection=selection,
+        )
+        output, excluded_censored_count = _select_state_rows(
+            artifact,
+            selection=normalized_selection,
+            as_of=as_of,
+        )
+        evidence_subject = lifecycle_subject_for_frame(artifact)
+    else:
+        raise _subject_error(
+            message="select_subjects requires an exact source analysis artifact.",
+            expected="EventFrame[journey] | LifecycleFrame[history]",
+            received=type(artifact).__name__,
+            location="session.select_subjects.artifact",
+            action=(
+                "Pass the canonical journey from session.events.match(...) or the "
+                "replay history from session.lifecycle.replay(...)."
+            ),
+        )
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -391,7 +621,7 @@ def select_subjects(
                 inputs=commit_inputs,
                 params=commit_params,
                 semantic_anchors=commit_anchors,
-                subject=event_subject_for_frame(artifact),
+                subject=evidence_subject,
                 extractor_family="subject_set",
             ),
         )

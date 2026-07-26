@@ -1027,3 +1027,166 @@ def seed_multi_metric_tables(con: ibis.duckdb.DuckDBBackend) -> None:
     )
     con.raw_sql("CREATE TABLE users (user_id INTEGER, signed_up_at DATE)")
     con.raw_sql("INSERT INTO users VALUES (100, DATE '2026-07-01'), (200, DATE '2026-07-03')")
+
+
+# ---------------------------------------------------------------------------
+# Commerce order lifecycle project (Events + StateModel over DuckDB)
+# ---------------------------------------------------------------------------
+
+LIFECYCLE_MODEL_REF = "commerce.order_lifecycle"
+LIFECYCLE_METRIC_REF = "commerce.order_count"
+
+# (event_id, order_id, event_type, event_time)
+LIFECYCLE_BASE_EVENTS: tuple[tuple[str, ...], ...] = (
+    ("e1", "o1", "created", "2026-06-15 00:00:00"),
+    ("e2", "o1", "paid", "2026-07-05 00:00:00"),
+    ("e3", "o1", "paid", "2026-07-10 00:00:00"),
+    ("e4", "o1", "closed", "2026-07-20 00:00:00"),
+    ("e5", "o1", "paid", "2026-07-25 00:00:00"),
+    ("e6", "o2", "created", "2026-07-10 00:00:00"),
+    ("e7", "o2", "closed", "2026-07-25 00:00:00"),
+)
+
+# (order_id, region, created_at)
+LIFECYCLE_BASE_ORDERS: tuple[tuple[str, ...], ...] = (
+    ("o1", "east", "2026-06-15"),
+    ("o2", "west", "2026-07-10"),
+)
+
+LIFECYCLE_WATERMARK = {
+    "complete_through": "2026-08-01T00:00:00Z",
+    "authority": "warehouse_reconciliation",
+    "observed_at": "2026-08-01T01:00:00Z",
+    "source_revision": "fixture-v1",
+}
+
+_LIFECYCLE_DOMAIN = """\
+import marivo.semantic as ms
+ms.domain(name="commerce", owner="Analytics", default=True)
+"""
+
+_LIFECYCLE_OBJECTS = '''\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = ms.ref.datasource("warehouse")
+orders = ms.entity(
+    name="orders", datasource=warehouse, source=md.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(business_definition="One row per order."),
+)
+event_log = ms.entity(
+    name="event_log", datasource=warehouse, source=md.table("event_log"),
+    primary_key=["event_id"],
+    ai_context=ms.ai_context(business_definition="One row per order event."),
+)
+order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
+region = ms.dimension_column(name="region", entity=orders, column="region")
+created_date = ms.time_dimension_column(
+    name="created_date", entity=orders, column="created_at",
+    granularity="day", is_default=True,
+)
+event_id = ms.dimension_column(name="event_id", entity=event_log, column="event_id")
+event_order_id = ms.dimension_column(
+    name="order_id", entity=event_log, column="order_id"
+)
+event_type = ms.dimension_column(name="event_type", entity=event_log, column="event_type")
+event_time = ms.time_dimension_column(
+    name="event_time", entity=event_log, column="event_time",
+    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True,
+)
+event_to_order = ms.relationship(
+    name="event_to_order", from_entity=event_log, to_entity=orders,
+    keys=[ms.join_on(event_order_id, order_id)],
+)
+
+@ms.metric(
+    entities=[orders], additivity="additive", name="order_count",
+    ai_context=ms.ai_context(business_definition="Distinct orders."),
+)
+def order_count(orders):
+    """Count orders."""
+    return orders.order_id.count()
+
+@ms.event(
+    name="order_created", identity=(event_id,), occurred_at=event_time,
+    participants=(
+        ms.participant(name="order", path=(event_to_order,), cardinality="one"),
+    ),
+    ai_context=ms.ai_context(business_definition="An order was created."),
+)
+def order_created(rows):
+    return ms.bind(event_type, rows) == "created"
+
+@ms.event(
+    name="payment_captured", identity=(event_id,), occurred_at=event_time,
+    participants=(
+        ms.participant(name="order", path=(event_to_order,), cardinality="one"),
+    ),
+    ai_context=ms.ai_context(business_definition="Payment was captured."),
+)
+def payment_captured(rows):
+    return ms.bind(event_type, rows) == "paid"
+
+@ms.event(
+    name="order_closed", identity=(event_id,), occurred_at=event_time,
+    participants=(
+        ms.participant(name="order", path=(event_to_order,), cardinality="one"),
+    ),
+    ai_context=ms.ai_context(business_definition="An order was closed."),
+)
+def order_closed(rows):
+    return ms.bind(event_type, rows) == "closed"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid")
+closed = ms.lifecycle_state(name="closed", terminal=True)
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid, closed),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(from_state=created, on=payment_captured, to_state=paid),
+        ms.transition(from_state=created, on=order_closed, to_state=closed),
+        ms.transition(from_state=paid, on=order_closed, to_state=closed),
+    ),
+    ai_context=ms.ai_context(business_definition="Commercial order lifecycle."),
+)
+'''
+
+
+def lifecycle_project_files() -> dict[str, str]:
+    """Return the commerce lifecycle project for ``semantic_project_factory``."""
+    return {
+        "commerce/_domain.py": _LIFECYCLE_DOMAIN,
+        "commerce/objects.py": _LIFECYCLE_OBJECTS,
+    }
+
+
+def _sql_values(rows: tuple[tuple[str, ...], ...]) -> str:
+    return ", ".join("(" + ", ".join(f"'{item}'" for item in row) + ")" for row in rows)
+
+
+def seed_lifecycle_backend(
+    *,
+    events: tuple[tuple[str, ...], ...] = LIFECYCLE_BASE_EVENTS,
+    orders: tuple[tuple[str, ...], ...] = LIFECYCLE_BASE_ORDERS,
+    watermark_events: frozenset[str] = frozenset(),
+) -> Any:
+    """Return a DuckDB backend seeded for the commerce lifecycle project."""
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql("CREATE TABLE orders (order_id VARCHAR, region VARCHAR, created_at DATE)")
+    backend.raw_sql(f"INSERT INTO orders VALUES {_sql_values(orders)}")
+    backend.raw_sql(
+        "CREATE TABLE event_log ("
+        "event_id VARCHAR, order_id VARCHAR, event_type VARCHAR, event_time TIMESTAMP)"
+    )
+    backend.raw_sql(f"INSERT INTO event_log VALUES {_sql_values(events)}")
+    if watermark_events:
+
+        def provider(request: Any) -> Any:
+            return LIFECYCLE_WATERMARK if request.event_ref.path in watermark_events else None
+
+        backend.marivo_event_watermark = provider
+    return backend

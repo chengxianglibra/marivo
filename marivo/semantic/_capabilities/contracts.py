@@ -191,6 +191,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
         "metric",
         "relationship",
         "event",
+        "state_model",
     }
     if kind in executable_kinds:
         transitions.append(

@@ -1487,6 +1487,38 @@ class AmbiguousEventOrderError(AnalysisError):
         return "ambiguous_event_order"
 
 
+class InsufficientStateHistoryError(AnalysisError):
+    """Replay cannot establish a subject state from proven-complete history."""
+
+    @property
+    def kind(self) -> str:
+        return "insufficient_state_history"
+
+
+class InvalidLifecycleSeedError(AnalysisError):
+    """Lifecycle replay received a seed outside its closed phase contract."""
+
+    @property
+    def kind(self) -> str:
+        return "invalid_lifecycle_seed"
+
+
+class ModelStateMismatchError(AnalysisError):
+    """A ModelStateHandle is incompatible with the active Lifecycle history."""
+
+    @property
+    def kind(self) -> str:
+        return "model_state_mismatch"
+
+
+class InvalidDistributionInstantsError(AnalysisError):
+    """Lifecycle distribution instants violate the source history window."""
+
+    @property
+    def kind(self) -> str:
+        return "invalid_distribution_instants"
+
+
 class EventIdentityError(AnalysisError):
     @property
     def kind(self) -> str:

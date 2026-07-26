@@ -38,6 +38,7 @@ from marivo.refs import (
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
+    StateModelKind,
     TimeDimensionKind,
 )
 from marivo.refs import (
@@ -75,6 +76,7 @@ from marivo.semantic.ir import (
     SnapshotVersioningIR,
     SourceLocation,
     SqlProvenance,
+    StateModelIR,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
@@ -99,6 +101,7 @@ from marivo.semantic.runtime_metric import (
     replay_payload,
     runtime_metric_leaf_refs,
 )
+from marivo.semantic.state_model import _state_model_fingerprint
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract, AuthoringRepair
@@ -135,6 +138,8 @@ __all__ = [
     "SemanticKind",
     "SimpleMetricDetails",
     "SnapshotVersioning",
+    "StateModelDetails",
+    "StateModelEntry",
     "TimeDimensionDetails",
     "TimeDimensionEntry",
     "ValidityVersioning",
@@ -249,6 +254,10 @@ def _make_ref(path: str, kind: Literal[SemanticKind.EVENT]) -> Ref[EventKind]: .
 
 
 @overload
+def _make_ref(path: str, kind: Literal[SemanticKind.STATE_MODEL]) -> Ref[StateModelKind]: ...
+
+
+@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -263,6 +272,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
+        SemanticKind.STATE_MODEL: ref_factory.state_model,
     }[kind]
     return factory(path)
 
@@ -903,6 +913,78 @@ class EventDetails(_DetailsBase):
         return sections
 
 
+@dataclass(frozen=True, repr=False)
+class StateModelDetails(_DetailsBase):
+    """Complete details for one canonical StateModel."""
+
+    subject: Ref[EntityKind]
+    states: tuple[tuple[str, bool, bool], ...]
+    inceptions: tuple[
+        tuple[Ref[EventKind], str, tuple[Ref[RelationshipKind], ...]],
+        ...,
+    ]
+    transitions: tuple[
+        tuple[
+            str,
+            Ref[EventKind],
+            str,
+            tuple[Ref[RelationshipKind], ...],
+            str,
+        ],
+        ...,
+    ]
+    definition_fingerprint: str
+
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        sections.extend(
+            (
+                FieldSection(label="subject", value=self.subject.key),
+                FieldSection(
+                    label="states",
+                    value="; ".join(
+                        f"{name}: initial={initial}; terminal={terminal}"
+                        for name, initial, terminal in self.states
+                    ),
+                ),
+                FieldSection(
+                    label="inceptions",
+                    value="; ".join(
+                        (
+                            f"{event.key}#{role}; path="
+                            + ("self" if not path else " -> ".join(item.key for item in path))
+                        )
+                        for event, role, path in self.inceptions
+                    )
+                    or "(none)",
+                ),
+                FieldSection(
+                    label="transitions",
+                    value="; ".join(
+                        (
+                            f"{source} -- {event.key}#{role} --> {target}; path="
+                            + ("self" if not path else " -> ".join(item.key for item in path))
+                        )
+                        for source, event, role, path, target in self.transitions
+                    )
+                    or "(none)",
+                ),
+                FieldSection(
+                    label="definition_fingerprint",
+                    value=self.definition_fingerprint,
+                ),
+            )
+        )
+        return sections
+
+
 _CatalogObjectDetails = (
     DatasourceDetails
     | DomainDetails
@@ -913,6 +995,7 @@ _CatalogObjectDetails = (
     | MetricDetails
     | RelationshipDetails
     | EventDetails
+    | StateModelDetails
 )
 
 
@@ -1020,6 +1103,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "metrics",
         "relationships",
         "events",
+        "state_models",
     )
 
     def details(self) -> DomainDetails:
@@ -1065,6 +1149,14 @@ class DomainEntry(CatalogEntry[DomainKind]):
     def events(self) -> CatalogCollection[EventKind]:
         return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
 
+    @property
+    def state_models(self) -> CatalogCollection[StateModelKind]:
+        return self._catalog._collection(
+            StateModelEntry,
+            SemanticKind.STATE_MODEL,
+            scope_ref=self.ref,
+        )
+
 
 class DatasourceEntry(CatalogEntry[DatasourceKind]):
     """Loaded datasource with the entities it backs."""
@@ -1091,6 +1183,7 @@ class EntityEntry(CatalogEntry[EntityKind]):
         "metrics",
         "relationships",
         "events",
+        "state_models",
     )
 
     def details(self) -> EntityDetails:
@@ -1131,6 +1224,14 @@ class EntityEntry(CatalogEntry[EntityKind]):
     @property
     def events(self) -> CatalogCollection[EventKind]:
         return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
+
+    @property
+    def state_models(self) -> CatalogCollection[StateModelKind]:
+        return self._catalog._collection(
+            StateModelEntry,
+            SemanticKind.STATE_MODEL,
+            scope_ref=self.ref,
+        )
 
 
 class DimensionEntry(CatalogEntry[DimensionKind]):
@@ -1284,6 +1385,64 @@ class EventEntry(CatalogEntry[EventKind]):
         return card
 
 
+class StateModelEntry(CatalogEntry[StateModelKind]):
+    """Loaded canonical StateModel."""
+
+    ref: Ref[StateModelKind]
+
+    def details(self) -> StateModelDetails:
+        return cast("StateModelDetails", self._details)
+
+    def _card(self) -> Card:
+        details = self.details()
+        members: list[tuple[str, str]] = [
+            (
+                f"state.{name}",
+                f"initial={initial}; terminal={terminal}",
+            )
+            for name, initial, terminal in details.states
+        ]
+        members.extend(
+            (
+                f"inception.{index}",
+                (f"{event.key}#{role}; path=" + ("self" if not path else _format_card_refs(path))),
+            )
+            for index, (event, role, path) in enumerate(details.inceptions, start=1)
+        )
+        members.extend(
+            (
+                f"transition.{index}",
+                (
+                    f"{source} -- {event.key}#{role} --> {target}; path="
+                    + ("self" if not path else _format_card_refs(path))
+                ),
+            )
+            for index, (source, event, role, path, target) in enumerate(
+                details.transitions,
+                start=1,
+            )
+        )
+        card = (
+            super()
+            ._card()
+            .field(label="subject", value=details.subject.key)
+            .field(label="state_count", value=str(len(details.states)))
+            .field(
+                label="transition_count",
+                value=str(len(details.inceptions) + len(details.transitions)),
+            )
+        )
+        for label, value in members[:6]:
+            card = card.field(label=label, value=value)
+        omitted = len(members) - min(6, len(members))
+        if omitted:
+            card = card.field(
+                label="members_omitted",
+                value=f"{omitted}; full: .details().show()",
+            )
+        return card
+
+
 def _object_from_details[CatalogObjectT](
     object_type: type[CatalogObjectT],
     details: _CatalogObjectDetails,
@@ -1380,6 +1539,12 @@ class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
         key: str | Ref[EventKind],
     ) -> EventEntry: ...
 
+    @overload
+    def get(
+        self: CatalogCollection[StateModelKind],
+        key: str | Ref[StateModelKind],
+    ) -> StateModelEntry: ...
+
     # Overloads encode the closed KindT-to-entry mapping that Python's generic
     # syntax cannot otherwise express while the runtime signature stays CatalogEntry[K].
     def get(self, key: str | Ref[KindT]) -> CatalogEntry[KindT]:  # type: ignore[misc]
@@ -1449,6 +1614,7 @@ _OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogEntry[SemanticKindTag]]] = 
     SemanticKind.METRIC: MetricEntry,
     SemanticKind.RELATIONSHIP: RelationshipEntry,
     SemanticKind.EVENT: EventEntry,
+    SemanticKind.STATE_MODEL: StateModelEntry,
 }
 
 _COLLECTION_PROPERTY_BY_KIND: dict[SemanticKind, str] = {
@@ -1461,6 +1627,7 @@ _COLLECTION_PROPERTY_BY_KIND: dict[SemanticKind, str] = {
     SemanticKind.METRIC: "metrics",
     SemanticKind.RELATIONSHIP: "relationships",
     SemanticKind.EVENT: "events",
+    SemanticKind.STATE_MODEL: "state_models",
 }
 
 _SEMANTIC_INPUT_CANDIDATE_LIMIT = 12
@@ -1786,7 +1953,12 @@ def _build_domain_object(
         for event in reg.events.values()
         if event.domain == model_ir.name
     )
-    children = datasets_refs + metrics_refs + event_refs
+    state_model_refs = tuple(
+        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
+        for model in reg.state_models.values()
+        if model.domain == model_ir.name
+    )
+    children = datasets_refs + metrics_refs + event_refs + state_model_refs
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -1835,11 +2007,21 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for event in reg.events.values()
         if event.source_entity == ds_ir.semantic_id
     )
-    children = fields_refs + measure_refs + metric_refs + rels_refs + event_refs
+    state_model_refs = tuple(
+        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
+        for model in reg.state_models.values()
+        if model.subject == ds_ir.semantic_id
+    )
+    children = fields_refs + measure_refs + metric_refs + rels_refs + event_refs + state_model_refs
     metric_dependents = tuple(
         _make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
+    )
+    state_model_dependents = tuple(
+        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
+        for model in reg.state_models.values()
+        if model.subject == ds_ir.semantic_id
     )
     details = EntityDetails(
         ref=ref,
@@ -1850,7 +2032,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         source_location=ds_ir.location,
         parents=(ds_ref,),
         children=children,
-        dependents=metric_dependents,
+        dependents=metric_dependents + state_model_dependents,
         python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
@@ -2395,6 +2577,12 @@ def _build_event_object(
             )
         )
     )
+    dependents = tuple(
+        ref_factory.state_model(model.semantic_id)
+        for model in reg.state_models.values()
+        if any(item.trigger.event_ref == event_ir.semantic_id for item in model.inceptions)
+        or any(item.trigger.event_ref == event_ir.semantic_id for item in model.transitions)
+    )
     details = EventDetails(
         ref=ref,
         kind=SemanticKind.EVENT,
@@ -2404,7 +2592,7 @@ def _build_event_object(
         source_location=event_ir.location,
         parents=parents,
         children=(),
-        dependents=(),
+        dependents=dependents,
         python_symbol=event_ir.python_symbol,
         source_entity=source_ref,
         identity=identity,
@@ -2418,6 +2606,74 @@ def _build_event_object(
         ),
     )
     return _object_from_details(EventEntry, details, catalog)
+
+
+def _build_state_model_object(
+    model_ir: StateModelIR,
+    reg: Registry,
+    catalog: SemanticCatalog,
+) -> StateModelEntry:
+    ref = ref_factory.state_model(model_ir.semantic_id)
+    subject = ref_factory.entity(model_ir.subject)
+    event_refs = tuple(
+        dict.fromkeys(
+            (
+                *(item.trigger.event_ref for item in model_ir.inceptions),
+                *(item.trigger.event_ref for item in model_ir.transitions),
+            )
+        )
+    )
+    events = tuple(ref_factory.event(path) for path in event_refs)
+
+    def trigger_path(event_ref: str, role: str) -> tuple[Ref[RelationshipKind], ...]:
+        event = reg.events[event_ref]
+        participant = next(item for item in event.participants if item.name == role)
+        return tuple(ref_factory.relationship(path) for path in participant.path or ())
+
+    details = StateModelDetails(
+        ref=ref,
+        kind=SemanticKind.STATE_MODEL,
+        name=model_ir.name,
+        domain=model_ir.domain,
+        context=model_ir.ai_context,
+        source_location=model_ir.location,
+        parents=(subject, *events),
+        children=(),
+        dependents=(),
+        python_symbol=model_ir.python_symbol,
+        subject=subject,
+        states=tuple((state.name, state.initial, state.terminal) for state in model_ir.states),
+        inceptions=tuple(
+            (
+                ref_factory.event(item.trigger.event_ref),
+                item.trigger.participant_role,
+                trigger_path(
+                    item.trigger.event_ref,
+                    item.trigger.participant_role,
+                ),
+            )
+            for item in model_ir.inceptions
+        ),
+        transitions=tuple(
+            (
+                item.from_state,
+                ref_factory.event(item.trigger.event_ref),
+                item.trigger.participant_role,
+                trigger_path(
+                    item.trigger.event_ref,
+                    item.trigger.participant_role,
+                ),
+                item.to_state,
+            )
+            for item in model_ir.transitions
+        ),
+        definition_fingerprint=_state_model_fingerprint(
+            ref,
+            registry=reg,
+            sidecar=catalog._state.sidecar,
+        ),
+    )
+    return _object_from_details(StateModelEntry, details, catalog)
 
 
 # ---------------------------------------------------------------------------
@@ -2474,6 +2730,9 @@ class _CatalogIndex:
             for item in reg.relationships.values()
         )
         result.extend(_build_event_object(item, reg, self.catalog) for item in reg.events.values())
+        result.extend(
+            _build_state_model_object(item, reg, self.catalog) for item in reg.state_models.values()
+        )
         return tuple(sorted(result, key=lambda obj: obj.key))
 
     def require(self, ref: Ref[SemanticKindTag]) -> CatalogEntry[SemanticKindTag] | None:
@@ -2542,6 +2801,8 @@ class _CatalogIndex:
                     endpoint == scope.ref
                     for _name, endpoint, _cardinality, _path in details.participants
                 )
+            if isinstance(details, StateModelDetails):
+                return scope.ref == details.subject
         return False
 
 
@@ -2621,6 +2882,7 @@ class SemanticCatalog:
             "metrics",
             "relationships",
             "events",
+            "state_models",
         }
     )
 
@@ -2865,6 +3127,10 @@ class SemanticCatalog:
     @property
     def events(self) -> CatalogCollection[EventKind]:
         return self._collection(EventEntry, SemanticKind.EVENT)
+
+    @property
+    def state_models(self) -> CatalogCollection[StateModelKind]:
+        return self._collection(StateModelEntry, SemanticKind.STATE_MODEL)
 
     def require[KindT: SemanticKindTag](self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
@@ -3465,6 +3731,68 @@ class SemanticCatalog:
                     event_ir=event_ir,
                     participants=event_ir.participants,
                 )
+            if kind == SemanticKind.STATE_MODEL:
+                import pandas as pd
+
+                model_ir = reg.state_models[ref_str]
+                event_refs = tuple(
+                    dict.fromkeys(
+                        (
+                            *(item.trigger.event_ref for item in model_ir.inceptions),
+                            *(item.trigger.event_ref for item in model_ir.transitions),
+                        )
+                    )
+                )
+                rows: list[dict[str, object]] = []
+                for event_ref in event_refs:
+                    event_ir = reg.events[event_ref]
+                    event_preview = _validate_event_preview(
+                        preview_ibis_table(
+                            resolver.event(
+                                ref_factory.event(event_ref),
+                                participants=tuple(
+                                    participant.name for participant in event_ir.participants
+                                ),
+                            ),
+                            kind="semantic_event",
+                            ref=event_ref,
+                            limit=preview_limit,
+                            sample_policy=PreviewSamplePolicy(
+                                method="bounded_limit",
+                                limit=preview_limit,
+                            ),
+                            include_types=include_types,
+                            report_tz=system_timezone_name(),
+                        ),
+                        event_ir=event_ir,
+                        participants=event_ir.participants,
+                    )
+                    rows.append(
+                        {
+                            "event_ref": event_ref,
+                            "status": event_preview.status,
+                            "observed_rows": event_preview.returned_row_count,
+                            "truncated": event_preview.is_truncated,
+                        }
+                    )
+                return preview_from_pandas(
+                    pd.DataFrame(
+                        rows,
+                        columns=(
+                            "event_ref",
+                            "status",
+                            "observed_rows",
+                            "truncated",
+                        ),
+                    ),
+                    kind="semantic_state_model",
+                    ref=ref_str,
+                    requested_limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="bounded_limit",
+                        limit=preview_limit,
+                    ),
+                )
             if kind == SemanticKind.RELATIONSHIP:
                 relationship = reg.relationships[ref_str]
                 left = resolver.table(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
@@ -3582,6 +3910,7 @@ class SemanticCatalog:
             SemanticKind.METRIC,
             SemanticKind.RELATIONSHIP,
             SemanticKind.EVENT,
+            SemanticKind.STATE_MODEL,
         }
         resolved: list[tuple[str, SemanticKind]] = []
         for ref_obj in ref_objects:

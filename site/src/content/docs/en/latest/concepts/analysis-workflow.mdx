@@ -1,6 +1,6 @@
 ---
 title: Analysis Workflow
-description: Typed metric and Event intents, sessions, and frames for repeatable agent analysis.
+description: Typed metric, Event, and Lifecycle intents, sessions, and frames for repeatable agent analysis.
 ---
 
 This page is the deeper reference for the agent-guided journey introduced in
@@ -46,7 +46,8 @@ Every Marivo analysis starts from governed semantic inputs and runs as a
 **write-run-read loop**: an agent writes an intent (an operator call plus its
 fields), runs it, and reads a typed result before deciding the next step.
 Metric analysis starts with `session.observe(...)`; Event journey analysis
-starts with `session.events.match(...)`.
+starts with `session.events.match(...)`; replay-based Lifecycle analysis starts
+with `session.lifecycle.replay(...)`.
 
 The runtime pieces are:
 
@@ -281,6 +282,90 @@ Observed watermarks take precedence over declarations. The artifact and its
 quality/evidence records retain each input's
 `observed_watermark | declared_complete | unknown` basis and the aggregate
 `observed_watermark | declared_complete | mixed | unknown` basis.
+
+## Replay a normative lifecycle
+
+Lifecycle analysis applies one exact current StateModel to its modeled Event
+stream. The model owns states and legal transitions; the analysis call owns the
+window, explicit seed, optional cohort, and any completeness declaration.
+Inspect `marivo.help("analysis.lifecycle.replay")` before first use rather than
+copying a cached signature.
+
+```python
+order_model = catalog.state_models.get("sales.order_lifecycle")
+
+history = session.lifecycle.replay(
+    order_model,
+    window=mv.TimeScope(start=start, end=end),
+    seed=mv.from_inception(),
+    analysis_purpose="Reconstruct governed order state history.",
+)
+```
+
+The replay window is timezone-aware and half-open. `mv.from_inception()` is an
+explicit required choice: replay starts each subject at its first qualifying
+modeled inception, evaluates all modeled occurrences before `window.end`, and
+emits only intervals overlapping the requested window. A StateModel without an
+inception can be loaded for future projection seeding but is not ready for this
+replay path.
+
+Each distinct trigger Event is queried at most once. Event predicates,
+participant-role resolution, identity validation, deterministic ordering, and
+completeness use the same Event core as journey matching. Completeness
+declarations may cover only Events consumed by the selected StateModel, and an
+authoritative provider watermark takes precedence. Events outside the model are
+neither queried nor violations.
+
+Legal triggers change state. A modeled trigger that is illegal from the current
+state leaves the state unchanged and is retained in the replay's private
+violation trace. Same-time cross-Event occurrences fail when their order would
+change the resulting state or violation outcome.
+
+`LifecycleFrame[history]` contains ordered, non-overlapping state intervals.
+Its interval status is `completed`, `right_censored`, or
+`coverage_censored`. Read `history.show()` for the bounded current state and
+`history.contract()` for mechanically valid continuations.
+
+## Reduce Lifecycle history and select a state cohort
+
+Lifecycle reducers consume the committed history without querying Event
+sources or replaying the StateModel:
+
+```python
+weekly_state = session.lifecycle.distribution(
+    history,
+    at=(week_1_end, week_2_end),
+    axes=[account_region],
+)
+transition_counts = session.lifecycle.transitions(history)
+dwell = session.lifecycle.dwell(history)
+violations = session.lifecycle.violations(history)
+```
+
+Distribution is dense over every requested instant and declared model state.
+Governed subject axes resolve at each instant, and grouped counts reconcile to
+the ungrouped state population. Transitions includes every distinct modeled
+state pair, even when its count is zero. Dwell includes every declared state;
+duration statistics use only completed clipped intervals while censored
+intervals remain explicit counts. Violations is a typed copy of the committed
+trace, not a policy-breach, quality-failure, or causal label.
+
+Select subjects through an exact typed model-state handle, never a bare state
+string:
+
+```python
+paid_state = ms.model_state(model=order_model.ref, name="paid")
+paid_at_end = session.select_subjects(
+    history,
+    selection=mv.in_state(paid_state, as_of=end),
+)
+```
+
+Subjects whose state is unknown or coverage-censored at the instant are
+excluded and retained as censoring metadata. The resulting SubjectSet remains
+readable, but only a ready set can scope a later `observe`, `events.match`, or
+`lifecycle.replay`. Use focused `marivo.help("analysis.in_state")` and the
+source artifact contract for the exact current admission rules.
 
 ## How an intent is specified
 

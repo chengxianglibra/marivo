@@ -107,10 +107,7 @@ def render_root_help() -> str:
                 *effects.flags,
             )
             badges = ", ".join(effect_values) or "none"
-            lines.append(
-                f"    {descriptor.canonical_id:<34} {descriptor.summary} "
-                f"[output: {output}; effects: {badges}]"
-            )
+            lines.append(f"    {descriptor.canonical_id:<34} [output: {output}; effects: {badges}]")
     lines.extend(
         (
             "",

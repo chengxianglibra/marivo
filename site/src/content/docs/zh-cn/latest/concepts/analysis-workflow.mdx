@@ -1,6 +1,6 @@
 ---
 title: 分析流程
-description: 以 typed metric 和 Event intents、sessions 与 frames 组织可重复的 agent analysis。
+description: 以 typed metric、Event 与 Lifecycle intents、sessions 和 frames 组织可重复的 agent analysis。
 ---
 
 本页是[让智能体完成第一次分析](/zh-cn/latest/first-analysis/)之后的深入参考。
@@ -37,7 +37,8 @@ description: 以 typed metric 和 Event intents、sessions 与 frames 组织可�
 每次 Marivo analysis 都从受治理的 semantic inputs 开始，并按**写-运行-读**循环推进：
 agent 写出一个 intent（一次 operator 调用及其参数），运行它，读取 typed result，再决定
 下一步。Metric analysis 从 `session.observe(...)` 开始；Event journey analysis 从
-`session.events.match(...)` 开始。
+`session.events.match(...)` 开始；基于 replay 的 Lifecycle analysis 从
+`session.lifecycle.replay(...)` 开始。
 
 Runtime 由以下部分组成：
 
@@ -250,6 +251,82 @@ loss 仍为 `coverage_censored` 的 subject 会被排除，并计入 SubjectSet 
 observed watermark 优先于 declaration。artifact 及其 quality/evidence records
 会保留每个输入的 `observed_watermark | declared_complete | unknown` basis，以及
 整体 `observed_watermark | declared_complete | mixed | unknown` basis。
+
+## Replay 规范生命周期
+
+Lifecycle analysis 会把一个精确的当前 StateModel 应用于其 modeled Event stream。
+模型负责状态和合法转换；analysis call 负责 window、显式 seed、可选 cohort 和
+completeness declaration。首次使用前应读取
+`marivo.help("analysis.lifecycle.replay")`，不要复制缓存中的函数签名。
+
+```python
+order_model = catalog.state_models.get("sales.order_lifecycle")
+
+history = session.lifecycle.replay(
+    order_model,
+    window=mv.TimeScope(start=start, end=end),
+    seed=mv.from_inception(),
+    analysis_purpose="Reconstruct governed order state history.",
+)
+```
+
+replay window 是 timezone-aware 半开区间。`mv.from_inception()` 是必需的显式选择：
+每个 subject 从第一个符合条件的 modeled inception 开始 replay，计算
+`window.end` 之前的全部 modeled occurrence，但只输出与请求 window 重叠的 interval。
+没有 inception 的 StateModel 可以为未来的 projection seed 加载，但不能使用这条
+replay 路径。
+
+每个不同的 trigger Event 最多查询一次。Event predicate、participant-role
+resolution、identity validation、deterministic ordering 与 completeness 都复用
+Event journey 的同一套核心。completeness declaration 只能覆盖所选 StateModel
+实际消费的 Event，且权威 provider watermark 优先。模型外 Event 既不会被查询，
+也不会被标记为 violation。
+
+合法 trigger 会改变状态。当前状态下不合法的 modeled trigger 不改变状态，但会进入
+replay 的私有 violation trace。同一时刻的跨 Event occurrence 只有在顺序会改变最终
+状态或 violation outcome 时才会失败。
+
+`LifecycleFrame[history]` 保存有序且不重叠的状态 interval。interval status 为
+`completed`、`right_censored` 或 `coverage_censored`。用 `history.show()`
+读取有界当前状态，用 `history.contract()` 查看机械合法的 continuation。
+
+## 归约 Lifecycle history 并选择状态 cohort
+
+Lifecycle reducer 只消费已提交 history，不重新查询 Event source，也不重新 replay
+StateModel：
+
+```python
+weekly_state = session.lifecycle.distribution(
+    history,
+    at=(week_1_end, week_2_end),
+    axes=[account_region],
+)
+transition_counts = session.lifecycle.transitions(history)
+dwell = session.lifecycle.dwell(history)
+violations = session.lifecycle.violations(history)
+```
+
+distribution 对每个请求 instant 和每个声明状态生成 dense output。受治理的 subject
+axis 在各 instant 上解析，分组计数必须与未分组状态 population 对账。transitions
+包含每个不同的 modeled state pair，即使 count 为零。dwell 包含每个声明状态；
+duration statistic 只使用已完成且按 window 裁剪的 interval，censored interval
+则保留为显式计数。violations 是 committed trace 的 typed copy，不会被重命名为
+policy breach、quality failure 或 causal fact。
+
+通过精确的 typed model-state handle 选择 subject，不能传裸 state string：
+
+```python
+paid_state = ms.model_state(model=order_model.ref, name="paid")
+paid_at_end = session.select_subjects(
+    history,
+    selection=mv.in_state(paid_state, as_of=end),
+)
+```
+
+在该 instant 状态未知或 coverage-censored 的 subject 会被排除，并保留在 censoring
+metadata 中。结果 SubjectSet 始终可读，但只有 ready set 才能限定后续
+`observe`、`events.match` 或 `lifecycle.replay`。当前精确 admission rules 以
+`marivo.help("analysis.in_state")` 和 source artifact contract 为准。
 
 ## 一个 intent 如何被指定
 

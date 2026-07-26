@@ -19,7 +19,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from marivo.analysis.errors import NoActiveSessionError, SessionStateError
 from marivo.analysis.session._layout import (
@@ -144,7 +144,7 @@ def _validate_job_subject(value: object, *, role: str) -> None:
             if type(comparison[field]) is not str or not comparison[field]:
                 raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
         return
-    if kind in {"event", "subject_set"}:
+    if kind in {"event", "lifecycle", "subject_set"}:
         payload = _require_exact_object(
             value,
             fields={"kind", "subject_entity_ref", "subject_identity_signature"},
@@ -240,6 +240,219 @@ def _validate_event_reducer_payload(value: object) -> None:
         raise ValueError(f"analysis job event_reducer.{count_field} must be non-negative")
 
 
+def _validate_lifecycle_common(
+    payload: dict[str, object],
+    *,
+    role: str,
+) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.frames.lifecycle import LifecycleStateBinding
+
+    state_model_ref = _decode_ref_payload(cast("Any", payload["state_model_ref"]))
+    if state_model_ref.kind is not SemanticKind.STATE_MODEL:
+        raise ValueError(f"analysis job {role}.state_model_ref must be state_model")
+    if (
+        type(payload["state_model_fingerprint"]) is not str
+        or not payload["state_model_fingerprint"]
+    ):
+        raise ValueError(f"analysis job {role}.state_model_fingerprint must be non-empty")
+    states = payload["states"]
+    if not isinstance(states, list) or not states:
+        raise ValueError(f"analysis job {role}.states must be a non-empty list")
+    decoded_states = TypeAdapter(list[LifecycleStateBinding]).validate_python(states)
+    if any(item.state.model != RefPayloadV1.from_ref(state_model_ref) for item in decoded_states):
+        raise ValueError(f"analysis job {role}.states must reference state_model_ref")
+
+
+def _validate_lifecycle_history_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.event import CompletenessDeclaration
+    from marivo.analysis.frames.event import EventInputCoverage
+    from marivo.analysis.frames.lifecycle import (
+        LifecycleTraceManifest,
+        LifecycleTriggerBinding,
+    )
+    from marivo.analysis.lifecycle import FromInception
+    from marivo.analysis.windows.spec import TimeScope
+
+    fields = {
+        "state_model_ref",
+        "state_model_fingerprint",
+        "states",
+        "seed",
+        "window",
+        "violation_behavior_id",
+        "triggers",
+        "completeness",
+        "input_coverage",
+        "coverage_basis",
+        "event_fingerprints",
+        "event_identity_components",
+        "query_refs",
+        "population_count",
+        "seeded_subject_count",
+        "coverage_censored_subject_count",
+        "interval_count",
+        "violation_count",
+        "pre_inception_ignored_counts",
+        "violation_trace",
+    }
+    payload = _require_exact_object(value, fields=fields, role="lifecycle_history")
+    _validate_lifecycle_common(payload, role="lifecycle_history")
+    FromInception.model_validate(payload["seed"])
+    TimeScope.model_validate(payload["window"])
+    if payload["violation_behavior_id"] != "record_and_continue/v1":
+        raise ValueError("analysis job lifecycle_history.violation_behavior_id is invalid")
+    triggers = TypeAdapter(list[LifecycleTriggerBinding]).validate_python(payload["triggers"])
+    if not triggers:
+        raise ValueError("analysis job lifecycle_history.triggers must be non-empty")
+    TypeAdapter(list[CompletenessDeclaration]).validate_json(json.dumps(payload["completeness"]))
+    coverage = TypeAdapter(list[EventInputCoverage]).validate_python(payload["input_coverage"])
+    if payload["coverage_basis"] not in {
+        "observed_watermark",
+        "declared_complete",
+        "mixed",
+        "unknown",
+    }:
+        raise ValueError("analysis job lifecycle_history.coverage_basis is invalid")
+    event_fingerprints = payload["event_fingerprints"]
+    if (
+        not isinstance(event_fingerprints, dict)
+        or not event_fingerprints
+        or any(
+            type(key) is not str or not key or type(digest) is not str or not digest
+            for key, digest in event_fingerprints.items()
+        )
+    ):
+        raise ValueError("analysis job lifecycle_history.event_fingerprints is invalid")
+    expected_events = {trigger.event_ref.path for trigger in triggers}
+    if set(event_fingerprints) != expected_events:
+        raise ValueError("analysis job lifecycle_history.event_fingerprints must match triggers")
+    if {item.event_ref.path for item in coverage} != expected_events:
+        raise ValueError("analysis job lifecycle_history.input_coverage must match triggers")
+    identities = payload["event_identity_components"]
+    if not isinstance(identities, dict) or set(identities) != expected_events:
+        raise ValueError("analysis job lifecycle_history.event_identity_components is invalid")
+    for components in identities.values():
+        if not isinstance(components, list) or not components:
+            raise ValueError("analysis job Lifecycle Event identity components must be non-empty")
+        for component in components:
+            if _decode_ref_payload(component).kind is not SemanticKind.DIMENSION:
+                raise ValueError(
+                    "analysis job Lifecycle Event identity components must be dimensions"
+                )
+    query_refs = payload["query_refs"]
+    if not isinstance(query_refs, list) or any(
+        type(item) is not str or not item for item in query_refs
+    ):
+        raise ValueError("analysis job lifecycle_history.query_refs is invalid")
+    for field in (
+        "population_count",
+        "seeded_subject_count",
+        "coverage_censored_subject_count",
+        "interval_count",
+        "violation_count",
+    ):
+        if type(payload[field]) is not int or payload[field] < 0:
+            raise ValueError(f"analysis job lifecycle_history.{field} must be non-negative")
+    ignored = payload["pre_inception_ignored_counts"]
+    if (
+        not isinstance(ignored, dict)
+        or set(ignored) != {trigger.key for trigger in triggers}
+        or any(type(count) is not int or count < 0 for count in ignored.values())
+    ):
+        raise ValueError("analysis job lifecycle_history.pre_inception_ignored_counts is invalid")
+    manifest = LifecycleTraceManifest.model_validate(payload["violation_trace"])
+    if manifest.content_hash is None:
+        raise ValueError("analysis job lifecycle_history.violation_trace requires content_hash")
+    if manifest.row_count != payload["violation_count"]:
+        raise ValueError("analysis job Lifecycle trace row count must equal violation_count")
+
+
+def _validate_lifecycle_reducer_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.frames.lifecycle import (
+        LifecycleAxisBinding,
+        LifecycleStatePair,
+    )
+
+    if type(value) is not dict:
+        raise ValueError("analysis job lifecycle_reducer must be an object")
+    kind = value.get("kind")
+    common = {
+        "kind",
+        "state_model_ref",
+        "state_model_fingerprint",
+        "states",
+        "source_artifact_ref",
+        "source_artifact_fingerprint",
+    }
+    shapes = {
+        "distribution": {
+            "at",
+            "axes",
+            "known_subject_counts",
+            "coverage_censored_subject_counts",
+            "grouped_reconciliation_hash",
+        },
+        "transitions": {"modeled_pairs", "modeled_transition_count"},
+        "dwell": {"source_interval_count"},
+        "violations": {"violation_count", "source_trace_content_hash"},
+    }
+    if kind not in shapes:
+        raise ValueError("analysis job lifecycle_reducer.kind is invalid")
+    payload = _require_exact_object(
+        value,
+        fields=common | shapes[kind],
+        role="lifecycle_reducer",
+    )
+    _validate_lifecycle_common(payload, role="lifecycle_reducer")
+    for field in ("source_artifact_ref", "source_artifact_fingerprint"):
+        if type(payload[field]) is not str or not payload[field]:
+            raise ValueError(f"analysis job lifecycle_reducer.{field} must be non-empty")
+    if kind == "distribution":
+        at = payload["at"]
+        if not isinstance(at, list) or not at or len(set(at)) != len(at):
+            raise ValueError("analysis job lifecycle_reducer.at must be non-empty and unique")
+        TypeAdapter(list[LifecycleAxisBinding]).validate_python(payload["axes"])
+        for field in (
+            "known_subject_counts",
+            "coverage_censored_subject_counts",
+        ):
+            counts = payload[field]
+            if (
+                not isinstance(counts, dict)
+                or set(counts) != set(at)
+                or any(type(count) is not int or count < 0 for count in counts.values())
+            ):
+                raise ValueError(f"analysis job lifecycle_reducer.{field} is invalid")
+        digest = payload["grouped_reconciliation_hash"]
+        if type(digest) is not str or not digest.startswith("sha256:"):
+            raise ValueError("analysis job lifecycle_reducer grouped hash is invalid")
+    elif kind == "transitions":
+        TypeAdapter(list[LifecycleStatePair]).validate_python(payload["modeled_pairs"])
+        if (
+            type(payload["modeled_transition_count"]) is not int
+            or payload["modeled_transition_count"] < 0
+        ):
+            raise ValueError("analysis job lifecycle_reducer.modeled_transition_count is invalid")
+    elif kind == "dwell":
+        if (
+            type(payload["source_interval_count"]) is not int
+            or payload["source_interval_count"] < 0
+        ):
+            raise ValueError("analysis job lifecycle_reducer.source_interval_count is invalid")
+    else:
+        if type(payload["violation_count"]) is not int or payload["violation_count"] < 0:
+            raise ValueError("analysis job lifecycle_reducer.violation_count is invalid")
+        digest = payload["source_trace_content_hash"]
+        if type(digest) is not str or not digest.startswith("sha256:"):
+            raise ValueError("analysis job lifecycle_reducer source trace hash is invalid")
+
+
 def _validate_subject_set_payload(value: object) -> None:
     from pydantic import TypeAdapter
 
@@ -259,7 +472,7 @@ def _validate_subject_set_payload(value: object) -> None:
         role="subject_set",
     )
     SubjectSetSourceBinding.model_validate(payload["source"])
-    selection = TypeAdapter(SubjectSelection).validate_json(json.dumps(payload["selection"]))
+    selection: Any = TypeAdapter(SubjectSelection).validate_json(json.dumps(payload["selection"]))
     if payload["selection_fingerprint"] != selection.fingerprint:
         raise ValueError("analysis job subject_set.selection_fingerprint must match selection")
     for field in ("selected_count", "excluded_coverage_censored_count"):
@@ -740,6 +953,48 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             _validate_job_subject(subject, role=f"subjects[{index}]")
     if "cohort" in record:
         _validate_cohort_payload(record["cohort"])
+    lifecycle_roles = {"lifecycle_history", "lifecycle_reducer"} & set(record)
+    if len(lifecycle_roles) > 1:
+        raise ValueError("analysis Lifecycle job requires exactly one Lifecycle semantic role")
+    if lifecycle_roles:
+        if has_subjects or record["subject"].get("kind") != "lifecycle":
+            raise ValueError("analysis Lifecycle job requires one lifecycle subject")
+        forbidden_lifecycle_fields = {
+            "semantic_dependency_digest",
+            "semantic_dependency_digests",
+            "dimension_refs",
+            "time_dimension_ref",
+            "slice_predicates",
+            "event_journey",
+            "event_reducer",
+            "subject_set",
+        } & set(record)
+        if forbidden_lifecycle_fields:
+            raise ValueError(
+                "analysis Lifecycle job rejects unrelated semantic fields "
+                f"{sorted(forbidden_lifecycle_fields)}"
+            )
+        if "lifecycle_history" in lifecycle_roles:
+            _validate_lifecycle_history_payload(record["lifecycle_history"])
+        else:
+            _validate_lifecycle_reducer_payload(record["lifecycle_reducer"])
+        persisted = {"schema": "marivo.analysis_job/v2", **record}
+        write_job_record(session._layout, persisted)
+        finished_at = persisted.get("finished_at")
+        session._store.record_job(
+            session_id=session.id,
+            job_id=persisted["id"],
+            intent=persisted["intent"],
+            status=persisted["status"],
+            started_at=persisted["started_at"],
+            finished_at=finished_at if isinstance(finished_at, str) else None,
+            output_artifact_id=persisted.get("output_frame_ref")
+            or persisted.get("output_artifact_id"),
+            record_path=session._layout.relative_path(
+                session._layout.jobs_dir / f"{persisted['id']}.json"
+            ),
+        )
+        return
     event_roles = {"event_journey", "event_reducer"} & set(record)
     if len(event_roles) > 1:
         raise ValueError("analysis Event job requires exactly one Event semantic role")

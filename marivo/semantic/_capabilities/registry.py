@@ -38,6 +38,8 @@ INPUT_FAMILIES = frozenset(
         "Ref[metric]",
         "Ref[relationship]",
         "Ref[event]",
+        "Ref[event] | ParticipantRoleHandle",
+        "Ref[state_model]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
@@ -93,6 +95,12 @@ INPUT_FAMILIES = frozenset(
         "EntityAlias",
         "Participant",
         "ParticipantRoleHandle",
+        "LifecycleState",
+        "Inception",
+        "StateTransition",
+        "ModelStateHandle",
+        "StateModelName",
+        "LifecycleStateName",
     }
 )
 
@@ -116,6 +124,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[metric]",
         "Ref[relationship]",
         "Ref[event]",
+        "Ref[state_model]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
@@ -135,6 +144,10 @@ OUTPUT_FAMILIES = frozenset(
         "IbisValue",
         "Participant",
         "ParticipantRoleHandle",
+        "LifecycleState",
+        "Inception",
+        "StateTransition",
+        "ModelStateHandle",
     }
 )
 
@@ -582,6 +595,94 @@ def _build_registry() -> SemanticCapabilityRegistry:
             see_also=(_target("event"),),
         ),
         _capability(
+            "lifecycle_state",
+            "marivo.semantic.state_model.lifecycle_state",
+            "Declare one immutable local state for a StateModel.",
+            output="LifecycleState",
+            inputs=_inputs(("mapping_key", "LifecycleStateName")),
+            effects=_NONE,
+            constraints=("state_model_shape",),
+            example="created = ms.lifecycle_state(name='created', initial=True)",
+            see_also=(_target("state_model"), _target("transition")),
+        ),
+        _capability(
+            "inception",
+            "marivo.semantic.state_model.inception",
+            "Declare a trigger from unseeded history into the sole initial state.",
+            output="Inception",
+            inputs=_inputs(("subject", "Ref[event] | ParticipantRoleHandle")),
+            effects=_NONE,
+            constraints=("state_model_trigger",),
+            example="seed = ms.inception(on=ms.ref.event('commerce.order_created'))",
+            see_also=(_target("state_model"), _target("participant_role")),
+        ),
+        _capability(
+            "transition",
+            "marivo.semantic.state_model.transition",
+            "Declare one deterministic transition between exact local states.",
+            output="StateTransition",
+            inputs=_inputs(
+                ("subject", "LifecycleState"),
+                ("dependency", "Ref[event] | ParticipantRoleHandle"),
+                ("dependency", "LifecycleState"),
+            ),
+            effects=_NONE,
+            constraints=("state_model_shape", "state_model_trigger"),
+            example=(
+                "paid_transition = ms.transition("
+                "from_state=created, on=ms.ref.event('commerce.payment_captured'), "
+                "to_state=paid)"
+            ),
+            see_also=(_target("lifecycle_state"), _target("state_model")),
+        ),
+        _capability(
+            "state_model",
+            "marivo.semantic.state_model.state_model",
+            "Declare a closed normative lifecycle for one subject Entity.",
+            output="Ref[state_model]",
+            inputs=_inputs(
+                ("mapping_key", "StateModelName"),
+                ("subject", "Ref[entity]"),
+                ("dependency", "LifecycleState"),
+                ("dependency", "Inception"),
+                ("dependency", "StateTransition"),
+            ),
+            effects=_AUTHOR,
+            constraints=(
+                "active_loader_context",
+                "state_model_shape",
+                "state_model_trigger",
+            ),
+            example=(
+                "order_lifecycle = ms.state_model("
+                "name='order_lifecycle', subject=orders, states=(created, paid), "
+                "transitions=(ms.inception(on=order_created), paid_transition,))"
+            ),
+            see_also=(
+                _target("lifecycle_state"),
+                _target("inception"),
+                _target("transition"),
+                _target("model_state"),
+            ),
+        ),
+        _capability(
+            "model_state",
+            "marivo.semantic.state_model.model_state",
+            "Create the project-neutral typed identity of one StateModel state.",
+            output="ModelStateHandle",
+            inputs=_inputs(
+                ("subject", "Ref[state_model]"),
+                ("mapping_key", "LifecycleStateName"),
+            ),
+            effects=_NONE,
+            constraints=("model_state_membership",),
+            example=(
+                "paid = ms.model_state("
+                "model=ms.ref.state_model('commerce.order_lifecycle'), name='paid')"
+            ),
+            see_also=(_target("state_model"),),
+        ),
+        _capability(
             "join_on",
             "marivo.semantic._authoring_values.join_on",
             "Build a join-key specification for a relationship.",
@@ -898,6 +999,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "participant",
                 "participant_role",
                 "all_rows",
+                "lifecycle_state",
+                "inception",
+                "transition",
+                "state_model",
+                "model_state",
                 "join_on",
                 "from_sql",
                 "bind",
@@ -957,6 +1063,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         RelationshipEntry,
         SemanticCatalog,
         SimpleMetricDetails,
+        StateModelDetails,
+        StateModelEntry,
         TimeDimensionDetails,
         TimeDimensionEntry,
     )
@@ -1125,6 +1233,19 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
+        StateModelEntry,
+        "StateModelEntry",
+        (),
+        methods=("details", "show", "contract", "render"),
+        state_bearing=True,
+    )
+    add(
+        StateModelDetails,
+        "StateModelDetails",
+        (),
+        methods=show_render,
+    )
+    add(
         DatasourceEntry,
         "DatasourceEntry",
         (),
@@ -1204,6 +1325,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "metric",
             "relationship",
             "event",
+            "state_model",
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
@@ -1228,9 +1350,16 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "metric",
             "relationship",
             "event",
+            "state_model",
         ),
     )
     from marivo.semantic.event import Participant, ParticipantRoleHandle
+    from marivo.semantic.state_model import (
+        Inception,
+        LifecycleState,
+        ModelStateHandle,
+        StateTransition,
+    )
 
     add(
         Participant,
@@ -1244,6 +1373,33 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ParticipantRoleHandle",
         ("participant_role",),
         properties=("event", "name", "key"),
+    )
+    add(
+        LifecycleState,
+        "LifecycleState",
+        ("lifecycle_state",),
+        properties=("name", "initial", "terminal"),
+        consumers=("state_model", "transition"),
+    )
+    add(
+        Inception,
+        "Inception",
+        ("inception",),
+        properties=("on",),
+        consumers=("state_model",),
+    )
+    add(
+        StateTransition,
+        "StateTransition",
+        ("transition",),
+        properties=("from_state", "on", "to_state"),
+        consumers=("state_model",),
+    )
+    add(
+        ModelStateHandle,
+        "ModelStateHandle",
+        ("model_state",),
+        properties=("model", "name", "key"),
     )
     # IR types
     add(

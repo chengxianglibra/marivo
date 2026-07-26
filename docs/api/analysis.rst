@@ -58,6 +58,7 @@ structural conformance, not a shared public contract base class.
    BaseFrameMeta
    MetricFrame
    EventFrame
+   LifecycleFrame
    SubjectSet
    ComponentFrame
    DeltaFrame
@@ -142,8 +143,8 @@ Scopes and windows
    TimeScope
    AbsoluteWindow
 
-Event Journey and typed cohorts
--------------------------------
+Event Journey, Lifecycle replay, and typed cohorts
+---------------------------------------------------
 
 ``session.events.match(...)`` consumes typed participant roles and a closed
 ``EventPattern``. The first step uses the half-open ``TimeScope`` cohort
@@ -155,6 +156,16 @@ the persisted journey assignment without rematching Events.
 SubjectSet may scope ``observe(..., cohort=...)`` and
 ``events.match(..., cohort=...)``.
 
+``session.lifecycle.replay(...)`` consumes one exact current StateModel
+entry/ref, an explicit timezone-aware half-open window, and the explicit
+``from_inception()`` seed. It returns ``LifecycleFrame[history]``. Lifecycle
+reducers consume that persisted history without querying Event sources or
+replaying the StateModel again. ``in_state(...)`` is the closed Lifecycle
+selection used by ``session.select_subjects(...)``; a resulting ready
+``SubjectSet`` may scope later metric, Event, or Lifecycle materialization.
+Use focused ``marivo.help("analysis.lifecycle.replay")`` and the returned
+artifact ``contract()`` for the current mechanical contract and continuations.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:
@@ -165,6 +176,8 @@ SubjectSet may scope ``observe(..., cohort=...)`` and
    EveryStart
    CompletenessDeclaration
    DroppedBefore
+   FromInception
+   InState
    EventWatermarkRequest
    EventWatermarkReceipt
    step
@@ -173,6 +186,8 @@ SubjectSet may scope ``observe(..., cohort=...)`` and
    every_start
    declared_complete_through
    dropped_before
+   from_inception
+   in_state
 
 Policies
 --------

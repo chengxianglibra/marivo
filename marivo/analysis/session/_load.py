@@ -12,6 +12,10 @@ from marivo.analysis.errors import (
     FrameMetaInvalidError,
     FrameRefNotFound,
 )
+from marivo.analysis.frames._content_hash import (
+    compute_file_content_hash,
+    compute_frame_content_hash,
+)
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
@@ -27,6 +31,14 @@ from marivo.analysis.frames.event import (
 )
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
+from marivo.analysis.frames.lifecycle import (
+    LifecycleDistributionFrameMeta,
+    LifecycleDwellFrameMeta,
+    LifecycleFrame,
+    LifecycleHistoryFrameMeta,
+    LifecycleTransitionsFrameMeta,
+    LifecycleViolationsFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
@@ -49,6 +61,7 @@ _FRAME_CLASSES = {
     "hypothesis_test_result": (HypothesisTestResult, HypothesisTestResultMeta),
     "forecast_frame": (ForecastFrame, ForecastFrameMeta),
     "event_frame": (EventFrame, EventFrameMeta),
+    "lifecycle_frame": (LifecycleFrame, LifecycleHistoryFrameMeta),
     "subject_set": (SubjectSet, SubjectSetMeta),
     "quality_report": (QualityReport, QualityReportMeta),
     "component_frame": (ComponentFrame, ComponentFrameMeta),
@@ -362,6 +375,42 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 },
             )
         meta_cls = event_meta_classes[semantic_kind]
+    if kind == "lifecycle_frame":
+        semantic_kind = meta.get("semantic_kind")
+        lifecycle_meta_classes = {
+            "history": LifecycleHistoryFrameMeta,
+            "distribution": LifecycleDistributionFrameMeta,
+            "transitions": LifecycleTransitionsFrameMeta,
+            "dwell": LifecycleDwellFrameMeta,
+            "violations": LifecycleViolationsFrameMeta,
+        }
+        if semantic_kind not in lifecycle_meta_classes:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' has an unsupported Lifecycle semantic shape",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "got_semantic_kind": semantic_kind,
+                    "expected_semantic_kinds": tuple(lifecycle_meta_classes),
+                },
+            )
+        meta_cls = lifecycle_meta_classes[semantic_kind]
+        if semantic_kind == "history":
+            manifest_payload = meta.get("violation_trace")
+            filename = (
+                manifest_payload.get("filename") if isinstance(manifest_payload, dict) else None
+            )
+            if isinstance(filename, str):
+                frame_dir = data_path.parent.resolve()
+                trace_path = (frame_dir / filename).resolve()
+                if trace_path.parent != frame_dir:
+                    raise FrameCacheCorruptedError(
+                        message=f"frame '{ref}' has an escaped Lifecycle trace path",
+                        context={
+                            "ref": ref,
+                            "cause": "auxiliary trace path is outside the artifact directory",
+                        },
+                    )
     if kind == "delta_frame" and "comparison_identity" not in meta:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its required delta identity",
@@ -385,7 +434,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     try:
         parsed_meta = (
             cast("Any", meta_cls).model_validate_json(json.dumps(meta))
-            if kind in {"event_frame", "subject_set"}
+            if kind in {"event_frame", "lifecycle_frame", "subject_set"}
             else meta_cls(**meta)
         )
     except ValidationError as exc:
@@ -453,4 +502,74 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                         "missing_state": missing_state,
                     },
                 )
-    return cast("BaseFrame", frame_cls(_df=df, meta=parsed_meta))
+    auxiliary_frames: dict[str, Any] = {}
+    if isinstance(parsed_meta, LifecycleHistoryFrameMeta):
+        manifest = parsed_meta.violation_trace
+        if manifest.content_hash is None:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' is missing its Lifecycle trace content hash",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "missing_state": ["violation_trace.content_hash"],
+                },
+            )
+        frame_dir = data_path.parent.resolve()
+        trace_path = (frame_dir / manifest.filename).resolve()
+        if trace_path.parent != frame_dir:
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' has an escaped Lifecycle trace path",
+                context={
+                    "ref": ref,
+                    "cause": "auxiliary trace path is outside the artifact directory",
+                },
+            )
+        if not trace_path.is_file():
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' Lifecycle trace is missing",
+                context={"ref": ref, "cause": f"missing {manifest.filename}"},
+            )
+        if compute_file_content_hash(trace_path) != manifest.content_hash:
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' Lifecycle trace hash does not match metadata",
+                context={"ref": ref, "cause": "auxiliary trace content hash mismatch"},
+            )
+        try:
+            import pandas as pd
+
+            trace = pd.read_parquet(
+                trace_path,
+                engine="pyarrow",
+                to_pandas_kwargs={},
+            )
+        except Exception as exc:
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' Lifecycle trace cannot be loaded",
+                context={"ref": ref, "cause": str(exc)},
+            ) from exc
+        if len(trace) != manifest.row_count:
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' Lifecycle trace row count does not match metadata",
+                context={"ref": ref, "cause": "auxiliary trace row count mismatch"},
+            )
+        expected_parent_hash = compute_frame_content_hash(
+            meta=parsed_meta,
+            data_path=data_path,
+        )
+        if (
+            parsed_meta.content_hash != expected_parent_hash
+            or artifact_row["content_hash"] != expected_parent_hash
+        ):
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' Lifecycle content identity is corrupt",
+                context={"ref": ref, "cause": "parent artifact content hash mismatch"},
+            )
+        auxiliary_frames[manifest.filename] = trace
+    return cast(
+        "BaseFrame",
+        frame_cls(
+            _df=df,
+            meta=parsed_meta,
+            _auxiliary_frames=auxiliary_frames,
+        ),
+    )

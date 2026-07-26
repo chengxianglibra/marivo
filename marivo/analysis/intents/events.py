@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
-from decimal import Decimal
 from time import monotonic
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
@@ -18,7 +15,6 @@ import pandas as pd
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AmbiguousEventOrderError,
-    EventIdentityError,
     EventParticipantCardinalityError,
     InvalidCompletenessDeclarationError,
     InvalidEventMatchingPolicyError,
@@ -29,8 +25,6 @@ from marivo.analysis.event import (
     CompletenessDeclaration,
     EventMatchingPolicy,
     EventPattern,
-    EventWatermarkReceipt,
-    EventWatermarkRequest,
     EveryStart,
     FirstPerSubject,
     PatternStep,
@@ -48,19 +42,29 @@ from marivo.analysis.evidence.pipeline import (
     frame_exists_on_disk,
     rollback_committed_result,
 )
-from marivo.analysis.executor.runner import ExecutionResult, execute
-from marivo.analysis.executor.windowing import (
-    _window_bound_predicates,
-    datasource_engine_profile,
-    datasource_read_timezone,
-    effective_time_context,
-)
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
 from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.intents._derived import gen_ref, params_digest
-from marivo.analysis.intents._observe_catalog import (
-    _build_entity_adapter,
-    _entity_details,
+from marivo.analysis.intents._event_occurrences import (
+    EventCoverageInput,
+    EventOccurrenceInput,
+    materialize_event_occurrences,
+    resolve_event_coverage,
+)
+from marivo.analysis.intents._event_occurrences import (
+    EventOccurrence as _Occurrence,
+)
+from marivo.analysis.intents._event_occurrences import (
+    canonical_scalar as _canonical_scalar,
+)
+from marivo.analysis.intents._event_occurrences import (
+    identity_sort_key as _identity_sort_key,
+)
+from marivo.analysis.intents._event_occurrences import (
+    occurrence_snapshot_fingerprint as _snapshot_fingerprint,
+)
+from marivo.analysis.intents._event_occurrences import (
+    stable_digest as _stable_digest,
 )
 from marivo.analysis.intents._subject_cohort import (
     ResolvedSubjectCohort,
@@ -74,7 +78,7 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
+from marivo.analysis.windows.spec import TimeScope
 from marivo.refs import EntityKind, EventKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.catalog import EventDetails, EventEntry
 
@@ -98,85 +102,6 @@ class _ResolvedStep:
     subject_identity: tuple[str, ...]
     datasource_name: str
     event_fingerprint: str
-
-
-@dataclass(frozen=True)
-class _Occurrence:
-    event_ref: Ref[EventKind]
-    participant_name: str
-    event_identity: tuple[object, ...]
-    subject_identity: tuple[object, ...]
-    occurred_at: pd.Timestamp
-
-    @property
-    def occurrence_key(self) -> tuple[str, tuple[object, ...]]:
-        return (self.event_ref.key, self.event_identity)
-
-
-def _canonical_scalar(value: object) -> object:
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    item = getattr(value, "item", None)
-    if callable(item):
-        converted = item()
-        if converted is not value:
-            return _canonical_scalar(converted)
-    if isinstance(value, bytes):
-        return {"bytes_hex": value.hex()}
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return value
-    return repr(value)
-
-
-def _identity_component_sort_key(value: object) -> tuple[int, Decimal | str]:
-    item = getattr(value, "item", None)
-    if callable(item):
-        converted = item()
-        if converted is not value:
-            return _identity_component_sort_key(converted)
-    if value is None:
-        return (0, "")
-    if isinstance(value, bool):
-        return (1, Decimal(int(value)))
-    if isinstance(value, (int, float, Decimal)):
-        return (2, Decimal(str(value)))
-    if isinstance(value, pd.Timestamp):
-        timestamp = value
-        if timestamp.tzinfo is not None:
-            timestamp = timestamp.tz_convert("UTC")
-        return (3, timestamp.isoformat())
-    if isinstance(value, datetime):
-        timestamp = pd.Timestamp(value)
-        if timestamp.tzinfo is not None:
-            timestamp = timestamp.tz_convert("UTC")
-        return (3, timestamp.isoformat())
-    if isinstance(value, date):
-        return (3, value.isoformat())
-    if isinstance(value, str):
-        return (4, value)
-    if isinstance(value, bytes):
-        return (5, value.hex())
-    value_type = type(value)
-    return (6, f"{value_type.__module__}.{value_type.__qualname__}:{value!r}")
-
-
-def _identity_sort_key(
-    identity: tuple[object, ...],
-) -> tuple[tuple[int, Decimal | str], ...]:
-    return tuple(_identity_component_sort_key(component) for component in identity)
-
-
-def _stable_digest(payload: object) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-        default=str,
-    ).encode()
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _journey_id(
@@ -232,54 +157,6 @@ def _parse_bound(value: object, *, report_tz: ZoneInfo, label: str) -> pd.Timest
             ),
         ) from exc
     return pd.Timestamp(parsed.astimezone(UTC))
-
-
-def _inclusive_successor(
-    value: str,
-    *,
-    report_tz: ZoneInfo,
-    granularity: str,
-) -> str:
-    bound = _parse_bound(value, report_tz=report_tz, label="completion_through")
-    local_bound = bound.tz_convert(report_tz)
-    if granularity == "year":
-        successor = local_bound + pd.DateOffset(years=1)
-    elif granularity == "quarter":
-        successor = local_bound + pd.DateOffset(months=3)
-    elif granularity == "month":
-        successor = local_bound + pd.DateOffset(months=1)
-    elif granularity == "week":
-        successor = local_bound + pd.DateOffset(weeks=1)
-    elif granularity == "day":
-        successor = local_bound + pd.DateOffset(days=1)
-    elif granularity == "hour":
-        successor = local_bound + pd.Timedelta(hours=1)
-    elif granularity == "minute":
-        successor = local_bound + pd.Timedelta(minutes=1)
-    elif granularity == "second":
-        successor = local_bound + pd.Timedelta(seconds=1)
-    else:
-        raise InvalidEventPatternError(
-            message="Event occurred_at has an unsupported granularity",
-            expected="year | quarter | month | week | day | hour | minute | second",
-            received=repr(granularity),
-            location="session.events.match.pattern Event occurred_at",
-            repair=_repair(
-                kind="semantic_authoring",
-                action="Repair the Event occurred_at TimeDimension granularity.",
-                candidates=(
-                    "year",
-                    "quarter",
-                    "month",
-                    "week",
-                    "day",
-                    "hour",
-                    "minute",
-                    "second",
-                ),
-            ),
-        )
-    return successor.isoformat()
 
 
 def _resolve_pattern(
@@ -669,41 +546,6 @@ def _event_groups(
     )
 
 
-def _time_adapter(
-    *,
-    session: Session,
-    resolver: Any,
-    source_entity: str,
-    occurred_at: str,
-) -> Any:
-    entity = _entity_details(session.catalog, source_entity)
-    adapter = _build_entity_adapter(session.catalog, resolver, entity)
-    for field in adapter.fields.values():
-        if field.semantic_id == occurred_at:
-            if field.time_meta is None:
-                raise InvalidEventPatternError(
-                    message=f"Event occurred_at {occurred_at!r} has no time metadata",
-                    expected="a governed TimeDimension",
-                    received=occurred_at,
-                    location="session.events.match.pattern Event occurred_at",
-                    repair=_repair(
-                        kind="semantic_authoring",
-                        action="Repair the Event occurred_at TimeDimension definition.",
-                    ),
-                )
-            return adapter, field
-    raise InvalidEventPatternError(
-        message=f"Event occurred_at {occurred_at!r} is not on its source Entity",
-        expected=f"a TimeDimension owned by {source_entity!r}",
-        received=occurred_at,
-        location="session.events.match.pattern Event occurred_at",
-        repair=_repair(
-            kind="semantic_authoring",
-            action="Repair the Event occurred_at reference.",
-        ),
-    )
-
-
 def _query_events(
     *,
     session: Session,
@@ -716,293 +558,38 @@ def _query_events(
     dict[tuple[Ref[EventKind], str], tuple[_Occurrence, ...]],
     tuple[Any, ...],
 ]:
-    registry = session.catalog._require_index().registry
-    resolver = session.catalog._semantic_resolver(connections=session._connection_runtime)
-    occurrence_sets: dict[tuple[Ref[EventKind], str], tuple[_Occurrence, ...]] = {}
-    report_tz = cast("ZoneInfo", session.report_tz)
-    session._connection_runtime.begin_query_capture()
-    try:
-        for event_ref, role_names, representative in _event_groups(resolved):
-            event_ir = registry.events[event_ref.path]
-            table = resolver.event(event_ref, participants=role_names)
-            if cohort is not None:
-                table = apply_event_subject_membership(
-                    table=table,
-                    cohort=cohort,
-                    participant_names=role_names,
+    inputs = tuple(
+        EventOccurrenceInput(
+            event_ref=event_ref,
+            participant_names=role_names,
+            subject_identity_counts=tuple(
+                (
+                    role_name,
+                    next(
+                        len(item.subject_identity)
+                        for item in resolved
+                        if item.step.event == event_ref and item.step.participant.name == role_name
+                    ),
                 )
-            entity_adapter, occurred_adapter = _time_adapter(
-                session=session,
-                resolver=resolver,
-                source_entity=event_ir.source_entity,
-                occurred_at=event_ir.occurred_at,
-            )
-            datasource_name = representative.datasource_name
-            read_tz = datasource_read_timezone(
-                session._connection_runtime,
-                datasource_name,
-            )
-            profile = datasource_engine_profile(
-                session._connection_runtime,
-                datasource_name,
-            )
-            query_window = AbsoluteWindow(
-                start=cohort_window.start,
-                end=_inclusive_successor(
-                    completion_through,
-                    report_tz=report_tz,
-                    granularity=occurred_adapter.time_meta.granularity,
-                ),
-            )
-            lower, upper = _window_bound_predicates(
-                table["__occurred_at"],
-                query_window,
-                occurred_adapter.time_meta,
-                report_tz=report_tz,
-                datasource_read_tz=read_tz,
-                profile=profile,
-            )
-            result = execute(
-                table.filter(lower, upper),
-                datasource_name=datasource_name,
-                cache=session._connection_runtime,
-                session_id=session.id,
-            )
-            normalized = _normalize_event_rows(
-                result=result,
-                event_ref=event_ref,
-                role_names=role_names,
-                identity_count=len(event_ir.identity),
-                subject_identity_count={
-                    item.step.participant.name: len(item.subject_identity)
-                    for item in resolved
-                    if item.step.event == event_ref
-                },
-                time_meta=occurred_adapter.time_meta,
-                dataset_adapter=entity_adapter,
-                report_tz=report_tz,
-                datasource_read_tz=read_tz,
-            )
-            if cohort is not None:
-                # One EventRef may serve multiple selected roles. The Ibis
-                # semi-join excludes rows outside every role; this per-role
-                # guard keeps each occurrence set exact.
-                allowed_identities = set(cohort.identities)
-                normalized = {
-                    key: tuple(
-                        occurrence
-                        for occurrence in occurrences
-                        if occurrence.subject_identity in allowed_identities
-                    )
-                    for key, occurrences in normalized.items()
-                }
-            occurrence_sets.update(
-                {
-                    key: tuple(
-                        occurrence
-                        for occurrence in occurrences
-                        if occurrence.occurred_at <= completion
-                    )
-                    for key, occurrences in normalized.items()
-                }
-            )
-    except BaseException:
-        session._connection_runtime.take_captured_queries()
-        raise
-    return occurrence_sets, tuple(session._connection_runtime.take_captured_queries())
-
-
-def _is_empty_component(value: object) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str) and not value:
-        return True
-    missing = pd.isna(cast("Any", value))
-    return bool(missing) if isinstance(missing, bool) else False
-
-
-def _normalize_timestamp(
-    value: object,
-    *,
-    column_tz: ZoneInfo,
-    decode_policy: str,
-) -> pd.Timestamp | None:
-    if _is_empty_component(value):
-        return None
-    try:
-        timestamp = pd.Timestamp(cast("Any", value))
-    except (TypeError, ValueError):
-        return None
-    if timestamp.tzinfo is None:
-        timezone = ZoneInfo("UTC") if decode_policy == "utc_naive_instant" else column_tz
-        timestamp = timestamp.tz_localize(timezone)
-    return timestamp.tz_convert("UTC")
-
-
-def _normalize_event_rows(
-    *,
-    result: ExecutionResult,
-    event_ref: Ref[EventKind],
-    role_names: tuple[str, ...],
-    identity_count: int,
-    subject_identity_count: dict[str, int],
-    time_meta: Any,
-    dataset_adapter: Any,
-    report_tz: ZoneInfo,
-    datasource_read_tz: ZoneInfo,
-) -> dict[tuple[Ref[EventKind], str], tuple[_Occurrence, ...]]:
-    frame = result.df.copy()
-    identity_columns = tuple(f"__event_identity_{index}" for index in range(identity_count))
-    required = {
-        *identity_columns,
-        "__occurred_at",
-        "__source_identity_count",
-    }
-    for role_name in role_names:
-        required.update(
-            f"__subject_{role_name}_identity_{index}"
-            for index in range(subject_identity_count[role_name])
-        )
-    missing = required - set(frame.columns)
-    if missing:
-        raise EventIdentityError(
-            message=f"materialized Event {event_ref.key!r} is missing identity columns",
-            expected=repr(sorted(required)),
-            received=repr(sorted(frame.columns)),
-            location=f"session.events.match.materialized[{event_ref.key!r}]",
-            repair=_repair(
-                kind="inspect",
-                action="Inspect the Event identity and participant path definitions.",
+                for role_name in role_names
             ),
+            datasource_name=representative.datasource_name,
+            event_fingerprint=representative.event_fingerprint,
         )
-
-    context = effective_time_context(
-        time_meta,
-        report_tz=report_tz,
-        datasource_read_tz=datasource_read_tz,
-        field_expr=None,
-        backend_policy=cast("Any", result.backend_datetime_decode_policy),
+        for event_ref, role_names, representative in _event_groups(resolved)
     )
-    column_tz = context.effective_column_tz or datasource_read_tz
-    by_role: dict[tuple[Ref[EventKind], str], list[_Occurrence]] = {
-        (event_ref, name): [] for name in role_names
-    }
-    seen_event_ids: set[tuple[object, ...]] = set()
-    for row in frame.to_dict("records"):
-        event_identity = tuple(row[column] for column in identity_columns)
-        try:
-            source_identity_count = int(row["__source_identity_count"])
-        except (TypeError, ValueError) as exc:
-            raise EventIdentityError(
-                message=f"Event {event_ref.key!r} produced an invalid source identity count",
-                expected="exactly one source occurrence per declared Event identity",
-                received=repr(row["__source_identity_count"]),
-                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
-                repair=_repair(
-                    kind="inspect",
-                    action="Inspect the Event identity dimensions and source rows.",
-                ),
-            ) from exc
-        if source_identity_count != 1:
-            raise EventIdentityError(
-                message=f"Event {event_ref.key!r} declared identity is not unique",
-                expected="one source occurrence per declared Event identity",
-                received=(
-                    f"event_identity={event_identity!r}, "
-                    f"source_identity_count={source_identity_count}"
-                ),
-                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
-                repair=_repair(
-                    kind="inspect",
-                    action="Inspect duplicate Event identities and their source rows.",
-                ),
-            )
-        if any(_is_empty_component(component) for component in event_identity):
-            raise EventIdentityError(
-                message=f"Event {event_ref.key!r} produced an empty identity component",
-                expected="a non-null, non-empty declared Event identity tuple",
-                received=repr(event_identity),
-                location=f"session.events.match.materialized[{event_ref.key!r}].identity",
-                repair=_repair(
-                    kind="inspect",
-                    action="Inspect null Event identity components and their source rows.",
-                ),
-            )
-        if event_identity in seen_event_ids:
-            raise EventParticipantCardinalityError(
-                message=(
-                    f"Event {event_ref.key!r} participant join produced more than "
-                    "one row for an occurrence"
-                ),
-                expected="exactly one endpoint for every cardinality='one' role",
-                received=repr(event_identity),
-                location=f"session.events.match.materialized[{event_ref.key!r}].participants",
-                repair=_repair(
-                    kind="inspect",
-                    action="Inspect participant relationship keys and joined endpoint rows.",
-                ),
-            )
-        seen_event_ids.add(event_identity)
-        occurred_at = _normalize_timestamp(
-            row["__occurred_at"],
-            column_tz=column_tz,
-            decode_policy=result.backend_datetime_decode_policy,
-        )
-        if occurred_at is None:
-            raise EventIdentityError(
-                message=f"Event {event_ref.key!r} produced an invalid occurred_at value",
-                expected="a non-null governed timestamp",
-                received=repr(row["__occurred_at"]),
-                location=f"session.events.match.materialized[{event_ref.key!r}].occurred_at",
-                repair=_repair(
-                    kind="inspect",
-                    action="Inspect the Event occurred_at definition and source values.",
-                ),
-            )
-        for role_name in role_names:
-            columns = tuple(
-                f"__subject_{role_name}_identity_{index}"
-                for index in range(subject_identity_count[role_name])
-            )
-            subject_identity = tuple(row[column] for column in columns)
-            if any(_is_empty_component(component) for component in subject_identity):
-                raise EventParticipantCardinalityError(
-                    message=(
-                        f"Event {event_ref.key!r} participant {role_name!r} "
-                        "did not resolve to exactly one subject"
-                    ),
-                    expected="one non-null participant endpoint identity",
-                    received=repr(subject_identity),
-                    location=(
-                        f"session.events.match.materialized[{event_ref.key!r}]"
-                        f".participants[{role_name!r}]"
-                    ),
-                    repair=_repair(
-                        kind="inspect",
-                        action="Inspect missing participant join keys and endpoint rows.",
-                    ),
-                )
-            by_role[(event_ref, role_name)].append(
-                _Occurrence(
-                    event_ref=event_ref,
-                    participant_name=role_name,
-                    event_identity=event_identity,
-                    subject_identity=subject_identity,
-                    occurred_at=occurred_at,
-                )
-            )
-    return {
-        key: tuple(
-            sorted(
-                values,
-                key=lambda item: (
-                    item.occurred_at,
-                    _identity_sort_key(item.event_identity),
-                ),
-            )
-        )
-        for key, values in by_role.items()
-    }
+    return materialize_event_occurrences(
+        session=session,
+        inputs=inputs,
+        start=cohort_window.start,
+        end=completion_through,
+        normalized_end=completion,
+        end_inclusive=True,
+        cohort=cohort,
+        help_target="events.match",
+        membership_lowerer=apply_event_subject_membership,
+        occurred_at_location="session.events.match.pattern Event occurred_at",
+    )
 
 
 def _candidate_after(
@@ -1214,127 +801,30 @@ def _coverage(
     Literal["observed_watermark", "declared_complete", "mixed", "unknown"],
 ]:
     registry = session.catalog._require_index().registry
-    report_tz = cast("ZoneInfo", session.report_tz)
-    items: list[EventInputCoverage] = []
     seen: set[Ref[EventKind]] = set()
+    inputs: list[EventCoverageInput] = []
     for resolved_step in resolved:
         event_ref = resolved_step.step.event
         if event_ref in seen:
             continue
         seen.add(event_ref)
         event_ir = registry.events[event_ref.path]
-        request = EventWatermarkRequest(
-            event_ref=event_ref,
-            event_fingerprint=resolved_step.event_fingerprint,
-            source_entity_ref=event_ir.source_entity,
-            occurred_at_ref=event_ir.occurred_at,
-            required_through=completion_through,
-        )
-        raw_receipt = session._connection_runtime.event_watermark(
-            resolved_step.datasource_name,
-            request,
-        )
-        receipt: EventWatermarkReceipt | None = None
-        valid_receipt: EventWatermarkReceipt | None = None
-        if raw_receipt is not None:
-            try:
-                candidate = EventWatermarkReceipt.model_validate(raw_receipt)
-                receipt_complete = _parse_bound(
-                    candidate.complete_through,
-                    report_tz=report_tz,
-                    label="watermark.complete_through",
-                )
-                _parse_bound(
-                    candidate.observed_at,
-                    report_tz=report_tz,
-                    label="watermark.observed_at",
-                )
-            except (TypeError, ValueError, InvalidEventPatternError):
-                candidate = None
-            if candidate is not None:
-                valid_receipt = candidate
-                if receipt_complete >= completion:
-                    receipt = candidate
-        if receipt is not None:
-            items.append(
-                EventInputCoverage(
-                    event_ref=RefPayloadV1.from_ref(event_ref),
-                    basis="observed_watermark",
-                    receipt=receipt,
-                    observed_complete_through=receipt.complete_through,
-                )
-            )
-            continue
-        declaration = declaration_by_event.get(event_ref)
-        if (
-            declaration is not None
-            and _parse_declaration_through(
-                declaration,
-                report_tz=report_tz,
-            )
-            >= completion
-        ):
-            items.append(
-                EventInputCoverage(
-                    event_ref=RefPayloadV1.from_ref(event_ref),
-                    basis="declared_complete",
-                    receipt=valid_receipt,
-                    declaration_fingerprint=declaration.fingerprint,
-                    declaration_rationale=declaration.rationale,
-                    observed_complete_through=(
-                        valid_receipt.complete_through if valid_receipt is not None else None
-                    ),
-                )
-            )
-            continue
-        items.append(
-            EventInputCoverage(
-                event_ref=RefPayloadV1.from_ref(event_ref),
-                basis="unknown",
-                receipt=valid_receipt,
-                observed_complete_through=(
-                    valid_receipt.complete_through if valid_receipt is not None else None
-                ),
+        inputs.append(
+            EventCoverageInput(
+                event_ref=event_ref,
+                event_fingerprint=resolved_step.event_fingerprint,
+                datasource_name=resolved_step.datasource_name,
+                source_entity_ref=event_ir.source_entity,
+                occurred_at_ref=event_ir.occurred_at,
             )
         )
-
-    bases = {item.basis for item in items}
-    if "unknown" in bases:
-        aggregate: Literal["observed_watermark", "declared_complete", "mixed", "unknown"] = (
-            "unknown"
-        )
-    elif bases == {"observed_watermark"}:
-        aggregate = "observed_watermark"
-    elif bases == {"declared_complete"}:
-        aggregate = "declared_complete"
-    else:
-        aggregate = "mixed"
-    return tuple(items), aggregate
-
-
-def _snapshot_fingerprint(
-    occurrence_sets: dict[tuple[Ref[EventKind], str], tuple[_Occurrence, ...]],
-) -> str:
-    payload = [
-        {
-            "event": event_ref.key,
-            "participant": role,
-            "event_identity": [
-                [_canonical_scalar(component) for component in item.event_identity]
-                for item in occurrences
-            ],
-            "subject_identity": [
-                [_canonical_scalar(component) for component in item.subject_identity]
-                for item in occurrences
-            ],
-            "occurred_at": [item.occurred_at.isoformat() for item in occurrences],
-        }
-        for (event_ref, role), occurrences in sorted(
-            occurrence_sets.items(),
-            key=lambda item: (item[0][0].key, item[0][1]),
-        )
-    ]
-    return _stable_digest(payload)
+    return resolve_event_coverage(
+        session=session,
+        inputs=tuple(inputs),
+        required_through=completion_through,
+        required_instant=completion,
+        declaration_by_event=declaration_by_event,
+    )
 
 
 def _rollback_event_commit(

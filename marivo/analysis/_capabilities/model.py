@@ -37,6 +37,7 @@ RootGroup = Literal[
 ArtifactFamily = Literal[
     "MetricFrame",
     "EventFrame",
+    "LifecycleFrame",
     "SubjectSet",
     "DeltaFrame",
     "AttributionFrame",
@@ -63,6 +64,8 @@ InputFamily = (
         "EventPattern",
         "EventMatchingPolicy",
         "CompletenessDeclaration",
+        "StateModelSemantic",
+        "LifecycleSeed",
         "SubjectSelection",
     ]
 )
@@ -303,6 +306,7 @@ ROOT_GROUP_ORDER: tuple[RootGroup, ...] = (
 ARTIFACT_FAMILIES: tuple[ArtifactFamily, ...] = (
     "MetricFrame",
     "EventFrame",
+    "LifecycleFrame",
     "SubjectSet",
     "DeltaFrame",
     "AttributionFrame",

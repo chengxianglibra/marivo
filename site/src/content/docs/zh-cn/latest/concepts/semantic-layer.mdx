@@ -140,6 +140,74 @@ constructor、裸 `True` 或另一套 filtered-Event API。
 的 role 必须使用 `cardinality="one"`。其 endpoint Entity 已声明的 primary key
 就是 subject identity，调用方不再重复提供。
 
+## 对规范生命周期建模
+
+StateModel 为一个 subject Entity 声明允许出现的状态及 Event 驱动的转换。它只描述
+业务规范含义。replay window、seed、完整性假设、cohort 和 observed violation
+属于分析层，不进入 StateModel。
+
+例如，假设订单源还提供支付时间与订单状态：
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+状态名是 StateModel 内部的 immutable authoring value。必须恰好有一个 initial
+state；terminal state 不得再有 outgoing transition。只有当某个 Event 恰好有一个
+`cardinality="one"` participant 到达 StateModel subject 时，才会自动推导 trigger
+role。如果多个 role 都符合条件，应传入精确的 `ms.participant_role(...)` handle，
+而不是分别重复 Event 和 role 字段。
+
+加载后，通过 `ms.model_state(model=order_lifecycle, name="paid")` 构造分析层接收的
+typed state identity。为将来的 projection seed 而定义的 StateModel 可以没有
+inception，但这种模型不能从 inception 开始 replay。当前 constructor contract 以
+`marivo.help("semantic.state_model")` 为准；当前对象可执行的
+`verify`/`preview`/`readiness` continuation 以 catalog entry 为准。
+
 ## 建模步骤
 
 ### 1. 连接数据源

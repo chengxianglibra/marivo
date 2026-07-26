@@ -62,6 +62,7 @@ _REF_ID_FORMATS: tuple[tuple[SemanticKind, str], ...] = (
     (SemanticKind.MEASURE, 'ms.ref.measure("<domain>.<entity>.<measure_name>")'),
     (SemanticKind.ENTITY, 'ms.ref.entity("<domain>.<entity_name>")'),
     (SemanticKind.DOMAIN, 'ms.ref.domain("<domain_name>")'),
+    (SemanticKind.STATE_MODEL, 'ms.ref.state_model("<domain>.<state_model_name>")'),
 )
 
 
@@ -726,11 +727,19 @@ def _render_type_help(type_name: str) -> str:
             "EventFrame[funnel]",
             "EventFrame[time_to_event]",
         ),
+        "LifecycleFrame": (
+            "LifecycleFrame[history]",
+            "LifecycleFrame[distribution]",
+            "LifecycleFrame[transitions]",
+            "LifecycleFrame[dwell]",
+            "LifecycleFrame[violations]",
+        ),
         "QualityReport": (
             "QualityReport[metric]",
             "QualityReport[event_journey]",
             "QualityReport[event_funnel]",
             "QualityReport[event_time_to_event]",
+            "QualityReport[lifecycle]",
         ),
     }.get(type_name)
     if variants:

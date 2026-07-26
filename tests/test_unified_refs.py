@@ -40,6 +40,12 @@ from marivo.refs import (
         (ref_factory.measure, "sales.orders.amount", SemanticKind.MEASURE),
         (ref_factory.metric, "sales.revenue", SemanticKind.METRIC),
         (ref_factory.relationship, "sales.orders_to_users", SemanticKind.RELATIONSHIP),
+        (ref_factory.event, "sales.order_created", SemanticKind.EVENT),
+        (
+            ref_factory.state_model,
+            "sales.order_lifecycle",
+            SemanticKind.STATE_MODEL,
+        ),
     ],
 )
 def test_exact_factories_cover_all_kinds(factory, path: str, kind: SemanticKind) -> None:

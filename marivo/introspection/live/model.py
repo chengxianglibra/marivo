@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 class SurfaceLimits:
     """Numeric rendering and suggestion limits shared by help surfaces."""
 
-    root_help_max_lines: int = 80
+    root_help_max_lines: int = 96
     root_help_max_codepoints: int = 8_000
     focused_help_max_lines: int = 120
     focused_help_max_codepoints: int = 12_000

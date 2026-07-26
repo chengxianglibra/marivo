@@ -59,6 +59,7 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         "AttributionFrame": ("as_sum", "as_ratio_mix", "as_weighted_mix"),
         "EventFrame": (),
+        "LifecycleFrame": (),
         "SubjectSet": (),
         "CandidateSet": (
             "select",
@@ -89,6 +90,7 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "MetricFrame": ("semantic_shape", "metrics", "arity", "value_columns", "transform"),
         "DeltaFrame": ("semantic_shape", "transform"),
         "AttributionFrame": ("attribution_shape", "attribution_mode"),
+        "LifecycleFrame": ("semantic_shape",),
     }
 )
 
@@ -117,6 +119,7 @@ PUBLIC_OBJECT_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "report_tz_name",
             "is_read_only",
             "events",
+            "lifecycle",
         ),
         "FrameSummaryEntry": ("id",),
     }
@@ -281,6 +284,7 @@ class CapabilityRegistry:
 
 _MF: frozenset[InputFamily] = frozenset({"MetricFrame"})
 _EF: frozenset[InputFamily] = frozenset({"EventFrame"})
+_LF: frozenset[InputFamily] = frozenset({"LifecycleFrame"})
 _SS: frozenset[InputFamily] = frozenset({"SubjectSet"})
 _DF: frozenset[InputFamily] = frozenset({"DeltaFrame"})
 _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
@@ -304,6 +308,7 @@ def _build_registry() -> CapabilityRegistry:
     from marivo.analysis.frames.candidate import CandidateSet
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.metric import MetricFrame
+    from marivo.analysis.lifecycle import from_inception, in_state
     from marivo.analysis.policies import (
         SamplingPolicy,
         dow_aligned,
@@ -490,6 +495,127 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         OperatorCapability(
+            id="lifecycle.replay",
+            public_entrypoint="session.lifecycle.replay(...)",
+            help_target="lifecycle.replay",
+            summary=(
+                "Replay one exact StateModel from its explicit inception seed into "
+                "canonical clipped state history."
+            ),
+            root_group="artifact_production",
+            root_visibility="direct",
+            constraint_ids=(
+                "lifecycle_model_valid",
+                "lifecycle_window_valid",
+                "lifecycle_seed_valid",
+                "event_completeness_valid",
+            ),
+            callable_path="marivo.analysis.session.core.SessionLifecycle.replay",
+            receiver="SessionLifecycle",
+            accepted_inputs={
+                "model": frozenset({"StateModelSemantic"}),
+                "window": frozenset({"TimeScopeInput"}),
+                "seed": frozenset({"LifecycleSeed"}),
+                "completeness": frozenset({"CompletenessDeclaration"}),
+                "cohort": _SS,
+            },
+            artifact_admission={
+                "cohort": ArtifactAdmissionRule(
+                    coverage_statuses={"SubjectSet": frozenset({"ready"})},
+                ),
+            },
+            output_family="LifecycleFrame",
+            additional_examples=(
+                HelpExample(
+                    label="Replay from the first modeled inception",
+                    code=(
+                        "history = session.lifecycle.replay(\n"
+                        '    ms.ref.state_model("commerce.order_lifecycle"),\n'
+                        "    window=mv.TimeScope(\n"
+                        '        start="2026-07-01T00:00:00Z",\n'
+                        '        end="2026-08-01T00:00:00Z",\n'
+                        "    ),\n"
+                        "    seed=mv.from_inception(),\n"
+                        ")"
+                    ),
+                ),
+                HelpExample(
+                    label="Replay scoped by a ready SubjectSet",
+                    code=(
+                        "scoped_history = session.lifecycle.replay(\n"
+                        '    ms.ref.state_model("commerce.order_lifecycle"),\n'
+                        "    window=next_window,\n"
+                        "    seed=mv.from_inception(),\n"
+                        "    cohort=subjects,\n"
+                        ")"
+                    ),
+                ),
+            ),
+        )
+    )
+
+    lifecycle_reducer_specs = (
+        (
+            "lifecycle.distribution",
+            "Reduce replay history into dense point-in-time state distributions.",
+            "marivo.analysis.session.core.SessionLifecycle.distribution",
+        ),
+        (
+            "lifecycle.transitions",
+            "Count dense modeled state pairs from committed replay history.",
+            "marivo.analysis.session.core.SessionLifecycle.transitions",
+        ),
+        (
+            "lifecycle.dwell",
+            "Summarize completed and censored state intervals from committed history.",
+            "marivo.analysis.session.core.SessionLifecycle.dwell",
+        ),
+        (
+            "lifecycle.violations",
+            "Expose the fixed-contract illegal modeled-Event trace from replay.",
+            "marivo.analysis.session.core.SessionLifecycle.violations",
+        ),
+    )
+    for capability_id, summary, callable_path in lifecycle_reducer_specs:
+        descriptors.append(
+            OperatorCapability(
+                id=capability_id,
+                public_entrypoint=f"session.{capability_id}(...)",
+                help_target=capability_id,
+                summary=summary,
+                root_group="typed_analysis",
+                root_visibility="direct",
+                constraint_ids=("lifecycle_reducer_source_valid",),
+                callable_path=callable_path,
+                receiver="SessionLifecycle",
+                accepted_inputs={"history": _LF},
+                artifact_admission={
+                    "history": ArtifactAdmissionRule(
+                        semantic_shapes={"LifecycleFrame": frozenset({"history"})},
+                    ),
+                },
+                output_family="LifecycleFrame",
+                additional_examples=(
+                    (
+                        HelpExample(
+                            label="Distribution at explicit instants with governed axes",
+                            code=(
+                                "distribution = session.lifecycle.distribution(\n"
+                                "    history,\n"
+                                '    at=("2026-07-08T00:00:00Z",),\n'
+                                '    axes=[ms.ref.dimension("commerce.orders.region")],\n'
+                                ")"
+                            ),
+                        ),
+                    )
+                    if capability_id == "lifecycle.distribution"
+                    else ()
+                ),
+            )
+        )
+
+    descriptors.append(
+        OperatorCapability(
             id="events.time_to_event",
             public_entrypoint="session.events.time_to_event(...)",
             help_target="events.time_to_event",
@@ -517,19 +643,25 @@ def _build_registry() -> CapabilityRegistry:
             id="select_subjects",
             public_entrypoint="session.select_subjects(...)",
             help_target="select_subjects",
-            summary=("Materialize a closed typed SubjectSet from resolved Event Journey loss."),
+            summary=(
+                "Materialize a closed typed SubjectSet from resolved Event loss "
+                "or replayed Lifecycle state."
+            ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=("event_reducer_source_valid", "subject_selection_valid"),
             callable_path="marivo.analysis.session.core.Session.select_subjects",
             receiver="Session",
             accepted_inputs={
-                "artifact": _EF,
+                "artifact": _EF | _LF,
                 "selection": frozenset({"SubjectSelection"}),
             },
             artifact_admission={
                 "artifact": ArtifactAdmissionRule(
-                    semantic_shapes={"EventFrame": frozenset({"journey"})},
+                    semantic_shapes={
+                        "EventFrame": frozenset({"journey"}),
+                        "LifecycleFrame": frozenset({"history"}),
+                    },
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
             },
@@ -672,19 +804,25 @@ def _build_registry() -> CapabilityRegistry:
             id="assess_quality",
             public_entrypoint="session.assess_quality(...)",
             help_target="assess_quality",
-            summary="Run fixed quality checks over supported MetricFrame and EventFrame shapes.",
+            summary=(
+                "Run fixed quality checks over supported MetricFrame, EventFrame, "
+                "and LifecycleFrame shapes."
+            ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=("quality_target_shape",),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={
-                "target": _MF | _EF,
+                "target": _MF | _EF | _LF,
             },
             artifact_admission={
                 "target": ArtifactAdmissionRule(
                     semantic_shapes={
                         "EventFrame": frozenset({"journey", "funnel", "time_to_event"}),
+                        "LifecycleFrame": frozenset(
+                            {"history", "distribution", "transitions", "dwell", "violations"}
+                        ),
                     },
                 ),
             },
@@ -1082,6 +1220,22 @@ def _build_registry() -> CapabilityRegistry:
             "DroppedBefore",
         ),
         (
+            "from_inception",
+            "mv.from_inception()",
+            "from_inception",
+            "Construct the required first-inception Lifecycle replay seed.",
+            from_inception,
+            "FromInception",
+        ),
+        (
+            "in_state",
+            "mv.in_state(...)",
+            "in_state",
+            "Select subjects in one exact modeled state at an explicit instant.",
+            in_state,
+            "InState",
+        ),
+        (
             "window_bucket",
             "mv.window_bucket()",
             "window_bucket",
@@ -1152,6 +1306,8 @@ def _build_registry() -> CapabilityRegistry:
                     if cap_id
                     in {
                         "dropped_before",
+                        "from_inception",
+                        "in_state",
                         "dow_aligned",
                         "holiday_aligned",
                         "holiday_and_dow_aligned",

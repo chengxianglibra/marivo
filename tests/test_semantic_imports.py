@@ -71,7 +71,10 @@ def test_all_list_matches_expected() -> None:
         "EntityDetails",
         "EventEntry",
         "EventDetails",
+        "Inception",
         "JoinKey",
+        "LifecycleState",
+        "ModelStateHandle",
         "MeasureEntry",
         "MeasureDetails",
         "MetricEntry",
@@ -91,6 +94,9 @@ def test_all_list_matches_expected() -> None:
         "SemanticKind",
         "SimpleMetricDetails",
         "SqlProvenance",
+        "StateModelDetails",
+        "StateModelEntry",
+        "StateTransition",
         "TimeDimensionEntry",
         "TimeDimensionDetails",
         "VerifyResult",
@@ -112,10 +118,13 @@ def test_all_list_matches_expected() -> None:
         "from_sql",
         "grain_to_date",
         "hour_prefix",
+        "inception",
         "join_on",
+        "lifecycle_state",
         "measure",
         "measure_column",
         "metric",
+        "model_state",
         "linear",
         "semi_additive",
         "parity_check",
@@ -128,8 +137,10 @@ def test_all_list_matches_expected() -> None:
         "strptime",
         "weighted_mean",
         "snapshot",
+        "state_model",
         "timestamp",
         "trailing",
+        "transition",
         "validity",
         "typing",
         "errors",
@@ -338,6 +349,9 @@ _EXPECTED_DECORATOR_KINDS = {
     "invalid_event_predicate",
     "invalid_event_participant_path",
     "invalid_event_participant_cardinality",
+    "invalid_state_model",
+    "ambiguous_participant_role",
+    "model_state_mismatch",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
@@ -492,6 +506,7 @@ def test_symbol_kind_values() -> None:
         "metric",
         "relationship",
         "event",
+        "state_model",
     }
     actual = {k.value for k in SemanticKind}
     assert actual == expected

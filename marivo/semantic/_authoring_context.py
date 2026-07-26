@@ -31,11 +31,19 @@ from marivo.semantic.ir import (
     MetricIR,
     RelationshipIR,
     SourceLocation,
+    StateModelDeclarationIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
 type DefinitionIR = (
-    DomainIR | EntityIR | DimensionIR | MeasureIR | MetricIR | RelationshipIR | EventIR
+    DomainIR
+    | EntityIR
+    | DimensionIR
+    | MeasureIR
+    | MetricIR
+    | RelationshipIR
+    | EventIR
+    | StateModelDeclarationIR
 )
 
 
@@ -112,13 +120,23 @@ def _ir_kind(ir: Any) -> str:
         return "relationship"
     if isinstance(ir, EventIR):
         return "event"
+    if isinstance(ir, StateModelDeclarationIR):
+        return "state model"
     return type(ir).__name__
 
 
 def _check_duplicate(
     ctx: LoaderContext,
     semantic_id: str,
-    ir_type: type[EntityIR | DimensionIR | MeasureIR | MetricIR | RelationshipIR | EventIR],
+    ir_type: type[
+        EntityIR
+        | DimensionIR
+        | MeasureIR
+        | MetricIR
+        | RelationshipIR
+        | EventIR
+        | StateModelDeclarationIR
+    ],
 ) -> None:
     """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
 
@@ -130,7 +148,15 @@ def _check_duplicate(
         ir = pending.definition
         if not isinstance(
             ir,
-            (EntityIR, DimensionIR, MeasureIR, MetricIR, RelationshipIR, EventIR),
+            (
+                EntityIR,
+                DimensionIR,
+                MeasureIR,
+                MetricIR,
+                RelationshipIR,
+                EventIR,
+                StateModelDeclarationIR,
+            ),
         ):
             continue
         if ir.semantic_id != semantic_id:

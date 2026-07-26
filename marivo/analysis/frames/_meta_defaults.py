@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -14,6 +14,7 @@ from marivo.analysis.evidence.types import (
     EventTimeToEventAnalysisScope,
     EvidenceScope,
     JsonValue,
+    LifecycleAnalysisScope,
     QualitySummary,
     SubjectSetAnalysisScope,
 )
@@ -191,6 +192,70 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
                 ),
             )
         return journey_scope
+
+    if getattr(meta, "kind", None) == "lifecycle_frame":
+        lifecycle_meta = cast("Any", meta)
+        semantic_kind = cast(
+            "Literal['history', 'distribution', 'transitions', 'dwell', 'violations']",
+            str(lifecycle_meta.semantic_kind),
+        )
+        source_history_ref = getattr(lifecycle_meta, "source_history_ref", None)
+        window_value = getattr(lifecycle_meta, "window", None)
+        lifecycle_coverage: dict[str, JsonValue] | None = None
+        replay_semantics: dict[str, JsonValue] | None = None
+        if semantic_kind == "history":
+            lifecycle_coverage = {
+                "basis": lifecycle_meta.coverage_basis,
+                "inputs": tuple(
+                    item.model_dump(mode="json") for item in lifecycle_meta.input_coverage
+                ),
+            }
+            replay_semantics = {
+                "operator_version": lifecycle_meta.operator_version,
+                "seed": lifecycle_meta.seed.model_dump(mode="json"),
+                "violation_behavior_id": lifecycle_meta.violation_behavior_id,
+            }
+        reducer_payload: dict[str, JsonValue] | None = None
+        if semantic_kind == "distribution":
+            reducer_payload = {
+                "at": list(lifecycle_meta.at),
+                "axes": [axis.model_dump(mode="json") for axis in lifecycle_meta.axes],
+                "grouped_reconciliation_hash": (lifecycle_meta.grouped_reconciliation_hash),
+            }
+        elif semantic_kind == "transitions":
+            reducer_payload = {
+                "modeled_pairs": [
+                    pair.model_dump(mode="json") for pair in lifecycle_meta.modeled_pairs
+                ],
+            }
+        elif semantic_kind == "dwell":
+            reducer_payload = {
+                "source_interval_count": lifecycle_meta.source_interval_count,
+            }
+        elif semantic_kind == "violations":
+            reducer_payload = {
+                "violation_count": lifecycle_meta.violation_count,
+            }
+        cohort = getattr(lifecycle_meta, "cohort", None)
+        return LifecycleAnalysisScope(
+            state_model_ref=lifecycle_meta.state_model_ref,
+            state_model_fingerprint=lifecycle_meta.state_model_fingerprint,
+            analysis_axis=semantic_kind,
+            source_history_ref=source_history_ref,
+            window=(
+                cast("dict[str, JsonValue]", window_value.model_dump(mode="json"))
+                if window_value is not None
+                else None
+            ),
+            coverage=lifecycle_coverage,
+            cohort_binding=(
+                cast("dict[str, JsonValue]", cohort.model_dump(mode="json"))
+                if cohort is not None
+                else None
+            ),
+            replay_semantics=replay_semantics,
+            reducer=reducer_payload,
+        )
 
     if getattr(meta, "kind", None) == "subject_set":
         subject_meta = cast("Any", meta)

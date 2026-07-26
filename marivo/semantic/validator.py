@@ -28,6 +28,7 @@ from marivo.semantic.errors import (
     SemanticLoadError,
     StructuredWarning,
     WarningKind,
+    repair,
 )
 from marivo.semantic.ir import (
     CumulativeComposition,
@@ -44,6 +45,12 @@ from marivo.semantic.ir import (
     MetricIR,
     RelationshipIR,
     SnapshotVersioningIR,
+    StateInceptionIR,
+    StateModelDeclarationIR,
+    StateModelIR,
+    StateTransitionIR,
+    StateTriggerDeclarationIR,
+    StateTriggerIR,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
@@ -56,6 +63,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Registry",
     "assembly_validate",
+    "canonicalize_state_models",
     "validate_decorator_call",
     "validate_event_body_ast",
     "validate_metric_body_ast",
@@ -79,6 +87,7 @@ class Registry:
     metrics: dict[str, MetricIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     events: dict[str, EventIR] = field(default_factory=dict)
+    state_models: dict[str, StateModelIR] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -94,6 +103,7 @@ class Registry:
             "metrics",
             "relationships",
             "events",
+            "state_models",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))
@@ -123,6 +133,272 @@ _PARTITION_TIME_COLUMN_NAMES = {
 
 _TEMPORAL_DATA_TYPES = {"date", "datetime", "timestamp"}
 _PUSHDOWN_UNFRIENDLY_CALLS = {"cast", "as_date", "as_timestamp"}
+
+
+def _participant_endpoint(
+    event: EventIR,
+    *,
+    participant_name: str,
+    registry: Registry,
+) -> tuple[str | None, str | None]:
+    participant = next(
+        (item for item in event.participants if item.name == participant_name),
+        None,
+    )
+    if participant is None:
+        return None, None
+    endpoint = event.source_entity
+    for relationship_id in participant.path or ():
+        relationship = registry.relationships.get(relationship_id)
+        if relationship is None or relationship.from_entity != endpoint:
+            return None, participant.cardinality
+        endpoint = relationship.to_entity
+    return endpoint, participant.cardinality
+
+
+def canonicalize_state_models(
+    registry: Registry,
+    declarations: tuple[StateModelDeclarationIR, ...],
+) -> list[SemanticError]:
+    """Resolve authoring Event triggers once into final canonical StateModel IR."""
+    errors: list[SemanticError] = []
+    for declaration in declarations:
+        subject = registry.entities.get(declaration.subject)
+        if subject is None or not subject.primary_key:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_STATE_MODEL,
+                    message=(
+                        f"StateModel {declaration.semantic_id!r} subject must be a loaded "
+                        "Entity with a non-empty primary key."
+                    ),
+                    refs=(declaration.semantic_id, declaration.subject),
+                    expected="loaded Ref[entity] with non-empty primary_key",
+                    received=declaration.subject,
+                    location=declaration.location,
+                    constraint_id=ConstraintId.STATE_MODEL_SHAPE,
+                )
+            )
+            continue
+
+        def resolve_trigger(
+            trigger: object,
+            *,
+            current: StateModelDeclarationIR = declaration,
+        ) -> StateTriggerIR | None:
+            if not isinstance(trigger, StateTriggerDeclarationIR):
+                return None
+            event = registry.events.get(trigger.event_ref)
+            if event is None:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_STATE_MODEL,
+                        message=(
+                            f"StateModel {current.semantic_id!r} references unknown "
+                            f"Event {trigger.event_ref!r}."
+                        ),
+                        refs=(current.semantic_id, trigger.event_ref),
+                        expected="a loaded Ref[event]",
+                        received=trigger.event_ref,
+                        location=current.location,
+                        constraint_id=ConstraintId.STATE_MODEL_TRIGGER,
+                    )
+                )
+                return None
+            if trigger.participant_role is not None:
+                endpoint, cardinality = _participant_endpoint(
+                    event,
+                    participant_name=trigger.participant_role,
+                    registry=registry,
+                )
+                if endpoint != current.subject or cardinality != "one":
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.INVALID_STATE_MODEL,
+                            message=(
+                                f"StateModel {current.semantic_id!r} trigger role "
+                                f"{trigger.participant_role!r} does not identify its subject."
+                            ),
+                            refs=(
+                                current.semantic_id,
+                                trigger.event_ref,
+                                trigger.participant_role,
+                            ),
+                            expected=(f"cardinality-one participant ending at {current.subject}"),
+                            received=repr(
+                                {
+                                    "endpoint": endpoint,
+                                    "cardinality": cardinality,
+                                }
+                            ),
+                            location=current.location,
+                            constraint_id=ConstraintId.STATE_MODEL_TRIGGER,
+                        )
+                    )
+                    return None
+                return StateTriggerIR(
+                    event_ref=trigger.event_ref,
+                    participant_role=trigger.participant_role,
+                )
+
+            qualifying: list[str] = []
+            for participant in event.participants:
+                endpoint, cardinality = _participant_endpoint(
+                    event,
+                    participant_name=participant.name,
+                    registry=registry,
+                )
+                if endpoint == current.subject and cardinality == "one":
+                    qualifying.append(participant.name)
+            if len(qualifying) != 1:
+                candidates = tuple(
+                    (
+                        "ms.participant_role("
+                        f"event=ms.ref.event({trigger.event_ref!r}), name={name!r})"
+                    )
+                    for name in qualifying[:6]
+                )
+                kind = (
+                    ErrorKind.AMBIGUOUS_PARTICIPANT_ROLE
+                    if qualifying
+                    else ErrorKind.INVALID_STATE_MODEL
+                )
+                errors.append(
+                    SemanticLoadError(
+                        kind=kind,
+                        message=(
+                            f"StateModel {current.semantic_id!r} Event trigger "
+                            f"{trigger.event_ref!r} must resolve to exactly one subject role."
+                        ),
+                        refs=(current.semantic_id, trigger.event_ref),
+                        expected=(f"one cardinality-one participant ending at {current.subject}"),
+                        received=repr(tuple(qualifying)),
+                        location=current.location,
+                        constraint_id=ConstraintId.STATE_MODEL_TRIGGER,
+                        details={"candidates": candidates},
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="participant_role",
+                            action=(
+                                "Choose one exact cardinality-one participant role "
+                                "from the current Event definition."
+                            ),
+                            candidates=candidates,
+                        ),
+                    )
+                )
+                return None
+            return StateTriggerIR(
+                event_ref=trigger.event_ref,
+                participant_role=qualifying[0],
+            )
+
+        inceptions: list[StateInceptionIR] = []
+        transitions: list[StateTransitionIR] = []
+        valid = True
+        for trigger in declaration.inceptions:
+            resolved = resolve_trigger(trigger)
+            if resolved is None:
+                valid = False
+            else:
+                inceptions.append(StateInceptionIR(trigger=resolved))
+        for from_state, trigger, to_state in declaration.transitions:
+            resolved = resolve_trigger(trigger)
+            if resolved is None:
+                valid = False
+            else:
+                transitions.append(
+                    StateTransitionIR(
+                        from_state=from_state,
+                        trigger=resolved,
+                        to_state=to_state,
+                    )
+                )
+        if not valid:
+            continue
+
+        inception_keys = [
+            (item.trigger.event_ref, item.trigger.participant_role) for item in inceptions
+        ]
+        if len(set(inception_keys)) != len(inception_keys):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_STATE_MODEL,
+                    message=f"StateModel {declaration.semantic_id!r} has duplicate inception triggers.",
+                    refs=(declaration.semantic_id,),
+                    expected="unique canonical inception triggers",
+                    received=repr(tuple(inception_keys)),
+                    location=declaration.location,
+                    constraint_id=ConstraintId.STATE_MODEL_SHAPE,
+                )
+            )
+            continue
+
+        terminal = {state.name for state in declaration.states if state.terminal}
+        illegal_terminal = next(
+            (item.from_state for item in transitions if item.from_state in terminal),
+            None,
+        )
+        if illegal_terminal is not None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_STATE_MODEL,
+                    message=(
+                        f"StateModel {declaration.semantic_id!r} terminal state "
+                        f"{illegal_terminal!r} has an outgoing transition."
+                    ),
+                    refs=(declaration.semantic_id, illegal_terminal),
+                    expected="terminal states with no outgoing transitions",
+                    received=illegal_terminal,
+                    location=declaration.location,
+                    constraint_id=ConstraintId.STATE_MODEL_SHAPE,
+                )
+            )
+            continue
+
+        targets: dict[tuple[str, str, str], str] = {}
+        nondeterministic: tuple[str, str, str] | None = None
+        for item in transitions:
+            key = (
+                item.from_state,
+                item.trigger.event_ref,
+                item.trigger.participant_role,
+            )
+            existing = targets.get(key)
+            if existing is not None and existing != item.to_state:
+                nondeterministic = key
+                break
+            targets[key] = item.to_state
+        if nondeterministic is not None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_STATE_MODEL,
+                    message=(
+                        f"StateModel {declaration.semantic_id!r} has nondeterministic "
+                        "targets for one source state and trigger."
+                    ),
+                    refs=(declaration.semantic_id,),
+                    expected="at most one target for each source state and canonical trigger",
+                    received=repr(nondeterministic),
+                    location=declaration.location,
+                    constraint_id=ConstraintId.STATE_MODEL_SHAPE,
+                )
+            )
+            continue
+
+        registry.state_models[declaration.semantic_id] = StateModelIR(
+            semantic_id=declaration.semantic_id,
+            domain=declaration.domain,
+            name=declaration.name,
+            subject=declaration.subject,
+            states=declaration.states,
+            inceptions=tuple(inceptions),
+            transitions=tuple(transitions),
+            ai_context=declaration.ai_context,
+            python_symbol=declaration.python_symbol,
+            location=declaration.location,
+        )
+    return errors
 
 
 def _source_column_name(node: ast.AST) -> str | None:

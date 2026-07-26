@@ -23,6 +23,7 @@ PreviewKind = Literal[
     "semantic_field",
     "semantic_metric",
     "semantic_event",
+    "semantic_state_model",
     "analysis_frame",
 ]
 

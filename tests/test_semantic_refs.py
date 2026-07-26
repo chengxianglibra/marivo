@@ -20,7 +20,16 @@ def test_metric_ref_requires_two_segment_path() -> None:
         ms.ref.metric("revenue")
 
 
-def test_all_eight_exact_kind_factories() -> None:
+def test_state_model_ref_payload_round_trips() -> None:
+    from marivo.refs import RefPayloadV1, _decode_ref_payload
+
+    state_model = ms.ref.state_model("sales.order_lifecycle")
+    payload = RefPayloadV1.from_ref(state_model)
+    assert payload.kind is ms.SemanticKind.STATE_MODEL
+    assert _decode_ref_payload(payload) == state_model
+
+
+def test_all_exact_kind_factories() -> None:
     expected = {
         ms.SemanticKind.DOMAIN: ms.ref.domain("sales"),
         ms.SemanticKind.DATASOURCE: ms.ref.datasource("warehouse"),
@@ -30,6 +39,8 @@ def test_all_eight_exact_kind_factories() -> None:
         ms.SemanticKind.TIME_DIMENSION: ms.ref.time_dimension("sales.orders.ordered_at"),
         ms.SemanticKind.METRIC: ms.ref.metric("sales.revenue"),
         ms.SemanticKind.RELATIONSHIP: ms.ref.relationship("sales.orders_to_customers"),
+        ms.SemanticKind.EVENT: ms.ref.event("sales.order_created"),
+        ms.SemanticKind.STATE_MODEL: ms.ref.state_model("sales.order_lifecycle"),
     }
     for kind, ref in expected.items():
         assert type(ref) is ms.Ref

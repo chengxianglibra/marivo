@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.analysis.errors import PatternStepMismatchError
 from marivo.analysis.event import PatternStep, _event_repair, _fingerprint
+from marivo.analysis.lifecycle import InState
 
 
 class DroppedBefore(BaseModel):
@@ -30,7 +31,7 @@ class DroppedBefore(BaseModel):
         )
 
 
-SubjectSelection = Annotated[DroppedBefore, Field(discriminator="kind")]
+SubjectSelection = Annotated[DroppedBefore | InState, Field(discriminator="kind")]
 
 
 def dropped_before(*, step: PatternStep) -> DroppedBefore:
@@ -65,4 +66,4 @@ def dropped_before(*, step: PatternStep) -> DroppedBefore:
     return DroppedBefore(step=step)
 
 
-__all__ = ["DroppedBefore", "SubjectSelection", "dropped_before"]
+__all__ = ["DroppedBefore", "InState", "SubjectSelection", "dropped_before"]

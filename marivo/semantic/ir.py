@@ -55,6 +55,7 @@ __all__ = [
     "HourPrefixParse",
     "JoinKey",
     "JsonSourceIR",
+    "LifecycleStateIR",
     "LinearComposition",
     "LinearTerm",
     "MeasureIR",
@@ -71,6 +72,10 @@ __all__ = [
     "SnapshotVersioningIR",
     "SourceLocation",
     "SqlProvenance",
+    "StateInceptionIR",
+    "StateModelIR",
+    "StateTransitionIR",
+    "StateTriggerIR",
     "StrptimeParse",
     "TableSourceIR",
     "TimeFoldIR",
@@ -304,6 +309,79 @@ class EventIR:
     python_symbol: str
     location: SourceLocation
     body_ast_hash: str
+
+
+@dataclass(frozen=True)
+class LifecycleStateIR:
+    """One closed state definition owned by a StateModel."""
+
+    name: str
+    initial: bool
+    terminal: bool
+
+
+@dataclass(frozen=True)
+class StateTriggerDeclarationIR:
+    """Authoring-time Event trigger before catalog role resolution."""
+
+    event_ref: str
+    participant_role: str | None
+
+
+@dataclass(frozen=True)
+class StateTriggerIR:
+    """Canonical Event and participant-role trigger."""
+
+    event_ref: str
+    participant_role: str
+
+
+@dataclass(frozen=True)
+class StateInceptionIR:
+    """Canonical transition from unseeded history into the initial state."""
+
+    trigger: StateTriggerIR
+
+
+@dataclass(frozen=True)
+class StateTransitionIR:
+    """Canonical deterministic transition between modeled states."""
+
+    from_state: str
+    trigger: StateTriggerIR
+    to_state: str
+
+
+@dataclass(frozen=True)
+class StateModelDeclarationIR:
+    """Authoring-time StateModel awaiting canonical trigger resolution."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    subject: str
+    states: tuple[LifecycleStateIR, ...]
+    inceptions: tuple[StateTriggerDeclarationIR, ...]
+    transitions: tuple[tuple[str, StateTriggerDeclarationIR, str], ...]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+
+
+@dataclass(frozen=True)
+class StateModelIR:
+    """Canonical finite normative lifecycle for one subject Entity."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    subject: str
+    states: tuple[LifecycleStateIR, ...]
+    inceptions: tuple[StateInceptionIR, ...]
+    transitions: tuple[StateTransitionIR, ...]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
 
 
 @dataclass(frozen=True)

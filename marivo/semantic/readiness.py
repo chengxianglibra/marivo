@@ -33,6 +33,7 @@ ReadinessIssueKind = Literal[
     "missing_guardrails",
     "undeclared_naive_time_axis",
     "metric_graph_invalid",
+    "state_model_seed_missing",
 ]
 
 
@@ -195,6 +196,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
+        SemanticKind.STATE_MODEL: ref_factory.state_model,
     }[kind]
     return factory(path)
 
@@ -219,6 +221,7 @@ _EXECUTABLE_KINDS = frozenset(
         SemanticKind.METRIC,
         SemanticKind.RELATIONSHIP,
         SemanticKind.EVENT,
+        SemanticKind.STATE_MODEL,
     }
 )
 
@@ -303,6 +306,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(event.semantic_id, SemanticKind.EVENT)
         kinds[key] = SemanticKind.EVENT
         objects[key] = event
+    for state_model in reg.state_models.values():
+        key = _exact_key(state_model.semantic_id, SemanticKind.STATE_MODEL)
+        kinds[key] = SemanticKind.STATE_MODEL
+        objects[key] = state_model
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -347,6 +354,7 @@ def _strict_enrichment_issues(
         SemanticKind.TIME_DIMENSION,
         SemanticKind.METRIC,
         SemanticKind.EVENT,
+        SemanticKind.STATE_MODEL,
     }
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -475,6 +483,17 @@ def _dependencies_for_ref(
         if event_predicate_dependencies is not None:
             deps.extend(event_predicate_dependencies.get(ref, ()))
         return tuple(deps)
+    if kind == SemanticKind.STATE_MODEL:
+        from marivo.semantic.ir import StateModelIR
+
+        model = cast("StateModelIR", obj)
+        event_refs = {item.trigger.event_ref for item in model.inceptions} | {
+            item.trigger.event_ref for item in model.transitions
+        }
+        return (
+            _exact_key(model.subject, SemanticKind.ENTITY),
+            *tuple(_exact_key(event_ref, SemanticKind.EVENT) for event_ref in sorted(event_refs)),
+        )
     return ()
 
 
@@ -742,6 +761,26 @@ def build_readiness_report(
         )
 
     blockers.extend(_undeclared_naive_time_axis_issues(checked_refs, kinds, objects))
+
+    for ref in direct_refs:
+        if kinds.get(ref) is not SemanticKind.STATE_MODEL:
+            continue
+        model = objects.get(ref)
+        if model is not None and not getattr(model, "inceptions", ()):
+            path = _display_path(ref)
+            blockers.append(
+                _issue(
+                    "state_model_seed_missing",
+                    "blocker",
+                    (path,),
+                    f"{path} has no inception trigger and is not ready for Phase 3 replay.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="state_model",
+                        action="Add at least one ms.inception(on=...) trigger before replay.",
+                    ),
+                )
+            )
 
     # Strict enrichment: missing business_definition is a blocker;
     # missing guardrails is a warning for every analyzable object.

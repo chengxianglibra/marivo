@@ -521,7 +521,6 @@ def test_phase_two_event_capabilities_are_discoverable(tmp_path, monkeypatch) ->
     assert rendered_help("Session.select_subjects", owner="analysis") == select_help
     assert rendered_help(session.select_subjects, owner="analysis") == select_help
     assert "subject_identity" in rendered_help("SubjectSet", owner="analysis")
-    assert not hasattr(session, "lifecycle")
 
 
 @pytest.mark.parametrize("assignment", ["exclusive", "shared"])
