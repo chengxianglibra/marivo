@@ -1047,10 +1047,24 @@ LIFECYCLE_BASE_EVENTS: tuple[tuple[str, ...], ...] = (
     ("e7", "o2", "closed", "2026-07-25 00:00:00"),
 )
 
-# (order_id, region, created_at)
+# (order_id, region, created_at), with optional funnel driver columns.
 LIFECYCLE_BASE_ORDERS: tuple[tuple[str, ...], ...] = (
     ("o1", "east", "2026-06-15"),
     ("o2", "west", "2026-07-10"),
+)
+
+FUNNEL_BASE_ORDERS: tuple[tuple[str, ...], ...] = (
+    ("o1", "east", "2026-07-02", "paid", "pro"),
+    ("o2", "west", "2026-07-10", "organic", "free"),
+    ("o3", "east", "2026-07-11", "paid", "free"),
+)
+
+FUNNEL_BASE_EVENTS: tuple[tuple[str, ...], ...] = (
+    ("f1", "o1", "created", "2026-07-02 00:00:00"),
+    ("f2", "o1", "paid", "2026-07-05 00:00:00"),
+    ("f3", "o2", "created", "2026-07-10 00:00:00"),
+    ("f4", "o3", "created", "2026-07-11 00:00:00"),
+    ("f5", "o3", "paid", "2026-07-12 00:00:00"),
 )
 
 LIFECYCLE_WATERMARK = {
@@ -1082,6 +1096,10 @@ event_log = ms.entity(
 )
 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
 region = ms.dimension_column(name="region", entity=orders, column="region")
+acquisition_channel = ms.dimension_column(
+    name="acquisition_channel", entity=orders, column="acquisition_channel"
+)
+plan_tier = ms.dimension_column(name="plan_tier", entity=orders, column="plan_tier")
 created_date = ms.time_dimension_column(
     name="created_date", entity=orders, column="created_at",
     granularity="day", is_default=True,
@@ -1176,8 +1194,15 @@ def seed_lifecycle_backend(
 ) -> Any:
     """Return a DuckDB backend seeded for the commerce lifecycle project."""
     backend = ibis.duckdb.connect(":memory:")
-    backend.raw_sql("CREATE TABLE orders (order_id VARCHAR, region VARCHAR, created_at DATE)")
-    backend.raw_sql(f"INSERT INTO orders VALUES {_sql_values(orders)}")
+    normalized_orders = tuple(
+        (*row, "unknown", "unknown") if len(row) == 3 else row for row in orders
+    )
+    backend.raw_sql(
+        "CREATE TABLE orders ("
+        "order_id VARCHAR, region VARCHAR, created_at DATE, "
+        "acquisition_channel VARCHAR, plan_tier VARCHAR)"
+    )
+    backend.raw_sql(f"INSERT INTO orders VALUES {_sql_values(normalized_orders)}")
     backend.raw_sql(
         "CREATE TABLE event_log ("
         "event_id VARCHAR, order_id VARCHAR, event_type VARCHAR, event_time TIMESTAMP)"
@@ -1190,3 +1215,80 @@ def seed_lifecycle_backend(
 
         backend.marivo_event_watermark = provider
     return backend
+
+
+def pattern_step_for_tests(key: str) -> Any:
+    """Build one standalone commerce PatternStep for pure-engine tests."""
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+
+    definitions = {
+        "cart": ("commerce.order_created", "order"),
+        "payment": ("commerce.payment_captured", "order"),
+        "refund": ("commerce.order_closed", "order"),
+    }
+    event_path, role = definitions[key]
+    return mv.step(
+        participant=ms.participant_role(event=ms.ref.event(event_path), name=role),
+        key=key,
+    )
+
+
+def two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
+    """Return current and baseline funnels over identical definitions."""
+    import marivo.analysis as mv
+
+    pattern = mv.sequence(
+        pattern_step_for_tests("cart"),
+        pattern_step_for_tests("payment"),
+    )
+    frames = []
+    for start, end in (("2026-07-08", "2026-07-15"), ("2026-07-01", "2026-07-08")):
+        journeys = session.events.match(
+            pattern=pattern,
+            cohort_window=mv.TimeScope(
+                start=f"{start}T00:00:00Z",
+                end=f"{end}T00:00:00Z",
+            ),
+            completion_through="2026-07-22T00:00:00Z",
+            matching=mv.first_per_subject(),
+        )
+        frames.append(session.events.funnel(journeys))
+    return frames[0], frames[1]
+
+
+def grouped_two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
+    """Return current and baseline funnels grouped by acquisition channel."""
+    current, baseline = two_scope_funnel_frames(session)
+    channel = session.catalog.dimensions.get("acquisition_channel")
+    return (
+        session.events.funnel(
+            session.get_frame(current.meta.source_journey_ref),
+            axes=[channel],
+        ),
+        session.events.funnel(
+            session.get_frame(baseline.meta.source_journey_ref),
+            axes=[channel],
+        ),
+    )
+
+
+def analysis_persistence_snapshot(session: Any) -> tuple[object, ...]:
+    """Capture artifact, job, frame-file, and evidence identities for rollback tests."""
+    evidence = session._evidence_store()
+    evidence_ids = tuple(
+        row[0]
+        for row in evidence.read()
+        .execute(
+            "SELECT artifact_id FROM artifacts WHERE session_id = ? ORDER BY artifact_id",
+            (session.id,),
+        )
+        .fetchall()
+    )
+    return (
+        tuple(sorted(row["artifact_id"] for row in session._store.list_artifacts(session.id))),
+        tuple(sorted(row["job_id"] for row in session._store.list_jobs(session.id))),
+        tuple(sorted(path.name for path in session._layout.frames_dir.iterdir())),
+        tuple(sorted(path.name for path in session._layout.jobs_dir.glob("*.json"))),
+        evidence_ids,
+    )

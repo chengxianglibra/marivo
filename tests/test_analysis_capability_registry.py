@@ -239,6 +239,8 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         "events.match",
         "lifecycle.replay",
         "lifecycle.distribution",
+        "compare",
+        "attribute",
         "correlate",
     )
     assert len(owners["observe"]) == 2
@@ -728,6 +730,7 @@ _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "EventMatchingPolicy",
     "CompletenessDeclaration",
     "SubjectSelection",
+    "FunnelLossRate",
     "StateModelSemantic",
     "LifecycleSeed",
 }

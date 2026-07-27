@@ -589,6 +589,12 @@ class BaseFrame(RenderableResult):
                 for parameter in artifact_parameters
             ):
                 continue
+            hidden_parameters: set[str] = set()
+            semantic_kind = getattr(self.meta, "semantic_kind", None)
+            if desc.id == "attribute" and family == "DeltaFrame" and semantic_kind != "funnel":
+                hidden_parameters.add("target")
+            if desc.id == "compare" and family == "EventFrame" and semantic_kind == "funnel":
+                hidden_parameters.add("alignment")
             input_requirements = tuple(
                 ArtifactInputRequirement(
                     parameter=parameter,
@@ -596,6 +602,7 @@ class BaseFrame(RenderableResult):
                     bindable_from_current_artifact=family in {str(item) for item in families},
                 )
                 for parameter, families in sorted(desc.accepted_inputs.items())
+                if parameter not in hidden_parameters
             )
             output_family = _output_family_str(desc)
             affordance = ArtifactAffordance(

@@ -18,6 +18,8 @@ from marivo.analysis.evidence.types import (
     EventTimeToEventObservationValue,
     EvidenceAvailabilityIssue,
     ForecastOutput,
+    FunnelAttributionObservationValue,
+    FunnelDeltaObservationValue,
     LifecycleDistributionObservationValue,
     LifecycleDwellObservationValue,
     LifecycleHistoryObservationValue,
@@ -193,6 +195,22 @@ def render_digest_item(item: DigestItem) -> str:
                 f"subject_set selected={value.selected_count} "
                 f"excluded_censored={value.excluded_coverage_censored_count} "
                 f"coverage={value.coverage_status}"
+            )
+        if isinstance(value, FunnelDeltaObservationValue):
+            return (
+                f"funnel_delta steps={value.step_count} axes={value.axis_count} "
+                f"zero_filled={value.zero_filled_tuple_count} "
+                f"current_coverage={value.current_coverage_basis} "
+                f"baseline_coverage={value.baseline_coverage_basis}"
+            )
+        if isinstance(value, FunnelAttributionObservationValue):
+            return (
+                f"funnel_attribution target={value.target_step_key} "
+                f"contributions={value.contribution_count} "
+                f"positive_pool={value.positive_pool:g} "
+                f"negative_pool={value.negative_pool:g} "
+                f"residual={value.residual:g} "
+                f"status={value.reconciliation_status}"
             )
     if isinstance(item, ChangeFact):
         return (

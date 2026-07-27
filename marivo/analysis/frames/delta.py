@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.errors import AnalysisRepair
+from marivo.analysis.event import (
+    CompletenessDeclaration,
+    EventMatchingPolicy,
+    EventPattern,
+    FirstPerSubject,
+)
 from marivo.analysis.frames.base import (
     ArtifactPrecondition,
     BaseFrame,
@@ -16,6 +22,8 @@ from marivo.analysis.frames.base import (
     _display_column_names,
     assert_semantic_shape,
 )
+from marivo.analysis.frames.event import CoverageBasis, SubjectAxisBinding
+from marivo.analysis.windows.spec import TimeScope
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.render import Card
@@ -211,15 +219,154 @@ class DeltaFrameMeta(BaseFrameMeta):
         return self
 
 
+FUNNEL_DELTA_COLUMNS = (
+    "step_key",
+    "current_cohort_count",
+    "baseline_cohort_count",
+    "current_resolved_cohort_count",
+    "baseline_resolved_cohort_count",
+    "current_entry_count",
+    "baseline_entry_count",
+    "current_resolved_entry_count",
+    "baseline_resolved_entry_count",
+    "current_reached_count",
+    "baseline_reached_count",
+    "current_lost_count",
+    "baseline_lost_count",
+    "current_coverage_censored_count",
+    "baseline_coverage_censored_count",
+    "current_loss_rate_from_previous",
+    "baseline_loss_rate_from_previous",
+    "loss_rate_from_previous_delta",
+)
+
+
+class FunnelDeltaFrameMeta(BaseFrameMeta):
+    """Metadata for one exact comparison of two compatible Event funnels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["delta_frame"] = "delta_frame"
+    semantic_kind: Literal["funnel"] = "funnel"
+    row_contract_version: Literal["funnel-delta-rows/v1"] = "funnel-delta-rows/v1"
+    operator_version: Literal["compare.funnel/v1"] = "compare.funnel/v1"
+    alignment_kind: Literal["step_key_and_axis_tuple"] = "step_key_and_axis_tuple"
+
+    catalog_definition_fingerprint: str
+    subject_entity_ref: RefPayloadV1
+    subject_identity: tuple[str, ...]
+    pattern: EventPattern
+    matching: EventMatchingPolicy
+    completion_through: str
+    axes: tuple[SubjectAxisBinding, ...] = ()
+    aligned_step_keys: tuple[str, ...]
+    zero_filled_tuple_count: int = Field(ge=0)
+
+    source_current_ref: str
+    source_baseline_ref: str
+    source_current_fingerprint: str
+    source_baseline_fingerprint: str
+    source_current_journey_ref: str
+    source_baseline_journey_ref: str
+
+    current_cohort_window: TimeScope
+    baseline_cohort_window: TimeScope
+    current_coverage_basis: CoverageBasis
+    baseline_coverage_basis: CoverageBasis
+    current_completeness: tuple[CompletenessDeclaration, ...] = ()
+    baseline_completeness: tuple[CompletenessDeclaration, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_funnel_delta_contract(self) -> FunnelDeltaFrameMeta:
+        if type(self.matching) is not FirstPerSubject:
+            raise ValueError("DeltaFrame[funnel] requires first_per_subject matching")
+        retained = tuple(step.key for step in self.pattern.steps)
+        if self.aligned_step_keys != retained:
+            raise ValueError("aligned_step_keys must equal the retained EventPattern step order")
+        for label, value in (
+            ("source_current_ref", self.source_current_ref),
+            ("source_baseline_ref", self.source_baseline_ref),
+            ("source_current_journey_ref", self.source_current_journey_ref),
+            ("source_baseline_journey_ref", self.source_baseline_journey_ref),
+        ):
+            if not value.strip():
+                raise ValueError(f"DeltaFrame[funnel] {label} must be non-empty")
+        if self.source_current_ref == self.source_baseline_ref:
+            raise ValueError("DeltaFrame[funnel] requires two distinct source funnels")
+        columns = tuple(item.output_column for item in self.axes)
+        if len(set(columns)) != len(columns):
+            raise ValueError("DeltaFrame[funnel] axes must have unique output columns")
+        return self
+
+    # Read-only family compatibility projections. These are intentionally
+    # properties rather than persisted model fields: funnel continuation
+    # admission is shape-gated, while generic DeltaFrame readers can still
+    # inspect a closed, non-Metric value for legacy optional facets.
+    @property
+    def alignment(self) -> dict[str, Any]:
+        return {
+            "kind": self.alignment_kind,
+            "axes": [axis.output_column for axis in self.axes],
+        }
+
+    @property
+    def component_ref(self) -> None:
+        return None
+
+    @property
+    def composition(self) -> None:
+        return None
+
+    @property
+    def status_time_dimension(self) -> None:
+        return None
+
+    @property
+    def fold(self) -> None:
+        return None
+
+    @property
+    def additivity(self) -> None:
+        return None
+
+    @property
+    def aggregation(self) -> None:
+        return None
+
+    @property
+    def cumulative(self) -> None:
+        return None
+
+    @property
+    def metric_id(self) -> str:
+        return "funnel_loss_rate"
+
+    @property
+    def semantic_model(self) -> str:
+        return ""
+
+
+DeltaFrameMetaVariant = Annotated[
+    DeltaFrameMeta | FunnelDeltaFrameMeta,
+    Field(discriminator="semantic_kind"),
+]
+
+
 @dataclass(repr=False)
 class DeltaFrame(BaseFrame):
     """Call marivo.help(DeltaFrame) for its public consumption contract."""
 
-    meta: DeltaFrameMeta
+    meta: DeltaFrameMetaVariant
 
     _NEXT_INTENTS = ("attribute", "discover", "transform")
 
     def _repr_identity(self) -> str:
+        if isinstance(self.meta, FunnelDeltaFrameMeta):
+            return (
+                f"DeltaFrame ref={self.meta.ref} shape=funnel "
+                f"steps={len(self.meta.aligned_step_keys)} "
+                f"axes={len(self.meta.axes)} rows={self.meta.row_count}"
+            )
         unit_part = f" unit={self.meta.unit}" if self.meta.unit else ""
         return (
             f"DeltaFrame ref={self.meta.ref} metric={self.meta.metric_id}"
@@ -227,7 +374,7 @@ class DeltaFrame(BaseFrame):
         )
 
     @property
-    def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel"]:
+    def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel", "funnel"]:
         """The frame's semantic shape (distinct from .shape, the dataframe dims)."""
         return self.meta.semantic_kind
 
@@ -262,6 +409,8 @@ class DeltaFrame(BaseFrame):
         window was longer than the current window: the extra tail buckets were
         dropped from the delta rows but remain available via ``to_pandas()``.
         """
+        if self.meta.semantic_kind == "funnel":
+            return None
         to_date = self.meta.alignment.get("to_date") if self.meta.alignment else None
         if not isinstance(to_date, dict):
             return None
@@ -271,6 +420,25 @@ class DeltaFrame(BaseFrame):
         return to_date
 
     def _card(self) -> Card:
+        if self.meta.semantic_kind == "funnel":
+            meta = self.meta
+            return (
+                self._base_card()
+                .field(
+                    "alignment",
+                    (
+                        f"{meta.alignment_kind} axes={len(meta.axes)} "
+                        f"zero_filled={meta.zero_filled_tuple_count}"
+                    ),
+                )
+                .field("current_coverage", meta.current_coverage_basis)
+                .field("baseline_coverage", meta.baseline_coverage_basis)
+                .lazy_table(
+                    columns=_display_column_names(self._df.columns),
+                    rows_provider=self._preview_rows_provider,
+                    row_count=len(self._df),
+                )
+            )
         card = self._base_card()
         precondition = _attribution_contract_precondition(self.meta)
         if precondition is None:
@@ -306,6 +474,8 @@ class DeltaFrame(BaseFrame):
     def contract(self) -> ArtifactContract:
         """Return the mechanical contract with persisted attribution gates."""
         contract = super().contract()
+        if self.meta.semantic_kind == "funnel":
+            return contract
         affordances = []
         for affordance in contract.affordances:
             if affordance.capability_id == "attribute":
@@ -345,6 +515,9 @@ class DeltaFrame(BaseFrame):
         Reads this delta's component_ref + decomposition kind only (no component
         load); "sum" when not component-aware, else "ratio_mix"/"weighted_mix".
         """
+        if self.meta.semantic_kind == "funnel":
+            return "ratio_mix"
+
         from marivo.analysis.intents._shape import attribution_output_shape
 
         return attribution_output_shape(self.meta)

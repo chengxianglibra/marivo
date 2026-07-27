@@ -496,6 +496,30 @@ delta = session.compare(current, baseline)
 且 additivity 已知时，delta 才会携带这些语义。任一项缺失或不一致时，语义门保持
 unknown，使后续归因 fail closed，而不是继承单侧语义。
 
+#### Funnel 对比与 loss-rate 归因
+
+两个兼容的 `EventFrame[funnel]` 也使用同一个 `compare` 入口，但不接受
+`alignment=` 参数。Marivo 按持久化的精确 PatternStep identity 与完整 axis tuple
+对齐；仅单侧存在的 tuple 会把 additive counts 补零，而缺失侧的 rate 保持 null。
+
+```python
+funnel_delta = session.compare(current_funnel, baseline_funnel)
+payment_loss = mv.funnel_loss_rate(step=payment_step)
+drivers = session.attribute(
+    funnel_delta,
+    axes=[acquisition_channel],
+    target=payment_loss,
+)
+```
+
+归因输入必须是未分组的 funnel delta。它在持久化 journey assignment 上按受治理的
+cohort-entry Dimension 重新聚合，绝不会重新匹配 Event。每个 driver 输出可加的
+`loss` 与 `denominator_mix` component；两者之和会在 `1e-9` 内精确对账到目标
+loss-rate delta。多轴时显式选择 `mode="joint"` 或 `mode="hierarchy"`。
+hierarchy 的 pool share 在每个可见层级内分别归一化；artifact metadata 保留用于
+对账的最深 joint partition pool。这些 contribution 只描述观测变化的算术分解，
+不代表因果关系。
+
 ### `attribute` → `AttributionFrame`
 
 把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。

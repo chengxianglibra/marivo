@@ -17,12 +17,16 @@ from marivo.analysis.frames._content_hash import (
     compute_frame_content_hash,
 )
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
-from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    FunnelAttributionFrameMeta,
+)
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta, FunnelDeltaFrameMeta
 from marivo.analysis.frames.event import (
     EventFrame,
     EventFrameMeta,
@@ -411,7 +415,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                             "cause": "auxiliary trace path is outside the artifact directory",
                         },
                     )
-    if kind == "delta_frame" and "comparison_identity" not in meta:
+    if kind == "delta_frame" and meta.get("semantic_kind") == "funnel":
+        meta_cls = FunnelDeltaFrameMeta
+    if kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate":
+        meta_cls = FunnelAttributionFrameMeta
+    if (
+        kind == "delta_frame"
+        and meta.get("semantic_kind") != "funnel"
+        and "comparison_identity" not in meta
+    ):
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its required delta identity",
             context={
@@ -434,7 +446,14 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     try:
         parsed_meta = (
             cast("Any", meta_cls).model_validate_json(json.dumps(meta))
-            if kind in {"event_frame", "lifecycle_frame", "subject_set"}
+            if kind
+            in {
+                "event_frame",
+                "lifecycle_frame",
+                "subject_set",
+            }
+            or (kind == "delta_frame" and meta.get("semantic_kind") == "funnel")
+            or (kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate")
             else meta_cls(**meta)
         )
     except ValidationError as exc:

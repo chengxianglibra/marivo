@@ -162,6 +162,12 @@ non-completion. Read the current EventFrame `.contract()` for continuations and
 do not synthesize an Event reducer or cross-family operation that the installed
 phase has not registered.
 
+For funnel comparison and loss-rate attribution, preserve exact PatternStep
+identity, both coverage bases, the mechanically derived axis-tuple alignment,
+and the source journey recovery chain. Treat contribution rows as arithmetic
+decomposition only; closeout must disclose reconciliation and must not upgrade
+them to causal claims.
+
 For Lifecycle replay, keep the exact StateModel separate from the explicit
 analysis window, seed, cohort, and completeness evidence. Do not turn an
 illegal modeled trigger into a policy breach, quality failure, or causal claim;
@@ -194,6 +200,7 @@ analysis, become a semantic object, or erase the underlying semantic gap.
 | A required business object is missing or must change | Stop the affected typed branch; optionally use terminal `md.raw_sql(...)`; defer `marivo-semantic` until closeout approval |
 | Semantic authoring returns ready inputs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_inputs` through the ordinary analysis APIs (`analysis_ready_refs` is the refs-only projection) |
 | The task asks how subjects move through typed semantic Events | Start with focused `marivo.help("analysis.events.match")`; for conversion/loss, elapsed time, or a typed dropout cohort follow the returned artifact `.contract()` and the registered `events.funnel`, `events.time_to_event`, or `select_subjects` help target; retain and disclose watermark, declaration, unknown-coverage, and censoring evidence |
+| The task compares two compatible Event funnels or asks which governed subject axes contributed to a loss-rate change | Follow the source funnel `.contract()` into `compare`, then the ungrouped delta `.contract()` into `attribute`; retain both coverage bases, exact reconciliation, and the non-causal boundary |
 | The task asks which normative state subjects occupied or how modeled state changed | Start with focused `marivo.help("analysis.lifecycle.replay")`; keep the StateModel semantic contract separate from replay choices, then follow the returned artifact `.contract()` for reducers or typed state-cohort selection; retain and disclose completeness, violation, and censoring evidence |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |

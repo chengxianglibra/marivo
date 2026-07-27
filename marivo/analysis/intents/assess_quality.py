@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -24,11 +24,14 @@ from marivo.analysis.evidence.pipeline import (
 from marivo.analysis.evidence.types import (
     ArtifactIssue,
     DataQualityIssue,
+    EventSubject,
     EvidenceSubject,
     Subject,
 )
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
+from marivo.analysis.frames.attribution import AttributionFrame, FunnelAttributionFrameMeta
 from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.delta import DeltaFrame, FunnelDeltaFrameMeta
 from marivo.analysis.frames.event import EventFrame
 from marivo.analysis.frames.lifecycle import (
     LifecycleFrame,
@@ -45,6 +48,8 @@ from marivo.analysis.intents._derived import (
 )
 from marivo.analysis.intents._quality_checks import (
     run_event_checks,
+    run_funnel_attribution_checks,
+    run_funnel_delta_checks,
     run_lifecycle_checks,
     run_metric_checks,
 )
@@ -65,12 +70,16 @@ def assess_quality(
 ) -> QualityReport:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if not isinstance(frame, (MetricFrame, EventFrame, LifecycleFrame)):
+    if not isinstance(
+        frame,
+        (MetricFrame, EventFrame, LifecycleFrame, DeltaFrame, AttributionFrame),
+    ):
         raise QualityShapeUnsupportedError(
             message=(
                 "assess_quality supports MetricFrame, registered EventFrame "
                 "journey/funnel/time-to-event shapes, and registered LifecycleFrame "
-                "history/distribution/transitions/dwell/violations shapes"
+                "history/distribution/transitions/dwell/violations shapes, "
+                "DeltaFrame[funnel], and AttributionFrame[funnel_loss_rate]"
             ),
             context={"frame_kind": frame.meta.kind},
         )
@@ -87,8 +96,20 @@ def assess_quality(
         )
     elif isinstance(frame, EventFrame):
         rows = run_event_checks(frame)
-    else:
+    elif isinstance(frame, LifecycleFrame):
         rows = run_lifecycle_checks(frame)
+    elif isinstance(frame, DeltaFrame) and frame.meta.semantic_kind == "funnel":
+        rows = run_funnel_delta_checks(frame)
+    elif isinstance(frame, AttributionFrame) and frame.meta.semantic_kind == "funnel_loss_rate":
+        rows = run_funnel_attribution_checks(frame)
+    else:
+        raise QualityShapeUnsupportedError(
+            message="assess_quality received an unregistered family/shape",
+            context={
+                "frame_kind": frame.meta.kind,
+                "semantic_kind": getattr(frame.meta, "semantic_kind", None),
+            },
+        )
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
     issues = _quality_issues(frame, output)
@@ -97,8 +118,12 @@ def assess_quality(
         report_shape = "metric"
     elif isinstance(frame, EventFrame):
         report_shape = f"event_{frame.meta.semantic_kind}"
-    else:
+    elif isinstance(frame, LifecycleFrame):
         report_shape = f"lifecycle_{frame.meta.semantic_kind}"
+    elif isinstance(frame, DeltaFrame):
+        report_shape = "funnel_delta"
+    else:
+        report_shape = "funnel_attribution"
     params = {
         "source_ref": frame.ref,
         "report_shape": report_shape,
@@ -113,6 +138,13 @@ def assess_quality(
         if isinstance(frame, EventFrame)
         else frame.meta.coverage_basis
         if isinstance(frame, LifecycleFrame) and isinstance(frame.meta, LifecycleHistoryFrameMeta)
+        else None
+    )
+    target_pattern_fingerprint = (
+        frame.meta.pattern.fingerprint
+        if isinstance(frame, EventFrame)
+        else frame.meta.pattern.fingerprint
+        if isinstance(frame, DeltaFrame) and isinstance(frame.meta, FunnelDeltaFrameMeta)
         else None
     )
     meta = QualityReportMeta(
@@ -136,28 +168,24 @@ def assess_quality(
             ),
         ),
         source_refs=[frame.ref],
-        report_shape=cast(
-            "Literal['metric', 'event_journey', 'event_funnel', "
-            "'event_time_to_event', 'lifecycle_history', "
-            "'lifecycle_distribution', 'lifecycle_transitions', "
-            "'lifecycle_dwell', 'lifecycle_violations']",
-            report_shape,
-        ),
+        report_shape=cast("Any", report_shape),
         target_kind=(
             "metric_frame"
             if isinstance(frame, MetricFrame)
             else "event_frame"
             if isinstance(frame, EventFrame)
             else "lifecycle_frame"
+            if isinstance(frame, LifecycleFrame)
+            else "delta_frame"
+            if isinstance(frame, DeltaFrame)
+            else "attribution_frame"
         ),
         target_metric_id=frame.meta.metric_id if isinstance(frame, MetricFrame) else None,
         target_semantic_model=(
             frame.meta.semantic_model if isinstance(frame, MetricFrame) else None
         ),
-        target_semantic_kind=frame.meta.semantic_kind,
-        target_event_pattern_fingerprint=(
-            frame.meta.pattern.fingerprint if isinstance(frame, EventFrame) else None
-        ),
+        target_semantic_kind=cast("Any", frame.meta.semantic_kind),
+        target_event_pattern_fingerprint=target_pattern_fingerprint,
         target_state_model_ref=(
             frame.meta.state_model_ref if isinstance(frame, LifecycleFrame) else None
         ),
@@ -221,7 +249,7 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
 
 
 def _quality_issues(
-    frame: MetricFrame | EventFrame | LifecycleFrame,
+    frame: MetricFrame | EventFrame | LifecycleFrame | DeltaFrame | AttributionFrame,
     output: pd.DataFrame,
 ) -> list[ArtifactIssue]:
     issues: list[ArtifactIssue] = []
@@ -229,7 +257,7 @@ def _quality_issues(
     for row in output.to_dict("records"):
         severity = str(row["severity"])
         if severity != "blocking" and not (
-            isinstance(frame, (EventFrame, LifecycleFrame)) and severity == "warning"
+            isinstance(frame, (EventFrame, LifecycleFrame, DeltaFrame)) and severity == "warning"
         ):
             continue
         details = json.loads(str(row["details_json"]))
@@ -288,6 +316,14 @@ def _quality_issues(
             "event_time_to_event_row_contract",
             "event_time_to_event_identity",
             "event_time_to_event_duration",
+            "funnel_delta_alignment",
+            "funnel_delta_components",
+            "funnel_delta_coverage",
+            "funnel_delta_row_contract",
+            "funnel_attribution_components",
+            "funnel_attribution_pools",
+            "funnel_attribution_residual",
+            "funnel_attribution_reconciliation",
         }:
             kind = "event_row_contract_invalid"
             observed = int(details["invalid_count"])
@@ -350,12 +386,24 @@ def _quality_issues(
 
 
 def _quality_subject(
-    frame: MetricFrame | EventFrame | LifecycleFrame,
+    frame: MetricFrame | EventFrame | LifecycleFrame | DeltaFrame | AttributionFrame,
 ) -> EvidenceSubject:
     if isinstance(frame, EventFrame):
         return event_subject_for_frame(frame)
     if isinstance(frame, LifecycleFrame):
         return lifecycle_subject_for_frame(frame)
+    if isinstance(frame, DeltaFrame) and isinstance(frame.meta, FunnelDeltaFrameMeta):
+        return EventSubject(
+            subject_entity_ref=frame.meta.subject_entity_ref,
+            subject_identity_signature=frame.meta.subject_identity,
+            analysis_axis="funnel_delta",
+        )
+    if isinstance(frame, AttributionFrame) and isinstance(frame.meta, FunnelAttributionFrameMeta):
+        return EventSubject(
+            subject_entity_ref=frame.meta.subject_entity_ref,
+            subject_identity_signature=frame.meta.subject_identity,
+            analysis_axis="funnel_loss_rate",
+        )
     return Subject(
         grain=getattr(frame.meta, "grain", None),
         analysis_axis="quality",

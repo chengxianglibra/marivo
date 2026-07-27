@@ -67,6 +67,7 @@ InputFamily = (
         "StateModelSemantic",
         "LifecycleSeed",
         "SubjectSelection",
+        "FunnelLossRate",
     ]
 )
 

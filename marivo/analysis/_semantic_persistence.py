@@ -102,6 +102,80 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
     if len(fingerprints) > 1:
         raise ValueError("job frames disagree on catalog definition fingerprint")
 
+    funnel_frames = tuple(
+        frame
+        for frame in frames
+        if (
+            frame.meta.kind == "delta_frame"
+            and getattr(frame.meta, "semantic_kind", None) == "funnel"
+        )
+        or (
+            frame.meta.kind == "attribution_frame"
+            and getattr(frame.meta, "semantic_kind", None) == "funnel_loss_rate"
+        )
+    )
+    if funnel_frames:
+        if len(funnel_frames) != len(frames) or len(funnel_frames) != 1:
+            raise ValueError("analysis job funnel semantics require exactly one funnel artifact")
+        meta = cast("Any", funnel_frames[0].meta)
+        semantic_kind = meta.semantic_kind
+        if semantic_kind == "funnel":
+            role = "funnel_comparison"
+            semantics = {
+                "artifact_ref": meta.artifact_id or meta.ref,
+                "artifact_fingerprint": meta.content_hash,
+                "source_current_ref": meta.source_current_ref,
+                "source_baseline_ref": meta.source_baseline_ref,
+                "source_current_fingerprint": meta.source_current_fingerprint,
+                "source_baseline_fingerprint": meta.source_baseline_fingerprint,
+                "source_current_journey_ref": meta.source_current_journey_ref,
+                "source_baseline_journey_ref": meta.source_baseline_journey_ref,
+                "pattern_fingerprint": meta.pattern.fingerprint,
+                "matching": meta.matching.model_dump(mode="json"),
+                "completion_through": meta.completion_through,
+                "axes": [axis.model_dump(mode="json") for axis in meta.axes],
+                "alignment_kind": meta.alignment_kind,
+                "aligned_step_keys": list(meta.aligned_step_keys),
+                "zero_filled_tuple_count": meta.zero_filled_tuple_count,
+                "current_cohort_window": meta.current_cohort_window.model_dump(mode="json"),
+                "baseline_cohort_window": meta.baseline_cohort_window.model_dump(mode="json"),
+                "current_coverage_basis": meta.current_coverage_basis,
+                "baseline_coverage_basis": meta.baseline_coverage_basis,
+                "current_completeness": [
+                    item.model_dump(mode="json") for item in meta.current_completeness
+                ],
+                "baseline_completeness": [
+                    item.model_dump(mode="json") for item in meta.baseline_completeness
+                ],
+            }
+        else:
+            role = "funnel_attribution"
+            semantics = {
+                "artifact_ref": meta.artifact_id or meta.ref,
+                "artifact_fingerprint": meta.content_hash,
+                "source_delta_ref": meta.source_delta_ref,
+                "source_delta_fingerprint": meta.source_delta_fingerprint,
+                "source_current_journey_ref": meta.source_current_journey_ref,
+                "source_baseline_journey_ref": meta.source_baseline_journey_ref,
+                "source_pattern_fingerprint": meta.source_pattern_fingerprint,
+                "matching": meta.matching.model_dump(mode="json"),
+                "coverage_basis": meta.coverage_basis,
+                "target": meta.target.model_dump(mode="json"),
+                "preceding_step_key": meta.preceding_step_key,
+                "axes": [axis.model_dump(mode="json") for axis in meta.axes],
+                "mode": meta.mode,
+                "reconciliation": meta.reconciliation.model_dump(mode="json"),
+            }
+        return {
+            "catalog_definition_fingerprint": next(iter(fingerprints), None),
+            "subject": {
+                "kind": "event",
+                "subject_entity_ref": meta.subject_entity_ref.to_dict(),
+                "subject_identity_signature": list(meta.subject_identity),
+            },
+            role: semantics,
+        }
+
     lifecycle_frames = tuple(frame for frame in frames if frame.meta.kind == "lifecycle_frame")
     if lifecycle_frames:
         if len(lifecycle_frames) != len(frames) or len(lifecycle_frames) != 1:

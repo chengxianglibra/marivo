@@ -1561,3 +1561,19 @@ class SubjectSetMismatchError(AnalysisError):
     @property
     def kind(self) -> str:
         return "subject_set_mismatch"
+
+
+class FunnelComparisonMismatchError(AnalysisError):
+    """Two funnels are structurally incompatible for exact comparison."""
+
+    @property
+    def kind(self) -> str:
+        return "funnel_comparison_mismatch"
+
+
+class FunnelAttributionUnsupportedError(AnalysisError):
+    """A funnel delta cannot support the requested attribution."""
+
+    @property
+    def kind(self) -> str:
+        return "funnel_attribution_unsupported"

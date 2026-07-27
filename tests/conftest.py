@@ -5,12 +5,20 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import ibis
 import pytest
 
 from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
-from tests.shared_fixtures import authoring_evidence_template, sales_orders_template
+from tests.shared_fixtures import (
+    FUNNEL_BASE_EVENTS,
+    FUNNEL_BASE_ORDERS,
+    authoring_evidence_template,
+    lifecycle_project_files,
+    sales_orders_template,
+    seed_lifecycle_backend,
+)
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
@@ -197,6 +205,75 @@ def semantic_project_factory(tmp_path):
         return project
 
     return _make
+
+
+@pytest.fixture
+def funnel_session_factory(
+    semantic_project_factory: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Any:
+    """Return a factory for named sessions over the commerce funnel project."""
+    import marivo.analysis.session as session_attach
+
+    def _build(name: str) -> Any:
+        project = semantic_project_factory(lifecycle_project_files())
+        backend = seed_lifecycle_backend(
+            events=FUNNEL_BASE_EVENTS,
+            orders=FUNNEL_BASE_ORDERS,
+            watermark_events=frozenset(
+                {
+                    "commerce.order_created",
+                    "commerce.payment_captured",
+                    "commerce.order_closed",
+                }
+            ),
+        )
+        monkeypatch.chdir(project.workspace_dir)
+        monkeypatch.setenv("TZ", "UTC")
+        return session_attach.get_or_create(
+            name=name,
+            report_timezone="UTC",
+            backends={"warehouse": lambda: backend},
+        )
+
+    return _build
+
+
+@pytest.fixture
+def funnel_session(funnel_session_factory: Any) -> Any:
+    """Yield one isolated session for funnel comparison and attribution."""
+    import marivo.analysis.session as session_attach
+
+    session = funnel_session_factory("funnel-phase-four")
+    try:
+        yield session
+    finally:
+        session.close()
+        session_attach._reset_process_state()
+
+
+@pytest.fixture
+def cart_step() -> Any:
+    from tests.shared_fixtures import pattern_step_for_tests
+
+    return pattern_step_for_tests("cart")
+
+
+@pytest.fixture
+def payment_step() -> Any:
+    from tests.shared_fixtures import pattern_step_for_tests
+
+    return pattern_step_for_tests("payment")
+
+
+@pytest.fixture
+def acquisition_channel_entry(funnel_session: Any) -> Any:
+    return funnel_session.catalog.dimensions.get("acquisition_channel")
+
+
+@pytest.fixture
+def plan_tier_entry(funnel_session: Any) -> Any:
+    return funnel_session.catalog.dimensions.get("plan_tier")
 
 
 def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:

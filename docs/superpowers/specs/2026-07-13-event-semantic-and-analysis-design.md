@@ -1,11 +1,11 @@
 # Marivo Event and Lifecycle Semantic and Analysis Design
 
-Status: architecture revised; phases 1-3 and the coordinated agent-interface
-vNext cutover implemented; phases 4-5 pending
+Status: architecture revised; phases 1-4 and the coordinated agent-interface
+vNext cutover implemented; phase 5 pending
 
 Date: 2026-07-13
 
-Last revised: 2026-07-25
+Last revised: 2026-07-27
 
 > This document is one of two specifications split from the original
 > `Marivo Executable Semantic and Ontology Extension Design`. It owns the
@@ -1692,11 +1692,13 @@ share_of_negative_pool
 ```
 
 Artifact metadata retains the exact target PatternStep once, together with
-positive/negative contribution pools, residual, and exact reconciliation; it
-does not repeat the same target key on every contribution row. Raw loss-rate
-point estimates are never summed or averaged. The result describes arithmetic
-contribution to an observed change, not treatment effect, counterfactual, or
-causality.
+the deepest joint-partition positive/negative contribution pools, residual,
+and exact reconciliation. Hierarchy rows normalize positive and negative pool
+shares independently within each visible level because prefix aggregation can
+cancel signs. Metadata does not repeat the same target key on every
+contribution row. Raw loss-rate point estimates are never summed or averaged.
+The result describes arithmetic contribution to an observed change, not
+treatment effect, counterfactual, or causality.
 
 Mismatched cohorts, matching policies, PatternStep definitions, censored
 comparison populations, unsupported axes/fanout, missing additive components,

@@ -1255,7 +1255,10 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         "select_subjects",
         "assess_quality",
     }.issubset(journey_affordances)
-    assert {item.capability_id for item in funnel.contract().affordances} == {"assess_quality"}
+    assert {item.capability_id for item in funnel.contract().affordances} == {
+        "assess_quality",
+        "compare",
+    }
     assert {item.capability_id for item in time_to_payment.contract().affordances} == {
         "assess_quality"
     }

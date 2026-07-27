@@ -308,6 +308,7 @@ def _build_registry() -> CapabilityRegistry:
     from marivo.analysis.frames.candidate import CandidateSet
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.metric import MetricFrame
+    from marivo.analysis.funnel import funnel_loss_rate
     from marivo.analysis.lifecycle import from_inception, in_state
     from marivo.analysis.policies import (
         SamplingPolicy,
@@ -674,23 +675,43 @@ def _build_registry() -> CapabilityRegistry:
             id="compare",
             public_entrypoint="session.compare(...)",
             help_target="compare",
-            summary="Compute the typed delta between two MetricFrames.",
+            summary=(
+                "Compute a typed Metric delta or exactly align two compatible "
+                "EventFrame[funnel] artifacts."
+            ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=(
                 "frame_kind_compatible",
                 "alignment_policy_shape",
                 "cumulative_compare_compatible",
+                "funnel_comparison_compatible",
             ),
             callable_path="marivo.analysis.session.core.Session.compare",
             receiver="Session",
             accepted_inputs={
-                "a": _MF,
-                "b": _MF,
+                "a": _MF | _EF,
+                "b": _MF | _EF,
                 "alignment": frozenset({"AlignmentPolicy"}),
                 "sampling": frozenset({"SamplingPolicy"}),
             },
+            artifact_admission={
+                "a": ArtifactAdmissionRule(
+                    semantic_shapes={"EventFrame": frozenset({"funnel"})},
+                    matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
+                ),
+                "b": ArtifactAdmissionRule(
+                    semantic_shapes={"EventFrame": frozenset({"funnel"})},
+                    matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
+                ),
+            },
             output_family="DeltaFrame",
+            additional_examples=(
+                HelpExample(
+                    label="Compare two exact funnel scopes",
+                    code="delta = session.compare(current_funnel, baseline_funnel)",
+                ),
+            ),
         )
     )
 
@@ -710,14 +731,38 @@ def _build_registry() -> CapabilityRegistry:
                 "attribution_additivity_compatible",
                 "attribution_reconciliation",
                 "cumulative_attribution_unsupported",
+                "funnel_attribution_target_valid",
+                "funnel_attribution_reconciliation",
             ),
             callable_path="marivo.analysis.session.core.Session.attribute",
             receiver="Session",
             accepted_inputs={
                 "frame": _DF,
                 "axes": _FIELD_SEMANTIC,
+                "target": frozenset({"FunnelLossRate"}),
+            },
+            artifact_admission={
+                "frame": ArtifactAdmissionRule(
+                    semantic_shapes={
+                        "DeltaFrame": frozenset(
+                            {"scalar", "time_series", "segmented", "panel", "funnel"}
+                        )
+                    },
+                ),
             },
             output_family="AttributionFrame",
+            additional_examples=(
+                HelpExample(
+                    label="Attribute one funnel loss rate",
+                    code=(
+                        "drivers = session.attribute(\n"
+                        "    delta,\n"
+                        "    axes=[channel],\n"
+                        "    target=mv.funnel_loss_rate(step=payment_step),\n"
+                        ")"
+                    ),
+                ),
+            ),
         )
     )
 
@@ -806,7 +851,7 @@ def _build_registry() -> CapabilityRegistry:
             help_target="assess_quality",
             summary=(
                 "Run fixed quality checks over supported MetricFrame, EventFrame, "
-                "and LifecycleFrame shapes."
+                "LifecycleFrame, funnel DeltaFrame, and funnel AttributionFrame shapes."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -814,7 +859,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={
-                "target": _MF | _EF | _LF,
+                "target": _MF | _EF | _LF | _DF | _AF,
             },
             artifact_admission={
                 "target": ArtifactAdmissionRule(
@@ -823,6 +868,8 @@ def _build_registry() -> CapabilityRegistry:
                         "LifecycleFrame": frozenset(
                             {"history", "distribution", "transitions", "dwell", "violations"}
                         ),
+                        "DeltaFrame": frozenset({"funnel"}),
+                        "AttributionFrame": frozenset({"funnel_loss_rate"}),
                     },
                 ),
             },
@@ -1171,6 +1218,14 @@ def _build_registry() -> CapabilityRegistry:
     # -- Constructors -----------------------------------------------------
 
     constructor_specs: tuple[tuple[str, str, str, str, object, str], ...] = (
+        (
+            "funnel_loss_rate",
+            "mv.funnel_loss_rate(...)",
+            "funnel_loss_rate",
+            "Target one exact non-initial funnel PatternStep loss rate.",
+            funnel_loss_rate,
+            "FunnelLossRate",
+        ),
         (
             "step",
             "mv.step(...)",

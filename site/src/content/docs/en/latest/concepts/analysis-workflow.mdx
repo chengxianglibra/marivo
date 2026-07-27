@@ -555,6 +555,32 @@ both source frames have the same three values and additivity is known. Missing
 or mismatched source semantics remain unknown, causing attribution to fail
 closed instead of inheriting one side.
 
+#### Funnel comparison and loss-rate attribution
+
+Two compatible `EventFrame[funnel]` artifacts use the same `compare` entry
+point, but accept no `alignment=` argument. Marivo aligns exact persisted
+PatternStep identity plus the complete axis tuple; one-sided tuples zero-fill
+additive counts while absent-side rates remain null.
+
+```python
+funnel_delta = session.compare(current_funnel, baseline_funnel)
+payment_loss = mv.funnel_loss_rate(step=payment_step)
+drivers = session.attribute(
+    funnel_delta,
+    axes=[acquisition_channel],
+    target=payment_loss,
+)
+```
+
+The attribution input must be an ungrouped funnel delta. It re-aggregates the
+persisted journey assignments over governed cohort-entry Dimensions and never
+rematches Events. Each driver emits additive `loss` and `denominator_mix`
+components whose sum reconciles to the target loss-rate delta within `1e-9`.
+Use `mode="joint"` or `mode="hierarchy"` for multiple axes. Hierarchy pool
+shares normalize within each displayed level; artifact metadata retains the
+deepest joint-partition pools used for reconciliation. Contributions describe
+arithmetic decomposition of an observed change, not causality.
+
 ### `attribute` → `AttributionFrame`
 
 Attribute a delta's movement across explicit axes. This is the default public

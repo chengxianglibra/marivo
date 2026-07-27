@@ -74,6 +74,7 @@ from marivo.analysis.frames.lifecycle import LifecycleFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.frames.subject import SubjectSet
+from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception, InState, from_inception, in_state
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
@@ -162,6 +163,7 @@ __all__ = [
     "FrameSummaryEntry",
     "FrameSummaryPage",
     "FromInception",
+    "FunnelLossRate",
     "HypothesisTestResult",
     "InState",
     "LifecycleFrame",
@@ -184,6 +186,7 @@ __all__ = [
     "every_start",
     "first_per_subject",
     "from_inception",
+    "funnel_loss_rate",
     "holiday_aligned",
     "holiday_and_dow_aligned",
     "in_state",
