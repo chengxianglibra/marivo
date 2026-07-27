@@ -270,6 +270,15 @@ _RULES: dict[str, _RuleEntry] = {
         sort_key=_default_sort_key,
     ),
 }
+for _funnel_operator in ("compare.funnel", "attribute.funnel_loss_rate"):
+    _RULES[_funnel_operator] = _RuleEntry(
+        rule_id=f"digest.{_funnel_operator}",
+        rule_version="v1",
+        accepted_finding_kinds=("observation",),
+        produced_item_kinds=("observation",),
+        source_fields=("value.row_count", "value.value"),
+        sort_key=_default_sort_key,
+    )
 for _lifecycle_operator in (
     "lifecycle.replay",
     "lifecycle.distribution",

@@ -240,6 +240,149 @@ def _validate_event_reducer_payload(value: object) -> None:
         raise ValueError(f"analysis job event_reducer.{count_field} must be non-negative")
 
 
+def _validate_funnel_comparison_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.event import CompletenessDeclaration, EventMatchingPolicy
+    from marivo.analysis.frames.event import SubjectAxisBinding
+    from marivo.analysis.windows.spec import TimeScope
+
+    role = "funnel_comparison"
+    payload = _require_exact_object(
+        value,
+        fields={
+            "artifact_ref",
+            "artifact_fingerprint",
+            "source_current_ref",
+            "source_baseline_ref",
+            "source_current_fingerprint",
+            "source_baseline_fingerprint",
+            "source_current_journey_ref",
+            "source_baseline_journey_ref",
+            "pattern_fingerprint",
+            "matching",
+            "completion_through",
+            "axes",
+            "alignment_kind",
+            "aligned_step_keys",
+            "zero_filled_tuple_count",
+            "current_cohort_window",
+            "baseline_cohort_window",
+            "current_coverage_basis",
+            "baseline_coverage_basis",
+            "current_completeness",
+            "baseline_completeness",
+        },
+        role=role,
+    )
+    for field in (
+        "artifact_ref",
+        "artifact_fingerprint",
+        "source_current_ref",
+        "source_baseline_ref",
+        "source_current_fingerprint",
+        "source_baseline_fingerprint",
+        "source_current_journey_ref",
+        "source_baseline_journey_ref",
+        "pattern_fingerprint",
+        "completion_through",
+    ):
+        if type(payload[field]) is not str or not payload[field]:
+            raise ValueError(f"analysis job {role}.{field} must be non-empty")
+    if payload["source_current_ref"] == payload["source_baseline_ref"]:
+        raise ValueError(f"analysis job {role} requires distinct source funnels")
+    TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
+    TypeAdapter(list[SubjectAxisBinding]).validate_python(payload["axes"])
+    if payload["alignment_kind"] != "step_key_and_axis_tuple":
+        raise ValueError(f"analysis job {role}.alignment_kind is invalid")
+    step_keys = payload["aligned_step_keys"]
+    if (
+        not isinstance(step_keys, list)
+        or not step_keys
+        or any(type(item) is not str or not item for item in step_keys)
+        or len(set(step_keys)) != len(step_keys)
+    ):
+        raise ValueError(f"analysis job {role}.aligned_step_keys must be unique strings")
+    if (
+        type(payload["zero_filled_tuple_count"]) is not int
+        or payload["zero_filled_tuple_count"] < 0
+    ):
+        raise ValueError(f"analysis job {role}.zero_filled_tuple_count must be non-negative")
+    TypeAdapter(TimeScope).validate_python(payload["current_cohort_window"])
+    TypeAdapter(TimeScope).validate_python(payload["baseline_cohort_window"])
+    valid_coverage = {
+        "observed_watermark",
+        "declared_complete",
+        "mixed",
+        "unknown",
+    }
+    for side in ("current", "baseline"):
+        if payload[f"{side}_coverage_basis"] not in valid_coverage:
+            raise ValueError(f"analysis job {role}.{side}_coverage_basis is invalid")
+        TypeAdapter(list[CompletenessDeclaration]).validate_python(payload[f"{side}_completeness"])
+
+
+def _validate_funnel_attribution_payload(value: object) -> None:
+    from pydantic import TypeAdapter
+
+    from marivo.analysis.event import EventMatchingPolicy
+    from marivo.analysis.frames.attribution import FunnelAttributionReconciliation
+    from marivo.analysis.frames.event import SubjectAxisBinding
+    from marivo.analysis.funnel import FunnelLossRate
+
+    role = "funnel_attribution"
+    payload = _require_exact_object(
+        value,
+        fields={
+            "artifact_ref",
+            "artifact_fingerprint",
+            "source_delta_ref",
+            "source_delta_fingerprint",
+            "source_current_journey_ref",
+            "source_baseline_journey_ref",
+            "source_pattern_fingerprint",
+            "matching",
+            "coverage_basis",
+            "target",
+            "preceding_step_key",
+            "axes",
+            "mode",
+            "reconciliation",
+        },
+        role=role,
+    )
+    for field in (
+        "artifact_ref",
+        "artifact_fingerprint",
+        "source_delta_ref",
+        "source_delta_fingerprint",
+        "source_current_journey_ref",
+        "source_baseline_journey_ref",
+        "source_pattern_fingerprint",
+        "preceding_step_key",
+    ):
+        if type(payload[field]) is not str or not payload[field]:
+            raise ValueError(f"analysis job {role}.{field} must be non-empty")
+    TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
+    if payload["coverage_basis"] not in {
+        "observed_watermark",
+        "declared_complete",
+        "mixed",
+        "unknown",
+    }:
+        raise ValueError(f"analysis job {role}.coverage_basis is invalid")
+    FunnelLossRate.model_validate(payload["target"])
+    axes = TypeAdapter(list[SubjectAxisBinding]).validate_python(payload["axes"])
+    if not axes:
+        raise ValueError(f"analysis job {role}.axes must be non-empty")
+    mode = payload["mode"]
+    if mode not in {None, "joint", "hierarchy"}:
+        raise ValueError(f"analysis job {role}.mode is invalid")
+    if (len(axes) == 1) != (mode is None):
+        raise ValueError(f"analysis job {role}.mode does not match the axis count")
+    FunnelAttributionReconciliation.model_validate(payload["reconciliation"])
+
+
 def _validate_lifecycle_common(
     payload: dict[str, object],
     *,
@@ -953,6 +1096,52 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             _validate_job_subject(subject, role=f"subjects[{index}]")
     if "cohort" in record:
         _validate_cohort_payload(record["cohort"])
+    funnel_roles = {"funnel_comparison", "funnel_attribution"} & set(record)
+    if len(funnel_roles) > 1:
+        raise ValueError("analysis funnel job requires exactly one funnel semantic role")
+    if funnel_roles:
+        if has_subjects or record["subject"].get("kind") != "event":
+            raise ValueError("analysis funnel job requires one event subject")
+        forbidden_funnel_fields = {
+            "semantic_dependency_digest",
+            "semantic_dependency_digests",
+            "dimension_refs",
+            "time_dimension_ref",
+            "slice_predicates",
+            "event_journey",
+            "event_reducer",
+            "lifecycle_history",
+            "lifecycle_reducer",
+            "subject_set",
+        } & set(record)
+        if forbidden_funnel_fields:
+            raise ValueError(
+                "analysis funnel job rejects unrelated semantic fields "
+                f"{sorted(forbidden_funnel_fields)}"
+            )
+        role = next(iter(funnel_roles))
+        payload = record[role]
+        if role == "funnel_comparison":
+            _validate_funnel_comparison_payload(payload)
+        else:
+            _validate_funnel_attribution_payload(payload)
+        persisted = {"schema": "marivo.analysis_job/v2", **record}
+        write_job_record(session._layout, persisted)
+        finished_at = persisted.get("finished_at")
+        session._store.record_job(
+            session_id=session.id,
+            job_id=persisted["id"],
+            intent=persisted["intent"],
+            status=persisted["status"],
+            started_at=persisted["started_at"],
+            finished_at=finished_at if isinstance(finished_at, str) else None,
+            output_artifact_id=persisted.get("output_frame_ref")
+            or persisted.get("output_artifact_id"),
+            record_path=session._layout.relative_path(
+                session._layout.jobs_dir / f"{persisted['id']}.json"
+            ),
+        )
+        return
     lifecycle_roles = {"lifecycle_history", "lifecycle_reducer"} & set(record)
     if len(lifecycle_roles) > 1:
         raise ValueError("analysis Lifecycle job requires exactly one Lifecycle semantic role")

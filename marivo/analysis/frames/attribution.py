@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from marivo.analysis.event import EventMatchingPolicy
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_attribution_shape
+from marivo.analysis.frames.event import CoverageBasis, SubjectAxisBinding
+from marivo.analysis.funnel import FunnelLossRate
+from marivo.refs import RefPayloadV1
 from marivo.render import Card
 
 
@@ -44,13 +48,106 @@ class AttributionFrameMeta(BaseFrameMeta):
     reconciliation: AttributionReconciliation | None = None
 
 
+FUNNEL_ATTRIBUTION_COLUMNS = (
+    "contribution_kind",
+    "contribution",
+    "share_of_total_delta",
+    "share_of_positive_pool",
+    "share_of_negative_pool",
+)
+FUNNEL_ATTRIBUTION_TOLERANCE = 1e-9
+
+
+class FunnelAttributionReconciliation(BaseModel):
+    """Closed reconciliation facts for one funnel loss-rate attribution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["reconciled"] = "reconciled"
+    target_loss_rate_delta: float | None
+    contribution_sum: float | None
+    positive_pool: float = Field(
+        description="Positive contribution pool at the deepest joint axis partition."
+    )
+    negative_pool: float = Field(
+        description="Negative contribution pool at the deepest joint axis partition."
+    )
+    residual: float
+    max_abs_residual: float
+    tolerance: float = FUNNEL_ATTRIBUTION_TOLERANCE
+
+    @model_validator(mode="after")
+    def _validate_residual(self) -> FunnelAttributionReconciliation:
+        if abs(self.residual) > self.tolerance:
+            raise ValueError(
+                "funnel attribution residual exceeds tolerance; "
+                f"residual={self.residual!r} tolerance={self.tolerance!r}"
+            )
+        return self
+
+
+class FunnelAttributionFrameMeta(BaseFrameMeta):
+    """Metadata for additive ratio-mix attribution of one funnel loss rate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["attribution_frame"] = "attribution_frame"
+    semantic_kind: Literal["funnel_loss_rate"] = "funnel_loss_rate"
+    row_contract_version: Literal["funnel-attribution-rows/v1"] = "funnel-attribution-rows/v1"
+    operator_version: Literal["attribute.funnel_loss_rate/v1"] = "attribute.funnel_loss_rate/v1"
+    attribution_kind: Literal["decomposition"] = "decomposition"
+    method: Literal["ratio_mix"] = "ratio_mix"
+    causal_claim: Literal["none"] = "none"
+
+    catalog_definition_fingerprint: str
+    source_delta_ref: str
+    source_delta_fingerprint: str
+    source_current_journey_ref: str
+    source_baseline_journey_ref: str
+    subject_entity_ref: RefPayloadV1
+    subject_identity: tuple[str, ...]
+    source_pattern_fingerprint: str
+    matching: EventMatchingPolicy
+    coverage_basis: CoverageBasis
+    target: FunnelLossRate
+    preceding_step_key: str
+    axes: tuple[SubjectAxisBinding, ...]
+    mode: Literal["joint", "hierarchy"] | None = None
+    reconciliation: FunnelAttributionReconciliation
+
+    @model_validator(mode="after")
+    def _validate_attribution_contract(self) -> FunnelAttributionFrameMeta:
+        if not self.axes:
+            raise ValueError("AttributionFrame[funnel_loss_rate] requires at least one axis")
+        columns = tuple(item.output_column for item in self.axes)
+        if len(set(columns)) != len(columns):
+            raise ValueError("attribution axes must have unique output columns")
+        if len(self.axes) > 1 and self.mode is None:
+            raise ValueError("multi-axis funnel attribution requires joint or hierarchy mode")
+        if len(self.axes) == 1 and self.mode is not None:
+            raise ValueError("single-axis funnel attribution omits mode")
+        return self
+
+
+AttributionFrameMetaVariant = Annotated[
+    AttributionFrameMeta | FunnelAttributionFrameMeta,
+    Field(discriminator="semantic_kind"),
+]
+
+
 @dataclass(repr=False)
 class AttributionFrame(BaseFrame):
     """Call marivo.help(AttributionFrame) for its public consumption contract."""
 
-    meta: AttributionFrameMeta
+    meta: AttributionFrameMetaVariant
 
     def _repr_identity(self) -> str:
+        if self.meta.semantic_kind == "funnel_loss_rate":
+            return (
+                f"AttributionFrame ref={self.meta.ref} "
+                f"shape=funnel_loss_rate method={self.meta.method} "
+                f"axes={len(self.meta.axes)} rows={self.meta.row_count}"
+            )
         mode_part = f" mode={self.attribution_mode}" if self.attribution_mode is not None else ""
         return (
             f"AttributionFrame ref={self.meta.ref} "
@@ -63,6 +160,19 @@ class AttributionFrame(BaseFrame):
         reconciliation = self.meta.reconciliation
         if reconciliation is None:
             return card
+        if self.meta.semantic_kind == "funnel_loss_rate":
+            assert isinstance(reconciliation, FunnelAttributionReconciliation)
+            return card.field(
+                "reconciliation",
+                (
+                    f"status={reconciliation.status} "
+                    f"target_delta={reconciliation.target_loss_rate_delta!r} "
+                    f"deepest_positive_pool={reconciliation.positive_pool:.12g} "
+                    f"deepest_negative_pool={reconciliation.negative_pool:.12g} "
+                    f"residual={reconciliation.residual:.12g}"
+                ),
+            )
+        assert isinstance(reconciliation, AttributionReconciliation)
         values = [
             f"status={reconciliation.status}",
             f"partitions={reconciliation.partition_count}",
@@ -89,6 +199,8 @@ class AttributionFrame(BaseFrame):
     @property
     def attribution_mode(self) -> Literal["joint", "hierarchy"] | None:
         """The multi-axis row layout, distinct from attribution math ``method``."""
+        if self.meta.semantic_kind == "funnel_loss_rate":
+            return self.meta.mode
         mode = self.meta.params.get("mode")
         if mode == "joint":
             return "joint"

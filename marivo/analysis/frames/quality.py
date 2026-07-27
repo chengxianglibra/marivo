@@ -27,8 +27,16 @@ class QualityReportMeta(BaseFrameMeta):
         "lifecycle_transitions",
         "lifecycle_dwell",
         "lifecycle_violations",
+        "funnel_delta",
+        "funnel_attribution",
     ]
-    target_kind: Literal["metric_frame", "event_frame", "lifecycle_frame"]
+    target_kind: Literal[
+        "metric_frame",
+        "event_frame",
+        "lifecycle_frame",
+        "delta_frame",
+        "attribution_frame",
+    ]
     target_metric_id: str | None = None
     target_semantic_model: str | None = None
     target_semantic_kind: Literal[
@@ -44,6 +52,7 @@ class QualityReportMeta(BaseFrameMeta):
         "transitions",
         "dwell",
         "violations",
+        "funnel_loss_rate",
     ]
     target_event_pattern_fingerprint: str | None = None
     target_state_model_ref: RefPayloadV1 | None = None
@@ -64,6 +73,23 @@ class QualityReportMeta(BaseFrameMeta):
 
     @model_validator(mode="after")
     def _validate_target_shape(self) -> QualityReportMeta:
+        if self.report_shape == "funnel_delta":
+            if self.target_kind != "delta_frame" or self.target_semantic_kind != "funnel":
+                raise ValueError("funnel_delta quality requires DeltaFrame[funnel]")
+            if not self.target_event_pattern_fingerprint:
+                raise ValueError("funnel_delta quality requires a pattern fingerprint")
+            return self
+        if self.report_shape == "funnel_attribution":
+            if (
+                self.target_kind != "attribution_frame"
+                or self.target_semantic_kind != "funnel_loss_rate"
+            ):
+                raise ValueError(
+                    "funnel_attribution quality requires AttributionFrame[funnel_loss_rate]"
+                )
+            if self.target_event_pattern_fingerprint is not None:
+                raise ValueError("funnel_attribution target step is retained in source metadata")
+            return self
         if self.report_shape == "metric":
             if self.target_kind != "metric_frame" or self.target_semantic_kind not in {
                 "scalar",

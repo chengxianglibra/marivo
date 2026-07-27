@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis._pages import (
     _BoundedPage,
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
+    from marivo.analysis.funnel import FunnelLossRate
     from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.lifecycle import FromInception
@@ -824,8 +825,8 @@ class Session(RenderableResult):
 
     def compare(
         self,
-        current: MetricFrame,
-        baseline: MetricFrame,
+        current: MetricFrame | EventFrame,
+        baseline: MetricFrame | EventFrame,
         *,
         alignment: AlignmentPolicy | None = None,
         analysis_purpose: str | None = None,
@@ -841,10 +842,17 @@ class Session(RenderableResult):
         grain, and report timezone.
 
         Args:
-            current: Current-period MetricFrame.
-            baseline: Baseline-period MetricFrame.
+            current: Current-period MetricFrame or EventFrame[funnel].
+            baseline: Baseline-period MetricFrame or EventFrame[funnel].
             alignment: Defaults to ``mv.window_bucket()``. For
                 ``segmented`` frames, only ``window_bucket`` is supported in v1.
+
+        Guidance:
+            Funnel comparison has one mechanically determined alignment:
+            persisted PatternStep identity plus the exact axis-value tuple. It
+            accepts no alignment argument, never aligns by position, zero-fills
+            additive counts for one-sided tuples, and leaves absent-side rates
+            null. Any coverage-censored aligned population is rejected.
 
         Raises:
             SemanticKindMismatchError: Different value semantics or
@@ -866,9 +874,32 @@ class Session(RenderableResult):
             ... )
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.frames.event import EventFrame
+
+        if type(current) is EventFrame or type(baseline) is EventFrame:
+            from marivo.analysis.intents.funnel_compare import compare_funnels
+
+            with _track_session_operation(
+                self,
+                "marivo.analysis.compare.funnel",
+                family="events",
+                intent="compare",
+                attributes={"marivo.analysis.semantic_kind": "funnel"},
+            ):
+                return compare_funnels(
+                    current,
+                    baseline,
+                    alignment=alignment,
+                    analysis_purpose=analysis_purpose,
+                    session=self,
+                )
+
         from marivo.analysis.intents.compare import compare
 
-        semantic_kind = getattr(current.meta, "semantic_kind", None)
+        current_metric = cast("MetricFrame", current)
+        baseline_metric = cast("MetricFrame", baseline)
+
+        semantic_kind = getattr(current_metric.meta, "semantic_kind", None)
         attrs: dict[str, str | int | float | bool] | None = (
             {"marivo.analysis.semantic_kind": semantic_kind}
             if isinstance(semantic_kind, str)
@@ -881,10 +912,15 @@ class Session(RenderableResult):
             intent="compare",
             attributes=attrs,
         ):
-            validate_capability_inputs("compare", a=current, b=baseline, alignment=alignment)
+            validate_capability_inputs(
+                "compare",
+                a=current_metric,
+                b=baseline_metric,
+                alignment=alignment,
+            )
             return compare(
-                current,
-                baseline,
+                current_metric,
+                baseline_metric,
                 alignment=alignment,
                 analysis_purpose=analysis_purpose,
                 session=self,
@@ -896,6 +932,7 @@ class Session(RenderableResult):
         *,
         axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
         mode: AttributionMode | None = None,
+        target: FunnelLossRate | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement over explicit deterministic axes.
@@ -945,8 +982,17 @@ class Session(RenderableResult):
             mode: Required for multiple axes. ``"joint"`` returns one row per
                 axis combination; ``"hierarchy"`` returns ordered prefix rows.
                 Omit for a single axis.
+            target: Required only for ``DeltaFrame[funnel]``; pass one exact
+                ``mv.funnel_loss_rate(step=...)`` target.
             analysis_purpose: Optional durable label explaining why this
                 attribution was produced.
+
+        Guidance:
+            Funnel attribution accepts only an ungrouped DeltaFrame[funnel],
+            introduces governed driver axes over persisted journey membership,
+            and never rematches Events. Ratio-mix emits additive ``loss`` and
+            ``denominator_mix`` components with exact reconciliation. These are
+            arithmetic contributions to an observed change, not causal claims.
 
         Returns:
             An AttributionFrame with dimension, reconciled contribution, and
@@ -972,6 +1018,50 @@ class Session(RenderableResult):
             ...     analysis_purpose="按国家归因收入变化",
             ... )
         """
+        from marivo.analysis.errors import (
+            AnalysisRepair,
+            FunnelAttributionUnsupportedError,
+        )
+        from marivo.introspection.live.model import LiveHelpTarget
+
+        if frame.meta.semantic_kind == "funnel":
+            from marivo.analysis.intents.funnel_attribute import attribute_funnel
+
+            with _track_session_operation(
+                self,
+                "marivo.analysis.attribute.funnel",
+                family="events",
+                intent="attribute",
+                attributes={"marivo.analysis.axis_count": len(axes)},
+            ):
+                return attribute_funnel(
+                    frame,
+                    axes=axes,
+                    mode=mode,
+                    target=target,
+                    analysis_purpose=analysis_purpose,
+                    session=self,
+                )
+        if target is not None:
+            raise FunnelAttributionUnsupportedError(
+                message="a funnel target requires a DeltaFrame[funnel]",
+                expected=(
+                    "session.attribute(<DeltaFrame[funnel]>, target=mv.funnel_loss_rate(...))"
+                ),
+                received=f"DeltaFrame[{frame.meta.semantic_kind}]",
+                location="session.attribute(target)",
+                repair=AnalysisRepair(
+                    kind="user_choice",
+                    action=(
+                        "Compare two compatible EventFrame[funnel] artifacts to produce "
+                        "a DeltaFrame[funnel], or omit target for a Metric delta."
+                    ),
+                    help_target=LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id="attribute",
+                    ),
+                ),
+            )
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.attribute import attribute
 

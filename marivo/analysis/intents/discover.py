@@ -312,7 +312,10 @@ def _discover_dispatch(
         source_ref=source.ref,
         source_kind=source_kind,
         metric_ids=[source.meta.metric_id],
-        semantic_kind=source.meta.semantic_kind,
+        semantic_kind=cast(
+            "Literal['scalar', 'time_series', 'segmented', 'panel']",
+            source.meta.semantic_kind,
+        ),
         semantic_model=source.meta.semantic_model,
         source_refs=[source.ref],
         params=full_params,

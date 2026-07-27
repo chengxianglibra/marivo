@@ -44,6 +44,9 @@ class ConstraintId(StrEnum):
     LIFECYCLE_WINDOW_VALID = "lifecycle_window_valid"
     LIFECYCLE_SEED_VALID = "lifecycle_seed_valid"
     LIFECYCLE_REDUCER_SOURCE_VALID = "lifecycle_reducer_source_valid"
+    FUNNEL_COMPARISON_COMPATIBLE = "funnel_comparison_compatible"
+    FUNNEL_ATTRIBUTION_TARGET_VALID = "funnel_attribution_target_valid"
+    FUNNEL_ATTRIBUTION_RECONCILIATION = "funnel_attribution_reconciliation"
     FRAME_IMMUTABLE = "frame_immutable"
     FRAME_READ_BOUNDS = "frame_read_bounds"
     BACKEND_FACTORY_CONFIGURED = "backend_factory_configured"
@@ -308,6 +311,45 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Reducers preserve committed replay authority and do not query or replay Event inputs.",
         "Pass the same-session history returned by session.lifecycle.replay(...).",
         help_target="lifecycle.replay",
+    ),
+    ConstraintId.FUNNEL_COMPARISON_COMPATIBLE: _constraint(
+        ConstraintId.FUNNEL_COMPARISON_COMPATIBLE,
+        "FunnelComparisonMismatch",
+        "runtime",
+        ("compare", "EventFrame", "DeltaFrame"),
+        (
+            "Funnel comparison requires identical pattern, step, matching, "
+            "follow-up, subject, and axis contracts."
+        ),
+        "Comparison aligns PatternStep identity plus the exact axis tuple.",
+        "Rebuild one side with the same funnel contract, then compare again.",
+        help_target="compare",
+    ),
+    ConstraintId.FUNNEL_ATTRIBUTION_TARGET_VALID: _constraint(
+        ConstraintId.FUNNEL_ATTRIBUTION_TARGET_VALID,
+        "FunnelAttributionUnsupported",
+        "runtime",
+        ("attribute", "FunnelLossRate", "DeltaFrame"),
+        (
+            "Funnel attribution targets one exact non-initial PatternStep "
+            "retained by both compared funnels."
+        ),
+        "The target names the loss from the immediately preceding step.",
+        "Pass mv.funnel_loss_rate(step=<retained non-initial PatternStep>).",
+        help_target="attribute",
+    ),
+    ConstraintId.FUNNEL_ATTRIBUTION_RECONCILIATION: _constraint(
+        ConstraintId.FUNNEL_ATTRIBUTION_RECONCILIATION,
+        "FunnelAttributionUnsupported",
+        "runtime",
+        ("attribute", "AttributionFrame"),
+        (
+            "Funnel attribution contributions reconcile exactly to the target "
+            "loss-rate delta within numeric tolerance."
+        ),
+        "Loss and denominator-mix components are additive.",
+        "Inspect additive journey components and retry from an ungrouped funnel delta.",
+        help_target="attribute",
     ),
     ConstraintId.EVENT_WINDOW_VALID: _constraint(
         ConstraintId.EVENT_WINDOW_VALID,

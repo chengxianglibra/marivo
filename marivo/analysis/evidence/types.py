@@ -171,7 +171,13 @@ class EventSubject(_FrozenModel):
     kind: Literal["event"] = "event"
     subject_entity_ref: RefPayloadV1
     subject_identity_signature: tuple[str, ...]
-    analysis_axis: Literal["journey", "funnel", "time_to_event"] = "journey"
+    analysis_axis: Literal[
+        "journey",
+        "funnel",
+        "time_to_event",
+        "funnel_delta",
+        "funnel_loss_rate",
+    ] = "journey"
 
 
 class LifecycleSubject(_FrozenModel):
@@ -514,6 +520,25 @@ class SubjectSetObservationValue(_FrozenModel):
     coverage_status: Literal["ready", "coverage_censored"]
 
 
+class FunnelDeltaObservationValue(_FrozenModel):
+    shape: Literal["funnel_delta"] = "funnel_delta"
+    step_count: int = Field(ge=0)
+    axis_count: int = Field(ge=0)
+    zero_filled_tuple_count: int = Field(ge=0)
+    current_coverage_basis: str
+    baseline_coverage_basis: str
+
+
+class FunnelAttributionObservationValue(_FrozenModel):
+    shape: Literal["funnel_attribution"] = "funnel_attribution"
+    target_step_key: str
+    contribution_count: int = Field(ge=0)
+    positive_pool: float
+    negative_pool: float
+    residual: float
+    reconciliation_status: Literal["reconciled"]
+
+
 ObservationValue = Annotated[
     ScalarObservationValue
     | TimeSeriesObservationValue
@@ -527,7 +552,9 @@ ObservationValue = Annotated[
     | LifecycleTransitionsObservationValue
     | LifecycleDwellObservationValue
     | LifecycleViolationsObservationValue
-    | SubjectSetObservationValue,
+    | SubjectSetObservationValue
+    | FunnelDeltaObservationValue
+    | FunnelAttributionObservationValue,
     Field(discriminator="shape"),
 ]
 
@@ -1095,6 +1122,8 @@ __all__ = [
     "FindingValue",
     "ForecastOutput",
     "ForecastPointFindingValue",
+    "FunnelAttributionObservationValue",
+    "FunnelDeltaObservationValue",
     "InferenceBoundary",
     "InferenceBoundaryKind",
     "InferenceBoundaryReason",

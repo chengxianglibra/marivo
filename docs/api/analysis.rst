@@ -178,6 +178,8 @@ artifact ``contract()`` for the current mechanical contract and continuations.
    DroppedBefore
    FromInception
    InState
+   FunnelLossRate
+   funnel_loss_rate
    EventWatermarkRequest
    EventWatermarkReceipt
    step

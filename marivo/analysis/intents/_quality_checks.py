@@ -15,6 +15,16 @@ from marivo.analysis.frames._content_hash import (
     compute_frame_content_hash,
 )
 from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
+from marivo.analysis.frames.attribution import (
+    FUNNEL_ATTRIBUTION_COLUMNS,
+    AttributionFrame,
+    FunnelAttributionFrameMeta,
+)
+from marivo.analysis.frames.delta import (
+    FUNNEL_DELTA_COLUMNS,
+    DeltaFrame,
+    FunnelDeltaFrameMeta,
+)
 from marivo.analysis.frames.event import (
     EventFrame,
     EventFunnelFrameMeta,
@@ -115,6 +125,316 @@ def run_event_checks(frame: EventFrame) -> list[dict[str, str]]:
     if frame.meta.semantic_kind == "time_to_event":
         return run_event_time_to_event_checks(frame)
     raise ValueError(f"unsupported EventFrame shape {frame.meta.semantic_kind!r}")
+
+
+def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for exact funnel comparison artifacts."""
+    if not isinstance(frame.meta, FunnelDeltaFrameMeta):
+        raise ValueError("funnel delta quality requires DeltaFrame[funnel]")
+    df = frame._dataframe_copy()
+    axes = tuple(axis.output_column for axis in frame.meta.axes)
+    expected = (
+        *axes,
+        *FUNNEL_DELTA_COLUMNS,
+    )
+    missing = tuple(column for column in expected if column not in df.columns)
+    extra = tuple(column for column in df.columns if column not in expected)
+    order_mismatch = tuple(df.columns) != expected
+    row_invalid = len(missing) + len(extra) + int(order_mismatch) + int(df.empty)
+    additive = [
+        column
+        for column in expected
+        if (column.startswith("current_") or column.startswith("baseline_"))
+        and column.endswith("_count")
+    ]
+    present_additive = [column for column in additive if column in df.columns]
+    numeric_invalid = 0
+    for column in present_additive:
+        values = pd.to_numeric(df[column], errors="coerce")
+        numeric_invalid += int((values.isna() | values.lt(0) | values.mod(1).ne(0)).sum())
+    component_invalid = len(additive) - len(present_additive) + numeric_invalid
+
+    retained_steps = tuple(step.key for step in frame.meta.pattern.steps)
+    alignment_invalid = int(tuple(frame.meta.aligned_step_keys) != retained_steps)
+    duplicate_count = 0
+    unknown_step_count = 0
+    incomplete_tuple_count = 0
+    observed_zero_filled_tuple_count: int | None = None
+    alignment_keys = [*axes, "step_key"]
+    if all(column in df.columns for column in alignment_keys):
+        duplicate_count = int(df.duplicated(subset=alignment_keys, keep=False).sum())
+        unknown_step_count = int((~df["step_key"].astype(str).isin(retained_steps)).sum())
+        if axes:
+            groups = tuple(
+                group
+                for _, group in df.groupby(
+                    list(axes),
+                    dropna=False,
+                    sort=False,
+                )
+            )
+        else:
+            groups = (df,)
+        incomplete_tuple_count = sum(
+            set(group["step_key"].astype(str)) != set(retained_steps) for group in groups
+        )
+        if {
+            "current_cohort_count",
+            "baseline_cohort_count",
+        }.issubset(df.columns):
+            observed_zero_filled_tuple_count = sum(
+                bool(
+                    pd.to_numeric(group["current_cohort_count"], errors="coerce")
+                    .fillna(0)
+                    .eq(0)
+                    .all()
+                    or pd.to_numeric(group["baseline_cohort_count"], errors="coerce")
+                    .fillna(0)
+                    .eq(0)
+                    .all()
+                )
+                for group in groups
+            )
+            alignment_invalid += int(
+                observed_zero_filled_tuple_count != frame.meta.zero_filled_tuple_count
+            )
+    else:
+        alignment_invalid += len([column for column in alignment_keys if column not in df.columns])
+    alignment_invalid += duplicate_count + unknown_step_count + incomplete_tuple_count
+
+    rate_invalid = 0
+    for side in ("current", "baseline"):
+        lost_column = f"{side}_lost_count"
+        denominator_column = f"{side}_resolved_entry_count"
+        rate_column = f"{side}_loss_rate_from_previous"
+        if not {lost_column, denominator_column, rate_column}.issubset(df.columns):
+            continue
+        lost = pd.to_numeric(df[lost_column], errors="coerce")
+        denominator = pd.to_numeric(df[denominator_column], errors="coerce")
+        actual = pd.to_numeric(df[rate_column], errors="coerce")
+        expected_rate = lost.div(denominator.where(denominator.ne(0)))
+        rate_invalid += int(
+            (
+                ~(
+                    (actual.isna() & expected_rate.isna())
+                    | (actual.sub(expected_rate).abs() <= 1e-12)
+                )
+            ).sum()
+        )
+    component_invalid += rate_invalid
+    coverage_invalid = int(
+        frame.meta.current_coverage_basis == "unknown"
+        or frame.meta.baseline_coverage_basis == "unknown"
+    )
+    declarations = (*frame.meta.current_completeness, *frame.meta.baseline_completeness)
+    declaration_event_refs = sorted({ref.path for item in declarations for ref in item.inputs})
+    rows = [
+        _result(
+            "funnel_delta_alignment",
+            "funnel_delta_alignment",
+            "blocking" if alignment_invalid else "ok",
+            "blocking" if alignment_invalid else "ok",
+            "funnel delta alignment is valid" if not alignment_invalid else "invalid alignment",
+            {
+                "invalid_count": alignment_invalid,
+                "duplicate_count": duplicate_count,
+                "unknown_step_count": unknown_step_count,
+                "incomplete_tuple_count": incomplete_tuple_count,
+                "expected_zero_filled_tuple_count": frame.meta.zero_filled_tuple_count,
+                "observed_zero_filled_tuple_count": observed_zero_filled_tuple_count,
+            },
+        ),
+        _result(
+            "funnel_delta_components",
+            "funnel_delta_components",
+            "blocking" if component_invalid else "ok",
+            "blocking" if component_invalid else "ok",
+            "funnel delta components are valid" if not component_invalid else "invalid components",
+            {
+                "invalid_count": component_invalid,
+                "missing_columns": [column for column in additive if column not in df.columns],
+                "invalid_rate_count": rate_invalid,
+            },
+        ),
+        _result(
+            "funnel_delta_coverage",
+            "funnel_delta_coverage",
+            "blocking" if coverage_invalid else "ok",
+            "blocking" if coverage_invalid else "ok",
+            "funnel delta coverage is disclosed",
+            {
+                "invalid_count": coverage_invalid,
+                "current_basis": frame.meta.current_coverage_basis,
+                "baseline_basis": frame.meta.baseline_coverage_basis,
+            },
+        ),
+        _result(
+            "funnel_delta_row_contract",
+            "funnel_delta_row_contract",
+            "blocking" if row_invalid else "ok",
+            "blocking" if row_invalid else "ok",
+            "funnel delta row contract is valid" if not row_invalid else "invalid row contract",
+            {
+                "invalid_count": row_invalid,
+                "missing_columns": missing,
+                "extra_columns": extra,
+                "column_order_mismatch": order_mismatch,
+            },
+        ),
+    ]
+    rows.append(
+        _result(
+            "declared_completeness_used",
+            "declared_completeness_used",
+            "warning" if declarations else "ok",
+            "warning" if declarations else "ok",
+            (
+                f"{len(declarations)} funnel comparison completeness declaration(s) retained"
+                if declarations
+                else "no caller completeness declaration was used"
+            ),
+            {
+                "declared_input_count": len(declaration_event_refs),
+                "event_refs": declaration_event_refs,
+            },
+        )
+    )
+    return rows
+
+
+def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for ratio-mix funnel attribution."""
+    if not isinstance(frame.meta, FunnelAttributionFrameMeta):
+        raise ValueError("funnel attribution quality requires AttributionFrame[funnel_loss_rate]")
+    df = frame._dataframe_copy()
+    missing = [column for column in FUNNEL_ATTRIBUTION_COLUMNS if column not in df.columns]
+    components_invalid = len(missing)
+    kinds = set(df["contribution_kind"].astype(str)) if "contribution_kind" in df.columns else set()
+    components_invalid += int(kinds != {"loss", "denominator_mix"})
+    contributions = (
+        pd.to_numeric(df["contribution"], errors="coerce")
+        if "contribution" in df.columns
+        else pd.Series(dtype="float64")
+    )
+    components_invalid += int(contributions.isna().sum())
+    if frame.meta.mode == "hierarchy":
+        layout_columns = {"level", "axis", "driver", "path"}
+        components_invalid += len(layout_columns - set(df.columns))
+        if "level" in df.columns and not df.empty:
+            levels = pd.to_numeric(df["level"], errors="coerce")
+            components_invalid += int(levels.isna().sum())
+            deepest = df.loc[levels == levels.max()].copy()
+        else:
+            deepest = df.iloc[0:0].copy()
+        coordinate_columns = ["level", "path", "contribution_kind"]
+    else:
+        axis_columns = [axis.output_column for axis in frame.meta.axes]
+        components_invalid += len([column for column in axis_columns if column not in df.columns])
+        deepest = df
+        coordinate_columns = [*axis_columns, "contribution_kind"]
+    present_coordinates = [column for column in coordinate_columns if column in df.columns]
+    if len(present_coordinates) == len(coordinate_columns):
+        components_invalid += int(df.duplicated(subset=present_coordinates, keep=False).sum())
+        group_columns = coordinate_columns[:-1]
+        components_invalid += sum(
+            set(group["contribution_kind"].astype(str)) != {"loss", "denominator_mix"}
+            for _, group in df.groupby(
+                group_columns,
+                dropna=False,
+                sort=False,
+            )
+        )
+
+    deepest_values = (
+        pd.to_numeric(deepest["contribution"], errors="coerce")
+        if "contribution" in deepest.columns
+        else pd.Series(dtype="float64")
+    )
+    contribution_sum = float(deepest_values.sum()) if not deepest_values.isna().any() else None
+    positive_pool = (
+        float(deepest_values.loc[deepest_values > 0].sum())
+        if contribution_sum is not None
+        else None
+    )
+    negative_pool = (
+        float(deepest_values.loc[deepest_values < 0].sum())
+        if contribution_sum is not None
+        else None
+    )
+    receipt = frame.meta.reconciliation
+    pools_invalid = int(receipt.positive_pool < 0 or receipt.negative_pool > 0)
+    if positive_pool is None or negative_pool is None:
+        pools_invalid += 1
+    else:
+        pools_invalid += int(abs(positive_pool - receipt.positive_pool) > receipt.tolerance)
+        pools_invalid += int(abs(negative_pool - receipt.negative_pool) > receipt.tolerance)
+    derived_residual = (
+        receipt.target_loss_rate_delta - contribution_sum
+        if receipt.target_loss_rate_delta is not None and contribution_sum is not None
+        else None
+    )
+    residual_invalid = int(
+        derived_residual is None
+        or abs(derived_residual) > receipt.tolerance
+        or abs((derived_residual or 0.0) - receipt.residual) > receipt.tolerance
+    )
+    reconciliation_invalid = int(receipt.status != "reconciled")
+    if contribution_sum is None or receipt.contribution_sum is None:
+        reconciliation_invalid += 1
+    else:
+        reconciliation_invalid += int(
+            abs(contribution_sum - receipt.contribution_sum) > receipt.tolerance
+        )
+    reconciliation_invalid += residual_invalid
+    return [
+        _result(
+            "funnel_attribution_components",
+            "funnel_attribution_components",
+            "blocking" if components_invalid else "ok",
+            "blocking" if components_invalid else "ok",
+            "funnel attribution components are valid",
+            {"invalid_count": components_invalid, "missing_columns": missing},
+        ),
+        _result(
+            "funnel_attribution_pools",
+            "funnel_attribution_pools",
+            "blocking" if pools_invalid else "ok",
+            "blocking" if pools_invalid else "ok",
+            "funnel attribution pools are valid",
+            {
+                "invalid_count": pools_invalid,
+                "row_positive_pool": positive_pool,
+                "row_negative_pool": negative_pool,
+                "receipt_positive_pool": receipt.positive_pool,
+                "receipt_negative_pool": receipt.negative_pool,
+            },
+        ),
+        _result(
+            "funnel_attribution_residual",
+            "funnel_attribution_residual",
+            "blocking" if residual_invalid else "ok",
+            "blocking" if residual_invalid else "ok",
+            "funnel attribution residual is bounded",
+            {
+                "invalid_count": residual_invalid,
+                "row_residual": derived_residual,
+                "receipt_residual": receipt.residual,
+            },
+        ),
+        _result(
+            "funnel_attribution_reconciliation",
+            "funnel_attribution_reconciliation",
+            "blocking" if reconciliation_invalid else "ok",
+            "blocking" if reconciliation_invalid else "ok",
+            "funnel attribution reconciles exactly",
+            {
+                "invalid_count": reconciliation_invalid,
+                "row_contribution_sum": contribution_sum,
+                "receipt_contribution_sum": receipt.contribution_sum,
+                "target_loss_rate_delta": receipt.target_loss_rate_delta,
+            },
+        ),
+    ]
 
 
 def run_lifecycle_history_checks(frame: LifecycleFrame) -> list[dict[str, str]]:

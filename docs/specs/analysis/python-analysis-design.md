@@ -243,6 +243,48 @@ Funnel axes are exact current Dimension entries/refs and may only enrich the
 journey subject through one unique directed to-one path at cohort entry.
 Grouped additive counts must reconcile exactly to the ungrouped funnel.
 
+Phase 4 adds one exact comparison and attribution continuation:
+
+```text
+EventFrame[funnel] x EventFrame[funnel] -> compare -> DeltaFrame[funnel]
+DeltaFrame[funnel, ungrouped] -> attribute(target=funnel_loss_rate) ->
+    AttributionFrame[funnel_loss_rate]
+```
+
+Funnel comparison accepts no caller alignment. It full-outer-aligns the
+persisted PatternStep identity plus the declared axis tuple, zero-fills only
+additive counts for one-sided tuples, and keeps absent-side or zero-denominator
+rates null. Pattern, matching, follow-up, subject, catalog fingerprint, and
+axis contracts must match exactly; coverage-censored aligned populations fail
+with `event_coverage_unknown`, while structural drift fails with
+`funnel_comparison_mismatch`.
+
+`DeltaFrame[funnel]` rows contain declared axes followed by `step_key`, paired
+current/baseline cohort, resolved cohort, entry, resolved entry, reached, lost,
+and coverage-censored counts, then paired loss rates and their delta.
+
+`mv.funnel_loss_rate(step=...)` retains one exact non-initial PatternStep.
+Attribution is allowed only from an ungrouped funnel delta and re-aggregates
+the two persisted journey assignments over governed cohort-entry subject axes;
+it never rematches Events. For each group `g`, with lost counts `l`, resolved
+entry counts `e`, and side totals `E`:
+
+```text
+loss(g)            = (l_current(g) - l_baseline(g)) / E_current
+denominator_mix(g) = l_baseline(g) * (1/E_current - 1/E_baseline)
+```
+
+The two component families sum exactly to the target loss-rate delta within
+`1e-9`. Rows expose `contribution_kind`, signed `contribution`, and shares of
+the total, positive pool, and negative pool. Single-axis and joint layouts keep
+concrete Dimension columns; hierarchy uses `level`, `axis`, `driver`, and
+`path`. Hierarchy pool shares are normalized independently within each visible
+level because prefix aggregation can cancel signs; metadata retains the
+deepest joint-partition pools used by the exact reconciliation. This is
+arithmetic attribution with `causal_claim="none"`.
+Unsupported targets, grouped inputs, invalid modes, or zero denominators fail
+with `funnel_attribution_unsupported`.
+
 `mv.dropped_before(step=...)` is the only Phase 2 SubjectSelection. It accepts
 one exact non-initial PatternStep from a first-per-subject journey, selects only
 resolved loss, and excludes coverage-censored truth. A SubjectSet persists only

@@ -31,6 +31,10 @@ from marivo.analysis.evidence.extraction.event import (
     extract_event_time_to_event_finding,
 )
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
+from marivo.analysis.evidence.extraction.funnel import (
+    extract_funnel_attribution_finding,
+    extract_funnel_delta_finding,
+)
 from marivo.analysis.evidence.extraction.lifecycle import extract_lifecycle_finding
 from marivo.analysis.evidence.extraction.observation import (
     extract_metric_value_findings,
@@ -459,6 +463,47 @@ def _extract_findings(
             evaluated_scope=scope,
             source_refs=tuple(str(ref) for ref in getattr(meta, "source_refs", ())),
         )
+    if extractor_family == "delta_frame" and semantic_kind == "funnel":
+        if not isinstance(subject, EventSubject):
+            raise TypeError("DeltaFrame[funnel] evidence requires EventSubject")
+        funnel_meta = cast("Any", meta)
+        return [
+            extract_funnel_delta_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                committed_at=committed_at,
+                step_count=len(funnel_meta.aligned_step_keys),
+                axis_count=len(funnel_meta.axes),
+                zero_filled_tuple_count=funnel_meta.zero_filled_tuple_count,
+                current_coverage_basis=funnel_meta.current_coverage_basis,
+                baseline_coverage_basis=funnel_meta.baseline_coverage_basis,
+                source_refs=(
+                    funnel_meta.source_current_ref,
+                    funnel_meta.source_baseline_ref,
+                ),
+            )
+        ]
+    if extractor_family == "attribution_frame" and semantic_kind == "funnel_loss_rate":
+        if not isinstance(subject, EventSubject):
+            raise TypeError("funnel attribution evidence requires EventSubject")
+        funnel_attribution_meta = cast("Any", meta)
+        return [
+            extract_funnel_attribution_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                committed_at=committed_at,
+                target_step_key=funnel_attribution_meta.target.step.key,
+                positive_pool=funnel_attribution_meta.reconciliation.positive_pool,
+                negative_pool=funnel_attribution_meta.reconciliation.negative_pool,
+                residual=funnel_attribution_meta.reconciliation.residual,
+                reconciliation_status=funnel_attribution_meta.reconciliation.status,
+                source_delta_ref=funnel_attribution_meta.source_delta_ref,
+            )
+        ]
     if not isinstance(subject, Subject) or not isinstance(scope, AnalysisScope):
         raise TypeError(f"{extractor_family} evidence requires metric subject and scope")
     if extractor_family == "metric_frame":
@@ -641,7 +686,12 @@ def _extract_findings(
 
 
 def _operator_for(step_type: str, extractor_family: str) -> str:
-    if step_type in {"transform", "select_metric"}:
+    if step_type in {
+        "transform",
+        "select_metric",
+        "compare.funnel",
+        "attribute.funnel_loss_rate",
+    }:
         return step_type
     if extractor_family in {"event_frame", "lifecycle_frame"}:
         return step_type

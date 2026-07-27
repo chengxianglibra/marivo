@@ -25,6 +25,7 @@ from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
     EventCoverageUnknownError,
+    FunnelAttributionUnsupportedError,
     InvalidEventMatchingPolicyError,
     InvalidSubjectAxisError,
     ModelStateMismatchError,
@@ -142,6 +143,7 @@ def _classify_policy_or_spec(value: object) -> str | None:
         EveryStart,
         FirstPerSubject,
     )
+    from marivo.analysis.funnel import FunnelLossRate
     from marivo.analysis.lifecycle import FromInception, InState
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.subject import DroppedBefore
@@ -163,6 +165,8 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "LifecycleSeed"
     if isinstance(value, (DroppedBefore, InState)):
         return "SubjectSelection"
+    if isinstance(value, FunnelLossRate):
+        return "FunnelLossRate"
     # A plain dict is acceptable as a TimeScopeInput (normalized later by
     # the capability-specific validator, which may reject relative windows).
     if isinstance(value, dict):
@@ -273,6 +277,24 @@ def _raise_typed_family_error(
     """Preserve closed typed repair contracts at the shared family gate."""
 
     key = (capability_id, param_name)
+    if key == ("attribute", "target"):
+        raise FunnelAttributionUnsupportedError(
+            message="attribute target must be an exact supported attribution target.",
+            expected="mv.funnel_loss_rate(step=<non-initial PatternStep>)",
+            received=received,
+            location="session.attribute.target",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action=(
+                    "Choose a non-initial PatternStep from the compared funnel and "
+                    "build mv.funnel_loss_rate(step=...)."
+                ),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=help_target,
+                ),
+            ),
+        )
     if key == ("events.funnel", "axes"):
         raise InvalidSubjectAxisError(
             message="events.funnel axes must be exact governed Dimension inputs.",
@@ -568,10 +590,10 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
                 )
             if capability_id == "assess_quality" and predicate == "semantic_shape":
                 raise QualityShapeUnsupportedError(
-                    message="assess_quality does not support this EventFrame shape.",
+                    message="assess_quality does not support this artifact shape.",
                     expected=admission.expected,
                     received=admission.received,
-                    location="session.assess_quality.target.semantic_shape",
+                    location="assess_quality.target",
                     repair=AnalysisRepair(
                         kind="inspect",
                         action="Inspect the artifact contract for supported quality shapes.",

@@ -25,6 +25,7 @@ from marivo.analysis.session.core import (
 _HIDDEN = {"self", "session", "_triggered_by"}
 
 _INTENT_TO_METHOD: dict[str, str] = {}
+_MULTI_LANE_DISPATCHERS = {"attribute", "compare"}
 
 # Discover is exposed as a session namespace property.
 # Frame transforms live on frame.transform (MetricFrameTransforms / DeltaFrameTransforms).
@@ -36,6 +37,8 @@ def _delegating_methods() -> list[tuple[str, Any, Any]]:
     """Return (method_name, session_method, intent_function) for each delegating surface method."""
     results: list[tuple[str, Any, Any]] = []
     for intent_name in intents.__all__:
+        if intent_name in _MULTI_LANE_DISPATCHERS:
+            continue
         intent_func = getattr(intents, intent_name)
         method_name = _INTENT_TO_METHOD.get(intent_name, intent_name)
         member = inspect.getattr_static(Session, method_name, None)
@@ -82,6 +85,15 @@ def test_signature_matches_intent_public_params(method: Any, intent: Any) -> Non
     method_return = method_signature.return_annotation
     assert method_return == inspect.signature(intent).return_annotation
     assert method_return != "Any"
+
+
+def test_multi_lane_dispatcher_signatures_are_explicit() -> None:
+    compare = inspect.signature(Session.compare)
+    attribute = inspect.signature(Session.attribute)
+    assert str(compare.parameters["current"].annotation) == "MetricFrame | EventFrame"
+    assert str(compare.parameters["baseline"].annotation) == "MetricFrame | EventFrame"
+    assert "target" in attribute.parameters
+    assert str(attribute.parameters["target"].annotation) == "FunnelLossRate | None"
 
 
 def test_discover_namespace_methods_have_docstrings() -> None:
