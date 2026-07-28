@@ -811,11 +811,16 @@ def test_reducers_and_evidence_consume_committed_history_without_event_rereads(
             session.lifecycle.violations(history),
         )
         reports = tuple(session.assess_quality(frame) for frame in (history, *reducers))
+        history_checks = {
+            row.check_kind: row.status for row in reports[0].to_pandas().itertuples(index=False)
+        }
 
         # Reducers and quality run purely from committed rows.
         assert calls == []
         assert session._connection_runtime.take_captured_queries() == []
         assert all(frame.meta.source_history_ref for frame in reducers)
+        assert history_checks["lifecycle_history_state"] == "ok"
+        assert history_checks["lifecycle_trace"] == "ok"
 
         # No raw subject or Event identity ever reaches metadata or evidence.
         raw_identities = ("o1", "o2", "e1", "e2", "e3", "e4", "e5", "e6", "e7")

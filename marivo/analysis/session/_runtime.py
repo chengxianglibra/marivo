@@ -319,7 +319,9 @@ def _validate_funnel_comparison_payload(value: object) -> None:
     for side in ("current", "baseline"):
         if payload[f"{side}_coverage_basis"] not in valid_coverage:
             raise ValueError(f"analysis job {role}.{side}_coverage_basis is invalid")
-        TypeAdapter(list[CompletenessDeclaration]).validate_python(payload[f"{side}_completeness"])
+        TypeAdapter(list[CompletenessDeclaration]).validate_json(
+            json.dumps(payload[f"{side}_completeness"])
+        )
 
 
 def _validate_funnel_attribution_payload(value: object) -> None:

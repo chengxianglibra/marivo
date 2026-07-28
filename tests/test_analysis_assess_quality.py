@@ -50,6 +50,18 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
     assert report.meta.overall_status == "ok"
     assert set(df["check_kind"]) == {"row_count", "null_ratio", "time_coverage"}
     assert report.meta.blocking_issue_count == 0
+    assert report.overall_status == report.meta.overall_status
+    assert report.blocking_issue_count == report.meta.blocking_issue_count
+    assert report.warning_count == report.meta.warning_count
+    assert report.state.materialization == "materialized"
+
+    loaded = load_frame(report.ref, session=session)
+    assert loaded.overall_status == report.overall_status
+    assert loaded.blocking_issue_count == report.blocking_issue_count
+    assert loaded.warning_count == report.warning_count
+
+    with pytest.raises(AttributeError):
+        report.overall_status = "warning"
 
 
 def test_metric_time_series_gap_warning_and_blocking(tmp_path):

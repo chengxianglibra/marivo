@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute, TopicHelpRoute
+from marivo._help.model import (
+    MarivoHelpTargetError,
+    NativeHelpRoute,
+    SurfaceRootHelpRoute,
+    TopicHelpRoute,
+)
 from marivo._help.object_briefing import (
     is_semantic_object,
     render_semantic_object,
     semantic_object_path,
 )
-from marivo._help.route import render_native_route, route_help_target
+from marivo._help.route import render_native_route, render_surface_root, route_help_target
 from marivo._help.topics import render_authoring, render_load, render_root
 from marivo.refs import Ref, SemanticKindTag
 from marivo.render import RenderableResult
@@ -65,6 +70,8 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
     route = route_help_target(target)
     if isinstance(route, TopicHelpRoute):
         return _topic_text(route), "global", route.topic
+    if isinstance(route, SurfaceRootHelpRoute):
+        return render_surface_root(route), route.owner, route.owner
     if isinstance(route, NativeHelpRoute):
         resolved_id = (
             route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name

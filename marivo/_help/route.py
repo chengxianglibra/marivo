@@ -10,6 +10,7 @@ from marivo._help.model import (
     HelpRoute,
     MarivoHelpTargetError,
     NativeHelpRoute,
+    SurfaceRootHelpRoute,
     TopicHelpRoute,
 )
 from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, ResolvableHelpDescriptor
@@ -92,6 +93,8 @@ def route_help_target(target: object | None) -> HelpRoute:
         return TopicHelpRoute("root")
 
     if isinstance(target, str):
+        if target in _SURFACES:
+            return SurfaceRootHelpRoute(target)
         qualified = _qualified_string(target)
         if qualified is not None:
             owner, native_target = qualified
@@ -147,6 +150,21 @@ def route_help_target(target: object | None) -> HelpRoute:
         outcome="unknown",
         candidates=_suggestions(errors),
     )
+
+
+def render_surface_root(route: SurfaceRootHelpRoute) -> str:
+    """Render one native root page through its owning surface."""
+    if route.owner == "datasource":
+        from marivo.datasource._capabilities.render import render_root_help
+
+        return render_root_help()
+    if route.owner == "semantic":
+        from marivo.semantic._capabilities.render import render_root_help
+
+        return render_root_help()
+    from marivo.analysis._capabilities.render import render_root_help
+
+    return render_root_help()
 
 
 def render_native_route(route: NativeHelpRoute) -> str:

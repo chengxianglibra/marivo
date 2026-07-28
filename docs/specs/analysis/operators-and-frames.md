@@ -412,6 +412,12 @@ facts already on the artifact; `assess_quality` runs explicit checks and produce
 a terminal report. A source artifact records at most a
 `latest_quality_report_ref`, never a copied full report.
 
+`QualityReport.overall_status`, `.blocking_issue_count`, and `.warning_count`
+are read-only projections of the authoritative report metadata for programmatic
+gating. They do not recompute quality. `QualityReport.state` retains the common
+`ArtifactState` contract and therefore describes materialization and content
+identity, not the quality verdict.
+
 ## Result contract and read protocol
 
 Analysis operators never write to stdout; every result is silent and returns a

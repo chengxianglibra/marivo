@@ -89,6 +89,43 @@ def test_compare_produces_an_aligned_funnel_delta(funnel_session: Any) -> None:
     assert "session.correlate" not in contract
 
 
+def test_compare_persists_declared_completeness(funnel_session: Any) -> None:
+    pattern = mv.sequence(
+        pattern_step_for_tests("cart"),
+        pattern_step_for_tests("payment"),
+    )
+    declaration = mv.declared_complete_through(
+        inputs=(
+            ms.ref.event("commerce.order_created"),
+            ms.ref.event("commerce.payment_captured"),
+        ),
+        through="2026-07-22T00:00:00Z",
+        rationale="The deterministic comparison fixture is complete.",
+    )
+    funnels = []
+    for start, end in (("2026-07-08", "2026-07-15"), ("2026-07-01", "2026-07-08")):
+        journeys = funnel_session.events.match(
+            pattern=pattern,
+            cohort_window=mv.TimeScope(
+                start=f"{start}T00:00:00Z",
+                end=f"{end}T00:00:00Z",
+            ),
+            completion_through="2026-07-22T00:00:00Z",
+            matching=mv.first_per_subject(),
+            completeness=(declaration,),
+        )
+        funnels.append(funnel_session.events.funnel(journeys))
+
+    delta = funnel_session.compare(funnels[0], funnels[1])
+
+    assert delta.meta.current_completeness == (declaration,)
+    assert delta.meta.baseline_completeness == (declaration,)
+    job = funnel_session.job(delta.meta.produced_by_job)
+    assert job["funnel_comparison"]["current_completeness"][0]["kind"] == (
+        "declared_complete_through"
+    )
+
+
 def test_compare_rejects_a_caller_supplied_alignment(funnel_session: Any) -> None:
     current, baseline = two_scope_funnel_frames(funnel_session)
     with pytest.raises(FunnelComparisonMismatchError) as excinfo:
@@ -403,6 +440,7 @@ def test_quality_reports_cover_both_new_shapes(
     delta_report = funnel_session.assess_quality(delta)
     attribution_report = funnel_session.assess_quality(drivers)
     assert delta_report.meta.report_shape == "funnel_delta"
+    assert delta_report.meta.overall_status == "ok"
     assert attribution_report.meta.report_shape == "funnel_attribution"
     assert {
         "funnel_delta_alignment",

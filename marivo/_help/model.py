@@ -28,7 +28,14 @@ class TopicHelpRoute:
     topic: GlobalTopic
 
 
-type HelpRoute = NativeHelpRoute | TopicHelpRoute
+@dataclass(frozen=True)
+class SurfaceRootHelpRoute:
+    """The native root page for one exact public help surface."""
+
+    owner: HelpSurface
+
+
+type HelpRoute = NativeHelpRoute | SurfaceRootHelpRoute | TopicHelpRoute
 
 
 class MarivoHelpTargetError(ValueError):

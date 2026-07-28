@@ -153,6 +153,21 @@ class QualityReport(BaseFrame):
 
     meta: QualityReportMeta
 
+    @property
+    def overall_status(self) -> Literal["ok", "warning", "blocking"]:
+        """Return the report's authoritative mechanical quality verdict."""
+        return self.meta.overall_status
+
+    @property
+    def blocking_issue_count(self) -> int:
+        """Return the number of blocking checks in this report."""
+        return self.meta.blocking_issue_count
+
+    @property
+    def warning_count(self) -> int:
+        """Return the number of warning checks in this report."""
+        return self.meta.warning_count
+
     def _repr_identity(self) -> str:
         return (
             f"QualityReport ref={self.meta.ref} status={self.meta.overall_status} "

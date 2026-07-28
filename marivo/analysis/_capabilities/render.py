@@ -26,6 +26,7 @@ from marivo.analysis._capabilities.registry import (
     PUBLIC_FRAME_PROPERTIES,
     PUBLIC_OBJECT_METHODS,
     PUBLIC_OBJECT_PROPERTIES,
+    PUBLIC_TYPE_VARIANTS,
     REGISTRY,
 )
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
@@ -282,15 +283,16 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
     """
     if desc.root_visibility != "grouped":
         return None
-    # Check for dotted prefixes that have a registered grouping topic.
-    for prefix in ("discover.", "transform.", "catalog.", "runtime_metric."):
-        if desc.id.startswith(prefix):
-            topic = prefix.rstrip(".")
-            try:
-                REGISTRY.by_help_target(topic)
-                return topic
-            except KeyError:
-                return None
+    # Collapse under the longest registered prefix in the same root group.
+    parts = desc.id.split(".")
+    for end in range(len(parts) - 1, 0, -1):
+        topic = ".".join(parts[:end])
+        try:
+            grouping = REGISTRY.by_help_target(topic)
+        except KeyError:
+            continue
+        if grouping.callable_path is None and grouping.root_group == desc.root_group:
+            return topic
     # session.evidence.* collapses under recovery.
     if desc.id.startswith("session.evidence."):
         try:
@@ -442,19 +444,13 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     for candidate in REGISTRY.descriptors:
         if candidate is desc or candidate.callable_path is None:
             continue
-        if desc.id in {
-            "discover",
-            "transform",
-            "catalog",
-            "runtime_metric",
-            "boundary",
-            "session",
-        }:
-            if candidate.id.startswith(f"{desc.id}."):
-                members.append(candidate)
-        elif (desc.id == "recovery" and candidate.root_group == "recovery") or (
-            desc.id == "artifacts"
-            and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
+        if (
+            candidate.id.startswith(f"{desc.id}.")
+            or (desc.id == "recovery" and candidate.root_group == "recovery")
+            or (
+                desc.id == "artifacts"
+                and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
+            )
         ):
             members.append(candidate)
     if desc.id == "artifacts":
@@ -708,44 +704,16 @@ def _render_type_help(type_name: str) -> str:
             lines.append(f"  {first_prose_line}")
     lines.append("")
 
-    variants = {
-        "ArtifactIssue": (
-            "DataQualityIssue",
-            "ComparabilityIssue",
-            "EvidenceAvailabilityIssue",
-        ),
-        "CandidateSelection": (
-            "PointAnomalySelection",
-            "PeriodShiftSelection",
-            "DriverAxisSelection",
-            "SliceSelection",
-            "WindowSelection",
-            "CrossSectionalOutlierSelection",
-        ),
-        "EventFrame": (
-            "EventFrame[journey]",
-            "EventFrame[funnel]",
-            "EventFrame[time_to_event]",
-        ),
-        "LifecycleFrame": (
-            "LifecycleFrame[history]",
-            "LifecycleFrame[distribution]",
-            "LifecycleFrame[transitions]",
-            "LifecycleFrame[dwell]",
-            "LifecycleFrame[violations]",
-        ),
-        "QualityReport": (
-            "QualityReport[metric]",
-            "QualityReport[event_journey]",
-            "QualityReport[event_funnel]",
-            "QualityReport[event_time_to_event]",
-            "QualityReport[lifecycle]",
-        ),
-    }.get(type_name)
+    variants = PUBLIC_TYPE_VARIANTS.get(type_name)
     if variants:
         lines.append("  Closed variants:")
         for variant in variants:
-            lines.append(f"    {variant}")
+            rendered_variant = (
+                variant
+                if type_name in {"ArtifactIssue", "CandidateSelection"}
+                else f"{type_name}[{variant}]"
+            )
+            lines.append(f"    {rendered_variant}")
         lines.append("")
 
     if type_name == "SubjectSet":
@@ -813,11 +781,29 @@ def _render_type_help(type_name: str) -> str:
             lines.append(f"    {p}")
         lines.append("")
 
+    recovery_paths = [
+        desc.help_target
+        for desc in REGISTRY.descriptors
+        if isinstance(desc, RecoveryCapability) and desc.restored_family == type_name
+    ]
+    if recovery_paths:
+        lines.append("  Acquired or recovered by:")
+        for target in sorted(recovery_paths):
+            lines.append(f"    {target}")
+        lines.append("")
+
     consumers = REGISTRY.constructor_consumers.get(type_name, ())
     if consumers:
         lines.append("  Consumed by:")
         for c in sorted(consumers)[:5]:
             lines.append(f"    {c}")
+        lines.append("")
+
+    if type_name == "QualityReport":
+        lines.append(
+            "  Quality verdict: report.overall_status; report.state is "
+            "ArtifactState materialization metadata."
+        )
         lines.append("")
 
     lines.append(f'  Call marivo.help("analysis.{type_name}") for updates.')

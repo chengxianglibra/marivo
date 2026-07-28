@@ -65,6 +65,10 @@ def _payload(value):
     return RefPayloadV1.from_ref(value)
 
 
+def _key(value: RefPayloadV1) -> str:
+    return f"{value.kind.value}:{value.path}"
+
+
 def _coverage(event_ref: RefPayloadV1) -> EventInputCoverage:
     receipt = EventWatermarkReceipt(
         complete_through="2026-08-01T00:00:00Z",
@@ -113,9 +117,9 @@ def _history_frame(session: mv.Session) -> LifecycleFrame:
                 "model_state": "created",
                 "valid_from": pd.Timestamp("2026-07-01T00:00:00Z"),
                 "valid_to": pd.Timestamp("2026-07-10T00:00:00Z"),
-                "entered_by_event_ref": created_event.path,
+                "entered_by_event_ref": _key(created_event),
                 "entered_by_event_identity": ("created_secret",),
-                "exited_by_event_ref": paid_event.path,
+                "exited_by_event_ref": _key(paid_event),
                 "exited_by_event_identity": ("paid_secret",),
                 "interval_status": "completed",
             },
@@ -124,7 +128,7 @@ def _history_frame(session: mv.Session) -> LifecycleFrame:
                 "model_state": "paid",
                 "valid_from": pd.Timestamp("2026-07-10T00:00:00Z"),
                 "valid_to": pd.Timestamp("2026-08-01T00:00:00Z"),
-                "entered_by_event_ref": paid_event.path,
+                "entered_by_event_ref": _key(paid_event),
                 "entered_by_event_identity": ("paid_secret",),
                 "exited_by_event_ref": None,
                 "exited_by_event_identity": None,
@@ -137,7 +141,7 @@ def _history_frame(session: mv.Session) -> LifecycleFrame:
         [
             {
                 "subject_identity": ("order_secret",),
-                "trigger_event_ref": paid_event.path,
+                "trigger_event_ref": _key(paid_event),
                 "trigger_event_identity": ("violation_secret",),
                 "occurred_at": pd.Timestamp("2026-07-20T00:00:00Z"),
                 "model_state_at_event": "paid",
