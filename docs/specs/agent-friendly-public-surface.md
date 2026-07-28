@@ -258,6 +258,8 @@ There are three disclosure ladders, and they compose:
    import marivo
 
    marivo.help()  # compact global index, grouped by family
+   marivo.help("analysis")  # bounded native index, including session acquisition
+   marivo.help("analysis.events")  # registered namespace members
    marivo.help("semantic.time_dimension_column")  # one constructor contract
    marivo.help("analysis.observe")  # one analysis operator contract
    ```

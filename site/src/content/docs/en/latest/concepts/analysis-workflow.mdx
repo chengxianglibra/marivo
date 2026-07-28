@@ -81,6 +81,8 @@ Python executable, and package path form the environment fingerprint — a bare
 matches the analysis interpreter. Verify this fingerprint once at analysis
 entry. After that, use the public object already in hand: read `.show()` for
 current state and `.contract()` before an unfamiliar composition. Open a
+surface index with `marivo.help("analysis")`, a registered namespace such as
+`marivo.help("analysis.events")` or `marivo.help("analysis.lifecycle")`, or a
 focused topic such as `marivo.help("analysis.observe")`,
 `marivo.help("analysis.compare")`, or
 `marivo.help("analysis.MetricFrame")` only when the object contract is
@@ -704,6 +706,10 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 Run quality checks over an artifact and return a separate `QualityReport`.
 `artifact.quality_summary` is only a cheap persisted metadata projection; it is
 not the same thing as running `session.assess_quality(artifact)`.
+Read `report.overall_status`, `report.blocking_issue_count`, and
+`report.warning_count` for the authoritative verdict and counts.
+`report.state` remains `ArtifactState` materialization metadata; it is not a
+quality status.
 The report's `contract().issues` contains typed data-quality failures. Do not
 report a window as a complete period fact when its report contains a blocking
 `time_coverage_incomplete` issue.

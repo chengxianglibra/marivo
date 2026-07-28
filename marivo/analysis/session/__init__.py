@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from marivo.analysis.session._store import SessionSummary
+from marivo.analysis.session.core import Session
 from marivo.analysis.session.history import SessionInspection, SessionSummaryPage
 
 __all__ = ["current", "delete", "get_or_create", "inspect", "list", "recent"]
@@ -37,7 +38,7 @@ _PUBLIC_NAMES = frozenset(__all__)
 _INTERNAL_NAMES = frozenset({"_reset_process_state"})
 
 
-def current() -> Any:
+def current() -> Session | None:
     """Return the current session, or ``None`` when no session is current.
 
     Resolution order:
@@ -79,7 +80,7 @@ def get_or_create(
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
-) -> Any:
+) -> Session:
     """Attach to an existing session or create a new one if it does not exist.
 
     When to use: the default choice for idempotent scripts and notebooks.

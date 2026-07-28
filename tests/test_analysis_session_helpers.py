@@ -7,7 +7,9 @@ from ``attach``, ``active``, or ``persistence``.
 from __future__ import annotations
 
 import json
+from inspect import signature
 from pathlib import Path
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -27,6 +29,13 @@ def test_session_all_exports_exactly_six_names() -> None:
         "list",
         "recent",
     ]
+
+
+def test_session_acquisition_has_concrete_return_annotations() -> None:
+    assert get_type_hints(mv.session.current)["return"] == mv.Session | None
+    assert get_type_hints(mv.session.get_or_create)["return"] is mv.Session
+    assert signature(mv.session.current).return_annotation != Any
+    assert signature(mv.session.get_or_create).return_annotation != Any
 
 
 # ---------------------------------------------------------------------------

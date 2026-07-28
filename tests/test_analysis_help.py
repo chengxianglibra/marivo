@@ -136,6 +136,46 @@ def test_focused_grouping_help_lists_real_members() -> None:
     assert "frame.to_pandas()" in artifacts
 
 
+def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
+    events = _text("events")
+    assert "session.events.match(...)" in events
+    assert "session.events.funnel(...)" in events
+    assert "session.events.time_to_event(...)" in events
+
+    lifecycle = _text("lifecycle")
+    for member in ("replay", "distribution", "transitions", "dwell", "violations"):
+        assert f"session.lifecycle.{member}(...)" in lifecycle
+
+
+def test_grouping_members_use_registered_prefix_without_renderer_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import marivo.analysis._capabilities.render as render_module
+    from marivo.analysis._capabilities.model import ReadCapability
+    from marivo.analysis._capabilities.registry import _make_grouping_descriptor
+
+    grouping = _make_grouping_descriptor("example", "Example namespace.", "typed_analysis")
+    member = ReadCapability(
+        id="example.inspect",
+        public_entrypoint="example.inspect()",
+        help_target="example.inspect",
+        summary="Inspect an example.",
+        root_group="typed_analysis",
+        root_visibility="grouped",
+        callable_path="example.inspect",
+        receiver_family="Example",
+    )
+    monkeypatch.setattr(
+        render_module,
+        "REGISTRY",
+        SimpleNamespace(descriptors=(grouping, member)),
+    )
+
+    assert render_module._grouping_members(grouping) == [member]
+
+
 def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> None:
     root = _text()
     artifacts = _text("artifacts")
@@ -608,6 +648,25 @@ def test_type_help_lists_registry_allowlist_members() -> None:
         assert prop in text, f"missing property: {prop}"
     for method in PUBLIC_FRAME_METHODS.get("MetricFrame", ()):
         assert method in text, f"missing method: {method}"
+
+
+def test_quality_report_help_exposes_verdict_and_all_exact_shapes() -> None:
+    from marivo.analysis._capabilities.registry import PUBLIC_TYPE_VARIANTS
+
+    text = _text("QualityReport")
+    for prop in ("overall_status", "blocking_issue_count", "warning_count"):
+        assert prop in text
+    for variant in PUBLIC_TYPE_VARIANTS["QualityReport"]:
+        assert f"QualityReport[{variant}]" in text
+    assert "report.state is ArtifactState materialization metadata" in text
+
+
+def test_session_type_help_teaches_acquisition_without_delete() -> None:
+    text = _text("Session")
+    assert "Acquired or recovered by:" in text
+    assert "session.get_or_create" in text
+    assert "session.current" in text
+    assert "session.delete" not in text
 
 
 # ---------------------------------------------------------------------------

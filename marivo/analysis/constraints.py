@@ -210,10 +210,21 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.QUALITY_TARGET_SHAPE,
         "QualityShapeUnsupported",
         "runtime",
-        ("assess_quality", "QualityReport", "MetricFrame", "EventFrame"),
-        "Quality assessment accepts MetricFrame and EventFrame[journey] targets.",
-        "Metric and Event Journey artifacts have separate fixed check sets and report shapes.",
-        "Call session.assess_quality(metric_frame_or_event_journey).",
+        (
+            "assess_quality",
+            "QualityReport",
+            "MetricFrame",
+            "EventFrame",
+            "LifecycleFrame",
+            "DeltaFrame",
+            "AttributionFrame",
+        ),
+        (
+            "Quality assessment accepts supported MetricFrame, EventFrame, LifecycleFrame, "
+            "DeltaFrame, and AttributionFrame shapes."
+        ),
+        "Each supported artifact shape has a separate fixed check set and report shape.",
+        "Call session.assess_quality(frame).",
         help_target="assess_quality",
     ),
     ConstraintId.EVENT_PATTERN_VALID: _constraint(

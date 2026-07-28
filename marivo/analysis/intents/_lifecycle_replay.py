@@ -307,30 +307,34 @@ def _ordered_same_time_group(
     return tuple(subject_occurrences[index] for index in outcomes[0].order)
 
 
-def _subject_occurrences(
+def _occurrences_by_subject(
     *,
     machine: _ReplayMachine,
     occurrence_sets: dict[OccurrenceSetKey, tuple[EventOccurrence, ...]],
-    subject_identity: tuple[object, ...],
     end: pd.Timestamp,
-) -> tuple[_ReplayOccurrence, ...]:
-    items = [
-        _ReplayOccurrence(trigger=trigger, occurrence=occurrence)
-        for trigger in machine.trigger_order
-        for occurrence in occurrence_sets.get(trigger, ())
-        if occurrence.subject_identity == subject_identity and occurrence.occurred_at < end
-    ]
-    return tuple(
-        sorted(
-            items,
-            key=lambda item: (
-                item.occurrence.occurred_at,
-                item.event_ref.key,
-                identity_sort_key(item.occurrence.event_identity),
-                item.occurrence.participant_name,
-            ),
+) -> dict[tuple[object, ...], tuple[_ReplayOccurrence, ...]]:
+    indexed: dict[tuple[object, ...], list[_ReplayOccurrence]] = {}
+    for trigger in machine.trigger_order:
+        for occurrence in occurrence_sets.get(trigger, ()):
+            if occurrence.occurred_at >= end:
+                continue
+            indexed.setdefault(occurrence.subject_identity, []).append(
+                _ReplayOccurrence(trigger=trigger, occurrence=occurrence)
+            )
+    return {
+        subject_identity: tuple(
+            sorted(
+                items,
+                key=lambda item: (
+                    item.occurrence.occurred_at,
+                    item.event_ref.key,
+                    identity_sort_key(item.occurrence.event_identity),
+                    item.occurrence.participant_name,
+                ),
+            )
         )
-    )
+        for subject_identity, items in indexed.items()
+    }
 
 
 def _empty_history() -> pd.DataFrame:
@@ -430,12 +434,12 @@ def replay_state_model(
     if not machine.inception_triggers:
         raise ValueError("from_inception replay requires at least one inception trigger")
 
-    observed_population = {
-        occurrence.subject_identity
-        for trigger in machine.trigger_order
-        for occurrence in occurrence_sets.get(trigger, ())
-        if occurrence.occurred_at < end
-    }
+    occurrences_by_subject = _occurrences_by_subject(
+        machine=machine,
+        occurrence_sets=occurrence_sets,
+        end=end,
+    )
+    observed_population = set(occurrences_by_subject)
     if population is None:
         replay_population = tuple(sorted(observed_population, key=identity_sort_key))
     else:
@@ -457,12 +461,7 @@ def replay_state_model(
     )
 
     for subject_identity in replay_population:
-        occurrences = _subject_occurrences(
-            machine=machine,
-            occurrence_sets=occurrence_sets,
-            subject_identity=subject_identity,
-            end=end,
-        )
+        occurrences = occurrences_by_subject.get(subject_identity, ())
         ordered: list[_ReplayOccurrence] = []
         state_for_ordering: str | None = None
         index = 0

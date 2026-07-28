@@ -40,8 +40,7 @@ def render_root() -> str:
                 '    marivo.help("semantic.readiness")',
                 "",
                 "  Analysis:",
-                '    marivo.help("analysis.observe")',
-                '    marivo.help("analysis.artifacts")',
+                '    marivo.help("analysis")',
                 "",
                 "  Unique unqualified targets route automatically; qualify shared names.",
             )

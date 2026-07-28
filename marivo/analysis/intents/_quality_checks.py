@@ -203,6 +203,7 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
     alignment_invalid += duplicate_count + unknown_step_count + incomplete_tuple_count
 
     rate_invalid = 0
+    first_step = retained_steps[0]
     for side in ("current", "baseline"):
         lost_column = f"{side}_lost_count"
         denominator_column = f"{side}_resolved_entry_count"
@@ -213,6 +214,8 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
         denominator = pd.to_numeric(df[denominator_column], errors="coerce")
         actual = pd.to_numeric(df[rate_column], errors="coerce")
         expected_rate = lost.div(denominator.where(denominator.ne(0)))
+        if "step_key" in df.columns:
+            expected_rate = expected_rate.mask(df["step_key"].astype(str).eq(first_step))
         rate_invalid += int(
             (
                 ~(
@@ -647,12 +650,15 @@ def _lifecycle_history_state_check(
         or any(target != initial_states[0] for target in inception_targets)
     )
     if set(LIFECYCLE_HISTORY_COLUMNS).issubset(df.columns):
-        trigger_targets = {(trigger.event_ref.path, trigger.to_state) for trigger in meta.triggers}
+        trigger_targets = {
+            (f"{trigger.event_ref.kind.value}:{trigger.event_ref.path}", trigger.to_state)
+            for trigger in meta.triggers
+        }
         transition_triggers = {
             (
                 trigger.from_state,
                 trigger.to_state,
-                trigger.event_ref.path,
+                f"{trigger.event_ref.kind.value}:{trigger.event_ref.path}",
             )
             for trigger in meta.triggers
             if trigger.kind == "transition"
@@ -912,7 +918,9 @@ def _lifecycle_trace_check(frame: LifecycleFrame) -> dict[str, str]:
         invalid_count += int(len(trace) != meta.violation_trace.row_count)
         if set(LIFECYCLE_VIOLATIONS_COLUMNS).issubset(trace.columns):
             states = {item.state.name for item in meta.states}
-            trigger_refs = {item.event_ref.path for item in meta.triggers}
+            trigger_refs = {
+                f"{item.event_ref.kind.value}:{item.event_ref.path}" for item in meta.triggers
+            }
             components = len(meta.subject_identity)
             invalid_count += sum(
                 int(

@@ -15,7 +15,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, get_args
+
+from pydantic import BaseModel
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
@@ -91,6 +93,54 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "DeltaFrame": ("semantic_shape", "transform"),
         "AttributionFrame": ("attribution_shape", "attribution_mode"),
         "LifecycleFrame": ("semantic_shape",),
+        "QualityReport": (
+            "overall_status",
+            "blocking_issue_count",
+            "warning_count",
+        ),
+    }
+)
+
+PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "ArtifactIssue": (
+            "DataQualityIssue",
+            "ComparabilityIssue",
+            "EvidenceAvailabilityIssue",
+        ),
+        "CandidateSelection": (
+            "PointAnomalySelection",
+            "PeriodShiftSelection",
+            "DriverAxisSelection",
+            "SliceSelection",
+            "WindowSelection",
+            "CrossSectionalOutlierSelection",
+        ),
+        "EventFrame": (
+            "journey",
+            "funnel",
+            "time_to_event",
+        ),
+        "LifecycleFrame": (
+            "history",
+            "distribution",
+            "transitions",
+            "dwell",
+            "violations",
+        ),
+        "QualityReport": (
+            "metric",
+            "event_journey",
+            "event_funnel",
+            "event_time_to_event",
+            "lifecycle_history",
+            "lifecycle_distribution",
+            "lifecycle_transitions",
+            "lifecycle_dwell",
+            "lifecycle_violations",
+            "funnel_delta",
+            "funnel_attribution",
+        ),
     }
 )
 
@@ -1499,7 +1549,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.delete",
             "Permanently delete a session and all its on-disk data.",
             "recovery",
-            "Session",
+            "None",
             "session_name",
         ),
     )
@@ -1734,6 +1784,22 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         _make_grouping_descriptor(
+            "events",
+            "Match and reduce typed Event journeys.",
+            "typed_analysis",
+        )
+    )
+
+    descriptors.append(
+        _make_grouping_descriptor(
+            "lifecycle",
+            "Replay and reduce typed StateModel history.",
+            "typed_analysis",
+        )
+    )
+
+    descriptors.append(
+        _make_grouping_descriptor(
             "recovery",
             "Cross-script frame and job recovery helpers.",
             "recovery",
@@ -1788,6 +1854,8 @@ def _finalize_registry(
 ) -> CapabilityRegistry:
     """Build indexes, validate uniqueness, and generate type algebra rows."""
 
+    _validate_public_type_variants()
+
     # Validate no duplicate ids
     by_id: dict[str, CapabilityDescriptor] = {}
     for desc in descriptors:
@@ -1841,6 +1909,58 @@ def _finalize_registry(
         _constructor_consumers=MappingProxyType(constructor_consumers_frozen),
         _algebra_rows=algebra_rows,
     )
+
+
+def _validate_public_type_variants() -> None:
+    """Keep help variants equal to the closed persisted shape contracts."""
+    from marivo.analysis.frames.event import (
+        EventFrameMeta,
+        EventFunnelFrameMeta,
+        EventTimeToEventFrameMeta,
+    )
+    from marivo.analysis.frames.lifecycle import (
+        LifecycleDistributionFrameMeta,
+        LifecycleDwellFrameMeta,
+        LifecycleHistoryFrameMeta,
+        LifecycleTransitionsFrameMeta,
+        LifecycleViolationsFrameMeta,
+    )
+    from marivo.analysis.frames.quality import QualityReportMeta
+
+    def one_literal(model: type[BaseModel], field_name: str) -> str:
+        values = get_args(model.model_fields[field_name].annotation)
+        if len(values) != 1 or not isinstance(values[0], str):
+            raise ValueError(f"{model.__name__}.{field_name} must be one string Literal")
+        return values[0]
+
+    expected = {
+        "EventFrame": tuple(
+            one_literal(model, "semantic_kind")
+            for model in (
+                EventFrameMeta,
+                EventFunnelFrameMeta,
+                EventTimeToEventFrameMeta,
+            )
+        ),
+        "LifecycleFrame": tuple(
+            one_literal(model, "semantic_kind")
+            for model in (
+                LifecycleHistoryFrameMeta,
+                LifecycleDistributionFrameMeta,
+                LifecycleTransitionsFrameMeta,
+                LifecycleDwellFrameMeta,
+                LifecycleViolationsFrameMeta,
+            )
+        ),
+        "QualityReport": get_args(QualityReportMeta.model_fields["report_shape"].annotation),
+    }
+    for type_name, expected_variants in expected.items():
+        actual = PUBLIC_TYPE_VARIANTS.get(type_name)
+        if actual != expected_variants:
+            raise ValueError(
+                f"{type_name} help variants must match persisted shapes: "
+                f"expected={expected_variants!r}, received={actual!r}"
+            )
 
 
 def _validate_additional_examples(descriptor: CapabilityDescriptor) -> None:

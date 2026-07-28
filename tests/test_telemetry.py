@@ -474,6 +474,20 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
     assert completed["marivo.help.resolved_owner"] == "global"
 
 
+def test_surface_root_help_tracks_exact_owner_and_canonical_id(
+    telemetry_project: Path,
+) -> None:
+    import marivo
+
+    marivo.help("analysis")
+
+    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    completed = _attrs(_capability_records(path, "help")[-1])
+    assert completed["marivo.help.outcome"] == "success"
+    assert completed["marivo.help.resolved_owner"] == "analysis"
+    assert completed["marivo.help.canonical_id"] == "analysis"
+
+
 def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) -> None:
     from marivo.telemetry import tracked_capability
 

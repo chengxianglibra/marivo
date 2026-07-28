@@ -671,6 +671,8 @@ def test_grouping_descriptors_exist() -> None:
         "catalog",
         "discover",
         "transform",
+        "events",
+        "lifecycle",
         "recovery",
         "boundary",
         "artifacts",
@@ -686,6 +688,8 @@ def test_grouping_descriptors_are_not_invokable() -> None:
         "catalog",
         "discover",
         "transform",
+        "events",
+        "lifecycle",
         "recovery",
         "boundary",
         "artifacts",
@@ -693,6 +697,23 @@ def test_grouping_descriptors_are_not_invokable() -> None:
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} grouping must not be invokable"
         assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'
+
+
+def test_registry_rejects_type_variant_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import MappingProxyType
+
+    import marivo.analysis._capabilities.registry as registry_module
+
+    variants = dict(registry_module.PUBLIC_TYPE_VARIANTS)
+    variants["QualityReport"] = variants["QualityReport"][:-1]
+    monkeypatch.setattr(
+        registry_module,
+        "PUBLIC_TYPE_VARIANTS",
+        MappingProxyType(variants),
+    )
+
+    with pytest.raises(ValueError, match="QualityReport help variants"):
+        registry_module._validate_public_type_variants()
 
 
 # ---------------------------------------------------------------------------

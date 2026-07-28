@@ -65,7 +65,9 @@ python -m marivo help
 使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境
 指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。进入分析时只需
 验证一次该指纹。此后优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的
-组合操作前读取 `.contract()`。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
+组合操作前读取 `.contract()`。可以用 `marivo.help("analysis")` 打开 analysis 索引，
+用 `marivo.help("analysis.events")` 或 `marivo.help("analysis.lifecycle")` 浏览已注册
+namespace 的真实成员。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
 `marivo.help("analysis.observe")`、`marivo.help("analysis.compare")`、
 `marivo.help("analysis.MetricFrame")` 等 focused topic。
 失败后按照结构化修复指引继续。每个 focused help 主题都自包含一次正确的最小调用，但不是
@@ -627,6 +629,9 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 对一个 artifact 运行质量检查，返回一个独立的 `QualityReport`。
 `artifact.quality_summary` 只是 cheap、persisted 的 metadata projection；它不等同于执行
 `session.assess_quality(artifact)`。
+使用 `report.overall_status`、`report.blocking_issue_count` 和
+`report.warning_count` 读取权威质量判定与计数。`report.state` 仍是描述
+materialization 的 `ArtifactState` metadata，不是质量状态。
 Report 的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
 `time_coverage_incomplete` issue 时，不得把该窗口作为完整周期事实报告。
 

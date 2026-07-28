@@ -121,7 +121,11 @@ one instead of a single monolithic manual:
 
 - **Live surfaces — capabilities and runtime guidance.**
   `python -m marivo help` verifies the selected environment and hands off to
-  Python. `marivo.help()` is a short global index, while focused
+  Python. `marivo.help()` is a short global index; the exact surface names
+  `marivo.help("datasource")`, `marivo.help("semantic")`, and
+  `marivo.help("analysis")` open their native bounded indexes. Registered
+  namespace topics such as `analysis.events` and `analysis.lifecycle` list
+  their real capability members. Focused
   `marivo.help("analysis.<target>")` (for example `analysis.observe`,
   `analysis.compare`, or `analysis.recover`) owns signatures, artifact
   families, constraints, return types, errors, and runnable examples. Frames

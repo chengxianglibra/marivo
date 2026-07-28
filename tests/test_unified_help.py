@@ -14,7 +14,12 @@ import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute, TopicHelpRoute
+from marivo._help.model import (
+    MarivoHelpTargetError,
+    NativeHelpRoute,
+    SurfaceRootHelpRoute,
+    TopicHelpRoute,
+)
 from marivo._help.render import PublicHelpTarget, render_help_text
 from marivo._help.route import _resolve_one, route_help_target
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
@@ -86,6 +91,13 @@ def test_every_qualified_registry_target_preserves_native_descriptor_identity() 
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == owner
             assert route.resolved.descriptor is surface.registry.by_canonical_id(canonical_id)
+
+
+@pytest.mark.parametrize("owner", _SURFACE_NAMES)
+def test_surface_name_routes_to_the_exact_native_root(owner: HelpSurface) -> None:
+    route = route_help_target(owner)
+    assert route == SurfaceRootHelpRoute(owner)
+    assert _text(owner) == rendered_native_root(owner)
 
 
 def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> None:
@@ -265,3 +277,17 @@ def test_current_rendered_help_never_points_to_removed_domain_help_paths() -> No
         text = _text(target)
         for stale in forbidden:
             assert stale not in text, f"{target!r} still renders {stale!r}"
+
+
+def rendered_native_root(owner: HelpSurface) -> str:
+    if owner == "datasource":
+        from marivo.datasource._capabilities.render import render_root_help
+
+        return render_root_help()
+    if owner == "semantic":
+        from marivo.semantic._capabilities.render import render_root_help
+
+        return render_root_help()
+    from marivo.analysis._capabilities.render import render_root_help
+
+    return render_root_help()
