@@ -912,7 +912,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Certify current entries, exact refs, or runtime metric expressions through governed leaves and fixed graph budgets.",
+            "Statically certify current entries, exact refs, or runtime metric expressions through governed leaves and fixed graph budgets; operation-specific executability remains owned by the consuming analysis call.",
             kind="method",
             output="ReadinessReport",
             inputs=_inputs(

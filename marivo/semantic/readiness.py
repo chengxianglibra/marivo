@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from marivo._authoring.model import AuthoringRepair
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
@@ -77,6 +77,7 @@ class ReadinessInputSummary:
 
 @dataclass(frozen=True, repr=False)
 class ReadinessReport(RenderableResult):
+    scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
     status: ReadinessStatus
     analysis_ready_refs: tuple[Ref[SemanticKindTag], ...]
     blockers: tuple[ReadinessIssue, ...]
@@ -93,7 +94,8 @@ class ReadinessReport(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"ReadinessReport status={self.status} issues={len(self.blockers) + len(self.warnings)}"
+            f"ReadinessReport scope={self.scope} status={self.status} "
+            f"issues={len(self.blockers) + len(self.warnings)}"
         )
 
     def _card(self) -> Card:
@@ -107,6 +109,7 @@ class ReadinessReport(RenderableResult):
                 ".analysis_ready_inputs",
             ),
         )
+        card = card.field(label="scope", value=self.scope)
         if self.blockers:
             blocker_items = [
                 f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
@@ -151,6 +154,7 @@ class ReadinessReport(RenderableResult):
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "scope": self.scope,
             "status": self.status,
             "analysis_ready_refs": [
                 RefPayloadV1.from_ref(ref).to_dict() for ref in self.analysis_ready_refs

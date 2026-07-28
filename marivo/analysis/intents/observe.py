@@ -970,7 +970,11 @@ def observe(
         fold_meta = None
         if folded_leaves:
             if is_catalog_root and metric_ir.metric_type == "simple":
-                fold_meta = _build_fold_meta(metric_ir, catalog)
+                fold_meta = _build_fold_meta(
+                    metric_ir,
+                    catalog,
+                    temporal_fold=getattr(folded_leaves[0].plan, "temporal_fold", None),
+                )
             else:
                 fold_meta = {
                     "time_fold": "derived",
@@ -980,6 +984,18 @@ def observe(
                             "time_fold": leaf.metric_ir.time_fold.label(),
                             "fold_kind": leaf.metric_ir.time_fold.kind,
                             "status_time_dimension": leaf.metric_ir.status_time_dimension,
+                            "fold_strategy": getattr(
+                                getattr(leaf.plan, "temporal_fold", None),
+                                "strategy",
+                                None,
+                            ),
+                            "identity_keys": list(
+                                getattr(
+                                    getattr(leaf.plan, "temporal_fold", None),
+                                    "identity_columns",
+                                    (),
+                                )
+                            ),
                         }
                         for leaf in folded_leaves
                     ],

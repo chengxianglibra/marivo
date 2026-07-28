@@ -81,7 +81,8 @@ def test_readiness_report_render_contains_identity_and_available():
     rendered = _make_readiness_report().render()
     assert rendered == "\n".join(
         [
-            "ReadinessReport status=ready_with_warnings issues=0",
+            "ReadinessReport scope=semantic_static status=ready_with_warnings issues=0",
+            "scope: semantic_static",
             "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",

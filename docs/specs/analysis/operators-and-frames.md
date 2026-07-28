@@ -126,8 +126,14 @@ Every public operator, constructor, read, recovery, and boundary crossing is
 registered in a closed capability registry. Each entry carries a stable
 `capability_id`, `public_entrypoint`, `help_target`, `accepted_inputs` (a
 mapping from parameter name to the closed set of accepted input families), and
-`output_family`. The registry is the single source of truth for the help
-surface, the `contract()` affordances, and the runtime family gate.
+an `ArtifactOutputContract` carrying output family plus any statically known
+semantic shapes and matching kinds. The same artifact-admission predicates
+filter static producer/consumer edges and concrete runtime affordances. Unknown
+or input-dependent output shapes stay conditional and defer to the concrete
+artifact's `.contract()`; fixed funnel and Lifecycle reducer shapes never
+advertise consumers that require journey or replay-history input. The registry
+is the single source of truth for the help surface, `contract()` affordances,
+and runtime family gate.
 
 The runtime family gate validates submitted inputs against the registry's
 `accepted_inputs` before any backend work begins. When an input family does not
@@ -223,6 +229,19 @@ typed; ambiguity exposes exact candidates without choosing one; incompatible
 grain is retryable only when the legal replacement is mechanically unique.
 Executor checks remain defensive backstops for runtime dtype facts and preserve
 the same structured repair shape.
+
+**Semi-additive temporal folds.** A status time dimension with a declared
+`sample_interval` uses the sampled two-phase fold and may compute expected-slot
+coverage. Without `sample_interval`, `first` and `last` are supported only when
+the metric root is snapshot-versioned on that exact status axis and its
+business identity remains non-empty after removing the partition key. Marivo
+selects the first/last raw row per business identity inside each current
+observation bucket, then applies the metric's original spatial aggregation.
+It never sums snapshot dates and does not carry rows across windows or buckets.
+Other unsampled folds fail with `unsampled-time-fold-unsupported`; an unresolved
+snapshot identity fails with `snapshot-fold-identity-missing`. Snapshot
+selection records `fold_strategy="snapshot_selection"` and `identity_keys`,
+keeps `sample_interval=None`, and does not fabricate expected-slot coverage.
 
 **Cumulative frames.** Cumulative `MetricFrame`s store running totals whose
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,

@@ -24,6 +24,7 @@ from marivo.analysis.intents._observe_planner_catalog import (
     resolve_metric_root,
 )
 from marivo.analysis.intents._observe_planner_fields import (
+    _effective_key,
     resolve_observe_fields,
     resolved_edge_safety,
     unique_shortest_relationship_path,
@@ -41,6 +42,9 @@ from marivo.analysis.intents._observe_planner_types import (
     PlannedPhysicalWhereField,
     PlannedWhere,
     RawWhereKey,
+    SampledStatusFoldPlan,
+    SnapshotSelectionFoldPlan,
+    TemporalFoldPlan,
     _planned_field,
 )
 from marivo.analysis.intents._observe_planner_versioning import (
@@ -55,11 +59,100 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.analysis.intents.sampled_fold import ensure_status_time_dimension_matches
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.refs import ref as ref_factory
+from marivo.semantic.catalog import SemanticCatalog, TimeDimensionDetails
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 if TYPE_CHECKING:
     from marivo.analysis.intents._subject_cohort import ResolvedSubjectCohort
+
+
+def _plan_temporal_fold(
+    *,
+    catalog: SemanticCatalog,
+    metric_ir: Any,
+    root_entity: str,
+) -> TemporalFoldPlan | None:
+    """Choose the closed temporal execution strategy for one physical metric leaf."""
+
+    time_fold = getattr(metric_ir, "time_fold", None)
+    if time_fold is None:
+        return None
+    status_time_dimension = getattr(metric_ir, "status_time_dimension", None)
+    if not isinstance(status_time_dimension, str) or not status_time_dimension:
+        raise_observe_planning_error(
+            code="status-time-dimension-unresolved",
+            message=f"Metric {metric_ir.semantic_id!r} has no resolved status_time_dimension.",
+            candidates={"metric": metric_ir.semantic_id},
+            repair=[],
+        )
+    time_details = catalog.require(ref_factory.time_dimension(status_time_dimension)).details()
+    if not isinstance(time_details, TimeDimensionDetails):
+        raise_observe_planning_error(
+            code="status-time-dimension-unresolved",
+            message=f"Metric {metric_ir.semantic_id!r} status time dimension is unresolved.",
+            candidates={"status_time_dimension": status_time_dimension},
+            repair=[],
+        )
+    if time_details.sample_interval is not None:
+        return SampledStatusFoldPlan(
+            strategy="sampled_status",
+            status_time_dimension=status_time_dimension,
+        )
+
+    fold_kind = getattr(time_fold, "kind", None)
+    if fold_kind not in {"first", "last"}:
+        raise_observe_planning_error(
+            code="unsampled-time-fold-unsupported",
+            message=(
+                "A status time dimension without sample_interval supports only "
+                "snapshot first/last selection."
+            ),
+            candidates={
+                "metric": metric_ir.semantic_id,
+                "fold_kind": fold_kind,
+                "status_time_dimension": status_time_dimension,
+            },
+            repair=[],
+        )
+
+    root_details = _entity(catalog, root_entity)
+    versioning = root_details.versioning
+    partition_field = (
+        versioning.partition_field if isinstance(versioning, SnapshotVersioningIR) else None
+    )
+    if partition_field != status_time_dimension:
+        raise_observe_planning_error(
+            code="snapshot-fold-identity-missing",
+            message=(
+                "An unsampled first/last fold requires root snapshot versioning "
+                "bound to the status time dimension."
+            ),
+            candidates={
+                "root_entity": root_entity,
+                "status_time_dimension": status_time_dimension,
+                "snapshot_partition_field": partition_field,
+            },
+            repair=[],
+        )
+    identity_columns = _effective_key(catalog, root_entity)
+    if not identity_columns:
+        raise_observe_planning_error(
+            code="snapshot-fold-identity-missing",
+            message="Snapshot fold requires a non-empty business entity identity.",
+            candidates={
+                "root_entity": root_entity,
+                "primary_key": list(root_details.primary_key),
+                "partition_field": partition_field,
+            },
+            repair=[],
+        )
+    return SnapshotSelectionFoldPlan(
+        strategy="snapshot_selection",
+        status_time_dimension=status_time_dimension,
+        identity_columns=identity_columns,
+        selection=fold_kind,
+    )
 
 
 def plan_base_observe(
@@ -97,6 +190,11 @@ def plan_base_observe(
     )
     root_time_dimension = _root_time_dimension(
         catalog, root, explicit_time_dimension=resolved_fields.time_dimension
+    )
+    temporal_fold = _plan_temporal_fold(
+        catalog=catalog,
+        metric_ir=metric_ir,
+        root_entity=root,
     )
     required_datasets = {root, *metric_ir.entities}
     required_datasets.update(_entity_id(field) for field in resolved_fields.dimensions)
@@ -476,4 +574,5 @@ def plan_base_observe(
         datasource_name=datasource_name,
         status_time_dimension=metric_ir.status_time_dimension,
         time_fold=metric_ir.time_fold,
+        temporal_fold=temporal_fold,
     )

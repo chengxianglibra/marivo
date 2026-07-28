@@ -1,266 +1,163 @@
 ---
 name: marivo-analysis
-description: Use for Marivo metric, Event Journey, or replay-based Lifecycle analysis, quality assessment, evidence-aware investigation, or continuing an analysis session.
+description: Use for governed metric, Event Journey, Lifecycle, quality, evidence-aware, or resumed Marivo analysis.
 ---
 
 # marivo-analysis
 
 ## Trigger
 
-Use this skill when the task involves:
-
-- analysis over Marivo semantic metrics, typed semantic Events, or StateModels;
-- continuation of an existing Marivo analysis session;
-- review of conclusions backed by Marivo artifacts;
-- decisions about staying in typed flow, using a terminal custom-analysis
-  exit, or returning to semantic authoring.
-
-Do not trigger solely for ordinary SQL, pandas, generic reporting, or
-general data-analysis questions that do not use Marivo.
+Use this skill for analysis over Marivo metrics, typed Events, StateModels, or
+persisted analysis artifacts. Do not trigger for generic SQL, pandas, or
+reporting work that does not use Marivo.
 
 ## Mission and authority
 
-This skill is a **boundary protocol**, not a manual, tutorial, or analysis
-planner. It protects Marivo-specific semantic, evidence, state, and routing
-boundaries. It does not describe how to perform an analysis, which operators
-to call, or how to interpret results.
+This skill is a boundary kernel, not an API manual or analysis recipe. The
+verified installed Marivo environment owns the live contract:
 
-An environment-verified live Marivo surface outranks any cached knowledge in
-this file. Unverified `PATH` output does not. If the installed Marivo
-package, its Python interpreter, or its help surface cannot be confirmed
-before analysis begins, the skill stops and requests environment repair
-rather than guessing.
-
-## Live-contract rule
-
-Use the same project interpreter for discovery and execution. Start with
-`<analysis-python> -m marivo help` or the corresponding
-`<venv>/bin/marivo help`, verify the rendered Marivo version, resolved Python
-executable, and package path. Then `import marivo` and use
-`marivo.help("analysis.<target>")` for focused contracts.
-
-A bare `marivo` resolved from `PATH` is not authoritative unless its
-rendered fingerprint matches the interpreter and package used by the
-analysis process. If the intended analysis interpreter cannot be
-identified, stop and request environment repair rather than selecting a
-likely executable.
-
-After entry:
-
-- live help owns APIs, operators, constraints, examples, and recovery;
-- semantic object details own the business-object contract;
-- artifact reads own current-state facts and mechanical compatibility;
+- `marivo.help("analysis.<target>")` owns static signatures, constraints,
+  examples, and error contracts;
+- semantic object details own governed business meaning;
+- `.show()` owns bounded current state;
+- `.contract()` owns mechanically valid next actions;
 - structured errors own repair guidance.
 
-Use the public object already in hand. Read `.show()` for its current state and
-`.contract()` before an unfamiliar composition. Query focused live help when
-the object contract is insufficient or before first use of an unfamiliar
-capability. After a failure, follow the structured repair. Focused help is not
-required before every API call.
+Never replace those sources with cached skill knowledge.
 
-Focused help is responsible for being self-contained for one correct
-minimal invocation. Complex legal investigations may consult as many focused
-topics as their actual branches require; this skill neither counts nor
-forbids those calls. Help-call limits are interface evaluation thresholds,
-not runtime permissions enforced by the skill.
+## Environment entry
 
-The skill does not enumerate any API details, signatures, or examples.
+Use one interpreter for discovery and execution. Run
+`<analysis-python> -m marivo help` and verify its Marivo version, Python
+executable, and package path. A bare `marivo` from `PATH` is authoritative only
+when its fingerprint matches the execution interpreter.
 
-## Script workspace
+Then start with:
 
-Use a rerunnable Python script as the default execution unit after analysis
-entry. Store it under the current session's project-local
-`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/` directory and
-run it with the verified `<analysis-python>`. On failure, repair and rerun the
-same script instead of replacing it with disposable snippets.
+```python
+import marivo
+import marivo.analysis as mv
 
-Before authoring equivalent code, the agent may read scripts from this
-project's current or prior sessions as reference material for imports, session
-recovery, and operator composition. A prior script is an eligible reference
-only when its originating session records a `succeeded` job and the output
-artifact remains recoverable. Reference-only means never executing it directly,
-copying it wholesale, or treating it as trusted current code.
+marivo.help("analysis")
+session = mv.session.get_or_create(
+    "investigation",
+    question="<business question>",
+)
+```
 
-For every new analysis, re-resolve semantic refs, time scopes, and parameters
-against live help and current state. The script is not evidence: material
-claims remain traceable to current semantic objects, artifacts/jobs, and
-analysis scope.
+If the intended interpreter or package cannot be verified, stop and repair the
+environment rather than guessing.
 
-## Historical session reference
+## Bounded investigation loop
 
-Historical sessions are external reference memory, not prompt context that is
-loaded by default. Inspect them only when resuming work, when the current
-question clearly repeats earlier work, or when the same failure recurs. Use the
-bounded historical-session surface from live recovery help and inspect no more
-than three candidate sessions before returning to current live state.
+1. Resolve exact semantic inputs from the current catalog and readiness handoff.
+2. Use focused help before the first unfamiliar capability.
+3. Run a rerunnable session-local script with the verified interpreter.
+4. Read the returned object with `.show()`.
+5. Before an unfamiliar continuation, read `.contract()`.
+6. Follow one structured repair when a call fails.
+7. Stop when the minimum sufficient evidence answers the question.
 
-Historical session metadata and scripts may suggest recovery or operator
-composition, but they do not support current material claims. Never inherit a
-prior conclusion, semantic assumption, or parameter without resolving it
-against the current semantic catalog, runtime fingerprint, and analysis scope.
+Do not enumerate unrelated catalog objects, operators, help targets, source
+files, or private implementation details after the answer is supported.
+
+## Deterministic stop rule
+
+Treat failures as the same root cause when their structured error kind, failed
+capability, and rejected semantic or artifact condition are unchanged.
+
+- After the first failure, follow its structured repair or one focused-help
+  recovery.
+- If the same root cause occurs twice, stop that branch.
+- Report the blocker or choose an explicit terminal exit; do not inspect private
+  Marivo source to invent a workaround.
+
+Historical sessions are reference memory only. Inspect them only when resuming
+work or when the same failure recurs, and inspect no more than three candidates.
+Their conclusions never support current claims without current artifacts.
 
 ## Hard boundaries
 
 ### Semantic authority
 
-Business metrics, Events, StateModels, participant roles, dimensions, time
-dimensions, relationships, and caliber come from the semantic catalog.
-Analysis code must not infer or redefine business objects inside the semantic
-layer. A missing or disputed semantic object stops the affected typed branch.
-EventPattern steps, matching policies, replay windows, seeds, cohorts, and
-completeness declarations are analysis values, not new semantic objects.
-During analysis the agent must not
-add, edit, or remove semantic definitions; durable authoring is deferred until
-the user approves the closeout proposal.
+Metrics, dimensions, Events, StateModels, participant roles, relationships,
+units, and business definitions come from the semantic catalog. Analysis may
+choose windows, policies, cohorts, seeds, and completeness declarations, but it
+must not add or edit semantic definitions.
 
-### Live-state authority
+A missing or disputed business object stops the affected typed branch. Record
+the gap and request approval for the smallest semantic-authoring change at
+closeout.
 
-The agent acts on the installed runtime, current semantic state, current
-artifacts, and current structured errors. Skill text and historical
-examples must never override live state.
+### Typed execution
 
-### Judgment separation
+Do not read business rows directly through Ibis, DuckDB, pandas, backend
+connections, or private datasource handles to bypass Marivo. Passing an Ibis
+backend into `mv.session.get_or_create(...)` is allowed; querying it for the
+answer is not.
 
-Artifacts, typed findings, bounded digests, candidates, scores, quality
-results, issues, and affordances are computed facts or mechanical
-compatibility information. They are not business conclusions,
-recommendations, priorities, or stop conditions. The agent owns
-cross-artifact synthesis and every next-step judgment.
+Typed analysis begins only through the registered public entry:
+
+| Question family | Entry |
+| --- | --- |
+| Governed metric or runtime metric expression | `marivo.help("analysis.observe")` |
+| Event subject journey | `marivo.help("analysis.events.match")` |
+| Normative state replay | `marivo.help("analysis.lifecycle.replay")` |
+
+After entry, continue through the concrete artifact `.contract()` or focused
+live help. Do not synthesize unregistered reducers or cross-family operations.
 
 ### Evidence integrity
 
-An artifact digest is a bounded operator-local read model, not a replacement
-for the artifact or exact findings. When the question exceeds its retained
-items or inference boundaries, the agent must inspect the live fallback
-surface. It must not hide issues that affect validity or coverage, upgrade an
-epistemic kind, or sever the recoverable evidence chain during script,
-session, or agent transitions.
+Scripts, chat summaries, historical sessions, and artifact digests are not
+substitutes for current artifacts. Material claims remain recoverable to the
+semantic object, session/job, artifact, and analysis scope.
 
-### Terminal boundary
+Computed findings and affordances are facts or compatibility information, not
+business conclusions. Keep Marivo facts, agent interpretation, and hypotheses
+distinct. Preserve coverage, censoring, reconciliation, and quality boundaries;
+never silently strengthen a claim.
 
-Leaving typed Marivo analysis, adding semantic objects, and producing or
-publishing deliverables must use the corresponding public boundary.
-`session.observe(...)` is the sole producer of an initial canonical
-`MetricFrame`; follow focused `marivo.help("analysis.events.match")` for the
-separate typed Event Journey entry, then use the returned artifact `.contract()`
-or focused live help for registered reducers and typed cohort selection. For
-normative state reconstruction, follow focused
-`marivo.help("analysis.lifecycle.replay")`, then continue only through the
-returned artifact contract or registered focused help.
-`frame.to_pandas()` and `md.raw_sql(...)` are the sole
-terminal exits; results from either cannot re-enter typed analysis.
-Missing business semantics remain unresolved until approved semantic
-authoring; runtime capability gaps remain custom terminal work until modeled
-explicitly. One-off analysis code must not absorb another layer's responsibility.
+## Terminal exits and handoffs
 
-For an Event journey, treat matching policy, cohort window, follow-up bound,
-and any explicit completeness declaration as visible analysis choices. An
-authoritative provider-owned watermark outranks a declaration; neither maximum
-observed Event time, query time, nor an SLA establishes completeness. Preserve
-`coverage_censored` rather than converting unknown follow-up into observed
-non-completion. Read the current EventFrame `.contract()` for continuations and
-do not synthesize an Event reducer or cross-family operation that the installed
-phase has not registered.
+`frame.to_pandas()` and `md.raw_sql(...)` are the only business-row terminal
+exits. Their results cannot re-enter typed analysis.
 
-For funnel comparison and loss-rate attribution, preserve exact PatternStep
-identity, both coverage bases, the mechanically derived axis-tuple alignment,
-and the source journey recovery chain. Treat contribution rows as arithmetic
-decomposition only; closeout must disclose reconciliation and must not upgrade
-them to causal claims.
+- Use `frame.to_pandas()` only when the remaining work is intentionally custom
+  and the typed evidence chain is already established.
+- Use `md.raw_sql(...)` only when a semantic gap blocks typed work. Name the
+  missing object, datasource, purpose, temporary assumptions, and loss of typed
+  lineage/evidence continuity.
+- A deliverable or publication request hands off to the corresponding
+  independent delivery capability.
+- Repository maintenance follows repository-local maintainer instructions, not
+  this public skill.
 
-For Lifecycle replay, keep the exact StateModel separate from the explicit
-analysis window, seed, cohort, and completeness evidence. Do not turn an
-illegal modeled trigger into a policy breach, quality failure, or causal claim;
-preserve the typed violation observation and censoring evidence exposed by the
-current artifact. Do not invent projection-backed state, snapshot, or
-reconciliation continuations that live help and the artifact contract do not
-register.
+When a governed runtime metric expression supports a material claim, apply
+`references/runtime-metric-closeout.md`.
 
-Choose a terminal exit deliberately from current artifact state and mechanical
-compatibility. Familiarity with local pandas, SQL, or prior scripts is not a
-reason to leave typed flow; cross the boundary only when the remaining work is
-intentionally custom and terminal.
+## Script and session discipline
 
-When current governed refs are sufficient but no catalog metric expresses the
-required session caliber, follow live help for the closed runtime metric
-expression surface and materialize it through `session.observe(...)`. This
-remains typed analysis and is preferred to a terminal escape; it does not create
-catalog authority and triggers the conditional closeout reference below.
+Store the rerunnable script under
+`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/`. Repair and
+rerun the same script instead of replacing it with disposable snippets.
 
-When a semantic gap blocks typed analysis, `md.raw_sql(...)` is an allowed
-terminal escape without prior approval. The agent may use explicit temporary
-inferred semantics, but must record every assumption and keep the result
-separate from canonical Marivo evidence. A raw-SQL result cannot re-enter typed
-analysis, become a semantic object, or erase the underlying semantic gap.
+A prior script may be consulted only when its session has a succeeded job and
+its artifact remains recoverable. Never execute it directly or copy it
+wholesale. Re-resolve refs, windows, policies, and scope against current state.
 
-## Routing
+## Closeout
 
-| Condition | Route |
-| --- | --- |
-| A required business object is missing or must change | Stop the affected typed branch; optionally use terminal `md.raw_sql(...)`; defer `marivo-semantic` until closeout approval |
-| Semantic authoring returns ready inputs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_inputs` through the ordinary analysis APIs (`analysis_ready_refs` is the refs-only projection) |
-| The task asks how subjects move through typed semantic Events | Start with focused `marivo.help("analysis.events.match")`; for conversion/loss, elapsed time, or a typed dropout cohort follow the returned artifact `.contract()` and the registered `events.funnel`, `events.time_to_event`, or `select_subjects` help target; retain and disclose watermark, declaration, unknown-coverage, and censoring evidence |
-| The task compares two compatible Event funnels or asks which governed subject axes contributed to a loss-rate change | Follow the source funnel `.contract()` into `compare`, then the ungrouped delta `.contract()` into `attribute`; retain both coverage bases, exact reconciliation, and the non-causal boundary |
-| The task asks which normative state subjects occupied or how modeled state changed | Start with focused `marivo.help("analysis.lifecycle.replay")`; keep the StateModel semantic contract separate from replay choices, then follow the returned artifact `.contract()` for reducers or typed state-cohort selection; retain and disclose completeness, violation, and censoring evidence |
-| The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
-| The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
-| The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
+Closeout must:
 
-A missing or changed semantic object produces an
-`AnalysisRepair(kind="semantic_authoring")`. This identifies why typed analysis
-cannot continue; it is not permission to mutate the semantic layer during the
-analysis. The agent records the exact gap, may use terminal raw SQL, and requests
-approval for the smallest semantic change at closeout. Only after approval does
-it follow the semantic help target through `marivo-semantic`. After that change
-passes explicit readiness, analysis resumes with the report's current
-`analysis_ready_inputs`; runtime roots are never replaced by their governed leaf
-refs.
+- trace each material claim to current semantic inputs, artifact/job, and scope;
+- disclose blockers, warnings, quality limits, omissions, and terminal exits;
+- separate observed facts, interpretation, and unverified hypotheses;
+- propose, but never perform, unapproved semantic changes;
+- stop after the minimum sufficient evidence instead of continuing exploratory
+  calls without a decision purpose.
 
-## Boundary-violation behavior
-
-The skill does not provide fallback implementations.
-
-| Situation | Required behavior |
-| --- | --- |
-| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; stop the affected typed branch, use terminal raw SQL only with disclosed temporary assumptions, and defer authoring until closeout approval |
-| Invalid API, shape, parameter, or operator | Follow the current structured error and live help; do not use a skill-cached workaround |
-| Result-impacting blocker | Repair it, weaken the conclusion explicitly, or stop; never silently emit a stronger claim |
-| Session or artifact cannot be recovered | Use the live recovery surface and disclose evidence-chain loss if recovery still fails |
-| Correct Marivo version/help is unavailable or its fingerprint differs from the execution environment | Stop guessing and diagnose the environment; do not continue analysis |
-| Task crosses a typed-analysis boundary | Hand off explicitly to the appropriate semantic, terminal-analysis, or delivery capability |
-| Skill conflicts with live Marivo | Treat the live surface as authoritative and the skill as drifted |
-
-## Closeout obligations
-
-The skill does not prescribe a report structure. Require only that:
-
-- material claims remain traceable to the relevant semantic object,
-  artifact/job, and analysis scope;
-- Marivo facts, agent interpretations, and unverified hypotheses remain
-  distinguishable;
-- result-impacting issues, quality limitations, omissions, and inference
-  boundaries are disclosed;
-- semantic gaps that weakened or blocked the task are named and handed back
-  as a smallest-change proposal that requires explicit user approval before
-  semantic authoring;
-- every raw-SQL escape names the missing or incorrect semantic object, why the
-  typed branch stopped, the datasource and analysis purpose, all temporary
-  inferred semantics, and the terminal/bounded/no-lineage/no-evidence-continuity
-  limitations; canonical artifact claims and raw-SQL-supported claims remain
-  visibly separate;
-- Marivo UX or product feedback exposed during the analysis is not part of the
-  user's analysis result; record it privately at
-  `<project_root>/.marivo/analysis/internal_feedback/<session.id>.md` and keep
-  it out of final answers, deliverables, artifacts, evidence, semantic objects,
-  and `session.knowledge()`; if the underlying issue affects result validity,
-  coverage, confidence, or blocks the analysis, disclose that impact separately
-  as a caveat, quality issue, or blocker;
-- absolute interpreter and package paths from the environment fingerprint do
-  not enter user-facing reports or deliverables. Internal diagnostic logs
-  and evaluator transcripts may retain them.
-
-When a material claim uses a frame whose persisted metric identity is
-`runtime_expression`, read and apply
-`references/runtime-metric-closeout.md`. Runtime expressions are controlled
-session-caliber computations, not catalog semantic authority; their labels
-must never be presented as governed business definitions.
+Record Marivo product friction privately under
+`<project_root>/.marivo/analysis/internal_feedback/<session.id>.md`; disclose it
+to the user only when it affects validity, coverage, confidence, or completion.
+Do not put absolute interpreter or package paths in user-facing deliverables.

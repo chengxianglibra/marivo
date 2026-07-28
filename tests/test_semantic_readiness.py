@@ -1171,6 +1171,9 @@ def test_readiness_ready_with_warnings_renders_direct_ready_refs() -> None:
     )
 
     text = report.render()
+    assert report.scope == "semantic_static"
+    assert "scope: semantic_static" in text
+    assert report.to_dict()["scope"] == "semantic_static"
     assert "ready_with_warnings" in text
     assert "analysis_ready: metric:sales.total_amount" in text
 

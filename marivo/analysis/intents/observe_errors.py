@@ -48,6 +48,8 @@ ObserveErrorCode = Literal[
     "status-time-dimension-mismatch",
     "status-time-dimension-missing-metadata",
     "status-time-dimension-unsupported-type",
+    "unsampled-time-fold-unsupported",
+    "snapshot-fold-identity-missing",
 ]
 
 

@@ -127,6 +127,14 @@ semantic authoring 处理。
 先修复它们，再声明 semantic change 已完成。
 :::
 
+:::note[稀疏 snapshot metric]
+当 semi-additive metric 的 status axis 没有 `sample_interval` 时，只有在根 Entity
+以该 axis 进行 snapshot versioning，且去掉 partition key 后仍有业务实体 identity，
+Marivo 才支持 `first`/`last`。在当前 window 或输出 bucket 内，Marivo 先为每个业务
+实体选择首/末行，再执行指标原有 aggregation；不会把 snapshot 日期相加，也不会跨
+bucket 前向填充。其他无采样间隔的 fold 会返回结构化 planning error。
+:::
+
 ## 匹配 Event journey
 
 Event analysis 从 typed participant roles 和有序 EventPattern 开始。每个 step

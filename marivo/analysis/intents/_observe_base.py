@@ -9,6 +9,7 @@ from dataclasses import replace
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
+import ibis
 from ibis.expr.operations.relations import Field
 
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
@@ -31,6 +32,11 @@ from marivo.analysis.intents._observe_catalog import (
 )
 from marivo.analysis.intents._observe_dense import _fixed_grain_seconds_for_coverage
 from marivo.analysis.intents._observe_inputs import _metric_expr
+from marivo.analysis.intents._observe_planner_types import (
+    SampledStatusFoldPlan,
+    SnapshotSelectionFoldPlan,
+)
+from marivo.analysis.intents.observe_errors import raise_observe_planning_error
 from marivo.analysis.intents.observe_planner import BaseObservePlan, _validate_field_expr
 from marivo.analysis.intents.sampled_fold import (
     compile_fold,
@@ -181,7 +187,13 @@ def _execute_sampled_base(
 
     Returns (result, axes, semantic_kind, coverage_df_or_None).
     """
-    assert metric_ir.status_time_dimension is not None
+    if metric_ir.status_time_dimension is None:
+        raise_observe_planning_error(
+            code="status-time-dimension-unresolved",
+            message=f"Metric {metric_ir.semantic_id!r} has no resolved status time dimension.",
+            candidates={"metric": metric_ir.semantic_id},
+            repair=[],
+        )
     time_dimension_ir = _resolve_fold_time_field(catalog, metric_ir.status_time_dimension)
     root_adapter = _build_entity_adapter(
         catalog,
@@ -201,8 +213,22 @@ def _execute_sampled_base(
             context={"status_time_dimension": metric_ir.status_time_dimension},
         )
     sample_interval = root_time_adapter.sample_interval
-    assert sample_interval is not None
-    assert root_time_adapter.time_meta is not None
+    if sample_interval is None:
+        raise_observe_planning_error(
+            code="unsampled-time-fold-unsupported",
+            message="Sampled status fold requires a declared sample_interval.",
+            candidates={"status_time_dimension": metric_ir.status_time_dimension},
+            repair=[],
+        )
+    if root_time_adapter.time_meta is None:
+        raise_observe_planning_error(
+            code="status-time-dimension-missing-metadata",
+            message=(
+                f"Status time dimension {metric_ir.status_time_dimension!r} has no time metadata."
+            ),
+            candidates={"status_time_dimension": metric_ir.status_time_dimension},
+            repair=[],
+        )
     ensure_sampled_grain_supported(
         requested_grain=resolved_window.grain if resolved_window is not None else None,
         time_meta=root_time_adapter.time_meta,
@@ -433,9 +459,10 @@ def _prune_base_observe_projection(
     )
 
 
-def _execute_base(
+def _execute_snapshot_base(
     plan: BaseObservePlan,
     metric_ir: Any,
+    snapshot_plan: SnapshotSelectionFoldPlan,
     *,
     catalog: Any,
     resolver: Any,
@@ -449,8 +476,143 @@ def _execute_base(
     Any | None,
     Any | None,
 ]:
+    """Select entity snapshots inside each output bucket, then aggregate normally."""
+
+    time_dimension_ir = _resolve_fold_time_field(catalog, snapshot_plan.status_time_dimension)
+    root_adapter = _build_entity_adapter(
+        catalog,
+        resolver,
+        _entity_details(catalog, plan.root_entity),
+    )
+    root_time_adapter = root_adapter.fields.get(time_dimension_ir.name)
+    if root_time_adapter is None:
+        root_time_adapter = next(
+            (
+                adapter
+                for adapter in root_adapter.fields.values()
+                if adapter.is_time and adapter.semantic_id == snapshot_plan.status_time_dimension
+            ),
+            None,
+        )
+    if root_time_adapter is None:
+        raise_observe_planning_error(
+            code="status-time-dimension-unresolved",
+            message="Snapshot fold could not resolve its status time field.",
+            candidates={
+                "status_time_dimension": snapshot_plan.status_time_dimension,
+                "root_entity": plan.root_entity,
+            },
+            repair=[],
+        )
+    if root_time_adapter.time_meta is None:
+        raise_observe_planning_error(
+            code="status-time-dimension-missing-metadata",
+            message="Snapshot fold status time field has no time metadata.",
+            candidates={"status_time_dimension": snapshot_plan.status_time_dimension},
+            repair=[],
+        )
+
+    table = plan.table
+    is_time_series = resolved_window is not None and resolved_window.grain is not None
+    grouping_columns = list(snapshot_plan.identity_columns)
+    if is_time_series and resolved_window is not None:
+        table = apply_time_series_bucket(
+            table,
+            field_ir=root_time_adapter,
+            window=resolved_window,
+            report_tz=cast("ZoneInfo", session.report_tz),
+            datasource_read_tz=datasource_read_timezone(
+                session._connection_runtime, plan.datasource_name
+            ),
+            profile=datasource_engine_profile(session._connection_runtime, plan.datasource_name),
+            dataset_ir=root_adapter,
+        )
+        grouping_columns.insert(0, "bucket_start")
+
+    missing_identity = [
+        column for column in snapshot_plan.identity_columns if column not in table.columns
+    ]
+    if missing_identity:
+        raise_observe_planning_error(
+            code="snapshot-fold-identity-missing",
+            message="Snapshot fold identity columns are unavailable in the planned table.",
+            candidates={
+                "root_entity": plan.root_entity,
+                "missing_identity_columns": missing_identity,
+                "available_columns": list(table.columns),
+            },
+            repair=[],
+        )
+
+    status_expr = root_time_adapter.fn(table)
+    selection_window = ibis.window(group_by=[table[column] for column in grouping_columns])
+    selected_status = (
+        status_expr.min() if snapshot_plan.selection == "first" else status_expr.max()
+    ).over(selection_window)
+    selected_table = (
+        table.mutate(
+            __snapshot_status_time=status_expr,
+            __snapshot_selected_time=selected_status,
+        )
+        .filter(lambda current: current.__snapshot_status_time == current.__snapshot_selected_time)
+        .drop("__snapshot_status_time", "__snapshot_selected_time")
+    )
+    metric_datasets = tuple(metric_ir.entities)
+    selected_plan = replace(
+        plan,
+        table=selected_table,
+        dataset_tables=dict.fromkeys(metric_datasets, selected_table),
+    )
+    return _execute_base(
+        selected_plan,
+        metric_ir,
+        catalog=catalog,
+        resolver=resolver,
+        session=session,
+        dimensions=dimensions,
+        resolved_window=resolved_window,
+        temporal_fold_applied=True,
+    )
+
+
+def _execute_base(
+    plan: BaseObservePlan,
+    metric_ir: Any,
+    *,
+    catalog: Any,
+    resolver: Any,
+    session: Session,
+    dimensions: list[Any] | None,
+    resolved_window: AbsoluteWindow | None,
+    temporal_fold_applied: bool = False,
+) -> tuple[
+    Any,
+    dict[str, Any],
+    Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
+    Any | None,
+]:
     """Execute a base observe and return result, shape, coverage, and components."""
-    if getattr(metric_ir, "time_fold", None) is not None:
+    if getattr(metric_ir, "time_fold", None) is not None and not temporal_fold_applied:
+        temporal_fold = plan.temporal_fold
+        if isinstance(temporal_fold, SnapshotSelectionFoldPlan):
+            return _execute_snapshot_base(
+                plan,
+                metric_ir,
+                temporal_fold,
+                catalog=catalog,
+                resolver=resolver,
+                session=session,
+                dimensions=dimensions,
+                resolved_window=resolved_window,
+            )
+        if not isinstance(temporal_fold, SampledStatusFoldPlan):
+            raise_observe_planning_error(
+                code="status-time-dimension-unresolved",
+                message="Observe plan has no temporal fold strategy.",
+                candidates={"metric": metric_ir.semantic_id},
+                repair=[],
+            )
         sampled_result, sampled_axes, sampled_kind, coverage_df = _execute_sampled_base(
             plan,
             metric_ir,

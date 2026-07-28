@@ -426,7 +426,8 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
     )
     assert _readiness_report().render() == "\n".join(
         [
-            "ReadinessReport status=ready issues=0",
+            "ReadinessReport scope=semantic_static status=ready issues=0",
+            "scope: semantic_static",
             "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
