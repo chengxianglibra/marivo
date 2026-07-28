@@ -71,6 +71,7 @@ string references 与 SQL parity 状态。它不检查 GitHub/GitLab 审批状�
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
+| `scope` | `"semantic_static"` | 本报告认证 semantic dependency closure，不认证具体 analysis operation 的可执行性。 |
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | 总体结论（见下）。 |
 | `blockers` | `tuple[ReadinessIssue, ...]` | 阻止所选 refs 完成认证的问题。 |
 | `warnings` | `tuple[ReadinessIssue, ...]` | 不会 block 的建议性问题。 |
@@ -83,6 +84,10 @@ string references 与 SQL parity 状态。它不检查 GitHub/GitLab 审批状�
 
 `status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
 其余 ⇒ `ready`。
+
+snapshot identity、temporal fold、grain 与 artifact shape 等要求由实际消费它的
+analysis operation 检查。因此 ready report 不承诺任意 `session.observe(...)`
+调用都一定能够执行。
 
 每个 `ReadinessIssue` 都携带一个类型化的 `repair`，而不是自由文本的下一步描述，因此下一步
 动作是机器可读的，并指向所属的 live help target：

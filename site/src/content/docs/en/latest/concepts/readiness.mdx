@@ -85,6 +85,7 @@ required for readiness.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
+| `scope` | `"semantic_static"` | The report certifies semantic dependency closures, not operation-specific executability. |
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
 | `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
 | `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
@@ -97,6 +98,10 @@ required for readiness.
 
 `status` is derived from severity: any blocker ⇒ `blocked`; warnings only ⇒
 `ready_with_warnings`; otherwise `ready`.
+
+Snapshot identity, temporal-fold, grain, and artifact-shape requirements are
+checked by the consuming analysis operation. A ready report therefore does not
+promise that every possible `session.observe(...)` call will execute.
 
 Each `ReadinessIssue` carries a typed `repair` instead of free-form next-step
 text, so the next action is machine-readable and points at the owning live help

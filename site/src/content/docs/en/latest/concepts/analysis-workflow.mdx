@@ -154,6 +154,16 @@ have not completed that certification; repair them before declaring the semantic
 change complete.
 :::
 
+:::note[Sparse snapshot metrics]
+For a semi-additive metric whose status axis has no `sample_interval`, Marivo
+supports `first`/`last` only when the root Entity is snapshot-versioned on that
+axis and has a business identity beyond the partition key. Inside each current
+window or output bucket, it selects the first/last row per business entity and
+then applies the metric's original aggregation. It does not add snapshot dates
+or carry values across buckets. Other unsampled folds fail with a structured
+planning error.
+:::
+
 ## Match an Event journey
 
 Event analysis starts from typed participant roles and an ordered EventPattern.

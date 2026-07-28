@@ -8,7 +8,11 @@ edges, constructor consumer reverse edges, and the single terminal
 
 from __future__ import annotations
 
-from marivo.analysis._capabilities import ARTIFACT_FAMILIES, BoundaryCapability
+from marivo.analysis._capabilities import (
+    ARTIFACT_FAMILIES,
+    ArtifactOutputContract,
+    BoundaryCapability,
+)
 from marivo.analysis._capabilities.registry import REGISTRY, TypeAlgebraRow
 
 # ---------------------------------------------------------------------------
@@ -96,3 +100,27 @@ def test_type_algebra_row_is_frozen() -> None:
 
 def test_type_algebra_row_type() -> None:
     assert isinstance(REGISTRY.type_algebra_rows()[0], TypeAlgebraRow)
+
+
+def test_event_funnel_type_algebra_carries_shape_and_matching() -> None:
+    row = next(row for row in REGISTRY.type_algebra_rows() if row.help_target == "events.funnel")
+
+    assert isinstance(row.output_contract, ArtifactOutputContract)
+    assert row.render().endswith("events.funnel -> EventFrame[funnel; matching=first_per_subject]")
+
+
+def test_shape_aware_consumers_exclude_invalid_event_and_lifecycle_edges() -> None:
+    funnel = REGISTRY.by_id("events.funnel")
+    violations = REGISTRY.by_id("lifecycle.violations")
+
+    funnel_consumers = REGISTRY.compatible_consumers(funnel.output_contract)
+    assert "compare" in funnel_consumers
+    assert "events.funnel" not in funnel_consumers
+    assert "events.time_to_event" not in funnel_consumers
+    assert "select_subjects" not in funnel_consumers
+
+    violation_consumers = REGISTRY.compatible_consumers(violations.output_contract)
+    assert "lifecycle.distribution" not in violation_consumers
+    assert "lifecycle.transitions" not in violation_consumers
+    assert "lifecycle.dwell" not in violation_consumers
+    assert "lifecycle.violations" not in violation_consumers

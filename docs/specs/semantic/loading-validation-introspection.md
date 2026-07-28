@@ -324,6 +324,12 @@ Two checks sit at the end of the write loop:
   the explicit certification and diagnostic at the end of an authoring change,
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
+  Every `ReadinessReport` exposes `scope="semantic_static"` in its bounded
+  rendering and dictionary form. This certifies the selected semantic
+  dependency closures only; it does not promise that a particular analysis
+  operation is executable. Operation-specific snapshot identity, temporal
+  fold, grain, and artifact-shape checks remain owned by the consuming
+  analysis call.
   `catalog.preview(..., using=...)` persists scoped runtime metadata that
   readiness consumes. Missing datasource snapshots and missing or stale preview
   evidence for executable families (`static_only`, `single_snapshot`,

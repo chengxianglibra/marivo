@@ -95,6 +95,32 @@ OutputFamily = ArtifactFamily | SameAsInputFamily
 
 
 @dataclass(frozen=True)
+class ArtifactOutputContract:
+    """Closed static facts about an artifact-producing capability."""
+
+    family: OutputFamily
+    semantic_shapes: frozenset[str] = field(default_factory=frozenset)
+    matching_kinds: frozenset[str] = field(default_factory=frozenset)
+
+    def render(self) -> str:
+        """Render the bounded output type used by help and type algebra."""
+
+        family = (
+            f"same as {self.family.parameter}"
+            if isinstance(self.family, SameAsInputFamily)
+            else self.family
+        )
+        qualifiers: list[str] = []
+        if self.semantic_shapes:
+            qualifiers.append("|".join(sorted(self.semantic_shapes)))
+        if self.matching_kinds:
+            qualifiers.append(f"matching={'|'.join(sorted(self.matching_kinds))}")
+        if not qualifiers:
+            return family
+        return f"{family}[{'; '.join(qualifiers)}]"
+
+
+@dataclass(frozen=True)
 class ArtifactAdmissionRule:
     """Closed runtime predicates for one artifact-bearing parameter.
 
@@ -174,15 +200,23 @@ class OperatorCapability(CapabilityBase):
     accepted_inputs:
         Mapping from public parameter name to the closed set of accepted
         input families.
-    output_family:
-        One canonical artifact family (or :class:`SameAsInputFamily`).
+    output_contract:
+        Closed family and any statically known artifact shape facts.
     """
 
     kind: Literal["operator"] = "operator"
     receiver: str = ""
     accepted_inputs: Mapping[str, frozenset[InputFamily]] = field(default_factory=dict)
     artifact_admission: Mapping[str, ArtifactAdmissionRule] = field(default_factory=dict)
-    output_family: OutputFamily = "MetricFrame"
+    output_contract: ArtifactOutputContract = field(
+        default_factory=lambda: ArtifactOutputContract(family="MetricFrame")
+    )
+
+    @property
+    def output_family(self) -> OutputFamily:
+        """Return the output family for family-only internal consumers."""
+
+        return self.output_contract.family
 
 
 @dataclass(frozen=True)

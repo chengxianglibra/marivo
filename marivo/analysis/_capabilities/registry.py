@@ -15,13 +15,14 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
     ArtifactAdmissionRule,
+    ArtifactOutputContract,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -191,16 +192,27 @@ class TypeAlgebraRow:
         Canonical help target for the capability.
     source_families:
         Frozen set of input families feeding this edge.
-    output_family:
-        Output family string (or ``"pandas.DataFrame"`` for the terminal).
+    output_contract:
+        Typed artifact output or an external terminal type string.
     is_terminal:
         ``True`` for the single aggregate ``boundary.to_pandas`` row.
     """
 
     help_target: str
     source_families: frozenset[str]
-    output_family: str
+    output_contract: ArtifactOutputContract | str
     is_terminal: bool = False
+
+    @property
+    def output_family(self) -> str:
+        """Return the family-only view retained by algebra callers."""
+
+        if isinstance(self.output_contract, ArtifactOutputContract):
+            family = self.output_contract.family
+            if isinstance(family, SameAsInputFamily):
+                return f"same as {family.parameter}"
+            return family
+        return self.output_contract
 
     def render(self) -> str:
         """Render the row as a single-line type-algebra edge string."""
@@ -210,7 +222,12 @@ class TypeAlgebraRow:
             else ", ".join(sorted(self.source_families))
         )
         suffix = " (terminal)" if self.is_terminal else ""
-        return f"{sources_text} -> {self.help_target} -> {self.output_family}{suffix}"
+        output = (
+            self.output_contract.render()
+            if isinstance(self.output_contract, ArtifactOutputContract)
+            else self.output_contract
+        )
+        return f"{sources_text} -> {self.help_target} -> {output}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +344,42 @@ class CapabilityRegistry:
         """Return the generated type-algebra rows in deterministic order."""
         return self._algebra_rows
 
+    def compatible_consumers(
+        self,
+        output: ArtifactOutputContract,
+    ) -> tuple[str, ...]:
+        """Return consumers compatible with all statically known output facts."""
+
+        family = output.family
+        if isinstance(family, SameAsInputFamily):
+            return ()
+        consumers: set[str] = set()
+        for desc in self._descriptors:
+            if not isinstance(desc, (OperatorCapability, BoundaryCapability)):
+                continue
+            for parameter, accepted in desc.accepted_inputs.items():
+                if family not in accepted:
+                    continue
+                if isinstance(desc, OperatorCapability):
+                    admission = desc.artifact_admission.get(parameter)
+                    if admission is not None:
+                        shapes = admission.semantic_shapes.get(family)
+                        if (
+                            shapes
+                            and output.semantic_shapes
+                            and shapes.isdisjoint(output.semantic_shapes)
+                        ):
+                            continue
+                        matching = admission.matching_kinds.get(family)
+                        if (
+                            matching
+                            and output.matching_kinds
+                            and matching.isdisjoint(output.matching_kinds)
+                        ):
+                            continue
+                consumers.add(desc.id)
+        return tuple(sorted(consumers))
+
 
 # ---------------------------------------------------------------------------
 # Registry construction
@@ -341,6 +394,21 @@ _MF_OR_DF: frozenset[InputFamily] = frozenset({"MetricFrame", "DeltaFrame"})
 _CS: frozenset[InputFamily] = frozenset({"CandidateSet"})
 _AF: frozenset[InputFamily] = frozenset({"AttributionFrame"})
 _FIELD_SEMANTIC: frozenset[InputFamily] = frozenset({"DimensionSemantic", "TimeDimensionSemantic"})
+
+
+def _output(
+    family: Any,
+    *,
+    shapes: tuple[str, ...] = (),
+    matching: tuple[str, ...] = (),
+) -> ArtifactOutputContract:
+    """Build one immutable artifact output contract."""
+
+    return ArtifactOutputContract(
+        family=family,
+        semantic_shapes=frozenset(shapes),
+        matching_kinds=frozenset(matching),
+    )
 
 
 def _build_registry() -> CapabilityRegistry:
@@ -404,7 +472,7 @@ def _build_registry() -> CapabilityRegistry:
                     coverage_statuses={"SubjectSet": frozenset({"ready"})},
                 ),
             },
-            output_family="MetricFrame",
+            output_contract=_output("MetricFrame"),
             additional_examples=(
                 HelpExample(
                     label="Direct Ref segmented time series",
@@ -460,7 +528,7 @@ def _build_registry() -> CapabilityRegistry:
                     coverage_statuses={"SubjectSet": frozenset({"ready"})},
                 ),
             },
-            output_family="EventFrame",
+            output_contract=_output("EventFrame", shapes=("journey",)),
             additional_examples=(
                 HelpExample(
                     label="Repeated attempts with exclusive completion assignment",
@@ -540,7 +608,11 @@ def _build_registry() -> CapabilityRegistry:
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
             },
-            output_family="EventFrame",
+            output_contract=_output(
+                "EventFrame",
+                shapes=("funnel",),
+                matching=("first_per_subject",),
+            ),
         )
     )
 
@@ -575,7 +647,7 @@ def _build_registry() -> CapabilityRegistry:
                     coverage_statuses={"SubjectSet": frozenset({"ready"})},
                 ),
             },
-            output_family="LifecycleFrame",
+            output_contract=_output("LifecycleFrame", shapes=("history",)),
             additional_examples=(
                 HelpExample(
                     label="Replay from the first modeled inception",
@@ -645,7 +717,10 @@ def _build_registry() -> CapabilityRegistry:
                         semantic_shapes={"LifecycleFrame": frozenset({"history"})},
                     ),
                 },
-                output_family="LifecycleFrame",
+                output_contract=_output(
+                    "LifecycleFrame",
+                    shapes=(capability_id.rsplit(".", 1)[-1],),
+                ),
                 additional_examples=(
                     (
                         HelpExample(
@@ -685,7 +760,7 @@ def _build_registry() -> CapabilityRegistry:
                     semantic_shapes={"EventFrame": frozenset({"journey"})},
                 ),
             },
-            output_family="EventFrame",
+            output_contract=_output("EventFrame", shapes=("time_to_event",)),
         )
     )
 
@@ -716,7 +791,7 @@ def _build_registry() -> CapabilityRegistry:
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
             },
-            output_family="SubjectSet",
+            output_contract=_output("SubjectSet"),
         )
     )
 
@@ -755,7 +830,10 @@ def _build_registry() -> CapabilityRegistry:
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
             },
-            output_family="DeltaFrame",
+            output_contract=_output(
+                "DeltaFrame",
+                shapes=("scalar", "time_series", "segmented", "panel", "funnel"),
+            ),
             additional_examples=(
                 HelpExample(
                     label="Compare two exact funnel scopes",
@@ -800,7 +878,7 @@ def _build_registry() -> CapabilityRegistry:
                     },
                 ),
             },
-            output_family="AttributionFrame",
+            output_contract=_output("AttributionFrame"),
             additional_examples=(
                 HelpExample(
                     label="Attribute one funnel loss rate",
@@ -837,7 +915,7 @@ def _build_registry() -> CapabilityRegistry:
                 "alignment": frozenset({"AlignmentPolicy"}),
                 "sampling": frozenset({"SamplingPolicy"}),
             },
-            output_family="AssociationResult",
+            output_contract=_output("AssociationResult"),
             additional_examples=(
                 HelpExample(
                     label="Common-key cross-sectional frames from exact Refs",
@@ -872,7 +950,7 @@ def _build_registry() -> CapabilityRegistry:
                 "b": _MF,
                 "alignment": frozenset({"AlignmentPolicy"}),
             },
-            output_family="HypothesisTestResult",
+            output_contract=_output("HypothesisTestResult"),
         )
     )
 
@@ -890,7 +968,7 @@ def _build_registry() -> CapabilityRegistry:
             accepted_inputs={
                 "history": _MF,
             },
-            output_family="ForecastFrame",
+            output_contract=_output("ForecastFrame"),
         )
     )
 
@@ -923,7 +1001,7 @@ def _build_registry() -> CapabilityRegistry:
                     },
                 ),
             },
-            output_family="QualityReport",
+            output_contract=_output("QualityReport"),
         )
     )
 
@@ -972,7 +1050,7 @@ def _build_registry() -> CapabilityRegistry:
                     "source": source_families,
                     **extra_inputs,
                 },
-                output_family="CandidateSet",
+                output_contract=_output("CandidateSet"),
             )
         )
 
@@ -1026,7 +1104,7 @@ def _build_registry() -> CapabilityRegistry:
                     "receiver": families,
                     **extra_inputs,
                 },
-                output_family=SameAsInputFamily(parameter="receiver"),
+                output_contract=_output(SameAsInputFamily(parameter="receiver")),
             )
         )
 
@@ -1049,7 +1127,7 @@ def _build_registry() -> CapabilityRegistry:
             accepted_inputs={
                 "receiver": _MF,
             },
-            output_family="MetricFrame",
+            output_contract=_output("MetricFrame"),
         )
     )
 
@@ -1067,7 +1145,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.frames.metric.MetricFrame.metric",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
-            output_family="MetricFrame",
+            output_contract=_output("MetricFrame"),
         )
     )
 
@@ -1083,7 +1161,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.frames.metric.MetricFrame.components",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
-            output_family="ComponentFrame",
+            output_contract=_output("ComponentFrame"),
         )
     )
 
@@ -1099,7 +1177,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.frames.metric.MetricFrame.coverage",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
-            output_family="CoverageFrame",
+            output_contract=_output("CoverageFrame"),
         )
     )
 
@@ -1115,7 +1193,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.frames.delta.DeltaFrame.components",
             receiver="DeltaFrame",
             accepted_inputs={"receiver": _DF},
-            output_family="ComponentFrame",
+            output_contract=_output("ComponentFrame"),
         )
     )
 
@@ -2042,12 +2120,11 @@ def _generate_algebra_rows(
         for families in desc.accepted_inputs.values():
             source_families.update(families)
 
-        output_family = _output_family_str(desc)
         rows.append(
             TypeAlgebraRow(
                 help_target=desc.help_target,
                 source_families=frozenset(source_families),
-                output_family=output_family,
+                output_contract=desc.output_contract,
                 is_terminal=False,
             )
         )
@@ -2058,7 +2135,7 @@ def _generate_algebra_rows(
             TypeAlgebraRow(
                 help_target="discover",
                 source_families=frozenset(discover_source_families),
-                output_family="CandidateSet",
+                output_contract=_output("CandidateSet"),
                 is_terminal=False,
             )
         )
@@ -2068,7 +2145,7 @@ def _generate_algebra_rows(
             TypeAlgebraRow(
                 help_target="transform",
                 source_families=frozenset(transform_source_families),
-                output_family="MetricFrame|DeltaFrame",
+                output_contract="MetricFrame|DeltaFrame",
                 is_terminal=False,
             )
         )
@@ -2088,7 +2165,7 @@ def _generate_algebra_rows(
             TypeAlgebraRow(
                 help_target=desc.help_target,
                 source_families=frozenset(source_families_gov),
-                output_family=desc.output_family,
+                output_contract=desc.output_family,
                 is_terminal=False,
             )
         )
@@ -2101,20 +2178,12 @@ def _generate_algebra_rows(
             TypeAlgebraRow(
                 help_target="boundary.to_pandas",
                 source_families=frozenset(receiver_families),
-                output_family="pandas.DataFrame",
+                output_contract="pandas.DataFrame",
                 is_terminal=True,
             )
         )
 
     return tuple(rows)
-
-
-def _output_family_str(desc: OperatorCapability) -> str:
-    """Return a string representation of an operator's output family."""
-    output = desc.output_family
-    if isinstance(output, SameAsInputFamily):
-        return f"same as {output.parameter}"
-    return str(output)
 
 
 # ---------------------------------------------------------------------------

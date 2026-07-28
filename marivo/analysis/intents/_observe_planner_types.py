@@ -60,6 +60,27 @@ class PlannedPhysicalWhereField:
 
 
 @dataclass(frozen=True)
+class SampledStatusFoldPlan:
+    """Fold regularly sampled status values over the declared sample grid."""
+
+    strategy: Literal["sampled_status"]
+    status_time_dimension: str
+
+
+@dataclass(frozen=True)
+class SnapshotSelectionFoldPlan:
+    """Select one first/last snapshot row per business entity and output bucket."""
+
+    strategy: Literal["snapshot_selection"]
+    status_time_dimension: str
+    identity_columns: tuple[str, ...]
+    selection: Literal["first", "last"]
+
+
+type TemporalFoldPlan = SampledStatusFoldPlan | SnapshotSelectionFoldPlan
+
+
+@dataclass(frozen=True)
 class BaseObservePlan:
     root_entity: str
     additivity: str
@@ -73,6 +94,7 @@ class BaseObservePlan:
     datasource_name: str
     status_time_dimension: str | None = None
     time_fold: Any | None = None
+    temporal_fold: TemporalFoldPlan | None = None
 
 
 @dataclass(frozen=True)

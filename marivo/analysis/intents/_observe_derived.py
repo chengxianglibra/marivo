@@ -55,7 +55,12 @@ def _merge_component_coverages(
     return merged
 
 
-def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:
+def _build_fold_meta(
+    metric_ir: Any,
+    catalog: Any,
+    *,
+    temporal_fold: Any | None = None,
+) -> dict[str, Any]:
     """Build fold metadata for one physical aggregate leaf."""
 
     sample_interval_token_value: str | None = None
@@ -64,12 +69,19 @@ def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:
         sample_interval = getattr(time_field, "sample_interval", None)
         if sample_interval is not None:
             sample_interval_token_value = sample_interval_token(sample_interval)
-    return {
+    payload = {
         "time_fold": metric_ir.time_fold.label(),
         "fold_kind": getattr(metric_ir.time_fold, "kind", None),
         "status_time_dimension": metric_ir.status_time_dimension,
         "sample_interval": sample_interval_token_value,
     }
+    strategy = getattr(temporal_fold, "strategy", None)
+    if isinstance(strategy, str):
+        payload["fold_strategy"] = strategy
+    identity_columns = getattr(temporal_fold, "identity_columns", None)
+    if isinstance(identity_columns, tuple):
+        payload["identity_keys"] = list(identity_columns)
+    return payload
 
 
 __all__ = ["_build_fold_meta", "_merge_component_coverages"]

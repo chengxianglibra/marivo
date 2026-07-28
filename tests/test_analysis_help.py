@@ -609,6 +609,30 @@ def test_focused_help_includes_producer_consumer_edges() -> None:
         assert consumer_id in text, f"missing consumer: {consumer_id}"
 
 
+def test_focused_operator_help_includes_prerequisites_and_postconditions() -> None:
+    text = _text("events.funnel")
+
+    assert "Prerequisites:" in text
+    assert 'session = mv.session.get_or_create("analysis"' in text
+    assert 'journeys: acquire via marivo.help("analysis.events.match")' in text
+    assert "After success:" in text
+    assert "funnel.show()" in text
+    assert "funnel.contract()" in text
+
+
+def test_shape_aware_help_does_not_advertise_invalid_consumers() -> None:
+    funnel = _text("events.funnel")
+    violations = _text("lifecycle.violations")
+    funnel_consumers = funnel.split("Consumed by:", 1)[1].split("Related:", 1)[0]
+    violation_consumers = violations.split("Consumed by:", 1)[1].split("Related:", 1)[0]
+
+    assert "compare" in funnel_consumers
+    assert "events.funnel" not in funnel_consumers
+    assert "events.time_to_event" not in funnel_consumers
+    assert "lifecycle.distribution" not in violation_consumers
+    assert "lifecycle.violations" not in violation_consumers
+
+
 # ---------------------------------------------------------------------------
 # Type help: no constructors, no private fields, properties/methods separation
 # ---------------------------------------------------------------------------

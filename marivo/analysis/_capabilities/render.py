@@ -8,10 +8,12 @@ All names are private to ``marivo.analysis``.
 
 from __future__ import annotations
 
+import ast
 import inspect
 from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
+    ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
     BoundaryCapability,
     CapabilityDescriptor,
@@ -340,10 +342,7 @@ def _format_input_families(desc: OperatorCapability) -> list[str]:
 
 def _format_output_family(desc: OperatorCapability) -> str:
     """Format output family for display."""
-    output = desc.output_family
-    if isinstance(output, SameAsInputFamily):
-        return f"same as {output.parameter}"
-    return str(output)
+    return desc.output_contract.render()
 
 
 def _resolve_callable(desc: CapabilityDescriptor) -> object | None:
@@ -366,6 +365,62 @@ def _property_return_type(value: object) -> str | None:
     if isinstance(annotation, str):
         return annotation
     return inspect.formatannotation(annotation)
+
+
+def _producer_targets_for_input(
+    desc: OperatorCapability,
+    parameter: str,
+) -> tuple[str, ...]:
+    """Return bounded producers compatible with one artifact-bearing input."""
+
+    accepted = desc.accepted_inputs.get(parameter, frozenset())
+    targets: list[str] = []
+    for producer in REGISTRY.descriptors:
+        if not isinstance(producer, OperatorCapability):
+            continue
+        family = producer.output_contract.family
+        if isinstance(family, SameAsInputFamily) or family not in accepted:
+            continue
+        admission = desc.artifact_admission.get(parameter)
+        if admission is not None:
+            shapes = admission.semantic_shapes.get(family)
+            if (
+                shapes
+                and producer.output_contract.semantic_shapes
+                and shapes.isdisjoint(producer.output_contract.semantic_shapes)
+            ):
+                continue
+            matching = admission.matching_kinds.get(family)
+            if (
+                matching
+                and producer.output_contract.matching_kinds
+                and matching.isdisjoint(producer.output_contract.matching_kinds)
+            ):
+                continue
+        targets.append(producer.help_target)
+    return tuple(dict.fromkeys(targets))[:2]
+
+
+def _assigned_result_name(code: str) -> str | None:
+    """Return the first simple assignment target from one example."""
+
+    cleaned_lines: list[str] = []
+    for line in code.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith((">>> ", "... ")):
+            cleaned_lines.append(stripped[4:])
+        else:
+            cleaned_lines.append(line)
+    try:
+        tree = ast.parse("\n".join(cleaned_lines))
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                return target.id
+    return None
 
 
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
@@ -586,11 +641,34 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                     f"[{member.help_target}]"
                 )
 
+    if isinstance(desc, OperatorCapability):
+        prerequisite_lines: list[str] = []
+        if desc.receiver.startswith("Session"):
+            prerequisite_lines.append(
+                'session = mv.session.get_or_create("analysis", question="<business question>")'
+            )
+        for parameter, families in desc.accepted_inputs.items():
+            if not any(family in ARTIFACT_FAMILIES for family in families):
+                continue
+            producers = _producer_targets_for_input(desc, parameter)
+            if producers:
+                targets = ", ".join(f'marivo.help("analysis.{target}")' for target in producers)
+                prerequisite_lines.append(f"{parameter}: acquire via {targets}")
+        if prerequisite_lines:
+            lines.append("")
+            lines.append("  Prerequisites:")
+            lines.extend(f"    {line}" for line in prerequisite_lines)
+
+    result_names: list[str] = []
+
     # Example (from docstring)
     if callable_obj is not None:
         doc = inspect.getdoc(callable_obj) or ""
         example = _extract_example(doc)
         if example:
+            assigned = _assigned_result_name(example)
+            if assigned is not None:
+                result_names.append(assigned)
             lines.append("")
             lines.append("  Example:")
             # Clean up REPL continuation markers (>>> and ...) to produce
@@ -612,9 +690,19 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                 lines.append(cl)
 
     for additional_example in desc.additional_examples:
+        assigned = _assigned_result_name(additional_example.code)
+        if assigned is not None:
+            result_names.append(assigned)
         lines.append("")
         lines.append(f"  {additional_example.label}:")
         lines.extend(f"    {line}" for line in additional_example.code.splitlines())
+
+    if isinstance(desc, OperatorCapability) and result_names:
+        result_name = result_names[0]
+        lines.append("")
+        lines.append("  After success:")
+        lines.append(f"    {result_name}.show()")
+        lines.append(f"    {result_name}.contract()")
 
     # Exact Ref path format for the focused semantic-input pages.
     if desc.help_target in _REF_ID_FORMAT_TARGETS:
@@ -630,16 +718,14 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
 
     # Producer/consumer edges
     if isinstance(desc, OperatorCapability):
-        output = desc.output_family
-        output_str = (
-            _format_output_family(desc) if isinstance(output, SameAsInputFamily) else str(output)
-        )
-        consumers = REGISTRY.constructor_consumers.get(output_str, ())
+        consumers = REGISTRY.compatible_consumers(desc.output_contract)
         if consumers:
             lines.append("")
             lines.append("  Consumed by:")
             for consumer_id in sorted(consumers)[:5]:
                 lines.append(f"    {consumer_id}")
+            if not desc.output_contract.semantic_shapes:
+                lines.append("    conditional: inspect the concrete artifact with .contract()")
 
     # Optional related targets
     related = _related_targets(desc)

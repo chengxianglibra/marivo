@@ -8,7 +8,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-analysis"
 SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
-MAX_SKILL_LINES = 600
+MAX_SKILL_LINES = 200
+MAX_SKILL_CODEPOINTS = 10_000
+MAX_SEMANTIC_SKILL_LINES = 600
+MAX_SEMANTIC_SKILL_CODEPOINTS = 30_000
 
 
 def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
@@ -52,19 +55,15 @@ def test_analysis_skill_packages_conditional_runtime_closeout_reference() -> Non
 def test_analysis_skill_uses_demand_driven_help_after_environment_entry() -> None:
     """Environment entry is one-time; later guidance comes from live objects."""
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    section = text[text.index("## Live-contract rule") : text.index("## Script workspace")]
+    section = text[
+        text.index("## Mission and authority") : text.index("## Bounded investigation loop")
+    ]
     normalized = " ".join(section.split())
 
-    environment_entry = normalized.index("<analysis-python> -m marivo help")
-    state_read = normalized.index("`.show()`")
-    contract_read = normalized.index("`.contract()`")
-    focused_help = normalized.index("object contract is insufficient")
-    structured_repair = normalized.index("follow the structured repair")
-
-    assert environment_entry < state_read < contract_read < focused_help < structured_repair
-    assert "first use of an unfamiliar capability" in normalized
-    assert "Focused help is not required before every API call." in normalized
-    assert "focused live help topics for every API contract" not in normalized
+    assert "<analysis-python> -m marivo help" in normalized
+    assert "`.show()`" in normalized
+    assert "`.contract()`" in normalized
+    assert 'marivo.help("analysis.<target>")' in normalized
 
 
 def test_runtime_closeout_reference_carries_required_disclosures() -> None:
@@ -84,24 +83,15 @@ def test_runtime_closeout_reference_carries_required_disclosures() -> None:
 def test_analysis_skill_keeps_session_scripts_reference_only() -> None:
     """Session-local scripts are rerunnable workspaces, not reusable evidence."""
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    live_contract_position = text.index("## Live-contract rule")
-    workspace_position = text.index("## Script workspace")
-    hard_boundaries_position = text.index("## Hard boundaries")
-
-    assert live_contract_position < workspace_position < hard_boundaries_position
-
-    workspace = text[workspace_position:hard_boundaries_position]
+    workspace = text[text.index("## Script and session discipline") : text.index("## Closeout")]
+    workspace = " ".join(workspace.split())
     for required in (
         "<project_root>/.marivo/analysis/sessions/<session.id>/scripts/",
-        "verified `<analysis-python>`",
-        "`succeeded` job",
+        "succeeded job",
         "artifact remains recoverable",
-        "Reference-only",
-        "never executing it directly",
-        "copying it wholesale",
-        "re-resolve semantic refs, time scopes, and parameters",
-        "script is not evidence",
-        "artifacts/jobs",
+        "Never execute it directly",
+        "copy it wholesale",
+        "Re-resolve refs, windows, policies, and scope",
     ):
         assert required in workspace, f"Missing script-workspace boundary: {required}"
 
@@ -109,56 +99,43 @@ def test_analysis_skill_keeps_session_scripts_reference_only() -> None:
 def test_analysis_skill_bounds_historical_session_reference() -> None:
     """Historical sessions are selectively inspected reference memory."""
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    section = text[text.index("## Historical session reference") : text.index("## Hard boundaries")]
+    section = text[text.index("## Deterministic stop rule") : text.index("## Hard boundaries")]
     for required in (
-        "external reference memory",
-        "loaded by default",
+        "reference memory only",
         "same failure recurs",
-        "three candidate sessions",
-        "do not support current material claims",
-        "current semantic catalog",
-        "runtime fingerprint",
-        "analysis scope",
+        "no more than three candidates",
+        "never support current claims",
+        "current artifacts",
     ):
         assert required in section, f"Missing historical-session boundary: {required}"
 
 
 def test_analysis_skill_defers_semantic_authoring_and_allows_raw_sql_escape() -> None:
     """Semantic gaps stop typed work but may continue through a terminal escape."""
-    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    text = " ".join((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").split())
     for required in (
-        "During analysis the agent must not",
-        "semantic definitions",
-        "user approves the closeout proposal",
+        "must not add or edit semantic definitions",
+        "missing or disputed business object stops",
         "`md.raw_sql(...)`",
-        "without prior approval",
-        "temporary",
-        "inferred semantics",
         "cannot re-enter typed analysis",
-        "it is not permission to mutate the semantic layer",
-        "requires explicit user approval",
-        "no-lineage/no-evidence-continuity",
-        "canonical artifact claims and raw-SQL-supported claims remain",
+        "temporary assumptions",
+        "loss of typed lineage/evidence continuity",
+        "request approval",
     ):
         assert required in text, f"Missing semantic-gap/raw-SQL boundary: {required}"
 
 
 def test_analysis_skill_routes_event_journeys_to_live_help_and_coverage_evidence() -> None:
-    """Event analysis routing stays in the skill while signatures stay in live help."""
+    """Event routing stays in the skill while reducers stay in live help."""
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     for required in (
-        "typed semantic Events",
         'marivo.help("analysis.events.match")',
-        "events.funnel",
-        "events.time_to_event",
-        "select_subjects",
         ".contract()",
-        "watermark",
-        "declaration",
-        "unknown-coverage",
         "censoring",
     ):
         assert required in text, f"Missing Event Journey routing boundary: {required}"
+    for forbidden in ("events.funnel(", "events.time_to_event(", "select_subjects("):
+        assert forbidden not in text
 
 
 def test_packaged_skills_route_lifecycle_without_copying_mechanical_contracts() -> None:
@@ -168,8 +145,7 @@ def test_packaged_skills_route_lifecycle_without_copying_mechanical_contracts() 
 
     for required in (
         'marivo.help("analysis.lifecycle.replay")',
-        "StateModel semantic contract separate from replay choices",
-        "violation",
+        "StateModels",
         "censoring",
     ):
         assert required in analysis, f"Missing Lifecycle analysis boundary: {required}"
@@ -244,7 +220,25 @@ def test_packaged_skill_files_stay_bounded() -> None:
     for skill_dir in (SKILL_DIR, SEMANTIC_SKILL_DIR):
         skill_path = skill_dir / "SKILL.md"
         line_count = len(skill_path.read_text(encoding="utf-8").splitlines())
-        assert line_count <= MAX_SKILL_LINES, (
-            f"{skill_path} has {line_count} lines; reduce it to at most {MAX_SKILL_LINES} "
+        codepoint_count = len(skill_path.read_text(encoding="utf-8"))
+        max_lines = MAX_SKILL_LINES if skill_dir == SKILL_DIR else MAX_SEMANTIC_SKILL_LINES
+        max_codepoints = (
+            MAX_SKILL_CODEPOINTS if skill_dir == SKILL_DIR else MAX_SEMANTIC_SKILL_CODEPOINTS
+        )
+        assert line_count <= max_lines, (
+            f"{skill_path} has {line_count} lines; reduce it to at most {max_lines} "
             "by moving mechanical contracts to live help or structured results"
         )
+        assert codepoint_count <= max_codepoints
+
+
+def test_analysis_skill_has_deterministic_stop_and_no_bypass_rules() -> None:
+    text = " ".join((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").split())
+
+    for required in (
+        "same root cause occurs twice",
+        "one focused-help recovery",
+        "Do not read business rows directly through Ibis, DuckDB, pandas",
+        "minimum sufficient evidence",
+    ):
+        assert required in text
