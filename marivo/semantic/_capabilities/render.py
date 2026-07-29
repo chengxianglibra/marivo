@@ -131,7 +131,23 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         if candidate.produced_state is not None
         and candidate.produced_state.id.startswith("semantic.")
     ]
-    lines = ["authoring", f"  {descriptor.summary}", "", "  Registered semantic states:"]
+    lines = [
+        "authoring",
+        f"  {descriptor.summary}",
+        "",
+        "  Source layout:",
+        "    models/datasources/<datasource>.py",
+        "    models/semantic/<domain>/_domain.py",
+        "    models/semantic/<domain>/<module>.py",
+        "",
+        "  One-object post-load check:",
+        "    catalog = ms.load()",
+        "    entry = catalog.<collection>.get('<canonical identity>')",
+        "    entry.show()",
+        "    entry.contract().show()",
+        "",
+        "  Registered semantic states:",
+    ]
     for candidate in state_rows:
         assert candidate.produced_state is not None
         lines.append(f"    {candidate.produced_state.id} <- {candidate.canonical_id}")
@@ -155,16 +171,6 @@ def _render_boundary(descriptor: AuthoringCapability) -> str:
     result field instead.
     """
     lines = [descriptor.canonical_id, f"  {descriptor.summary}", "", "  Not a callable entrypoint."]
-    if descriptor.canonical_id == "analysis_handoff":
-        lines.extend(
-            (
-                "  The typed handoff is produced by readiness and carried on a result",
-                "  field: catalog.readiness(refs=...) returns a ReadinessReport whose",
-                "  .analysis_handoff is a SemanticToAnalysisHandoff (None while any ref",
-                "  is blocked). Analysis consumes it via",
-                "  Session.validate_semantic_handoff(report.analysis_handoff).",
-            )
-        )
     if descriptor.see_also:
         lines.append(
             "  See also: " + ", ".join(_target_text(target) for target in descriptor.see_also)
@@ -215,8 +221,31 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
             f"    flags: {', '.join(effects.flags) or 'none'}",
         )
     )
+    source_contract = REGISTRY.source_contract(descriptor.canonical_id)
+    if source_contract is not None:
+        lines.extend(
+            (
+                f"  Loader placement: {source_contract.placement_kind}",
+                f"  Source path: {source_contract.path_template}",
+            )
+        )
+        if source_contract.prerequisite_targets:
+            lines.append("  Prerequisite help:")
+            lines.extend(
+                f"    {_help_invocation(target)}" for target in source_contract.prerequisite_targets
+            )
+        if source_contract.judgment_requirements:
+            lines.append(
+                "  Business judgments before authoring: "
+                + ", ".join(source_contract.judgment_requirements)
+            )
     if descriptor.minimal_example is not None:
-        lines.append("  Example:")
+        lines.extend(
+            (
+                "  Example:",
+                "    # Declaration fragment; execute only when ms.load() evaluates the source file.",
+            )
+        )
         lines.extend(
             f"    {line}" if line else "" for line in descriptor.minimal_example.splitlines()
         )
@@ -224,6 +253,17 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if constraints:
         lines.append("  Constraints:")
         lines.extend(f"    {constraint}" for constraint in constraints)
+    if source_contract is not None:
+        identity = source_contract.canonical_identity_template
+        lines.extend(
+            (
+                "  Postcondition after saving:",
+                "    catalog = ms.load()",
+                (f"    entry = catalog.{source_contract.catalog_collection}.get({identity!r})"),
+                "    entry.show()",
+                "    entry.contract().show()",
+            )
+        )
     consumers = [
         other.canonical_id
         for other in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())

@@ -250,10 +250,10 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     error_class = resolve_live_target(SemanticLoadError, SEMANTIC_LIVE_SURFACE)
 
     assert briefing.kind == "error_briefing"
-    assert contract.kind == "error_contract"
+    assert contract.kind == "error_briefing"
     assert error_class.kind == "error_contract"
-    assert contract == error_class
-    assert _text(without_repair) == _text(SemanticLoadError)
+    assert contract != error_class
+    assert 'marivo.help("semantic.authoring")' in _text(without_repair)
     text = _text(with_repair)
     assert "Kind: retry" in text
     assert "Expected: one loaded domain" in text

@@ -188,6 +188,23 @@ an active project. `marivo.help("semantic.constraints")` is the focused entry
 to the authoring / validation constraint catalog. Help describes what
 parameters must satisfy; it carries no runtime data.
 
+Source-mutating constructors are described by one internal authoring-source
+registry. Focused constructor help therefore identifies the declaration as a
+loader fragment, gives its exact placement under
+`models/semantic/<domain>/`, links prerequisite help targets, states the
+business judgments that must already be settled, and ends with the generated
+loaded-object postcondition:
+
+```python
+catalog = ms.load()
+entry = catalog.<collection>.get("<canonical-identity>")
+entry.show()
+entry.contract().show()
+```
+
+The ordered catalog-member contract supplies `<collection>`, so focused help,
+the live catalog, and the acquisition path cannot drift independently.
+
 ## Result contract
 
 Every semantic result object follows the shared no-side-effect contract — the
@@ -315,9 +332,17 @@ style. The mapping from error kind to agent action is mechanical:
 | `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref.<kind>(path)`. |
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.linear`. |
-| `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use `md.raw_sql(...)` for ad-hoc queries outside the semantic model. |
+| `outside_loader_context` | Move the declaration fragment into `models/semantic/<domain>/_domain.py` or its domain module and follow `marivo.help("semantic.authoring")`. |
+| `invalid_project` | Create or select the exact `models/semantic/` project root shown by `marivo.help("semantic.authoring")`; do not guess a different root. |
+| `domain_file_missing` | Add `models/semantic/<domain>/_domain.py` and declare the matching domain there. |
+| `domain_file_mismatch` | Make the directory name and `ms.domain(name=...)` identity agree, then reload. |
+| organization errors | Restore the minimal datasource/domain layout reported by structured repair, then reload from the same project root. |
 | `unverified_provenance` | Add `provenance=ms.from_sql(...)`, or stop and confirm the business caliber. |
 | `sql_escape_hatch` | Use `md.raw_sql(...)` for terminal raw SQL execution; raw SQL in semantic expression bodies is still rejected by the validator. |
+
+Loader/layout errors obtain these repair targets, path templates, and fragments
+from the same semantic registry used by focused help. An error does not embed a
+second handwritten workflow.
 
 ## Readiness and richness
 

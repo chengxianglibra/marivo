@@ -96,6 +96,10 @@ def test_snapshot_exposes_projection_methods_and_affordances(
     rendered = snapshot.render()
     assert all(f".{name}(" in rendered for name in projection_names)
     assert ".contract()" in rendered
+    assert "selected columns: order_id" in rendered
+    assert "projection effects:" in rendered
+    assert "data_access=none" in rendered
+    assert "reacquire boundary:" in rendered
     contract = snapshot.contract()
     assert contract.subject_refs[0] == "datasource:warehouse"
     assert [(state.id, state.evidence_ids) for state in contract.states] == [

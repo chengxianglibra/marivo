@@ -25,6 +25,11 @@ scoped readiness。
 向智能体说明数据源、业务目标和已经确定的规则。智能体使用 `marivo-semantic` 检查证据并
 起草对象；用户根据业务需要确认和调整口径。技术验证通过不等于业务定义已经获批。
 
+`marivo-semantic` 只提供稳定的步骤顺序和职责边界。当前 constructor 的文件位置、签名、
+前置条件、加载后的对象获取方式与错误恢复，由 `marivo.help(...)`、result card、
+`.contract()` 和 structured error 提供。读取用户数据前，智能体必须先确认 accountable
+domain owner、目标业务概念等数据本身无法回答的必要输入；sampling 不能回答这些问题。
+
 ## 通过 Git 维护和共享语义层
 
 语义对象是 `models/` 下的 Python 源文件，应与项目代码一起纳入版本管理：
@@ -961,6 +966,22 @@ state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards
 只有接受有界 value evidence 明文写入 project-local cache 时才使用 `persist_values=True`。
 Uncommon formats、keys、timezone、aggregation、unit、additivity、relationship cardinality
 和 business meaning 仍由智能体负责。
+
+Inspection card 会显示精确 source descriptor，以及真实 schema 的列名和类型。Partition
+card 会显示已捕获 value 的来源、完整性、截断状态、有界值和无需新查询即可使用的 scope
+模板。Snapshot card 会显示 scope、selected columns、coverage 与 value/cache state；
+每个 projection 都明确标记为 `data_access=none`。
+
+当 evidence 无法机械地决定业务口径时，
+`result.contract().judgment_requirements` 会提供冻结的判断要求，包括稳定 ID、subjects、
+evidence IDs 和 `authority="user_or_business_owner"`。它不会推荐值、创建 constructor
+transition 或记录审批。所有本地 projection 复用同一个 snapshot；只有缺少必需列或 value
+evidence、snapshot 已过期，或 datasource/source/scope identity 不匹配时才重新采样。
+
+Focused constructor help 会把调用明确标为其 loader path 内的 declaration fragment。
+加载后使用生成的 catalog handoff：`catalog = ms.load()`、
+`entry = catalog.<collection>.get(...)`、`entry.show()` 和
+`entry.contract().show()`。
 
 写完一个 Python declaration 后，重新加载当前 catalog entry，依次运行
 `catalog.verify(entry)`、`catalog.preview(entry, using=snapshot)` 和零查询

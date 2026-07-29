@@ -121,6 +121,17 @@ class AuthoringTransition(BaseModel):
     blocked_by: tuple[str, ...] = ()
 
 
+class AuthoringJudgmentRequirement(BaseModel):
+    """One non-mechanical semantic decision grounded by captured evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    subjects: tuple[str, ...]
+    evidence_ids: tuple[str, ...] = ()
+    authority: Literal["user_or_business_owner"] = "user_or_business_owner"
+
+
 class AuthoringContract(BaseModel):
     """Mechanical continuation contract for one state-bearing value."""
 
@@ -129,13 +140,15 @@ class AuthoringContract(BaseModel):
     subject_refs: tuple[str, ...]
     states: tuple[AuthoringStateRef, ...]
     transitions: tuple[AuthoringTransition, ...]
+    judgment_requirements: tuple[AuthoringJudgmentRequirement, ...] = ()
 
     def _repr_identity(self) -> str:
         return (
             "AuthoringContract "
             f"subjects={len(self.subject_refs)} "
             f"states={len(self.states)} "
-            f"transitions={len(self.transitions)}"
+            f"transitions={len(self.transitions)} "
+            f"judgments={len(self.judgment_requirements)}"
         )
 
     def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:

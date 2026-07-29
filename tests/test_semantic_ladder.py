@@ -7,7 +7,11 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
-from marivo.semantic.errors import SemanticLoadFailed, SemanticRuntimeError
+from marivo.semantic.errors import (
+    SemanticDecoratorError,
+    SemanticLoadFailed,
+    SemanticRuntimeError,
+)
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -147,6 +151,71 @@ def test_catalog_construction_preserves_project_load_error(semantic_project_fact
     with pytest.raises(SemanticLoadFailed) as exc_info:
         ms.SemanticCatalog(project)
     assert "intentional load error" in str(exc_info.value)
+
+
+def test_outside_loader_context_has_project_layout_repair() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.domain(name="sales", owner="Explicit Owner")
+
+    error = exc_info.value
+    assert error.kind == "outside_loader_context"
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "authoring"
+    assert "models/semantic/<domain>/<module>.py" in (error.repair.snippet or "")
+    assert error.repair.preserves_evidence is True
+
+
+@pytest.mark.parametrize(
+    ("files", "kind", "target", "snippet"),
+    [
+        (
+            {"sales/models.py": "import marivo.semantic as ms\n"},
+            "domain_file_missing",
+            "domain",
+            "models/semantic/<domain>/_domain.py",
+        ),
+        (
+            {
+                "sales/_domain.py": (
+                    "import marivo.semantic as ms\n"
+                    "ms.domain(name='wrong', owner='Explicit Owner')\n"
+                )
+            },
+            "domain_file_mismatch",
+            "domain",
+            "ms.domain(name='<domain>'",
+        ),
+        (
+            {
+                "sales/_domain.py": (
+                    "import marivo.semantic as ms\n"
+                    "ms.domain(name='sales', owner='Explicit Owner')\n"
+                ),
+                "sales/broken.py": "raise RuntimeError('broken source')\n",
+            },
+            "organization_error",
+            "authoring",
+            None,
+        ),
+    ],
+)
+def test_layout_load_errors_have_registry_backed_structured_repairs(
+    semantic_project_factory,
+    files: dict[str, str],
+    kind: str,
+    target: str,
+    snippet: str | None,
+) -> None:
+    project = semantic_project_factory(files, load=False)
+
+    result = project.load()
+
+    error = next(error for error in result.errors if error.kind == kind)
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == target
+    assert error.repair.preserves_evidence is True
+    if snippet is not None:
+        assert snippet in (error.repair.snippet or "")
 
 
 def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:

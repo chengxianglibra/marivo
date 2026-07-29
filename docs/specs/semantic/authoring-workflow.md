@@ -37,10 +37,13 @@ policy order and judgment boundaries; it does not duplicate parameter tables or
 reconstruct mechanical requirements from prose.
 
 `marivo-semantic` is the one-file packaged skill that applies this flow's
-ordered routing discipline. The library supplies facts and validation; the
-agent settles business intent and writes ordinary Python definitions. There is
-no separate "prepare" or handoff-brief stage — an agent settles constructor
-values before authoring one object.
+ordered routing discipline. It is a stable policy kernel, not an API manual:
+constructor placement, current signatures, object acquisition, postconditions,
+and repairs remain owned by live help, result cards, contracts, and structured
+errors. The library supplies facts and validation; the agent settles business
+intent and writes ordinary Python definitions. There is no separate "prepare"
+or handoff-brief stage — an agent settles constructor values before authoring
+one object.
 
 ## Layer ownership
 
@@ -64,6 +67,13 @@ a semantic decision is still unresolved after the evidence pass, the agent grill
 the user one decision at a time — it does not silently pick a default for
 business-caliber questions (failure handling, ratio denominators, time-axis
 choice, scope).
+
+Some required inputs are not observable from data at all. Before any user-data
+read, the agent checks for an accountable domain owner and the target business
+concept. If either is required and missing, it asks one precise question and
+stops. Sampling is reserved for evidence-shaped uncertainties such as identity,
+unit, additivity, timezone, categorical meaning, and relationship cardinality;
+it is not a way to guess ownership or business definitions.
 
 ## File organization
 
@@ -129,6 +139,15 @@ perform, are:
   current catalog entry, and inspect it. Use the strict ref-only
   `catalog.require(ref)` path when identity comes from configuration,
   persistence, or logs.
+
+Evidence projections expose unresolved business decisions as frozen
+`AuthoringJudgmentRequirement` values in
+`result.contract().judgment_requirements`. Each requirement has a stable ID,
+bounded subjects, evidence IDs, and
+`authority="user_or_business_owner"`. These requirements are a machine-readable
+handoff boundary: they do not add constructor transitions, rank candidates,
+recommend values, or persist an approval token. Cards render them separately as
+“non-mechanical judgment requirements”.
 
 Authoring several objects and validating later is forbidden — each object is
 verified before the next. Verification is result-local (a current `VerifyResult`
@@ -245,6 +264,10 @@ cannot decide. Ask when:
 Do not ask for anything the datasource can provide — column lists, types,
 comments, sample values, existing objects, or datasource shape. Fetch those with
 `md.inspect(...)`, one scoped snapshot and its projections, and `ms.load()`.
+Do not reacquire a snapshot merely to request another projection. Reacquisition
+is justified only when a required column or value evidence was not captured,
+the snapshot is stale for the decision, or its datasource/source/scope identity
+does not match the active object.
 
 ## Read the current state first
 

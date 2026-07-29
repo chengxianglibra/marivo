@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
-from marivo._authoring.model import AuthoringContract, AuthoringRepair, AuthoringStateRef
+from marivo._authoring.model import (
+    AuthoringContract,
+    AuthoringJudgmentRequirement,
+    AuthoringRepair,
+    AuthoringStateRef,
+)
+from marivo._authoring.normalize import normalize_contract
 from marivo.datasource.errors import repair
 from marivo.datasource.source import AuthoringScope
 from marivo.render import Card, RenderableResult
@@ -45,6 +51,11 @@ _MEASURE_UNRESOLVED = (
     "unit",
     "additivity",
     "business_definition",
+)
+_RELATIONSHIP_UNRESOLVED = (
+    "relationship_business_meaning",
+    "cardinality",
+    "scope_comparability",
 )
 
 
@@ -96,6 +107,7 @@ class EntityEvidenceResult(RenderableResult):
         return f"EntityEvidenceResult status={self.status} columns={len(self.columns)}"
 
     def _card(self) -> Card:
+        contract = self.contract()
         return _column_result_card(
             identity=self._repr_identity(),
             status=self.status,
@@ -125,11 +137,16 @@ class EntityEvidenceResult(RenderableResult):
             row_count=len(self.evidence_by_column),
             issues=self.issues,
             repair=self.repair,
+            judgment_requirements=contract.judgment_requirements,
         )
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract(self.columns, (self.snapshot_id,))
+        return _projected_contract(
+            self.columns,
+            (self.snapshot_id,),
+            judgment_ids=_unresolved_ids(self.evidence_by_column.values()),
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -145,6 +162,7 @@ class DimensionEvidenceResult(RenderableResult):
         return f"DimensionEvidenceResult status={self.status} columns={len(self.columns)}"
 
     def _card(self) -> Card:
+        contract = self.contract()
         return _column_result_card(
             identity=self._repr_identity(),
             status=self.status,
@@ -176,11 +194,16 @@ class DimensionEvidenceResult(RenderableResult):
             row_count=len(self.evidence_by_column),
             issues=self.issues,
             repair=self.repair,
+            judgment_requirements=contract.judgment_requirements,
         )
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract(self.columns, (self.snapshot_id,))
+        return _projected_contract(
+            self.columns,
+            (self.snapshot_id,),
+            judgment_ids=_unresolved_ids(self.evidence_by_column.values()),
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -196,6 +219,7 @@ class TimeEvidenceResult(RenderableResult):
         return f"TimeEvidenceResult status={self.status} columns={len(self.columns)}"
 
     def _card(self) -> Card:
+        contract = self.contract()
         return _column_result_card(
             identity=self._repr_identity(),
             status=self.status,
@@ -207,11 +231,16 @@ class TimeEvidenceResult(RenderableResult):
             ),
             issues=self.issues,
             repair=self.repair,
+            judgment_requirements=contract.judgment_requirements,
         )
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract(self.columns, (self.snapshot_id,))
+        return _projected_contract(
+            self.columns,
+            (self.snapshot_id,),
+            judgment_ids=_unresolved_ids(self.evidence_by_column.values()),
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -227,6 +256,7 @@ class MeasureEvidenceResult(RenderableResult):
         return f"MeasureEvidenceResult status={self.status} columns={len(self.columns)}"
 
     def _card(self) -> Card:
+        contract = self.contract()
         return _column_result_card(
             identity=self._repr_identity(),
             status=self.status,
@@ -258,11 +288,16 @@ class MeasureEvidenceResult(RenderableResult):
             row_count=len(self.evidence_by_column),
             issues=self.issues,
             repair=self.repair,
+            judgment_requirements=contract.judgment_requirements,
         )
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract(self.columns, (self.snapshot_id,))
+        return _projected_contract(
+            self.columns,
+            (self.snapshot_id,),
+            judgment_ids=_unresolved_ids(self.evidence_by_column.values()),
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -288,6 +323,7 @@ class DimensionValuesResult(RenderableResult):
         )
 
     def _card(self) -> Card:
+        contract = self.contract()
         card = Card(
             identity=self._repr_identity(),
             available=(
@@ -321,11 +357,19 @@ class DimensionValuesResult(RenderableResult):
             card.listing("issues", self.issues)
         if self.repair is not None:
             card.field("repair", self.repair.action)
+        card.listing(
+            "non-mechanical judgment requirements",
+            _render_judgment_requirements(contract.judgment_requirements),
+        )
         return card
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract((self.column,), (self.snapshot_id,))
+        return _projected_contract(
+            (self.column,),
+            (self.snapshot_id,),
+            judgment_ids=_DIMENSION_UNRESOLVED,
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -355,6 +399,7 @@ class RelationshipEvidenceResult(RenderableResult):
         )
 
     def _card(self) -> Card:
+        contract = self.contract()
         card = Card(
             identity=self._repr_identity(),
             available=(
@@ -392,11 +437,22 @@ class RelationshipEvidenceResult(RenderableResult):
             card.listing("issues", self.issues)
         if self.repair is not None:
             card.field("repair", self.repair.action)
+        card.listing(
+            "non-mechanical judgment requirements",
+            _render_judgment_requirements(contract.judgment_requirements),
+        )
         return card
 
     def contract(self) -> AuthoringContract:
         """Return the terminal projected-evidence state for this observation."""
-        return _projected_contract((*self.left, *self.right), self.snapshot_ids)
+        return _projected_contract(
+            (
+                *(f"left.{column}" for column in self.left),
+                *(f"right.{column}" for column in self.right),
+            ),
+            self.snapshot_ids,
+            judgment_ids=_RELATIONSHIP_UNRESOLVED,
+        )
 
     @property
     def snapshot_ids(self) -> tuple[str, str]:
@@ -445,6 +501,7 @@ def _column_result_card(
     row_count: int,
     issues: tuple[str, ...],
     repair: AuthoringRepair | None,
+    judgment_requirements: tuple[AuthoringJudgmentRequirement, ...],
 ) -> Card:
     card = Card(
         identity=identity,
@@ -469,18 +526,59 @@ def _column_result_card(
         card.listing("issues", issues)
     if repair is not None:
         card.field("repair", repair.action)
+    card.listing(
+        "non-mechanical judgment requirements",
+        _render_judgment_requirements(judgment_requirements),
+    )
     return card
 
 
 def _projected_contract(
-    subject_refs: tuple[str, ...], evidence_ids: tuple[str, ...]
+    subject_refs: tuple[str, ...],
+    evidence_ids: tuple[str, ...],
+    *,
+    judgment_ids: tuple[str, ...],
 ) -> AuthoringContract:
     state = AuthoringStateRef(
         id="evidence.projected",
         subject_refs=subject_refs,
         evidence_ids=evidence_ids,
     )
-    return AuthoringContract(subject_refs=subject_refs, states=(state,), transitions=())
+    return normalize_contract(
+        AuthoringContract(
+            subject_refs=subject_refs,
+            states=(state,),
+            transitions=(),
+            judgment_requirements=tuple(
+                AuthoringJudgmentRequirement(
+                    id=judgment_id,
+                    subjects=subject_refs,
+                    evidence_ids=evidence_ids,
+                )
+                for judgment_id in judgment_ids
+            ),
+        )
+    )
+
+
+def _unresolved_ids(evidence: Iterable[object]) -> tuple[str, ...]:
+    """Return first-seen unresolved ids from homogeneous column evidence."""
+
+    return tuple(
+        dict.fromkeys(
+            unresolved for item in evidence for unresolved in getattr(item, "unresolved", ())
+        )
+    )
+
+
+def _render_judgment_requirements(
+    requirements: tuple[AuthoringJudgmentRequirement, ...],
+) -> tuple[str, ...]:
+    return tuple(
+        f"{requirement.id}: subjects={', '.join(requirement.subjects)}; "
+        f"authority={requirement.authority}"
+        for requirement in requirements
+    )
 
 
 def _reacquire_repair(columns: tuple[str, ...]) -> AuthoringRepair:

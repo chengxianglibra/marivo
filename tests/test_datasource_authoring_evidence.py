@@ -149,6 +149,71 @@ def test_evidence_dto_annotations_are_concrete_and_runtime_resolvable() -> None:
     assert get_type_hints(RelationshipEvidenceResult)["left_profile"] == ColumnProfile | None
 
 
+def test_evidence_cards_and_contracts_expose_human_judgment_boundaries(
+    snapshot: DiscoverySnapshot,
+) -> None:
+    cases = (
+        (
+            snapshot.entity(columns=("query_id",)),
+            {
+                "business_identity",
+                "cross_partition_uniqueness",
+                "temporal_stability",
+                "key_reuse",
+            },
+        ),
+        (
+            snapshot.dimensions(columns=("region",)),
+            {
+                "category_meaning",
+                "label_semantics",
+                "privacy_policy",
+                "business_definition",
+            },
+        ),
+        (
+            snapshot.time_dimensions(columns=("log_date",)),
+            {"business_event_time", "timezone", "default_time_dimension"},
+        ),
+        (
+            snapshot.measures(columns=("amount",)),
+            {"aggregation", "unit", "additivity", "business_definition"},
+        ),
+    )
+
+    for result, expected in cases:
+        requirements = result.contract().judgment_requirements
+        assert {requirement.id for requirement in requirements} == expected
+        assert all(requirement.evidence_ids == (snapshot.id,) for requirement in requirements)
+        assert "non-mechanical judgment requirements" in result.render()
+
+
+def test_relationship_evidence_exposes_business_judgments_without_recommending_object(
+    snapshot: DiscoverySnapshot,
+) -> None:
+    other = _snapshot(
+        (_profile("id", list(range(1000)), data_type="int64"),),
+        snapshot_id="snapshot_right",
+        datasource="customers",
+        table="customers",
+    )
+
+    result = snapshot.relationships(
+        other,
+        left=("query_id",),
+        right=("id",),
+    )
+
+    assert {item.id for item in result.contract().judgment_requirements} == {
+        "relationship_business_meaning",
+        "cardinality",
+        "scope_comparability",
+    }
+    assert result.contract().transitions == ()
+    assert "left.query_id" in result.render()
+    assert "right.id" in result.render()
+
+
 def test_fixed_time_rules_are_narrow_and_count_every_value(
     snapshot: DiscoverySnapshot,
 ) -> None:

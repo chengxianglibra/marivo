@@ -12,6 +12,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
+    AuthoringJudgmentRequirement,
     AuthoringStateRef,
     AuthoringTransition,
 )
@@ -95,7 +96,52 @@ def test_projection_result_is_terminal_evidence_not_semantic_recommendation(
         ),
     )
     assert result.contract().transitions == ()
+    assert [requirement.id for requirement in result.contract().judgment_requirements] == [
+        "business_identity",
+        "cross_partition_uniqueness",
+        "key_reuse",
+        "temporal_stability",
+    ]
+    assert all(
+        requirement.authority == "user_or_business_owner"
+        for requirement in result.contract().judgment_requirements
+    )
     assert not hasattr(result, "next_calls")
+
+
+def test_contract_normalizes_non_mechanical_judgments_without_transitions() -> None:
+    requirement = AuthoringJudgmentRequirement(
+        id="business_identity",
+        subjects=("order_id",),
+        evidence_ids=("snapshot-1",),
+    )
+    contract = normalize_contract(
+        AuthoringContract(
+            subject_refs=("order_id",),
+            states=(),
+            transitions=(),
+            judgment_requirements=(
+                requirement.model_copy(update={"id": "temporal_stability"}),
+                requirement,
+                requirement,
+            ),
+        )
+    )
+
+    assert tuple(item.id for item in contract.judgment_requirements) == (
+        "business_identity",
+        "temporal_stability",
+    )
+    assert contract.transitions == ()
+    assert contract.model_dump()["judgment_requirements"][0] == {
+        "id": "business_identity",
+        "subjects": ("order_id",),
+        "evidence_ids": ("snapshot-1",),
+        "authority": "user_or_business_owner",
+    }
+    rendered = contract.render()
+    assert "non-mechanical judgment requirements" in rendered
+    assert "business_identity" in rendered
 
 
 def test_spec_contract_exposes_only_register_transition() -> None:

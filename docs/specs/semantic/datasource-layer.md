@@ -64,8 +64,9 @@ entity is registered.
   connection fields and env-var *names* — never resolved secret values.
 - **Snapshot evidence is not authorship.** `md.inspect(...)` exposes physical
   facts before data access; one explicitly scoped sample feeds local evidence
-  projections. Those projections do not author objects, infer business meaning,
-  or carry judgment targets.
+  projections. Those projections do not author objects or infer business
+  meaning. They may expose stable, structured judgment requirements whose
+  authority remains the user or accountable business owner.
 - **Fail closed.** Missing env vars, unreachable backends, dialect/`backend_type`
   mismatch, and unsafe partition scans raise structured errors that state what
   was expected, what was received, and the concrete next step.
@@ -221,7 +222,11 @@ md.test(spec.ref).show()          # validated live round trip
 
 `md.inspect(datasource, source)` is metadata-only. It exposes schema, physical
 extent, partition state, and enforceable execution capabilities before a user-data
-read. `inspection.partitions()` is also metadata-only.
+read. Its card includes the exact source descriptor and complete real schema
+column names and types. `inspection.partitions()` is also metadata-only; its
+card identifies the value source, completeness and truncation, shows bounded
+captured values, and derives a copyable `md.partition(...)` scope template from
+those already-captured values without another query.
 
 CSV and JSON descriptors require typed `schema=` mappings so inspection never
 opens data merely to infer types. Tables use catalog schema and Parquet uses
@@ -253,11 +258,27 @@ Both guards are positive and enforceable; unsupported timeout blocks before
 execution. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
 still be large.
 
-Snapshot projections are local, column-independent views and issue no query.
+The snapshot card makes the datasource/source/scope identity, selected columns,
+coverage, and value/cache state explicit. Snapshot projections are local,
+column-independent views and issue no query; their cards and contracts mark
+`data_access=none`.
 Values default to memory-only. `persist_values=True` stores only bounded value
 evidence in plaintext project-local cache and therefore requires an explicit
 privacy judgment. Uncommon formats, keys, timezones, aggregation, units,
 additivity, relationship cardinality, and business meaning remain agent-owned.
+
+Evidence projections expose those unresolved decisions through frozen
+`AuthoringJudgmentRequirement` values. The shared shape contains `id`,
+`subjects`, `evidence_ids`, and
+`authority="user_or_business_owner"`. Mechanical `states` and `transitions`
+remain unchanged: a judgment requirement is neither a constructor action nor an
+approval record.
+
+Reacquire evidence only when a required column or required value evidence was
+not captured, the snapshot is stale for the current decision, or its
+datasource/source/scope identity does not match. Asking the same snapshot for
+entity, dimension, time, measure, relationship, or bounded-value projections is
+not a reacquisition reason and never causes data access.
 
 ### Raw SQL terminal exit
 

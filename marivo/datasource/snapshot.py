@@ -143,6 +143,31 @@ class DiscoverySnapshot(RenderableResult):
                 f"cache={self.cache_status} exhaustion={self.coverage.scope_exhaustion} "
                 f"sampling={self.coverage.sampling_method}"
             )
+            .field("scope", repr(self.scope))
+            .field("selected columns", ", ".join(self.columns))
+            .field(
+                "coverage",
+                (
+                    f"observed_rows={self.coverage.observed_row_count} "
+                    f"retained_rows={self.coverage.retained_row_count} "
+                    f"scope_exactness={self.coverage.scope_exactness}"
+                ),
+            )
+            .field(
+                "value/cache state",
+                (
+                    f"value_evidence={self.value_evidence_state} "
+                    f"persist_values={self.persist_values} cache={self.cache_status}"
+                ),
+            )
+            .field(
+                "projection effects",
+                "entity/dimensions/values/time_dimensions/measures/relationships: data_access=none",
+            )
+            .field(
+                "reacquire boundary",
+                "only missing columns, missing retained values, stale evidence, or identity mismatch",
+            )
             .table(
                 columns=("column", "type", "nulls", "distinct"),
                 rows=(

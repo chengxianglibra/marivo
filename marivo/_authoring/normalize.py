@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from marivo._authoring.model import AuthoringContract, AuthoringTransition
+from marivo._authoring.model import (
+    AuthoringContract,
+    AuthoringJudgmentRequirement,
+    AuthoringTransition,
+)
 
 
 def transition_sort_key(transition: AuthoringTransition) -> tuple[object, ...]:
@@ -37,4 +41,23 @@ def normalize_contract(contract: AuthoringContract) -> AuthoringContract:
             )
         ),
         transitions=tuple(sorted(contract.transitions, key=transition_sort_key)),
+        judgment_requirements=tuple(
+            sorted(
+                set(contract.judgment_requirements),
+                key=_judgment_sort_key,
+            )
+        ),
+    )
+
+
+def _judgment_sort_key(
+    requirement: AuthoringJudgmentRequirement,
+) -> tuple[object, ...]:
+    """Return the deterministic ordering key for a human judgment boundary."""
+
+    return (
+        requirement.id,
+        requirement.subjects,
+        requirement.evidence_ids,
+        requirement.authority,
     )

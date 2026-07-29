@@ -156,6 +156,17 @@ def test_registered_global_composition_topics_win_over_native_duplicates(target:
     assert f"semantic.{target}" in text
 
 
+def test_global_authoring_routes_preflight_and_exact_project_catalog_reads() -> None:
+    text = _text("authoring")
+
+    assert "Before data access or capability enumeration" in text
+    assert "Ask only the earliest missing accountable input and stop" in text
+    assert "Do not bundle owner with an independent business decision" in text
+    assert "A user-named build target satisfies target-concept preflight" in text
+    assert "datasource_catalog = md.load()" in text
+    assert "semantic_catalog = ms.load()" in text
+
+
 @pytest.mark.parametrize(
     "target",
     (

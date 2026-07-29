@@ -8,6 +8,7 @@ from typing import Literal
 
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
+from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.registry import (
     ERROR_TYPES,
     INPUT_FAMILIES,
@@ -154,6 +155,25 @@ def validate_semantic_live_surface() -> None:
                 public_entrypoint=descriptor.public_entrypoint,
                 callable_obj=callable_obj,
             )
+
+    source_authored_ids = {
+        descriptor.canonical_id
+        for descriptor in REGISTRY._descriptors
+        if descriptor.output_family is not None
+        and descriptor.output_family.startswith("Ref[")
+        and descriptor.effects is not None
+        and "semantic_source" in descriptor.effects.mutations
+    }
+    assert set(REGISTRY._source_contracts) == source_authored_ids
+    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+
+    for source_contract in REGISTRY._source_contracts.values():
+        assert source_contract.catalog_collection in CATALOG_COLLECTION_PROPERTIES
+        assert source_contract.path_template.startswith("models/semantic/")
+        assert source_contract.canonical_identity_template.startswith("<domain>")
+        for target in source_contract.prerequisite_targets:
+            owner_registry = REGISTRY if target.surface == "semantic" else DATASOURCE_REGISTRY
+            owner_registry.by_canonical_id(target.canonical_id or "")
 
     group_names: tuple[
         Literal[

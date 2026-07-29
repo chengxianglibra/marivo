@@ -111,6 +111,7 @@ def _semantic_authoring_namespace() -> dict[str, object]:
     return {
         "md": md,
         "ms": ms,
+        "accountable_owner": "Help Example Owner",
         "warehouse": md.duckdb("warehouse", path=":memory:"),
         "orders": orders,
         "customers": customers,
@@ -216,3 +217,61 @@ def test_every_semantic_minimal_example_executes(
     context = LoaderContext(default_domain="sales")
     with LoaderContextManager(context):
         _exec_inspectable(example, namespace)
+
+
+def test_representative_source_authored_examples_load_from_real_project_files(
+    semantic_project_factory,
+) -> None:
+    """Source examples must work through the real loader, not only a hidden context."""
+
+    examples = {
+        canonical_id: example
+        for canonical_id, example in _SEMANTIC_EXAMPLES
+        if canonical_id
+        in {
+            "domain",
+            "entity",
+            "dimension_column",
+            "time_dimension_column",
+            "measure_column",
+            "aggregate",
+        }
+    }
+    domain_source = "\n".join(
+        (
+            "import marivo.semantic as ms",
+            "accountable_owner = 'Help Example Owner'",
+            examples["domain"],
+            "",
+        )
+    )
+    object_source = "\n".join(
+        (
+            "import marivo.datasource as md",
+            "import marivo.semantic as ms",
+            examples["entity"],
+            examples["dimension_column"],
+            examples["time_dimension_column"],
+            examples["measure_column"],
+            examples["aggregate"],
+            "",
+        )
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": domain_source,
+            "sales/models.py": object_source,
+        },
+        load=False,
+    )
+
+    result = project.load()
+
+    assert result.status == "ready", result.errors
+    assert result.registry is not None
+    assert "sales" in result.registry.domains
+    assert "sales.orders" in result.registry.entities
+    assert "sales.orders.region" in result.registry.dimensions
+    assert "sales.orders.log_date" in result.registry.dimensions
+    assert "sales.orders.amount" in result.registry.measures
+    assert "sales.us_revenue" in result.registry.metrics

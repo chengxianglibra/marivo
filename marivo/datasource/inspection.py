@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +99,36 @@ class PartitionInspection(RenderableResult):
             label="partition fields",
             value=", ".join(field.name for field in self.partitioning.fields) or "none",
         )
+        card.field("value source", self.partitioning.value_source or "none")
+        card.field("values complete", str(self.partitioning.values_complete))
+        card.field("values truncated", str(self.partitioning.truncated))
+        if self.partitioning.values:
+            card.table(
+                columns=("captured partition",),
+                rows=((repr(dict(value)),) for value in self.partitioning.values),
+                row_count=len(self.partitioning.values),
+                label="captured partition values",
+                show_omission_counts=True,
+            )
+            card.field(
+                "scope template",
+                (
+                    f"md.partition({dict(self.partitioning.values[0])!r}, "
+                    "max_rows=<positive int>, timeout_seconds=<positive int>)"
+                ),
+            )
+        elif self.partitioning.state == "known" and self.partitioning.value_source is None:
+            card.field(
+                "scope template",
+                "md.unpruned(max_rows=<positive int>, timeout_seconds=<positive int>) "
+                "because the partition-value hook captured no values",
+            )
+        elif self.partitioning.state == "known":
+            card.field(
+                "scope template",
+                "unavailable: supply one complete mapping for "
+                + ", ".join(field.name for field in self.partitioning.fields),
+            )
         if self.issues:
             card.listing("issues", self.issues)
         return card
@@ -139,6 +170,10 @@ class SourceInspection(RenderableResult):
                 ".sample(...)",
                 ".show()",
             ),
+        )
+        card.field(
+            label="source descriptor",
+            value=json.dumps(self.source.to_dict(), sort_keys=True, separators=(",", ":")),
         )
         card.field(
             label="physical extent",

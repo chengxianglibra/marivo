@@ -78,6 +78,23 @@ def test_help_text_entity_contains_signature_and_example() -> None:
     assert "ms.entity" in text
     assert "Signature:" in text
     assert "Example:" in text
+    assert "Declaration fragment; execute only when ms.load()" in text
+    assert "Source path: models/semantic/<domain>/<module>.py" in text
+    assert 'marivo.help("semantic.domain")' in text
+    assert 'marivo.help("datasource.authoring")' in text
+    assert "Business judgments before authoring:" in text
+    assert "entry = catalog.entities.get('<domain>.<entity>')" in text
+    assert "entry.show()" in text
+    assert "entry.contract().show()" in text
+
+
+def test_domain_help_requires_accountable_owner_without_inventing_one() -> None:
+    text = _text("domain")
+
+    assert "Source path: models/semantic/<domain>/_domain.py" in text
+    assert "accountable_owner" in text
+    assert "Mina Zhang" not in text
+    assert "entry = catalog.domains.get('<domain>')" in text
 
 
 def test_help_text_metric_contains_entrypoint_and_variants() -> None:
@@ -234,6 +251,9 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "handoff" in text
     assert "semantic.ready" in text
     assert "analysis handoff" in text
+    assert "models/datasources/<datasource>.py" in text
+    assert "models/semantic/<domain>/_domain.py" in text
+    assert "entry = catalog.<collection>.get('<canonical identity>')" in text
     assert _DATASOURCE_IMPORT not in text
     assert _SEMANTIC_IMPORT in text
 
@@ -274,3 +294,16 @@ def test_help_text_unknown_target_raises_with_repair() -> None:
 def test_help_text_for_entity_mentions_consumers() -> None:
     text = _text("entity")
     assert "Consumers:" in text
+
+
+def test_every_source_authored_constructor_has_placement_and_postcondition() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    for canonical_id in REGISTRY._source_contracts:
+        text = _text(canonical_id)
+        assert "Loader placement:" in text, canonical_id
+        assert "Source path: models/semantic/" in text, canonical_id
+        assert "Business judgments before authoring:" in text, canonical_id
+        assert "Postcondition after saving:" in text, canonical_id
+        assert "entry.show()" in text, canonical_id
+        assert "entry.contract().show()" in text, canonical_id
