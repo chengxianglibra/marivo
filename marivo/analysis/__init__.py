@@ -49,6 +49,7 @@ from marivo.analysis.frames.base import (
     ArtifactInputRequirement,
     ArtifactPrecondition,
     ArtifactSchema,
+    ArtifactSemanticInput,
     ArtifactState,
     BaseFrame,
     BaseFrameMeta,

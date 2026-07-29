@@ -14,6 +14,7 @@ from marivo.analysis.event import CompletenessDeclaration
 from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
+    _ArtifactSemanticBinding,
     _display_column_names,
     _FrameAuxiliaryReceipt,
     _FrameAuxiliaryTable,
@@ -844,6 +845,36 @@ class LifecycleFrame(BaseFrame):
             f"model={self.meta.state_model_ref.path} rows={self.meta.row_count}"
         )
 
+    def _semantic_input_bindings(self) -> tuple[_ArtifactSemanticBinding, ...]:
+        """Expose retained StateModel, Event, and reducer-axis acquisition paths."""
+        bindings = [
+            _ArtifactSemanticBinding(
+                role="state_model",
+                semantic_kind=SemanticKind.STATE_MODEL,
+                semantic_path=self.meta.state_model_ref.path,
+            )
+        ]
+        if self.meta.semantic_kind == "history":
+            bindings.extend(
+                _ArtifactSemanticBinding(
+                    role=f"event[{trigger.key}]",
+                    semantic_kind=SemanticKind.EVENT,
+                    semantic_path=trigger.event_ref.path,
+                )
+                for trigger in self.meta.triggers
+            )
+        elif self.meta.semantic_kind == "distribution":
+            bindings.extend(
+                _ArtifactSemanticBinding(
+                    role="dimension_axis",
+                    semantic_kind=axis.dimension_ref.kind,
+                    semantic_path=axis.dimension_ref.path,
+                    output_column=axis.output_column,
+                )
+                for axis in self.meta.axes
+            )
+        return tuple(bindings)
+
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
         # History discloses the exact business choices behind the artifact:
@@ -866,6 +897,7 @@ class LifecycleFrame(BaseFrame):
         )
         for label, value in fields:
             card = card.field(label, value)
+        self._append_artifact_interface_sections(card)
         self._append_evidence_sections(card)
         return card.lazy_table(
             columns=columns,

@@ -10,6 +10,8 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.refs import DimensionKind, Ref, SemanticKind
+from marivo.render import AgentResult
+from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic.catalog import (
     CatalogCollection,
     CatalogEntry,
@@ -169,6 +171,37 @@ def test_catalog_collection_implements_shared_result_and_consumption_protocol(
     assert "metric:sales.revenue" in metrics.render()
     assert metrics.show() is None
     assert "metric:sales.revenue" in capsys.readouterr().out
+
+
+def test_semantic_catalog_is_a_bounded_self_describing_result(
+    semantic_project_factory,
+    capsys,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    assert isinstance(catalog, AgentResult)
+    assert "SemanticCatalog" in repr(catalog)
+    assert "\n" not in repr(catalog)
+    rendered = catalog.render()
+    for member in CATALOG_MEMBER_CONTRACTS:
+        assert member.property_name in rendered
+        assert member.entry_type_name in rendered
+    assert catalog.definition_fingerprint in rendered
+    assert catalog.show() is None
+    assert capsys.readouterr().out.rstrip() == rendered
+
+
+def test_renderable_catalog_objects_expose_only_public_dir_members(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    assert "metrics" in dir(catalog)
+    assert "render" in dir(catalog)
+    assert "_index" not in dir(catalog)
+    assert "items" in dir(catalog.metrics)
+    assert "get" in dir(catalog.metrics)
+    assert "_catalog" not in dir(catalog.metrics)
 
 
 def test_catalog_collection_has_one_public_kind_type_parameter() -> None:

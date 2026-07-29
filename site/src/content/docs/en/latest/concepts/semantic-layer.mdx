@@ -706,6 +706,7 @@ Once declarations are in place, load the catalog and inspect it:
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
+catalog.show()                            # all typed collections and counts
 catalog.domains.show()                    # top-level domains
 catalog.metrics.show()                    # just metrics across all domains
 
@@ -721,6 +722,13 @@ out-of-scope object through a path or ref. Use the strict ref-only
 `catalog.require(ref)` when identity comes from configuration, persistence, or
 logs. Entry cards show the exact kind, full path, `.ref`, and bounded current
 axes; omitted members point to `details().show()`.
+
+The global collections are `domains`, `datasources`, `entities`, `dimensions`,
+`time_dimensions`, `measures`, `metrics`, `relationships`, `events`, and
+`state_models`. `repr(catalog)` points to the same bounded, zero-query catalog
+card that `catalog.show()` prints. Collection help exposes the exact
+`.items`, `.refs`, `.get(...)`, `.render()`, and `.show()` surface; lookup
+remains exact and does not use fuzzy search.
 
 After authoring or changing an object, run **readiness** to certify that the
 selected definition and its scoped runtime evidence are current:

@@ -128,8 +128,8 @@ creates one, and sets it current. The narrow session API is `get_or_create`,
 
 `repr(session)` points to `session.show()`. Call it for a bounded state card
 with the question, read/write status, report timezone, timestamps, and the
-available catalog/job/frame inspection paths; `session.render()` returns the
-same text without writing stdout.
+registered direct operators, namespaces, and catalog/job/frame inspection
+paths; `session.render()` returns the same text without writing stdout.
 
 Use `catalog.domains.show()` and scoped navigation to discover entries, then inspect
 every metric, dimension, and time dimension used by the analysis with
@@ -164,6 +164,13 @@ or carry values across buckets. Other unsampled folds fail with a structured
 planning error.
 :::
 
+`MetricFrame.show()` makes these persisted execution facts visible: the
+observation window, grain, axes and slices; aggregation, additivity, and
+reaggregation status; and any fold strategy, status axis, sample interval, or
+snapshot identity keys. Sampled folds include expected-slot coverage.
+Unsampled snapshot selection explicitly reports that expected-sample coverage
+is not applicable. A recovered frame renders the same facts without re-querying.
+
 ## Match an Event journey
 
 Event analysis starts from typed participant roles and an ordered EventPattern.
@@ -171,9 +178,13 @@ Each step gets a stable snake-case key; the role carries its Event and subject
 Entity, and the subject Entity's primary key supplies identity.
 
 ```python
-cart_user = ms.participant_role(event=cart_created, name="user")
-checkout_user = ms.participant_role(event=checkout_started, name="user")
-payment_user = ms.participant_role(event=payment_succeeded, name="user")
+cart_created = catalog.events.get("commerce.cart_created")
+checkout_started = catalog.events.get("commerce.checkout_started")
+payment_succeeded = catalog.events.get("commerce.payment_succeeded")
+
+cart_user = ms.participant_role(event=cart_created.ref, name="user")
+checkout_user = ms.participant_role(event=checkout_started.ref, name="user")
+payment_user = ms.participant_role(event=payment_succeeded.ref, name="user")
 
 cart_step = mv.step(participant=cart_user, key="cart")
 checkout_step = mv.step(participant=checkout_user, key="checkout")
@@ -394,6 +405,11 @@ across almost every intent:
 | `slice_by` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
 | `AlignmentPolicy` | `mv.window_bucket()` | How two windows are paired for `compare` / `correlate`. |
 
+Treat a supplied `time_scope.end` literally. Marivo does not include that
+bound, and an agent should not advance it to reinterpret the request as an
+inclusive range. For example, `end="2026-06-30"` excludes June 30; use
+`end="2026-07-01"` only when the intended range includes all of June.
+
 The result's **semantic kind** follows from `grain` and `dimensions`: `scalar`
 (neither), `time_series` (grain only), `segmented` (dimensions only), or `panel`
 (both).
@@ -466,6 +482,16 @@ axis column, Marivo uses the qualified metric id instead and appends a
 deterministic `#N` suffix if that name is also occupied. Multi-metric frames
 continue to use one column per metric, so frames can be merged without
 arity-specific renames. Read `frame.value_columns` for the exact public name(s).
+
+Every artifact card also prints `output_columns`, the exact ordered names
+returned by `.columns` and `to_pandas()`. The mechanical contract exposes the
+same tuple as `contract.output_columns`, derived directly from
+`contract.artifact_schema.columns`. For Metric, Event, and Lifecycle artifacts,
+`contract.semantic_inputs` records the retained semantic role/path, any bound
+output column, the exact `session.catalog.<collection>.get("<path>")`
+reacquisition call, and its focused catalog help target. The card renders the
+same acquisition calls, so agents do not need to infer a catalog collection
+from a result column.
 
 Typed transforms still use the internal canonical `value` column. For example,
 `frame.transform.filter(predicate=lambda data: data["value"] > 0)` remains valid;

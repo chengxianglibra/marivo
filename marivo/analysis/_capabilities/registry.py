@@ -11,6 +11,7 @@ All names are private to ``marivo.analysis``.  Nothing is added to
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -34,11 +35,72 @@ from marivo.analysis._capabilities.model import (
     RootGroup,
     SameAsInputFamily,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity
+from marivo.refs import SemanticKind
+from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
 # ---------------------------------------------------------------------------
-# Public type/member allowlists
+# Public type/member contracts
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PublicObjectContract:
+    """Stable intrinsic members for one public analysis object."""
+
+    properties: tuple[str, ...] = ()
+    intrinsic_methods: tuple[str, ...] = ("render", "show")
+
+
+@dataclass(frozen=True)
+class SemanticHandoffContract:
+    """Analysis continuation owned by one semantic catalog kind."""
+
+    semantic_kind: SemanticKind
+    collection_property: str
+    input_family: InputFamily | None = None
+    preparation_targets: tuple[LiveHelpTarget, ...] = ()
+
+
+def _catalog_property(kind: SemanticKind) -> str:
+    return next(member.property_name for member in CATALOG_MEMBER_CONTRACTS if member.kind is kind)
+
+
+SEMANTIC_HANDOFF_CONTRACTS: Mapping[SemanticKind, SemanticHandoffContract] = MappingProxyType(
+    {
+        SemanticKind.METRIC: SemanticHandoffContract(
+            SemanticKind.METRIC,
+            _catalog_property(SemanticKind.METRIC),
+            "MetricSemantic",
+        ),
+        SemanticKind.DIMENSION: SemanticHandoffContract(
+            SemanticKind.DIMENSION,
+            _catalog_property(SemanticKind.DIMENSION),
+            "DimensionSemantic",
+        ),
+        SemanticKind.TIME_DIMENSION: SemanticHandoffContract(
+            SemanticKind.TIME_DIMENSION,
+            _catalog_property(SemanticKind.TIME_DIMENSION),
+            "TimeDimensionSemantic",
+        ),
+        SemanticKind.EVENT: SemanticHandoffContract(
+            SemanticKind.EVENT,
+            _catalog_property(SemanticKind.EVENT),
+            preparation_targets=(
+                LiveHelpTarget(surface="semantic", canonical_id="participant_role"),
+                LiveHelpTarget(surface="analysis", canonical_id="step"),
+                LiveHelpTarget(surface="analysis", canonical_id="sequence"),
+                LiveHelpTarget(surface="analysis", canonical_id="events.match"),
+            ),
+        ),
+        SemanticKind.STATE_MODEL: SemanticHandoffContract(
+            SemanticKind.STATE_MODEL,
+            _catalog_property(SemanticKind.STATE_MODEL),
+            "StateModelSemantic",
+        ),
+    }
+)
 
 PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
@@ -145,34 +207,27 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 
-PUBLIC_OBJECT_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
     {
-        "Session": (
-            "render",
-            "show",
-            "jobs",
-            "recent_jobs",
-            "frame_summaries",
-            "get_frame",
+        "Session": PublicObjectContract(
+            properties=(
+                "id",
+                "name",
+                "question",
+                "catalog",
+                "created_at",
+                "updated_at",
+                "report_tz_name",
+                "is_read_only",
+                "evidence",
+                "discover",
+                "events",
+                "lifecycle",
+            ),
         ),
-    }
-)
-
-PUBLIC_OBJECT_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {
-        "Session": (
-            "id",
-            "name",
-            "question",
-            "catalog",
-            "created_at",
-            "updated_at",
-            "report_tz_name",
-            "is_read_only",
-            "events",
-            "lifecycle",
-        ),
-        "FrameSummaryEntry": ("id",),
+        "SessionEvents": PublicObjectContract(),
+        "SessionLifecycle": PublicObjectContract(),
+        "FrameSummaryEntry": PublicObjectContract(properties=("id",)),
     }
 )
 
@@ -295,6 +350,138 @@ class CapabilityRegistry:
     @property
     def constructor_consumers(self) -> Mapping[str, tuple[str, ...]]:
         return self._constructor_consumers
+
+    def public_member_names(self, receiver_family: str) -> tuple[str, ...]:
+        """Return registered public methods owned by one receiver type."""
+
+        names: list[str] = []
+        for descriptor in self._descriptors:
+            receiver: str | None = None
+            if isinstance(descriptor, OperatorCapability):
+                receiver = descriptor.receiver
+            elif isinstance(descriptor, ReadCapability):
+                receiver = descriptor.receiver_family
+            elif (
+                isinstance(descriptor, RecoveryCapability)
+                and descriptor.callable_path is not None
+                and f".{receiver_family}." in descriptor.callable_path
+            ):
+                receiver = receiver_family
+            if receiver != receiver_family:
+                continue
+            callable_name = descriptor.public_entrypoint.partition("(")[0]
+            member_name = callable_name.rsplit(".", 1)[-1]
+            if member_name not in names:
+                names.append(member_name)
+        return tuple(names)
+
+    def public_member_calls(self, receiver_family: str) -> tuple[str, ...]:
+        """Return receiver-relative registered call skeletons."""
+
+        calls: list[str] = []
+        member_names = set(self.public_member_names(receiver_family))
+        for descriptor in self._descriptors:
+            callable_text = descriptor.public_entrypoint
+            callable_path, separator, call_suffix = callable_text.partition("(")
+            callable_name = callable_path.rsplit(".", 1)[-1]
+            if callable_name not in member_names:
+                continue
+            if isinstance(descriptor, OperatorCapability):
+                receiver = descriptor.receiver
+            elif isinstance(descriptor, ReadCapability):
+                receiver = descriptor.receiver_family
+            elif (
+                isinstance(descriptor, RecoveryCapability)
+                and descriptor.callable_path is not None
+                and f".{receiver_family}." in descriptor.callable_path
+            ):
+                receiver = receiver_family
+            else:
+                receiver = None
+            if receiver != receiver_family:
+                continue
+            call = f".{callable_name}"
+            if separator:
+                call += f"({call_suffix}"
+            if call not in calls:
+                calls.append(call)
+        return tuple(calls)
+
+    def public_object_members(
+        self,
+        type_name: str,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return registry-backed properties and methods for one public object."""
+
+        contract = PUBLIC_OBJECT_CONTRACTS.get(type_name)
+        if contract is None:
+            return (), ()
+        methods = tuple(
+            dict.fromkeys((*contract.intrinsic_methods, *self.public_member_names(type_name)))
+        )
+        return contract.properties, methods
+
+    def producer_targets(self, input_family: InputFamily) -> tuple[LiveHelpTarget, ...]:
+        """Return registered producers and acquisition paths for one input family."""
+
+        targets: list[LiveHelpTarget] = []
+        for descriptor in self._descriptors:
+            if isinstance(descriptor, OperatorCapability):
+                family = descriptor.output_contract.family
+                if not isinstance(family, SameAsInputFamily) and family == input_family:
+                    targets.append(
+                        LiveHelpTarget(
+                            surface="analysis",
+                            canonical_id=descriptor.help_target,
+                        )
+                    )
+            elif (
+                isinstance(descriptor, ConstructorCapability)
+                and descriptor.produced_input_family == input_family
+            ):
+                targets.append(
+                    LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id=descriptor.help_target,
+                    )
+                )
+        for handoff in SEMANTIC_HANDOFF_CONTRACTS.values():
+            if handoff.input_family == input_family:
+                targets.append(
+                    LiveHelpTarget(
+                        surface="analysis",
+                        canonical_id=f"catalog.{handoff.collection_property}",
+                    )
+                )
+        if input_family == "EventPattern":
+            targets = [
+                target
+                for target in targets
+                if not (target.surface == "analysis" and target.canonical_id == "sequence")
+            ]
+            targets.extend(SEMANTIC_HANDOFF_CONTRACTS[SemanticKind.EVENT].preparation_targets[:-1])
+        return tuple(dict.fromkeys(targets))
+
+    def semantic_handoff(self, semantic_kind: str) -> SemanticHandoffContract | None:
+        """Return the typed analysis handoff for one semantic kind value."""
+
+        try:
+            kind = SemanticKind(semantic_kind)
+        except ValueError:
+            return None
+        return SEMANTIC_HANDOFF_CONTRACTS.get(kind)
+
+    def semantic_handoffs_for_input_family(
+        self,
+        input_family: InputFamily,
+    ) -> tuple[SemanticHandoffContract, ...]:
+        """Return semantic acquisition contracts satisfying one input family."""
+
+        return tuple(
+            handoff
+            for handoff in SEMANTIC_HANDOFF_CONTRACTS.values()
+            if handoff.input_family == input_family
+        )
 
     # -- Lookup -----------------------------------------------------------
 
@@ -493,6 +680,7 @@ def _build_registry() -> CapabilityRegistry:
                         "    cohort=subjects,\n"
                         ")"
                     ),
+                    requires=("subjects",),
                 ),
             ),
         )
@@ -546,6 +734,7 @@ def _build_registry() -> CapabilityRegistry:
                         '    matching=mv.every_start(completion_assignment="exclusive"),\n'
                         ")"
                     ),
+                    requires=("cart_user", "payment_buyer"),
                 ),
                 HelpExample(
                     label="Repeated attempts with shared completion assignment",
@@ -563,6 +752,7 @@ def _build_registry() -> CapabilityRegistry:
                         '    matching=mv.every_start(completion_assignment="shared"),\n'
                         ")"
                     ),
+                    requires=("cart_user", "payment_buyer"),
                 ),
                 HelpExample(
                     label="Journey matching scoped by a typed SubjectSet",
@@ -579,6 +769,7 @@ def _build_registry() -> CapabilityRegistry:
                         "    completeness=completeness,\n"
                         ")"
                     ),
+                    requires=("completeness", "pattern", "subjects"),
                 ),
             ),
         )
@@ -667,11 +858,15 @@ def _build_registry() -> CapabilityRegistry:
                     code=(
                         "scoped_history = session.lifecycle.replay(\n"
                         '    ms.ref.state_model("commerce.order_lifecycle"),\n'
-                        "    window=next_window,\n"
+                        "    window=mv.TimeScope(\n"
+                        '        start="2026-08-01T00:00:00Z",\n'
+                        '        end="2026-09-01T00:00:00Z",\n'
+                        "    ),\n"
                         "    seed=mv.from_inception(),\n"
                         "    cohort=subjects,\n"
                         ")"
                     ),
+                    requires=("subjects",),
                 ),
             ),
         )
@@ -732,6 +927,7 @@ def _build_registry() -> CapabilityRegistry:
                                 '    axes=[ms.ref.dimension("commerce.orders.region")],\n'
                                 ")"
                             ),
+                            requires=("history",),
                         ),
                     )
                     if capability_id == "lifecycle.distribution"
@@ -838,6 +1034,7 @@ def _build_registry() -> CapabilityRegistry:
                 HelpExample(
                     label="Compare two exact funnel scopes",
                     code="delta = session.compare(current_funnel, baseline_funnel)",
+                    requires=("baseline_funnel", "current_funnel"),
                 ),
             ),
         )
@@ -889,6 +1086,7 @@ def _build_registry() -> CapabilityRegistry:
                         "    target=mv.funnel_loss_rate(step=payment_step),\n"
                         ")"
                     ),
+                    requires=("channel", "delta", "payment_step"),
                 ),
             ),
         )
@@ -1345,13 +1543,17 @@ def _build_registry() -> CapabilityRegistry:
 
     # -- Constructors -----------------------------------------------------
 
-    constructor_specs: tuple[tuple[str, str, str, str, object, str], ...] = (
+    constructor_specs: tuple[
+        tuple[str, str, str, str, object, str, InputFamily | None],
+        ...,
+    ] = (
         (
             "funnel_loss_rate",
             "mv.funnel_loss_rate(...)",
             "funnel_loss_rate",
             "Target one exact non-initial funnel PatternStep loss rate.",
             funnel_loss_rate,
+            "FunnelLossRate",
             "FunnelLossRate",
         ),
         (
@@ -1361,6 +1563,7 @@ def _build_registry() -> CapabilityRegistry:
             "Construct one typed Event Journey step from a participant role.",
             step,
             "PatternStep",
+            None,
         ),
         (
             "sequence",
@@ -1368,6 +1571,7 @@ def _build_registry() -> CapabilityRegistry:
             "sequence",
             "Construct an ordered EventPattern from typed steps.",
             sequence,
+            "EventPattern",
             "EventPattern",
         ),
         (
@@ -1377,6 +1581,7 @@ def _build_registry() -> CapabilityRegistry:
             "Choose the earliest first-step occurrence per subject.",
             first_per_subject,
             "FirstPerSubject",
+            "EventMatchingPolicy",
         ),
         (
             "every_start",
@@ -1385,6 +1590,7 @@ def _build_registry() -> CapabilityRegistry:
             "Create one attempt per first-step occurrence.",
             every_start,
             "EveryStart",
+            "EventMatchingPolicy",
         ),
         (
             "declared_complete_through",
@@ -1392,6 +1598,7 @@ def _build_registry() -> CapabilityRegistry:
             "declared_complete_through",
             "Declare exact Event inputs complete through a follow-up bound.",
             declared_complete_through,
+            "CompletenessDeclaration",
             "CompletenessDeclaration",
         ),
         (
@@ -1401,6 +1608,7 @@ def _build_registry() -> CapabilityRegistry:
             "Select resolved subjects lost before one exact EventPattern step.",
             dropped_before,
             "DroppedBefore",
+            "SubjectSelection",
         ),
         (
             "from_inception",
@@ -1409,6 +1617,7 @@ def _build_registry() -> CapabilityRegistry:
             "Construct the required first-inception Lifecycle replay seed.",
             from_inception,
             "FromInception",
+            "LifecycleSeed",
         ),
         (
             "in_state",
@@ -1417,6 +1626,7 @@ def _build_registry() -> CapabilityRegistry:
             "Select subjects in one exact modeled state at an explicit instant.",
             in_state,
             "InState",
+            "SubjectSelection",
         ),
         (
             "window_bucket",
@@ -1424,6 +1634,7 @@ def _build_registry() -> CapabilityRegistry:
             "window_bucket",
             "Construct a window-bucket alignment policy.",
             window_bucket,
+            "AlignmentPolicy",
             "AlignmentPolicy",
         ),
         (
@@ -1433,6 +1644,7 @@ def _build_registry() -> CapabilityRegistry:
             "Construct a day-of-week calendar alignment policy.",
             dow_aligned,
             "AlignmentPolicy",
+            "AlignmentPolicy",
         ),
         (
             "holiday_aligned",
@@ -1440,6 +1652,7 @@ def _build_registry() -> CapabilityRegistry:
             "holiday_aligned",
             "Construct a holiday calendar alignment policy.",
             holiday_aligned,
+            "AlignmentPolicy",
             "AlignmentPolicy",
         ),
         (
@@ -1449,6 +1662,7 @@ def _build_registry() -> CapabilityRegistry:
             "Construct a holiday-then-day-of-week alignment policy.",
             holiday_and_dow_aligned,
             "AlignmentPolicy",
+            "AlignmentPolicy",
         ),
         (
             "TimeScope",
@@ -1457,6 +1671,7 @@ def _build_registry() -> CapabilityRegistry:
             "Half-open time interval [start, end) for observe time_scope.",
             TimeScope,
             "TimeScope",
+            "TimeScopeInput",
         ),
         (
             "AbsoluteWindow",
@@ -1465,6 +1680,7 @@ def _build_registry() -> CapabilityRegistry:
             "Half-open time interval [start, end) with optional grain.",
             AbsoluteWindow,
             "AbsoluteWindow",
+            "TimeScopeInput",
         ),
         (
             "SamplingPolicy",
@@ -1473,10 +1689,19 @@ def _build_registry() -> CapabilityRegistry:
             "Sampling policy for compare and correlate.",
             SamplingPolicy,
             "SamplingPolicy",
+            "SamplingPolicy",
         ),
     )
 
-    for cap_id, entrypoint, target, summary, callable_obj, output_type in constructor_specs:
+    for (
+        cap_id,
+        entrypoint,
+        target,
+        summary,
+        callable_obj,
+        output_type,
+        produced_input_family,
+    ) in constructor_specs:
         descriptors.append(
             ConstructorCapability(
                 id=cap_id,
@@ -1499,9 +1724,14 @@ def _build_registry() -> CapabilityRegistry:
                     }
                     else "direct"
                 ),
-                constraint_ids=(),
+                constraint_ids=(
+                    ("window_absolute_parseable",)
+                    if cap_id in {"TimeScope", "AbsoluteWindow"}
+                    else ()
+                ),
                 callable_path=_module_path_for(callable_obj),
                 output_type=output_type,
+                produced_input_family=produced_input_family,
             )
         )
 
@@ -1550,6 +1780,7 @@ def _build_registry() -> CapabilityRegistry:
                 ),
                 callable_path=_module_path_for(callable_obj),
                 output_type=output_type,
+                produced_input_family="RuntimeMetricExpression",
             )
         )
 
@@ -1763,29 +1994,14 @@ def _build_registry() -> CapabilityRegistry:
     # -- Semantic catalog reads -------------------------------------------
 
     catalog_specs: tuple[tuple[str, str, str, str], ...] = (
-        (
-            "catalog.domains",
-            "session.catalog.domains",
-            "catalog.domains",
-            "Browse catalog domains.",
-        ),
-        (
-            "catalog.metrics",
-            "session.catalog.metrics",
-            "catalog.metrics",
-            "Browse catalog metrics.",
-        ),
-        (
-            "catalog.events",
-            "session.catalog.events",
-            "catalog.events",
-            "Browse catalog Events.",
-        ),
-        (
-            "catalog.dimensions",
-            "session.catalog.dimensions",
-            "catalog.dimensions",
-            "Browse catalog dimensions.",
+        *(
+            (
+                f"catalog.{member.property_name}",
+                f"session.catalog.{member.property_name}",
+                f"catalog.{member.property_name}",
+                f"Browse catalog {member.property_name}.",
+            )
+            for member in CATALOG_MEMBER_CONTRACTS
         ),
         (
             "catalog.require",
@@ -1979,7 +2195,7 @@ def _finalize_registry(
     # Generate type algebra rows
     algebra_rows = _generate_algebra_rows(descriptors, by_id)
 
-    return CapabilityRegistry(
+    registry = CapabilityRegistry(
         _descriptors=descriptors,
         _by_id=MappingProxyType(by_id),
         _by_help_target=MappingProxyType(by_help_target),
@@ -1987,6 +2203,25 @@ def _finalize_registry(
         _constructor_consumers=MappingProxyType(constructor_consumers_frozen),
         _algebra_rows=algebra_rows,
     )
+    _validate_input_producers(registry)
+    return registry
+
+
+def _validate_input_producers(registry: CapabilityRegistry) -> None:
+    """Require every closed operator input family to have a teaching path."""
+
+    missing: list[str] = []
+    for descriptor in registry.descriptors:
+        if not isinstance(descriptor, (OperatorCapability, BoundaryCapability)):
+            continue
+        for parameter, families in descriptor.accepted_inputs.items():
+            for family in families:
+                if not registry.producer_targets(family):
+                    missing.append(f"{descriptor.id}.{parameter}:{family}")
+    if missing:
+        raise ValueError(
+            "analysis input families lack registered producers: " + ", ".join(sorted(missing))
+        )
 
 
 def _validate_public_type_variants() -> None:
@@ -2066,6 +2301,24 @@ def _validate_additional_examples(descriptor: CapabilityDescriptor) -> None:
         if owned_call and len(matching_calls) != 1:
             raise ValueError(
                 f"{descriptor.id}: additional example must call {owned_call!r} exactly once"
+            )
+        assigned_names = {
+            node.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+        }
+        loaded_names = {
+            node.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+        }
+        implicit_names = {"ms", "mv", "session", *dir(builtins)}
+        external_names = loaded_names - assigned_names - implicit_names
+        if external_names != set(example.requires):
+            raise ValueError(
+                f"{descriptor.id}: additional example requirements must match "
+                f"external names: expected={sorted(external_names)!r}, "
+                f"received={sorted(example.requires)!r}"
             )
 
 

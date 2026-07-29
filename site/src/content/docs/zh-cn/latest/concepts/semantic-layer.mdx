@@ -657,6 +657,7 @@ authoring closeout 的一部分。
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
+catalog.show()                            # 全部 typed collections 与数量
 catalog.domains.show()                    # top-level domains
 catalog.metrics.show()                    # just metrics across all domains
 
@@ -670,6 +671,12 @@ region = orders.dimensions.get("region")  # one dimension object
 Scoped collection 不会通过 path 或 ref 返回 scope 外的 object。当 identity 来自配置、
 持久化状态或日志时，使用严格且只接受 ref 的 `catalog.require(ref)`。Entry card 会显示精确
 kind、full path、`.ref` 和有界的当前候选轴；被省略的成员会指向 `details().show()`。
+
+全局 collections 为 `domains`、`datasources`、`entities`、`dimensions`、
+`time_dimensions`、`measures`、`metrics`、`relationships`、`events` 和
+`state_models`。`repr(catalog)` 会指向 `catalog.show()` 打印的同一个 bounded、
+零查询 catalog card。Collection help 会完整展示 `.items`、`.refs`、`.get(...)`、
+`.render()` 与 `.show()`；lookup 仍是精确查找，不提供 fuzzy search。
 
 新建或修改 object 后，运行**就绪检查**，认证所选定义及其 scoped runtime evidence 仍然有效：
 

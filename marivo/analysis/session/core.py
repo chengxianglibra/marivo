@@ -324,18 +324,22 @@ class Session(RenderableResult):
         return f"Session id={self._id} name={self._name}"
 
     def _card(self) -> Card:
+        from marivo.analysis._capabilities.registry import REGISTRY
+
         mode = "read_only" if self.is_read_only else "writable"
+        properties, methods = REGISTRY.public_object_members("Session")
+        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        registered_calls = tuple(
+            call
+            for call in REGISTRY.public_member_calls("Session")
+            if call not in {".render()", ".show()"}
+        )
         card = Card(
             identity=self._repr_identity(),
             available=(
-                ".catalog",
-                ".events",
-                ".lifecycle",
-                ".select_subjects(...)",
-                ".frame_summaries()",
-                ".recent_jobs()",
-                ".render()",
-                ".show()",
+                *(f".{property_name}" for property_name in properties),
+                *(f".{method_name}()" for method_name in intrinsic_methods),
+                *registered_calls,
             ),
         ).status(mode)
         card.field("question", self._question or "none")
@@ -343,13 +347,6 @@ class Session(RenderableResult):
         card.field("created_at", self._created_at.isoformat())
         card.field("updated_at", self._updated_at.isoformat())
         return card
-
-    def __dir__(self) -> list[str]:
-        return sorted(
-            name
-            for name in super().__dir__()
-            if not (name.startswith("_") and not name.startswith("__"))
-        )
 
     # -- Public identity properties (read-only) --
 
@@ -1399,14 +1396,20 @@ class SessionEvents(RenderableResult):
         return f"SessionEvents session={self._session.id}"
 
     def _card(self) -> Card:
+        from marivo.analysis._capabilities.registry import REGISTRY
+
+        _properties, methods = REGISTRY.public_object_members("SessionEvents")
+        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        registered_calls = tuple(
+            call
+            for call in REGISTRY.public_member_calls("SessionEvents")
+            if call not in {".render()", ".show()"}
+        )
         return Card(
             identity=self._repr_identity(),
             available=(
-                ".match(...)",
-                ".funnel(...)",
-                ".time_to_event(...)",
-                ".render()",
-                ".show()",
+                *(f".{method_name}()" for method_name in intrinsic_methods),
+                *registered_calls,
             ),
         ).status("phase=event_reducers")
 
@@ -1454,6 +1457,10 @@ class SessionEvents(RenderableResult):
             explicit governed assumption with a rationale.
 
         Example:
+            >>> cart_created = session.catalog.events.get("commerce.cart_created")
+            >>> payment_succeeded = session.catalog.events.get("commerce.payment_succeeded")
+            >>> cart_user = ms.participant_role(event=cart_created.ref, name="user")
+            >>> payment_buyer = ms.participant_role(event=payment_succeeded.ref, name="buyer")
             >>> pattern = mv.sequence(
             ...     mv.step(participant=cart_user, key="cart"),
             ...     mv.step(participant=payment_buyer, key="payment"),
@@ -1530,6 +1537,9 @@ class SessionEvents(RenderableResult):
             censoring-aware rates, and grouped reconciliation evidence.
 
         Example:
+            >>> acquisition_channel = session.catalog.dimensions.get(
+            ...     "commerce.orders.acquisition_channel"
+            ... )
             >>> funnel = session.events.funnel(
             ...     journeys,
             ...     axes=[acquisition_channel],
@@ -1623,16 +1633,20 @@ class SessionLifecycle(RenderableResult):
         return f"SessionLifecycle session={self._session.id}"
 
     def _card(self) -> Card:
+        from marivo.analysis._capabilities.registry import REGISTRY
+
+        _properties, methods = REGISTRY.public_object_members("SessionLifecycle")
+        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        registered_calls = tuple(
+            call
+            for call in REGISTRY.public_member_calls("SessionLifecycle")
+            if call not in {".render()", ".show()"}
+        )
         return Card(
             identity=self._repr_identity(),
             available=(
-                ".replay(...)",
-                ".distribution(...)",
-                ".transitions(...)",
-                ".dwell(...)",
-                ".violations(...)",
-                ".render()",
-                ".show()",
+                *(f".{method_name}()" for method_name in intrinsic_methods),
+                *registered_calls,
             ),
         ).status("phase=lifecycle_replay")
 
@@ -1682,6 +1696,9 @@ class SessionLifecycle(RenderableResult):
             assumption with a rationale.
 
         Example:
+            >>> order_lifecycle = session.catalog.state_models.get(
+            ...     "commerce.order_lifecycle"
+            ... )
             >>> history = session.lifecycle.replay(
             ...     order_lifecycle,
             ...     window=mv.TimeScope(

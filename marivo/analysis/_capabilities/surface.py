@@ -72,13 +72,21 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.lifecycle import FromInception, InState
-    from marivo.analysis.session.core import FrameSummaryEntry, FrameSummaryPage, Session
+    from marivo.analysis.session.core import (
+        FrameSummaryEntry,
+        FrameSummaryPage,
+        Session,
+        SessionEvents,
+        SessionLifecycle,
+    )
     from marivo.analysis.subject import DroppedBefore
     from marivo.semantic.state_model import ModelStateHandle
 
     return MappingProxyType(
         {
             Session: "Session",
+            SessionEvents: "SessionEvents",
+            SessionLifecycle: "SessionLifecycle",
             BaseFrame: "BaseFrame",
             MetricFrame: "MetricFrame",
             EventFrame: "EventFrame",

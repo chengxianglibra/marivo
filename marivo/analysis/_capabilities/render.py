@@ -13,7 +13,6 @@ import inspect
 from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
-    ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
     BoundaryCapability,
     CapabilityDescriptor,
@@ -26,8 +25,6 @@ from marivo.analysis._capabilities.model import (
 from marivo.analysis._capabilities.registry import (
     PUBLIC_FRAME_METHODS,
     PUBLIC_FRAME_PROPERTIES,
-    PUBLIC_OBJECT_METHODS,
-    PUBLIC_OBJECT_PROPERTIES,
     PUBLIC_TYPE_VARIANTS,
     REGISTRY,
 )
@@ -370,39 +367,115 @@ def _property_return_type(value: object) -> str | None:
 def _producer_targets_for_input(
     desc: OperatorCapability,
     parameter: str,
-) -> tuple[str, ...]:
-    """Return bounded producers compatible with one artifact-bearing input."""
+) -> tuple[LiveHelpTarget, ...]:
+    """Return producers compatible with one declared input."""
 
     accepted = desc.accepted_inputs.get(parameter, frozenset())
-    targets: list[str] = []
-    for producer in REGISTRY.descriptors:
-        if not isinstance(producer, OperatorCapability):
-            continue
-        family = producer.output_contract.family
-        if isinstance(family, SameAsInputFamily) or family not in accepted:
-            continue
-        admission = desc.artifact_admission.get(parameter)
-        if admission is not None:
-            shapes = admission.semantic_shapes.get(family)
-            if (
-                shapes
-                and producer.output_contract.semantic_shapes
-                and shapes.isdisjoint(producer.output_contract.semantic_shapes)
-            ):
-                continue
-            matching = admission.matching_kinds.get(family)
-            if (
-                matching
-                and producer.output_contract.matching_kinds
-                and matching.isdisjoint(producer.output_contract.matching_kinds)
-            ):
-                continue
-        targets.append(producer.help_target)
-    return tuple(dict.fromkeys(targets))[:2]
+    targets: list[LiveHelpTarget] = []
+    for family in sorted(accepted):
+        for target in REGISTRY.producer_targets(family):
+            if target.surface == "analysis":
+                canonical_id = target.canonical_id
+                if canonical_id is None:
+                    raise RuntimeError("analysis producer target requires a canonical id")
+                try:
+                    producer = REGISTRY.by_help_target(canonical_id)
+                except KeyError:
+                    producer = None
+                if isinstance(producer, OperatorCapability):
+                    output_family = producer.output_contract.family
+                    admission = desc.artifact_admission.get(parameter)
+                    if admission is not None and not isinstance(
+                        output_family,
+                        SameAsInputFamily,
+                    ):
+                        shapes = admission.semantic_shapes.get(output_family)
+                        if (
+                            shapes
+                            and producer.output_contract.semantic_shapes
+                            and shapes.isdisjoint(producer.output_contract.semantic_shapes)
+                        ):
+                            continue
+                        matching = admission.matching_kinds.get(output_family)
+                        if (
+                            matching
+                            and producer.output_contract.matching_kinds
+                            and matching.isdisjoint(producer.output_contract.matching_kinds)
+                        ):
+                            continue
+            targets.append(target)
+    return tuple(dict.fromkeys(targets))
 
 
-def _assigned_result_name(code: str) -> str | None:
-    """Return the first simple assignment target from one example."""
+def _help_call(target: LiveHelpTarget) -> str:
+    if target.canonical_id is None:
+        raise RuntimeError("help prerequisite target requires a canonical id")
+    return f'marivo.help("{target.surface}.{target.canonical_id}")'
+
+
+def _input_prerequisite_line(
+    desc: OperatorCapability,
+    parameter: str,
+) -> str | None:
+    """Render one copyable acquisition instruction for an operator input."""
+
+    accepted = desc.accepted_inputs.get(parameter, frozenset())
+    targets = _producer_targets_for_input(desc, parameter)
+    target_text = ", ".join(_help_call(target) for target in targets)
+    semantic_handoffs = tuple(
+        handoff
+        for family in sorted(accepted)
+        for handoff in REGISTRY.semantic_handoffs_for_input_family(family)
+    )
+    if semantic_handoffs:
+        collections = ", ".join(
+            f'session.catalog.{handoff.collection_property}.get("<full semantic path>")'
+            for handoff in semantic_handoffs
+        )
+        return f"{parameter}: select via {collections}; help: {target_text}"
+    if "EventPattern" in accepted:
+        return (
+            f"{parameter}: build from session.catalog.events.get("
+            '"<full semantic path>").ref; help: '
+            f"{target_text}"
+        )
+    if target_text:
+        return f"{parameter}: acquire via {target_text}"
+    return None
+
+
+def _dotted_call_path(node: ast.expr) -> str | None:
+    """Return one simple dotted callable path from an AST expression."""
+
+    parts: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    parts.append(current.id)
+    return ".".join(reversed(parts))
+
+
+def _matches_public_entrypoint(actual: str | None, expected: str) -> bool:
+    """Return whether a call uses the registered member path.
+
+    The receiver name in an example may be more specific than the generic
+    public entrypoint (for example, ``delta.transform.topk`` versus
+    ``frame.transform.topk``). The registered member path after the receiver
+    must still match exactly.
+    """
+
+    if actual is None:
+        return False
+    actual_parts = actual.split(".")
+    expected_parts = expected.split(".")
+    return len(actual_parts) == len(expected_parts) and actual_parts[1:] == expected_parts[1:]
+
+
+def _assigned_result_name(code: str, *, public_entrypoint: str) -> str | None:
+    """Return the assignment produced by the registered public entrypoint."""
 
     cleaned_lines: list[str] = []
     for line in code.splitlines():
@@ -415,8 +488,17 @@ def _assigned_result_name(code: str) -> str | None:
         tree = ast.parse("\n".join(cleaned_lines))
     except SyntaxError:
         return None
+    expected_call = public_entrypoint.partition("(")[0]
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.value, ast.Call)
+            and _matches_public_entrypoint(
+                _dotted_call_path(node.value.func),
+                expected_call,
+            )
+        ):
             target = node.targets[0]
             if isinstance(target, ast.Name):
                 return target.id
@@ -647,13 +729,10 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             prerequisite_lines.append(
                 'session = mv.session.get_or_create("analysis", question="<business question>")'
             )
-        for parameter, families in desc.accepted_inputs.items():
-            if not any(family in ARTIFACT_FAMILIES for family in families):
-                continue
-            producers = _producer_targets_for_input(desc, parameter)
-            if producers:
-                targets = ", ".join(f'marivo.help("analysis.{target}")' for target in producers)
-                prerequisite_lines.append(f"{parameter}: acquire via {targets}")
+        for parameter in desc.accepted_inputs:
+            prerequisite = _input_prerequisite_line(desc, parameter)
+            if prerequisite is not None:
+                prerequisite_lines.append(prerequisite)
         if prerequisite_lines:
             lines.append("")
             lines.append("  Prerequisites:")
@@ -666,7 +745,10 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         doc = inspect.getdoc(callable_obj) or ""
         example = _extract_example(doc)
         if example:
-            assigned = _assigned_result_name(example)
+            assigned = _assigned_result_name(
+                example,
+                public_entrypoint=desc.public_entrypoint,
+            )
             if assigned is not None:
                 result_names.append(assigned)
             lines.append("")
@@ -690,11 +772,19 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                 lines.append(cl)
 
     for additional_example in desc.additional_examples:
-        assigned = _assigned_result_name(additional_example.code)
+        assigned = _assigned_result_name(
+            additional_example.code,
+            public_entrypoint=desc.public_entrypoint,
+        )
         if assigned is not None:
             result_names.append(assigned)
         lines.append("")
         lines.append(f"  {additional_example.label}:")
+        if additional_example.requires:
+            lines.append(
+                "    Requires from prerequisites or the preceding example: "
+                + ", ".join(additional_example.requires)
+            )
         lines.extend(f"    {line}" for line in additional_example.code.splitlines())
 
     if isinstance(desc, OperatorCapability) and result_names:
@@ -825,7 +915,7 @@ def _render_type_help(type_name: str) -> str:
     # for frame subtypes only).
     from marivo.analysis.frames.base import BaseFrame
 
-    props = PUBLIC_OBJECT_PROPERTIES.get(type_name, ())
+    props, methods = REGISTRY.public_object_members(type_name)
     props = tuple(dict.fromkeys((*props, *PUBLIC_FRAME_PROPERTIES.get(type_name, ()))))
     if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_props = PUBLIC_FRAME_PROPERTIES.get("BaseFrame", ())
@@ -838,7 +928,6 @@ def _render_type_help(type_name: str) -> str:
 
     # Methods (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
-    methods = PUBLIC_OBJECT_METHODS.get(type_name, ())
     methods = tuple(dict.fromkeys((*methods, *PUBLIC_FRAME_METHODS.get(type_name, ()))))
     if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_methods = PUBLIC_FRAME_METHODS.get("BaseFrame", ())

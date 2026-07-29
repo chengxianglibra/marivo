@@ -16,6 +16,7 @@ from marivo.analysis.frames.attribution import AttributionFrame, AttributionFram
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
     ArtifactBoundaryPort,
+    ArtifactColumn,
     ArtifactContract,
     ArtifactPrecondition,
     ArtifactSchema,
@@ -356,6 +357,7 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
         "canonical_state:",
         "receiver:",
         "semantic_shape:",
+        "output_columns:",
         "columns:",
         "typed affordances:",
         "preconditions and repairs:",
@@ -364,9 +366,31 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
     positions = tuple(rendered.index(label) for label in labels)
     assert positions == tuple(sorted(positions))
     assert "receiver: frame" in rendered
+    assert contract.output_columns == ()
     assert 'frame.metric("sales.revenue")' in rendered
     assert 'frame.metric("sales.order_count")' in rendered
     assert contract.model_dump()["affordances"][0]["preconditions"][0]["repair_options"]
+
+
+def test_artifact_contract_derives_output_columns_from_schema() -> None:
+    contract = ArtifactContract(
+        kind="metric_frame",
+        ref="frame_columns",
+        is_canonical=True,
+        artifact_schema=ArtifactSchema(
+            columns=[
+                ArtifactColumn(
+                    name="revenue",
+                    dtype="float64",
+                    nullable=False,
+                    role="value",
+                )
+            ]
+        ),
+    )
+
+    assert contract.output_columns == ("revenue",)
+    assert contract.model_dump()["output_columns"] == ("revenue",)
 
 
 def test_every_artifact_has_one_terminal_boundary_port() -> None:
@@ -449,6 +473,7 @@ def test_unsafe_failed_precondition_without_repair_is_suppressed_from_render() -
         ref="frame_abc",
         is_canonical=True,
         artifact_schema=ArtifactSchema(columns=[]),
+        semantic_inputs=(),
         affordances=(affordance,),
     )
 

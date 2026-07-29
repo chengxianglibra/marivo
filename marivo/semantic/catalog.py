@@ -5,6 +5,7 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -45,6 +46,10 @@ from marivo.refs import (
     ref as ref_factory,
 )
 from marivo.render import Card, FieldSection, ListSection, RenderableResult, Section
+from marivo.semantic._capabilities.catalog_members import (
+    CATALOG_COLLECTION_PROPERTIES,
+    CATALOG_MEMBER_CONTRACTS,
+)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
@@ -1604,30 +1609,22 @@ class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
+def _catalog_entry_type(
+    entry_type_name: str,
+) -> type[CatalogEntry[SemanticKindTag]]:
+    candidate = globals().get(entry_type_name)
+    if not isinstance(candidate, type) or not issubclass(candidate, CatalogEntry):
+        raise RuntimeError(f"invalid catalog entry type contract: {entry_type_name}")
+    return cast("type[CatalogEntry[SemanticKindTag]]", candidate)
+
+
 _OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogEntry[SemanticKindTag]]] = {
-    SemanticKind.DOMAIN: DomainEntry,
-    SemanticKind.DATASOURCE: DatasourceEntry,
-    SemanticKind.ENTITY: EntityEntry,
-    SemanticKind.DIMENSION: DimensionEntry,
-    SemanticKind.TIME_DIMENSION: TimeDimensionEntry,
-    SemanticKind.MEASURE: MeasureEntry,
-    SemanticKind.METRIC: MetricEntry,
-    SemanticKind.RELATIONSHIP: RelationshipEntry,
-    SemanticKind.EVENT: EventEntry,
-    SemanticKind.STATE_MODEL: StateModelEntry,
+    member.kind: _catalog_entry_type(member.entry_type_name) for member in CATALOG_MEMBER_CONTRACTS
 }
 
 _COLLECTION_PROPERTY_BY_KIND: dict[SemanticKind, str] = {
-    SemanticKind.DOMAIN: "domains",
-    SemanticKind.DATASOURCE: "datasources",
-    SemanticKind.ENTITY: "entities",
-    SemanticKind.DIMENSION: "dimensions",
-    SemanticKind.TIME_DIMENSION: "time_dimensions",
-    SemanticKind.MEASURE: "measures",
-    SemanticKind.METRIC: "metrics",
-    SemanticKind.RELATIONSHIP: "relationships",
-    SemanticKind.EVENT: "events",
-    SemanticKind.STATE_MODEL: "state_models",
+    member.kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS
 }
 
 _SEMANTIC_INPUT_CANDIDATE_LIMIT = 12
@@ -2811,7 +2808,7 @@ class _CatalogIndex:
 # ---------------------------------------------------------------------------
 
 
-class SemanticCatalog:
+class SemanticCatalog(RenderableResult):
     """Read-only object graph over a loaded semantic project.
 
     Args:
@@ -2871,20 +2868,7 @@ class SemanticCatalog:
     # Collection property names exposed by SemanticCatalog. Used to teach the
     # common ``catalog.list_metrics()`` mistake (catalog exposes properties, not
     # ``list_xxx()`` methods). See issue #32.
-    _COLLECTION_PROPERTIES = frozenset(
-        {
-            "domains",
-            "datasources",
-            "entities",
-            "dimensions",
-            "time_dimensions",
-            "measures",
-            "metrics",
-            "relationships",
-            "events",
-            "state_models",
-        }
-    )
+    _COLLECTION_PROPERTIES = frozenset(CATALOG_COLLECTION_PROPERTIES)
 
     def __getattr__(self, name: str) -> NoReturn:
         if name.startswith("list_"):
@@ -2913,6 +2897,46 @@ class SemanticCatalog:
     def _require_index(self) -> _CatalogIndex:
         self._require_ready()
         return self._index
+
+    def _repr_identity(self) -> str:
+        fingerprint = self.definition_fingerprint[:12]
+        return f"SemanticCatalog fingerprint={fingerprint} objects={len(self._index._by_ref)}"
+
+    def _card(self) -> Card:
+        rows: list[tuple[str, str, str, str]] = []
+        for member in CATALOG_MEMBER_CONTRACTS:
+            collection = getattr(self, member.property_name)
+            rows.append(
+                (
+                    member.property_name,
+                    member.kind.value,
+                    member.entry_type_name,
+                    str(len(collection)),
+                )
+            )
+        card = Card(
+            identity=self._repr_identity(),
+            available=(
+                *(f".{name}" for name in CATALOG_COLLECTION_PROPERTIES),
+                ".require(...)",
+                ".readiness(...)",
+                ".verify(...)",
+                ".preview(...)",
+                ".preview_many(...)",
+                ".contract()",
+                ".render()",
+                ".show()",
+            ),
+        )
+        card.field("definition_fingerprint", self.definition_fingerprint)
+        card.field("semantic_root", str(self.semantic_root))
+        card.field("workspace_dir", str(self.workspace_dir))
+        return card.table(
+            label="collections",
+            columns=("property", "kind", "entry_type", "count"),
+            rows=rows,
+            row_count=len(rows),
+        )
 
     def _collection[KindT: SemanticKindTag](
         self,
@@ -4241,6 +4265,24 @@ class SemanticCatalog:
                 )
             )
         return tuple(results)
+
+
+def _validate_catalog_member_contract() -> None:
+    """Keep the closed catalog member table aligned with live properties."""
+
+    if len(_OBJECT_TYPE_BY_KIND) != len(CATALOG_MEMBER_CONTRACTS):
+        raise RuntimeError("catalog member contract contains duplicate semantic kinds")
+    if len(_COLLECTION_PROPERTY_BY_KIND) != len(CATALOG_MEMBER_CONTRACTS):
+        raise RuntimeError("catalog member contract contains duplicate property names")
+    for member in CATALOG_MEMBER_CONTRACTS:
+        attribute = inspect.getattr_static(SemanticCatalog, member.property_name, None)
+        if not isinstance(attribute, property):
+            raise RuntimeError(
+                f"catalog member contract does not resolve to a property: {member.property_name}"
+            )
+
+
+_validate_catalog_member_contract()
 
 
 def load(
