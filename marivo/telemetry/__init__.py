@@ -13,10 +13,10 @@ import tomllib
 import types
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
 from time import monotonic
@@ -36,8 +36,14 @@ _SCHEMA_VERSION = "2"
 _STARTED_EVENT = "marivo.operation.started"
 _COMPLETED_EVENT = "marivo.operation.completed"
 _INSTALLATION_FILE = "project_instance_id"
+_EVENT_FILE_PREFIX = "events-"
+_EVENT_FILE_SUFFIX = ".jsonl"
+_MAX_EVENT_FILE_BYTES = 128 * 1024 * 1024
+_MAX_HISTORICAL_TELEMETRY_BYTES = 1024 * 1024 * 1024
+_RETENTION_DAYS = 14
 _WRITE_LOCK = threading.Lock()
 _DROPPED_EVENTS = 0
+_LAST_PRUNED_DATE: dict[Path, date] = {}
 
 _SENSITIVE_PARAMETER_PARTS = (
     "credential",
@@ -183,8 +189,91 @@ def _output_dir(root: Path) -> Path:
     return root / STATE_DIR / "telemetry"
 
 
-def _output_path(root: Path) -> Path:
-    return _output_dir(root) / "events.jsonl"
+def _entry_date(entry: dict[str, object]) -> date:
+    resource_logs = cast("list[dict[str, object]]", entry["resourceLogs"])
+    scope_logs = cast("list[dict[str, object]]", resource_logs[0]["scopeLogs"])
+    log_records = cast("list[dict[str, object]]", scope_logs[0]["logRecords"])
+    timestamp = cast("str", log_records[0]["timeUnixNano"])
+    return datetime.fromtimestamp(int(timestamp) // 1_000_000_000, UTC).date()
+
+
+def _managed_event_files(directory: Path, event_date: date | None = None) -> list[Path]:
+    date_part = event_date.isoformat() if event_date is not None else "????-??-??"
+    return sorted(directory.glob(f"{_EVENT_FILE_PREFIX}{date_part}.*{_EVENT_FILE_SUFFIX}"))
+
+
+def _segment_number(path: Path) -> int | None:
+    stem = path.name.removesuffix(_EVENT_FILE_SUFFIX)
+    raw_segment = stem.rpartition(".")[2]
+    return int(raw_segment) if raw_segment.isdigit() else None
+
+
+def _output_path(root: Path, *, event_date: date, payload_bytes: int) -> Path:
+    directory = _output_dir(root)
+    candidates = [
+        (segment, path)
+        for path in _managed_event_files(directory, event_date)
+        if (segment := _segment_number(path)) is not None
+    ]
+    if not candidates:
+        segment = 0
+    else:
+        current_segment, current = max(candidates)
+        try:
+            current_size = current.stat().st_size
+        except OSError:
+            current_size = 0
+        segment = (
+            current_segment + 1
+            if current_size > 0 and current_size + payload_bytes > _MAX_EVENT_FILE_BYTES
+            else current_segment
+        )
+    return (
+        directory
+        / f"{_EVENT_FILE_PREFIX}{event_date.isoformat()}.{segment:03d}{_EVENT_FILE_SUFFIX}"
+    )
+
+
+def _prune_historical_files(directory: Path, *, current_date: date) -> None:
+    resolved_directory = directory.resolve()
+    if _LAST_PRUNED_DATE.get(resolved_directory) == current_date:
+        return
+
+    files: list[tuple[date, Path, int]] = []
+    for path in _managed_event_files(directory):
+        if _segment_number(path) is None:
+            continue
+        raw_date = path.name.removeprefix(_EVENT_FILE_PREFIX).split(".", 1)[0]
+        try:
+            file_date = date.fromisoformat(raw_date)
+            size = path.stat().st_size
+        except (OSError, ValueError):
+            continue
+        if file_date >= current_date:
+            continue
+        files.append((file_date, path, size))
+
+    cutoff = current_date - timedelta(days=_RETENTION_DAYS - 1)
+    retained: list[tuple[date, Path, int]] = []
+    for file_date, path, size in files:
+        if file_date < cutoff:
+            try:
+                path.unlink()
+            except OSError:
+                retained.append((file_date, path, size))
+        else:
+            retained.append((file_date, path, size))
+
+    total_size = sum(size for _, _, size in retained)
+    for _, path, size in retained:
+        if total_size <= _MAX_HISTORICAL_TELEMETRY_BYTES:
+            break
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total_size -= size
+    _LAST_PRUNED_DATE[resolved_directory] = current_date
 
 
 def _instance_id(root: Path) -> str:
@@ -289,8 +378,6 @@ def _record_attributes(entry: dict[str, object]) -> list[dict[str, object]]:
 def _write_entry(root: Path, entry: dict[str, object]) -> None:
     global _DROPPED_EVENTS
     try:
-        path = _output_path(root)
-        path.parent.mkdir(parents=True, exist_ok=True)
         with _WRITE_LOCK:
             dropped = _DROPPED_EVENTS
             if dropped:
@@ -298,6 +385,9 @@ def _write_entry(root: Path, entry: dict[str, object]) -> None:
                     _attribute("marivo.telemetry.dropped_since_last_write", dropped)
                 )
             payload = (json.dumps(entry, separators=(",", ":")) + "\n").encode()
+            event_date = _entry_date(entry)
+            path = _output_path(root, event_date=event_date, payload_bytes=len(payload))
+            path.parent.mkdir(parents=True, exist_ok=True)
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
                 written = os.write(descriptor, payload)
@@ -306,6 +396,8 @@ def _write_entry(root: Path, entry: dict[str, object]) -> None:
             finally:
                 os.close(descriptor)
             _DROPPED_EVENTS = 0
+            with suppress(Exception):
+                _prune_historical_files(path.parent, current_date=event_date)
     except Exception:
         with _WRITE_LOCK:
             _DROPPED_EVENTS += 1

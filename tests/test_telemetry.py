@@ -21,6 +21,13 @@ def _records(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def _event_path(project_root: Path) -> Path:
+    directory = project_root / ".marivo" / "telemetry"
+    paths = sorted(directory.glob("events-*.jsonl"))
+    assert len(paths) == 1
+    return paths[0]
+
+
 def _log_record(entry: dict[str, object]) -> dict[str, object]:
     resource_logs = entry["resourceLogs"]
     assert isinstance(resource_logs, list)
@@ -84,10 +91,7 @@ def test_track_operation_writes_correlated_v2_pair(telemetry_project: Path) -> N
     ):
         pass
 
-    records = [
-        _log_record(entry)
-        for entry in _records(telemetry_project / ".marivo" / "telemetry" / "events.jsonl")
-    ]
+    records = [_log_record(entry) for entry in _records(_event_path(telemetry_project))]
     assert [record["body"] for record in records] == [
         {"stringValue": "marivo.operation.started"},
         {"stringValue": "marivo.operation.completed"},
@@ -133,7 +137,7 @@ def test_metric_graph_telemetry_keeps_only_bounded_contract_facts(
             }
         )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "observe")[-1])
     assert completed["marivo.analysis.metric_graph.max_depth"] == "2"
     assert completed["marivo.analysis.metric_graph.node_kinds"] == "aggregate:2,ratio:1"
@@ -161,7 +165,7 @@ def test_track_operation_records_structured_error_without_message(
     ):
         raise ValueError("sensitive failure text")
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     attrs = _attrs(_log_record(_records(path)[-1]))
     assert attrs["marivo.operation.status"] == "error"
     assert attrs["marivo.error.class"] == "ValueError"
@@ -193,7 +197,7 @@ def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
     assert parent(project_root=telemetry_project) == "ok"
     same_outer(project_root=telemetry_project)
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     parent_attrs = [_attrs(record) for record in _capability_records(path, "parent")]
     child_attrs = [_attrs(record) for record in _capability_records(path, "child")]
     assert len(parent_attrs) == len(child_attrs) == 2
@@ -267,7 +271,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         == "declared"
     )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     assert len(_capability_records(path, "session.get_or_create")) == 2
     assert _capability_records(path, "load") == []
     assert _capability_records(path, "measure_column") == []
@@ -323,7 +327,7 @@ def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
         project_root=telemetry_project,
     )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     text = path.read_text(encoding="utf-8")
     attrs = _attrs(_capability_records(path, "raw_sql")[0])
     assert attrs["marivo.datasource.raw_sql.reason"] == "check connectivity"
@@ -368,7 +372,7 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
         project_root=telemetry_project,
     )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     text = path.read_text(encoding="utf-8")
     attrs = _attrs(_capability_records(path, "ai_context")[0])
     assert attrs["marivo.input.guardrails.count"] == "1"
@@ -384,8 +388,6 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
 
 
 def test_session_question_create_and_resume_semantics(telemetry_project: Path) -> None:
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
-
     first = mv.session.get_or_create(
         name="demo",
         question="Original question",
@@ -399,6 +401,7 @@ def test_session_question_create_and_resume_semantics(telemetry_project: Path) -
         use_datasources=False,
     )
 
+    path = _event_path(telemetry_project)
     assert resumed.id == first.id
     calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
     assert len(calls) == 4
@@ -422,7 +425,7 @@ def test_analysis_purpose_and_repair_survive_pre_persistence_failure(
     with pytest.raises(mv.errors.AnalysisError):
         session.assess_quality(object(), analysis_purpose="check whether evidence is usable")
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "assess_quality")[-1])
     assert completed["marivo.operation.status"] == "error"
     assert completed["marivo.analysis.purpose"] == "check whether evidence is usable"
@@ -447,7 +450,7 @@ def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
             project_root=telemetry_project,
         )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "raw_sql")[-1])
     assert completed["marivo.datasource.raw_sql.reason"] == "verify the terminal fallback"
     assert completed["marivo.error.domain"] == "datasource"
@@ -465,7 +468,7 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
     with pytest.raises(MarivoHelpTargetError):
         marivo.help("not-a-semantic-capability")
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "help")[-1])
     assert completed["marivo.surface"] == "help"
     assert completed["marivo.operation.status"] == "error"
@@ -481,7 +484,7 @@ def test_surface_root_help_tracks_exact_owner_and_canonical_id(
 
     marivo.help("analysis")
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "help")[-1])
     assert completed["marivo.help.outcome"] == "success"
     assert completed["marivo.help.resolved_owner"] == "analysis"
@@ -516,7 +519,7 @@ def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) 
     produced = produce(project_root=telemetry_project)
     consume(produced, project_root=telemetry_project)
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     result = _attrs(_capability_records(path, "produce")[-1])
     consumption = _attrs(_capability_records(path, "consume")[0])
     assert result["marivo.result.ref"] == "frame_123"
@@ -557,7 +560,7 @@ def test_method_consumption_records_receiver_artifact_identity(
 
     assert Frame().to_pandas() == "materialized"
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     started = _attrs(_capability_records(path, "boundary.to_pandas")[0])
     assert started["marivo.input.artifact_id"] == "artifact_123"
     assert started["marivo.input.ref"] == "frame_123"
@@ -600,7 +603,7 @@ def test_base_frame_show_does_not_instrument_shared_semantic_show(
     frame.show()
     capsys.readouterr()
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     show_records = [_attrs(record) for record in _capability_records(path, "BaseFrame.show")]
     assert len(show_records) == 2
     assert show_records[0]["marivo.input.artifact_id"] == "artifact_123"
@@ -624,7 +627,7 @@ def test_failed_default_stage_is_recorded_without_exception_message(
     with pytest.raises(TypeError, match="private invalid declaration"):
         load(project_root=telemetry_project)
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "load")[-1])
     assert completed["marivo.error.stage"] == "resolve"
     assert "marivo.phase.resolve.duration_ms" in completed
@@ -639,7 +642,7 @@ def test_cli_init_system_exit_writes_deferred_correlated_pair(telemetry_project:
         init_project(project_dir=telemetry_project)
 
     assert exc_info.value.code == 1
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     calls = [_attrs(record) for record in _capability_records(path, "init")]
     assert len(calls) == 2
     assert calls[0]["marivo.operation.status"] == "started"
@@ -670,7 +673,7 @@ def test_cli_help_and_doctor_commands_write_operation_pairs(
     main(["doctor", "--project-root", str(telemetry_project), "--format", "json"])
     capsys.readouterr()
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     cli_help = [
         record
         for record in _capability_records(path, "help_bootstrap")
@@ -695,8 +698,158 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(executor.map(emit, range(40)))
 
-    rows = _records(telemetry_project / ".marivo" / "telemetry" / "events.jsonl")
+    rows = _records(_event_path(telemetry_project))
     assert len(rows) == 80
+
+
+def test_event_files_roll_by_utc_day(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.telemetry as telemetry
+
+    timestamps = iter(
+        [
+            str(int(datetime(2026, 7, 29, 23, 59, tzinfo=UTC).timestamp() * 1_000_000_000)),
+            str(int(datetime(2026, 7, 30, 0, 0, tzinfo=UTC).timestamp() * 1_000_000_000)),
+        ]
+    )
+    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: next(timestamps))
+
+    telemetry.track_event(
+        "marivo.analysis.first_day",
+        family="read",
+        intent="first_day",
+        project_root=telemetry_project,
+    )
+    telemetry.track_event(
+        "marivo.analysis.second_day",
+        family="read",
+        intent="second_day",
+        project_root=telemetry_project,
+    )
+
+    directory = telemetry_project / ".marivo" / "telemetry"
+    assert sorted(path.name for path in directory.glob("events-*.jsonl")) == [
+        "events-2026-07-29.000.jsonl",
+        "events-2026-07-30.000.jsonl",
+    ]
+
+
+def test_event_files_roll_when_size_limit_would_be_exceeded(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.telemetry as telemetry
+
+    monkeypatch.setattr(telemetry, "_MAX_EVENT_FILE_BYTES", 1)
+    telemetry.track_event(
+        "marivo.analysis.first_segment",
+        family="read",
+        intent="first_segment",
+        project_root=telemetry_project,
+    )
+    telemetry.track_event(
+        "marivo.analysis.second_segment",
+        family="read",
+        intent="second_segment",
+        project_root=telemetry_project,
+    )
+
+    directory = telemetry_project / ".marivo" / "telemetry"
+    paths = sorted(directory.glob("events-*.jsonl"))
+    assert [path.name[-9:] for path in paths] == ["000.jsonl", "001.jsonl"]
+    assert [_attrs(_log_record(_records(path)[0]))["marivo.capability.id"] for path in paths] == [
+        "first_segment",
+        "second_segment",
+    ]
+
+
+def test_historical_retention_preserves_current_and_legacy_files(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.telemetry as telemetry
+
+    directory = telemetry_project / ".marivo" / "telemetry"
+    directory.mkdir(parents=True)
+    expired = directory / "events-2026-07-15.000.jsonl"
+    retained = directory / "events-2026-07-16.000.jsonl"
+    legacy = directory / "events.jsonl"
+    unmanaged = directory / "events-2026-07-15.notes.jsonl"
+    expired.write_text("expired\n", encoding="utf-8")
+    retained.write_text("retained\n", encoding="utf-8")
+    legacy.write_text("legacy\n", encoding="utf-8")
+    unmanaged.write_text("unmanaged\n", encoding="utf-8")
+    timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
+    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
+
+    telemetry.track_event(
+        "marivo.analysis.retention",
+        family="read",
+        intent="retention",
+        project_root=telemetry_project,
+    )
+
+    assert not expired.exists()
+    assert retained.exists()
+    assert legacy.read_text(encoding="utf-8") == "legacy\n"
+    assert unmanaged.read_text(encoding="utf-8") == "unmanaged\n"
+    assert (directory / "events-2026-07-29.000.jsonl").exists()
+
+
+def test_historical_files_are_pruned_to_size_limit(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.telemetry as telemetry
+
+    directory = telemetry_project / ".marivo" / "telemetry"
+    directory.mkdir(parents=True)
+    oldest = directory / "events-2026-07-27.000.jsonl"
+    newest = directory / "events-2026-07-28.000.jsonl"
+    oldest.write_bytes(b"1234")
+    newest.write_bytes(b"5678")
+    timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
+    monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
+    monkeypatch.setattr(telemetry, "_MAX_HISTORICAL_TELEMETRY_BYTES", 4)
+
+    telemetry.track_event(
+        "marivo.analysis.size_retention",
+        family="read",
+        intent="size_retention",
+        project_root=telemetry_project,
+    )
+
+    assert not oldest.exists()
+    assert newest.read_bytes() == b"5678"
+
+
+def test_cleanup_failure_does_not_mark_written_event_as_dropped(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.telemetry as telemetry
+
+    real_prune = telemetry._prune_historical_files
+
+    def fail_prune(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError("cleanup unavailable")
+
+    monkeypatch.setattr(telemetry, "_prune_historical_files", fail_prune)
+    telemetry.track_event(
+        "marivo.analysis.cleanup_failed",
+        family="read",
+        intent="cleanup_failed",
+        project_root=telemetry_project,
+    )
+    monkeypatch.setattr(telemetry, "_prune_historical_files", real_prune)
+    telemetry.track_event(
+        "marivo.analysis.cleanup_recovered",
+        family="read",
+        intent="cleanup_recovered",
+        project_root=telemetry_project,
+    )
+
+    records = [_attrs(_log_record(entry)) for entry in _records(_event_path(telemetry_project))]
+    assert len(records) == 2
+    assert all("marivo.telemetry.dropped_since_last_write" not in attrs for attrs in records)
 
 
 def test_writer_failure_is_isolated_and_reported_on_next_success(
@@ -725,7 +878,7 @@ def test_writer_failure_is_isolated_and_reported_on_next_success(
         project_root=telemetry_project,
     )
 
-    path = telemetry_project / ".marivo" / "telemetry" / "events.jsonl"
+    path = _event_path(telemetry_project)
     attrs = _attrs(_log_record(_records(path)[0]))
     assert attrs["marivo.telemetry.dropped_since_last_write"] == "1"
 
@@ -760,7 +913,8 @@ def test_telemetry_enablement_precedence(
         project_root=telemetry_project,
     ):
         pass
-    assert (telemetry_project / ".marivo" / "telemetry" / "events.jsonl").exists() is enabled
+    paths = list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
+    assert bool(paths) is enabled
 
 
 def _expected_instrumented(descriptors: tuple[object, ...]) -> set[str]:

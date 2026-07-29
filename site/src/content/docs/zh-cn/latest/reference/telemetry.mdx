@@ -5,11 +5,19 @@ description: 管理 Marivo 项目写入本地的使用记录。
 
 ## 了解本地遥测
 
-Marivo 会在项目状态目录中写入采用开放遥测结构的本地 JSONL 事件：
+Marivo 会按 UTC 日期把采用开放遥测结构的本地 JSONL 事件写入项目状态目录：
 
 ```text
-.marivo/telemetry/events.jsonl
+.marivo/telemetry/events-2026-07-29.000.jsonl
 ```
+
+末尾三位数字是大小分片编号。当前文件继续写入后将超过 128 MiB 时，Marivo 会创建下一个
+分片。多个进程并发追加时，该大小限制为近似上限。
+
+Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首次写入时，还会从最旧的历史
+分片开始清理，直到历史 telemetry 不超过 1 GiB；清理不会删除当前 UTC 日的文件。旧版本
+留下的 `.marivo/telemetry/events.jsonl` 不会被自动处理。确认其中的事件不再需要后，应
+显式归档或删除该文件。
 
 Telemetry schema v2 覆盖显式调用的 CLI、datasource、semantic 和 analysis 公开操作。
 每次操作会写入一对可关联事件：
@@ -37,8 +45,9 @@ catalog 时，成功的内部声明不会重复写入；外层 semantic `load` �
 的 secret、datasource 主机、DSN、SQL 原文、文件路径、slice 实际值、frame 行值、自由文本
 集合元素、任意对象 repr 或异常消息。
 
-升级后文件中可能仍保留旧的 schema v1 行。新的消费者应筛选
-`marivo.event.schema_version` 属性为 `2` 的记录；Marivo 不迁移旧行。
+升级后，旧的 `events.jsonl` 中可能仍保留 schema v1 行，Marivo 不会迁移该文件。需要读取
+历史数据的消费者应扫描按日期命名的 `events-*.jsonl`，并在需要时单独读取旧文件；同时应
+筛选 `marivo.event.schema_version` 属性为 `2` 的记录。
 
 这些事件只保存在本地，Marivo 不会上传它们。Session 问题、分析目的和 raw-SQL reason
 会以原文保存在本地事件文件中；在把项目状态分享给其他环境之前应先检查该文件。
