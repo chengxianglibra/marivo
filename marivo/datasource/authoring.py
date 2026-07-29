@@ -60,7 +60,7 @@ SENSITIVE_FIELD_STEMS = frozenset(
         "api_key",
     }
 )
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]  # noqa: UP040
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None  # noqa: UP040
 
 _META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
 
