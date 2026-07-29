@@ -185,6 +185,8 @@ class SourceInspection(RenderableResult):
                 f"source={self.physical_extent.source}"
             ),
         )
+        if self.physical_extent.notes:
+            card.listing("physical extent notes", self.physical_extent.notes)
         card.field(
             label="partitioning",
             value=(
@@ -203,6 +205,10 @@ class SourceInspection(RenderableResult):
                 f"timeout_enforced={self.execution_capabilities.timeout_enforced} "
                 f"byte_estimate_supported={self.execution_capabilities.byte_estimate_supported}"
             ),
+        )
+        card.field(
+            label="focused acquisition help",
+            value='marivo.help("datasource.SourceInspection.sample")',
         )
         card.table(
             columns=("column", "type", "nullable"),

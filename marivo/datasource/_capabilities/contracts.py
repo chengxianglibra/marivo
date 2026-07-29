@@ -150,12 +150,40 @@ def contract_for_registered(name: str) -> AuthoringContract:
     )
 
 
-def contract_for_connection_test(name: str, *, ok: bool) -> AuthoringContract:
+def contract_for_connection_test(
+    name: str,
+    *,
+    ok: bool,
+    failure_code: str | None = None,
+) -> AuthoringContract:
     """Describe the observed outcome of one datasource connection test."""
     subject_refs = _subject(name)
     states = (_state("datasource.connection_validated", subject_refs),) if ok else ()
+    transitions: tuple[AuthoringTransition, ...] = ()
+    if not ok:
+        if failure_code is None:
+            raise ValueError("failure_code is required when a datasource connection test fails")
+        registered = _state("datasource.registered", subject_refs)
+        transitions = (
+            _transition(
+                "test",
+                kind="validate_connection",
+                subject_refs=subject_refs,
+                required_states=(registered,),
+                produced_state=_state("datasource.connection_validated", subject_refs),
+                available=False,
+                input_requirements=(
+                    AuthoringInputRequirement(
+                        role="subject",
+                        family="DatasourceReferenceInput",
+                        subject_refs=subject_refs,
+                    ),
+                ),
+                blocked_by=(failure_code,),
+            ),
+        )
     return _normalize_contract(
-        AuthoringContract(subject_refs=subject_refs, states=states, transitions=())
+        AuthoringContract(subject_refs=subject_refs, states=states, transitions=transitions)
     )
 
 
@@ -374,17 +402,38 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
             action="Rescope using the captured partition evidence.",
             preserves_evidence=True,
         )
-    if code in {
-        "cache_stale",
-        "schema_stale",
-        "fingerprint_stale",
-        "acquisition_execution_failed",
-    }:
+    if code in {"cache_stale", "schema_stale", "fingerprint_stale"}:
         return repair(
             kind="reacquire",
             canonical_id="SourceInspection.sample",
             action="Reacquire bounded evidence from the inspected source.",
             preserves_evidence=False,
+        )
+    if code == "acquisition_execution_failed":
+        return repair(
+            kind="reacquire",
+            canonical_id="SourceInspection.sample",
+            action=(
+                "Only if the caller's remaining data-access budget permits, retry this exact "
+                "bounded acquisition at most once. Caller-provided read, row, and timeout limits "
+                "take precedence. If the same structured code and backend name recur, stop and "
+                "report the datasource backend blocker."
+            ),
+            preserves_evidence=False,
+        )
+    if code == "acquisition_connection_failed":
+        return repair(
+            kind="reconnect",
+            canonical_id="test",
+            action="Validate the datasource connection before reacquiring bounded evidence.",
+            preserves_evidence=True,
+        )
+    if code == "acquisition_source_failed":
+        return repair(
+            kind="inspect",
+            canonical_id="inspect",
+            action="Inspect the captured source identity before reacquiring bounded evidence.",
+            preserves_evidence=True,
         )
     if code == "typed_schema_required":
         return repair(

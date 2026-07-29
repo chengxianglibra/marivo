@@ -119,7 +119,7 @@ analysis operation 检查。因此 ready report 不承诺任意 `session.observe
 | `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |
 | `time_dimension_pushdown_advisory` | warning | 某个 time dimension 可能无法下推到 partition。 | 当业务时间轴与 partition 一致时，保留原始 partition 列并声明其 parse。 |
-| `snapshot_missing` | warning | executable ref 没有结构上匹配的 datasource snapshot metadata；没有其他 blocker 时 semantic definition 仍可用于 analysis，仅仅过期不会触发。 | 需要 authoring evidence 时获取 matching scoped snapshot。 |
+| `snapshot_missing` | warning | executable ref 没有结构上匹配的 datasource snapshot metadata；没有其他 blocker 时 semantic definition 仍可用于 analysis，仅仅过期不会触发。 | 该 warning 不要求再次读取。仅在调用者剩余的数据访问预算允许、且 acquisition blocker 尚未达到停止边界时获取 matching scoped snapshot；否则报告 runtime evidence unavailable。 |
 | `runtime_preview_missing` | warning | 没有 v1 preview check 精确匹配 ref payload、catalog definition fingerprint、semantic dependency digest、entity-snapshot bindings 与 backend；仅仅过期不会触发。 | 日常分析可以继续；在声明新建或修改的 object 已完成前运行 scoped preview。 |
 
 ## 限定检查范围

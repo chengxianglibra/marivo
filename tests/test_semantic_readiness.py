@@ -333,6 +333,30 @@ def test_readiness_blocks_catalog_graph_above_depth_limit(
     assert report.analysis_ready_refs == ()
 
 
+def test_readiness_closes_unexpected_catalog_lowering_value_error(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    from marivo.semantic import metric_graph_lowering, preview_checks
+
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+
+    def fail_lowering(*_args, **_kwargs):
+        raise ValueError("invalid governed filter")
+
+    def fail_preview(*_args, **_kwargs):
+        raise AssertionError("graph-invalid refs must not enter preview evidence checks")
+
+    monkeypatch.setattr(metric_graph_lowering, "lower_catalog_metric", fail_lowering)
+    monkeypatch.setattr(preview_checks, "preview_evidence_requirement", fail_preview)
+
+    report = project.readiness(refs=("sales.total_amount",))
+
+    issue = next(issue for issue in report.blockers if issue.kind == "metric_graph_invalid")
+    assert "invalid governed filter" in issue.message
+    assert report.analysis_ready_refs == ()
+
+
 def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(
     semantic_project_factory,
     monkeypatch,

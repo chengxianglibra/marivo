@@ -431,6 +431,37 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             preserves_evidence=True,
         ),
         SemanticRepairContract(
+            error_kind="invalid_filter",
+            kind="reauthor",
+            help_target=_target("where"),
+            action=(
+                "Declare every filter dimension on the metric's target entity, then use "
+                "one scalar equality value or a non-empty tuple/list of membership values."
+            ),
+            snippet=(
+                "status = ms.dimension_column(\n"
+                "    name='status', entity=orders, column='physical_status'\n"
+                ")\n"
+                "failed = ms.count(\n"
+                "    name='failed', entity=orders, filter=ms.where(status=('FAILED', 'ERROR'))\n"
+                ")"
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="filter_value_runtime_incompatible",
+            kind="user_choice",
+            help_target=_target("where"),
+            action=(
+                "Preserve the authored filter literals. Do not replace business codes with "
+                "physical labels or other sampled values. Ask the user or accountable business "
+                "owner to confirm any code-to-physical-value mapping; until then, report runtime "
+                "evidence as unavailable and continue only query-free static verification and "
+                "semantic_static readiness."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
             error_kind="invalid_project",
             kind="configure",
             help_target=_target("authoring"),
@@ -677,12 +708,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "where",
             "marivo.semantic._authoring_declarations.where",
-            "Build an AND equality filter for ms.count/aggregate (subset count/aggregate).",
+            (
+                "Build an AND filter over declared local dimensions; scalars mean "
+                "equality and tuple/list values mean membership."
+            ),
             output="WhereFilter",
             inputs=_inputs(("subject", "FilterConditions")),
             effects=_NONE,
-            constraints=("ref_shape",),
-            example="ms.where(state='FAILED')",
+            constraints=("filter_condition_valid",),
+            example="ms.where(type=(2, 4), query_kind='Select')",
             see_also=(_target("count"), _target("aggregate")),
         ),
         _capability(

@@ -37,6 +37,20 @@ structured errors. Before reading user data, the agent must ask for required
 non-observable inputs such as the accountable domain owner or target business
 concept. Sampling cannot answer those questions.
 
+`python -m marivo help` only confirms the active interpreter, installed package
+version, and environment fingerprint before handing off to Python.
+`marivo.help(...)` is the sole public focused-help coordinator. Qualified
+`datasource.*`, `semantic.*`, and `analysis.*` content remains owned by its
+native registry; `md` and `ms` execute domain operations and intentionally have
+no `.help()` aliases.
+
+Datasource authoring errors display a stable code and stage. When bounded
+acquisition fails during execution, retry that exact acquisition at most once
+only when the caller's remaining data-access budget permits it. Caller-provided
+read-count, row, and timeout limits take precedence. If the same structured code
+and backend name recur, stop and report the backend blocker instead of resampling
+or bypassing Marivo.
+
 ## Maintain and share the semantic layer with Git
 
 Semantic objects are Python source files under `models/` and belong in version control:
@@ -285,6 +299,9 @@ without sharing a server session lock. If a datasource needs ClickHouse session
 state such as temporary tables, opt in explicitly with
 `extra={"autogenerate_session_id": True}`. Keep server/query settings in
 `settings={...}`; client keyword arguments belong in `extra={...}`.
+Marivo's bounded read-only paths enforce the ClickHouse server setting
+`readonly=1`; they preserve other declared settings and never retry through a
+write-enabled connection.
 
 SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
 enables SQLite's connection-level query-only mode, and `type_map={...}` can map
@@ -528,7 +545,7 @@ Aggregates a measure. No body; additivity is inherited from the measure.
 | `measure` | `Ref[measure]` | Yes | — | The measure to aggregate. |
 | `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"min"`, `"max"`, … |
 | `fold` | fold | No | `None` | Time-fold override for semi-additive measures. |
-| `filter` | `WhereFilter` | No | `None` | AND equality filter from `ms.where(col=value, ...)` to aggregate only matching rows. |
+| `filter` | `WhereFilter` | No | `None` | AND filter from `ms.where(dimension=value, ...)`; scalars mean equality and non-empty tuple/list values mean membership. |
 | `unit` | `str` | No | inherited | Override the unit derived from the measure. |
 | `domain` / `ai_context` | — | No | — | As elsewhere. |
 
@@ -549,10 +566,28 @@ order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_conte
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
 
-`ms.where(**conditions)` builds an AND-joined equality filter (`col=value`
-pairs; values are `str` / `int` / `float` / `bool`). Use it as the `filter=`
-argument to `ms.count` or `ms.aggregate` for subset metrics such as failure
-rate, error rate, or success rate.
+`ms.where(**conditions)` builds AND-joined equality
+(`dimension=value`) or membership (`dimension=(value1, value2)`) filters. Keys are local
+semantic dimensions declared on the metric's target entity, not arbitrary
+physical columns. Scalar values are `str` / `int` / `float` / `bool`; non-empty
+tuple/list values are normalized to membership. Multiple conditions are
+AND-joined. Load rejects missing filter dimensions, and preview/analysis checks
+literal compatibility against the resolved Ibis type before query submission.
+If a valid authored literal cannot be compared with the physical dtype, both
+paths raise `filter_value_runtime_incompatible` with
+`query_executed=False` and `declaration_preserved=True`. Marivo preserves the
+business literal and asks the user or business owner to confirm any code/label
+mapping; it never rewrites the rule from physical types or sampled values.
+Query-free static verification and `semantic_static` readiness can continue
+while runtime evidence remains unavailable.
+
+```python
+terminal_count = ms.count(
+    name="terminal_count",
+    entity=queries,
+    filter=ms.where(type=(2, 4)),
+)
+```
 
 #### Weighted means — `ms.weighted_mean`
 
@@ -1025,6 +1060,9 @@ snapshot.measures(columns=("amount",)).show()
 Inspection is metadata-only and reports schema, physical extent, partition state,
 and enforceable capabilities before sampling. Scope requires positive row and
 timeout guards plus explicit columns. `LIMIT` does not guarantee bytes scanned.
+For a ClickHouse `Distributed` source, local `system.parts` observations are
+shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
+`unknown`, and Marivo does not issue a cluster-wide fanout query.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
@@ -1050,6 +1088,13 @@ types. Partition cards report the captured value source, completeness,
 truncation, bounded values, and a scope template without issuing another query.
 The snapshot card reports its scope, selected columns, coverage, and value/cache
 state; every projection is explicitly `data_access=none`.
+
+Use `md.test(ref).show()` as the connection-test stop point. A failed
+`DatasourceTestResult` exposes a structured `.failure`, a focused `.repair`, and
+a blocked `validate_connection` transition from `.contract()`. Snapshot
+connection, source-resolution, timeout, and execution failures likewise remain
+structured and state whether a query was executed; backend messages are bounded
+and sanitized.
 
 When evidence cannot mechanically settle a decision,
 `result.contract().judgment_requirements` exposes frozen requirements with

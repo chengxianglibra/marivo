@@ -57,6 +57,8 @@ def test_authoring_error_preserves_no_query_fact() -> None:
     assert error.effect_observed is not None
     assert error.effect_observed.query_executed is False
     assert error.effect_observed.scope_state == "unknown"
+    assert "Code: partition_state_unknown" in str(error)
+    assert "Stage: preflight" in str(error)
 
 
 def test_authoring_error_constructor_has_no_legacy_next_calls_bridge() -> None:

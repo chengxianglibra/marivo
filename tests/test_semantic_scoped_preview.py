@@ -736,6 +736,9 @@ def test_readiness_snapshot_missing_emits_only_exact_inspection_call(
     assert warning.refs == ("sales.revenue",)
     assert warning.repair is not None
     assert warning.repair.kind == "reacquire"
+    assert "does not require another read" in warning.repair.action
+    assert "remaining data-access budget" in warning.repair.action
+    assert "stop boundary" in warning.repair.action
     assert report.status == "ready_with_warnings"
     assert report.analysis_ready_refs == (ms.ref.metric("sales.revenue"),)
     assert report.preview_required_refs == ()

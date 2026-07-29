@@ -254,6 +254,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
     result = md.test("wh")
 
     assert result.ok is True
+    assert result.failure is None
     assert persisted == [("TRINO_AUTH", "validated-secret")]
 
 
@@ -299,9 +300,61 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     result = md.test("wh")
 
     assert result.ok is False
+    assert result.failure is not None
+    assert result.failure.code == "connection_roundtrip_failed"
+    assert result.failure.exception_type == "RuntimeError"
+    assert result.failure.message == "authentication failed"
     assert result.repair is not None
     assert result.repair.kind == "reconnect"
+    assert result.contract().transitions[0].blocked_by == ("connection_roundtrip_failed",)
     assert persisted == []
+
+
+def test_datasource_test_classifies_open_and_secret_persistence_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.datasource import manage as manage_mod
+
+    monkeypatch.setattr(
+        manage_mod,
+        "connect",
+        lambda _name: (_ for _ in ()).throw(
+            RuntimeError(
+                "connect postgresql://alice:uri-secret@db.example "
+                'password=super-secret "token":"json-secret"'
+            )
+        ),
+    )
+    open_failure = md.test("wh")
+
+    assert open_failure.failure is not None
+    assert open_failure.failure.code == "connection_open_failed"
+    assert "uri-secret" not in open_failure.failure.message
+    assert "super-secret" not in open_failure.failure.message
+    assert "json-secret" not in open_failure.failure.message
+    assert "://<redacted>@db.example" in open_failure.failure.message
+    assert "password=<redacted>" in open_failure.failure.message
+    assert '"token"=<redacted>' in open_failure.failure.message
+
+    class _FakeBackend:
+        def raw_sql(self, _sql: str) -> object:
+            return object()
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(manage_mod, "connect", lambda _name: _FakeBackend())
+    monkeypatch.setattr(
+        manage_mod._secrets,
+        "persist_backend_env_sourced",
+        lambda _backend: (_ for _ in ()).throw(PermissionError("cache denied")),
+    )
+    persistence_failure = md.test("wh")
+
+    assert persistence_failure.failure is not None
+    assert persistence_failure.failure.code == "secret_persistence_failed"
+    assert persistence_failure.repair is not None
+    assert persistence_failure.repair.kind == "environment"
 
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:

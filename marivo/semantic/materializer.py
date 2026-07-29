@@ -25,6 +25,7 @@ from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
 )
+from marivo.semantic._filter_runtime import authored_filter_predicate
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     AggKind,
@@ -625,7 +626,13 @@ class Materializer:
                     cls=SemanticRuntimeError,
                     refs=(semantic_id,),
                 )
-            table = self._apply_filter(self.entity(metric_ir.entities[0]), metric_ir.filter)
+            entity_id = metric_ir.entities[0]
+            table = self._apply_filter(
+                self.entity(entity_id),
+                metric_ir.filter,
+                metric_id=semantic_id,
+                entity_id=entity_id,
+            )
             _numerator, _weight, value = self.weighted_mean_aggregates_on(
                 metric_ir.weighted_mean.value,
                 metric_ir.weighted_mean.weight,
@@ -646,11 +653,21 @@ class Materializer:
         datasource_id = self._resolve_single_datasource(metric_ir, registry)
         backend_type = self._backend_type_for_datasource(datasource_id, registry)
         if target_kind == "entity":
-            table = self._apply_filter(self.entity(target_id), metric_ir.filter)
+            table = self._apply_filter(
+                self.entity(target_id),
+                metric_ir.filter,
+                metric_id=semantic_id,
+                entity_id=target_id,
+            )
             return table.count()
         if target_kind == "measure":
             entity_id = metric_ir.entities[0]
-            table = self._apply_filter(self.entity(entity_id), metric_ir.filter)
+            table = self._apply_filter(
+                self.entity(entity_id),
+                metric_ir.filter,
+                metric_id=semantic_id,
+                entity_id=entity_id,
+            )
             column = self.measure_on(target_id, table)
             return self._apply_agg(
                 semantic_id,
@@ -665,16 +682,27 @@ class Materializer:
             refs=(semantic_id,),
         )
 
-    @staticmethod
     def _apply_filter(
+        self,
         table: ibis.Table,
         filter_pairs: tuple[tuple[str, object], ...] | None,
+        *,
+        metric_id: str,
+        entity_id: str,
     ) -> ibis.Table:
-        """Apply AND-joined equality predicates (from ``ms.where(...)``)."""
+        """Apply validated equality or membership predicates from ``ms.where(...)``."""
         if not filter_pairs:
             return table
-        for column, value in filter_pairs:
-            table = table.filter(table[column] == value)
+        for dimension_name, value in filter_pairs:
+            dimension_id = f"{entity_id}.{dimension_name}"
+            field = self.dimension_on(dimension_id, table)
+            predicate = authored_filter_predicate(
+                field,
+                value,
+                metric_id=metric_id,
+                dimension_id=dimension_id,
+            )
+            table = table.filter(predicate)
         return table
 
     def _apply_agg(

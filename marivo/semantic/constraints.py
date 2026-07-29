@@ -32,6 +32,7 @@ class ConstraintId(StrEnum):
     ACTIVE_DOMAIN_REQUIRED = "active_domain_required"
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
+    FILTER_CONDITION_VALID = "filter_condition_valid"
     COMPOSITION_SHAPE = "composition_shape"
     CUMULATIVE_ANCHOR = "cumulative_anchor"
     METRIC_ENTITIES_REQUIRED = "metric_entities_required"
@@ -227,6 +228,24 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         'Use ms.ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
+    ),
+    ConstraintId.FILTER_CONDITION_VALID: _constraint(
+        ConstraintId.FILTER_CONDITION_VALID,
+        "invalid_filter",
+        "decorator",
+        ("where", "count", "aggregate", "weighted_mean"),
+        (
+            "Metric filters use declared local semantic dimension names with either "
+            "one scalar equality value or a non-empty tuple/list of membership values."
+        ),
+        (
+            "A filtered metric must resolve every condition to a dimension on its target "
+            "entity before lowering or execution."
+        ),
+        (
+            "Declare the filter dimension on the target entity, then use "
+            "ms.where(state='FAILED') or ms.where(type=(2, 4))."
+        ),
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
         ConstraintId.COMPOSITION_SHAPE,

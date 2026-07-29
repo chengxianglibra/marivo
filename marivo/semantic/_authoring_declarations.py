@@ -148,8 +148,9 @@ def aggregate(
             collapses the ``over`` time axis. Distinct from
             ``agg=("percentile", q)``, which aggregates across rows in each
             query group rather than along the time axis.
-        filter: Optional ``ms.where(col=value, ...)`` to aggregate only matching
-            rows (e.g. a subset sum). ``None`` aggregates all rows.
+        filter: Optional ``ms.where(dimension=value, ...)`` to aggregate only
+            rows matching local semantic dimensions (e.g. a subset sum).
+            ``None`` aggregates all rows.
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
@@ -269,58 +270,92 @@ def _resolve_filter_pairs(filter: WhereFilter | None) -> tuple[tuple[str, WhereV
         return None
     if not isinstance(filter, WhereFilter):
         _raise(
-            ErrorKind.INVALID_REF,
-            "filter must be a WhereFilter built by ms.where(col=value, ...); "
+            ErrorKind.INVALID_FILTER,
+            "filter must be a WhereFilter built by "
+            "ms.where(dimension=value, ...); "
             f"got {type(filter).__name__}.",
             cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
+            constraint_id=ConstraintId.FILTER_CONDITION_VALID,
         )
     return filter.conditions
 
 
-def where(**conditions: WhereValue) -> WhereFilter:
-    """Build an AND-joined equality filter for ``ms.count`` / ``ms.aggregate``.
+def where(
+    **conditions: str
+    | int
+    | float
+    | bool
+    | tuple[str | int | float | bool, ...]
+    | list[str | int | float | bool],
+) -> WhereFilter:
+    """Build an AND-joined filter for ``ms.count`` / ``ms.aggregate``.
 
-    Each keyword is a column on the target entity mapped to the value it must
-    equal, e.g. ``ms.where(state="FAILED")``. Use this to express subset counts
-    (failure rate, error rate, success rate) without a hand-written metric body.
+    Each keyword is a local semantic dimension name on the target entity.
+    A scalar value means equality; a non-empty tuple/list means membership.
+    Use this to express subset counts and aggregates without a hand-written
+    metric body.
 
     Args:
-        **conditions: One or more ``column=value`` equality predicates (str,
-            int, float, or bool values). ``None`` is not supported.
+        **conditions: One or more ``dimension=value`` predicates. Values are
+            str, int, float, bool, or a non-empty tuple/list of those scalars.
+            ``None``, sets, mappings, and nested values are not supported.
 
     Returns:
         A :class:`WhereFilter` to pass as ``filter=``.
 
     Example:
-        >>> failed = ms.count(name="failed_count", entity=queries, filter=ms.where(state="FAILED"))
+        >>> terminal = ms.count(
+        ...     name="terminal_count",
+        ...     entity=queries,
+        ...     filter=ms.where(type=(2, 4)),
+        ... )
     """
     if not conditions:
         _raise(
-            ErrorKind.INVALID_REF,
-            "ms.where requires at least one column=value equality condition",
+            ErrorKind.INVALID_FILTER,
+            "ms.where requires at least one dimension=value condition",
             cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
+            constraint_id=ConstraintId.FILTER_CONDITION_VALID,
         )
     normalized: list[tuple[str, WhereValue]] = []
-    for column, value in conditions.items():
-        if value is None:
+    for dimension_name, value in conditions.items():
+        if not dimension_name or "." in dimension_name:
             _raise(
-                ErrorKind.INVALID_REF,
-                f"ms.where column {column!r} does not support None; "
-                "use a concrete value or a custom @ms.metric body for IS NULL.",
+                ErrorKind.INVALID_FILTER,
+                "ms.where keys must be local semantic dimension names without dots; "
+                f"got {dimension_name!r}.",
                 cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.REF_SHAPE,
+                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
             )
+        if isinstance(value, list | tuple):
+            if not value:
+                _raise(
+                    ErrorKind.INVALID_FILTER,
+                    f"ms.where dimension {dimension_name!r} membership values must be non-empty.",
+                    cls=SemanticDecoratorError,
+                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                )
+            if any(not isinstance(item, str | int | float | bool) for item in value):
+                received = ", ".join(type(item).__name__ for item in value)
+                _raise(
+                    ErrorKind.INVALID_FILTER,
+                    f"ms.where dimension {dimension_name!r} membership values must all be "
+                    f"str/int/float/bool; got ({received}).",
+                    cls=SemanticDecoratorError,
+                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                )
+            normalized.append((dimension_name, tuple(value)))
+            continue
         if not isinstance(value, str | int | float | bool):
             _raise(
-                ErrorKind.INVALID_REF,
-                f"ms.where column {column!r} value must be str/int/float/bool, "
+                ErrorKind.INVALID_FILTER,
+                f"ms.where dimension {dimension_name!r} value must be str/int/float/bool "
+                "or a non-empty tuple/list of those scalars; "
                 f"got {type(value).__name__}",
                 cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.REF_SHAPE,
+                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
             )
-        normalized.append((str(column), value))
+        normalized.append((dimension_name, value))
     return WhereFilter(conditions=tuple(normalized))
 
 
@@ -337,8 +372,9 @@ def count(
         name: Metric name inside the entity's domain.
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
-        filter: Optional ``ms.where(col=value, ...)`` to count only matching rows
-            (e.g. a failure/error subset). ``None`` counts all rows.
+        filter: Optional ``ms.where(dimension=value, ...)`` to count only rows
+            matching local semantic dimensions (e.g. a failure/error subset).
+            ``None`` counts all rows.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
             agent-facing hints.
 

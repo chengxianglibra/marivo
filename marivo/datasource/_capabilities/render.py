@@ -135,7 +135,48 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
             ("datasource.", "source.", "scope.", "evidence.")
         )
     ]
-    lines = ["authoring", f"  {descriptor.summary}", "", "  Registered datasource states:"]
+    route_groups = (
+        (
+            "declare",
+            tuple(
+                candidate.canonical_id
+                for candidate in REGISTRY.group("declare_manage")
+                if candidate.produced_state is not None
+                and candidate.produced_state.id == "datasource.declared"
+            ),
+        ),
+        ("register and test", ("register", "test")),
+        ("physical source", ("table", "parquet", "csv", "json")),
+        ("metadata", ("inspect",)),
+        ("explicit scope", ("partition", "unpruned")),
+        ("bounded acquisition", ("SourceInspection.sample",)),
+        (
+            "query-free projections",
+            (
+                "DiscoverySnapshot.entity",
+                "DiscoverySnapshot.dimensions",
+                "DiscoverySnapshot.values",
+                "DiscoverySnapshot.time_dimensions",
+                "DiscoverySnapshot.measures",
+                "DiscoverySnapshot.relationships",
+            ),
+        ),
+    )
+    lines = [
+        "authoring",
+        f"  {descriptor.summary}",
+        "",
+        "  Minimal focused-help routing:",
+    ]
+    for label, canonical_ids in route_groups:
+        targets = tuple(
+            REGISTRY.by_canonical_id(canonical_id).canonical_id for canonical_id in canonical_ids
+        )
+        lines.append(
+            f"    {label} -> "
+            + ", ".join(f'marivo.help("datasource.{target}")' for target in targets)
+        )
+    lines.extend(("", "  Registered datasource states:"))
     for candidate in state_rows:
         assert candidate.produced_state is not None
         lines.append(f"    {candidate.produced_state.id} <- {candidate.canonical_id}")
@@ -187,7 +228,10 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         )
     )
     if descriptor.minimal_example is not None:
-        lines.extend(("  Example:", f"    {descriptor.minimal_example}"))
+        lines.append("  Example:")
+        lines.extend(
+            f"    {line}" if line else "" for line in descriptor.minimal_example.splitlines()
+        )
     constraints = _constraints(descriptor)
     if constraints:
         lines.append("  Constraints:")

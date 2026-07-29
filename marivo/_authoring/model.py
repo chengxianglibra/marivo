@@ -189,6 +189,7 @@ RepairKind = Literal[
     "reverify",
     "repreview",
     "environment",
+    "user_choice",
 ]
 
 

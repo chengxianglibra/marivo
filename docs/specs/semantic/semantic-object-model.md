@@ -262,8 +262,17 @@ revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
 percentile | count | count_distinct` (`ms.count(...)` is the counting shortcut).
 `agg=("percentile", q)` follows backend support — Trino uses approximate
 percentile (`APPROX_PERCENTILE`). Both `ms.aggregate` and `ms.count` accept an
-optional `filter=ms.where(col=value, ...)` to restrict the aggregation to a
+optional `filter=ms.where(dimension=value, ...)` to restrict the aggregation to a
 subset of rows (e.g. a failure or error subset) without a hand-written body.
+Filter keys are local semantic dimension names on the metric's target entity,
+not arbitrary physical columns. A scalar value means equality; a non-empty
+tuple/list means membership, for example `ms.where(type=(2, 4))`. Multiple
+conditions are AND-joined. The loader rejects missing or cross-entity filter
+dimensions before graph lowering. If a valid authored literal is incompatible
+with the resolved runtime dtype, preview and analysis raise
+`filter_value_runtime_incompatible` before query submission. The declaration is
+preserved: Marivo never replaces a business code with a physical label (or the
+reverse) without confirmation from the user or business owner.
 
 **Tier-2** `@ms.metric(...)` is the expression escape hatch, used only when a
 metric cannot be expressed as measure + aggregate. It declares dependencies with

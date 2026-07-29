@@ -10,7 +10,6 @@ from marivo.analysis.intents._observe_planner_base import plan_base_observe
 from marivo.analysis.intents._observe_planner_types import (
     BaseObservePlan,
     CumulativePhysicalLeafPlanV1,
-    RawWhereKey,
 )
 from marivo.analysis.intents._runtime_metric_lowering import lower_metric_inputs
 from marivo.analysis.intents.observe_errors import (
@@ -22,6 +21,7 @@ from marivo.analysis.intents.observe_errors import (
 from marivo.analysis.runtime_metric import RuntimeMetricExpr
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
+from marivo.semantic._filter_runtime import authored_filter_predicate
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
@@ -374,14 +374,46 @@ def _physical_node_filter(
     """Return authored row filters owned by one physical metric node."""
     if isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
         return {
-            RawWhereKey(column=predicate.dimension_ref.path.rsplit(".", 1)[-1]): (
-                _canonical_slice_runtime_value(predicate.value)
-            )
+            predicate.dimension_ref.path: _canonical_slice_runtime_value(predicate.value)
             for predicate in node.filter
         }
     if isinstance(node, CumulativeNodeV1):
         return _physical_node_filter(nodes[node.child_id], nodes=nodes)
     return {}
+
+
+def _validate_authored_filter_types(
+    *,
+    node: MetricGraphNodeV1,
+    registry: Any,
+    session: Any,
+    dataset_irs: dict[str, Any],
+    dataset_fns: dict[str, Any],
+    metric_id: str,
+) -> None:
+    """Validate authored metric filter literals against resolved Ibis field types."""
+    if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
+        return
+    for predicate in node.filter:
+        dimension_id = predicate.dimension_ref.path
+        dimension = registry.dimensions.get(dimension_id)
+        if dimension is None:
+            continue
+        dataset_ir = dataset_irs[dimension.entity]
+        backend = session._connection_runtime.get_or_create(dataset_ir.datasource_name)
+        table = dataset_fns[dimension.entity](backend)
+        field = dataset_ir.fields[dimension.name].fn(table)
+        runtime_value = _canonical_slice_runtime_value(predicate.value)
+        authored_filter_predicate(
+            field,
+            (
+                tuple(runtime_value["value"])
+                if isinstance(runtime_value, dict) and runtime_value.get("op") == "in"
+                else runtime_value
+            ),
+            metric_id=metric_id,
+            dimension_id=dimension_id,
+        )
 
 
 def _physical_targets(
@@ -864,6 +896,14 @@ def _plan_metric_expression_forest(
                 repair=[],
             )
         leaf_where = _merge_leaf_where(where, local_where)
+        _validate_authored_filter_types(
+            node=value_node,
+            registry=registry,
+            session=session,
+            dataset_irs=dataset_irs,
+            dataset_fns=dataset_fns,
+            metric_id=metric_id,
+        )
         physical_plan: PhysicalLeafPlanV1
         base_plan: BaseObservePlan
         try:

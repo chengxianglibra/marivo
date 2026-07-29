@@ -44,10 +44,14 @@ event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="event_time", granularity="day"
 )
 state = ms.dimension_column(name="state", entity=orders, column="state")
+type = ms.dimension_column(name="type", entity=orders, column="type")
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 revenue_alias = ms.aggregate(name="revenue_alias", measure=amount, agg="sum")
 failed_revenue = ms.aggregate(
     name="failed_revenue", measure=amount, agg="sum", filter=ms.where(state="FAILED")
+)
+terminal_orders = ms.count(
+    name="terminal_orders", entity=orders, filter=ms.where(type=(2, 4))
 )
 order_count = ms.count(name="order_count", entity=orders)
 inner = ms.ratio(name="inner", numerator=revenue, denominator=order_count)
@@ -107,6 +111,19 @@ def test_catalog_aggregate_filter_and_explicit_unit_override_are_value_inputs(
     assert failed.filter[0].value == "FAILED"
     assert isinstance(share, RatioNodeV1)
     assert share.unit_override == "%"
+
+
+def test_catalog_membership_filter_uses_existing_canonical_slice_algebra(
+    catalog_registry: Registry,
+) -> None:
+    terminal = _root_node(lower_catalog_metric(catalog_registry, "test.terminal_orders"))
+
+    assert isinstance(terminal, AggregateNodeV1)
+    assert terminal.filter[0].dimension_ref.path == "test.orders.type"
+    assert terminal.filter[0].value == (
+        ("op", "in"),
+        ("value", (2, 4)),
+    )
 
 
 def test_nested_catalog_ratio_lowers_recursively_without_wrapper_leaf(

@@ -79,7 +79,7 @@ def runtime_session(tmp_path):
         + "    name='filtered_catalog_weighted_mean',\n"
         + "    value=user_value_measure,\n"
         + "    weight=amount_measure,\n"
-        + "    filter=ms.where(region='north'),\n"
+        + "    filter=ms.where(region='NORTH'),\n"
         + ")\n"
     )
     connection = connect_sales_orders()
@@ -254,7 +254,7 @@ def test_observe_runtime_weighted_mean_uses_exact_paired_components(runtime_sess
     assert components["__weighted_mean_weight"].iloc[0] == pytest.approx(10.0)
 
 
-def test_catalog_weighted_mean_filter_uses_authored_physical_column(runtime_session) -> None:
+def test_catalog_weighted_mean_filter_uses_semantic_dimension_expression(runtime_session) -> None:
     metric = runtime_session.catalog.require(
         ms.ref.metric("sales.filtered_catalog_weighted_mean")
     ).ref

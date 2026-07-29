@@ -306,7 +306,11 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
             constraints=constraints["configured"],
-            example='md.test(ms.ref.datasource("warehouse"))',
+            example=(
+                'result = md.test(ms.ref.datasource("warehouse"))\n'
+                "result.show()\n"
+                "result.contract().show()"
+            ),
             produced_state="datasource.connection_validated",
         ),
         _capability(
@@ -455,7 +459,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
             effects=_TEST,
             constraints=constraints["configured"],
-            example='md.load().test("warehouse")',
+            example=(
+                'result = md.load().test("warehouse")\nresult.show()\nresult.contract().show()'
+            ),
             public_entrypoint="catalog.test",
         ),
         _capability(
@@ -505,10 +511,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             ),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
-                "inspection.sample(\n"
+                "snapshot = inspection.sample(\n"
                 "    scope=md.unpruned(max_rows=1000, timeout_seconds=30),\n"
-                '    columns=("order_id", "amount"),\n'
-                ").show()"
+                '    columns=("order_id", "status", "amount"),\n'
+                ")\n"
+                "snapshot.show()\n"
+                "snapshot.contract().show()\n"
+                'snapshot.dimensions(columns=("status",)).show()'
             ),
             preconditions=("source.inspected", "scope.explicit"),
             produced_state="evidence.acquired",
@@ -704,6 +713,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     from marivo.datasource.manage import (
         DatasourceConnection,
         DatasourceDescription,
+        DatasourceFailure,
         DatasourceList,
         DatasourceSummary,
         DatasourceTestResult,
@@ -789,10 +799,16 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         state_bearing=True,
     )
     add(
+        DatasourceFailure,
+        "DatasourceFailure",
+        ("test", "DatasourceCatalog.test"),
+        properties=("code", "exception_type", "backend_code", "backend_name", "message"),
+    )
+    add(
         DatasourceTestResult,
         "DatasourceTestResult",
         ("test", "DatasourceCatalog.test"),
-        properties=("name", "ok", "latency_ms", "repair"),
+        properties=("name", "ok", "latency_ms", "failure", "repair"),
         methods=("contract", *show_render),
         state_bearing=True,
     )

@@ -19,6 +19,13 @@ See also:
 
 ## Current public flow
 
+`python -m marivo help` is an environment bootstrap only: it confirms the
+current interpreter, installed package version, and environment fingerprint,
+then points into Python. All focused targets go through the sole public
+coordinator, `marivo.help(...)`. The `datasource.*`, `semantic.*`, and
+`analysis.*` content remains owned by the corresponding native registry; `md`
+and `ms` execute domain operations and do not expose `.help()` aliases.
+
 The semantic-authoring lifecycle is a registered state model, not a hardcoded
 method-by-method runbook. `marivo.help("authoring")` composes the registered
 datasource and semantic lifecycle views without merging their state ownership.
@@ -51,8 +58,10 @@ Each layer of guidance has exactly one job:
 
 - **`marivo.help("semantic.<constructor-or-object>")` — static authoring contract.**
   Constructors, required and optional parameters, allowed values, defaults, omit
-  rules, nested parse shapes, and static constraints. Help says *what must be
-  settled*; it carries no runtime data.
+  rules, nested parse shapes, and static constraints come from the semantic
+  registry. Datasource targets similarly come from the datasource registry;
+  the public coordinator routes but does not duplicate either registry. Help
+  says *what must be settled*; it carries no runtime data.
 - **`md.inspect(...)` and one snapshot — runtime datasource evidence.** Inspect
   metadata, choose explicit scope, acquire one selected-column sample, and reuse
   local projections. Evidence never authors objects or infers meaning.

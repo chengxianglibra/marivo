@@ -57,10 +57,15 @@ After the decision preflight passes, enter through
 `marivo.help("authoring")`. It owns the exact current-project catalog reads and
 routes to the focused datasource or semantic target shown by live state. If
 help and execution fingerprints differ, stop for environment repair.
+The CLI owns only environment bootstrap. All target help goes through
+`marivo.help(...)`; `md` and `ms` execute domain APIs and do not expose separate
+public help aliases.
 
 Never reconstruct a signature or repair from this skill. Prefer, in order:
 the current structured error, current result `.contract()`, focused help, then
 root help.
+Read focused help only for the active object. When several already-known,
+independent targets are needed, render them in one interpreter invocation.
 
 ## Canonical route
 
@@ -146,6 +151,8 @@ cannot re-enter typed semantic or analysis work.
 
 A returned-row limit is not a scan bound. Never retry an operation until its
 focused help exposes the effect and required scope.
+Caller-stated read-count, row, and timeout budgets override any repair that
+would otherwise permit a retry.
 
 ### Snapshot continuity
 

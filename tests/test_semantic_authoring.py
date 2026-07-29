@@ -1800,7 +1800,9 @@ def test_where_requires_at_least_one_condition() -> None:
             ms.where()  # type: ignore[call-arg]
     finally:
         _exit_ctx()
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.kind == ErrorKind.INVALID_FILTER
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.canonical_id == "where"
 
 
 def test_count_with_filter_records_equality_predicates_on_ir() -> None:
@@ -1814,6 +1816,50 @@ def test_count_with_filter_records_equality_predicates_on_ir() -> None:
         assert ir.filter == (("state", "FAILED"),)
     finally:
         _exit_ctx()
+
+
+@pytest.mark.parametrize("membership", [(2, 4), [2, 4]])
+def test_count_with_filter_normalizes_membership_predicates_on_ir(
+    membership: tuple[int, ...] | list[int],
+) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        orders = ref_factory.entity("sales.orders")
+        ms.count(
+            name="terminal_count",
+            entity=orders,
+            filter=ms.where(type=membership),
+        )
+        ir, _sidecar = _pending_objects(_LOADER_CTX.get())[-1]  # type: ignore[union-attr]
+        assert ir.filter == (("type", (2, 4)),)
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [None, (), [], {2, 4}, {"op": "in", "value": [2, 4]}, (2, object())],
+)
+def test_where_rejects_invalid_condition_values(bad_value: object) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.where(**{"type": bad_value})  # type: ignore[arg-type]
+    finally:
+        _exit_ctx()
+    assert exc_info.value.kind == ErrorKind.INVALID_FILTER
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.canonical_id == "where"
+
+
+def test_where_rejects_qualified_dimension_keys() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.where(**{"sales.orders.type": 2})
+    finally:
+        _exit_ctx()
+    assert exc_info.value.kind == ErrorKind.INVALID_FILTER
 
 
 @pytest.mark.parametrize("bad_filter", [{"state": "FAILED"}, [("state", "FAILED")], "FAILED"])
@@ -1831,7 +1877,7 @@ def test_count_rejects_non_where_filter(bad_filter: object) -> None:
             )
     finally:
         _exit_ctx()
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.kind == ErrorKind.INVALID_FILTER
     assert "ms.where" in str(exc_info.value)
 
 
@@ -1847,7 +1893,7 @@ def test_aggregate_rejects_non_where_filter() -> None:
             )
     finally:
         _exit_ctx()
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.kind == ErrorKind.INVALID_FILTER
     assert "ms.where" in str(exc_info.value)
 
 

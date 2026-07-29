@@ -62,6 +62,7 @@ def repair(
         "reverify",
         "repreview",
         "environment",
+        "user_choice",
     ],
     canonical_id: str,
     action: str,
@@ -97,6 +98,7 @@ class ErrorKind(StrEnum):
     MISSING_DOMAIN = "missing_domain"
     MISSING_ENTITIES = "missing_entities"
     INVALID_REF = "invalid_ref"
+    INVALID_FILTER = "invalid_filter"
     INVALID_COMPOSITION = "invalid_composition"
     INVALID_COMPONENT_BODY = "invalid_component_body"
     OUTSIDE_LOADER_CONTEXT = "outside_loader_context"
@@ -170,6 +172,7 @@ class ErrorKind(StrEnum):
     BINDING_TARGET_MISSING = "binding_target_missing"
     BINDING_CYCLE = "binding_cycle"
     BINDING_RESULT_INVALID = "binding_result_invalid"
+    FILTER_VALUE_RUNTIME_INCOMPATIBLE = "filter_value_runtime_incompatible"
 
     # parity
     PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"

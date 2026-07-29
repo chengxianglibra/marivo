@@ -333,6 +333,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "missing_entities",
     "missing_metric_root_entity",
     "invalid_ref",
+    "invalid_filter",
     "invalid_composition",
     "invalid_component_body",
     "outside_loader_context",
@@ -374,6 +375,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_entity_versioning",
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",
+    "invalid_filter",
     "derived_metric_fanout_policy",
     "time_fold_requires_semi_additive",
     "time_fold_requires_sampled_time_field",
@@ -409,6 +411,8 @@ _EXPECTED_RUNTIME_KINDS = {
     "binding_target_missing",
     "binding_cycle",
     "binding_result_invalid",
+    "invalid_filter",
+    "filter_value_runtime_incompatible",
 }
 
 _EXPECTED_PARITY_KINDS = {

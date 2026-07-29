@@ -556,7 +556,7 @@ def test_simple_metric_details_carry_and_render_filter(semantic_project_factory)
     assert failed_details.filter == (("region", "FAILED"),)
     rendered = failed_details.render()
     assert "filter" in rendered.lower()
-    assert "region=FAILED" in rendered
+    assert "region = 'FAILED'" in rendered
 
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
@@ -1816,6 +1816,11 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
                     entity=orders,
                     column="item_count",
                     additivity="additive",
+                )
+                status = ms.dimension_column(
+                    name="status",
+                    entity=orders,
+                    column="status",
                 )
 
                 @ms.measure(entity=orders, additivity="non_additive")

@@ -744,7 +744,14 @@ class SimpleMetricDetails(_DetailsBase):
             sections.append(
                 FieldSection(
                     label="filter",
-                    value=", ".join(f"{column}={value}" for column, value in self.filter),
+                    value=", ".join(
+                        (
+                            f"{dimension_name} in {value!r}"
+                            if isinstance(value, tuple)
+                            else f"{dimension_name} = {value!r}"
+                        )
+                        for dimension_name, value in self.filter
+                    ),
                 )
             )
         return sections

@@ -48,6 +48,19 @@ def test_empty_string_is_not_a_hidden_root_alias() -> None:
 def test_help_resolves_authoring_topic() -> None:
     text = _text("authoring")
     assert "authoring" in text
+    for target in (
+        "datasource.authoring",
+        "semantic.domain",
+        "semantic.entity",
+        "semantic.dimension_column",
+        "semantic.time_dimension_column",
+        "semantic.measure_column",
+        "semantic.where",
+        "semantic.count",
+        "semantic.aggregate",
+        "semantic.readiness",
+    ):
+        assert f'marivo.help("{target}")' in text
 
 
 def test_render_root_help_is_bounded_and_has_fingerprint() -> None:
@@ -111,6 +124,9 @@ def test_where_is_registered_help_target_and_count_teaches_filter() -> None:
     where_text = _text("where")
     assert "where" in where_text
     assert "ms.where" in where_text
+    assert "tuple/list values mean membership" in where_text
+    assert "ms.where(type=(2, 4), query_kind='Select')" in where_text
+    assert "filter_condition_valid" in where_text
 
     count_text = _text("count")
     assert "filter" in count_text.lower()

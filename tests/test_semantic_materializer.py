@@ -453,8 +453,9 @@ def test_count_with_filter_materializes_subset_count(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
+                "market = ms.dimension_column(name='market', entity=orders, column='region')\n"
                 "us_order_count = ms.count(name='us_order_count', entity=orders, "
-                "filter=ms.where(region='US'))\n"
+                "filter=ms.where(market='US'))\n"
             ),
         }
     )
@@ -475,16 +476,100 @@ def test_aggregate_with_filter_materializes_subset_sum(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
+                "market = ms.dimension_column(name='market', entity=orders, column='region')\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
                 "additivity='additive')\n"
                 "us_amount = ms.aggregate(name='us_amount', measure=amount, agg='sum', "
-                "filter=ms.where(region='US'))\n"
+                "filter=ms.where(market='US'))\n"
             ),
         }
     )
     with _patch_connection_service(project, backend_factory):
         metric_expr = _materialize_metric(project, "sales.us_amount")
     assert metric_expr.to_pandas() == pytest.approx(100.0)
+
+
+def test_count_with_membership_filter_materializes_subset_count(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                "order_code = ms.dimension_column("
+                "name='order_code', entity=orders, column='order_id')\n"
+                "selected = ms.count(name='selected', entity=orders, "
+                "filter=ms.where(order_code=(1, 2)))\n"
+            ),
+        }
+    )
+    with _patch_connection_service(project, backend_factory):
+        metric_expr = _materialize_metric(project, "sales.selected")
+    assert metric_expr.to_pandas() == 2
+
+
+def test_filter_type_mismatch_fails_before_metric_execution(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                "order_code = ms.dimension_column("
+                "name='order_code', entity=orders, column='order_id')\n"
+                "selected = ms.count(name='selected', entity=orders, "
+                "filter=ms.where(order_code='one'))\n"
+            ),
+        }
+    )
+    with (
+        _patch_connection_service(project, backend_factory),
+        pytest.raises(SemanticRuntimeError) as exc_info,
+    ):
+        _materialize_metric(project, "sales.selected")
+    assert exc_info.value.kind == ErrorKind.FILTER_VALUE_RUNTIME_INCOMPATIBLE
+    assert exc_info.value.expected == "authored values comparable with runtime dtype int32"
+    assert exc_info.value.received == "str"
+    assert exc_info.value.details == {
+        "metric": "sales.selected",
+        "dimension": "sales.orders.order_code",
+        "physical_dtype": "int32",
+        "received_value_types": ("str",),
+        "query_executed": False,
+        "declaration_preserved": True,
+        "cause_type": "IbisTypeError",
+    }
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "user_choice"
+
+
+def test_missing_filter_dimension_fails_during_load_with_focused_repair(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                "selected = ms.count(name='selected', entity=orders, "
+                "filter=ms.where(order_code=(1, 2)))\n"
+            ),
+        }
+    )
+
+    error = next(error for error in project.errors() if error.kind == ErrorKind.INVALID_FILTER)
+    assert error.expected == "a local semantic dimension declared on the metric target entity"
+    assert error.received == "order_code"
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "where"
 
 
 def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factory) -> None:

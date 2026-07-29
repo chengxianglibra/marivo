@@ -70,8 +70,18 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "inspection.show()" in inspect_text
     assert "inspection.partitions().show()" in partitions_text
     assert "inspection = md.inspect(" in sample_text
-    assert "inspection.sample(" in sample_text
-    assert ").show()" in sample_text
+    assert "snapshot = inspection.sample(" in sample_text
+    assert "snapshot.show()" in sample_text
+    assert "snapshot.contract().show()" in sample_text
+    assert 'snapshot.dimensions(columns=("status",)).show()' in sample_text
+
+
+def test_connection_test_help_teaches_result_and_contract_reads() -> None:
+    text = _text("test")
+
+    assert "result = md.test(" in text
+    assert "result.show()" in text
+    assert "result.contract().show()" in text
 
 
 def test_authoring_is_a_generated_datasource_state_boundary() -> None:
@@ -79,6 +89,12 @@ def test_authoring_is_a_generated_datasource_state_boundary() -> None:
 
     assert "datasource.declared" in text
     assert "evidence.projected" in text
+    assert 'declare -> marivo.help("datasource.duckdb")' in text
+    assert 'register and test -> marivo.help("datasource.register")' in text
+    assert 'metadata -> marivo.help("datasource.inspect")' in text
+    assert 'explicit scope -> marivo.help("datasource.partition")' in text
+    assert 'bounded acquisition -> marivo.help("datasource.SourceInspection.sample")' in text
+    assert 'query-free projections -> marivo.help("datasource.DiscoverySnapshot.entity")' in text
     assert _DATASOURCE_IMPORT in text
     assert _SEMANTIC_IMPORT not in text
     assert 'marivo.help("semantic.authoring")' in text
@@ -95,6 +111,16 @@ def test_consumed_type_help_uses_only_registered_public_contract() -> None:
     assert _SEMANTIC_IMPORT not in text
     assert "Signature:" not in text
     assert "_" not in "\n".join(line for line in text.splitlines() if line.strip().startswith("_"))
+
+
+def test_datasource_failure_type_help_is_registry_owned() -> None:
+    text = _text(md.DatasourceFailure)
+
+    assert "Producers: test, DatasourceCatalog.test" in text
+    assert "code" in text
+    assert "backend_code" in text
+    assert "backend_name" in text
+    assert "message" in text
 
 
 def test_help_accepts_registered_receiver_path_and_rejects_private_names() -> None:

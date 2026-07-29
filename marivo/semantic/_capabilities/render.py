@@ -131,6 +131,16 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         if candidate.produced_state is not None
         and candidate.produced_state.id.startswith("semantic.")
     ]
+    route_groups = (
+        ("domain", ("domain",)),
+        ("entity", ("entity",)),
+        (
+            "direct fields",
+            ("dimension_column", "time_dimension_column", "measure_column"),
+        ),
+        ("aggregate metrics", ("where", "count", "aggregate")),
+        ("closeout", ("load", "verify", "preview", "readiness")),
+    )
     lines = [
         "authoring",
         f"  {descriptor.summary}",
@@ -146,8 +156,23 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         "    entry.show()",
         "    entry.contract().show()",
         "",
-        "  Registered semantic states:",
+        "  Minimal focused-help routing:",
+        '    datasource -> marivo.help("datasource.authoring")',
     ]
+    for label, canonical_ids in route_groups:
+        targets = tuple(
+            REGISTRY.by_canonical_id(canonical_id).canonical_id for canonical_id in canonical_ids
+        )
+        lines.append(
+            f"    {label} -> "
+            + ", ".join(f'marivo.help("semantic.{target}")' for target in targets)
+        )
+    lines.extend(
+        (
+            "",
+            "  Registered semantic states:",
+        )
+    )
     for candidate in state_rows:
         assert candidate.produced_state is not None
         lines.append(f"    {candidate.produced_state.id} <- {candidate.canonical_id}")
