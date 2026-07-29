@@ -25,7 +25,11 @@ def render_root() -> str:
         "\n".join(
             (
                 "marivo.help",
-                "  One help surface for datasource evidence, semantic authoring, and analysis.",
+                "  The one public coordinator for registered Marivo help.",
+                "  It routes only; static contract content remains owned by:",
+                "    datasource.* -> marivo.datasource capability registry",
+                "    semantic.*   -> marivo.semantic capability registry",
+                "    analysis.*   -> marivo.analysis capability registry",
                 "",
                 "  Start:",
                 '    marivo.help("authoring")',
@@ -43,6 +47,7 @@ def render_root() -> str:
                 '    marivo.help("analysis")',
                 "",
                 "  Unique unqualified targets route automatically; qualify shared names.",
+                "  md and ms execute their domain APIs; neither exposes a public .help alias.",
             )
         ),
         root=True,

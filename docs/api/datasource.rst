@@ -75,7 +75,13 @@ Scope helpers
 Description
 -----------
 
-Use ``marivo.help("datasource.<target>")`` for bounded focused help.
+``python -m marivo help`` is an environment bootstrap only. Use the sole public
+coordinator, ``marivo.help("datasource.<target>")``, for bounded focused help
+rendered from the datasource registry. The ``md`` namespace executes datasource
+operations and intentionally has no ``md.help()`` alias. A
+``SourceInspection`` card points to
+``marivo.help("datasource.SourceInspection.sample")`` for the complete
+single-process acquisition and query-free projection chain.
 
 .. autosummary::
    :toctree: api/
@@ -135,3 +141,4 @@ typed-analysis re-entry.
    :nosignatures:
 
    DatasourceTestResult
+   DatasourceFailure

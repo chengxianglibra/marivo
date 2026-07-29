@@ -7,6 +7,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -25,7 +26,11 @@ from marivo.datasource._capabilities.contracts import (
 )
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
+from marivo.datasource.errors import (
+    DatasourceAuthoringError,
+    DatasourceObservedEffects,
+    _backend_failure_summary,
+)
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
@@ -34,6 +39,8 @@ from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    from ibis.backends import BaseBackend
+
     from marivo.datasource.inspection import SourceInspection
 
 
@@ -637,11 +644,30 @@ def acquire_snapshot(
             scope_state=inspection.partitioning.state,
         )
 
-    backend = _backends.build_backend(datasource_ir, read_only=True)
+    backend: BaseBackend | None = None
     timeout_entered = False
     execute_attempted = False
     try:
-        expression = _source_expression(backend, inspection.source)
+        try:
+            backend = _backends.build_backend(datasource_ir, read_only=True)
+        except Exception as exc:
+            failure = _backend_failure_summary(exc)
+            raise _acquisition_error(
+                code="acquisition_connection_failed",
+                reason=f"the datasource backend could not be opened: {failure.message}",
+                received=failure.identity,
+                scope_state=inspection.partitioning.state,
+            ) from exc
+        try:
+            expression = _source_expression(backend, inspection.source)
+        except Exception as exc:
+            failure = _backend_failure_summary(exc)
+            raise _acquisition_error(
+                code="acquisition_source_failed",
+                reason=f"the inspected source could not be resolved: {failure.message}",
+                received=failure.identity,
+                scope_state=inspection.partitioning.state,
+            ) from exc
         pushed_predicate = scope.values if isinstance(scope, PartitionScope) else ()
         for column, value in pushed_predicate:
             expression = expression.filter(expression[column] == value)
@@ -652,31 +678,40 @@ def acquire_snapshot(
                 execute_attempted = True
                 frame = expression.execute()
         except Exception as exc:
+            failure = _backend_failure_summary(exc)
             if not timeout_entered:
                 raise _acquisition_error(
                     code="timeout_not_enforceable",
-                    reason=f"the datasource adapter could not arm its timeout: {exc}",
-                    received=type(exc).__name__,
+                    reason=f"the datasource adapter could not arm its timeout: {failure.message}",
+                    received=failure.identity,
                     scope_state=inspection.partitioning.state,
                 ) from exc
             if not execute_attempted:
                 raise _acquisition_error(
                     code="timeout_not_enforceable",
-                    reason=f"the datasource adapter could not enter its execution guard: {exc}",
-                    received=type(exc).__name__,
+                    reason=(
+                        "the datasource adapter could not enter its execution guard: "
+                        f"{failure.message}"
+                    ),
+                    received=failure.identity,
                     scope_state=inspection.partitioning.state,
                 ) from exc
             raise _acquisition_error(
                 code="acquisition_execution_failed",
-                reason=f"bounded datasource acquisition failed after query execution: {exc}",
-                received=type(exc).__name__,
+                reason=(
+                    "bounded datasource acquisition failed after query execution: "
+                    f"{failure.message}"
+                ),
+                received=failure.identity,
                 scope_state=inspection.partitioning.state,
                 query_executed=True,
             ) from exc
     finally:
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            disconnect()
+        if backend is not None:
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
 
     observed_row_count = len(frame)
     retained = frame.iloc[: scope.max_rows].copy()

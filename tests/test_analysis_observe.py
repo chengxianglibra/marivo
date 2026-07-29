@@ -22,6 +22,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import connect_sales_orders, sales_backends
@@ -90,6 +91,34 @@ def _seed_country_orders(con):
     con.raw_sql("INSERT INTO orders VALUES (1, 10.0, 'US'),(2, 20.0, 'US'),(3, 30.0, 'CA')")
 
 
+def _bootstrap_membership_filter_project(tmp_path) -> None:
+    semantic_dir = tmp_path / "models" / "semantic" / "queries"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='queries', owner='Mina Zhang')\n"
+    )
+    (semantic_dir / "query_log.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "query_log = ms.entity(\n"
+        "    name='query_log', datasource=ms.ref.datasource('warehouse'),\n"
+        "    source=md.table('query_log'),\n"
+        ")\n"
+        "event_type = ms.dimension_column(\n"
+        "    name='event_type', entity=query_log, column='type_code'\n"
+        ")\n"
+        "terminal_count = ms.count(\n"
+        "    name='terminal_count', entity=query_log,\n"
+        "    filter=ms.where(event_type=(2, 4)),\n"
+        ")\n"
+    )
+
+
 @pytest.fixture
 def sales_session(tmp_path):
     _bootstrap_sales_with_country_dimension(tmp_path)
@@ -101,6 +130,66 @@ def sales_session(tmp_path):
 @pytest.fixture
 def sales_catalog(sales_session):
     return sales_session.catalog
+
+
+def test_observe_executes_membership_filter_through_semantic_dimension(
+    tmp_path,
+) -> None:
+    _bootstrap_membership_filter_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE query_log (query_id INTEGER, type_code INTEGER)")
+    con.raw_sql("INSERT INTO query_log VALUES (1, 2), (2, 4), (3, 1)")
+    session = session_attach.get_or_create(
+        name="membership_filter",
+        backends=_backends(con),
+        use_datasources=False,
+    )
+
+    frame = observe(
+        make_ref("queries.terminal_count", SemanticKind.METRIC),
+        session=session,
+    )
+
+    assert frame.to_pandas().iloc[0]["terminal_count"] == pytest.approx(2.0)
+
+
+def test_observe_runtime_filter_mismatch_preserves_authored_literals_before_query(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bootstrap_membership_filter_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE query_log (query_id INTEGER, type_code VARCHAR)")
+    con.raw_sql("INSERT INTO query_log VALUES (1, 'QueryFinish')")
+    session = session_attach.get_or_create(
+        name="membership_filter_mismatch",
+        backends=_backends(con),
+        use_datasources=False,
+    )
+    from ibis.backends.duckdb import Backend
+
+    monkeypatch.setattr(
+        Backend,
+        "execute",
+        lambda *_args, **_kwargs: pytest.fail("filter preflight submitted a query"),
+    )
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        observe(
+            make_ref("queries.terminal_count", SemanticKind.METRIC),
+            session=session,
+        )
+
+    error = exc_info.value
+    assert error.kind == ErrorKind.FILTER_VALUE_RUNTIME_INCOMPATIBLE
+    assert error.details["query_executed"] is False
+    assert error.details["declaration_preserved"] is True
+    assert error.details["received_value_types"] == ("int",)
+    assert error.repair is not None
+    assert error.repair.kind == "user_choice"
+    semantic_source = (tmp_path / "models" / "semantic" / "queries" / "query_log.py").read_text()
+    assert "filter=ms.where(event_type=(2, 4))" in semantic_source
+    assert "QueryFinish" not in semantic_source
 
 
 def _backends(con):

@@ -1667,6 +1667,69 @@ def assembly_validate(
                         )
                     )
 
+    # -- Validate tier-1 filter dimensions -----------------------------------
+    for metric_id, metric_ir in registry.metrics.items():
+        if not metric_ir.filter:
+            continue
+        root_entity = metric_ir.root_entity
+        if root_entity is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_FILTER,
+                    message=(f"Metric {metric_id!r} has a filter but no resolved root entity."),
+                    refs=(metric_id,),
+                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                    expected="a filtered tier-1 metric with one target entity",
+                    received="root_entity=None",
+                )
+            )
+            continue
+        entity_dimensions = {
+            dimension.name: dimension
+            for dimension in registry.dimensions.values()
+            if dimension.entity == root_entity
+        }
+        for dimension_name, _value in metric_ir.filter:
+            dimension = entity_dimensions.get(dimension_name)
+            if dimension is None:
+                filter_candidates = tuple(did_you_mean(dimension_name, sorted(entity_dimensions)))
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_FILTER,
+                        message=(
+                            f"Metric {metric_id!r} filter dimension {dimension_name!r} "
+                            f"is not declared on target entity {root_entity!r}."
+                        ),
+                        refs=(metric_id, root_entity),
+                        constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                        expected=(
+                            "a local semantic dimension declared on the metric target entity"
+                        ),
+                        received=dimension_name,
+                        details={
+                            "metric": metric_id,
+                            "target_entity": root_entity,
+                            "filter_dimension": dimension_name,
+                            "did_you_mean": filter_candidates,
+                        },
+                    )
+                )
+                continue
+            if dimension.entity != root_entity:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_FILTER,
+                        message=(
+                            f"Metric {metric_id!r} filter dimension {dimension.semantic_id!r} "
+                            f"belongs to entity {dimension.entity!r}, not {root_entity!r}."
+                        ),
+                        refs=(metric_id, dimension.semantic_id),
+                        constraint_id=ConstraintId.FILTER_CONDITION_VALID,
+                        expected=f"dimension on entity {root_entity}",
+                        received=f"dimension on entity {dimension.entity}",
+                    )
+                )
+
     # -- Validate metric additivity + tier-1 measure resolution --------------
     from marivo.semantic.ir import additivity_bucket as _bucket
 

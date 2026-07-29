@@ -54,7 +54,7 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     out = dict(kwargs)
     raw_settings = out.get("settings")
     settings: dict[str, object] = dict(raw_settings) if isinstance(raw_settings, dict) else {}
-    settings["access_mode"] = "read_only"
+    settings["readonly"] = 1
     out["settings"] = settings
     return out
 
@@ -263,7 +263,7 @@ def _clickhouse_physical_profile(
 
     profile_database = database
     profile_table = table
-    notes: tuple[str, ...] = ()
+    distributed_local_table: str | None = None
     if engine == "Distributed":
         match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
         if not match:
@@ -279,10 +279,7 @@ def _clickhouse_physical_profile(
             return None
         profile_database = match.group(2)
         profile_table = match.group(3)
-        notes = (
-            f"resolved Distributed table to {profile_database}.{profile_table}; "
-            "profile is not cluster-wide",
-        )
+        distributed_local_table = f"{profile_database}.{profile_table}"
     try:
         rows = _query_rows(
             backend,
@@ -307,13 +304,31 @@ def _clickhouse_physical_profile(
     size_bytes = _int_or_none(row.get("size_bytes"))
     if row_count is None and size_bytes is None:
         return None
+    if distributed_local_table is not None:
+        return TablePhysicalProfile(
+            row_count=None,
+            row_count_kind="unknown",
+            size_bytes=None,
+            size_kind="unknown",
+            source="clickhouse.system_parts.local_node",
+            notes=(
+                "scope=local_node_only",
+                f"resolved_local_table={distributed_local_table}",
+                f"local_row_count={row_count}"
+                if row_count is not None
+                else "local_row_count=unknown",
+                f"local_size_bytes={size_bytes}"
+                if size_bytes is not None
+                else "local_size_bytes=unknown",
+            ),
+        )
     return TablePhysicalProfile(
         row_count=row_count,
         row_count_kind="metadata" if row_count is not None else "unknown",
         size_bytes=size_bytes,
         size_kind="on_disk" if size_bytes is not None else "unknown",
         source="clickhouse.system_parts",
-        notes=notes,
+        notes=(),
     )
 
 

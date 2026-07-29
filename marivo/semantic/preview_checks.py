@@ -545,7 +545,12 @@ def preview_evidence_requirement(
             repair=repair(
                 kind="reacquire",
                 canonical_id="SourceInspection.sample",
-                action="Acquire matching datasource snapshots before readiness.",
+                action=(
+                    "This semantic-static warning does not require another read. Acquire a "
+                    "matching snapshot only when the caller's remaining data-access budget "
+                    "permits and no datasource acquisition blocker has reached its stop boundary; "
+                    "otherwise report runtime evidence as unavailable."
+                ),
                 snippet="\n".join(calls),
                 preserves_evidence=False,
             ),

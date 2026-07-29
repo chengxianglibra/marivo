@@ -30,6 +30,16 @@ scoped readiness。
 `.contract()` 和 structured error 提供。读取用户数据前，智能体必须先确认 accountable
 domain owner、目标业务概念等数据本身无法回答的必要输入；sampling 不能回答这些问题。
 
+`python -m marivo help` 只确认当前解释器、已安装包版本和环境指纹，然后交接到 Python。
+`marivo.help(...)` 是唯一公开的 focused-help 协调入口；限定后的 `datasource.*`、
+`semantic.*`、`analysis.*` 内容仍由各自原生 registry 拥有。`md` 和 `ms` 只执行所属
+领域能力，不提供独立的 `.help()` 别名。
+
+Datasource authoring error 会显示稳定的 code 和 stage。bounded acquisition 在执行阶段
+失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的 acquisition 最多重试一次；
+调用者声明的读取次数、行数与超时上限优先。如果相同的 structured code 和 backend name
+再次出现，应停止并报告 backend blocker，不能继续采样或绕过 Marivo。
+
 ## 通过 Git 维护和共享语义层
 
 语义对象是 `models/` 下的 Python 源文件，应与项目代码一起纳入版本管理：
@@ -260,6 +270,8 @@ ClickHouse datasource 默认关闭 clickhouse-connect 自动生成的 session id
 如果 datasource 需要临时表等 ClickHouse session state，可以显式传
 `extra={"autogenerate_session_id": True}`。`settings={...}` 用于 server/query
 settings；Ibis/clickhouse-connect client keyword arguments 放在 `extra={...}`。
+Marivo 的有界只读路径使用 ClickHouse server setting `readonly=1`，保留其他已声明
+settings，且绝不会通过可写连接重试。
 
 SQLite datasource 通过 `md.table(...)` 使用表和视图。`read_only=True` 会启用 SQLite
 连接级 query-only 模式；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite
@@ -490,7 +502,7 @@ metric 不是一次 query 的结果，而是智能体可以安全 observe 的、
 | `measure` | `Ref[measure]` | 是 | — | 要聚合的 measure。 |
 | `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
 | `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
-| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(col=value, ...)` 构建的 AND 等值过滤，仅聚合匹配行。 |
+| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(dimension=value, ...)` 构建的 AND 过滤；scalar 表示等值，非空 tuple/list 表示成员过滤。 |
 | `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
@@ -510,9 +522,24 @@ order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_conte
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
 
-`ms.where(**conditions)` 构建一个 AND 等值过滤（若干 `col=value`，value 为
-`str` / `int` / `float` / `bool`）。作为 `ms.count` 或 `ms.aggregate` 的 `filter=`
-入参，用于失败率、错误率、成功率等子集指标。
+`ms.where(**conditions)` 构建 AND 组合的等值或成员过滤。key 必须是 metric 目标 entity
+上已声明的本地 semantic dimension 名，而不是任意物理列。scalar
+`str` / `int` / `float` / `bool` 表示等值；非空 tuple/list 会统一为成员过滤。
+load 会拒绝缺失的 filter dimension，preview/analysis 在提交查询前根据已解析的 Ibis
+类型检查 literal 是否可比较。
+若合法 authored literal 无法与物理 dtype 比较，两条路径都会在查询提交前返回
+`filter_value_runtime_incompatible`，并携带 `query_executed=False` 与
+`declaration_preserved=True`。Marivo 保留原业务 literal，由用户或业务 owner 确认
+必要的 code/label 映射；不会根据物理类型或样本值改写规则。runtime evidence
+不可用期间，仍可继续不依赖该 evidence 的静态验证与 `semantic_static` readiness。
+
+```python
+terminal_count = ms.count(
+    name="terminal_count",
+    entity=queries,
+    filter=ms.where(type=(2, 4)),
+)
+```
 
 #### 加权均值 —— `ms.weighted_mean`
 
@@ -963,6 +990,9 @@ md.inspect(warehouse, events).show()
 Inspection 是 metadata-only，并在 sampling 前报告 schema、physical extent、partition
 state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards 和明确 columns；
 `LIMIT` 不保证 bytes scanned。Snapshot projections 不查询 datasource，values 默认只在内存。
+对于 ClickHouse `Distributed` source，本地 `system.parts` 观察只会作为
+`scope=local_node_only` notes 展示；源表级 rows 与 bytes 保持 `unknown`，Marivo
+不会默认发起 cluster-wide fanout query。
 只有接受有界 value evidence 明文写入 project-local cache 时才使用 `persist_values=True`。
 Uncommon formats、keys、timezone、aggregation、unit、additivity、relationship cardinality
 和 business meaning 仍由智能体负责。
@@ -971,6 +1001,12 @@ Inspection card 会显示精确 source descriptor，以及真实 schema 的列�
 card 会显示已捕获 value 的来源、完整性、截断状态、有界值和无需新查询即可使用的 scope
 模板。Snapshot card 会显示 scope、selected columns、coverage 与 value/cache state；
 每个 projection 都明确标记为 `data_access=none`。
+
+连接测试以 `md.test(ref).show()` 为停止点。失败的 `DatasourceTestResult` 会公开结构化
+`.failure`、focused `.repair`，以及 `.contract()` 中被阻塞的
+`validate_connection` transition。Snapshot 的连接、source resolution、timeout 与
+execution 失败同样保持结构化，并明确 query 是否已经执行；backend message 会被有界化和
+脱敏。
 
 当 evidence 无法机械地决定业务口径时，
 `result.contract().judgment_requirements` 会提供冻结的判断要求，包括稳定 ID、subjects、

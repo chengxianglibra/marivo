@@ -352,6 +352,125 @@ def test_timeout_setup_failure_reports_no_query_executed(
     assert query_spy.user_data_queries == 0
 
 
+def test_backend_open_failure_is_structured_and_redacted(
+    inspection: SourceInspection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BackendOpenError(RuntimeError):
+        code = 115
+
+    monkeypatch.setattr(
+        "marivo.datasource.snapshot._backends.build_backend",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            BackendOpenError(
+                "Code: 115. Unknown setting access_mode (UNKNOWN_SETTING); password=super-secret"
+            )
+        ),
+    )
+
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        inspection.sample(
+            scope=md.unpruned(max_rows=10, timeout_seconds=1),
+            columns=("order_id",),
+        )
+
+    error = exc_info.value
+    assert error.code == "acquisition_connection_failed"
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is False
+    assert error.received == "BackendOpenError code=115 name=UNKNOWN_SETTING"
+    assert "super-secret" not in str(error)
+    assert error.repair is not None
+    assert error.repair.kind == "reconnect"
+    assert error.repair.help_target.canonical_id == "test"
+    assert error.repair.preserves_evidence is True
+
+
+def test_source_resolution_failure_is_structured_and_disconnects(
+    inspection: SourceInspection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Backend:
+        disconnected = False
+
+        def table(self, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("missing table password=super-secret")
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    backend = Backend()
+    monkeypatch.setattr(
+        "marivo.datasource.snapshot._backends.build_backend",
+        lambda *_args, **_kwargs: backend,
+    )
+
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        inspection.sample(
+            scope=md.unpruned(max_rows=10, timeout_seconds=1),
+            columns=("order_id",),
+        )
+
+    error = exc_info.value
+    assert error.code == "acquisition_source_failed"
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is False
+    assert "super-secret" not in str(error)
+    assert error.repair is not None
+    assert error.repair.kind == "inspect"
+    assert error.repair.help_target.canonical_id == "inspect"
+    assert error.repair.preserves_evidence is True
+    assert backend.disconnected is True
+
+
+def test_execution_failure_is_structured_redacted_and_disconnects(
+    inspection: SourceInspection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ibis.backends.duckdb import Backend
+
+    class ExecutionError(RuntimeError):
+        code = 107
+        name = "FILE_DOESNT_EXIST"
+
+    disconnected = 0
+    original_disconnect = Backend.disconnect
+
+    def fail_execute(self: Backend, *_args: object, **_kwargs: object) -> object:
+        raise ExecutionError(
+            "Code: 107. Storage file missing (FILE_DOESNT_EXIST); token=super-secret"
+        )
+
+    def tracked_disconnect(self: Backend) -> None:
+        nonlocal disconnected
+        disconnected += 1
+        original_disconnect(self)
+
+    monkeypatch.setattr(Backend, "execute", fail_execute)
+    monkeypatch.setattr(Backend, "disconnect", tracked_disconnect)
+
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        inspection.sample(
+            scope=md.unpruned(max_rows=10, timeout_seconds=1),
+            columns=("order_id",),
+        )
+
+    error = exc_info.value
+    assert error.code == "acquisition_execution_failed"
+    assert error.stage == "acquire"
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is True
+    assert error.received == "ExecutionError code=107 name=FILE_DOESNT_EXIST"
+    assert "super-secret" not in str(error)
+    assert "Code: acquisition_execution_failed" in str(error)
+    assert "Stage: acquire" in str(error)
+    assert error.repair is not None
+    assert error.repair.kind == "reacquire"
+    assert "at most once" in error.repair.action
+    assert "stop and report" in error.repair.action
+    assert disconnected == 1
+
+
 def test_typed_csv_acquisition_uses_authored_schema(
     project_root: Path,
     query_spy: _QuerySpy,

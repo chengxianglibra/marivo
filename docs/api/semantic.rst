@@ -42,6 +42,7 @@ Aggregation & measure helpers
 
    aggregate
    count
+   where
    linear
    ratio
    weighted_mean
@@ -117,8 +118,16 @@ ref to a direct entity alias inside a decorated expression body.
 Focused help
 ------------
 
-Use ``marivo.help("semantic.<target>")`` for bounded constructor, catalog, and
-validation contracts.
+``python -m marivo help`` only validates the active interpreter, package
+version, and environment fingerprint. Use the sole public coordinator,
+``marivo.help("semantic.<target>")``, for bounded constructor, catalog, and
+validation contracts rendered from the semantic registry. The ``ms`` namespace
+executes semantic operations and intentionally has no ``ms.help()`` alias.
+
+A legal ``ms.where(...)`` declaration that cannot be compared with the resolved
+runtime dtype raises ``filter_value_runtime_incompatible`` before query
+submission. Its authored literal is preserved until the user or business owner
+confirms any required code/label mapping.
 
 Details types
 -------------

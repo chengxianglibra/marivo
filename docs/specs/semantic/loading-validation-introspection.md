@@ -183,10 +183,13 @@ a promise that every cross-entity relationship or fanout plan is executable;
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 
-`marivo.help(target=None)` is the global static contract helper, usable without
-an active project. `marivo.help("semantic.constraints")` is the focused entry
-to the authoring / validation constraint catalog. Help describes what
-parameters must satisfy; it carries no runtime data.
+`python -m marivo help` is an environment bootstrap only.
+`marivo.help(target=None)` is the sole public help coordinator, usable without
+an active project. Qualified content is rendered from its native datasource,
+semantic, or analysis registry; `md` and `ms` expose no `.help()` aliases.
+`marivo.help("semantic.constraints")` is the focused entry to the authoring /
+validation constraint catalog. Help describes what parameters must satisfy; it
+carries no runtime data.
 
 Source-mutating constructors are described by one internal authoring-source
 registry. Focused constructor help therefore identifies the declaration as a
@@ -288,8 +291,10 @@ unknown datasource; a metric referencing an unknown entity or component; a
 cross-domain `ms.ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
 `entities=[...]` count that disagrees with the function arity; an hour time
 dimension missing its required prefix; invalid relationship endpoints, join
-dimension refs, entity membership, or arity. On failure the registry is `errored`
-and retains `load_errors`.
+dimension refs, entity membership, or arity. Tier-1 metric filters must resolve
+every local key to a declared dimension on the target entity; failures use
+`invalid_filter` with focused `semantic.where` repair. On failure the registry
+is `errored` and retains `load_errors`.
 
 ### Runtime / materialization-time
 
@@ -297,6 +302,17 @@ Materialization executes user functions and composes Ibis objects. Failures come
 from backend factories, missing Ibis tables/columns, user-function exceptions, or
 incompatible expressions. A registered-but-failing object raises a runtime error —
 never a "metric not found" error, which is reserved for genuinely absent objects.
+Filtered metrics apply the declared dimension expression rather than assuming its
+semantic name is the physical column name. Once an Ibis schema is available,
+equality and membership literals are checked for type compatibility before query
+submission. A legal declaration whose literal cannot be compared with the
+runtime physical dtype raises `filter_value_runtime_incompatible`, with
+`query_executed=False` and `declaration_preserved=True`. This is distinct from
+assembly-time `invalid_filter`: Marivo preserves the authored business literal,
+does not infer a code/label mapping from physical types or sample values, and
+routes the required decision to the user or business owner. Static verification
+and `semantic_static` readiness may continue without the unavailable runtime
+evidence.
 
 ### Parity-time
 

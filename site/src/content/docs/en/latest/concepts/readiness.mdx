@@ -138,7 +138,7 @@ not block certification.
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
-| `snapshot_missing` | warning | No structurally matching datasource snapshot metadata exists for an executable ref. The semantic definition remains analysis-ready when no blocker exists; expiration alone never triggers this issue. | Acquire a matching scoped snapshot when authoring evidence is needed. |
+| `snapshot_missing` | warning | No structurally matching datasource snapshot metadata exists for an executable ref. The semantic definition remains analysis-ready when no blocker exists; expiration alone never triggers this issue. | This warning does not require another read. Acquire a matching scoped snapshot only when the caller's remaining data-access budget permits and no acquisition blocker has reached its stop boundary; otherwise report runtime evidence as unavailable. |
 | `runtime_preview_missing` | warning | No v1 preview check matches the exact ref payload, catalog definition fingerprint, semantic dependency digest, entity-snapshot bindings, and backend. Expiration alone never triggers this issue. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
 
 ## Scope the check

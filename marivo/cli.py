@@ -175,11 +175,9 @@ def main(argv: list[str] | None = None) -> None:
         print("Use `marivo --version`.", file=sys.stderr)
         raise SystemExit(2)
     if parsed_argv[:1] == ["help"] and len(parsed_argv) > 1:
-        print(
-            "error: CLI help is bootstrap-only and accepts no track or target. "
-            "Use `import marivo; marivo.help(...)` for focused help.",
-            file=sys.stderr,
-        )
+        from marivo._help.bootstrap import render_focused_help_rejection
+
+        print(render_focused_help_rejection(tuple(parsed_argv[1:])), file=sys.stderr)
         raise SystemExit(2)
 
     parser = argparse.ArgumentParser(
@@ -271,11 +269,9 @@ def main(argv: list[str] | None = None) -> None:
                 raise SystemExit(code)
     elif args.command == "help":
         if args.extra:
-            print(
-                "error: CLI help is bootstrap-only and accepts no track or target. "
-                "Use `import marivo; marivo.help(...)` for focused help.",
-                file=sys.stderr,
-            )
+            from marivo._help.bootstrap import render_focused_help_rejection
+
+            print(render_focused_help_rejection(tuple(args.extra)), file=sys.stderr)
             raise SystemExit(2)
         from marivo._help.bootstrap import render_bootstrap_help
 

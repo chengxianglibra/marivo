@@ -146,7 +146,7 @@ def _datasource_list() -> DatasourceList:
 
 
 def _datasource_test_result() -> DatasourceTestResult:
-    return DatasourceTestResult(name="wh", ok=True, latency_ms=12, repair=None)
+    return DatasourceTestResult(name="wh", ok=True, latency_ms=12, failure=None, repair=None)
 
 
 def _raw_sql_result() -> RawSqlResult:
@@ -363,10 +363,19 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
         ]
     )
 
+    from marivo.datasource.manage import DatasourceFailure
+
     failed = DatasourceTestResult(
         name="wh",
         ok=False,
         latency_ms=None,
+        failure=DatasourceFailure(
+            code="connection_roundtrip_failed",
+            exception_type="ProgrammingError",
+            backend_code="115",
+            backend_name="UNKNOWN_SETTING",
+            message="Unknown setting access_mode",
+        ),
         repair=datasource_repair(
             kind="reconnect",
             canonical_id="test",
@@ -376,8 +385,14 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
     assert failed.render() == "\n".join(
         [
             "DatasourceTestResult name=wh ok=False latency=n/a",
-            "status: Reconnect the datasource after fixing its connection settings.",
+            "status: connection_roundtrip_failed",
+            "failure: ProgrammingError code=115 name=UNKNOWN_SETTING",
+            "message: Unknown setting access_mode",
+            "repair: Reconnect the datasource after fixing its connection settings.",
+            'repair help: marivo.help("datasource.test")',
             "available:",
+            "- .failure",
+            "- .repair",
             "- .contract()",
             "- .render()",
             "- .show()",

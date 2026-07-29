@@ -187,6 +187,7 @@ DATASOURCE_PUBLIC = {
     "DatasourceCatalog",
     "DatasourceConnection",
     "DatasourceDescription",
+    "DatasourceFailure",
     "DatasourceList",
     "DatasourceSpec",
     "DatasourceSummary",

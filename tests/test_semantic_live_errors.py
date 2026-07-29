@@ -5,9 +5,11 @@ from __future__ import annotations
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.errors import (
+    ErrorKind,
     SemanticContractScopeError,
     SemanticError,
     SemanticHelpTargetError,
+    SemanticRuntimeError,
     repair,
 )
 
@@ -35,6 +37,27 @@ def test_semantic_error_repair_defaults_to_none() -> None:
 def test_repair_helper_builds_semantic_help_target() -> None:
     r = repair(kind="reverify", canonical_id="verify_object", action="Re-run verification.")
     assert r.help_target == LiveHelpTarget(surface="semantic", canonical_id="verify_object")
+
+
+def test_runtime_filter_incompatibility_preserves_authored_business_literals() -> None:
+    err = SemanticRuntimeError(
+        kind=ErrorKind.FILTER_VALUE_RUNTIME_INCOMPATIBLE,
+        message="runtime representation mismatch",
+        refs=("queries.terminal_count", "queries.query_log.event_type"),
+        details={
+            "query_executed": False,
+            "declaration_preserved": True,
+        },
+    )
+
+    assert err.repair is not None
+    assert err.repair.kind == "user_choice"
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="where")
+    assert err.repair.preserves_evidence is True
+    assert "Preserve the authored filter literals" in err.repair.action
+    assert "Do not replace business codes" in err.repair.action
+    assert err.details["query_executed"] is False
+    assert err.details["declaration_preserved"] is True
 
 
 def test_semantic_help_target_error_carries_payload() -> None:

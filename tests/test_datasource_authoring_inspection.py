@@ -91,10 +91,43 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     assert ".partitions()" in rendered
     assert ".sample(...)" in rendered
     assert "source descriptor:" in rendered
+    assert 'focused acquisition help: marivo.help("datasource.SourceInspection.sample")' in rendered
     assert '"kind":"table"' in rendered
     assert '"table":"orders"' in rendered
     assert "schema:" in rendered
     assert "order_id" in rendered
+
+
+def test_source_inspection_renders_physical_extent_scope_notes(
+    project_root: Path,
+    query_spy: _QuerySpy,
+) -> None:
+    path = _register_duckdb(project_root)
+    _create_orders(path)
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    local_only = replace(
+        inspection,
+        physical_extent=md.PhysicalExtent(
+            row_count=None,
+            row_count_kind="unknown",
+            size_bytes=None,
+            size_kind="unknown",
+            source="clickhouse.system_parts.local_node",
+            notes=(
+                "scope=local_node_only",
+                "resolved_local_table=system.query_log_local",
+                "local_row_count=0",
+            ),
+        ),
+    )
+
+    rendered = local_only.render()
+
+    assert "rows=None row_count_kind=unknown" in rendered
+    assert "physical extent notes:" in rendered
+    assert "scope=local_node_only" in rendered
+    assert "local_row_count=0" in rendered
+    assert query_spy.user_data_queries == 0
 
 
 def test_inspect_rejects_connection_with_direct_ref_guidance(project_root: Path) -> None:

@@ -20,7 +20,7 @@ from marivo._authoring.normalize import normalize_contract
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.errors import repair
-from marivo.datasource.manage import DatasourceTestResult
+from marivo.datasource.manage import DatasourceFailure, DatasourceTestResult
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -161,7 +161,9 @@ def test_spec_contract_exposes_only_register_transition() -> None:
 
 
 def test_successful_connection_test_proves_connection_validated() -> None:
-    result = DatasourceTestResult(name="warehouse", ok=True, latency_ms=4, repair=None)
+    result = DatasourceTestResult(
+        name="warehouse", ok=True, latency_ms=4, failure=None, repair=None
+    )
 
     assert (
         AuthoringStateRef(
@@ -177,6 +179,13 @@ def test_failed_connection_test_exposes_typed_repair_without_error_alias() -> No
         name="warehouse",
         ok=False,
         latency_ms=None,
+        failure=DatasourceFailure(
+            code="connection_roundtrip_failed",
+            exception_type="ProgrammingError",
+            backend_code="115",
+            backend_name="UNKNOWN_SETTING",
+            message="Unknown setting access_mode",
+        ),
         repair=repair(
             kind="reconnect",
             canonical_id="test",
@@ -185,9 +194,73 @@ def test_failed_connection_test_exposes_typed_repair_without_error_alias() -> No
     )
 
     assert result.contract().states == ()
+    assert len(result.contract().transitions) == 1
+    transition = result.contract().transitions[0]
+    assert transition.kind == "validate_connection"
+    assert transition.available is False
+    assert transition.blocked_by == ("connection_roundtrip_failed",)
+    assert transition.help_target == LiveHelpTarget(surface="datasource", canonical_id="test")
+    assert result.contract().model_dump()["transitions"][0]["blocked_by"] == (
+        "connection_roundtrip_failed",
+    )
     assert result.repair is not None
     assert result.repair.kind == "reconnect"
+    assert result.failure is not None
+    assert result.failure.backend_name == "UNKNOWN_SETTING"
     assert not hasattr(result, "error")
+
+
+@pytest.mark.parametrize(
+    ("ok", "failure", "has_repair"),
+    [
+        (
+            True,
+            DatasourceFailure(
+                code="connection_open_failed",
+                exception_type="RuntimeError",
+                backend_code=None,
+                backend_name=None,
+                message="failed",
+            ),
+            False,
+        ),
+        (False, None, True),
+        (
+            False,
+            DatasourceFailure(
+                code="connection_open_failed",
+                exception_type="RuntimeError",
+                backend_code=None,
+                backend_name=None,
+                message="failed",
+            ),
+            False,
+        ),
+    ],
+)
+def test_connection_test_result_rejects_inconsistent_success_failure_state(
+    ok: bool,
+    failure: DatasourceFailure | None,
+    has_repair: bool,
+) -> None:
+    typed_repair = (
+        repair(
+            kind="reconnect",
+            canonical_id="test",
+            action="Reconnect the datasource after fixing its connection settings.",
+        )
+        if has_repair
+        else None
+    )
+
+    with pytest.raises(ValueError, match="DatasourceTestResult"):
+        DatasourceTestResult(
+            name="warehouse",
+            ok=ok,
+            latency_ms=None,
+            failure=failure,
+            repair=typed_repair,
+        )
 
 
 def test_scope_contract_requires_registered_inspection_and_column_inputs() -> None:
@@ -232,6 +305,14 @@ def test_registered_datasource_inspection_contract_binds_ref_and_requires_table(
         ("partition_predicate_unsupported", "rescope", "SourceInspection.partitions", True),
         ("transformed_partition_unsupported", "configure", "inspect", False),
         ("timeout_not_enforceable", "configure", "inspect", False),
+        ("acquisition_connection_failed", "reconnect", "test", True),
+        ("acquisition_source_failed", "inspect", "inspect", True),
+        (
+            "acquisition_execution_failed",
+            "reacquire",
+            "SourceInspection.sample",
+            False,
+        ),
         ("cache_stale", "reacquire", "SourceInspection.sample", False),
         ("schema_stale", "reacquire", "SourceInspection.sample", False),
         ("fingerprint_stale", "reacquire", "SourceInspection.sample", False),
@@ -248,6 +329,16 @@ def test_authoring_repair_mapping_is_exact(
     assert result.kind == kind
     assert result.help_target.canonical_id == canonical_id
     assert result.preserves_evidence is preserves_evidence
+
+
+def test_execution_failure_repair_has_deterministic_stop_boundary() -> None:
+    result = repair_for_authoring_code("acquisition_execution_failed")
+
+    assert "at most once" in result.action
+    assert "remaining data-access budget permits" in result.action
+    assert "Caller-provided read, row, and timeout limits take precedence" in result.action
+    assert "same structured code and backend name" in result.action
+    assert "stop and report" in result.action
 
 
 def test_normalize_contract_sorts_and_deduplicates_contract_fields() -> None:

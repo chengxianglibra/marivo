@@ -69,7 +69,12 @@ entity is registered.
   authority remains the user or accountable business owner.
 - **Fail closed.** Missing env vars, unreachable backends, dialect/`backend_type`
   mismatch, and unsafe partition scans raise structured errors that state what
-  was expected, what was received, and the concrete next step.
+  was expected, what was received, and the concrete next step. Authoring errors
+  render their stable code and stage. An acquisition execution failure permits
+  one exact bounded retry only when the caller's remaining data-access budget
+  permits it; caller-provided read-count, row, and timeout limits take
+  precedence. If the same structured code and backend name recur, the caller
+  stops and reports the datasource backend blocker.
 
 ## Datasource declaration
 
@@ -218,6 +223,14 @@ md.test(spec.ref).show()          # validated live round trip
 - `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
   a `DatasourceTestResult` and triggers post-validation secret caching.
 
+`DatasourceTestResult.show()` is the authoritative connection-test stop point.
+On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
+code (`connection_open_failed`, `connection_roundtrip_failed`, or
+`secret_persistence_failed`), backend exception type/code/name, and a sanitized
+message. `.repair` provides the focused help target and action, while
+`.contract()` exposes the blocked `validate_connection` transition. Successful
+results prove only `datasource.connection_validated`.
+
 ## Inspection and evidence snapshots
 
 `md.inspect(datasource, source)` is metadata-only. It exposes schema, physical
@@ -227,6 +240,12 @@ column names and types. `inspection.partitions()` is also metadata-only; its
 card identifies the value source, completeness and truncation, shows bounded
 captured values, and derives a copyable `md.partition(...)` scope template from
 those already-captured values without another query.
+
+Physical extent always carries provenance and scope. For a ClickHouse
+`Distributed` source, Marivo may inspect the resolved local table through
+`system.parts`, but the source-wide row count and size remain `unknown`; the
+bounded local observation appears only in `physical extent notes` with
+`scope=local_node_only`. Marivo does not issue a cluster-wide fanout query.
 
 CSV and JSON descriptors require typed `schema=` mappings so inspection never
 opens data merely to infer types. Tables use catalog schema and Parquet uses
@@ -257,6 +276,12 @@ timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
 Both guards are positive and enforceable; unsupported timeout blocks before
 execution. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
 still be large.
+
+Read-only ClickHouse acquisition uses the server setting `readonly=1` together
+with the bounded execution timeout. Connection, source-resolution, timeout, and
+post-execution failures surface as `DatasourceAuthoringError` values with
+`query_executed`, a sanitized backend summary, and one focused repair; they do
+not escape as raw driver exceptions.
 
 The snapshot card makes the datasource/source/scope identity, selected columns,
 coverage, and value/cache state explicit. Snapshot projections are local,

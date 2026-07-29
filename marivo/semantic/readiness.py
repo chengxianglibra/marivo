@@ -692,6 +692,7 @@ def build_readiness_report(
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
     cross_datasource_refs: list[str] = []
+    graph_invalid_refs: set[str] = set()
     if reg is not None:
         from marivo.semantic.preview_checks import preview_dependency_entities
 
@@ -710,7 +711,6 @@ def build_readiness_report(
     if reg is not None:
         from marivo.semantic.metric_graph_canonical import MetricGraphContractError
         from marivo.semantic.metric_graph_lowering import (
-            MetricGraphLoweringError,
             lower_catalog_metric,
         )
 
@@ -720,7 +720,8 @@ def build_readiness_report(
             path = _display_path(ref)
             try:
                 lower_catalog_metric(reg, path, sidecar=project._expression_sidecar)
-            except (MetricGraphContractError, MetricGraphLoweringError) as exc:
+            except (MetricGraphContractError, TypeError, ValueError) as exc:
+                graph_invalid_refs.add(ref)
                 blockers.append(
                     _issue(
                         "metric_graph_invalid",
@@ -801,6 +802,8 @@ def build_readiness_report(
 
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS or ref in cross_datasource_refs:
+                continue
+            if ref in graph_invalid_refs:
                 continue
             path = _display_path(ref)
             requirement = preview_evidence_requirement(

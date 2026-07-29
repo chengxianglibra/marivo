@@ -17,6 +17,7 @@ from marivo.semantic.ir import (
     RatioComposition,
     SemiAdditive,
     TimeFoldIR,
+    WhereValue,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -181,16 +182,36 @@ def _dimension_payload(
     registry: Registry,
     path: str,
     *,
+    metric_id: str,
+    occurrence_path: str,
     entity_path: str | None = None,
+    role: str = "metric filter",
 ) -> RefPayloadV1:
     dimension = registry.dimensions.get(path)
     if dimension is None and entity_path is not None and "." not in path:
         path = f"{entity_path}.{path}"
         dimension = registry.dimensions.get(path)
     if dimension is None:
-        raise ValueError(f"slice dimension {path!r} is not loaded")
+        _fail(
+            kind=(
+                "invalid_filter_dimension" if role == "metric filter" else "dimension_not_loaded"
+            ),
+            metric_id=metric_id,
+            path=occurrence_path,
+            message=(
+                f"{role} dimension {path!r} is not loaded"
+                + (f" on entity {entity_path!r}" if entity_path is not None else "")
+            ),
+        )
     kind = "time_dimension" if dimension.is_time_dimension else "dimension"
     return _ref_payload(kind, path)
+
+
+def _filter_value(value: WhereValue) -> CanonicalValue:
+    """Encode one authored equality or membership value in the shared slice algebra."""
+    if isinstance(value, tuple):
+        return (("op", "in"), ("value", tuple(value)))
+    return value
 
 
 def _entry_for(
@@ -680,9 +701,11 @@ class _CatalogGraphBuilder:
                             dimension_ref=_dimension_payload(
                                 self.registry,
                                 dimension_id,
+                                metric_id=metric_id,
+                                occurrence_path=f"{path}.filter[{dimension_id}]",
                                 entity_path=value_measure.entity,
                             ),
-                            value=_freeze(value),
+                            value=_filter_value(value),
                         )
                         for dimension_id, value in (metric.filter or ())
                     ),
@@ -724,13 +747,15 @@ class _CatalogGraphBuilder:
                             dimension_ref=_dimension_payload(
                                 self.registry,
                                 dimension_id,
+                                metric_id=metric_id,
+                                occurrence_path=f"{path}.filter[{dimension_id}]",
                                 entity_path=(
                                     self.registry.measures[target_id].entity
                                     if target_kind == "measure"
                                     else target_id
                                 ),
                             ),
-                            value=_freeze(value),
+                            value=_filter_value(value),
                         )
                         for dimension_id, value in (metric.filter or ())
                     ),
@@ -813,7 +838,13 @@ class _CatalogGraphBuilder:
                 kind="cumulative",
                 child_id=base_id,
                 time_dimension_ref=(
-                    _dimension_payload(self.registry, composition.over)
+                    _dimension_payload(
+                        self.registry,
+                        composition.over,
+                        metric_id=metric_id,
+                        occurrence_path=f"{path}.over",
+                        role="cumulative time",
+                    )
                     if composition.over is not None
                     else None
                 ),

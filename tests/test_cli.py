@@ -215,20 +215,23 @@ def test_cli_help_is_bootstrap_only(
     assert "import marivo.semantic as ms" in output
     assert "import marivo.analysis as mv" in output
     assert "marivo.help()" in output
+    assert 'marivo.help("authoring")' in output
     assert 'marivo.help("analysis.observe")' in output
+    assert "Do not append a surface or target" in output
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    ("arguments", "expected_target"),
     (
-        ("observe",),
-        ("analysis", "observe"),
-        ("semantic", "load"),
-        ("datasource", "inspect"),
+        (("observe",), "observe"),
+        (("analysis", "observe"), "analysis.observe"),
+        (("semantic", "load"), "semantic.load"),
+        (("datasource", "inspect"), "datasource.inspect"),
     ),
 )
 def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
     arguments: tuple[str, ...],
+    expected_target: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -238,8 +241,8 @@ def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "bootstrap-only" in captured.err
-    assert "import marivo" in captured.err
-    assert "marivo.help" in captured.err
+    assert sys.executable in captured.err
+    assert f"marivo.help({expected_target!r})" in captured.err
     assert "Traceback" not in captured.err
 
 

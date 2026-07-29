@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -12,6 +14,63 @@ from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 
 ScopeState = Literal["known", "none", "unknown"]
+
+_BACKEND_CODE_RE = re.compile(r"\bCode:\s*([A-Za-z0-9_.-]+)")
+_BACKEND_NAME_RE = re.compile(r"\(([A-Z][A-Z0-9_]+)\)")
+_SECRET_VALUE_RE = re.compile(
+    r"(?i)(?P<key>[\"']?(?:password|passwd|pwd|token|secret|auth|authorization|"
+    r"authentication)[\"']?)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+_URL_USERINFO_RE = re.compile(r"://[^/@\s]+(?::[^/@\s]*)?@")
+_MAX_BACKEND_MESSAGE_CODEPOINTS = 500
+
+
+@dataclass(frozen=True)
+class _BackendFailureSummary:
+    exception_type: str
+    backend_code: str | None
+    backend_name: str | None
+    message: str
+
+    @property
+    def identity(self) -> str:
+        parts = [self.exception_type]
+        if self.backend_code is not None:
+            parts.append(f"code={self.backend_code}")
+        if self.backend_name is not None:
+            parts.append(f"name={self.backend_name}")
+        return " ".join(parts)
+
+
+def _backend_failure_summary(exc: Exception) -> _BackendFailureSummary:
+    """Return a bounded diagnostic that does not expose common secret shapes."""
+    raw_message = str(exc)
+    message = _URL_USERINFO_RE.sub("://<redacted>@", raw_message)
+    message = _SECRET_VALUE_RE.sub(lambda match: f"{match.group('key')}=<redacted>", message)
+    if len(message) > _MAX_BACKEND_MESSAGE_CODEPOINTS:
+        message = message[: _MAX_BACKEND_MESSAGE_CODEPOINTS - 3] + "..."
+
+    raw_code = getattr(exc, "code", None)
+    if raw_code is None:
+        code_match = _BACKEND_CODE_RE.search(raw_message)
+        backend_code = code_match.group(1) if code_match is not None else None
+    else:
+        backend_code = str(raw_code)
+
+    raw_name = getattr(exc, "name", None)
+    backend_name: str | None
+    if isinstance(raw_name, str) and re.fullmatch(r"[A-Z][A-Z0-9_]+", raw_name):
+        backend_name = raw_name
+    else:
+        name_matches = _BACKEND_NAME_RE.findall(raw_message)
+        backend_name = name_matches[-1] if name_matches else None
+
+    return _BackendFailureSummary(
+        exception_type=type(exc).__name__,
+        backend_code=backend_code,
+        backend_name=backend_name,
+        message=message,
+    )
 
 
 class DatasourceObservedEffects(BaseModel):
@@ -128,6 +187,11 @@ class DatasourceAuthoringError(DatasourceError):
             effect_observed=effect_observed,
             repair=repair,
         )
+
+    def __str__(self) -> str:
+        rendered = super().__str__().splitlines()
+        rendered[1:1] = (f"Code: {self.code}", f"Stage: {self.stage}")
+        return "\n".join(rendered)
 
 
 class DatasourceHelpTargetError(DatasourceError):

@@ -98,10 +98,15 @@ let analysis consume it — business definitions never hide in one-off scripts.
 Authoring guidance is split so each surface has one job (elaborated in
 [authoring-workflow.md](authoring-workflow.md)):
 
-- **`marivo.help(...)` — static contract.** Qualified semantic and datasource
-  targets expose constructors, required and
+- **`marivo.help(...)` — public help coordinator.** `python -m marivo help`
+  only confirms the active interpreter, package version, and environment
+  fingerprint before handing off to Python. `marivo.help(...)` is the only
+  public focused-help entry point; qualified semantic and datasource targets
+  expose constructors, required and
   optional parameters, allowed values, defaults, omit rules, and static
-  constraints. Help says *what must be settled*; it carries no runtime data.
+  constraints from their native registries. `md` and `ms` execute their
+  domain APIs and intentionally expose no separate `.help()` aliases. Help says
+  *what must be settled*; it carries no runtime data.
 - **`md.inspect` and snapshots — runtime evidence.** Metadata inspection precedes
   one explicit-scope sample; entity, dimension, value, time, measure, and
   relationship projections reuse that immutable snapshot without queries.

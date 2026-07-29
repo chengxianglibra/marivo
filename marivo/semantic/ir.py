@@ -556,16 +556,18 @@ AggKind = (
 )
 AggregationTargetKind = Literal["measure", "entity"]
 
-# Equality predicate value for a filtered tier-1 aggregation (column=value).
-WhereValue = str | int | float | bool
+# Predicate values for a filtered tier-1 aggregation.
+WhereScalar = str | int | float | bool
+WhereValue = WhereScalar | tuple[WhereScalar, ...]
 
 
 @dataclass(frozen=True)
 class WhereFilter:
-    """AND-joined equality predicates for a filtered tier-1 metric.
+    """AND-joined equality or membership predicates for a filtered tier-1 metric.
 
-    Built by ``ms.where(col=value, ...)`` and consumed by ``ms.count`` /
-    ``ms.aggregate`` to restrict the aggregated rows.
+    Built by ``ms.where(dimension=value, ...)`` and consumed by ``ms.count`` /
+    ``ms.aggregate`` to restrict the aggregated rows. Scalar values mean
+    equality; tuple values mean membership.
     """
 
     conditions: tuple[tuple[str, WhereValue], ...]

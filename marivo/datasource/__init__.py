@@ -29,6 +29,7 @@ from marivo.datasource.inspection import (
 from marivo.datasource.manage import (
     DatasourceConnection,
     DatasourceDescription,
+    DatasourceFailure,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
@@ -58,6 +59,7 @@ __all__ = [
     "DatasourceCatalog",
     "DatasourceConnection",
     "DatasourceDescription",
+    "DatasourceFailure",
     "DatasourceList",
     "DatasourceSpec",
     "DatasourceSummary",

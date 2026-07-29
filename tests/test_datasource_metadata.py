@@ -1779,15 +1779,27 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
     metadata = _inspect_table("ch_dist_profile", table="analytics.events_dist")
 
     assert metadata.physical_profile == TablePhysicalProfile(
-        row_count=1200,
-        row_count_kind="metadata",
-        size_bytes=8192,
-        size_kind="on_disk",
-        source="clickhouse.system_parts",
+        row_count=None,
+        row_count_kind="unknown",
+        size_bytes=None,
+        size_kind="unknown",
+        source="clickhouse.system_parts.local_node",
         notes=(
-            "resolved Distributed table to analytics.events_local; profile is not cluster-wide",
+            "scope=local_node_only",
+            "resolved_local_table=analytics.events_local",
+            "local_row_count=1200",
+            "local_size_bytes=8192",
         ),
     )
+    profile_payload = metadata.to_dict()["physical_profile"]
+    assert profile_payload["row_count"] is None
+    assert profile_payload["row_count_kind"] == "unknown"
+    assert profile_payload["notes"] == [
+        "scope=local_node_only",
+        "resolved_local_table=analytics.events_local",
+        "local_row_count=1200",
+        "local_size_bytes=8192",
+    ]
 
 
 def test_inspect_table_clickhouse_distributed_dereference_failure(

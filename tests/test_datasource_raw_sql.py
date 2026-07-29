@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import ibis
 import pytest
+from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -165,10 +168,27 @@ def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:
     }
     clickhouse_profile = ENGINE_PROFILES["clickhouse"]
     clickhouse = clickhouse_profile.apply_read_only_kwargs(
-        {"host": "h", "settings": {"max_threads": 8}}
+        {"host": "h", "settings": {"max_threads": 8, "readonly": 0}}
     )
-    assert clickhouse["settings"]["access_mode"] == "read_only"
+    assert clickhouse["settings"]["readonly"] == 1
     assert clickhouse["settings"]["max_threads"] == 8
+    assert "access_mode" not in clickhouse["settings"]
+    timeout = clickhouse_profile.authoring_timeout
+    assert timeout is not None
+    backend = cast(
+        "BaseBackend",
+        SimpleNamespace(
+            con=SimpleNamespace(
+                params=dict(clickhouse["settings"]),
+                server_settings={},
+            )
+        ),
+    )
+    with timeout(backend, 9):
+        assert backend.con.params["readonly"] == 1
+        assert backend.con.params["max_execution_time"] == "9"
+    assert backend.con.params["readonly"] == 1
+    assert "max_execution_time" not in backend.con.params
     # Transaction-based backends enforce read-only via transaction, not kwargs.
     postgres_profile = ENGINE_PROFILES["postgres"]
     assert postgres_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}

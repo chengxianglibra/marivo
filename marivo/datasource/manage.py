@@ -30,6 +30,7 @@ from marivo.datasource.errors import (
     DatasourceMissingError,
     DatasourceObservedEffects,
     DatasourceRawSqlError,
+    _backend_failure_summary,
     repair,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -131,6 +132,21 @@ class DatasourceDescription(RenderableResult):
         )
 
 
+@dataclass(frozen=True)
+class DatasourceFailure:
+    """Bounded structured cause for one failed datasource connection test."""
+
+    code: Literal[
+        "connection_open_failed",
+        "connection_roundtrip_failed",
+        "secret_persistence_failed",
+    ]
+    exception_type: str
+    backend_code: str | None
+    backend_name: str | None
+    message: str
+
+
 @dataclass(frozen=True, repr=False)
 class DatasourceTestResult(RenderableResult):
     """Result of a datasource connectivity round-trip."""
@@ -138,7 +154,16 @@ class DatasourceTestResult(RenderableResult):
     name: str
     ok: bool
     latency_ms: int | None
+    failure: DatasourceFailure | None
     repair: AuthoringRepair | None
+
+    def __post_init__(self) -> None:
+        if self.ok and (self.failure is not None or self.repair is not None):
+            raise ValueError(
+                "DatasourceTestResult with ok=True requires failure=None and repair=None"
+            )
+        if not self.ok and (self.failure is None or self.repair is None):
+            raise ValueError("DatasourceTestResult with ok=False requires both failure and repair")
 
     def _repr_identity(self) -> str:
         latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
@@ -148,14 +173,37 @@ class DatasourceTestResult(RenderableResult):
         """Return the observed connection-validation state for this result."""
         from marivo.datasource._capabilities.contracts import contract_for_connection_test
 
-        return contract_for_connection_test(self.name, ok=self.ok)
+        return contract_for_connection_test(
+            self.name,
+            ok=self.ok,
+            failure_code=None if self.failure is None else self.failure.code,
+        )
 
     def _card(self) -> Card:
         card = Card(
-            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
+            identity=self._repr_identity(),
+            available=(".failure", ".repair", ".contract()", ".render()", ".show()"),
         )
+        if self.failure is not None:
+            detail = self.failure.exception_type
+            if self.failure.backend_code is not None:
+                detail += f" code={self.failure.backend_code}"
+            if self.failure.backend_name is not None:
+                detail += f" name={self.failure.backend_name}"
+            card.status(self.failure.code)
+            card.field("failure", detail)
+            card.field("message", self.failure.message)
         if self.repair is not None:
-            card.status(self.repair.action)
+            card.field("repair", self.repair.action)
+            card.field(
+                "repair help",
+                (
+                    f'marivo.help("{self.repair.help_target.surface}.'
+                    f'{self.repair.help_target.canonical_id}")'
+                ),
+            )
+            if self.repair.snippet is not None:
+                card.field("repair snippet", self.repair.snippet)
         return card
 
 
@@ -511,14 +559,49 @@ def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
     return _storage_name(value)
 
 
-def _connection_repair(exc: Exception) -> AuthoringRepair:
+type DatasourceFailureCode = Literal[
+    "connection_open_failed",
+    "connection_roundtrip_failed",
+    "secret_persistence_failed",
+]
+
+
+def _connection_repair(
+    exc: Exception,
+    *,
+    failure_code: DatasourceFailureCode,
+) -> AuthoringRepair:
     existing = getattr(exc, "repair", None)
     if isinstance(existing, AuthoringRepair):
         return existing
+    if failure_code == "secret_persistence_failed":
+        return repair(
+            kind="environment",
+            canonical_id="test",
+            action=(
+                "Fix the user-global secret cache location or permissions, then retest "
+                "the datasource."
+            ),
+        )
     return repair(
         kind="reconnect",
         canonical_id="test",
         action="Reconnect the datasource after fixing its connection settings.",
+    )
+
+
+def _datasource_failure(
+    exc: Exception,
+    *,
+    code: DatasourceFailureCode,
+) -> DatasourceFailure:
+    summary = _backend_failure_summary(exc)
+    return DatasourceFailure(
+        code=code,
+        exception_type=summary.exception_type,
+        backend_code=summary.backend_code,
+        backend_name=summary.backend_name,
+        message=summary.message,
     )
 
 
@@ -529,7 +612,8 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
 
     Returns:
-        A ``DatasourceTestResult`` with ok status, latency, and typed repair.
+        A ``DatasourceTestResult`` with ok status, latency, structured failure,
+        and typed repair.
 
     Example:
         >>> import marivo.datasource as md
@@ -543,15 +627,19 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
     datasource_name = _datasource_name(name)
     start = time.perf_counter()
     backend: Any | None = None
+    failure_code: DatasourceFailureCode = "connection_open_failed"
     try:
         backend = connect(datasource_name)
+        failure_code = "connection_roundtrip_failed"
         backend.raw_sql("SELECT 1")
+        failure_code = "secret_persistence_failed"
         _secrets.persist_backend_env_sourced(backend)
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
             latency_ms=latency_ms,
+            failure=None,
             repair=None,
         )
     except Exception as exc:
@@ -560,7 +648,8 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
             name=datasource_name,
             ok=False,
             latency_ms=latency_ms,
-            repair=_connection_repair(exc),
+            failure=_datasource_failure(exc, code=failure_code),
+            repair=_connection_repair(exc, failure_code=failure_code),
         )
     finally:
         if backend is not None:
@@ -582,7 +671,8 @@ def test_no_persist(
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
 
     Returns:
-        A ``DatasourceTestResult`` with ok status, latency, and typed repair.
+        A ``DatasourceTestResult`` with ok status, latency, structured failure,
+        and typed repair.
 
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.
@@ -592,18 +682,21 @@ def test_no_persist(
     datasource_name = _datasource_name(name)
     start = time.perf_counter()
     backend: Any | None = None
+    failure_code: DatasourceFailureCode = "connection_open_failed"
     try:
         backend = _connect_internal(
             datasource_name,
             project_root=project_root,
             include_semantic_layers=include_semantic_layers,
         )
+        failure_code = "connection_roundtrip_failed"
         backend.raw_sql("SELECT 1")
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
             latency_ms=latency_ms,
+            failure=None,
             repair=None,
         )
     except Exception as exc:
@@ -612,7 +705,8 @@ def test_no_persist(
             name=datasource_name,
             ok=False,
             latency_ms=latency_ms,
-            repair=_connection_repair(exc),
+            failure=_datasource_failure(exc, code=failure_code),
+            repair=_connection_repair(exc, failure_code=failure_code),
         )
     finally:
         if backend is not None:

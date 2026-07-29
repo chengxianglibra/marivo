@@ -64,6 +64,16 @@ def test_marivo_help_is_the_only_public_help_callable(
         assert not hasattr(surface, "help_text")
 
 
+def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
+    text = _text()
+
+    assert "one public coordinator" in text
+    assert "datasource.* -> marivo.datasource capability registry" in text
+    assert "semantic.*   -> marivo.semantic capability registry" in text
+    assert "analysis.*   -> marivo.analysis capability registry" in text
+    assert "neither exposes a public .help alias" in text
+
+
 @pytest.mark.parametrize(
     "module_name",
     ("marivo.datasource.help", "marivo.semantic.help", "marivo.analysis.help"),
