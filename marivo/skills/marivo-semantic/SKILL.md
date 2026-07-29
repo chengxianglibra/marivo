@@ -1,57 +1,50 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects including Events and StateModels, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
+description: Use for Marivo datasource declaration, evidence, semantic authoring, verification, preview, readiness, or missing-object repair. For build requests, ask only the earliest missing accountable input before data access or capability enumeration.
 ---
 
 # marivo-semantic
 
 ## Trigger
 
-Use this skill when the task involves:
+Use this skill for datasource setup and validation, physical source inspection,
+bounded authoring evidence, new or changed semantic objects, semantic
+verify/preview/readiness repair, or a missing-object handoff from
+`marivo-analysis`.
 
-- datasource declaration or validation for semantic authoring;
-- physical source inspection or evidence acquisition;
-- new or changed semantic objects;
-- semantic verification, preview, or readiness repair;
-- an analysis repair that reports a genuinely missing business object.
+Stop using it once the requested refs are analysis-ready. Investigation over
+already-ready refs belongs to `marivo-analysis`.
 
-Metric-centered investigation over already-ready refs remains owned by
-`marivo-analysis`. Do not keep this skill active merely because an analysis
-uses semantic objects.
+For a build request, the first routing decision is the non-observable decision
+preflight. After one environment fingerprint and one current-project catalog
+read, ask for a missing accountable owner or target business concept and stop.
+Do not enumerate root/focused help or inspect metadata before that stop.
+Do not bundle independent judgments. A user-named build target satisfies the
+target-concept preflight unless its ambiguity would change the requested scope.
 
 ## Ownership and authority
 
-This skill is a **boundary state-router**, not a manual, tutorial, constructor
-catalog, or authoring planner. It preserves the semantic track's real partial
-order and its human-judgment boundary. It tells a general-purpose coding agent
-how to resume from current live state, preserve datasource evidence, author one
-explicit object, validate that object through every required stage, stop for one
-unresolved business decision, and expose only ready refs to analysis.
+This skill is a boundary router, not an API catalog or semantic inference
+engine.
 
-An environment-verified live Marivo surface outranks any cached knowledge in
-this file. Unverified `PATH` output does not. If the installed Marivo package,
-its Python interpreter, or its help surface cannot be confirmed before
-authoring begins, the skill stops and requests environment repair rather than
-guessing.
+- Live Marivo help owns current signatures, effects, examples, file placement,
+  result fields, and repair calls.
+- `.show()`, `.contract()`, and structured errors own object-local state and
+  continuation.
+- The skill owns ordering, data-access safety, evidence continuity, judgment
+  stops, and handoff.
+- The agent owns technical interpretation and explicit Python drafting.
+- The user or accountable business owner owns business meaning.
 
-Authority is divided explicitly:
+Physical observations can establish only what they measured. They cannot
+authorize an owner, primary key, business definition, unit, aggregation,
+additivity, cardinality, timezone, lifecycle, or event meaning.
 
-- live Marivo owns mechanical contracts and current state;
-- the skill owns ordering, safety, evidence, and routing policy;
-- the agent owns technical interpretation and explicit Python drafting;
-- the user or business owner owns unresolved business meaning.
+## Environment entry
 
-## Live-contract rule
-
-Use the same project interpreter for discovery and execution. Start with
-`<selected-python> -m marivo help` (or the corresponding
-`<venv>/bin/marivo help`), verify the rendered Marivo version, resolved Python
-executable, and package path, then follow focused
-`marivo.help("datasource.<target>")` or
-`marivo.help("semantic.<target>")` topics for API contracts.
-
-Use the standard public module aliases shown by live help before calling the
-Python surfaces:
+Use one project interpreter for discovery and execution. Verify the rendered
+Marivo version, Python executable, and package path before connecting, reading
+data, or changing project source.
 
 ```python
 import marivo
@@ -59,337 +52,141 @@ import marivo.datasource as md
 import marivo.semantic as ms
 ```
 
-A bare `marivo` resolved from `PATH` is not authoritative unless its rendered
-fingerprint matches the interpreter and package used for execution. If
-authoritative discovery and execution fingerprints differ, repair or stop
-before opening a datasource connection, reading user data, mutating project or
-user state, authoring semantic files, or using refs in analysis.
+After the decision preflight passes, enter through
+`<selected-python> -m marivo help`, then use
+`marivo.help("authoring")`. It owns the exact current-project catalog reads and
+routes to the focused datasource or semantic target shown by live state. If
+help and execution fingerprints differ, stop for environment repair.
 
-After entry:
-
-- focused `marivo.help("datasource.<target>")` owns datasource contracts,
-  inspection, scope, snapshot, and diagnostic mechanics;
-- focused `marivo.help("semantic.<target>")` owns semantic constructor
-  parameters, constraints, and examples;
-- result `.show()` output, `.contract()`, and structured errors own
-  state-specific next calls and typed repair;
-- the agent owns evidence-based drafting and technical handling, including
-  uncommon physical formats;
-- the user or business owner owns unresolved business-semantic decisions and
-  approves metric meaning before analysis use.
-
-The skill does not enumerate any API details, signatures, parameter tables,
-backend catalogs, result fields, error kinds, or exact repair calls.
+Never reconstruct a signature or repair from this skill. Prefer, in order:
+the current structured error, current result `.contract()`, focused help, then
+root help.
 
 ## Canonical route
 
-The routing loop is conceptual, resume-first, and stable. An agent enters at
-the current state and continues from the earliest unsatisfied required
-boundary for one object. It does not restart the whole authoring tutorial or
-repeat safe work.
+Resume from the earliest unsatisfied boundary for one object:
 
 ```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+environment -> project browse -> non-observable decision preflight
+-> metadata inspect -> explicit scope -> one snapshot -> query-free projections
+-> evidence-grounded judgment -> author one object -> load exact entry
+-> static verify -> required preview -> readiness -> analysis
 ```
 
-Each step names the live help target that owns its exact mechanics — never a
-signature, transition call, or parameter table from this file:
+The partial order is policy even when a live method is mechanically callable:
 
-1. **help/browse** — open `marivo.help("authoring")`, then use the qualified
-   datasource or semantic authoring topic when one component needs more detail,
-   and browse existing objects through the live catalog's typed collections.
-2. **inspect** — inspect the source via the live datasource inspection
-   capability; read physical extent, partition state, schema, and execution
-   capabilities before any user-data query.
-3. **explicit scope** — choose the live-declared scope capability; every
-   user-data read requires positive row and timeout guards.
-4. **sample once** — acquire one snapshot for the active object/batch.
-5. **project evidence** — reuse query-free snapshot projections (entity,
-   dimensions, values, time dimensions, measures, relationships) without
-   reacquiring data.
-6. **settle/grill** — settle mechanically discoverable facts first; if exactly
-   one business decision remains, ask one evidence-grounded question and stop.
-7. **author one Python object** — write exactly one explicit object.
-8. **load typed object** — reload the catalog and navigate to that exact typed
-   object.
-9. **static verify** — run the registered static verification capability.
-10. **scoped preview** — run the registered scoped preview capability, reusing
-    the active snapshot.
-11. **readiness** — run the registered readiness capability; follow typed
-    repair for any blocker.
-12. **analysis** — use only live-marked `analysis_ready_inputs` through the
-    ordinary analysis APIs; `analysis_ready_refs` is the refs-only projection.
+- browse current project and catalog before mutation;
+- ask required non-observable inputs before user-data access;
+- inspect metadata before reading business rows;
+- use explicit positive row and timeout guards for every user-data read;
+- satisfy dependencies before dependents;
+- validate one authored object before advancing;
+- static verification precedes required preview;
+- readiness precedes analysis use.
 
-The router prefers object-near live guidance in this order: current structured
-error repair; current object/result `.contract()`; focused help for the target
-capability; root help only when no canonical target is known. It never
-substitutes memorized API syntax when the live surface is available.
-Mechanical availability is not policy permission: the agent must complete and
-read static verification before choosing preview even when focused help shows
-preview is callable from a loaded object.
+### Decision preflight
 
-During authoring closeout, when readiness reports several refs with missing
-runtime preview evidence, follow its result-local contract and pass its typed
-missing-ref batch to the registered preview capability. This is a repair
-optimization over compatible execution plans, not permission to author a
-domain-sized batch or to skip the one-object validation loop. For routine
-analysis of already-authored refs, missing datasource snapshots and missing or
-stale preview certification are advisories: disclose them and proceed with the
-directly requested analysis-ready refs unless a semantic blocker affects their
-dependency closure. Auxiliary datasource evidence never overrides an explicit,
-approved semantic definition as the governed source of business meaning.
+Before any user-data read, detect required inputs that data cannot answer:
+accountable owner, requested business concept, supplied policy, or an explicit
+choice among disputed definitions. Ask the earliest such question and stop.
+Do not sample data to answer it.
 
-### Durable partial order
-
-The skill preserves these invariant policy edges:
-
-```text
-matching environment before any trusted operation
-current catalog/project browse before mutation
-physical evidence before evidence-backed semantic drafting
-explicit scope before any user-data read
-dependency before dependent
-one authored object before its validation cycle
-static verification before required runtime preview
-required runtime preview before readiness
-readiness before analysis
-```
-
-The live surface declares which object families require static-only,
-single-snapshot, snapshot-mapping, or future preview modes. The skill does not
-hardcode object-family exceptions. Verify-before-preview is always a skill-owned
-policy edge for preview-required families; the runtime does not mechanically
-enforce that ordering and no persisted verification token is expected.
+After preflight, collect only evidence needed for the active object. Acquire one
+bounded snapshot and reuse its query-free projections. Do not reacquire merely
+to inspect entity, dimension, value, time, measure, or relationship views.
 
 ### One-object loop
 
-The unit of mutation and validation is one explicit semantic object. For each
-object, the agent:
+Author exactly one explicit Python object, reload the catalog, acquire that
+exact typed entry, and follow its registered verify, preview, and readiness
+path. Repair and revalidate the same object before moving to a dependent.
+Domain-sized batch authoring followed by deferred validation is forbidden.
 
-- identifies the exact existing dependency and evidence context;
-- settles all mechanically discoverable facts first;
-- stops for one unresolved business decision when required;
-- edits one explicit Python object;
-- reloads and locates that exact typed object;
-- follows every registered verify, preview, and readiness prerequisite;
-- repairs and revalidates the same object before advancing.
+## Judgment boundary
 
-The skill forbids authoring a domain-sized batch followed by deferred
-validation. Relationship or other inherently multi-entity objects may consume
-multiple evidence inputs, but the authored unit remains one object.
+Read `result.show()` and
+`result.contract().judgment_requirements`. These requirements are
+non-mechanical: they identify what remains unresolved and who owns the answer;
+they are not constructor recommendations or approval tokens.
 
-## Evidence and judgment protocol
+Use this authority order:
 
-### Evidence collection order
+1. live contracts for mechanical legality;
+2. explicit accountable business-owner decisions for meaning;
+3. approved existing project definitions;
+4. attributable project documentation and source provenance;
+5. inspection and snapshot output for physical observations only.
 
-Before asking a user or drafting business meaning, the agent checks every
-relevant source already available in scope:
+If one judgment remains, name the object and requirement, summarize the
+relevant evidence and its limit, ask one question, and stop. If several remain,
+ask only the earliest dependency whose answer can change later questions.
 
-1. current live constructor and constraint contract for mechanical legality;
-2. prior explicit user or accountable business-owner decisions;
-3. existing approved catalog and project definitions;
-4. source comments, provenance, and project documentation;
-5. current datasource inspection and exact snapshot observations.
+Observed uniqueness is not primary-key authority. Observed values are not an
+exhaustive enum. Physical types do not establish unit, additivity, timezone, or
+business time. Never turn plausible evidence into an authored promise.
 
-This is a collection order, not an API sequence and not a rule that later
-physical evidence overrides earlier business authority. The agent exhausts
-relevant available evidence before asking a question so it can detect conflicts
-and avoid asking for observable facts.
+## Deterministic stop rule
 
-### Authority precedence
+If the same root cause occurs twice, stop that branch. At most one
+focused-help recovery is allowed before reporting the exact blocker, current
+state, observed effects, and whether evidence is reusable.
 
-Different sources answer different questions:
-
-1. the live contract is authoritative for mechanical validity only;
-2. an explicit accountable business-owner decision is authoritative for
-   business meaning;
-3. an existing approved project definition is adopted semantic context unless a
-   newer accountable decision changes it;
-4. source comments, provenance, and project documentation are supporting
-   business evidence whose authority must be identifiable;
-5. inspection and snapshot results are authoritative only for the physical
-   observations they actually measured.
-
-When sources conflict, the agent does not silently select the highest-looking
-technical source or overwrite an existing business decision. It names the
-conflict in the one-question grill stop and requests accountable resolution.
-
-### Business decision boundary
-
-The user or accountable business owner decides unresolved questions such as
-whether observed uniqueness is an authoritative identity or key; metric
-meaning, numerator, denominator, failure handling, and scope; aggregation,
-unit, additivity, and time attribution; relationship business meaning and
-cardinality promise; uncommon date/epoch/timezone interpretation not established
-by source facts; and which lifecycle, event, state, or business concept a
-future object represents. The live surface may name the unresolved judgment
-target and show evidence. It must not supply a guessed value.
-
-### One-question grill stop
-
-If exactly one business decision remains after the evidence-collection and
-authority passes, the agent:
-
-1. names one object and one unresolved judgment target;
-2. summarizes the directly relevant evidence and provenance;
-3. explains why that evidence cannot establish business authority;
-4. asks exactly one question;
-5. stops mutation and validation work for that object until answered.
-
-If several decisions remain, the agent asks only the earliest dependency whose
-answer can change later questions. It does not bundle a questionnaire. Options
-are allowed only when each option is grounded in supplied evidence, existing
-project conventions, or an explicit live closed enum. Plausible but unsupported
-options are forbidden.
+Stop when minimum sufficient evidence answers the current routing decision.
+Do not enumerate catalogs, capabilities, columns, or candidate objects without
+a concrete unresolved need.
 
 ## Hard boundaries
 
-### Physical and semantic ownership
+### Data access and bypass
 
-- Datasource objects describe connectivity and physical sources; semantic
-  objects describe governed business meaning.
-- The agent never recreates a physical source through an invented semantic
-  builder.
-- Semantic links use the live surface's typed refs; bare ids are not
-  substituted when the current contract requires typed identity.
+Do not read business rows directly through Ibis, DuckDB, pandas, backend
+clients, or ad hoc SQL to bypass Marivo inspection and snapshot contracts.
+`md.raw_sql(...)` is an explicit terminal diagnostic escape only; its result
+cannot re-enter typed semantic or analysis work.
 
-### Scope and query effects
-
-- Metadata inspection precedes any user-data query.
-- Every user-data read has an explicit live-declared scope and required positive
-  guards.
-- A returned-row limit is not treated as a backend scan bound.
-- A potentially unbounded diagnostic remains outside the canonical route and
-  requires explicit necessity and effect review.
-- The agent never follows a retry string without inspecting the registered
-  effect of the target transition.
-- `md.raw_sql(...)` is the sole terminal raw SQL execution path — bounded,
-  timeout-enforced, and terminal; results cannot re-enter typed analysis.
+A returned-row limit is not a scan bound. Never retry an operation until its
+focused help exposes the effect and required scope.
 
 ### Snapshot continuity
 
-- One acquired snapshot supports all query-free projections for an active
-  object/batch.
-- The agent does not reacquire data merely to obtain another semantic-shaped
-  view.
-- Snapshot age and expiry remain visible reference metadata; age alone never
-  requires reacquisition or invalidates matching preview/readiness evidence.
-- Explicit refresh may replace observations. Definition, datasource, source,
-  schema, scope, or evidence-identity mismatches still invalidate dependent
-  preview/readiness evidence according to the live contract.
-- Multi-entity objects use the exact registered evidence mapping; snapshots are
-  not silently substituted across entities or sources.
+One snapshot supports all query-free projections for the active object or
+relationship evidence pair. Reacquire only when current structured state says
+columns or retained values are missing, evidence is stale, or source/schema/
+scope identity no longer matches. Snapshot age alone is not invalidation.
 
-### Privacy, secrets, and persistence
+### Explicit source and secrets
 
-- Credentials remain references, not authored plaintext.
-- Any user-global secret cache or project-local plaintext value cache requires
-  the live surface's explicit effect and privacy contract.
-- Memory-only evidence remains the default unless persistence is knowingly
-  accepted for the data in scope.
+The source of truth is project Python evaluated by the semantic loader.
+Credentials remain references, not authored plaintext. Plaintext value
+persistence requires the live effect contract and explicit acceptance.
 
-### Evidence is not meaning
+### Events and StateModels
 
-- Observed uniqueness is not an authoritative primary or business key.
-- Observed values do not establish exhaustive enum membership or business
-  definitions.
-- Physical type and shape do not establish unit, aggregation, additivity,
-  cardinality, timezone, or temporal policy.
-- Evidence projections report observations and judgment targets; they do not
-  recommend semantic objects or values.
-
-### Explicit authoring
-
-- The final source of truth is explicit project Python, not a prompt-only
-  decision, generated brief, hidden runtime state, or one-off analysis script.
-- The agent writes one object and validates it before advancing.
-- Advisory richness is not readiness and cannot create a required object by
-  itself.
-- Event authoring follows the one registered Event entry point shown by current
-  `marivo.help("semantic.event")`. The agent does not invent a body-free or filtered-Event
-  constructor from cached examples. Participant roles belong to the Event
-  definition; ordered EventPattern steps and matching policy belong to
-  `marivo-analysis`.
-- Event occurrence completeness is runtime analysis evidence, not semantic
-  readiness. The agent never promotes maximum observed Event time, query time,
-  or a lateness SLA into a semantic completeness guarantee.
-- A StateModel owns normative states and Event-driven legal transitions only.
-  The business owner resolves disputed lifecycle meaning; the agent does not
-  move replay windows, seeds, cohorts, completeness assumptions, observed
-  violations, or analysis policy into semantic authoring. A loadable model
-  without an inception is not silently treated as replay-ready: follow the
-  current entry, readiness result, and structured repair.
-
-### Diagnostics and parity
-
-- Potentially unbounded raw diagnostics are escape hatches, not normal evidence
-  acquisition.
-- Provenance parity is used only when the current object and task require it; it
-  is not promoted to a universal readiness step by skill prose.
-- A diagnostic result cannot override unresolved business meaning.
+Semantic Events own governed occurrence meaning; ordered pattern matching
+belongs to analysis. StateModels own normative states and legal transitions,
+not replay windows, censoring, completeness assumptions, or observed policy.
+A loadable model without the required inception is not silently treated as replay-ready.
 
 ## Routing
 
-The skill follows object-near contract and help for every route. Exact API and
-field names remain discoverable from the installed live surface; this file does
-not reconstruct them from conversation memory.
-
-| Condition | Route |
+| Current condition | Route |
 | --- | --- |
-| Analysis reports a required business object genuinely does not exist | Activate `marivo-semantic`; follow the `semantic_authoring` repair and author the smallest dependency-closed set, one validated object at a time |
-| Semantic readiness exposes analysis-ready inputs | Disclose warnings, apply the proceed-or-stop policy, then activate `marivo-analysis` with exactly `ReadinessReport.analysis_ready_inputs` |
-| An unresolved business decision remains | One-question grill stop; stop mutation and validation for that object until answered |
-| An unresolved environment fingerprint mismatch | Environment-repair stop; no datasource, semantic, or analysis work proceeds until one authoritative environment is established |
+| Environment mismatch | Stop before connection, data read, or mutation |
+| Non-observable required decision missing | Ask one accountable question before sampling |
+| Current result or error exists | Read `.show()` and `.contract()` or its typed repair |
+| Snapshot already matches | Reuse it and project evidence without querying |
+| Business judgment remains | Ask one evidence-grounded question and stop |
+| Static verify fails | Repair and reverify the same object |
+| Required preview is missing during authoring | Run the registered scoped preview |
+| Readiness blocks | Follow the typed repair; do not expose the ref |
+| Readiness exposes analysis-ready inputs | Hand only those inputs to `marivo-analysis` |
 
-When semantic readiness is not blocked, the skill activates `marivo-analysis`
-with exactly the refs or runtime expressions listed in `analysis_ready_inputs`;
-`analysis_ready_refs` remains available for refs-only consumers. It does not
-infer extra catalog work from governed leaves or create a second validation token. A semantic-first task may
-create or recover an analysis session before using those refs; no prior blocked
-analysis branch is required. A `ready_with_warnings` report does not prove that
-the runtime captured user or agent acceptance, so the skill explicitly
-discloses the warnings and applies its proceed-or-stop policy first. A missing
-runtime preview warning alone does not stop routine analysis; it is repaired
-before declaring a new or changed semantic object authoring-complete.
+## Closeout
 
-## Closeout obligations
+Successful closeout states the object changed, evidence identity and scope,
+business decisions and accountable source, validation stages passed,
+analysis-ready inputs, and remaining warnings.
 
-Successful semantic closeout states only Marivo-specific facts:
-
-- which explicit project object was added or changed;
-- which datasource evidence identity and scope grounded it;
-- which business decisions were supplied and by whom when known;
-- which registered validation stages passed;
-- which refs are analysis-ready;
-- which warnings or caveats remain;
-- which analysis task or branch receives the ready refs.
-
-Closeout does not generate a general modeling tutorial, repeat constructor
-syntax, or claim that observed data proved business meaning.
-
-A blocked closeout states:
-
-- the exact current object/state;
-- the typed blocker or unresolved judgment target;
-- whether data was queried or project state was mutated;
-- whether evidence remains reusable;
-- the one required user or environment action.
-
-## Boundary-violation behavior
-
-The skill does not provide fallback implementations or memorized workarounds.
-
-| Situation | Required behavior |
-| --- | --- |
-| Help and execution fingerprints differ | Stop before connection, read, mutation, or authoring |
-| Proposed call has an unknown effect | Read focused live help; do not invoke it from memory |
-| User-data read has no explicit registered scope | Stop before query |
-| A matching snapshot already exists, regardless of age | Reuse it; treat timestamps and cache status as reference information only |
-| Evidence suggests but cannot establish business meaning | Ask one grounded question and stop |
-| A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
-| Static verification fails | Repair and reverify the same object |
-| Preview is missing or stale during authoring closeout | Run or repair scoped preview before declaring the object authoring-complete |
-| Preview is missing or stale during routine analysis | Disclose the advisory and continue with directly requested `analysis_ready_inputs` unless another blocker applies |
-| Readiness is blocked | Follow typed repair; do not expose the blocked ref as analysis-ready |
-| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then expose only ready refs |
-| Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |
+Blocked closeout states the exact object and state, judgment or typed blocker,
+whether data was queried or source mutated, whether evidence is reusable, and
+the single required user or environment action.

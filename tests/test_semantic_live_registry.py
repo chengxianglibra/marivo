@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
+    AuthoringSourceContract,
     SemanticCapabilityRegistry,
     SemanticRootGroup,
     SemanticTypeContract,
@@ -77,6 +78,23 @@ def test_registry_covers_all_public_types() -> None:
 
 def test_registry_includes_authoring_topic() -> None:
     assert "authoring" in REGISTRY.canonical_ids()
+
+
+def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
+    expected = {
+        descriptor.canonical_id
+        for descriptor in REGISTRY._descriptors
+        if descriptor.output_family is not None
+        and descriptor.output_family.startswith("Ref[")
+        and descriptor.effects is not None
+        and "semantic_source" in descriptor.effects.mutations
+    }
+
+    assert set(REGISTRY._source_contracts) == expected
+    assert all(
+        isinstance(contract, AuthoringSourceContract)
+        for contract in REGISTRY._source_contracts.values()
+    )
 
 
 def test_catalog_type_contract_uses_the_closed_member_contract() -> None:

@@ -117,7 +117,7 @@ def test_authoring_contract_is_a_bounded_self_rendering_result(capsys):
     )
 
     assert repr(contract) == (
-        "<AuthoringContract subjects=1 states=1 transitions=1; call .show() to inspect>"
+        "<AuthoringContract subjects=1 states=1 transitions=1 judgments=0; call .show() to inspect>"
     )
     assert "input_requirements=" not in repr(contract)
     assert str(contract) == contract.render()

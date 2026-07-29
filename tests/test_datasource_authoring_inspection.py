@@ -90,6 +90,11 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     rendered = inspection.render()
     assert ".partitions()" in rendered
     assert ".sample(...)" in rendered
+    assert "source descriptor:" in rendered
+    assert '"kind":"table"' in rendered
+    assert '"table":"orders"' in rendered
+    assert "schema:" in rendered
+    assert "order_id" in rendered
 
 
 def test_inspect_rejects_connection_with_direct_ref_guidance(project_root: Path) -> None:
@@ -349,6 +354,38 @@ def test_known_partition_with_failed_value_hook_allows_unpruned_fallback(
     assert query_spy.user_data_queries == 1
 
 
+def test_partition_card_only_advertises_executable_scope_template(
+    project_root: Path,
+) -> None:
+    path = _register_duckdb(project_root)
+    _create_orders(path)
+    base = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    known = replace(
+        base,
+        partitioning=replace(
+            base.partitioning,
+            state="known",
+            fields=(PartitionMetadata(name="dt", type="date"),),
+            value_source=None,
+            values=(),
+            values_complete=False,
+        ),
+    )
+
+    fallback_text = known.partitions().render()
+    assert "md.unpruned(" in fallback_text
+    assert "partition-value hook captured no values" in fallback_text
+
+    captured_but_empty = replace(
+        known,
+        partitioning=replace(known.partitioning, value_source="metadata"),
+    )
+    unavailable_text = captured_but_empty.partitions().render()
+    assert "scope template: unavailable" in unavailable_text
+    assert "supply one complete mapping for dt" in unavailable_text
+    assert "md.unpruned(" not in unavailable_text
+
+
 def test_partitions_only_reshapes_captured_metadata(
     project_root: Path,
 ) -> None:
@@ -535,7 +572,11 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
     assert inspection.partitioning.values_complete is False
     assert partition_result.status == "incomplete"
     assert not hasattr(partition_result, "next_calls")
-    assert ".contract()" in partition_result.render()
+    rendered = partition_result.render()
+    assert ".contract()" in rendered
+    assert "value source: none" in rendered
+    assert "values complete: False" in rendered
+    assert "md.unpruned(" in rendered
 
 
 def test_inspection_contract_exposes_factual_scope_state_without_string_guidance(

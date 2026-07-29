@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from marivo._authoring.model import AuthoringContract, AuthoringTransition
+from marivo._authoring.model import (
+    AuthoringContract,
+    AuthoringJudgmentRequirement,
+    AuthoringTransition,
+)
 from marivo.introspection.live.render import enforce_budget
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card
 
@@ -28,6 +32,15 @@ def _render_transition(transition: AuthoringTransition) -> str:
     return line
 
 
+def _render_judgment(requirement: AuthoringJudgmentRequirement) -> str:
+    subjects = ", ".join(requirement.subjects) or "(none)"
+    evidence = ", ".join(requirement.evidence_ids) or "(none)"
+    return (
+        f"{requirement.id}: subjects={subjects}; evidence={evidence}; "
+        f"authority={requirement.authority}"
+    )
+
+
 def render_contract(
     contract: AuthoringContract,
     *,
@@ -38,7 +51,14 @@ def render_contract(
     """Render every mechanical transition within a hard output budget."""
     card = Card(
         identity=contract._repr_identity(),
-        available=(".states", ".transitions", ".model_dump()", ".render()", ".show()"),
+        available=(
+            ".states",
+            ".transitions",
+            ".judgment_requirements",
+            ".model_dump()",
+            ".render()",
+            ".show()",
+        ),
     ).field(
         "subjects",
         ", ".join(contract.subject_refs) if contract.subject_refs else "(none)",
@@ -50,6 +70,11 @@ def render_contract(
         if contract.transitions
         else ("no mechanically invokable continuation disclosed",),
     )
+    if contract.judgment_requirements:
+        card = card.listing(
+            "non-mechanical judgment requirements",
+            (_render_judgment(requirement) for requirement in contract.judgment_requirements),
+        )
     return enforce_budget(
         card.render(max_output_bytes=max_output_bytes),
         max_lines=max_lines,

@@ -243,6 +243,18 @@ class SemanticError(Exception):
         constraint = get_constraint(constraint_id) if constraint_id is not None else None
         if hint is None and constraint is not None:
             hint = constraint.hint
+        if repair is None:
+            from marivo.semantic._capabilities.registry import REGISTRY
+
+            repair_contract = REGISTRY.error_repair_contract(kind)
+            if repair_contract is not None:
+                repair = AuthoringRepair(
+                    kind=repair_contract.kind,
+                    help_target=repair_contract.help_target,
+                    action=repair_contract.action,
+                    snippet=repair_contract.snippet,
+                    preserves_evidence=repair_contract.preserves_evidence,
+                )
         self.kind = kind
         self.message = message
         self.semantic_refs = refs

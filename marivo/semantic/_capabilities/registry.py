@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
+from typing import Literal
 
 from marivo._authoring.model import (
     AuthoringCapability,
@@ -20,9 +21,15 @@ from marivo._authoring.model import (
     TransitionInputRole,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
+from marivo.refs import SemanticKind
+from marivo.semantic._capabilities.catalog_members import (
+    CATALOG_COLLECTION_PROPERTIES,
+    CATALOG_MEMBER_CONTRACTS,
+)
 from marivo.semantic._capabilities.model import (
+    AuthoringSourceContract,
     SemanticCapabilityRegistry,
+    SemanticRepairContract,
     SemanticRootGroup,
     SemanticTypeContract,
 )
@@ -241,6 +248,239 @@ def _capability(
     )
 
 
+def _authoring_source_contract(
+    kind: SemanticKind,
+    *,
+    prerequisite_targets: tuple[LiveHelpTarget, ...],
+    judgment_requirements: tuple[str, ...],
+) -> AuthoringSourceContract:
+    member = next(member for member in CATALOG_MEMBER_CONTRACTS if member.kind is kind)
+    placement_kind: Literal["domain_entrypoint", "domain_module"]
+    if kind is SemanticKind.DOMAIN:
+        placement_kind = "domain_entrypoint"
+        path_template = "models/semantic/<domain>/_domain.py"
+        identity_template = "<domain>"
+    elif kind in {
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.MEASURE,
+    }:
+        placement_kind = "domain_module"
+        path_template = "models/semantic/<domain>/<module>.py"
+        identity_template = "<domain>.<entity>.<name>"
+    elif kind is SemanticKind.ENTITY:
+        placement_kind = "domain_module"
+        path_template = "models/semantic/<domain>/<module>.py"
+        identity_template = "<domain>.<entity>"
+    else:
+        placement_kind = "domain_module"
+        path_template = "models/semantic/<domain>/<module>.py"
+        identity_template = "<domain>.<name>"
+    return AuthoringSourceContract(
+        placement_kind=placement_kind,
+        path_template=path_template,
+        prerequisite_targets=prerequisite_targets,
+        catalog_collection=member.property_name,
+        canonical_identity_template=identity_template,
+        judgment_requirements=judgment_requirements,
+    )
+
+
+def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
+    """Build closed placement/handoff facts for every source-authored object."""
+
+    datasource_authoring = LiveHelpTarget(surface="datasource", canonical_id="authoring")
+    by_kind = {
+        SemanticKind.DOMAIN: _authoring_source_contract(
+            SemanticKind.DOMAIN,
+            prerequisite_targets=(),
+            judgment_requirements=("accountable_owner", "business_definition"),
+        ),
+        SemanticKind.ENTITY: _authoring_source_contract(
+            SemanticKind.ENTITY,
+            prerequisite_targets=(_target("domain"), datasource_authoring),
+            judgment_requirements=(
+                "business_definition",
+                "primary_key_authority_if_declared",
+                "versioning_policy_if_declared",
+            ),
+        ),
+        SemanticKind.DIMENSION: _authoring_source_contract(
+            SemanticKind.DIMENSION,
+            prerequisite_targets=(_target("entity"),),
+            judgment_requirements=(
+                "business_definition",
+                "category_meaning",
+                "privacy_policy",
+            ),
+        ),
+        SemanticKind.TIME_DIMENSION: _authoring_source_contract(
+            SemanticKind.TIME_DIMENSION,
+            prerequisite_targets=(_target("entity"),),
+            judgment_requirements=(
+                "business_event_time",
+                "timezone",
+                "default_time_dimension",
+            ),
+        ),
+        SemanticKind.MEASURE: _authoring_source_contract(
+            SemanticKind.MEASURE,
+            prerequisite_targets=(_target("entity"),),
+            judgment_requirements=("business_definition", "unit", "additivity"),
+        ),
+        SemanticKind.METRIC: _authoring_source_contract(
+            SemanticKind.METRIC,
+            prerequisite_targets=(_target("entity"), _target("measure")),
+            judgment_requirements=(
+                "business_definition",
+                "aggregation_semantics",
+                "unit",
+                "additivity",
+            ),
+        ),
+        SemanticKind.RELATIONSHIP: _authoring_source_contract(
+            SemanticKind.RELATIONSHIP,
+            prerequisite_targets=(_target("entity"),),
+            judgment_requirements=("relationship_business_meaning", "cardinality"),
+        ),
+        SemanticKind.EVENT: _authoring_source_contract(
+            SemanticKind.EVENT,
+            prerequisite_targets=(
+                _target("dimension"),
+                _target("time_dimension"),
+                _target("participant"),
+            ),
+            judgment_requirements=(
+                "business_occurrence",
+                "identity",
+                "occurrence_time",
+                "participants",
+            ),
+        ),
+        SemanticKind.STATE_MODEL: _authoring_source_contract(
+            SemanticKind.STATE_MODEL,
+            prerequisite_targets=(
+                _target("entity"),
+                _target("event"),
+                _target("lifecycle_state"),
+                _target("transition"),
+            ),
+            judgment_requirements=("normative_states", "legal_transitions", "inception"),
+        ),
+    }
+    ids_by_kind = {
+        SemanticKind.DOMAIN: ("domain",),
+        SemanticKind.ENTITY: ("entity",),
+        SemanticKind.DIMENSION: ("dimension", "dimension_column"),
+        SemanticKind.TIME_DIMENSION: ("time_dimension", "time_dimension_column"),
+        SemanticKind.MEASURE: ("measure", "measure_column"),
+        SemanticKind.METRIC: (
+            "aggregate",
+            "count",
+            "cumulative",
+            "ratio",
+            "weighted_mean",
+            "linear",
+            "metric",
+        ),
+        SemanticKind.RELATIONSHIP: ("relationship",),
+        SemanticKind.EVENT: ("event",),
+        SemanticKind.STATE_MODEL: ("state_model",),
+    }
+    return MappingProxyType(
+        {
+            canonical_id: by_kind[kind]
+            for kind, canonical_ids in ids_by_kind.items()
+            for canonical_id in canonical_ids
+        }
+    )
+
+
+def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
+    """Build exact repair routes for deterministic authoring/layout failures."""
+
+    rows = (
+        SemanticRepairContract(
+            error_kind="outside_loader_context",
+            kind="reauthor",
+            help_target=_target("authoring"),
+            action=(
+                "Move the declaration into the semantic project and load it through ms.load(); "
+                "do not call source-mutating constructors directly from a REPL."
+            ),
+            snippet=(
+                "# models/semantic/<domain>/<module>.py\n"
+                "import marivo.semantic as ms\n"
+                "# declaration fragment evaluated by ms.load()"
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="missing_domain",
+            kind="reauthor",
+            help_target=_target("domain"),
+            action=(
+                "Declare the domain with an accountable owner in its _domain.py, "
+                "or pass an existing typed domain ref."
+            ),
+            snippet=(
+                "# models/semantic/<domain>/_domain.py\n"
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='<domain>', owner=accountable_owner)"
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="invalid_project",
+            kind="configure",
+            help_target=_target("authoring"),
+            action=(
+                "Point ms.load(workspace_dir=...) at a project root containing marivo.toml "
+                "and models/semantic/."
+            ),
+            snippet="catalog = ms.load(workspace_dir='<project root>')",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="domain_file_missing",
+            kind="reauthor",
+            help_target=_target("domain"),
+            action=(
+                "Create the required domain entrypoint and supply its accountable owner "
+                "before loading again."
+            ),
+            snippet=(
+                "# models/semantic/<domain>/_domain.py\n"
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='<domain>', owner=accountable_owner)"
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="domain_file_mismatch",
+            kind="reauthor",
+            help_target=_target("domain"),
+            action="Make the domain directory and ms.domain(name=...) use the same exact name.",
+            snippet=(
+                "# models/semantic/<domain>/_domain.py\n"
+                "ms.domain(name='<domain>', owner=accountable_owner)"
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="organization_error",
+            kind="reauthor",
+            help_target=_target("authoring"),
+            action=(
+                "Repair the failing semantic source file inside the registered project layout, "
+                "then reload the catalog."
+            ),
+            preserves_evidence=True,
+        ),
+    )
+    return MappingProxyType({row.error_kind: row for row in rows})
+
+
 def _build_registry() -> SemanticCapabilityRegistry:
     """Build the immutable semantic descriptor catalog from live callables."""
     descriptor_rows = (
@@ -276,7 +516,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DomainName"), ("dependency", "OwnerName")),
             effects=_AUTHOR,
             constraints=("domain_owner_required",),
-            example="ms.domain(name='sales', owner='Mina Zhang')",
+            example="ms.domain(name='sales', owner=accountable_owner)",
         ),
         _capability(
             "entity",
@@ -291,8 +531,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
             example=(
-                "warehouse = md.duckdb('warehouse', path='warehouse.duckdb'); "
-                "orders = ms.entity(name='orders', datasource=warehouse.ref, source=md.table('orders'))"
+                "warehouse = ms.ref.datasource('warehouse'); "
+                "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))"
             ),
         ),
         _capability(
@@ -320,7 +560,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
-            example="ms.dimension_column(name='region', entity=orders, column='region')",
+            example=("region = ms.dimension_column(name='region', entity=orders, column='region')"),
         ),
         _capability(
             "time_dimension",
@@ -360,7 +600,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_granularity_parse_compatible",
             ),
             example=(
-                "ms.time_dimension_column(name='log_date', entity=orders, "
+                "log_date = ms.time_dimension_column(name='log_date', entity=orders, "
                 "column='log_date', granularity='day', parse=ms.strptime('%Y%m%d'))"
             ),
         ),
@@ -391,7 +631,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
-            example="ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')",
+            example=(
+                "amount = ms.measure_column("
+                "name='amount', entity=orders, column='amount', additivity='additive')"
+            ),
         ),
         _capability(
             "aggregate",
@@ -1033,6 +1276,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _by_callable_path=MappingProxyType(
             {row.callable_path: row for row in descriptor_rows if row.callable_path is not None}
         ),
+        _source_contracts=_source_contracts(),
+        _repair_contracts=_repair_contracts(),
     )
 
 

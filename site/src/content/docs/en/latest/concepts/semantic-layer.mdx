@@ -30,6 +30,13 @@ Give the agent the datasource, business goal, and decided rules. The agent uses
 the user confirms and adjusts business meaning. Technical validation is not
 business approval.
 
+`marivo-semantic` supplies the stable ordering and ownership boundaries. Current
+constructor placement, signatures, prerequisites, loaded-object lookup, and
+error recovery come from `marivo.help(...)`, result cards, `.contract()`, and
+structured errors. Before reading user data, the agent must ask for required
+non-observable inputs such as the accountable domain owner or target business
+concept. Sampling cannot answer those questions.
+
 ## Maintain and share the semantic layer with Git
 
 Semantic objects are Python source files under `models/` and belong in version control:
@@ -1037,6 +1044,25 @@ when rendering is bounded. Values are memory-only by default; use
 `persist_values=True` only when bounded plaintext project-local caching is
 acceptable. Uncommon formats, keys, timezone, aggregation, unit, additivity,
 relationship cardinality, and business meaning remain agent-owned.
+
+Inspection cards include the exact source descriptor and real schema names and
+types. Partition cards report the captured value source, completeness,
+truncation, bounded values, and a scope template without issuing another query.
+The snapshot card reports its scope, selected columns, coverage, and value/cache
+state; every projection is explicitly `data_access=none`.
+
+When evidence cannot mechanically settle a decision,
+`result.contract().judgment_requirements` exposes frozen requirements with
+stable IDs, subjects, evidence IDs, and
+`authority="user_or_business_owner"`. They do not recommend a value, create a
+constructor transition, or record approval. Reuse the same snapshot for all
+local projections. Reacquire only for missing required columns or value
+evidence, staleness, or a datasource/source/scope identity mismatch.
+
+Focused constructor help describes each call as a declaration fragment inside
+its reported loader path. After loading, use the generated catalog handoff:
+`catalog = ms.load()`, `entry = catalog.<collection>.get(...)`,
+`entry.show()`, and `entry.contract().show()`.
 
 After one Python declaration, reload its current catalog entry and run
 `catalog.verify(entry)`, `catalog.preview(entry, using=snapshot)`, then

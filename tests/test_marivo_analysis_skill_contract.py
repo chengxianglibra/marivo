@@ -10,8 +10,8 @@ SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-analysis"
 SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
 MAX_SKILL_LINES = 200
 MAX_SKILL_CODEPOINTS = 10_000
-MAX_SEMANTIC_SKILL_LINES = 600
-MAX_SEMANTIC_SKILL_CODEPOINTS = 30_000
+MAX_SEMANTIC_SKILL_LINES = 200
+MAX_SEMANTIC_SKILL_CODEPOINTS = 10_000
 
 
 def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
@@ -240,5 +240,23 @@ def test_analysis_skill_has_deterministic_stop_and_no_bypass_rules() -> None:
         "one focused-help recovery",
         "Do not read business rows directly through Ibis, DuckDB, pandas",
         "minimum sufficient evidence",
+    ):
+        assert required in text
+
+
+def test_semantic_skill_has_preflight_stop_and_no_bypass_rules() -> None:
+    text = " ".join((SEMANTIC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").split())
+
+    for required in (
+        "the first routing decision is the non-observable decision preflight",
+        "Do not enumerate root/focused help or inspect metadata before that stop.",
+        "Do not bundle independent judgments.",
+        "A user-named build target satisfies the target-concept preflight",
+        "ask required non-observable inputs before user-data access",
+        "same root cause occurs twice",
+        "one focused-help recovery",
+        "minimum sufficient evidence",
+        "Do not read business rows directly through Ibis, DuckDB, pandas",
+        "Acquire one bounded snapshot and reuse its query-free projections",
     ):
         assert required in text

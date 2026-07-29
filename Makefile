@@ -64,6 +64,7 @@ pypi-build: ## Build PyPI sdist and wheel into dist/pypi/
 pypi-check: ## Validate PyPI sdist and wheel in dist/pypi/
 	@./scripts/require-venv.sh twine
 	@$(VENV_TWINE) check $(PYPI_DIST_DIR)/*
+	@$(VENV_PYTHON) scripts/check-wheel-contents.py $(PYPI_DIST_DIR)
 
 pypi-clean: ## Remove PyPI build artifacts
-	rm -rf $(PYPI_DIST_DIR) dist/marivo-*.tar.gz dist/marivo-*.whl
+	rm -rf $(PYPI_DIST_DIR) dist/marivo-*.tar.gz dist/marivo-*.whl build marivo.egg-info
