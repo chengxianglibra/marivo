@@ -19,11 +19,12 @@ from marivo.analysis.frames.base import (
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
+    _ArtifactSemanticBinding,
     assert_semantic_shape,
 )
 from marivo.analysis.frames.subject import SubjectCohortBinding
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import RefPayloadV1
+from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.render import Card
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
@@ -400,6 +401,142 @@ class MetricFrameMeta(BaseFrameMeta):
         return self
 
 
+def _compact_metadata_value(value: object) -> str:
+    """Render one persisted metadata value deterministically."""
+
+    if isinstance(value, dict):
+        return (
+            "{"
+            + ", ".join(f"{key}={_compact_metadata_value(value[key])}" for key in sorted(value))
+            + "}"
+        )
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_compact_metadata_value(item) for item in value) + "]"
+    if value is None:
+        return "none"
+    return str(value)
+
+
+def _observation_scope(meta: MetricFrameMeta) -> str:
+    """Return the exact persisted observation scope."""
+
+    if meta.window is None:
+        return "all available rows"
+    start = _compact_metadata_value(meta.window.get("start"))
+    end = _compact_metadata_value(meta.window.get("end"))
+    parts = [f"[{start}, {end})"]
+    for key in ("grain", "time_dimension"):
+        value = meta.window.get(key)
+        if value is not None:
+            parts.append(f"{key}={_compact_metadata_value(value)}")
+    return " ".join(parts)
+
+
+def _axis_lines(meta: MetricFrameMeta) -> tuple[str, ...]:
+    """Return deterministic persisted axis descriptions."""
+
+    return tuple(
+        " ".join(
+            (
+                f"{binding.role}={binding.ref.path}",
+                f"column={binding.column}",
+                *((f"grain={binding.grain}",) if binding.grain is not None else ()),
+            )
+        )
+        for binding in meta.axis_bindings
+    )
+
+
+def _slice_lines(meta: MetricFrameMeta) -> tuple[str, ...]:
+    """Return deterministic persisted slice descriptions."""
+
+    return tuple(
+        f"{predicate.dimension_ref.path}={_compact_metadata_value(predicate.value)}"
+        for predicate in meta.slice_predicates
+    )
+
+
+def _fold_line(fold: dict[str, Any]) -> str:
+    """Return one compact temporal-fold description."""
+
+    keys = (
+        "component_metric_id",
+        "time_fold",
+        "fold_kind",
+        "fold_strategy",
+        "status_time_dimension",
+        "sample_interval",
+        "identity_keys",
+    )
+    return " ".join(
+        f"{key}={_compact_metadata_value(fold[key])}"
+        for key in keys
+        if key in fold and (fold[key] is not None or key == "sample_interval")
+    )
+
+
+def _append_metric_execution_semantics(card: Card, meta: MetricFrameMeta) -> None:
+    """Append persisted decision-critical execution facts to a frame card."""
+
+    card.field("observation_scope", _observation_scope(meta))
+    card.field(
+        "value_semantics",
+        " ".join(
+            (
+                f"aggregation={meta.aggregation or 'unknown'}",
+                f"additivity={meta.additivity or 'unknown'}",
+                f"reaggregatable={'yes' if meta.reaggregatable else 'no'}",
+            )
+        ),
+    )
+    axes = _axis_lines(meta)
+    if axes:
+        card.listing("axes", axes)
+    slices = _slice_lines(meta)
+    if slices:
+        card.listing("slices", slices)
+
+    fold = meta.fold
+    if fold is None:
+        return
+    component_folds = fold.get("component_folds")
+    if isinstance(component_folds, list):
+        rendered_components = tuple(
+            _fold_line(component) for component in component_folds if isinstance(component, dict)
+        )
+        if rendered_components:
+            card.listing("component folds", rendered_components)
+    else:
+        rendered_fold = _fold_line(fold)
+        if rendered_fold:
+            card.field("time_fold", rendered_fold)
+
+    if meta.coverage_summary is not None:
+        summary = meta.coverage_summary
+        card.field(
+            "expected_sample_coverage",
+            " ".join(
+                (
+                    f"min={_compact_metadata_value(summary.get('min'))}",
+                    f"avg={_compact_metadata_value(summary.get('avg'))}",
+                    f"partial_buckets={_compact_metadata_value(summary.get('partial_buckets'))}",
+                    f"sidecar={meta.coverage_ref or 'none'}",
+                )
+            ),
+        )
+    elif fold.get("fold_strategy") == "snapshot_selection" or (
+        isinstance(component_folds, list)
+        and any(
+            isinstance(component, dict) and component.get("fold_strategy") == "snapshot_selection"
+            for component in component_folds
+        )
+    ):
+        card.field(
+            "expected_sample_coverage",
+            "not_applicable (unsampled snapshot selection)",
+        )
+
+
 @dataclass(repr=False)
 class MetricFrame(BaseFrame):
     """Metric artifact; call marivo.help(MetricFrame) for its public contract.
@@ -520,6 +657,71 @@ class MetricFrame(BaseFrame):
         columns[value_index] = self._arity1_exported_column_name()
         return columns
 
+    def _semantic_input_bindings(self) -> tuple[_ArtifactSemanticBinding, ...]:
+        """Expose exact metric, axis, slice, and runtime-leaf acquisition paths."""
+        bindings: list[_ArtifactSemanticBinding] = []
+        value_columns = self.value_columns
+        for index, identity in enumerate(self.meta.metric_identities):
+            if not isinstance(identity, CatalogMetricIdentity):
+                continue
+            bindings.append(
+                _ArtifactSemanticBinding(
+                    role="metric" if self.arity == 1 else f"metric[{index}]",
+                    semantic_kind=SemanticKind.METRIC,
+                    semantic_path=identity.metric_ref.path,
+                    output_column=value_columns[index],
+                )
+            )
+
+        public_columns = self.columns
+        internal_columns = list(self._df.columns)
+        for axis in self.meta.axis_bindings:
+            output_column = (
+                public_columns[internal_columns.index(axis.column)]
+                if axis.column in internal_columns
+                else axis.column
+            )
+            bindings.append(
+                _ArtifactSemanticBinding(
+                    role="time_axis" if axis.role == "time_dimension" else "dimension_axis",
+                    semantic_kind=axis.ref.kind,
+                    semantic_path=axis.ref.path,
+                    output_column=output_column,
+                )
+            )
+        for predicate in self.meta.slice_predicates:
+            bindings.append(
+                _ArtifactSemanticBinding(
+                    role="slice",
+                    semantic_kind=predicate.dimension_ref.kind,
+                    semantic_path=predicate.dimension_ref.path,
+                )
+            )
+        if self.meta.status_time_dimension_ref is not None:
+            bindings.append(
+                _ArtifactSemanticBinding(
+                    role="status_time",
+                    semantic_kind=self.meta.status_time_dimension_ref.kind,
+                    semantic_path=self.meta.status_time_dimension_ref.path,
+                )
+            )
+
+        if any(
+            isinstance(identity, RuntimeExpressionIdentity)
+            for identity in self.meta.metric_identities
+        ):
+            for dependency in self.meta.semantic_dependency_digest.entries:
+                if dependency.ref.kind not in {SemanticKind.METRIC, SemanticKind.MEASURE}:
+                    continue
+                bindings.append(
+                    _ArtifactSemanticBinding(
+                        role=f"{dependency.ref.kind.value}_dependency",
+                        semantic_kind=dependency.ref.kind,
+                        semantic_path=dependency.ref.path,
+                    )
+                )
+        return tuple(bindings)
+
     # Every next-intent is gated at arity > 1; derive from _NEXT_INTENTS so
     # the two cannot drift.  These are capability-id prefixes: any
     # capability whose id starts with one of these prefixes is gated.
@@ -527,6 +729,7 @@ class MetricFrame(BaseFrame):
 
     def _card(self) -> Card:
         card = super()._card()
+        _append_metric_execution_semantics(card, self.meta)
         anchor = _cumulative_anchor(self.meta.cumulative)
         blocker = cumulative_compare_blocker(self.meta.cumulative)
         if self.meta.cumulative is not None:

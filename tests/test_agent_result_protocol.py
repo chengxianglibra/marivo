@@ -515,6 +515,15 @@ def _artifact_contract() -> ArtifactContract:
     return _metric_frame().contract()
 
 
+def test_plain_metric_frame_card_does_not_invent_fold_or_coverage() -> None:
+    rendered = _metric_frame().render()
+
+    assert "observation_scope: all available rows" in rendered
+    assert "value_semantics:" in rendered
+    assert "time_fold:" not in rendered
+    assert "expected_sample_coverage:" not in rendered
+
+
 def _digest_read_contract() -> DigestReadContract:
     return DigestReadContract(
         exact_reads=(

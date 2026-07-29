@@ -263,6 +263,13 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
     assert frame.meta.fold["fold_kind"] == "mean"
     assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
     assert frame.meta.reaggregatable is False
+    rendered = frame.render()
+    assert "observation_scope: [2026-01-01T00:00:00, 2026-01-01T01:00:00)" in rendered
+    assert "grain=hour" in rendered
+    assert "dimension=sales.bandwidth_samples.province" in rendered
+    assert "time_fold=mean" in rendered
+    assert "sample_interval=5minute" in rendered
+    assert "expected_sample_coverage:" in rendered
 
 
 def test_sampled_mean_fold_accepts_strptime_time_dimension(

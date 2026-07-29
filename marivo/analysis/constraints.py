@@ -109,9 +109,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "WindowInvalid",
         "runtime",
         ("observe", "forecast", "transform", "TimeScope", "AbsoluteWindow"),
-        "Windows and time scopes must be explicit, parseable absolute ranges.",
-        "Analysis persistence records concrete bucket ranges and cannot infer an ambiguous natural-language window.",
-        'Pass time_scope={"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} or an AbsoluteWindow.',
+        "Time scopes are half-open [start, end): start is inclusive and end is exclusive.",
+        "Analysis persistence records concrete half-open ranges and cannot infer an ambiguous natural-language window or silently include the end bound.",
+        'Pass time_scope={"start": "2026-07-01", "end": "2026-08-01"} to include all of July and exclude August 1.',
+        example='time_scope={"start": "2026-07-01", "end": "2026-08-01"}',
         help_target="observe",
     ),
     ConstraintId.FRAME_KIND_COMPATIBLE: _constraint(

@@ -16,7 +16,12 @@ from marivo.analysis.event import (
     FirstPerSubject,
     PatternStep,
 )
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, _display_column_names
+from marivo.analysis.frames.base import (
+    BaseFrame,
+    BaseFrameMeta,
+    _ArtifactSemanticBinding,
+    _display_column_names,
+)
 from marivo.analysis.frames.subject import SubjectCohortBinding
 from marivo.analysis.windows.spec import TimeScope
 from marivo.refs import RefPayloadV1, SemanticKind
@@ -408,6 +413,28 @@ class EventFrame(BaseFrame):
             f"attempts={self.meta.row_count} coverage={self.meta.coverage_basis}"
         )
 
+    def _semantic_input_bindings(self) -> tuple[_ArtifactSemanticBinding, ...]:
+        """Expose retained Event and subject-axis catalog acquisition paths."""
+        bindings = [
+            _ArtifactSemanticBinding(
+                role=f"event[{step.key}]",
+                semantic_kind=SemanticKind.EVENT,
+                semantic_path=step.event.path,
+            )
+            for step in self.meta.pattern.steps
+        ]
+        if self.meta.semantic_kind == "funnel":
+            bindings.extend(
+                _ArtifactSemanticBinding(
+                    role="dimension_axis",
+                    semantic_kind=axis.dimension_ref.kind,
+                    semantic_path=axis.dimension_ref.path,
+                    output_column=axis.output_column,
+                )
+                for axis in self.meta.axes
+            )
+        return tuple(bindings)
+
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
         if self.meta.semantic_kind == "journey":
@@ -432,6 +459,7 @@ class EventFrame(BaseFrame):
         card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
             status
         )
+        self._append_artifact_interface_sections(card)
         self._append_evidence_sections(card)
         return card.lazy_table(
             columns=columns,

@@ -145,6 +145,7 @@ class HelpExample:
 
     label: str
     code: str
+    requires: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -227,10 +228,14 @@ class ConstructorCapability(CapabilityBase):
     ----------
     output_type:
         One precise public value type produced by the constructor.
+    produced_input_family:
+        Closed analysis input family satisfied by the constructed value, when
+        the value is accepted directly by an operator.
     """
 
     kind: Literal["constructor"] = "constructor"
     output_type: str = ""
+    produced_input_family: InputFamily | None = None
 
 
 @dataclass(frozen=True)

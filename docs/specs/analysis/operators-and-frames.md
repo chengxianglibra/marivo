@@ -135,6 +135,13 @@ advertise consumers that require journey or replay-history input. The registry
 is the single source of truth for the help surface, `contract()` affordances,
 and runtime family gate.
 
+Constructor descriptors also declare the exact input family they produce.
+Focused help obtains prerequisites from the same producer graph: artifact
+inputs point to compatible producers, semantic inputs point to the owning typed
+catalog collection, and composite Event patterns point through
+`participant_role` → `step` → `sequence`. Every accepted input family must have
+one registered acquisition path before the registry can initialize.
+
 The runtime family gate validates submitted inputs against the registry's
 `accepted_inputs` before any backend work begins. When an input family does not
 match, the gate fails closed with a structured `AnalysisError` carrying typed
@@ -229,6 +236,12 @@ typed; ambiguity exposes exact candidates without choosing one; incompatible
 grain is retryable only when the legal replacement is mechanically unique.
 Executor checks remain defensive backstops for runtime dtype facts and preserve
 the same structured repair shape.
+
+**Window bounds.** Every `time_scope` is the literal half-open interval
+`[start, end)`: `start` is included and `end` is excluded. An agent must not
+advance a caller-supplied end date to make it inclusive. For example,
+`{"start": "2026-07-01", "end": "2026-08-01"}` includes all of July and no
+rows from August 1; `end="2026-07-31"` excludes July 31.
 
 **Semi-additive temporal folds.** A status time dimension with a declared
 `sample_interval` uses the sampled two-phase fold and may compute expected-slot
@@ -458,6 +471,28 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 Terminal `RawSqlResult` supports the same bounded row/column reads but omits
 `contract()` because it has no typed continuation.
 
+A `MetricFrame` card includes the persisted observation scope, axes and slices,
+aggregation/additivity/reaggregation facts, and any temporal fold strategy.
+Sampled folds show their expected-slot coverage summary. Unsampled snapshot
+selection shows its identity keys and explicitly marks expected-sample coverage
+as not applicable; it never invents a coverage sidecar. Derived metrics render a
+bounded component-fold list. Recovery uses the same persisted metadata and
+therefore renders the same execution facts.
+
+Every artifact card explicitly lists `output_columns`, using the exact names
+returned by `.columns` and `to_pandas()`. `ArtifactContract.output_columns` is
+derived from `artifact_schema.columns[*].name`, so it cannot drift.
+Where an artifact retains direct semantic inputs, the card and
+`contract().semantic_inputs` preserve their roles, semantic kinds and paths,
+optional output-column binding, exact
+`session.catalog.<collection>.get("<path>")` acquisition call, and focused
+catalog help target. The ordered list is bounded and reports any omitted count.
+Metric artifacts expose catalog metric roots, axes, slices,
+status-time dimensions, and governed runtime-expression leaves; Event artifacts
+expose pattern Events and reducer axes; Lifecycle artifacts expose their
+StateModel, replay Events, and reducer axes. These are mechanical reacquisition
+facts, not claims that an entry remains current in a different catalog.
+
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
 `.to_pandas()`. Frames also expose `.id` (a read-only alias of `.ref`), `.ref`,
@@ -484,8 +519,10 @@ suffix until the public column name is unique.
 `contract()` returns an `ArtifactContract` describing mechanical compatibility
 only — it never ranks, recommends, or narrates:
 
-- `kind`, `ref`, `is_canonical`, and an `artifact_schema` (typed columns +
-  `semantic_shape`).
+- `kind`, `ref`, `is_canonical`, an `artifact_schema` (typed columns +
+  `semantic_shape`), and `output_columns` equal to the schema's ordered names.
+- `semantic_inputs` — bounded, role-preserving semantic identity and exact
+  catalog reacquisition paths retained by the artifact.
 - `issues` — a closed tuple of typed data-quality, comparability, or evidence
   availability issues.
 - `affordances: ArtifactAffordance[]` — each a gate that mechanically exists:

@@ -107,8 +107,8 @@ session。
 session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(name)`。
 
 `repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
-时间戳以及 catalog/job/frame 检查入口的 bounded state card。`session.render()` 返回同一文本，
-但不写 stdout。
+时间戳、已注册 direct operators、namespaces 以及 catalog/job/frame 检查入口的 bounded
+state card。`session.render()` 返回同一文本，但不写 stdout。
 
 用 `catalog.domains.show()` 和 scoped navigation 发现 entries，然后对本次分析会使用的每个
 metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输出会展示已编写
@@ -135,6 +135,12 @@ Marivo 才支持 `first`/`last`。在当前 window 或输出 bucket 内，Marivo
 bucket 前向填充。其他无采样间隔的 fold 会返回结构化 planning error。
 :::
 
+`MetricFrame.show()` 会展示这些持久化执行事实：observation window、grain、axes、
+slices，aggregation、additivity、reaggregation 状态，以及 fold strategy、status axis、
+sample interval 或 snapshot identity keys。Sampled fold 会显示 expected-slot coverage；
+无采样的 snapshot selection 会明确说明 expected-sample coverage 不适用。恢复后的 frame
+使用同一份 metadata 展示这些事实，不会重新查询。
+
 ## 匹配 Event journey
 
 Event analysis 从 typed participant roles 和有序 EventPattern 开始。每个 step
@@ -142,9 +148,13 @@ Event analysis 从 typed participant roles 和有序 EventPattern 开始。每�
 的 primary key 提供 identity。
 
 ```python
-cart_user = ms.participant_role(event=cart_created, name="user")
-checkout_user = ms.participant_role(event=checkout_started, name="user")
-payment_user = ms.participant_role(event=payment_succeeded, name="user")
+cart_created = catalog.events.get("commerce.cart_created")
+checkout_started = catalog.events.get("commerce.checkout_started")
+payment_succeeded = catalog.events.get("commerce.payment_succeeded")
+
+cart_user = ms.participant_role(event=cart_created.ref, name="user")
+checkout_user = ms.participant_role(event=checkout_started.ref, name="user")
+payment_user = ms.participant_role(event=payment_succeeded.ref, name="user")
 
 cart_step = mv.step(participant=cart_user, key="cart")
 checkout_step = mv.step(participant=checkout_user, key="checkout")
@@ -352,6 +362,10 @@ Operators 接受精确的当前 entry/ref、封闭 expression 和若干共享值
 | `slice_by` | `{region: "US"}` 或 `{amount: {"op": ">", "value": 100}}` | 聚合前的行过滤（见下方运算符）。 |
 | `AlignmentPolicy` | `mv.window_bucket()` | `compare` / `correlate` 时两个窗口如何配对。 |
 
+必须按字面使用传入的 `time_scope.end`。Marivo 不包含该边界，agent 也不应为了
+把请求解释成闭区间而擅自把结束日期向后推进。例如，`end="2026-06-30"` 会排除
+6 月 30 日；只有当预期范围确实包含整个 6 月时，才使用 `end="2026-07-01"`。
+
 结果的 **semantic kind** 由 `grain` 和 `dimensions` 决定：`scalar`（两者都没有）、
 `time_series`（仅 grain）、`segmented`（仅 dimensions）或 `panel`（两者皆有）。
 
@@ -415,6 +429,15 @@ arity-1 frame，对单个 metric 做 drill-down。
 被占用，则追加确定性的 `#N` 后缀。multi-metric frame 仍保持每个 metric 一列，
 因此不同 arity 的 frame 可以直接 merge，无需单独 rename。用
 `frame.value_columns` 可读取准确的公开值列名。
+
+每个 artifact card 还会直接打印 `output_columns`，其顺序和名称与 `.columns`
+及 `to_pandas()` 完全一致。机械契约通过 `contract.output_columns` 暴露同一
+tuple，并直接从 `contract.artifact_schema.columns` 推导，因此不会发生漂移。对于 Metric、
+Event 和 Lifecycle artifact，`contract.semantic_inputs` 会记录保留的语义角色
+与路径、绑定的输出列、精确的
+`session.catalog.<collection>.get("<path>")` 重新获取调用及对应 focused catalog
+help target。card 也会渲染相同的获取调用，agent 无需再从结果列名猜测 catalog
+collection。
 
 typed transform 内部仍使用 canonical `value` 列。例如
 `frame.transform.filter(predicate=lambda data: data["value"] > 0)` 仍然有效；

@@ -72,10 +72,14 @@ revenue.details().show()
 `SemanticCatalog` exposes one global collection per object type:
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
-`catalog.metrics`, and `catalog.relationships`. Each is a
+`catalog.metrics`, `catalog.relationships`, `catalog.events`, and
+`catalog.state_models`. Each is a
 `CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`,
 `.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
 exact lookup entry point for IDs obtained from errors, logs, or persisted state.
+`SemanticCatalog` itself follows the bounded result protocol: `repr(catalog)`
+points to `catalog.show()`, whose zero-query card lists every collection, its
+entry type, and its current object count.
 
 | API | Meaning |
 |---|---|
@@ -100,9 +104,9 @@ container object exposes typed collection properties:
 
 | Object | Navigation properties |
 |---|---|
-| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
+| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `state_models` |
 | `Datasource` | `entities` |
-| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
+| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `state_models` |
 | `Relationship` | `from_entity`, `to_entity` |
 | `Dimension` / `TimeDimension` / `Measure` / `Metric` | leaf objects — use `details()` for dependency information |
 
@@ -123,6 +127,11 @@ relationships, and component/measure lineage when present. An empty time-axis
 set is explicit (`candidate_time_dimensions: none`). Omitted members include an
 omitted count and a concrete full read such as `details().show()`; cards never
 rank axes or recommend an operator.
+
+The ordered catalog-member contract owns the global collection names used by
+the runtime catalog, semantic type help, and analysis catalog help. Adding a
+semantic kind must update that contract and pass the live-property consistency
+check; parallel hand-maintained discovery lists are not allowed.
 
 ### Lookup rules
 

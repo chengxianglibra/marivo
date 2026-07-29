@@ -42,14 +42,22 @@ def semantic_object_path(target: object) -> str:
 def _analysis_consumers(kind: str) -> tuple[str, ...]:
     from marivo.analysis._capabilities.registry import REGISTRY
 
-    family = {
-        "metric": "MetricSemantic",
-        "dimension": "DimensionSemantic",
-        "time_dimension": "TimeDimensionSemantic",
-    }.get(kind)
-    if family is None:
+    handoff = REGISTRY.semantic_handoff(kind)
+    if handoff is None or handoff.input_family is None:
         return ()
-    return REGISTRY.constructor_consumers.get(family, ())
+    return REGISTRY.constructor_consumers.get(handoff.input_family, ())
+
+
+def _analysis_preparation(kind: str) -> tuple[str, ...]:
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    handoff = REGISTRY.semantic_handoff(kind)
+    if handoff is None:
+        return ()
+    return tuple(
+        f'marivo.help("{target.surface}.{target.canonical_id}")'
+        for target in handoff.preparation_targets
+    )
 
 
 def render_semantic_object(target: object) -> str:
@@ -101,6 +109,18 @@ def render_semantic_object(target: object) -> str:
                 "",
                 "  Conditional analysis consumers (require readiness first):",
                 *(f'    marivo.help("analysis.{consumer}")' for consumer in consumers[:8]),
+            )
+        )
+    preparation = _analysis_preparation(ref.kind.value)
+    if preparation:
+        lines.extend(
+            (
+                "",
+                "  Typed analysis preparation:",
+                '    event_role = ms.participant_role(event=entry.ref, name="<role>")',
+                '    step = mv.step(participant=event_role, key="<step_key>")',
+                "    pattern = mv.sequence(step, ...)",
+                *(f"    {target}" for target in preparation),
             )
         )
     lines.extend(

@@ -11,6 +11,7 @@ import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
+    ConstructorCapability,
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -288,6 +289,19 @@ def test_focused_help_includes_live_signature() -> None:
     assert "metrics" in text
     assert "metrics=[" in text
     assert "time_scope" in text
+
+
+def test_time_scope_help_states_half_open_end_contract() -> None:
+    observe = _text("observe")
+    time_scope = _text("TimeScope")
+    absolute = _text("AbsoluteWindow")
+
+    for text in (observe, time_scope, absolute):
+        assert "half-open [start, end)" in text
+        assert "start is inclusive" in text
+        assert "end is exclusive" in text
+    assert 'end="2026-08-01"' in time_scope
+    assert "includes all of July and excludes August 1" in time_scope
 
 
 @pytest.mark.parametrize("name", ["aggregate", "slice", "weighted_mean", "ratio"])
@@ -581,6 +595,19 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
     assert "Entrypoint: session.catalog.dimensions" not in focused
 
 
+def test_analysis_catalog_help_covers_the_closed_semantic_collections() -> None:
+    from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+
+    text = _text("catalog")
+    registered = {
+        descriptor.id for descriptor in REGISTRY.descriptors if descriptor.id.startswith("catalog.")
+    }
+    for member in CATALOG_MEMBER_CONTRACTS:
+        capability_id = f"catalog.{member.property_name}"
+        assert capability_id in registered
+        assert f"session.catalog.{member.property_name}" in text
+
+
 def test_compare_help_explains_cumulative_component_compatibility() -> None:
     text = _text("compare")
 
@@ -618,6 +645,76 @@ def test_focused_operator_help_includes_prerequisites_and_postconditions() -> No
     assert "After success:" in text
     assert "funnel.show()" in text
     assert "funnel.contract()" in text
+
+
+def test_focused_help_teaches_semantic_and_constructor_prerequisites() -> None:
+    match = _text("events.match")
+    funnel = _text("events.funnel")
+    replay = _text("lifecycle.replay")
+
+    assert 'session.catalog.events.get("<full semantic path>").ref' in match
+    assert 'marivo.help("semantic.participant_role")' in match
+    assert 'marivo.help("analysis.step")' in match
+    assert 'marivo.help("analysis.sequence")' in match
+    assert "cart_created = session.catalog.events.get" in match
+    assert "cart_user = ms.participant_role(event=cart_created.ref" in match
+
+    assert 'session.catalog.dimensions.get("<full semantic path>")' in funnel
+    assert "acquisition_channel = session.catalog.dimensions.get" in funnel
+
+    assert 'session.catalog.state_models.get("<full semantic path>")' in replay
+    assert "order_lifecycle = session.catalog.state_models.get" in replay
+
+
+def test_every_operator_input_family_has_a_registered_acquisition_path() -> None:
+    for descriptor in REGISTRY.descriptors:
+        if not isinstance(descriptor, OperatorCapability):
+            continue
+        for families in descriptor.accepted_inputs.values():
+            for family in families:
+                assert REGISTRY.producer_targets(family), (
+                    f"{descriptor.id} has no producer for {family}"
+                )
+
+
+def test_constructor_descriptors_declare_direct_input_families() -> None:
+    expected = {
+        "sequence": "EventPattern",
+        "first_per_subject": "EventMatchingPolicy",
+        "from_inception": "LifecycleSeed",
+        "TimeScope": "TimeScopeInput",
+    }
+    for capability_id, input_family in expected.items():
+        descriptor = REGISTRY.by_id(capability_id)
+        assert isinstance(descriptor, ConstructorCapability)
+        assert descriptor.produced_input_family == input_family
+
+
+@pytest.mark.parametrize(
+    ("target", "result_name", "preparation_name"),
+    (
+        ("observe", "frame", "catalog"),
+        ("events.match", "journeys", "pattern"),
+        ("compare", "delta", "revenue"),
+        ("attribute", "attribution", "delta"),
+        ("forecast", "forecast", "history"),
+        ("discover.driver_axes", "candidates", "country"),
+        ("transform.topk", "biggest", "delta"),
+        ("transform.bottomk", "declines", "delta"),
+    ),
+)
+def test_focused_operator_postconditions_follow_registered_call_result(
+    target: str,
+    result_name: str,
+    preparation_name: str,
+) -> None:
+    text = _text(target)
+    postconditions = text.split("After success:", 1)[1]
+
+    assert f"{result_name}.show()" in postconditions
+    assert f"{result_name}.contract()" in postconditions
+    assert f"{preparation_name}.show()" not in postconditions
+    assert f"{preparation_name}.contract()" not in postconditions
 
 
 def test_shape_aware_help_does_not_advertise_invalid_consumers() -> None:
@@ -691,6 +788,25 @@ def test_session_type_help_teaches_acquisition_without_delete() -> None:
     assert "session.get_or_create" in text
     assert "session.current" in text
     assert "session.delete" not in text
+
+
+@pytest.mark.parametrize(
+    ("type_name", "receiver"),
+    (
+        ("Session", "Session"),
+        ("SessionEvents", "SessionEvents"),
+        ("SessionLifecycle", "SessionLifecycle"),
+    ),
+)
+def test_object_type_help_lists_registry_owned_receiver_methods(
+    type_name: str,
+    receiver: str,
+) -> None:
+    text = _text(type_name)
+
+    for method_name in REGISTRY.public_member_names(receiver):
+        assert f".{method_name}()" in text
+    assert ".close()" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -823,6 +939,26 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory) -> None:
     text = _text(revenue_obj)
     assert "revenue" in text
     assert "unit: CNY" in text
+
+
+def test_event_and_state_model_briefings_expose_typed_analysis_handoffs(
+    semantic_project_factory,
+) -> None:
+    from marivo.semantic.catalog import SemanticCatalog
+    from tests.shared_fixtures import lifecycle_project_files
+
+    catalog = SemanticCatalog(semantic_project_factory(lifecycle_project_files()))
+
+    event_text = _text(catalog.events.get("commerce.order_created"))
+    assert "Typed analysis preparation:" in event_text
+    assert "ms.participant_role(event=entry.ref" in event_text
+    assert 'marivo.help("analysis.step")' in event_text
+    assert 'marivo.help("analysis.sequence")' in event_text
+    assert 'marivo.help("analysis.events.match")' in event_text
+
+    model_text = _text(catalog.state_models.get("commerce.order_lifecycle"))
+    assert "Conditional analysis consumers" in model_text
+    assert 'marivo.help("analysis.lifecycle.replay")' in model_text
 
 
 # ---------------------------------------------------------------------------

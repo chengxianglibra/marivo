@@ -20,6 +20,7 @@ from marivo._authoring.model import (
     TransitionInputRole,
 )
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
     SemanticCapabilityRegistry,
     SemanticRootGroup,
@@ -1105,7 +1106,17 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SemanticCatalog,
         "SemanticCatalog",
         ("load",),
-        methods=("require", "verify", "preview", "preview_many", "readiness", "contract"),
+        properties=CATALOG_COLLECTION_PROPERTIES,
+        methods=(
+            "require",
+            "verify",
+            "preview",
+            "preview_many",
+            "readiness",
+            "contract",
+            "render",
+            "show",
+        ),
         state_bearing=True,
     )
     add(
@@ -1120,7 +1131,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         CatalogCollection,
         "CatalogCollection",
         (),
-        methods=show_render,
+        properties=("items", "refs"),
+        methods=("get", *show_render),
     )
     add(
         DomainEntry,

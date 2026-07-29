@@ -151,6 +151,8 @@ def test_session_is_not_read_only_with_factory(tmp_path):
 
 
 def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, capsys):
+    from marivo.analysis._capabilities.registry import REGISTRY
+
     session = _session(tmp_path)
 
     assert repr(session) == ("<Session id=sess_t01 name=demo; call .show() to inspect>")
@@ -161,6 +163,16 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     assert "report_timezone:" in rendered
     assert ".catalog" in rendered
     assert ".frame_summaries()" in rendered
+    for call in REGISTRY.public_member_calls("Session"):
+        assert call in rendered
+    for receiver, namespace in (
+        ("SessionEvents", session.events),
+        ("SessionLifecycle", session.lifecycle),
+    ):
+        namespace_rendered = namespace.render()
+        for call in REGISTRY.public_member_calls(receiver):
+            assert call in namespace_rendered
+        assert ".close()" not in namespace_rendered
     assert session.show() is None
     assert capsys.readouterr().out.rstrip() == rendered
 

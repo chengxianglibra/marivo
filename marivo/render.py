@@ -101,6 +101,15 @@ class RenderableResult:
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
 
+    def __dir__(self) -> list[str]:
+        """Return public members plus Python protocol dunders."""
+
+        return sorted(
+            name
+            for name in super().__dir__()
+            if not (name.startswith("_") and not name.startswith("__"))
+        )
+
 
 class Card:
     """Builder for bounded plain-text terminal result cards."""

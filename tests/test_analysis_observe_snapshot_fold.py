@@ -109,6 +109,19 @@ def test_snapshot_last_selects_per_entity_before_scalar_aggregation(tmp_path) ->
         "identity_keys": ["product_id"],
     }
     assert frame.meta.coverage_ref is None
+    rendered = frame.render()
+    assert "observation_scope: all available rows" in rendered
+    assert "aggregation=sum" in rendered
+    assert "additivity=semi_additive" in rendered
+    assert "time_fold=last" in rendered
+    assert "fold_strategy=snapshot_selection" in rendered
+    assert "sample_interval=none" in rendered
+    assert "identity_keys=[product_id]" in rendered
+    assert "expected_sample_coverage: not_applicable" in rendered
+
+    restored = session.get_frame(frame.ref)
+    assert "fold_strategy=snapshot_selection" in restored.render()
+    assert "identity_keys=[product_id]" in restored.render()
 
 
 def test_snapshot_last_preserves_segment_dimensions(tmp_path) -> None:
@@ -165,6 +178,10 @@ def test_snapshot_fold_derived_metric_leaf_uses_same_strategy(tmp_path) -> None:
     assert frame.meta.fold is not None
     component_folds = frame.meta.fold["component_folds"]
     assert {item["fold_strategy"] for item in component_folds} == {"snapshot_selection"}
+    rendered = frame.render()
+    assert "component folds:" in rendered
+    assert "fold_strategy=snapshot_selection" in rendered
+    assert "expected_sample_coverage: not_applicable" in rendered
 
 
 def test_snapshot_fold_empty_window_returns_empty_frame_without_assertion(tmp_path) -> None:

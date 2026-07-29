@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
     SemanticCapabilityRegistry,
     SemanticRootGroup,
@@ -76,6 +77,27 @@ def test_registry_covers_all_public_types() -> None:
 
 def test_registry_includes_authoring_topic() -> None:
     assert "authoring" in REGISTRY.canonical_ids()
+
+
+def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
+    from marivo.semantic.catalog import CatalogCollection, SemanticCatalog
+
+    catalog_contract = TYPE_CONTRACTS[SemanticCatalog]
+    collection_contract = TYPE_CONTRACTS[CatalogCollection]
+
+    assert catalog_contract.public_properties == CATALOG_COLLECTION_PROPERTIES
+    assert catalog_contract.public_methods == (
+        "require",
+        "verify",
+        "preview",
+        "preview_many",
+        "readiness",
+        "contract",
+        "render",
+        "show",
+    )
+    assert collection_contract.public_properties == ("items", "refs")
+    assert collection_contract.public_methods == ("get", "show", "render")
 
 
 def test_preview_capability_is_one_entry_or_exact_ref() -> None:

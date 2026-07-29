@@ -140,6 +140,13 @@ when tabular, and an `available:` footer — routed through one shared renderer
 under ~80 lines total). When there is more data than the budget allows, the card
 shows an explicit, actionable truncation hint; it never silently omits data.
 
+Analysis artifact cards name their exact ordered `output_columns` before the
+preview. Their mechanical contracts repeat the same names and preserve direct
+semantic inputs as role/path plus a copyable
+`session.catalog.<collection>.get("<path>")` acquisition call. This guidance is
+derived from persisted artifact metadata and the catalog member registry; it
+does not infer semantic ownership from a physical column name.
+
 The `available:` footer is a **static "next callable" list bound to the type**,
 not a recommendation engine. It reminds the agent which bounded methods exist on
 the object it already holds (e.g. `.to_pandas()` on a frame) — it does not
@@ -418,6 +425,12 @@ Taken together, the design delivers three properties an agent depends on:
   every call, instead of relying on stale memory.
 - **Low drift** — the library is the single source of every contract fact, and
   skills route to it by pointer, so guidance and code cannot silently diverge.
+
+`SemanticCatalog`, `CatalogCollection`, `Session`, and the Event/Lifecycle
+session namespaces are stop points in this protocol rather than opaque
+implementation handles. Their cards and focused type help consume the same
+domain-owned member registries, so a method cannot appear in one discovery
+surface while disappearing from another.
 
 These are not left to good intentions. They are pinned by tests, in the same
 snapshot-with-allowlist spirit throughout:

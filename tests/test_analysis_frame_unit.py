@@ -84,9 +84,20 @@ def test_frame_contract_embeds_schema() -> None:
     assert contract.ref == frame.ref
     assert contract.artifact_schema.semantic_shape == frame.meta.semantic_kind
     assert [column.name for column in contract.artifact_schema.columns] == list(frame.columns)
+    assert contract.output_columns == tuple(frame.columns)
     assert {column.role for column in contract.artifact_schema.columns}
     assert not hasattr(contract.artifact_schema, "kind")
     assert not hasattr(contract.artifact_schema, "ref")
+    assert len(contract.semantic_inputs) == 1
+    metric = contract.semantic_inputs[0]
+    assert metric.role == "metric"
+    assert metric.semantic_path == "sales.revenue"
+    assert metric.output_column == "revenue"
+    assert metric.acquisition == 'session.catalog.metrics.get("sales.revenue")'
+    assert metric.help_target == "analysis.catalog.metrics"
+    rendered = frame.render(max_output_bytes=None)
+    assert "output_columns: ['bucket_start', 'revenue']" in rendered
+    assert 'acquire=session.catalog.metrics.get("sales.revenue")' in rendered
 
 
 @pytest.mark.parametrize(

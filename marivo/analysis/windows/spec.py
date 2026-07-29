@@ -71,7 +71,13 @@ class AbsoluteWindow(BaseModel):
 class TimeScope(BaseModel):
     """Call marivo.help(TimeScope) for its public consumption contract.
 
-    Half-open time interval [start, end) for observe time_scope.
+    Half-open time interval ``[start, end)`` for ``observe(time_scope=...)``:
+    ``start`` is inclusive and ``end`` is exclusive. For date-only strings,
+    ``end="2026-08-01"`` includes all of July and excludes August 1.
+
+    Example:
+        >>> # [start, end): includes all of July and excludes August 1.
+        >>> july = mv.TimeScope(start="2026-07-01", end="2026-08-01")
     """
 
     model_config = ConfigDict(extra="forbid")

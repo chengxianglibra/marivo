@@ -11,7 +11,7 @@ from pathlib import PurePath
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -25,9 +25,12 @@ from marivo.analysis.evidence.types import (
     QualitySummary,
 )
 from marivo.analysis.lineage import Lineage
+from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
+from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
 CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v6"] = "analysis-artifact/v6"
+_ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -131,6 +134,19 @@ class ArtifactSchema(BaseModel):
     semantic_shape: str | None = None
 
 
+class ArtifactSemanticInput(BaseModel):
+    """One exact semantic input retained by an artifact with its acquisition path."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: str
+    semantic_kind: SemanticKind
+    semantic_path: str
+    output_column: str | None = None
+    acquisition: str
+    help_target: str
+
+
 class ArtifactPrecondition(BaseModel):
     """Mechanical precondition attached to an affordance."""
 
@@ -204,9 +220,17 @@ class ArtifactContract(BaseModel):
     ref: str
     is_canonical: bool
     artifact_schema: ArtifactSchema
+    semantic_inputs: tuple[ArtifactSemanticInput, ...] = ()
+    semantic_inputs_omitted: int = Field(default=0, ge=0)
     issues: tuple[ArtifactIssue, ...] = ()
     affordances: tuple[ArtifactAffordance, ...] = ()
     boundary_ports: tuple[ArtifactBoundaryPort, ...] = ()
+
+    @computed_field  # type: ignore[prop-decorator]  # Pydantic wraps this property.
+    @property
+    def output_columns(self) -> tuple[str, ...]:
+        """Return the exact ordered public names from the artifact schema."""
+        return tuple(column.name for column in self.artifact_schema.columns)
 
     def _repr_identity(self) -> str:
         return (
@@ -287,6 +311,33 @@ class _FrameAuxiliaryReceipt:
     content_hash: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ArtifactSemanticBinding:
+    """Private role-preserving semantic input used to build public guidance."""
+
+    role: str
+    semantic_kind: SemanticKind
+    semantic_path: str
+    output_column: str | None = None
+
+
+_CATALOG_COLLECTION_BY_KIND: dict[SemanticKind, str] = {
+    member.kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS
+}
+
+
+def _artifact_semantic_input(binding: _ArtifactSemanticBinding) -> ArtifactSemanticInput:
+    collection = _CATALOG_COLLECTION_BY_KIND[binding.semantic_kind]
+    return ArtifactSemanticInput(
+        role=binding.role,
+        semantic_kind=binding.semantic_kind,
+        semantic_path=binding.semantic_path,
+        output_column=binding.output_column,
+        acquisition=(f'session.catalog.{collection}.get("{binding.semantic_path}")'),
+        help_target=f"analysis.catalog.{collection}",
+    )
+
+
 def _visible_precondition(precondition: ArtifactPrecondition) -> bool:
     """Return True when a precondition is visible (has actionable content).
 
@@ -325,6 +376,9 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             identity=contract._repr_identity(),
             available=(
                 ".artifact_schema",
+                ".output_columns",
+                ".semantic_inputs",
+                ".semantic_inputs_omitted",
                 ".issues",
                 ".affordances",
                 ".boundary_ports",
@@ -336,6 +390,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
         .field("canonical_state", "canonical" if contract.is_canonical else "non_canonical")
         .field("receiver", "frame")
         .field("semantic_shape", semantic_shape)
+        .field("output_columns", repr(list(contract.output_columns)))
         .listing(
             "columns",
             (
@@ -345,6 +400,18 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             ),
         )
     )
+    if contract.semantic_inputs:
+        card.listing(
+            "semantic inputs",
+            (
+                f"{item.role}: {item.semantic_kind.value}:{item.semantic_path}"
+                + (f" output_column={item.output_column}" if item.output_column is not None else "")
+                + f"; acquire={item.acquisition}; help={item.help_target}"
+                for item in contract.semantic_inputs
+            ),
+        )
+    if contract.semantic_inputs_omitted:
+        card.field("semantic_inputs_omitted", str(contract.semantic_inputs_omitted))
     if contract.issues:
         from marivo.analysis.evidence.summary import render_artifact_issue
 
@@ -543,6 +610,32 @@ class BaseFrame(RenderableResult):
             semantic_shape=raw_shape if isinstance(raw_shape, str) else None,
         )
 
+    def _semantic_input_bindings(self) -> tuple[_ArtifactSemanticBinding, ...]:
+        """Return exact semantic inputs retained by this artifact family."""
+        return ()
+
+    def _build_semantic_inputs(self) -> tuple[ArtifactSemanticInput, ...]:
+        """Build bounded acquisition guidance without reading artifact rows."""
+        inputs: list[ArtifactSemanticInput] = []
+        seen: set[tuple[str, SemanticKind, str, str | None]] = set()
+        for binding in self._semantic_input_bindings():
+            key = (
+                binding.role,
+                binding.semantic_kind,
+                binding.semantic_path,
+                binding.output_column,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            inputs.append(_artifact_semantic_input(binding))
+        return tuple(inputs)
+
+    def _bounded_semantic_inputs(self) -> tuple[tuple[ArtifactSemanticInput, ...], int]:
+        semantic_inputs = self._build_semantic_inputs()
+        retained = semantic_inputs[:_ARTIFACT_SEMANTIC_INPUT_LIMIT]
+        return retained, len(semantic_inputs) - len(retained)
+
     def contract(self) -> ArtifactContract:
         """Return the mechanical consumption contract for the artifact.
 
@@ -615,11 +708,15 @@ class BaseFrame(RenderableResult):
             # Suppress affordances with failed preconditions that lack visible repair.
             if _affordance_visible(affordance):
                 affordances.append(affordance)
+        artifact_schema = self._build_schema()
+        semantic_inputs, semantic_inputs_omitted = self._bounded_semantic_inputs()
         return ArtifactContract(
             kind=self.meta.kind,
             ref=self.meta.ref,
             is_canonical=True,
-            artifact_schema=self._build_schema(),
+            artifact_schema=artifact_schema,
+            semantic_inputs=semantic_inputs,
+            semantic_inputs_omitted=semantic_inputs_omitted,
             issues=self.meta.issues,
             affordances=tuple(affordances),
             boundary_ports=tuple(_build_boundary_ports(registry)),
@@ -791,7 +888,30 @@ class BaseFrame(RenderableResult):
             card.status(status)
         if self.meta.analysis_purpose:
             card.field("analysis_purpose", self.meta.analysis_purpose)
+        self._append_artifact_interface_sections(card)
         self._append_evidence_sections(card)
+        return card
+
+    def _append_artifact_interface_sections(self, card: Card) -> Card:
+        """Append actual public columns and exact semantic acquisition guidance."""
+        card.field("output_columns", repr(self.columns))
+        semantic_inputs, semantic_inputs_omitted = self._bounded_semantic_inputs()
+        if semantic_inputs:
+            card.listing(
+                "semantic inputs",
+                (
+                    f"{item.role}: {item.semantic_kind.value}:{item.semantic_path}"
+                    + (
+                        f" output_column={item.output_column}"
+                        if item.output_column is not None
+                        else ""
+                    )
+                    + f"; acquire={item.acquisition}"
+                    for item in semantic_inputs
+                ),
+            )
+        if semantic_inputs_omitted:
+            card.field("semantic_inputs_omitted", str(semantic_inputs_omitted))
         return card
 
     def _card(self) -> Card:
