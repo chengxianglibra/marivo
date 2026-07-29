@@ -5,11 +5,23 @@ description: Control the local usage records written by a Marivo project.
 
 ## Understand local telemetry
 
-Marivo writes OpenTelemetry-shaped JSONL events to the project state directory:
+Marivo writes OpenTelemetry-shaped JSONL events to UTC-dated files in the
+project state directory:
 
 ```text
-.marivo/telemetry/events.jsonl
+.marivo/telemetry/events-2026-07-29.000.jsonl
 ```
+
+The final three digits are a size segment. Marivo starts a new segment when the
+current file would grow beyond 128 MiB. The limit is approximate when multiple
+processes append concurrently.
+
+Marivo retains 14 UTC calendar days of managed event files. On the first write
+of each UTC day, it also removes the oldest historical segments until historical
+telemetry is at most 1 GiB. Files for the current UTC day are never removed by
+that cleanup. A legacy `.marivo/telemetry/events.jsonl` file from an earlier
+Marivo version is left untouched; archive or remove it explicitly after deciding
+whether its events are still needed.
 
 Telemetry schema v2 covers explicit public CLI, datasource, semantic, and
 analysis operations. Each operation writes a correlated pair:
@@ -45,9 +57,11 @@ resolved secrets, datasource hosts, DSNs, SQL text, filesystem paths, slice
 values, frame row values, free-text collection items, arbitrary object
 representations, or exception messages to telemetry.
 
-The file can contain older schema v1 lines after an upgrade. New consumers
-should select records whose `marivo.event.schema_version` attribute is `2`;
-Marivo does not migrate old lines.
+The legacy `events.jsonl` file can contain schema v1 lines after an upgrade.
+Marivo does not migrate that file. Consumers reading retained history should
+scan the dated `events-*.jsonl` files and, when needed, read the legacy file
+separately. They should select records whose `marivo.event.schema_version`
+attribute is `2`.
 
 These events stay local. Marivo does not upload them. The raw session question,
 analysis purpose, and raw-SQL reason are stored in the local event file; review
