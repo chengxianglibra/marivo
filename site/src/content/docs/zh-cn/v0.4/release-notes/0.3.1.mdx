@@ -1,0 +1,77 @@
+---
+slug: zh-cn/v0.4/release-notes/0.3.1
+title: Marivo 0.3.1
+description: Marivo 0.3.1 发布说明。
+---
+
+Marivo 0.3.1 通过窗口化 cumulative metrics、证据优先的数据源编写流程和更安全的分析保护，
+进一步强化了面向 agent 的编写与分析工作流。
+
+## 重点
+
+- Cumulative metrics 现在通过 `ms.cumulative(...)` 上新增的 `anchor=` 参数支持三种累计锚点。
+  `anchor=None` 保留 v1 的全部历史累计。`ms.grain_to_date(grain=...)` 在每个重置粒度边界重置
+  累计值（MTD / QTD / YTD / WTD）。`ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口，
+  空窗口为真零，部分窗口展示实际累计值。
+- `transform.rollup(...)` 现在可以重新聚合累计 frame。传入 `grain=` 将时间轴重新分桶；累计
+  frame 携带 `rollup_fold="last"`，因此每个周期贡献其周期末值。未携带 fold 且不可重新聚合的
+  frame 仍会被拒绝并给出教学错误。
+- `compare` 现在按锚点分派。`all_history` 维持拒绝；当两个 frame 共享相同锚点 payload 时
+  `trailing` 允许；对单周期、边界锚定的窗口 `grain_to_date` 允许，并在结果 DeltaFrame 上记录
+  to-date 对齐信息。
+- 数据源编写现在遵循证据优先的快照流程。类型化 catalog 对象、限定范围的 inspection 和持久化
+  evidence 替代了旧的宽泛 discovery 流程，帮助编写者从真实 source evidence 一次形成一个
+  semantic object。
+- JSON 现在是 DuckDB 的一等文件 source。Marivo 可以与其他支持的数据源输入一起检查和使用
+  本地或 HTTP JSON 数据。
+- 分析分解现在支持显式的多轴 attribution mode；quality assessment 也会在后续分析把结果视为
+  可靠之前，阻断不安全的小时级覆盖范围。
+
+## 变更
+
+- `contract()`、`show()` 和 `mv.help(ref)` 现在会呈现锚点特定的注意事项，因此在你正在阅读的
+  frame 上即可看到允许的路径。
+- `rollup` 转换表条目现在将 `grain` 与 `drop_axes` 一并列出。
+- semantic-layer 与 analysis-workflow 站点文档（EN + CN）记录了粒度兼容规则（在
+  month/quarter/year 重置下使用 week 粒度是非法的）与整数倍规则（trailing span 必须是查询
+  粒度的整数倍）。
+- installer 现在可以初始化 Marivo 项目，同一个安装脚本也可通过
+  `https://marivo.io/install.sh` 获取。
+
+## 修复
+
+- readiness 会拒绝未声明的 naive time axis，避免将含糊的时间语义带入分析。
+- typed file schema 会在运行时保留，避免 materialization 期间丢失已声明的 source 结构。
+
+## 文档
+
+- 更新了 semantic-layer、analysis-workflow、installation、quick-start 和 evidence 的中英文
+  文档，覆盖精简后的 agent 工作流。
+- 新增 cumulative metrics v2、datasource snapshot、类型化 catalog navigation、JSON source 和
+  精炼后的 analysis surface 的设计 spec。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+安装你计划使用的 datasource 对应的 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.1 要求 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/latest/installation/)
+- [快速开始](/zh-cn/latest/quick-start/)
+- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)

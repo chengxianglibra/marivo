@@ -1,0 +1,86 @@
+---
+slug: en/v0.4/release-notes/0.4.0
+title: Marivo 0.4.0
+description: Release notes for Marivo 0.4.0.
+---
+
+Marivo 0.4.0 adds first-class event and lifecycle analysis, gives agents one
+public help coordinator, and strengthens the contracts that connect semantic
+authoring, execution, evidence, and repair.
+
+## Highlights
+
+- Events and lifecycle state models are first-class semantic objects. Authors can
+  define typed participants, event timestamps, lifecycle states, transitions,
+  inception rules, and validity constraints, then load and inspect them through
+  the semantic catalog.
+- Analysis now includes typed subjects and cohorts, event occurrence matching,
+  sequences, funnels, time-to-event analysis, lifecycle replay, dwell and
+  transition analysis, violation detection, funnel comparison, and funnel-loss
+  attribution.
+- Event and lifecycle results carry explicit completeness, subject, time, and
+  semantic-input evidence. Quality checks cover event identity, participant
+  coverage, ordering, lifecycle transitions, censoring, and replay continuity.
+- `marivo.help(...)` is the single public help coordinator across datasource,
+  semantic, and analysis. Focused topics, live object briefings, result
+  contracts, and typed errors now lead agents to mechanically valid next steps.
+- Telemetry output rotates into bounded daily segments and prunes historical
+  files by age and total size.
+
+## Breaking changes
+
+- Use `marivo.help()` and qualified topics such as
+  `marivo.help("semantic.event")` or `marivo.help("analysis.events")`.
+  The previous `md.help`, `ms.help`, `mv.help`, and `help_text` entry points are
+  no longer public.
+- Event and lifecycle operations require exact typed semantic references,
+  explicit subject axes, and explicit completeness declarations where a bounded
+  observation cannot prove completeness. Bare names and silent inference are
+  rejected.
+- Public frame and result contracts use closed, kind-specific semantic input and
+  evidence shapes. Code that depended on internal or generic payload fields must
+  move to the documented frame, `.show()`, `.contract()`, and evidence APIs.
+
+## Changed
+
+- Semantic authoring help now owns constructor constraints and produces
+  evidence-backed repair guidance for invalid or incomplete declarations.
+- Analysis planning preserves metric value columns, cross-entity grain
+  requirements, subject axes, time scopes, and evidence continuity more
+  consistently across operators.
+- Public frame representations, summaries, quality reports, and errors are more
+  bounded and deterministic, with clearer continuation hints.
+
+## Fixed
+
+- Cross-entity observations now explain required grain repairs instead of
+  leaving agents to infer missing joins or grouping.
+- Help examples, live contracts, public exports, and packaged agent skills are
+  checked together to reduce drift between the installed runtime and guidance.
+- Local telemetry no longer grows indefinitely in one `events.jsonl` file.
+
+## Documentation
+
+- Added English and Chinese guidance for the unified help entry point, event and
+  lifecycle semantic authoring, analysis workflows, evidence, and readiness.
+- Added design and implementation specifications for event journeys, lifecycle
+  replay, ontology extensions, and the agent-facing public surface.
+- Created an isolated bilingual `v0.4` documentation snapshot.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.0
+requires Python 3.12 or newer.
+
+## Documentation links
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Readiness](/en/latest/concepts/readiness/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)
+- [Evidence](/en/latest/concepts/evidence/)
