@@ -136,120 +136,6 @@ frame = session.observe(revenue_entry, time_scope={...}, grain="month")
 If the metric was just authored or changed, finish the scoped authoring closeout
 described below before this routine analysis sequence.
 
-## Model reusable events
-
-An Event gives one business occurrence a reusable identity, occurrence time,
-and named participant roles. The source Entity is inferred from
-`owner(occurred_at)`, so Event authoring does not repeat an `entity` argument.
-Every Event uses the single `@ms.event(...)` decorator form.
-
-For an Entity where each row is one order creation, the Event has no additional
-row filter and explicitly returns `ms.all_rows()`:
-
-```python
-order_id = ms.dimension_column(
-    name="order_id",
-    entity=orders,
-    column="order_id",
-)
-
-@ms.event(
-    name="order_created",
-    identity=(order_id,),
-    occurred_at=order_date,
-    participants=(
-        ms.participant(name="order", cardinality="one"),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="An order creation occurrence."
-    ),
-)
-def order_created(order_rows):
-    return ms.all_rows()
-```
-
-For a filtered Event on a shared event-log Entity, return the restricted
-boolean expression instead, for example
-`ms.bind(event_type, event_rows) == "payment_succeeded"`. Do not use a
-body-free constructor, bare `True`, or a separate filtered-Event API.
-
-`ms.participant_role(event=order_created, name="order")` resolves the typed
-role used by Event analysis. Omitting `path` means the Event source Entity
-itself is the participant; a non-empty path follows declared Relationships to
-another Entity. A role used as the analysis subject must have
-`cardinality="one"`. Its endpoint Entity's declared primary key is the subject
-identity, so callers do not provide that identity again.
-
-## Model a normative lifecycle
-
-A StateModel declares the allowed states and Event-driven transitions for one
-subject Entity. It describes business meaning only. Replay windows, seeds,
-completeness assumptions, cohorts, and observed violations belong to analysis,
-not to the StateModel.
-
-For example, assume the order source also exposes a paid timestamp and status:
-
-```python
-paid_at = ms.time_dimension_column(
-    name="paid_at",
-    entity=orders,
-    column="paid_at",
-    granularity="second",
-)
-order_status = ms.dimension_column(
-    name="order_status",
-    entity=orders,
-    column="status",
-)
-
-@ms.event(
-    name="order_paid",
-    identity=(order_id,),
-    occurred_at=paid_at,
-    participants=(
-        ms.participant(name="order", cardinality="one"),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="An order entered the paid state."
-    ),
-)
-def order_paid(order_rows):
-    return ms.bind(order_status, order_rows) == "paid"
-
-created = ms.lifecycle_state(name="created", initial=True)
-paid = ms.lifecycle_state(name="paid", terminal=True)
-
-order_lifecycle = ms.state_model(
-    name="order_lifecycle",
-    subject=orders,
-    states=(created, paid),
-    transitions=(
-        ms.inception(on=order_created),
-        ms.transition(
-            from_state=created,
-            on=order_paid,
-            to_state=paid,
-        ),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="Normative commercial order lifecycle."
-    ),
-)
-```
-
-State names are local immutable authoring values. Exactly one state is initial;
-terminal states cannot have outgoing transitions. An Event trigger is inferred
-only when exactly one `cardinality="one"` participant ends at the StateModel
-subject. If several roles qualify, pass the exact
-`ms.participant_role(...)` handle instead of repeating Event and role fields.
-
-After loading, use `ms.model_state(model=order_lifecycle, name="paid")` to
-construct the typed state identity accepted by analysis. A StateModel may be
-valid without an inception for future projection-based seeding, but it is not
-ready for replay from inception. Use `marivo.help("semantic.state_model")` for
-the current constructor contract and the catalog entry's
-`verify`/`preview`/`readiness` continuations for current-state guidance.
-
 ## Build the model
 
 ### 1. Connect a datasource
@@ -809,6 +695,7 @@ For how analysis records what it concludes, see [Evidence](/en/latest/concepts/e
 Analysis sessions load and validate metric inputs at runtime. Use scoped
 readiness to certify semantic changes, then continue to the
 [Analysis Workflow](/en/latest/concepts/analysis-workflow/).
+
 ## Advanced modeling
 
 ### Semantic contract reference
@@ -1119,3 +1006,123 @@ the same entry point with
 `catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`.
 This batches compatible queries but preserves independent evidence for every ref;
 it is not a batch-authoring shortcut.
+
+## Event and Lifecycle modeling
+
+Most projects need the metric path above. Add Event and StateModel objects only
+when the question depends on ordered occurrences, funnels, elapsed time, or
+replayed business state.
+
+### Model reusable events
+
+An Event gives one business occurrence a reusable identity, occurrence time,
+and named participant roles. The source Entity is inferred from
+`owner(occurred_at)`, so Event authoring does not repeat an `entity` argument.
+Every Event uses the single `@ms.event(...)` decorator form.
+
+For an Entity where each row is one order creation, the Event has no additional
+row filter and explicitly returns `ms.all_rows()`:
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+For a filtered Event on a shared event-log Entity, return the restricted
+boolean expression instead, for example
+`ms.bind(event_type, event_rows) == "payment_succeeded"`. Do not use a
+body-free constructor, bare `True`, or a separate filtered-Event API.
+
+`ms.participant_role(event=order_created, name="order")` resolves the typed
+role used by Event analysis. Omitting `path` means the Event source Entity
+itself is the participant; a non-empty path follows declared Relationships to
+another Entity. A role used as the analysis subject must have
+`cardinality="one"`. Its endpoint Entity's declared primary key is the subject
+identity, so callers do not provide that identity again.
+
+### Model a normative lifecycle
+
+A StateModel declares the allowed states and Event-driven transitions for one
+subject Entity. It describes business meaning only. Replay windows, seeds,
+completeness assumptions, cohorts, and observed violations belong to analysis,
+not to the StateModel.
+
+For example, assume the order source also exposes a paid timestamp and status:
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+State names are local immutable authoring values. Exactly one state is initial;
+terminal states cannot have outgoing transitions. An Event trigger is inferred
+only when exactly one `cardinality="one"` participant ends at the StateModel
+subject. If several roles qualify, pass the exact
+`ms.participant_role(...)` handle instead of repeating Event and role fields.
+
+After loading, use `ms.model_state(model=order_lifecycle, name="paid")` to
+construct the typed state identity accepted by analysis. A StateModel may be
+valid without an inception for future projection-based seeding, but it is not
+ready for replay from inception. Use `marivo.help("semantic.state_model")` for
+the current constructor contract and the catalog entry's
+`verify`/`preview`/`readiness` continuations for current-state guidance.

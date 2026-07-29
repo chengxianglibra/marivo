@@ -114,115 +114,6 @@ frame = session.observe(revenue_entry, time_scope={...}, grain="month")
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
 
-## 对可复用事件建模
-
-Event 为一次业务发生声明可复用的 identity、occurred time 和具名 participant roles。
-source Entity 由 `owner(occurred_at)` 推导，因此 Event 定义不重复接收 `entity` 参数。
-所有 Event 都使用唯一入口 `@ms.event(...)`。
-
-如果一个 Entity 的每一行都代表一次订单创建，那么该 Event 不需要额外行过滤，但仍要显式
-返回 `ms.all_rows()`：
-
-```python
-order_id = ms.dimension_column(
-    name="order_id",
-    entity=orders,
-    column="order_id",
-)
-
-@ms.event(
-    name="order_created",
-    identity=(order_id,),
-    occurred_at=order_date,
-    participants=(
-        ms.participant(name="order", cardinality="one"),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="An order creation occurrence."
-    ),
-)
-def order_created(order_rows):
-    return ms.all_rows()
-```
-
-共享事件日志 Entity 上的过滤 Event 则返回受限布尔表达式，例如
-`ms.bind(event_type, event_rows) == "payment_succeeded"`。不要使用无函数体
-constructor、裸 `True` 或另一套 filtered-Event API。
-
-`ms.participant_role(event=order_created, name="order")` 会解析出 Event analysis
-使用的 typed role。省略 `path` 表示 Event source Entity 自己就是 participant；
-非空 path 则沿着已经声明的 Relationship 到达另一个 Entity。作为 analysis subject
-的 role 必须使用 `cardinality="one"`。其 endpoint Entity 已声明的 primary key
-就是 subject identity，调用方不再重复提供。
-
-## 对规范生命周期建模
-
-StateModel 为一个 subject Entity 声明允许出现的状态及 Event 驱动的转换。它只描述
-业务规范含义。replay window、seed、完整性假设、cohort 和 observed violation
-属于分析层，不进入 StateModel。
-
-例如，假设订单源还提供支付时间与订单状态：
-
-```python
-paid_at = ms.time_dimension_column(
-    name="paid_at",
-    entity=orders,
-    column="paid_at",
-    granularity="second",
-)
-order_status = ms.dimension_column(
-    name="order_status",
-    entity=orders,
-    column="status",
-)
-
-@ms.event(
-    name="order_paid",
-    identity=(order_id,),
-    occurred_at=paid_at,
-    participants=(
-        ms.participant(name="order", cardinality="one"),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="An order entered the paid state."
-    ),
-)
-def order_paid(order_rows):
-    return ms.bind(order_status, order_rows) == "paid"
-
-created = ms.lifecycle_state(name="created", initial=True)
-paid = ms.lifecycle_state(name="paid", terminal=True)
-
-order_lifecycle = ms.state_model(
-    name="order_lifecycle",
-    subject=orders,
-    states=(created, paid),
-    transitions=(
-        ms.inception(on=order_created),
-        ms.transition(
-            from_state=created,
-            on=order_paid,
-            to_state=paid,
-        ),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="Normative commercial order lifecycle."
-    ),
-)
-```
-
-状态名是 StateModel 内部的 immutable authoring value。必须恰好有一个 initial
-state；terminal state 不得再有 outgoing transition。只有当某个 Event 恰好有一个
-`cardinality="one"` participant 到达 StateModel subject 时，才会自动推导 trigger
-role。如果多个 role 都符合条件，应传入精确的 `ms.participant_role(...)` handle，
-而不是分别重复 Event 和 role 字段。
-
-加载后，通过 `ms.model_state(model=order_lifecycle, name="paid")` 构造分析层接收的
-typed state identity。为将来的 projection seed 而定义的 StateModel 可以没有
-inception，但这种模型不能从 inception 开始 replay。当前 constructor contract 以
-`marivo.help("semantic.state_model")` 为准；当前对象可执行的
-`verify`/`preview`/`readiness` continuation 以 catalog entry 为准。
-
 ## 建模步骤
 
 ### 1. 连接数据源
@@ -741,6 +632,7 @@ readiness。缺失或不匹配的 runtime preview certification 会显示为 war
 分析如何记录结论，见 [证据链](/zh-cn/latest/concepts/evidence/)。
 关于 session 如何加载并验证 metric 输入，继续阅读
 [分析流程](/zh-cn/latest/concepts/analysis-workflow/)；关于变更认证，见上面的 scoped readiness。
+
 ## 高级建模
 
 ### 语义契约参考
@@ -1027,3 +919,117 @@ Focused constructor help 会把调用明确标为其 loader path 内的 declarat
 当 readiness 报告多个 runtime preview 缺失时，仍通过同一个入口修复：
 `catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`。
 它会合并兼容查询，但仍为每个 ref 保留独立 evidence；这不是 batch authoring 捷径。
+
+## Event 与 Lifecycle 建模
+
+大多数项目只需要前面的指标建模路径。只有问题依赖有序业务事件、漏斗、耗时或状态回放时，
+再增加 Event 与 StateModel。
+
+### 对可复用事件建模
+
+Event 为一次业务发生声明可复用的 identity、occurred time 和具名 participant roles。
+source Entity 由 `owner(occurred_at)` 推导，因此 Event 定义不重复接收 `entity` 参数。
+所有 Event 都使用唯一入口 `@ms.event(...)`。
+
+如果一个 Entity 的每一行都代表一次订单创建，那么该 Event 不需要额外行过滤，但仍要显式
+返回 `ms.all_rows()`：
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+共享事件日志 Entity 上的过滤 Event 则返回受限布尔表达式，例如
+`ms.bind(event_type, event_rows) == "payment_succeeded"`。不要使用无函数体
+constructor、裸 `True` 或另一套 filtered-Event API。
+
+`ms.participant_role(event=order_created, name="order")` 会解析出 Event analysis
+使用的 typed role。省略 `path` 表示 Event source Entity 自己就是 participant；
+非空 path 则沿着已经声明的 Relationship 到达另一个 Entity。作为 analysis subject
+的 role 必须使用 `cardinality="one"`。其 endpoint Entity 已声明的 primary key
+就是 subject identity，调用方不再重复提供。
+
+### 对规范生命周期建模
+
+StateModel 为一个 subject Entity 声明允许出现的状态及 Event 驱动的转换。它只描述
+业务规范含义。replay window、seed、完整性假设、cohort 和 observed violation
+属于分析层，不进入 StateModel。
+
+例如，假设订单源还提供支付时间与订单状态：
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+状态名是 StateModel 内部的 immutable authoring value。必须恰好有一个 initial
+state；terminal state 不得再有 outgoing transition。只有当某个 Event 恰好有一个
+`cardinality="one"` participant 到达 StateModel subject 时，才会自动推导 trigger
+role。如果多个 role 都符合条件，应传入精确的 `ms.participant_role(...)` handle，
+而不是分别重复 Event 和 role 字段。
+
+加载后，通过 `ms.model_state(model=order_lifecycle, name="paid")` 构造分析层接收的
+typed state identity。为将来的 projection seed 而定义的 StateModel 可以没有
+inception，但这种模型不能从 inception 开始 replay。当前 constructor contract 以
+`marivo.help("semantic.state_model")` 为准；当前对象可执行的
+`verify`/`preview`/`readiness` continuation 以 catalog entry 为准。
