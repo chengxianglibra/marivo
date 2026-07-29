@@ -1,6 +1,6 @@
 ---
 title: 分析流程
-description: 以 typed metric、Event 与 Lifecycle intents、sessions 和 frames 组织可重复的 agent analysis。
+description: 以指标为主线，使用 session、类型化算子、artifacts 与证据组织可重复分析。
 ---
 
 本页是[让智能体完成第一次分析](/zh-cn/latest/first-analysis/)之后的深入参考。
@@ -36,16 +36,15 @@ description: 以 typed metric、Event 与 Lifecycle intents、sessions 和 frame
 
 每次 Marivo analysis 都从受治理的 semantic inputs 开始，并按**写-运行-读**循环推进：
 agent 写出一个 intent（一次 operator 调用及其参数），运行它，读取 typed result，再决定
-下一步。Metric analysis 从 `session.observe(...)` 开始；Event journey analysis 从
-`session.events.match(...)` 开始；基于 replay 的 Lifecycle analysis 从
-`session.lifecycle.replay(...)` 开始。
+下一步。大多数分析从 `session.observe(...)` 开始，再进入指标比较、归因、发现或质量检查。
+Event journey 与基于 replay 的 Lifecycle analysis 属于靠后的专项路径。
 
 Runtime 由以下部分组成：
 
 - **session** 持有 guiding question、semantic catalog，以及每一步的持久化结果。
-- **operator 调用** 是一次确定性的分析步骤 —— `observe`、`events.match`、`compare`、
-  `attribute`、`discover.<objective>` 以及其他核心 operators —— 及其参数。这些参数
-  *就是*分析规格。
+- **operator 调用** 是一次确定性的分析步骤，通常使用 `observe`、`compare`、
+  `attribute` 或 `discover.<objective>`；需要专项路径时再使用 `events.match` 等
+  namespace operator。调用参数*就是*分析规格。
 - **artifact** 是 operator 的 typed result。Artifacts 是步骤之间的边界：每个 operator 消费
   特定 artifact family，并产出另一个。
 
@@ -140,213 +139,6 @@ slices，aggregation、additivity、reaggregation 状态，以及 fold strategy�
 sample interval 或 snapshot identity keys。Sampled fold 会显示 expected-slot coverage；
 无采样的 snapshot selection 会明确说明 expected-sample coverage 不适用。恢复后的 frame
 使用同一份 metadata 展示这些事实，不会重新查询。
-
-## 匹配 Event journey
-
-Event analysis 从 typed participant roles 和有序 EventPattern 开始。每个 step
-使用稳定的 snake-case key；role 已携带 Event 和 subject Entity，而 subject Entity
-的 primary key 提供 identity。
-
-```python
-cart_created = catalog.events.get("commerce.cart_created")
-checkout_started = catalog.events.get("commerce.checkout_started")
-payment_succeeded = catalog.events.get("commerce.payment_succeeded")
-
-cart_user = ms.participant_role(event=cart_created.ref, name="user")
-checkout_user = ms.participant_role(event=checkout_started.ref, name="user")
-payment_user = ms.participant_role(event=payment_succeeded.ref, name="user")
-
-cart_step = mv.step(participant=cart_user, key="cart")
-checkout_step = mv.step(participant=checkout_user, key="checkout")
-payment_step = mv.step(participant=payment_user, key="payment")
-
-pattern = mv.sequence(cart_step, checkout_step, payment_step)
-journeys = session.events.match(
-    pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
-    completion_through=followup_end,
-    matching=mv.first_per_subject(),
-)
-```
-
-cohort window 是半开区间：只有 `[start, end)` 内的首 step occurrence 能建立
-journey。`completion_through` 是包含端点的 follow-up bound，并且不得早于 `end`。
-可选的 ready `SubjectSet` 会进一步限制 subject membership；它不会替代或推导
-cohort window。
-
-当每个首 step occurrence 都应建立 attempt 时，必须显式选择 repeated-attempt
-policy。`exclusive` 最多把一个 completion 分配给一个 open attempt；`shared`
-允许一个 completion 关闭多个合格 attempt：
-
-```python
-exclusive_attempts = session.events.match(
-    pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
-    completion_through=followup_end,
-    matching=mv.every_start(completion_assignment="exclusive"),
-)
-shared_attempts = session.events.match(
-    pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
-    completion_through=followup_end,
-    matching=mv.every_start(completion_assignment="shared"),
-)
-```
-
-`EventFrame[journey]` 是 dense long table：每个 `journey × pattern step` 都有一行。
-后续 step 缺失时，该行仍然存在，其 event、time 和 elapsed 值为空。只有全部必需
-Event 都已知完整覆盖到 follow-up bound 时，缺失 step 才是 `incomplete`；否则为
-`coverage_censored`。
-
-backend 可以通过 `marivo_event_watermark(request)` 提供权威 Event completeness。
-Marivo 不会从最大 observed Event time、query time 或 SLA 推导 watermark。没有权威
-coverage 时，调用方可以携带精确且有界的显式假设：
-
-```python
-coverage = mv.declared_complete_through(
-    inputs=(cart_created, checkout_started, payment_succeeded),
-    through=followup_end,
-    rationale="Warehouse reconciliation completed through followup_end.",
-)
-journeys = session.events.match(
-    pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
-    completion_through=followup_end,
-    matching=mv.first_per_subject(),
-    completeness=(coverage,),
-)
-```
-
-## 归约 Event journey 并组合 typed cohort
-
-first-per-subject journey 在阶段二有三个 continuation。Funnel 只归约已持久化的
-occurrence assignment，不重新查询 Event。指定 axes 时，唯一允许的数据源工作是按
-首 step occurrence 时刻执行受治理的 subject-Dimension enrichment：
-
-```python
-funnel = session.events.funnel(
-    journeys,
-    axes=[acquisition_channel],
-    analysis_purpose="Measure checkout conversion by entry channel.",
-)
-
-elapsed = session.events.time_to_event(
-    journeys,
-    start_step=checkout_step,
-    end_step=payment_step,
-    analysis_purpose="Measure checkout-to-payment elapsed time.",
-)
-
-dropouts = session.select_subjects(
-    journeys,
-    selection=mv.dropped_before(step=payment_step),
-)
-```
-
-`EventFrame[funnel]` 保留 additive counts、censoring-aware rates 和 grouped
-reconciliation evidence。`EventFrame[time_to_event]` 精确保留 source 的 start/end
-assignment，绝不重新匹配另一个 completion。`SubjectSet` 只暴露受治理的
-`subject_identity` tuple；原始 identity 不会进入 card、job、evidence、structured
-error 或 consumer metadata。
-
-只有 ready SubjectSet 能限定 `observe` 或后续 `events.match`：
-
-```python
-dropout_revenue = session.observe(revenue, cohort=dropouts)
-return_journeys = session.events.match(
-    pattern=return_pattern,
-    cohort=dropouts,
-    cohort_window=mv.TimeScope(start=start, end=end),
-    completion_through=followup_end,
-    matching=mv.first_per_subject(),
-)
-```
-
-loss 仍为 `coverage_censored` 的 subject 会被排除，并计入 SubjectSet metadata。
-该 SubjectSet 仍可读取和恢复，但用作 cohort 时会抛出
-`event_coverage_unknown`。Funnel 与 `dropped_before` 要求
-`first_per_subject`；time-to-event 也接受 repeated-attempt journey，因为它为每个
-已分配 attempt 保留一行。
-
-observed watermark 优先于 declaration。artifact 及其 quality/evidence records
-会保留每个输入的 `observed_watermark | declared_complete | unknown` basis，以及
-整体 `observed_watermark | declared_complete | mixed | unknown` basis。
-
-## Replay 规范生命周期
-
-Lifecycle analysis 会把一个精确的当前 StateModel 应用于其 modeled Event stream。
-模型负责状态和合法转换；analysis call 负责 window、显式 seed、可选 cohort 和
-completeness declaration。首次使用前应读取
-`marivo.help("analysis.lifecycle.replay")`，不要复制缓存中的函数签名。
-
-```python
-order_model = catalog.state_models.get("sales.order_lifecycle")
-
-history = session.lifecycle.replay(
-    order_model,
-    window=mv.TimeScope(start=start, end=end),
-    seed=mv.from_inception(),
-    analysis_purpose="Reconstruct governed order state history.",
-)
-```
-
-replay window 是 timezone-aware 半开区间。`mv.from_inception()` 是必需的显式选择：
-每个 subject 从第一个符合条件的 modeled inception 开始 replay，计算
-`window.end` 之前的全部 modeled occurrence，但只输出与请求 window 重叠的 interval。
-没有 inception 的 StateModel 可以为未来的 projection seed 加载，但不能使用这条
-replay 路径。
-
-每个不同的 trigger Event 最多查询一次。Event predicate、participant-role
-resolution、identity validation、deterministic ordering 与 completeness 都复用
-Event journey 的同一套核心。completeness declaration 只能覆盖所选 StateModel
-实际消费的 Event，且权威 provider watermark 优先。模型外 Event 既不会被查询，
-也不会被标记为 violation。
-
-合法 trigger 会改变状态。当前状态下不合法的 modeled trigger 不改变状态，但会进入
-replay 的私有 violation trace。同一时刻的跨 Event occurrence 只有在顺序会改变最终
-状态或 violation outcome 时才会失败。
-
-`LifecycleFrame[history]` 保存有序且不重叠的状态 interval。interval status 为
-`completed`、`right_censored` 或 `coverage_censored`。用 `history.show()`
-读取有界当前状态，用 `history.contract()` 查看机械合法的 continuation。
-
-## 归约 Lifecycle history 并选择状态 cohort
-
-Lifecycle reducer 只消费已提交 history，不重新查询 Event source，也不重新 replay
-StateModel：
-
-```python
-weekly_state = session.lifecycle.distribution(
-    history,
-    at=(week_1_end, week_2_end),
-    axes=[account_region],
-)
-transition_counts = session.lifecycle.transitions(history)
-dwell = session.lifecycle.dwell(history)
-violations = session.lifecycle.violations(history)
-```
-
-distribution 对每个请求 instant 和每个声明状态生成 dense output。受治理的 subject
-axis 在各 instant 上解析，分组计数必须与未分组状态 population 对账。transitions
-包含每个不同的 modeled state pair，即使 count 为零。dwell 包含每个声明状态；
-duration statistic 只使用已完成且按 window 裁剪的 interval，censored interval
-则保留为显式计数。violations 是 committed trace 的 typed copy，不会被重命名为
-policy breach、quality failure 或 causal fact。
-
-通过精确的 typed model-state handle 选择 subject，不能传裸 state string：
-
-```python
-paid_state = ms.model_state(model=order_model.ref, name="paid")
-paid_at_end = session.select_subjects(
-    history,
-    selection=mv.in_state(paid_state, as_of=end),
-)
-```
-
-在该 instant 状态未知或 coverage-censored 的 subject 会被排除，并保留在 censoring
-metadata 中。结果 SubjectSet 始终可读，但只有 ready set 才能限定后续
-`observe`、`events.match` 或 `lifecycle.replay`。当前精确 admission rules 以
-`marivo.help("analysis.in_state")` 和 source artifact contract 为准。
 
 ## 一个 intent 如何被指定
 
@@ -528,30 +320,6 @@ delta = session.compare(current, baseline)
 只有两侧 source frame 的 additivity、aggregation 与 status-time 三项语义完全一致，
 且 additivity 已知时，delta 才会携带这些语义。任一项缺失或不一致时，语义门保持
 unknown，使后续归因 fail closed，而不是继承单侧语义。
-
-#### Funnel 对比与 loss-rate 归因
-
-两个兼容的 `EventFrame[funnel]` 也使用同一个 `compare` 入口，但不接受
-`alignment=` 参数。Marivo 按持久化的精确 PatternStep identity 与完整 axis tuple
-对齐；仅单侧存在的 tuple 会把 additive counts 补零，而缺失侧的 rate 保持 null。
-
-```python
-funnel_delta = session.compare(current_funnel, baseline_funnel)
-payment_loss = mv.funnel_loss_rate(step=payment_step)
-drivers = session.attribute(
-    funnel_delta,
-    axes=[acquisition_channel],
-    target=payment_loss,
-)
-```
-
-归因输入必须是未分组的 funnel delta。它在持久化 journey assignment 上按受治理的
-cohort-entry Dimension 重新聚合，绝不会重新匹配 Event。每个 driver 输出可加的
-`loss` 与 `denominator_mix` component；两者之和会在 `1e-9` 内精确对账到目标
-loss-rate delta。多轴时显式选择 `mode="joint"` 或 `mode="hierarchy"`。
-hierarchy 的 pool share 在每个可见层级内分别归一化；artifact metadata 保留用于
-对账的最深 joint partition pool。这些 contribution 只描述观测变化的算术分解，
-不代表因果关系。
 
 ### `attribute` → `AttributionFrame`
 
@@ -915,6 +683,242 @@ attribution.show()
 
 拿到 `delta` 后，可以继续分支：用 `session.discover.period_shifts(delta)` 找出变化发生在何时，
 或用 `session.forecast(current, horizon=3)` 向前投影。
+
+## 高级 Event 与 Lifecycle 分析
+
+大多数问题可以通过指标与前面的核心算子回答。只有分析依赖业务事件顺序、重复尝试匹配、
+漏斗推进、耗时或状态回放时，才使用 Event 与 Lifecycle 路径。
+
+### 匹配 Event journey
+
+Event analysis 从 typed participant roles 和有序 EventPattern 开始。每个 step
+使用稳定的 snake-case key；role 已携带 Event 和 subject Entity，而 subject Entity
+的 primary key 提供 identity。
+
+```python
+cart_created = catalog.events.get("commerce.cart_created")
+checkout_started = catalog.events.get("commerce.checkout_started")
+payment_succeeded = catalog.events.get("commerce.payment_succeeded")
+
+cart_user = ms.participant_role(event=cart_created.ref, name="user")
+checkout_user = ms.participant_role(event=checkout_started.ref, name="user")
+payment_user = ms.participant_role(event=payment_succeeded.ref, name="user")
+
+cart_step = mv.step(participant=cart_user, key="cart")
+checkout_step = mv.step(participant=checkout_user, key="checkout")
+payment_step = mv.step(participant=payment_user, key="payment")
+
+pattern = mv.sequence(cart_step, checkout_step, payment_step)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+cohort window 是半开区间：只有 `[start, end)` 内的首 step occurrence 能建立
+journey。`completion_through` 是包含端点的 follow-up bound，并且不得早于 `end`。
+可选的 ready `SubjectSet` 会进一步限制 subject membership；它不会替代或推导
+cohort window。
+
+当每个首 step occurrence 都应建立 attempt 时，必须显式选择 repeated-attempt
+policy。`exclusive` 最多把一个 completion 分配给一个 open attempt；`shared`
+允许一个 completion 关闭多个合格 attempt：
+
+```python
+exclusive_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="exclusive"),
+)
+shared_attempts = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.every_start(completion_assignment="shared"),
+)
+```
+
+`EventFrame[journey]` 是 dense long table：每个 `journey × pattern step` 都有一行。
+后续 step 缺失时，该行仍然存在，其 event、time 和 elapsed 值为空。只有全部必需
+Event 都已知完整覆盖到 follow-up bound 时，缺失 step 才是 `incomplete`；否则为
+`coverage_censored`。
+
+backend 可以通过 `marivo_event_watermark(request)` 提供权威 Event completeness。
+Marivo 不会从最大 observed Event time、query time 或 SLA 推导 watermark。没有权威
+coverage 时，调用方可以携带精确且有界的显式假设：
+
+```python
+coverage = mv.declared_complete_through(
+    inputs=(cart_created, checkout_started, payment_succeeded),
+    through=followup_end,
+    rationale="Warehouse reconciliation completed through followup_end.",
+)
+journeys = session.events.match(
+    pattern=pattern,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+    completeness=(coverage,),
+)
+```
+
+### 归约 Event journey 并组合 typed cohort
+
+first-per-subject journey 在阶段二有三个 continuation。Funnel 只归约已持久化的
+occurrence assignment，不重新查询 Event。指定 axes 时，唯一允许的数据源工作是按
+首 step occurrence 时刻执行受治理的 subject-Dimension enrichment：
+
+```python
+funnel = session.events.funnel(
+    journeys,
+    axes=[acquisition_channel],
+    analysis_purpose="Measure checkout conversion by entry channel.",
+)
+
+elapsed = session.events.time_to_event(
+    journeys,
+    start_step=checkout_step,
+    end_step=payment_step,
+    analysis_purpose="Measure checkout-to-payment elapsed time.",
+)
+
+dropouts = session.select_subjects(
+    journeys,
+    selection=mv.dropped_before(step=payment_step),
+)
+```
+
+`EventFrame[funnel]` 保留 additive counts、censoring-aware rates 和 grouped
+reconciliation evidence。`EventFrame[time_to_event]` 精确保留 source 的 start/end
+assignment，绝不重新匹配另一个 completion。`SubjectSet` 只暴露受治理的
+`subject_identity` tuple；原始 identity 不会进入 card、job、evidence、structured
+error 或 consumer metadata。
+
+只有 ready SubjectSet 能限定 `observe` 或后续 `events.match`：
+
+```python
+dropout_revenue = session.observe(revenue, cohort=dropouts)
+return_journeys = session.events.match(
+    pattern=return_pattern,
+    cohort=dropouts,
+    cohort_window=mv.TimeScope(start=start, end=end),
+    completion_through=followup_end,
+    matching=mv.first_per_subject(),
+)
+```
+
+loss 仍为 `coverage_censored` 的 subject 会被排除，并计入 SubjectSet metadata。
+该 SubjectSet 仍可读取和恢复，但用作 cohort 时会抛出
+`event_coverage_unknown`。Funnel 与 `dropped_before` 要求
+`first_per_subject`；time-to-event 也接受 repeated-attempt journey，因为它为每个
+已分配 attempt 保留一行。
+
+observed watermark 优先于 declaration。artifact 及其 quality/evidence records
+会保留每个输入的 `observed_watermark | declared_complete | unknown` basis，以及
+整体 `observed_watermark | declared_complete | mixed | unknown` basis。
+
+### Funnel 对比与 loss-rate 归因
+
+两个兼容的 `EventFrame[funnel]` 也使用同一个 `compare` 入口，但不接受
+`alignment=` 参数。Marivo 按持久化的精确 PatternStep identity 与完整 axis tuple
+对齐；仅单侧存在的 tuple 会把 additive counts 补零，而缺失侧的 rate 保持 null。
+
+```python
+funnel_delta = session.compare(current_funnel, baseline_funnel)
+payment_loss = mv.funnel_loss_rate(step=payment_step)
+drivers = session.attribute(
+    funnel_delta,
+    axes=[acquisition_channel],
+    target=payment_loss,
+)
+```
+
+归因输入必须是未分组的 funnel delta。它在持久化 journey assignment 上按受治理的
+cohort-entry Dimension 重新聚合，绝不会重新匹配 Event。每个 driver 输出可加的
+`loss` 与 `denominator_mix` component；两者之和会在 `1e-9` 内精确对账到目标
+loss-rate delta。多轴时显式选择 `mode="joint"` 或 `mode="hierarchy"`。
+hierarchy 的 pool share 在每个可见层级内分别归一化；artifact metadata 保留用于
+对账的最深 joint partition pool。这些 contribution 只描述观测变化的算术分解，
+不代表因果关系。
+
+### Replay 规范生命周期
+
+Lifecycle analysis 会把一个精确的当前 StateModel 应用于其 modeled Event stream。
+模型负责状态和合法转换；analysis call 负责 window、显式 seed、可选 cohort 和
+completeness declaration。首次使用前应读取
+`marivo.help("analysis.lifecycle.replay")`，不要复制缓存中的函数签名。
+
+```python
+order_model = catalog.state_models.get("sales.order_lifecycle")
+
+history = session.lifecycle.replay(
+    order_model,
+    window=mv.TimeScope(start=start, end=end),
+    seed=mv.from_inception(),
+    analysis_purpose="Reconstruct governed order state history.",
+)
+```
+
+replay window 是 timezone-aware 半开区间。`mv.from_inception()` 是必需的显式选择：
+每个 subject 从第一个符合条件的 modeled inception 开始 replay，计算
+`window.end` 之前的全部 modeled occurrence，但只输出与请求 window 重叠的 interval。
+没有 inception 的 StateModel 可以为未来的 projection seed 加载，但不能使用这条
+replay 路径。
+
+每个不同的 trigger Event 最多查询一次。Event predicate、participant-role
+resolution、identity validation、deterministic ordering 与 completeness 都复用
+Event journey 的同一套核心。completeness declaration 只能覆盖所选 StateModel
+实际消费的 Event，且权威 provider watermark 优先。模型外 Event 既不会被查询，
+也不会被标记为 violation。
+
+合法 trigger 会改变状态。当前状态下不合法的 modeled trigger 不改变状态，但会进入
+replay 的私有 violation trace。同一时刻的跨 Event occurrence 只有在顺序会改变最终
+状态或 violation outcome 时才会失败。
+
+`LifecycleFrame[history]` 保存有序且不重叠的状态 interval。interval status 为
+`completed`、`right_censored` 或 `coverage_censored`。用 `history.show()`
+读取有界当前状态，用 `history.contract()` 查看机械合法的 continuation。
+
+### 归约 Lifecycle history 并选择状态 cohort
+
+Lifecycle reducer 只消费已提交 history，不重新查询 Event source，也不重新 replay
+StateModel：
+
+```python
+weekly_state = session.lifecycle.distribution(
+    history,
+    at=(week_1_end, week_2_end),
+    axes=[account_region],
+)
+transition_counts = session.lifecycle.transitions(history)
+dwell = session.lifecycle.dwell(history)
+violations = session.lifecycle.violations(history)
+```
+
+distribution 对每个请求 instant 和每个声明状态生成 dense output。受治理的 subject
+axis 在各 instant 上解析，分组计数必须与未分组状态 population 对账。transitions
+包含每个不同的 modeled state pair，即使 count 为零。dwell 包含每个声明状态；
+duration statistic 只使用已完成且按 window 裁剪的 interval，censored interval
+则保留为显式计数。violations 是 committed trace 的 typed copy，不会被重命名为
+policy breach、quality failure 或 causal fact。
+
+通过精确的 typed model-state handle 选择 subject，不能传裸 state string：
+
+```python
+paid_state = ms.model_state(model=order_model.ref, name="paid")
+paid_at_end = session.select_subjects(
+    history,
+    selection=mv.in_state(paid_state, as_of=end),
+)
+```
+
+在该 instant 状态未知或 coverage-censored 的 subject 会被排除，并保留在 censoring
+metadata 中。结果 SubjectSet 始终可读，但只有 ready set 才能限定后续
+`observe`、`events.match` 或 `lifecycle.replay`。当前精确 admission rules 以
+`marivo.help("analysis.in_state")` 和 source artifact contract 为准。
 
 ## Frame 类型
 
