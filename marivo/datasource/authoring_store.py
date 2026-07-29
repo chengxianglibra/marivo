@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 EVIDENCE_FORMAT_VERSION = 1
 SNAPSHOT_TTL = timedelta(hours=24)
 
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 type CacheMissStatus = Literal["fresh", "stale", "mismatched"]
 
 
