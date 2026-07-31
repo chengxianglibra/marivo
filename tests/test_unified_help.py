@@ -74,6 +74,14 @@ def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
     assert "neither exposes a public .help alias" in text
 
 
+def test_root_help_only_advertises_resolvable_datasource_targets() -> None:
+    text = _text()
+
+    assert 'marivo.help("datasource.DiscoverySnapshot")' in text
+    assert 'marivo.help("datasource.snapshot")' not in text
+    assert isinstance(route_help_target("datasource.DiscoverySnapshot"), NativeHelpRoute)
+
+
 @pytest.mark.parametrize(
     "module_name",
     ("marivo.datasource.help", "marivo.semantic.help", "marivo.analysis.help"),

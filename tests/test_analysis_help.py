@@ -987,10 +987,36 @@ def test_live_help_preserves_leading_keyword_only_separator() -> None:
     assert "Signature: frame_summaries(*, kind: str | None = None" in frames
 
 
-def test_type_resolves_same_as_string() -> None:
-    text_type = _text(Session)
-    text_string = _text("Session")
+@pytest.mark.parametrize(
+    "type_name",
+    (
+        "Session",
+        "TimeScope",
+        "AbsoluteWindow",
+        "SamplingPolicy",
+        "AlignmentPolicy",
+        "ArtifactRef",
+        "CalendarRef",
+        "FunnelLossRate",
+    ),
+)
+def test_type_resolves_same_as_string(type_name: str) -> None:
+    type_obj = getattr(mv, type_name)
+    text_type = _text(type_obj)
+    text_string = _text(type_name)
     assert text_type == text_string
+
+    if type_name == "AlignmentPolicy":
+        assert "Immutable policy governing how two observation windows are aligned" in text_type
+        assert "Call marivo.help(AlignmentPolicy)" not in text_type
+
+
+def test_type_contracts_do_not_shadow_registered_constructor_classes() -> None:
+    from marivo.analysis._capabilities.surface import TYPE_REGISTRY
+
+    for type_obj in TYPE_REGISTRY:
+        with pytest.raises(KeyError):
+            REGISTRY.by_callable(type_obj)
 
 
 def test_object_resolves_same_as_type(tmp_path, monkeypatch) -> None:

@@ -874,6 +874,10 @@ def _render_type_help(type_name: str) -> str:
             # Skip lines that look like constructor signatures.
             if stripped.startswith(type_name + "(") or stripped.startswith("_"):
                 continue
+            # Type docstrings may point callers to help as their first line;
+            # that instruction is redundant inside the focused help page.
+            if stripped.startswith("Call marivo.help("):
+                continue
             first_prose_line = stripped
             break
         if first_prose_line:

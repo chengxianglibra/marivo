@@ -37,7 +37,7 @@ def render_root() -> str:
                 "",
                 "  Datasource evidence:",
                 '    marivo.help("datasource.inspect")',
-                '    marivo.help("datasource.snapshot")',
+                '    marivo.help("datasource.DiscoverySnapshot")',
                 "",
                 "  Semantic authoring:",
                 '    marivo.help("semantic.metric")',
