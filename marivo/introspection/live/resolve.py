@@ -296,6 +296,14 @@ def _resolve_type[DescriptorT: ResolvableHelpDescriptor](
             surface=surface.registry.surface,
             error_name=target.__name__,
         )
+    # Constructor classes are registered as descriptors so their focused help
+    # includes the live callable contract. Prefer that descriptor over a
+    # generic type contract, keeping ``marivo.help(SomeType)`` identical to
+    # ``marivo.help("SomeType")`` when both are public entry points.
+    try:
+        return _resolved_descriptor(surface.registry.by_callable(target), surface)
+    except KeyError:
+        pass
     type_name = surface.type_index.get(target)
     if type_name is not None:
         return ResolvedLiveTarget(
