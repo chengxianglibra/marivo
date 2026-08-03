@@ -52,7 +52,8 @@ Marivo 需要 Python 3.12 或更高版本。进入要作为 Marivo 项目的目�
 curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-安装脚本会准备本地环境并初始化当前目录。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/latest/installation/)。
+安装脚本会使用 `uv` 准备项目本地环境并初始化当前目录。它支持 macOS、Linux、WSL，以及
+Windows 上的 Git Bash、MSYS2 或 Cygwin。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/latest/installation/)。
 
 先验证一次选定的运行环境，再进入 Python 查询 focused help：
 

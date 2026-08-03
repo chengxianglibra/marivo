@@ -65,7 +65,11 @@ if [ "${1:-}" = "-c" ]; then
         exit
     fi
     if [[ "$code" == *"import marivo"* ]]; then
-        [ -x "$(dirname "$0")/marivo" ]
+        marivo="$(dirname "$0")/marivo"
+        if [ "${FAKE_WINDOWS:-0}" = "1" ]; then
+            marivo="$(dirname "$0")/marivo.exe"
+        fi
+        [ -x "$marivo" ]
         printf 'marivo 0.3.0\n'
         exit
     fi
@@ -73,8 +77,14 @@ fi
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "venv" ]; then
     [ "${FAKE_VENV_FAIL:-0}" != "1" ] || exit 1
     target="${3:?}"
-    mkdir -p "$target/bin"
-    ln -s "$0" "$target/bin/python"
+    venv_bin="$target/bin"
+    python_name="python"
+    if [ "${FAKE_WINDOWS:-0}" = "1" ]; then
+        venv_bin="$target/Scripts"
+        python_name="python.exe"
+    fi
+    mkdir -p "$venv_bin"
+    ln -s "$0" "$venv_bin/$python_name"
     exit 0
 fi
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "ensurepip" ]; then
@@ -92,9 +102,12 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip" ]; then
         exit 0
     fi
     if [ "${3:-}" = "install" ]; then
-        if [[ "$*" == *"marivo[all]"* ]]; then
+        if [[ "$*" == *"marivo["* ]]; then
             [ "${FAKE_PIP_FAIL:-0}" != "1" ] || exit 1
             marivo="$(dirname "$0")/marivo"
+            if [ "${FAKE_WINDOWS:-0}" = "1" ]; then
+                marivo="$(dirname "$0")/marivo.exe"
+            fi
             ln -sf "${FAKE_MARIVO_SHIM:?}" "$marivo"
         fi
         exit 0
@@ -123,6 +136,22 @@ elif [ "${1:-}" = "venv" ]; then
     target="${@: -1}"
     FAKE_VENV_FAIL=0 "${FAKE_MANAGED_PYTHON:?}" -m venv "$target"
     touch "$target/.pip-ready"
+elif [ "${1:-}" = "pip" ] && [ "${2:-}" = "install" ]; then
+    [ "${FAKE_PIP_FAIL:-0}" != "1" ] || exit 1
+    target=""
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--python" ]; then
+            target="${2:?}"
+            break
+        fi
+        shift
+    done
+    [ -n "$target" ] || exit 2
+    marivo="$(dirname "$target")/marivo"
+    if [ "${FAKE_WINDOWS:-0}" = "1" ]; then
+        marivo="$(dirname "$target")/marivo.exe"
+    fi
+    ln -sf "${FAKE_MARIVO_SHIM:?}" "$marivo"
 else
     exit 2
 fi

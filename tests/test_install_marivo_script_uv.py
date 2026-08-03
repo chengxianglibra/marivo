@@ -71,7 +71,7 @@ def test_installs_uv_when_no_working_uv_is_available(
     assert "curl:-LsSf https://astral.sh/uv/install.sh -o" in log
 
 
-def test_falls_back_to_uv_when_standard_venv_creation_fails(
+def test_uses_uv_to_create_the_virtual_environment(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     toolchain, env = installer_env
@@ -86,7 +86,7 @@ def test_falls_back_to_uv_when_standard_venv_creation_fails(
     assert "uv:venv --python" in log
 
 
-def test_rebuilds_with_uv_when_ensurepip_is_unavailable(
+def test_uv_creates_a_seeded_virtual_environment(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     toolchain, env = installer_env
@@ -107,7 +107,7 @@ def test_rebuilds_with_uv_when_ensurepip_is_unavailable(
     assert (tmp_path / ".venv" / ".pip-ready").is_file()
 
 
-def test_replaces_existing_venv_when_pip_cannot_be_repaired(
+def test_reuses_an_existing_venv_without_requiring_pip(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     toolchain, env = installer_env
@@ -128,5 +128,5 @@ def test_replaces_existing_venv_when_pip_cannot_be_repaired(
 
     assert completed.returncode == 0, completed.stderr
     log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
-    assert "uv:venv --python" in log
-    assert (tmp_path / ".venv" / ".pip-ready").is_file()
+    assert "Reusing valid virtual environment" in completed.stdout
+    assert "uv:venv --python" not in log

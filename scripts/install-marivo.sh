@@ -3,10 +3,15 @@
 set -Eeuo pipefail
 
 readonly MIN_PYTHON="3.12"
+readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"
+readonly UV_INSTALL_SH_URL="https://astral.sh/uv/install.sh"
 TARGET_DIR="$(pwd -P)"
 readonly TARGET_DIR
 readonly VENV_DIR="$TARGET_DIR/.venv"
-readonly VENV_PYTHON="$VENV_DIR/bin/python"
+PLATFORM=""
+VENV_PYTHON=""
+VENV_MARIVO=""
+VENV_ACTIVATE=""
 ASSUME_YES=0
 CURRENT_STAGE="startup"
 
@@ -37,21 +42,30 @@ parse_args() {
     done
 }
 
+is_windows_bash() {
+    [[ "$PLATFORM" == MINGW* || "$PLATFORM" == MSYS* || "$PLATFORM" == CYGWIN* ]]
+}
+
 validate_platform() {
-    local platform
-    platform="$(uname -s)"
-    case "$platform" in
-        Darwin|Linux) ;;
-        MINGW*|MSYS*|CYGWIN*)
-            die "native Windows Bash is not supported. Use Windows Subsystem for Linux (WSL)."
+    PLATFORM="$(uname -s)"
+    case "$PLATFORM" in
+        Darwin|Linux)
+            VENV_PYTHON="$VENV_DIR/bin/python"
+            VENV_MARIVO="$VENV_DIR/bin/marivo"
+            VENV_ACTIVATE="$VENV_DIR/bin/activate"
             ;;
-        *) die "unsupported operating system: $platform (supported: macOS and Linux, including WSL)" ;;
+        MINGW*|MSYS*|CYGWIN*)
+            VENV_PYTHON="$VENV_DIR/Scripts/python.exe"
+            VENV_MARIVO="$VENV_DIR/Scripts/marivo.exe"
+            VENV_ACTIVATE="$VENV_DIR/Scripts/activate"
+            ;;
+        *) die "unsupported operating system: $PLATFORM (supported: macOS, Linux, WSL, and Windows Bash shells)" ;;
     esac
 }
 
 validate_target() {
     local command_name
-    for command_name in uname mktemp rm mkdir grep; do
+    for command_name in uname mktemp rm mkdir; do
         command -v "$command_name" >/dev/null 2>&1 || \
             die "required command is unavailable: $command_name"
     done
@@ -92,31 +106,13 @@ prepare_existing_venv() {
     if [ ! -e "$VENV_DIR" ]; then
         return 1
     fi
-    if venv_matches_target && { \
-        "$VENV_PYTHON" -m pip --version >/dev/null 2>&1 || \
-        { "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1 && \
-            "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; }; \
-    }; then
+    if venv_matches_target; then
         printf 'Reusing valid virtual environment: %s\n' "$VENV_DIR"
         return 0
     fi
     confirm_venv_replacement
     rm -rf -- "$VENV_DIR"
     [ ! -e "$VENV_DIR" ] || die "could not remove invalid virtual environment: $VENV_DIR"
-    return 1
-}
-
-find_local_python() {
-    local name candidate
-    for name in python3.14 python3.13 python3.12 python3; do
-        if command -v "$name" >/dev/null 2>&1; then
-            candidate="$(command -v "$name")"
-            if python_is_supported "$candidate"; then
-                printf '%s\n' "$candidate"
-                return 0
-            fi
-        fi
-    done
     return 1
 }
 
@@ -131,17 +127,35 @@ ensure_uv() {
         return
     fi
 
+    if is_windows_bash; then
+        local powershell
+        powershell="$(command -v powershell.exe || command -v powershell || command -v pwsh || true)"
+        [ -n "$powershell" ] || die "Windows uv installation requires PowerShell"
+        if ! "$powershell" -NoProfile -ExecutionPolicy Bypass -Command \
+            '$env:UV_NO_MODIFY_PATH="1"; irm https://astral.sh/uv/install.ps1 | iex' >&2; then
+            die "could not install uv with the official PowerShell installer"
+        fi
+        local windows_candidate
+        for windows_candidate in "$HOME/.local/bin/uv.exe" "${USERPROFILE:-}/.local/bin/uv.exe"; do
+            if [ -x "$windows_candidate" ] && "$windows_candidate" --version >/dev/null 2>&1; then
+                printf '%s\n' "$windows_candidate"
+                return
+            fi
+        done
+        die "uv installation completed but no working uv executable was found"
+    fi
+
     ensure_download_tool
     local installer
     installer="$(mktemp "${TMPDIR:-/tmp}/marivo-uv-install.XXXXXX")"
     if command -v curl >/dev/null 2>&1; then
-        if ! curl -LsSf https://astral.sh/uv/install.sh -o "$installer"; then
+        if ! curl -LsSf "$UV_INSTALL_SH_URL" -o "$installer"; then
             rm -f "$installer"
-            die "could not download the uv installer from https://astral.sh/uv/install.sh"
+            die "could not download the uv installer from $UV_INSTALL_SH_URL"
         fi
-    elif ! wget -qO "$installer" https://astral.sh/uv/install.sh; then
+    elif ! wget -qO "$installer" "$UV_INSTALL_SH_URL"; then
         rm -f "$installer"
-        die "could not download the uv installer from https://astral.sh/uv/install.sh"
+        die "could not download the uv installer from $UV_INSTALL_SH_URL"
     fi
     if ! UV_NO_MODIFY_PATH=1 sh "$installer" >&2; then
         rm -f "$installer"
@@ -170,52 +184,21 @@ find_managed_python() {
 }
 
 create_venv() {
-    local interpreter=$1
-    local uv_bin=${2:-}
-    local needs_uv=0
-
-    if ! "$interpreter" -m venv "$VENV_DIR"; then
-        needs_uv=1
-    elif ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1 && \
-        ! "$VENV_PYTHON" -m ensurepip --upgrade; then
-        needs_uv=1
-    fi
-
-    if [ "$needs_uv" -eq 1 ]; then
-        rm -rf -- "$VENV_DIR"
-        if [ -z "$uv_bin" ]; then
-            uv_bin="$(ensure_uv)"
-        fi
-        "$uv_bin" venv --python "$interpreter" --seed "$VENV_DIR"
-    fi
-
+    local uv_bin=$1
+    local interpreter=$2
+    "$uv_bin" venv --python "$interpreter" --seed "$VENV_DIR"
     venv_matches_target || die "created virtual environment failed validation: $VENV_DIR"
-    "$VENV_PYTHON" -m pip --version >/dev/null 2>&1 || \
-        die "created virtual environment has no working pip: $VENV_DIR"
-}
-
-ensure_pip() {
-    if "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
-        return
-    fi
-    "$VENV_PYTHON" -m ensurepip --upgrade
-    "$VENV_PYTHON" -m pip --version >/dev/null 2>&1 || \
-        die "pip is unavailable in $VENV_DIR"
 }
 
 install_marivo() {
-    ensure_pip
-    "$VENV_PYTHON" -m pip install --upgrade pip
-    "$VENV_PYTHON" -m pip install --upgrade "marivo[all]"
+    local uv_bin=$1
+    "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "marivo[$DEFAULT_MARIVO_EXTRAS]"
 }
 
 validate_marivo() {
-    local marivo_bin="$VENV_DIR/bin/marivo"
-    [ -x "$marivo_bin" ] || die "Marivo executable is missing: $marivo_bin"
-    "$VENV_PYTHON" -m pip --version | grep -F "$VENV_DIR" >/dev/null || \
-        die "pip does not resolve inside $VENV_DIR"
+    [ -x "$VENV_MARIVO" ] || die "Marivo executable is missing: $VENV_MARIVO"
     "$VENV_PYTHON" -c 'import marivo; print(f"marivo {marivo.__version__}")'
-    "$marivo_bin" --version
+    "$VENV_MARIVO" --version
 }
 
 warn_missing_skill_links() {
@@ -235,14 +218,13 @@ warn_missing_skill_links() {
 }
 
 initialize_project() {
-    local marivo_bin="$VENV_DIR/bin/marivo"
-    "$marivo_bin" init
+    "$VENV_MARIVO" init
     [ -f "$TARGET_DIR/marivo.toml" ] || \
-        die "missing required init artifact: $TARGET_DIR/marivo.toml; rerun $marivo_bin init"
+        die "missing required init artifact: $TARGET_DIR/marivo.toml; rerun $VENV_MARIVO init"
     [ -d "$TARGET_DIR/models" ] || \
-        die "missing required init artifact: $TARGET_DIR/models; rerun $marivo_bin init"
+        die "missing required init artifact: $TARGET_DIR/models; rerun $VENV_MARIVO init"
     [ -d "$TARGET_DIR/.marivo" ] || \
-        die "missing required init artifact: $TARGET_DIR/.marivo; rerun $marivo_bin init"
+        die "missing required init artifact: $TARGET_DIR/.marivo; rerun $VENV_MARIVO init"
     warn_missing_skill_links
 }
 
@@ -250,8 +232,8 @@ print_summary() {
     printf '\nMarivo setup completed.\n'
     printf '  Project: %s\n' "$TARGET_DIR"
     printf '  Python:  %s\n' "$VENV_PYTHON"
-    printf '  Marivo:  %s\n' "$VENV_DIR/bin/marivo"
-    printf 'Activate with: source .venv/bin/activate\n'
+    printf '  Marivo:  %s\n' "$VENV_MARIVO"
+    printf 'Activate with: source %s\n' "${VENV_ACTIVATE#"$TARGET_DIR/"}"
 }
 
 main() {
@@ -268,24 +250,19 @@ main() {
         has_venv=1
     fi
 
-    if [ "$has_venv" -eq 0 ]; then
-        stage "Select Python >=$MIN_PYTHON"
-        local interpreter uv_bin=""
-        if interpreter="$(find_local_python)"; then
-            printf 'Using local Python: %s\n' "$interpreter"
-        else
-            stage "Install managed Python $MIN_PYTHON"
-            uv_bin="$(ensure_uv)"
-            interpreter="$(find_managed_python "$uv_bin")"
-            printf 'Using uv-managed Python: %s\n' "$interpreter"
-        fi
+    stage "Prepare uv and Python >=$MIN_PYTHON"
+    local uv_bin interpreter
+    uv_bin="$(ensure_uv)"
+    interpreter="$(find_managed_python "$uv_bin")"
+    printf 'Using uv-managed Python: %s\n' "$interpreter"
 
+    if [ "$has_venv" -eq 0 ]; then
         stage "Create virtual environment"
-        create_venv "$interpreter" "$uv_bin"
+        create_venv "$uv_bin" "$interpreter"
     fi
 
     stage "Install or upgrade Marivo"
-    install_marivo
+    install_marivo "$uv_bin"
 
     stage "Validate Marivo installation"
     validate_marivo

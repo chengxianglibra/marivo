@@ -18,31 +18,35 @@ Python 环境和数据源依赖的项目。
 curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-脚本会在当前目录创建或复用 `.venv`，安装 `marivo[all]`，并运行 `marivo init`。
-完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
+脚本会先确保已安装 `uv`，再用它安装受管的 Python 3.12 并创建或复用 `.venv`，随后安装
+`marivo[duckdb,trino,clickhouse]` 并运行 `marivo init`。它支持 macOS、Linux、WSL，以及 Windows 上的
+Git Bash、MSYS2 或 Cygwin；默认不包含 MySQL，需在准备好本机 client 前置依赖后再手动安装
+`marivo[mysql]`。仅当需要安装 `uv` 时才需要 PowerShell。完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
 
 ### 方式二：手动安装
 
 如果需要自行控制虚拟环境和数据源后端，请按顺序完成以下步骤。
 
-1. 创建并激活 Python 3.12 或更高版本的虚拟环境：
+1. 使用 `uv` 创建并激活 Python 3.12 或更高版本的虚拟环境：
 
 ```bash
-python3.12 -m venv .venv
+uv venv --python 3.12 --seed
 source .venv/bin/activate
 ```
+
+在 Windows Bash shell 中，请使用 `source .venv/Scripts/activate` 激活环境。
 
 2. 安装项目所用数据源后端对应的扩展：
 
 | 后端 | 安装命令 |
 | --- | --- |
-| DuckDB | `pip install "marivo[duckdb]"` |
-| SQLite | `pip install "marivo[sqlite]"` |
-| MySQL | `pip install "marivo[mysql]"` |
-| Postgres | `pip install "marivo[postgres]"` |
-| ClickHouse | `pip install "marivo[clickhouse]"` |
-| Trino | `pip install "marivo[trino]"` |
-| 所有已打包的后端 | `pip install "marivo[all]"` |
+| DuckDB | `uv pip install "marivo[duckdb]"` |
+| SQLite | `uv pip install "marivo[sqlite]"` |
+| MySQL | `uv pip install "marivo[mysql]"` |
+| Postgres | `uv pip install "marivo[postgres]"` |
+| ClickHouse | `uv pip install "marivo[clickhouse]"` |
+| Trino | `uv pip install "marivo[trino]"` |
+| 所有已打包的后端 | `uv pip install "marivo[all]"` |
 
 3. 确认安装的版本：
 

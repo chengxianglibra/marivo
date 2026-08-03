@@ -80,7 +80,9 @@ project, then run:
 curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-The installer prepares the local environment and initializes the current directory.
+The installer uses `uv` to prepare a project-local environment and initializes the
+current directory. It runs on macOS, Linux, WSL, and Windows through Git Bash,
+MSYS2, or Cygwin.
 For manual installation, datasource extras, supported platforms, and troubleshooting,
 see [Installation](https://marivo.io/en/latest/installation/).
 
