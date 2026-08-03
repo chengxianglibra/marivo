@@ -67,7 +67,8 @@ Digest item variants are deliberately operator-specific:
 | `correlate` | `AssociationFact` | estimated association, not causal |
 | `hypothesis_test` | `TestDecision` | statistical decision under the declared test |
 | `forecast` | `ForecastOutput` | predicted, not observed |
-| `discover.*` | `AnomalyCandidate` | candidate, not confirmed |
+| Scored `discover.*` | `AnomalyCandidate` | candidate, not confirmed |
+| `discover.semantic_hypotheses` | empty digest | ontology candidate only; no finding is seeded |
 | `assess_quality` | `QualityCheckResult` | evaluated quality predicate |
 | `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
 
@@ -211,7 +212,7 @@ The intended agent loop is:
 6. use bounded session pages to recover state in a later turn.
 
 Affordances preserve exact parameter roles and accepted artifact families, but
-they do not enumerate invocation plans. `CandidateSet.select(rank=1)` returns a
+they do not enumerate invocation plans. `CandidateSet.select(item_id=...)` returns a
 closed typed selection variant that can be passed to the relevant consumer; it
 does not return arbitrary row attributes.
 

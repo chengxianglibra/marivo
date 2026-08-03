@@ -15,6 +15,7 @@ from marivo.analysis._cumulative import (
     normalize_cumulative_anchor,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis.candidate_lineage import CandidateOrigin
 from marivo.analysis.errors import (
     SemanticKindMismatchError,
     SliceEmptyResultError,
@@ -600,8 +601,20 @@ def observe(
     cohort: SubjectSet | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
+    _candidate_origins: tuple[CandidateOrigin, ...] = (),
+    _candidate_input_refs: tuple[str, ...] = (),
 ) -> MetricFrame:
+    from marivo.analysis.frames.candidate import SemanticMetricCandidate
+
     if isinstance(metrics, (list, tuple)):
+        if any(isinstance(item, SemanticMetricCandidate) for item in metrics):
+            from marivo.analysis.errors import CandidateNotObservableError
+
+            raise CandidateNotObservableError(
+                message="SemanticMetricCandidate must be observed as one exact selected value",
+                expected="session.observe(candidate)",
+                received="candidate inside a list or tuple",
+            )
         metric_items: list[_SemanticInput[MetricKind] | RuntimeMetricExpr] = list(metrics)
         if not metric_items:
             raise SemanticKindMismatchError(
@@ -866,6 +879,10 @@ def observe(
                     else None
                 ),
             }
+            if _candidate_origins:
+                params["candidate_origins"] = [
+                    origin.model_dump(mode="json") for origin in _candidate_origins
+                ]
             root_leaf_lineage = (
                 graph_plan.lineage_metadata["physical_leaves"][0]["lineage_metadata"]
                 if graph_plan.lineage_metadata["physical_leaves"]
@@ -938,9 +955,14 @@ def observe(
         prospective_id = compute_prospective_artifact_id(
             step_type="observe",
             inputs=CommitInputs(
-                input_refs=(
-                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
-                )
+                input_refs=[
+                    *(
+                        [resolved_cohort.binding.artifact_ref]
+                        if resolved_cohort is not None
+                        else []
+                    ),
+                    *_candidate_input_refs,
+                ]
             ),
             params=CommitParams(values=params),
             semantic_anchors=commit_anchors,
@@ -1107,17 +1129,21 @@ def observe(
                     LineageStep(
                         intent="observe",
                         job_ref=job_ref,
-                        inputs=(
-                            [resolved_cohort.binding.artifact_ref]
-                            if resolved_cohort is not None
-                            else []
-                        ),
+                        inputs=[
+                            *(
+                                [resolved_cohort.binding.artifact_ref]
+                                if resolved_cohort is not None
+                                else []
+                            ),
+                            *_candidate_input_refs,
+                        ],
                         params_digest=_params_digest(params),
                         analysis_purpose=analysis_purpose,
                         params=params,
                     )
                 ]
             ),
+            candidate_origins=_candidate_origins,
             metric_id=metric_id,
             metric_identity=metric_identity,
             metric_identities=(metric_identity,),
@@ -1286,9 +1312,10 @@ def observe(
             stored_where=stored_where,
             semantic_kind=root_execution.semantic_kind,
             subject_grain=grain_token,
-            input_refs=(
-                [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
-            ),
+            input_refs=[
+                *([resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []),
+                *_candidate_input_refs,
+            ],
         )
         _output_ref = frame.meta.artifact_id or frame.ref
         persist_job_record(
@@ -1300,9 +1327,14 @@ def observe(
                 **_observe_job_semantics(frame),
                 "analysis_purpose": analysis_purpose,
                 "params": params,
-                "input_frame_refs": (
-                    [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
-                ),
+                "input_frame_refs": [
+                    *(
+                        [resolved_cohort.binding.artifact_ref]
+                        if resolved_cohort is not None
+                        else []
+                    ),
+                    *_candidate_input_refs,
+                ],
                 "output_frame_ref": _output_ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),

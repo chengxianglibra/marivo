@@ -153,6 +153,54 @@ class AnalysisError(Exception):
         return "\n".join(lines)
 
 
+class OntologyNotConfiguredError(AnalysisError):
+    """Ontology-guided discovery was requested without authored ontology content."""
+
+    @property
+    def kind(self) -> str:
+        return "ontology_not_configured"
+
+
+class OntologyUnavailableError(AnalysisError):
+    """The project ontology exists but is invalid for the current semantic catalog."""
+
+    @property
+    def kind(self) -> str:
+        return "ontology_unavailable"
+
+
+class MissingMetricLineageError(AnalysisError):
+    """An admitted discovery source has no recoverable catalog Metric identity."""
+
+    @property
+    def kind(self) -> str:
+        return "missing_metric_lineage"
+
+
+class AmbiguousMetricLineageError(AnalysisError):
+    """An admitted discovery source resolves to several catalog Metric identities."""
+
+    @property
+    def kind(self) -> str:
+        return "ambiguous_metric_lineage"
+
+
+class CandidateNotObservableError(AnalysisError):
+    """A semantic-hypothesis candidate cannot be safely observed."""
+
+    @property
+    def kind(self) -> str:
+        return "candidate_not_observable"
+
+
+class CandidateScopeOverrideForbiddenError(AnalysisError):
+    """Candidate observation attempted to replace its inherited scope."""
+
+    @property
+    def kind(self) -> str:
+        return "candidate_scope_override_forbidden"
+
+
 def _candidates_preview(available: object, limit: int = 10) -> tuple[str, ...]:
     """Extract a bounded tuple of candidate strings from context."""
 
@@ -427,17 +475,27 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
             )
         row_count = self._context.get("row_count")
-        requested_rank = self._context.get("requested_rank")
-        if isinstance(row_count, int) and isinstance(requested_rank, int):
+        requested_item_id = self._context.get("item_id")
+        match_count = self._context.get("match_count")
+        if (
+            isinstance(row_count, int)
+            and isinstance(requested_item_id, str)
+            and isinstance(match_count, int)
+        ):
             return _DerivedFields(
-                expected="rank within candidate set row count",
-                received=f"rank={requested_rank}, row_count={row_count}",
-                location="CandidateSet.select rank argument",
+                expected="one exact item_id from this CandidateSet",
+                received=(
+                    f"item_id={requested_item_id!r}, match_count={match_count}, "
+                    f"row_count={row_count}"
+                ),
+                location="CandidateSet.select item_id argument",
                 repair=AnalysisRepair(
                     kind="retry",
-                    action="Use a rank within the candidate set's row count.",
+                    action="Copy one exact item_id rendered by CandidateSet.show().",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
-                    snippet=("if cands.meta.row_count >= 1:\n    selection = cands.select(rank=1)"),
+                    snippet=(
+                        'cands.show()\nselection = cands.select(item_id="candidate_<full sha256>")'
+                    ),
                 ),
             )
         objective = self._context.get("objective")
@@ -593,7 +651,8 @@ class SemanticKindMismatchError(AnalysisError):
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         "cands = session.discover.point_anomalies(metric)\n"
-                        "selection = cands.select(rank=1)"
+                        "cands.show()\n"
+                        'selection = cands.select(item_id="candidate_<full sha256>")'
                     ),
                 ),
             )

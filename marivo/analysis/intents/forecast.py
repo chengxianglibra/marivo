@@ -27,6 +27,7 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._derived import (
+    compose_candidate_origins,
     compose_lineage,
     ensure_frame_in_session,
     gen_ref,
@@ -166,6 +167,7 @@ def forecast(
                 analysis_purpose=analysis_purpose,
             ),
         ),
+        candidate_origins=compose_candidate_origins((history,)),
         source_refs=[history.ref],
         metric_id=history.meta.metric_id,
         semantic_model=history.meta.semantic_model,

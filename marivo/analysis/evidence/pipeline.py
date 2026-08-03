@@ -682,6 +682,19 @@ def _extract_findings(
         )
     else:
         findings = []
+    if extractor_family in {"association_result", "hypothesis_test_result"}:
+        candidate_origins = tuple(getattr(meta, "candidate_origins", ()))
+        if candidate_origins:
+            findings = [
+                finding.model_copy(
+                    update={
+                        "derivation": finding.derivation.model_copy(
+                            update={"candidate_origins": candidate_origins}
+                        )
+                    }
+                )
+                for finding in findings
+            ]
     return _FINDINGS_ADAPTER.validate_python(findings)
 
 

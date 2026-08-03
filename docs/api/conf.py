@@ -1,7 +1,8 @@
 """Sphinx configuration for the Marivo Python API reference.
 
 Builds an HTML reference for the public Python surface
-(``marivo.datasource``, ``marivo.semantic``, ``marivo.analysis``) from each
+(``marivo.datasource``, ``marivo.semantic``, ``marivo.analysis``,
+``marivo.ontology``) from each
 module's ``__all__`` exports and Google-style docstrings. The output is
 published as a static subtree at ``/api/`` by the Astro site.
 """

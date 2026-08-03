@@ -134,6 +134,7 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "as_slice",
             "as_window",
             "as_cross_sectional_outlier",
+            "as_semantic_hypothesis",
         ),
     }
 )
@@ -170,6 +171,7 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "DataQualityIssue",
             "ComparabilityIssue",
             "EvidenceAvailabilityIssue",
+            "CandidateResolutionIssue",
         ),
         "CandidateSelection": (
             "PointAnomalySelection",
@@ -178,6 +180,7 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "SliceSelection",
             "WindowSelection",
             "CrossSectionalOutlierSelection",
+            "SemanticMetricCandidate",
         ),
         "EventFrame": (
             "journey",
@@ -438,6 +441,9 @@ class CapabilityRegistry:
             elif (
                 isinstance(descriptor, ConstructorCapability)
                 and descriptor.produced_input_family == input_family
+            ) or (
+                isinstance(descriptor, ReadCapability)
+                and descriptor.produced_input_family == input_family
             ):
                 targets.append(
                     LiveHelpTarget(
@@ -647,7 +653,9 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.session.core.Session.observe",
             receiver="Session",
             accepted_inputs={
-                "metrics": frozenset({"MetricSemantic", "RuntimeMetricExpression"}),
+                "metrics": frozenset(
+                    {"MetricSemantic", "RuntimeMetricExpression", "SemanticMetricCandidate"}
+                ),
                 "time_scope": frozenset({"TimeScopeInput"}),
                 "dimensions": _FIELD_SEMANTIC,
                 "slice_by": _FIELD_SEMANTIC,
@@ -1252,6 +1260,35 @@ def _build_registry() -> CapabilityRegistry:
             )
         )
 
+    descriptors.append(
+        OperatorCapability(
+            id="discover.semantic_hypotheses",
+            public_entrypoint="session.discover.semantic_hypotheses(source, limit=50)",
+            help_target="discover.semantic_hypotheses",
+            summary=(
+                "Resolve bounded unscored Metric hypotheses through one explicit "
+                "ontology edge while preserving the exact source scope."
+            ),
+            root_group="typed_analysis",
+            root_visibility="grouped",
+            constraint_ids=("frame_kind_compatible",),
+            callable_path=(
+                "marivo.analysis.session.core.SessionDiscoverNamespace.semantic_hypotheses"
+            ),
+            receiver="SessionDiscoverNamespace",
+            accepted_inputs={"source": _MF_OR_DF},
+            artifact_admission={
+                "source": ArtifactAdmissionRule(
+                    semantic_shapes={
+                        "MetricFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
+                        "DeltaFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
+                    }
+                )
+            },
+            output_contract=_output("CandidateSet", shapes=("semantic_hypothesis",)),
+        )
+    )
+
     # -- Transform operators ----------------------------------------------
 
     shared_transform_ops: tuple[
@@ -1400,7 +1437,7 @@ def _build_registry() -> CapabilityRegistry:
             id="CandidateSet.select",
             public_entrypoint="cands.select(...)",
             help_target="CandidateSet.select",
-            summary="Return one closed shape-specific selection from a ranked candidate row.",
+            summary="Return one closed shape-specific selection by its stable item_id.",
             root_group="family_operations",
             root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
@@ -1408,6 +1445,7 @@ def _build_registry() -> CapabilityRegistry:
             receiver_family="CandidateSet",
             result_kind="defensive_copy",
             read_bound="bounded",
+            produced_input_family="SemanticMetricCandidate",
         )
     )
 
@@ -1427,6 +1465,7 @@ def _build_registry() -> CapabilityRegistry:
                 "as_slice",
                 "as_window",
                 "as_cross_sectional_outlier",
+                "as_semantic_hypothesis",
             ),
         ),
     ):

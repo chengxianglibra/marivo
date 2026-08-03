@@ -19,6 +19,7 @@ from marivo.introspection.live.resolve import (
 
 def _build_type_registry() -> MappingProxyType[type, str]:
     """Build the exact public analysis type index."""
+    from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
     from marivo.analysis.event import (
         CompletenessDeclaration,
         EventPattern,
@@ -58,6 +59,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
         DriverAxisSelection,
         PeriodShiftSelection,
         PointAnomalySelection,
+        SemanticMetricCandidate,
         SliceSelection,
         WindowSelection,
     )
@@ -129,6 +131,9 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             SliceSelection: "SliceSelection",
             WindowSelection: "WindowSelection",
             CrossSectionalOutlierSelection: "CrossSectionalOutlierSelection",
+            SemanticMetricCandidate: "SemanticMetricCandidate",
+            CandidateOrigin: "CandidateOrigin",
+            CandidateResolutionIssue: "CandidateResolutionIssue",
             PatternStep: "PatternStep",
             EventPattern: "EventPattern",
             FirstPerSubject: "FirstPerSubject",

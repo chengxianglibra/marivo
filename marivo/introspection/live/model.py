@@ -26,7 +26,7 @@ class SurfaceLimits:
 
 SURFACE_LIMITS = SurfaceLimits()
 
-HelpSurface = Literal["analysis", "datasource", "semantic"]
+HelpSurface = Literal["analysis", "datasource", "semantic", "ontology"]
 
 
 class EnvironmentFingerprint(BaseModel):

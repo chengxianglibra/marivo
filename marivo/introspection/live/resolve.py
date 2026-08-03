@@ -182,6 +182,7 @@ _HELP_TARGET_PREFIXES = (
     "mv.",
     "ms.",
     "md.",
+    "mo.",
 )
 
 

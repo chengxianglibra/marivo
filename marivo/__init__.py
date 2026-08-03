@@ -1,10 +1,11 @@
-"""Marivo's public datasource, semantic, analysis, and help surfaces.
+"""Marivo's public datasource, semantic, analysis, ontology, and help surfaces.
 
-Use the three supported imports:
+Use the four supported imports:
 
     import marivo.datasource as md
     import marivo.semantic as ms
     import marivo.analysis as mv
+    import marivo.ontology as mo
 
 Inspect the installed environment with:
 

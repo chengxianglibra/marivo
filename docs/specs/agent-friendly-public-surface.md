@@ -16,14 +16,15 @@ sources of truth.
 
 ## Who the reader is
 
-Marivo's public surface is the Python library: one global help coordinator and
-three execution modules:
+Marivo's public surface is the Python library: one global help coordinator,
+three execution modules, and one optional knowledge extension:
 
 ```python
 import marivo                    # bounded global and focused help
 import marivo.datasource as md   # physical connections + datasource evidence
 import marivo.semantic  as ms    # the business-object contract
 import marivo.analysis  as mv    # typed, composable analysis operators
+import marivo.ontology  as mo    # optional reviewed semantic relationships
 ```
 
 The primary consumer of this surface is not a human at a REPL. It is a coding
@@ -160,19 +161,23 @@ discovery; one bounded `show()` for deliberate inspection; state-derived help
 only when something is wrong — is what lets an agent run a ten-step script
 without drowning, and still recover the moment it inspects any object.
 
-## Three surfaces, one pipeline
+## Three execution surfaces, one optional extension
 
-The public surface is deliberately just three modules, because they are the
-three stages of one pipeline. Semantic identity flows strictly forward:
+The executable core is deliberately three modules because they are the three
+stages of one pipeline. Semantic identity flows strictly forward:
 qualifying runtime calls may receive a current entry, but only its canonical ref
 continues into persistence and recovery. Nothing downstream depends on the file
-layout or internals of anything upstream.
+layout or internals of anything upstream. `marivo.ontology` is an optional fourth
+public module: it references semantic identities and supplies reviewed context to
+one bounded analysis-discovery bridge, but it cannot define or alter executable
+semantic meaning.
 
 | Surface | Alias | Answers | Produces |
 |---|---|---|---|
 | `marivo.datasource` | `md` | "What physical connections exist, and what do their tables actually look like?" | datasource refs, connections, and bounded **evidence** (`DatasourceResult`) |
 | `marivo.semantic` | `ms` | "Which stable business objects can downstream analysis reference?" | typed semantic refs + a loadable `SemanticCatalog` |
 | `marivo.analysis` | `mv` | "What did the metric do, and why?" | typed analysis frames/results over a `Session` |
+| `marivo.ontology` | `mo` | "Which reviewed relationships may suggest a hypothesis?" | typed, contextual `influences` / `related_to` edges and a bounded catalog |
 
 > **Catalog object navigation:** The semantic catalog exposes typed collections
 > (`catalog.domains`, `catalog.metrics`, etc.) and concrete catalog objects
@@ -183,6 +188,8 @@ The hand-offs are typed and one-directional:
 
 ```text
 md (physical)  ──evidence──▶  ms (business contract)  ──current entry or exact ref──▶  mv (typed analysis)
+                                  │                                      ▲
+                                  └──typed refs──▶ mo (optional context) ─┘
 ```
 
 - `md` supplies the *physical facts* an agent needs to author semantics, but it
@@ -195,9 +202,14 @@ md (physical)  ──evidence──▶  ms (business contract)  ──current en
   consumes closed runtime expressions. Persistence, lineage, evidence, replay,
   and recovery remain ref-based. It never reaches into a user project's Python
   file layout.
+- `mo` can propose only an unscored semantic hypothesis through
+  `mv.Session.discover.semantic_hypotheses`; explicit selection and observation
+  are required before statistical analysis, and no ontology edge is causal
+  evidence.
 
-Because the three execution surfaces are snapshot-gated and share one help
-coordinator, an agent can hold the public vocabulary in mind. Surface growth is
+Because the three execution surfaces and optional ontology extension are
+snapshot-gated and share one help coordinator, an agent can hold the public
+vocabulary in mind. Surface growth is
 a reviewed event: `tests/test_public_surface.py` pins each `__all__`, and
 `marivo.help()` folds supporting types (refs, detail shapes, IR) into families
 so the top-level index stays short even as the surface grows.

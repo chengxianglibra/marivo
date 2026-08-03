@@ -453,8 +453,9 @@ Report 的 `contract().issues` 包含类型化数据质量失败。存在 blocki
 
 ## Discovery —— `session.discover.*` → `CandidateSet`
 
-Discovery operators 在一个 artifact 中搜索确定性候选行，并返回 `CandidateSet`。候选行顺序
-是确定性 score order，不是 Marivo 的推荐。
+Discovery operators 在一个 artifact 中搜索确定性候选行，并返回 `CandidateSet`。有分数的
+objectives 使用确定性 score order；ontology hypothesis 不打分，按确定性语义身份排序。
+两种顺序都不是 Marivo 的推荐。
 
 | Helper | 源形状 | 必填 | 关键选项 |
 | --- | --- | --- | --- |
@@ -464,17 +465,33 @@ Discovery operators 在一个 artifact 中搜索确定性候选行，并返回 `
 | `interesting_slices` | `MetricFrame` 或 `DeltaFrame` | — | `search_space`、`value`、`threshold=2.0`、`limit` |
 | `interesting_windows` | time_series/panel frame | — | `value`、`threshold=2.0` |
 | `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`、`value`、`threshold=3.0` |
+| `semantic_hypotheses` | 单一 catalog Metric 的 `MetricFrame` 或同 Metric `DeltaFrame` | ready 的可选 ontology | `limit=50`（`1..200`） |
 
 ```python
 series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
-selection = candidates.select(rank=1)
+item_id = str(candidates.to_pandas().iloc[0]["item_id"])
+selection = candidates.select(item_id=item_id)
 print(selection.kind, selection.window, selection.keys)
 ```
 
-`select(rank=1)` 返回与 candidate shape 对应的封闭、不可变 selection variant。
-它不接受任意 attribute 名，也不会创建 job、artifact、lineage step 或 evidence 记录。
+`select(item_id=...)` 返回与 candidate shape 对应的封闭、不可变 selection variant，
+不接受数字 rank。selection 不会创建 job、artifact、lineage step 或 evidence 记录。
+
+当源 artifact 的 `contract()` 给出可选 ontology continuation 时，把它作为不打分的
+hypothesis 路径使用：
+
+```python
+hypotheses = session.discover.semantic_hypotheses(series, limit=50)
+hypotheses.show()  # edge 含义、guardrails、exclusions 和可复制的 item_id
+candidate = hypotheses.select(item_id="candidate_<full-sha256>")
+driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis")
+```
+
+选中的 `SemanticMetricCandidate` 继承源 observation scope，任何 scope override 都会被拒绝。
+Ontology edge 和 candidate 不会生成 finding，也不构成因果证明。只有显式 observe 并运行合适的
+下游 operator 后，才会产生统计证据。
 
 ## Transform 参考 —— `frame.transform.*`
 

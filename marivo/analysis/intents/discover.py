@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
+from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import (
     DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
@@ -28,9 +29,10 @@ from marivo.analysis.frames.candidate import (
     CandidateObjective,
     CandidateSet,
     CandidateSetMeta,
-    CandidateShape,
     CandidateSourceKind,
     CandidateStrategy,
+    ScoredCandidateObjective,
+    ScoredCandidateShape,
 )
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
@@ -39,6 +41,7 @@ from marivo.analysis.intents._candidate_columns import (
     validate_shape_columns,
 )
 from marivo.analysis.intents._derived import (
+    compose_candidate_origins,
     compose_lineage,
     ensure_frame_in_session,
     gen_ref,
@@ -65,7 +68,7 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
-_DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
+_DEFAULT_STRATEGY: dict[ScoredCandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
     "period_shifts": "delta_window_zscore",
     "driver_axes": "concentration",
@@ -74,7 +77,7 @@ _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "cross_sectional_outliers": "mad",
 }
 
-_OBJECTIVE_TO_SHAPE: dict[CandidateObjective, CandidateShape] = {
+_OBJECTIVE_TO_SHAPE: dict[ScoredCandidateObjective, ScoredCandidateShape] = {
     "point_anomalies": "point_anomaly",
     "period_shifts": "period_shift",
     "driver_axes": "driver_axis",
@@ -85,7 +88,7 @@ _OBJECTIVE_TO_SHAPE: dict[CandidateObjective, CandidateShape] = {
 
 _VALID_OBJECTIVES = set(_OBJECTIVE_TO_SHAPE.keys())
 
-_OBJECTIVE_SEMANTIC_KINDS: dict[CandidateObjective, set[str]] = {
+_OBJECTIVE_SEMANTIC_KINDS: dict[ScoredCandidateObjective, set[str]] = {
     "point_anomalies": {"time_series", "panel"},
     "period_shifts": {"time_series", "panel"},
     "driver_axes": {"scalar", "time_series", "segmented", "panel"},
@@ -94,7 +97,7 @@ _OBJECTIVE_SEMANTIC_KINDS: dict[CandidateObjective, set[str]] = {
     "cross_sectional_outliers": {"segmented", "panel"},
 }
 
-_OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
+_OBJECTIVE_REQUIRED_KWARGS: dict[ScoredCandidateObjective, tuple[str, ...]] = {
     "point_anomalies": (),
     "period_shifts": (),
     "driver_axes": ("search_space",),
@@ -103,7 +106,7 @@ _OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
     "cross_sectional_outliers": (),
 }
 
-_OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
+_OBJECTIVE_THRESHOLD: dict[ScoredCandidateObjective, dict[str, Any] | None] = {
     "point_anomalies": {
         "method": "zscore",
         "default": 3.0,
@@ -133,7 +136,7 @@ _OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
 }
 
 
-def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
+def _is_valid_objective(objective: str) -> TypeGuard[ScoredCandidateObjective]:
     return objective in _VALID_OBJECTIVES
 
 
@@ -268,9 +271,15 @@ def _discover_dispatch(
         search_space=search_space_ids,
         peer_scope=peer_scope_ids,
     )
+    source_artifact_ref = source.meta.artifact_id or source.ref
     rows, limit_info = _apply_limit(rows, limit)
     params = {**params, **limit_info}
     df = build_union_columns(shape, rows)
+    assign_scored_frame_item_ids(
+        shape=shape,
+        source_artifact_ref=source_artifact_ref,
+        dataframe=df,
+    )
     validate_shape_columns(shape, df)
 
     full_params: dict[str, Any] = {
@@ -306,10 +315,11 @@ def _discover_dispatch(
                 analysis_purpose=analysis_purpose,
             ),
         ),
+        candidate_origins=compose_candidate_origins((source,)),
         shape=shape,
         objective=discover_objective,
         strategy=resolved_strategy,
-        source_ref=source.ref,
+        source_ref=source_artifact_ref,
         source_kind=source_kind,
         metric_ids=[source.meta.metric_id],
         semantic_kind=cast(
@@ -334,12 +344,12 @@ def _discover_dispatch(
         "anomaly",
     ] = (
         "time"
-        if frame.meta.semantic_kind == "time_series"
+        if meta.semantic_kind == "time_series"
         else "segment"
-        if frame.meta.semantic_kind == "segmented"
+        if meta.semantic_kind == "segmented"
         else "panel"
-        if frame.meta.semantic_kind == "panel"
-        else frame.meta.semantic_kind
+        if meta.semantic_kind == "panel"
+        else meta.semantic_kind
     )
     observed_window = source.meta.window if hasattr(source.meta, "window") else None
     frame = cast(
@@ -517,13 +527,13 @@ class DiscoverAPI:
 discover = DiscoverAPI()
 
 
-_STRATEGY_ALTERNATIVES: dict[CandidateObjective, set[CandidateStrategy]] = {
+_STRATEGY_ALTERNATIVES: dict[ScoredCandidateObjective, set[CandidateStrategy]] = {
     "point_anomalies": {"seasonal_robust_zscore"},
 }
 
 
 def _resolve_strategy(
-    objective: CandidateObjective, strategy: CandidateStrategy | None
+    objective: ScoredCandidateObjective, strategy: CandidateStrategy | None
 ) -> CandidateStrategy:
     default = _DEFAULT_STRATEGY[objective]
     if strategy is None or strategy == default:
@@ -537,7 +547,7 @@ def _resolve_strategy(
 
 
 def _check_objective_compatibility(
-    objective: CandidateObjective,
+    objective: ScoredCandidateObjective,
     semantic_kind: str,
 ) -> None:
     allowed = _OBJECTIVE_SEMANTIC_KINDS[objective]
@@ -556,7 +566,7 @@ def _check_objective_compatibility(
 
 def _run_scorer(
     *,
-    objective: CandidateObjective,
+    objective: ScoredCandidateObjective,
     source: MetricFrame | DeltaFrame,
     source_kind: CandidateSourceKind,
     value: str | None,
@@ -1008,7 +1018,7 @@ def _dimension_columns_for_ids(
 
 def _require_materialized_axes(
     *,
-    objective: CandidateObjective,
+    objective: ScoredCandidateObjective,
     df: pd.DataFrame,
     axes: list[str],
     dimension_ids: list[str],

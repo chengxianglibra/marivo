@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis._semantic_persistence import SlicePredicateV1
+from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
 from marivo.analysis.errors import AnalysisRepair
 from marivo.refs import RefPayloadV1
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
@@ -310,6 +311,7 @@ class DerivationRule(_FrozenModel):
     operator: str
     source_fields: tuple[str, ...]
     source_finding_refs: tuple[str, ...]
+    candidate_origins: tuple[CandidateOrigin, ...] = ()
 
 
 class ObservationSegmentValue(_FrozenModel):
@@ -986,7 +988,7 @@ class EvidenceAvailabilityIssue(_FrozenModel):
 
 
 ArtifactIssue = Annotated[
-    DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue,
+    DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue | CandidateResolutionIssue,
     Field(discriminator="kind"),
 ]
 ArtifactIssueAdapter: TypeAdapter[ArtifactIssue] = TypeAdapter(ArtifactIssue)

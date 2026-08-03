@@ -476,6 +476,9 @@ class DeltaFrame(BaseFrame):
         contract = super().contract()
         if self.meta.semantic_kind == "funnel":
             return contract
+        from marivo.analysis.ontology_contract import attach_ontology_discovery_preconditions
+
+        contract = attach_ontology_discovery_preconditions(self, contract)
         affordances = []
         for affordance in contract.affordances:
             if affordance.capability_id == "attribute":

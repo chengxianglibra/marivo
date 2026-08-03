@@ -6,6 +6,7 @@ from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
 from marivo.analysis.event import (
     CompletenessDeclaration,
     EventPattern,
@@ -62,6 +63,7 @@ from marivo.analysis.frames.candidate import (
     DriverAxisSelection,
     PeriodShiftSelection,
     PointAnomalySelection,
+    SemanticMetricCandidate,
     SliceSelection,
     WindowSelection,
 )
@@ -138,6 +140,8 @@ __all__ = [
     "AssociationResult",
     "AttributionFrame",
     "CalendarRef",
+    "CandidateOrigin",
+    "CandidateResolutionIssue",
     "CandidateSelection",
     "CandidateSet",
     "ChangeFact",
@@ -175,6 +179,7 @@ __all__ = [
     "PointAnomalySelection",
     "QualityCheckResult",
     "QualityReport",
+    "SemanticMetricCandidate",
     "Session",
     "SliceSelection",
     "SubjectSet",

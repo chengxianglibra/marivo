@@ -44,6 +44,7 @@ def render_bootstrap_help() -> str:
             "  import marivo.datasource as md",
             "  import marivo.semantic as ms",
             "  import marivo.analysis as mv",
+            "  import marivo.ontology as mo",
             "",
             "Focused help is available only through Python:",
             "  Do not append a surface or target to `python -m marivo help`.",

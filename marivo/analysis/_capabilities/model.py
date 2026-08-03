@@ -68,6 +68,7 @@ InputFamily = (
         "LifecycleSeed",
         "SubjectSelection",
         "FunnelLossRate",
+        "SemanticMetricCandidate",
     ]
 )
 
@@ -261,6 +262,7 @@ class ReadCapability(CapabilityBase):
         "immutable_metadata"
     )
     read_bound: Literal["bounded", "terminal"] = "bounded"
+    produced_input_family: InputFamily | None = None
 
 
 @dataclass(frozen=True)

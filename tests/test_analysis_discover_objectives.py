@@ -370,7 +370,7 @@ def test_point_anomalies_select_observed_baseline_delta():
     )
     src = _metric(session, df, semantic_kind="time_series")
     out = session.discover.point_anomalies(src, threshold=2.0)
-    selected = out.select(rank=1)
+    selected = out.select(item_id=str(out.to_pandas().loc[0, "item_id"]))
     assert selected.observed_value == 50.0
     assert isinstance(selected.baseline_value, float)
     assert isinstance(selected.delta, float)
@@ -1084,7 +1084,7 @@ def test_point_anomalies_select_window_raises_when_row_has_no_window():
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [0.0, 0.0, 0.0, 10.0]}),
     )
     out = session.discover.point_anomalies(frame, threshold=1.0)
-    assert out.select(rank=1).window is None
+    assert out.select(item_id=str(out.to_pandas().loc[0, "item_id"])).window is None
 
 
 def test_period_shifts_score_uses_segment_peak_abs_z():

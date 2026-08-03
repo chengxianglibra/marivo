@@ -110,6 +110,11 @@ def render_artifact_issue(issue: ArtifactIssue) -> str:
             f"stage={issue.failed_stage} error={issue.stable_error_category} "
             f"findings_available={str(issue.findings_available).lower()}"
         )
+    from marivo.analysis.candidate_lineage import CandidateResolutionIssue
+
+    if isinstance(issue, CandidateResolutionIssue):
+        metric = issue.metric_ref.path if issue.metric_ref is not None else "none"
+        return f"edge={issue.semantic_edge_ref.key} metric={metric} historical={str(issue.historical).lower()}"
     raise TypeError(f"unsupported artifact issue type {type(issue).__name__}")
 
 

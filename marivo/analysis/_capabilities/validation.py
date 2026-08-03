@@ -134,6 +134,12 @@ def _classify_runtime_metric(value: object) -> str | None:
     return None
 
 
+def _classify_semantic_candidate(value: object) -> str | None:
+    from marivo.analysis.frames.candidate import SemanticMetricCandidate
+
+    return "SemanticMetricCandidate" if type(value) is SemanticMetricCandidate else None
+
+
 def _classify_policy_or_spec(value: object) -> str | None:
     """Classify policy, sampling, time-scope, query-spec, and column-binding values."""
 
@@ -206,6 +212,10 @@ def classify_input_family(value: object) -> str:
     runtime_metric_family = _classify_runtime_metric(value)
     if runtime_metric_family is not None:
         return runtime_metric_family
+
+    candidate_family = _classify_semantic_candidate(value)
+    if candidate_family is not None:
+        return candidate_family
 
     if isinstance(value, Mapping) and value:
         key_families = {_classify_semantic_ref(key) for key in value}

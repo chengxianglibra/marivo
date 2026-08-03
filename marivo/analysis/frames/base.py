@@ -13,6 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from marivo.analysis.candidate_lineage import CandidateOrigin
 from marivo.analysis.errors import (
     AnalysisRepair,
     FrameMutationError,
@@ -281,6 +282,7 @@ class BaseFrameMeta(BaseModel):
     evidence_digest: ArtifactDigest | None = None
     issues: tuple[ArtifactIssue, ...] = ()
     content_hash: str | None = None
+    candidate_origins: tuple[CandidateOrigin, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,6 +493,9 @@ def _render_precondition(
 def _output_family_str(desc: Any) -> str:
     """Return a string representation of a capability descriptor's output family."""
     model_module = importlib.import_module("marivo.analysis._capabilities.model")
+    output_contract = getattr(desc, "output_contract", None)
+    if output_contract is not None:
+        return str(output_contract.render())
     output = desc.output_family
     if isinstance(output, model_module.SameAsInputFamily):
         return f"same as {output.parameter}"

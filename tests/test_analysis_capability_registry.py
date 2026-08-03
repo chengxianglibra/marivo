@@ -740,6 +740,7 @@ def test_all_constraint_ids_are_valid() -> None:
 
 _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "MetricSemantic",
+    "SemanticMetricCandidate",
     "RuntimeMetricExpression",
     "DimensionSemantic",
     "TimeDimensionSemantic",
@@ -812,6 +813,7 @@ def test_every_discover_method_is_registered() -> None:
     from marivo.analysis.session.core import SessionDiscoverNamespace
 
     discover_methods = [
+        "semantic_hypotheses",
         "point_anomalies",
         "period_shifts",
         "driver_axes",
@@ -900,10 +902,11 @@ _REFLECTION_EXCLUDED: dict[str, str] = {
     # -- Per-class contract overrides: MetricFrame and DeltaFrame override
     #    BaseFrame.contract with their own gating logic, so their callable
     #    paths differ from the registered BaseFrame.contract canonical path.
-    #    AttributionFrame.contract and CandidateSet.contract inherit directly
-    #    and are caught by the registered_paths check.
+    #    AttributionFrame.contract inherits directly and is caught by the
+    #    registered_paths check.
     "MetricFrame.contract": "override of BaseFrame.contract, registered via canonical path",
     "DeltaFrame.contract": "override of BaseFrame.contract, registered via canonical path",
+    "CandidateSet.contract": "override of BaseFrame.contract, registered via canonical path",
     # -- Internal metadata accessor
     "MetricFrame.measures_meta": "internal metadata accessor, not a public capability",
 }

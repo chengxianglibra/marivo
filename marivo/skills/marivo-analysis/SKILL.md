@@ -118,6 +118,16 @@ business conclusions. Keep Marivo facts, agent interpretation, and hypotheses
 distinct. Preserve coverage, censoring, reconciliation, and quality boundaries;
 never silently strengthen a claim.
 
+### Ontology-guided hypotheses
+
+Treat a `discover.semantic_hypotheses` affordance as an optional, conditional
+continuation—not as a recommendation. Read its focused live help, inspect the
+returned `CandidateSet.show()` context and exclusions, select one stable
+`item_id`, and explicitly observe the resulting candidate only when it serves
+the investigation. Do not rank unscored ontology candidates, override their
+inherited scope, traverse ontology internals, or describe an edge, candidate,
+association, or test as causal proof.
+
 ## Terminal exits and handoffs
 
 `frame.to_pandas()` and `md.raw_sql(...)` are the only business-row terminal

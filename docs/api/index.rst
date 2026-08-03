@@ -1,8 +1,8 @@
 Marivo Python API Reference
 ===========================
 
-Marivo's public Python surface has one global help coordinator and three
-execution modules. Each module page groups the symbols that module's
+Marivo's public Python surface has one global help coordinator, three execution
+modules, and one optional ontology extension. Each module page groups the symbols that module's
 ``__all__`` exports into thematic sections, generated from the package's
 Google-style docstrings. Every symbol links to its own page.
 
@@ -30,6 +30,8 @@ Use ``python -m marivo help`` to verify the selected environment, then use
      - Declare entities, dimensions, measures, and metrics.
    * - :doc:`analysis <analysis>`
      - Run metric-centered analysis over the semantic layer.
+   * - :doc:`ontology <ontology>`
+     - Author and inspect optional contextual semantic relationships.
 
 .. toctree::
    :maxdepth: 2
@@ -39,6 +41,7 @@ Use ``python -m marivo help`` to verify the selected environment, then use
    datasource
    semantic
    analysis
+   ontology
 
 Indices
 -------

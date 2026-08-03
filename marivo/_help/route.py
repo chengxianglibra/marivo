@@ -20,28 +20,33 @@ from marivo.introspection.live.resolve import (
     resolve_live_target,
 )
 
-_SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis")
+_SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
 _GLOBAL_TOPICS = frozenset({"authoring", "load"})
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
     from marivo.analysis._capabilities.model import CapabilityDescriptor
+    from marivo.ontology._capabilities.registry import OntologyDescriptor
 
 
 def _native_surface(
     owner: HelpSurface,
-) -> LiveSurface[AuthoringCapability] | LiveSurface[CapabilityDescriptor]:
+) -> LiveSurface[ResolvableHelpDescriptor]:
     if owner == "datasource":
         from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 
-        return DATASOURCE_LIVE_SURFACE
+        return cast("LiveSurface[ResolvableHelpDescriptor]", DATASOURCE_LIVE_SURFACE)
     if owner == "semantic":
         from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
-        return SEMANTIC_LIVE_SURFACE
+        return cast("LiveSurface[ResolvableHelpDescriptor]", SEMANTIC_LIVE_SURFACE)
+    if owner == "ontology":
+        from marivo.ontology._capabilities.surface import ONTOLOGY_LIVE_SURFACE
+
+        return cast("LiveSurface[ResolvableHelpDescriptor]", ONTOLOGY_LIVE_SURFACE)
     from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 
-    return ANALYSIS_LIVE_SURFACE
+    return cast("LiveSurface[ResolvableHelpDescriptor]", ANALYSIS_LIVE_SURFACE)
 
 
 def _native_target_error(owner: HelpSurface) -> type[Exception]:
@@ -53,6 +58,10 @@ def _native_target_error(owner: HelpSurface) -> type[Exception]:
         from marivo.semantic.errors import SemanticHelpTargetError
 
         return SemanticHelpTargetError
+    if owner == "ontology":
+        from marivo.ontology.errors import OntologyHelpTargetError
+
+        return OntologyHelpTargetError
     from marivo.analysis.errors import HelpTargetError
 
     return HelpTargetError
@@ -75,7 +84,7 @@ def _resolve_one(target: object, owner: HelpSurface) -> NativeHelpRoute | None:
         return None
     return NativeHelpRoute(
         owner=owner,
-        resolved=cast("ResolvedLiveTarget[ResolvableHelpDescriptor]", resolved),
+        resolved=resolved,
         original_target=target,
     )
 
@@ -126,7 +135,7 @@ def route_help_target(target: object | None) -> HelpRoute:
         routes.append(
             NativeHelpRoute(
                 owner=owner,
-                resolved=cast("ResolvedLiveTarget[ResolvableHelpDescriptor]", resolved),
+                resolved=resolved,
                 original_target=target,
             )
         )
@@ -162,6 +171,10 @@ def render_surface_root(route: SurfaceRootHelpRoute) -> str:
         from marivo.semantic._capabilities.render import render_root_help
 
         return render_root_help()
+    if route.owner == "ontology":
+        from marivo.ontology._capabilities.render import render_root_help
+
+        return render_root_help()
     from marivo.analysis._capabilities.render import render_root_help
 
     return render_root_help()
@@ -185,6 +198,15 @@ def render_native_route(route: NativeHelpRoute) -> str:
 
         return render_semantic_target(
             cast("ResolvedLiveTarget[AuthoringCapability]", route.resolved),
+            original_target=route.original_target,
+        )
+    if route.owner == "ontology":
+        from marivo.ontology._capabilities.render import (
+            render_help_target as render_ontology_target,
+        )
+
+        return render_ontology_target(
+            cast("ResolvedLiveTarget[OntologyDescriptor]", route.resolved),
             original_target=route.original_target,
         )
     from marivo.analysis._capabilities.render import (
