@@ -29,6 +29,7 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._derived import (
+    compose_candidate_origins,
     compose_lineage,
     ensure_frame_in_session,
     gen_ref,
@@ -210,6 +211,7 @@ def hypothesis_test(
                 analysis_purpose=analysis_purpose,
             ),
         ),
+        candidate_origins=compose_candidate_origins((a, b)),
         source_refs=source_refs,
         metric_ids=[a.meta.metric_id, b.meta.metric_id],
         semantic_kinds=[a.meta.semantic_kind, b.meta.semantic_kind],

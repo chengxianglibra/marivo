@@ -17,6 +17,7 @@ from marivo.analysis._cumulative import cumulative_compare_anchor
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -630,6 +631,7 @@ def _build_delta_component_frame(
     parent_ref: str,
     source_component: ComponentFrame,
     job_ref: str,
+    candidate_origins: tuple[CandidateOrigin, ...],
 ) -> ComponentFrame:
     """Build a delta component frame after all fallible alignment succeeds."""
     comp_ref = make_component_artifact_id(parent_ref)
@@ -642,6 +644,7 @@ def _build_delta_component_frame(
         row_count=len(df),
         byte_size=0,
         lineage=Lineage(),
+        candidate_origins=candidate_origins,
         parent_ref=parent_ref,
         parent_kind="delta_frame",
         metric_identity=source_component.meta.metric_identity,
@@ -961,6 +964,10 @@ def compare(
             parent_ref=prospective_id,
             source_component=current_component,
             job_ref=job_ref,
+            candidate_origins=merge_candidate_origins(
+                current.meta.candidate_origins,
+                baseline.meta.candidate_origins,
+            ),
         )
 
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
@@ -1001,6 +1008,10 @@ def compare(
                 params_digest=digest,
                 analysis_purpose=analysis_purpose,
             ),
+        ),
+        candidate_origins=merge_candidate_origins(
+            current.meta.candidate_origins,
+            baseline.meta.candidate_origins,
         ),
         metric_identity=current_identity,
         baseline_metric_identity=baseline_identity,

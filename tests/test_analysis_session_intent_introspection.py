@@ -22,10 +22,16 @@ from marivo.analysis.session.core import (
     SessionDiscoverNamespace,
 )
 
-_HIDDEN = {"self", "session", "_triggered_by"}
+_HIDDEN = {
+    "self",
+    "session",
+    "_triggered_by",
+    "_candidate_origins",
+    "_candidate_input_refs",
+}
 
 _INTENT_TO_METHOD: dict[str, str] = {}
-_MULTI_LANE_DISPATCHERS = {"attribute", "compare"}
+_MULTI_LANE_DISPATCHERS = {"attribute", "compare", "observe"}
 
 # Discover is exposed as a session namespace property.
 # Frame transforms live on frame.transform (MetricFrameTransforms / DeltaFrameTransforms).
@@ -90,10 +96,13 @@ def test_signature_matches_intent_public_params(method: Any, intent: Any) -> Non
 def test_multi_lane_dispatcher_signatures_are_explicit() -> None:
     compare = inspect.signature(Session.compare)
     attribute = inspect.signature(Session.attribute)
+    observe = inspect.signature(Session.observe)
     assert str(compare.parameters["current"].annotation) == "MetricFrame | EventFrame"
     assert str(compare.parameters["baseline"].annotation) == "MetricFrame | EventFrame"
     assert "target" in attribute.parameters
     assert str(attribute.parameters["target"].annotation) == "FunnelLossRate | None"
+    assert "SemanticMetricCandidate" in str(observe.parameters["metrics"].annotation)
+    assert "analysis_purpose" in observe.parameters
 
 
 def test_discover_namespace_methods_have_docstrings() -> None:

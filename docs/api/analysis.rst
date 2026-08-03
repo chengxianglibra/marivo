@@ -90,6 +90,8 @@ Analysis results and selections
    SliceSelection
    WindowSelection
    CrossSectionalOutlierSelection
+   SemanticMetricCandidate
+   CandidateOrigin
 
 Evidence
 --------
@@ -116,6 +118,7 @@ operator-local read model; it never performs cross-artifact judgment.
    DataQualityIssue
    ComparabilityIssue
    EvidenceAvailabilityIssue
+   CandidateResolutionIssue
 
 Bounded pages
 -------------

@@ -16,6 +16,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
+from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import CrossSessionFrameError, SemanticKindMismatchError
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -168,6 +169,11 @@ def compose_lineage(sources: Iterable[BaseFrame], *, step: LineageStep) -> Linea
     return Lineage(steps=all_steps, external_inputs=sorted(external_inputs))
 
 
+def compose_candidate_origins(sources: Iterable[BaseFrame]) -> tuple[CandidateOrigin, ...]:
+    """Merge persisted candidate origins in public source order."""
+    return merge_candidate_origins(*(source.meta.candidate_origins for source in sources))
+
+
 def persist_attribution_frame(
     *,
     session: Session,
@@ -219,6 +225,7 @@ def persist_attribution_frame(
                 analysis_purpose=analysis_purpose,
             ),
         ),
+        candidate_origins=compose_candidate_origins(sources),
         metric_ids=metric_ids,
         source_refs=source_refs,
         scope_delta_ref=source_refs[0] if source_refs else None,

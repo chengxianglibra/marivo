@@ -122,8 +122,9 @@ one instead of a single monolithic manual:
 - **Live surfaces — capabilities and runtime guidance.**
   `python -m marivo help` verifies the selected environment and hands off to
   Python. `marivo.help()` is a short global index; the exact surface names
-  `marivo.help("datasource")`, `marivo.help("semantic")`, and
-  `marivo.help("analysis")` open their native bounded indexes. Registered
+  `marivo.help("datasource")`, `marivo.help("semantic")`,
+  `marivo.help("analysis")`, and optional `marivo.help("ontology")` open their
+  native bounded indexes. Registered
   namespace topics such as `analysis.events` and `analysis.lifecycle` list
   their real capability members. Focused
   `marivo.help("analysis.<target>")` (for example `analysis.observe`,
@@ -177,6 +178,14 @@ history; `assess_quality` to gate any of them. Concrete intent paths, compositio
 patterns, and report shape are the agent's responsibility; the `marivo-analysis`
 skill owns boundaries and handoffs only. The mechanical next actions from any
 given artifact come from its `contract()`.
+
+When a Session has a ready optional ontology binding, a compatible arity-one
+MetricFrame or same-Metric DeltaFrame contract also exposes
+`discover.semantic_hypotheses`. That continuation returns unscored candidates
+derived from one explicit ontology edge plus semantic-catalog resolution. The
+agent must inspect the persisted context, select a stable `item_id`, and explicitly
+observe the resulting `SemanticMetricCandidate`; Marivo never auto-executes or
+promotes it to a causal fact.
 
 ### Catalog-backed semantic inputs
 

@@ -762,6 +762,9 @@ class MetricFrame(BaseFrame):
         ``meta.rollup_fold`` is set.
         """
         contract = super().contract()
+        from marivo.analysis.ontology_contract import attach_ontology_discovery_preconditions
+
+        contract = attach_ontology_discovery_preconditions(self, contract)
         anchor = _cumulative_anchor(self.meta.cumulative)
         blocker = cumulative_compare_blocker(self.meta.cumulative)
         if self.meta.cumulative is not None and blocker is not None:

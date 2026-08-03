@@ -1,6 +1,6 @@
 # Marivo Ontology Extension Design
 
-Status: design reviewed; implementation pending
+Status: implemented
 
 Date: 2026-07-13
 
@@ -520,8 +520,11 @@ are closed shape-discriminated unions. Existing scored shapes use
 `ScoredCandidateSetMeta`, which requires their current `strategy`; the
 `semantic_hypothesis` shape uses `SemanticHypothesisCandidateSetMeta`, with
 `objective="semantic_hypotheses"` and no strategy or score field. Neither
-variant inherits fields required only by the other. Its persisted row schema
-contains exactly the scalar/ref fields above;
+variant inherits fields required only by the other. Its logical row schema
+contains exactly the five scalar/ref fields above. The existing shared physical
+CandidateSet union layout also contains the other shapes' columns with neutral
+values; those columns carry no semantic-hypothesis meaning and validation rejects
+any non-neutral value.
 `SemanticMetricCandidate` is never a DataFrame cell or a serialized arbitrary
 object. Shared source Metric, source Entity, ontology/semantic catalog
 fingerprints, inherited-scope fingerprint, and the closed `resolution_summary`
@@ -611,9 +614,10 @@ different valid candidate is observed.
 If recovery cannot validate an exclusion's historical refs against the live
 catalog, the issue is marked historical and offers inspect/environment repair
 instead of a stale retry snippet. Existing scored discovery shapes retain their
-existing score/strategy row schema unchanged. The shared candidate-column
-layout and persistence validator must reject a score for the semantic-hypothesis
-shape and reject ontology-only columns for every other shape.
+existing logical score/strategy row contract unchanged. The shared
+candidate-column layout and persistence validator must reject a score for the
+semantic-hypothesis shape and reject non-neutral ontology-only columns for every
+other shape.
 
 ### Explicit re-entry into analysis
 
@@ -1155,7 +1159,9 @@ The design is accepted when:
 
 ## Implementation Boundary
 
-This document specifies a future public contract only.
+This document specifies the shipped public contract for the ontology discovery
+extension. The implementation remains optional at runtime: ordinary semantic,
+Metric, Event, and Lifecycle paths do not require an ontology root.
 
 SemanticEdge authoring, session binding/recovery, ontology loading, candidate
 discovery, uniform item-id candidate selection, inherited-scope validation,
@@ -1192,5 +1198,5 @@ The ontology extension may ship after the companion delivery slices that own
 the semantic refs it exposes. It is never a prerequisite for current Metric
 analysis or any Event/Lifecycle execution slice.
 
-This specification revision does not implement runtime code, skills, or site
-documentation.
+This specification revision is implemented together with its runtime, live-help,
+packaged-skill, test, and English/Chinese latest-site documentation surfaces.

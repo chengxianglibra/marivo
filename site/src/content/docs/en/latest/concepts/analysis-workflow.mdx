@@ -525,8 +525,9 @@ Paired test of whether a metric's mean changed between two periods.
 ## Discovery — `session.discover.*` → `CandidateSet`
 
 Discovery operators search an artifact for deterministic candidate rows and
-return a `CandidateSet`. Candidate row order is a deterministic score order, not
-a recommendation from Marivo.
+return a `CandidateSet`. Scored objectives use deterministic score order;
+ontology hypotheses are unscored and use deterministic semantic identity order.
+Neither order is a recommendation from Marivo.
 
 | Helper | Source shape | Required | Key options |
 | --- | --- | --- | --- |
@@ -536,18 +537,35 @@ a recommendation from Marivo.
 | `interesting_slices` | `MetricFrame` or `DeltaFrame` | — | `search_space`, `value`, `threshold=2.0`, `limit` |
 | `interesting_windows` | time_series/panel frame | — | `value`, `threshold=2.0` |
 | `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`, `value`, `threshold=3.0` |
+| `semantic_hypotheses` | arity-one catalog `MetricFrame` or same-Metric `DeltaFrame` | ready optional ontology | `limit=50` (`1..200`) |
 
 ```python
 series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
-selection = candidates.select(rank=1)
+item_id = str(candidates.to_pandas().iloc[0]["item_id"])
+selection = candidates.select(item_id=item_id)
 print(selection.kind, selection.window, selection.keys)
 ```
 
-`select(rank=1)` returns a closed immutable selection variant for the
-candidate shape. It does not accept an arbitrary attribute name and creates no
-job, artifact, lineage step, or evidence record.
+`select(item_id=...)` returns a closed immutable selection variant for the
+candidate shape. Numeric rank is not accepted. Selection creates no job,
+artifact, lineage step, or evidence record.
+
+When a source artifact's `contract()` advertises the optional ontology
+continuation, use it as an unscored hypothesis path:
+
+```python
+hypotheses = session.discover.semantic_hypotheses(series, limit=50)
+hypotheses.show()  # edge meaning, guardrails, exclusions, and copyable item_id
+candidate = hypotheses.select(item_id="candidate_<full-sha256>")
+driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis")
+```
+
+The selected `SemanticMetricCandidate` inherits the source observation scope;
+scope overrides are rejected. Ontology edges and candidates do not seed
+findings or prove causality. Statistical evidence begins only after the explicit
+observation and a suitable downstream operator.
 
 ## Transform reference — `frame.transform.*`
 

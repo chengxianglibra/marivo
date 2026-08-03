@@ -71,7 +71,8 @@ def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
     assert "datasource.* -> marivo.datasource capability registry" in text
     assert "semantic.*   -> marivo.semantic capability registry" in text
     assert "analysis.*   -> marivo.analysis capability registry" in text
-    assert "neither exposes a public .help alias" in text
+    assert "ontology.*   -> marivo.ontology capability registry" in text
+    assert "Domain modules expose no public .help alias" in text
 
 
 def test_root_help_only_advertises_resolvable_datasource_targets() -> None:
@@ -147,7 +148,11 @@ def test_unregistered_multi_owner_target_never_uses_surface_order(
 
     error = exc_info.value
     assert error.outcome == "ambiguous"
-    assert error.candidates == ("datasource.load", "semantic.load")
+    assert error.candidates == (
+        "datasource.load",
+        "semantic.load",
+        "ontology.authoring",
+    )
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
 
 

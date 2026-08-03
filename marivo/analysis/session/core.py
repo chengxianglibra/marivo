@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from marivo.analysis._pages import (
     _BoundedPage,
@@ -17,6 +17,18 @@ from marivo.analysis._pages import (
 from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
+
+
+class _Unset:
+    __slots__ = ()
+
+
+_UNSET = _Unset()
+
+
+def _normalize_unset[T](value: T | _Unset) -> T | None:
+    return None if isinstance(value, _Unset) else value
+
 
 if TYPE_CHECKING:
     from marivo.analysis.event import (
@@ -36,7 +48,11 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
-    from marivo.analysis.frames.candidate import CandidateSet, CandidateStrategy
+    from marivo.analysis.frames.candidate import (
+        CandidateSet,
+        CandidateStrategy,
+        SemanticMetricCandidate,
+    )
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.event import EventFrame
     from marivo.analysis.frames.forecast import ForecastFrame
@@ -55,8 +71,10 @@ if TYPE_CHECKING:
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.subject import SubjectSelection
     from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
+    from marivo.ontology.catalog import OntologyCatalog
     from marivo.refs import DimensionKind, MetricKind, StateModelKind, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
+    from marivo.semantic.errors import SemanticError
 
 
 def _track_session_operation(
@@ -247,6 +265,9 @@ class Session(RenderableResult):
         "_judgment_store_unavailable",
         "_layout",
         "_name",
+        "_ontology_catalog",
+        "_ontology_issues",
+        "_ontology_state",
         "_project_root",
         "_question",
         "_report_tz_name",
@@ -278,6 +299,9 @@ class Session(RenderableResult):
         calendars: Any = None,
         judgment_store: EvidenceStore | None = None,
         judgment_store_unavailable: bool = False,
+        ontology_state: Literal["absent", "ready", "unavailable"] = "absent",
+        ontology_catalog: OntologyCatalog | None = None,
+        ontology_issues: tuple[SemanticError, ...] = (),
     ) -> None:
         self._id = id
         self._name = name
@@ -315,6 +339,9 @@ class Session(RenderableResult):
         self._calendars = calendars
         self._judgment_store = judgment_store
         self._judgment_store_unavailable = judgment_store_unavailable
+        self._ontology_state = ontology_state
+        self._ontology_catalog = ontology_catalog
+        self._ontology_issues = ontology_issues
         if self._calendars is None:
             from marivo.analysis.calendar.loader import CalendarCache
 
@@ -343,6 +370,7 @@ class Session(RenderableResult):
             ),
         ).status(mode)
         card.field("question", self._question or "none")
+        card.field("ontology", self._ontology_state)
         card.field("report_timezone", self._report_tz_name)
         card.field("created_at", self._created_at.isoformat())
         card.field("updated_at", self._updated_at.isoformat())
@@ -625,6 +653,15 @@ class Session(RenderableResult):
                 session=self,
             )
 
+    @overload
+    def observe(
+        self,
+        metrics: SemanticMetricCandidate,
+        *,
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame: ...
+
+    @overload
     def observe(
         self,
         metrics: (
@@ -645,6 +682,33 @@ class Session(RenderableResult):
         time_dimension: _SemanticInput[TimeDimensionKind] | None = None,
         expect_shape: SemanticShape | None = None,
         cohort: SubjectSet | None = None,
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame: ...
+
+    def observe(
+        self,
+        metrics: (
+            _SemanticInput[MetricKind]
+            | RuntimeMetricExpr
+            | SemanticMetricCandidate
+            | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
+            | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
+        ),
+        *,
+        time_scope: TimeScopeInput | _Unset = _UNSET,
+        grain: GrainInput | _Unset = _UNSET,
+        dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]]
+        | None
+        | _Unset = _UNSET,
+        slice_by: Mapping[
+            _SemanticInput[DimensionKind | TimeDimensionKind],
+            SliceValue,
+        ]
+        | None
+        | _Unset = _UNSET,
+        time_dimension: _SemanticInput[TimeDimensionKind] | None | _Unset = _UNSET,
+        expect_shape: SemanticShape | None | _Unset = _UNSET,
+        cohort: SubjectSet | None | _Unset = _UNSET,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Materialize one or more metric roots into a typed MetricFrame.
@@ -731,25 +795,85 @@ class Session(RenderableResult):
             >>> # counted in frame.meta.quality_summary.zero_denominator_rows.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.errors import (
+            CandidateNotObservableError,
+            CandidateScopeOverrideForbiddenError,
+        )
+        from marivo.analysis.frames.candidate import SemanticMetricCandidate
         from marivo.analysis.intents.observe import observe
+
+        if isinstance(metrics, (list, tuple)) and any(
+            isinstance(item, SemanticMetricCandidate) for item in metrics
+        ):
+            raise CandidateNotObservableError(
+                message="SemanticMetricCandidate cannot be observed in a collection",
+                expected="one selected candidate passed directly to session.observe(candidate)",
+                received="candidate collection or mixed Metric/candidate input",
+            )
+
+        if isinstance(metrics, SemanticMetricCandidate):
+            overrides = tuple(
+                name
+                for name, value in (
+                    ("time_scope", time_scope),
+                    ("grain", grain),
+                    ("dimensions", dimensions),
+                    ("slice_by", slice_by),
+                    ("time_dimension", time_dimension),
+                    ("expect_shape", expect_shape),
+                    ("cohort", cohort),
+                )
+                if value is not _UNSET
+            )
+            if overrides:
+                raise CandidateScopeOverrideForbiddenError(
+                    message="candidate observation cannot override inherited scope",
+                    expected="only analysis_purpose= is accepted with SemanticMetricCandidate",
+                    received=", ".join(overrides),
+                )
+            from marivo.analysis.intents.observe_candidate import observe_candidate
+
+            with _track_session_operation(
+                self,
+                "marivo.analysis.observe",
+                family="core",
+                intent="observe",
+                attributes={"marivo.analysis.candidate_observation": True},
+            ):
+                validate_capability_inputs("observe", metrics=metrics)
+                return observe_candidate(
+                    metrics,
+                    analysis_purpose=analysis_purpose,
+                    session=self,
+                )
+
+        normalized_time_scope = _normalize_unset(time_scope)
+        normalized_grain = _normalize_unset(grain)
+        normalized_dimensions = _normalize_unset(dimensions)
+        normalized_slice_by = _normalize_unset(slice_by)
+        normalized_time_dimension = _normalize_unset(time_dimension)
+        normalized_expect_shape = _normalize_unset(expect_shape)
+        normalized_cohort = _normalize_unset(cohort)
 
         with _track_session_operation(
             self,
             "marivo.analysis.observe",
             family="core",
             intent="observe",
-            attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
+            attributes={"marivo.analysis.dimension_count": len(normalized_dimensions or [])},
         ) as telemetry_operation:
-            validate_capability_inputs("observe", time_scope=time_scope, cohort=cohort)
+            validate_capability_inputs(
+                "observe", time_scope=normalized_time_scope, cohort=normalized_cohort
+            )
             result = observe(
                 metrics,
-                time_scope=time_scope,
-                grain=grain,
-                dimensions=dimensions,
-                slice_by=slice_by,
-                time_dimension=time_dimension,
-                expect_shape=expect_shape,
-                cohort=cohort,
+                time_scope=normalized_time_scope,
+                grain=normalized_grain,
+                dimensions=normalized_dimensions,
+                slice_by=normalized_slice_by,
+                time_dimension=normalized_time_dimension,
+                expect_shape=normalized_expect_shape,
+                cohort=normalized_cohort,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
@@ -1924,6 +2048,40 @@ class SessionDiscoverNamespace:
     """Session-bound candidate discovery helpers."""
 
     _session: Session
+
+    def semantic_hypotheses(
+        self,
+        source: MetricFrame | DeltaFrame,
+        *,
+        limit: int = 50,
+    ) -> CandidateSet:
+        """Discover bounded unscored Metric candidates through one ontology edge.
+
+        Args:
+            source: Persisted arity-one MetricFrame or Metric-derived DeltaFrame.
+            limit: Maximum persisted candidates, from 1 through 200.
+
+        Returns:
+            CandidateSet[semantic_hypothesis] with stable item ids and diagnostics.
+
+        Example:
+            candidates = session.discover.semantic_hypotheses(frame, limit=50)
+            candidates.show()
+            candidate = candidates.select(item_id="candidate_<full sha256>")
+
+        Constraints:
+            Requires a ready Session ontology binding. It never executes candidates,
+            scores them, or creates causal evidence.
+        """
+        from marivo.analysis.intents.semantic_hypotheses import semantic_hypotheses
+
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.semantic_hypotheses",
+            family="discover",
+            intent="semantic_hypotheses",
+        ):
+            return semantic_hypotheses(source, limit=limit, session=self._session)
 
     def point_anomalies(
         self,

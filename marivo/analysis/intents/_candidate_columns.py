@@ -34,6 +34,10 @@ CANDIDATE_COLUMNS: list[str] = [
     "axis",
     "axis_semantic_id",
     "peer_scope_json",
+    "semantic_edge_ref",
+    "edge_relation",
+    "candidate_semantic_ref",
+    "metric_ref",
 ]
 CANDIDATE_DTYPES: dict[str, str] = {
     "item_id": "string",
@@ -53,6 +57,10 @@ CANDIDATE_DTYPES: dict[str, str] = {
     "axis": "string",
     "axis_semantic_id": "string",
     "peer_scope_json": "string",
+    "semantic_edge_ref": "string",
+    "edge_relation": "string",
+    "candidate_semantic_ref": "string",
+    "metric_ref": "string",
 }
 
 _COMMON_REQUIRED: set[str] = {
@@ -76,6 +84,13 @@ REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
     "slice": _COMMON_REQUIRED | {"selector_json", "keys_json"},
     "window": _COMMON_REQUIRED | {"window_start", "window_end"},
     "cross_sectional_outlier": _COMMON_REQUIRED | {"keys_json", "direction"},
+    "semantic_hypothesis": {
+        "item_id",
+        "semantic_edge_ref",
+        "edge_relation",
+        "candidate_semantic_ref",
+        "metric_ref",
+    },
 }
 
 ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
@@ -91,6 +106,7 @@ ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
     "slice": {"window_start", "window_end"},
     "window": {"keys_json"},
     "cross_sectional_outlier": {"peer_scope_json"},
+    "semantic_hypothesis": set(),
 }
 
 _JSON_DEFAULTS: dict[str, str] = {
@@ -138,6 +154,14 @@ def _row_to_record(row: dict[str, Any]) -> dict[str, Any]:
         record["axis"] = str(row["axis"])
     if "axis_semantic_id" in row and row["axis_semantic_id"] is not None:
         record["axis_semantic_id"] = str(row["axis_semantic_id"])
+    for column in (
+        "semantic_edge_ref",
+        "edge_relation",
+        "candidate_semantic_ref",
+        "metric_ref",
+    ):
+        if column in row and row[column] is not None:
+            record[column] = str(row[column])
 
     if "reason_codes" in row:
         record["reason_codes_json"] = _json_dumps(list(row["reason_codes"]))
@@ -172,7 +196,12 @@ def build_union_columns(shape: CandidateShape, rows: Iterable[dict[str, Any]]) -
     return df.astype(CANDIDATE_DTYPES)
 
 
-def _is_neutral(column: str, value: Any) -> bool:
+def _is_neutral(
+    column: str,
+    value: Any,
+    *,
+    json_array_default_is_neutral: bool = False,
+) -> bool:
     """True when *value* in *column* indicates the row did not populate the field.
 
     - datetime / float columns: pd.NA / NaT / NaN is neutral.
@@ -180,8 +209,8 @@ def _is_neutral(column: str, value: Any) -> bool:
     - JSON columns whose default is "" (selector_json, keys_json,
       peer_scope_json): empty string is neutral.
     - JSON columns whose default is "[]" (reason_codes_json and
-      source_refs_json): considered populated,
-      since an empty array is a valid value distinct from "missing".
+      source_refs_json): considered populated for a required scored field, but
+      neutral when validating a different shape's unused union column.
     """
 
     dtype = CANDIDATE_DTYPES[column]
@@ -196,7 +225,8 @@ def _is_neutral(column: str, value: Any) -> bool:
     except (TypeError, ValueError):
         pass
     if column in _JSON_DEFAULTS:
-        return bool(value == "" and _JSON_DEFAULTS[column] == "")
+        default = _JSON_DEFAULTS[column]
+        return bool(value == default and (default == "" or json_array_default_is_neutral))
     return bool(value == "")
 
 
@@ -229,7 +259,11 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
             continue
 
         for index, value in df[column].items():
-            if not _is_neutral(column, value):
+            if not _is_neutral(
+                column,
+                value,
+                json_array_default_is_neutral=True,
+            ):
                 raise FrameMetaInvalidError(
                     message=(
                         f"candidate row {index} has unexpected value in column {column!r} "

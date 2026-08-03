@@ -21,6 +21,7 @@ AuthoringStateId = Literal[
     "semantic.verified",
     "semantic.previewed",
     "semantic.ready",
+    "ontology.loaded",
 ]
 
 
@@ -81,6 +82,7 @@ TransitionKind = Literal[
     "verify",
     "preview",
     "readiness",
+    "audit",
 ]
 TransitionInputRole = Literal[
     "receiver",

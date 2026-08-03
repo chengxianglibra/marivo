@@ -19,7 +19,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.errors import NoActiveSessionError, SessionStateError
 from marivo.analysis.session._layout import (
@@ -968,6 +968,21 @@ def _session_from_row(
     project_root = store.project_root
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
     semantic_catalog = _build_semantic_catalog(project_root)
+    from marivo.ontology import OntologyCatalog
+    from marivo.ontology import load as load_ontology
+    from marivo.ontology.errors import OntologyLoadError
+
+    ontology_catalog: OntologyCatalog | None
+    ontology_state: Literal["absent", "ready", "unavailable"]
+    try:
+        ontology_catalog = load_ontology(semantic=semantic_catalog)
+    except OntologyLoadError as error:
+        ontology_state = "unavailable"
+        ontology_catalog = None
+        ontology_issues = error.issues
+    else:
+        ontology_state = "ready" if ontology_catalog.configured else "absent"
+        ontology_issues = ()
 
     resolved_report_tz = _read_report_timezone(layout)
     return Session(
@@ -987,6 +1002,9 @@ def _session_from_row(
         report_tz_resolution=resolved_report_tz.resolution,
         report_tz_warning=resolved_report_tz.warning,
         default_calendar=row["default_calendar"],
+        ontology_state=ontology_state,
+        ontology_catalog=ontology_catalog,
+        ontology_issues=ontology_issues,
     )
 
 

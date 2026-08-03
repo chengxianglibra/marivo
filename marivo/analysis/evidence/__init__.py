@@ -1,5 +1,6 @@
 """Deterministic typed evidence runtime for :mod:`marivo.analysis`."""
 
+from marivo.analysis.candidate_lineage import CandidateResolutionIssue
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     AnomalyCandidate,
@@ -61,6 +62,7 @@ __all__ = [
     "ArtifactDigestPage",
     "ArtifactIssue",
     "AssociationFact",
+    "CandidateResolutionIssue",
     "ChangeFact",
     "ComparabilityIssue",
     "ContributionFact",

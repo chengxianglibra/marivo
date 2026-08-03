@@ -66,7 +66,13 @@ def test_discover_point_anomalies_returns_candidate_set():
     }
     df = out.to_pandas()
     assert list(df.columns) == CANDIDATE_COLUMNS
-    assert list(df["item_id"]) == ["cand_0", "cand_3"]
+    assert all(
+        isinstance(item_id, str)
+        and item_id.startswith("candidate_")
+        and len(item_id) == len("candidate_") + 64
+        for item_id in df["item_id"]
+    )
+    assert df["item_id"].is_unique
     assert list(df["direction"]) == ["low", "high"]
     keys = [json.loads(k) for k in df["keys_json"]]
     assert keys == [{"bucket": "a"}, {"bucket": "d"}]

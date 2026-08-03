@@ -1,9 +1,9 @@
 # Marivo Python API reference (Sphinx)
 
 This directory is the Sphinx source for the generated Python API reference. It
-documents the public surface — `marivo.datasource`, `marivo.semantic`, and
-`marivo.analysis` — from each module's `__all__` exports and Google-style
-docstrings.
+documents the public surface — `marivo.datasource`, `marivo.semantic`,
+`marivo.analysis`, and optional `marivo.ontology` — from each module's
+`__all__` exports and Google-style docstrings.
 
 ## Build
 

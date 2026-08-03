@@ -6,7 +6,8 @@ The maintained documentation describes the Python-native Marivo library only.
 
 - [`specs/agent-friendly-public-surface.md`](specs/agent-friendly-public-surface.md) -
   design philosophy of the public surface: why it targets coding agents, how the
-  three modules layer, and how each core API progressively discloses itself.
+  three execution modules layer, how the optional ontology extension joins them,
+  and how each core API progressively discloses itself.
   Read this first for the cross-cutting picture, then the per-surface specs below.
 - [`specs/semantic/overview.md`](specs/semantic/overview.md) -
   datasource + semantic layer overview: design goals, layered architecture, and
@@ -25,5 +26,5 @@ Packaged agent guidance lives under:
 - `../marivo/skills/marivo-semantic`
 - `../marivo/skills/marivo-analysis`
 
-Run `make test TESTS='tests/test_marivo_analysis_skill_contract.py'` after changing either
+Run `make test TESTS='tests/test_packaged_skill_shape.py'` after changing either
 packaged skill.

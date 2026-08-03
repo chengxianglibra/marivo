@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.frames.candidate import (
     CandidateSet,
@@ -81,6 +82,11 @@ def _delta(session, df, *, semantic_kind="segmented"):
 
 def _candidate_set(session, *, shape: str, rows: list[dict[str, Any]]) -> CandidateSet:
     df = build_union_columns(shape, rows)  # type: ignore[arg-type]
+    assign_scored_frame_item_ids(
+        shape=shape,
+        source_artifact_ref="frame_src",
+        dataframe=df,
+    )
     validate_shape_columns(shape, df)  # type: ignore[arg-type]
     objectives = {
         "point_anomaly": "point_anomalies",
@@ -188,14 +194,17 @@ def _candidate_set(session, *, shape: str, rows: list[dict[str, Any]]) -> Candid
 )
 def test_select_dispatches_all_six_shapes(shape, row, expected_type):
     session = session_attach.get_or_create(name="demo")
-    selection = _candidate_set(session, shape=shape, rows=[row]).select()
+    candidates = _candidate_set(session, shape=shape, rows=[row])
+    item_id = str(candidates.to_pandas().loc[0, "item_id"])
+    selection = candidates.select(item_id=item_id)
 
     assert isinstance(selection, expected_type)
     assert selection.kind == shape
-    assert selection.candidate_ref == row["item_id"]
+    assert selection.item_id == item_id
     assert selection.source_artifact_ref == "frame_src"
-    assert selection.rank == 1
     assert selection.score == row["score"]
+    assert not hasattr(selection, "candidate_ref")
+    assert not hasattr(selection, "rank")
     assert not hasattr(selection, "affordances")
     assert not hasattr(selection, "constraints")
 
@@ -219,7 +228,7 @@ def test_select_has_no_attribute_route_and_returns_complete_point_value():
     )
 
     assert "attribute" not in inspect.signature(CandidateSet.select).parameters
-    selected = candidates.select()
+    selected = candidates.select(item_id=str(candidates.to_pandas().loc[0, "item_id"]))
     assert isinstance(selected, PointAnomalySelection)
     assert selected.observed_value == 50.0
     assert selected.baseline_value == 3.5
@@ -227,7 +236,7 @@ def test_select_has_no_attribute_route_and_returns_complete_point_value():
     assert isinstance(selected.window, AbsoluteWindow)
 
 
-def test_select_rank_out_of_range_raises_without_creating_a_job():
+def test_select_unknown_item_id_raises_without_creating_a_job():
     session = session_attach.get_or_create(name="demo")
     candidates = _candidate_set(
         session,
@@ -236,8 +245,12 @@ def test_select_rank_out_of_range_raises_without_creating_a_job():
     )
     before = len(session.jobs())
     with pytest.raises(SemanticKindMismatchError) as exc:
-        candidates.select(rank=5)
-    assert exc.value._context == {"row_count": 1, "requested_rank": 5}
+        candidates.select(item_id="candidate_" + "0" * 64)
+    assert exc.value._context == {
+        "item_id": "candidate_" + "0" * 64,
+        "match_count": 0,
+        "row_count": 1,
+    }
     assert len(session.jobs()) == before
 
 
@@ -255,7 +268,7 @@ def test_driver_axis_selection_feeds_attribute(tmp_path):
         ],
     )
 
-    selected = candidates.select()
+    selected = candidates.select(item_id=str(candidates.to_pandas().loc[0, "item_id"]))
     assert isinstance(selected, DriverAxisSelection)
     assert selected.axis == make_ref("sales.orders.region", SemanticKind.DIMENSION)
     drivers = session.attribute(src, axes=[selected.axis])
@@ -273,7 +286,8 @@ def test_window_selection_feeds_transform_window():
             }
         ),
     )
-    selected = session.discover.interesting_windows(metric, threshold=2.0).select()
+    candidates = session.discover.interesting_windows(metric, threshold=2.0)
+    selected = candidates.select(item_id=str(candidates.to_pandas().loc[0, "item_id"]))
     assert isinstance(selected, WindowSelection)
     assert metric.transform.window(window=selected.window).meta.kind == "metric_frame"
 
@@ -293,7 +307,8 @@ def test_slice_selection_feeds_transform_slice(tmp_path):
     src.meta.alignment["axes"] = {  # type: ignore[index]
         "region": {"role": "dimension", "column": "region", "ref": "sales.orders.region"}
     }
-    selected = session.discover.interesting_slices(src, threshold=1.0).select()
+    candidates = session.discover.interesting_slices(src, threshold=1.0)
+    selected = candidates.select(item_id=str(candidates.to_pandas().loc[0, "item_id"]))
     assert isinstance(selected, SliceSelection)
     assert selected.selector == {make_ref("sales.orders.region", SemanticKind.DIMENSION): "US"}
     assert src.transform.slice(slice_by=selected.selector).meta.kind == "delta_frame"

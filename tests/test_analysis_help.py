@@ -337,9 +337,9 @@ def test_runtime_weighted_mean_help_exposes_grain_and_additivity_contract() -> N
 
 def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
     select_text = _text("CandidateSet.select")
-    assert "rank: int = 1" in select_text
+    assert "item_id: str" in select_text
     assert "attribute" not in select_text
-    assert "selection = candidates.select(rank=1)" in select_text
+    assert 'selection = candidates.select(item_id="candidate_<full sha256>")' in select_text
 
     digests_text = _text("session.evidence.digests")
     for token in ("operator", "subject", "limit: int = 10", "cursor"):
@@ -1118,6 +1118,8 @@ def test_analysis_all_is_pinned() -> None:
         "ArtifactDigestPage",
         "ArtifactIssue",
         "AssociationFact",
+        "CandidateOrigin",
+        "CandidateResolutionIssue",
         "CandidateSelection",
         "ChangeFact",
         "ComparabilityIssue",
@@ -1165,6 +1167,7 @@ def test_analysis_all_is_pinned() -> None:
         "MetricFrame",
         "QualityReport",
         "Session",
+        "SemanticMetricCandidate",
         "SubjectSet",
         "TimeScope",
         "dow_aligned",

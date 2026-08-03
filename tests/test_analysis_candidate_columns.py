@@ -36,6 +36,10 @@ def test_candidate_columns_have_fixed_order() -> None:
         "axis",
         "axis_semantic_id",
         "peer_scope_json",
+        "semantic_edge_ref",
+        "edge_relation",
+        "candidate_semantic_ref",
+        "metric_ref",
     ]
 
 
@@ -216,6 +220,16 @@ def test_validate_shape_columns_rejects_unexpected_axis_for_point_anomaly() -> N
             {"keys_json", "direction"},
             {"peer_scope_json"},
         ),
+        (
+            "semantic_hypothesis",
+            {
+                "semantic_edge_ref",
+                "edge_relation",
+                "candidate_semantic_ref",
+                "metric_ref",
+            },
+            set(),
+        ),
     ],
 )
 def test_required_and_allowed_columns_per_shape(
@@ -228,14 +242,38 @@ def test_required_and_allowed_columns_per_shape(
         REQUIRED_COLUMNS_BY_SHAPE,
     )
 
-    common = {
-        "item_id",
-        "score",
-        "reason_codes_json",
-        "source_refs_json",
-    }
+    common = (
+        {"item_id"}
+        if shape == "semantic_hypothesis"
+        else {
+            "item_id",
+            "score",
+            "reason_codes_json",
+            "source_refs_json",
+        }
+    )
     assert REQUIRED_COLUMNS_BY_SHAPE[shape] == common | required_extras
     assert ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE[shape] == allowed_extras
+
+
+def test_semantic_hypothesis_rejects_non_neutral_scored_columns() -> None:
+    df = build_union_columns(
+        "semantic_hypothesis",
+        [
+            {
+                "item_id": "candidate_" + "0" * 64,
+                "semantic_edge_ref": '{"path":"edge"}',
+                "edge_relation": "influences",
+                "candidate_semantic_ref": '{"path":"candidate"}',
+                "metric_ref": '{"path":"metric"}',
+                "reason_codes": ["must_not_be_present"],
+            }
+        ],
+    )
+
+    with pytest.raises(FrameMetaInvalidError) as exc:
+        validate_shape_columns("semantic_hypothesis", df)
+    assert exc.value._context.get("column") == "reason_codes_json"
 
 
 def test_build_union_columns_populates_observed_baseline_delta_for_point_anomaly() -> None:

@@ -336,6 +336,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
                 ),
             ]
         ),
+        candidate_origins=frame.meta.candidate_origins,
         metric_id=metric_id,
         metric_identity=metric_identity,
         metric_identities=(metric_identity,),

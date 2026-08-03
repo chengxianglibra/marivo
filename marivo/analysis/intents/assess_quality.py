@@ -40,6 +40,7 @@ from marivo.analysis.frames.lifecycle import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.intents._derived import (
+    compose_candidate_origins,
     compose_lineage,
     ensure_frame_in_session,
     gen_ref,
@@ -167,6 +168,7 @@ def assess_quality(
                 analysis_purpose=analysis_purpose,
             ),
         ),
+        candidate_origins=compose_candidate_origins((frame,)),
         source_refs=[frame.ref],
         report_shape=cast("Any", report_shape),
         target_kind=(

@@ -59,7 +59,7 @@ backend scan.
 | `MetricFrame[segmented]` | `MetricFrame` | Segmented metric, single/no time |
 | `MetricFrame[panel]` | `MetricFrame` | Segment × time panel |
 | `DeltaFrame[scalar_delta \| time_series_delta \| segmented_delta \| panel_delta]` | `DeltaFrame` | Delta of the corresponding metric shape |
-| `CandidateSet[point_anomaly \| period_shift \| driver_axis \| slice \| window \| cross_sectional_outlier]` | `CandidateSet` | Objective-specific candidates |
+| `CandidateSet[point_anomaly \| period_shift \| driver_axis \| slice \| window \| cross_sectional_outlier \| semantic_hypothesis]` | `CandidateSet` | Objective-specific scored candidates or unscored ontology hypotheses |
 | `AssociationResult[signed_lag]` | `AssociationResult` | Zero-lag or signed lag-sweep association |
 | `QualityReport[metric \| delta \| candidate \| forecast \| attribution]` | `QualityReport` | Quality report scoped to the assessed family |
 
@@ -158,7 +158,7 @@ alongside the core surface:
 | --- | --- | --- |
 | `decompose` | `AttributionFrame` | Frame-local attribution over explicit axes; multi-axis calls require `mode="joint"` or `mode="hierarchy"`. Does not materialize missing dimensions. |
 | `session.transform.<op>` | Same family/shape as input | Family-preserving reshape/filter/rank/window/normalize. |
-| `CandidateSet.select(rank=1)` | `CandidateSelection` | Bounded read returning one closed shape-specific selector; creates no job or artifact. |
+| `CandidateSet.select(item_id=...)` | `CandidateSelection` | Stable-id read returning one closed shape-specific selector; creates no job or artifact. |
 | Sampling helpers | Sample artifact | Prepare a sample/summary for `hypothesis_test`. |
 
 ## Operator detail
@@ -401,13 +401,21 @@ is a closed default, not a natural-language string. The current objectives:
 | `discover.interesting_slices(metric_or_delta, ...)` | `MetricFrame` / `DeltaFrame` | `slice` |
 | `discover.interesting_windows(metric_or_delta, ...)` | `MetricFrame[time_series \| panel]` / delta | `window` |
 | `discover.cross_sectional_outliers(metric_frame, ...)` | `MetricFrame[segmented \| panel]` | `cross_sectional_outlier` |
+| `discover.semantic_hypotheses(metric_or_delta, limit=50)` | Arity-one catalog MetricFrame or same-Metric DeltaFrame | `semantic_hypothesis` |
 
 `discover` emits candidates only — never attribution, test verdicts, or new fact
-frames. Whether candidate generation was reliable is decided by
+frames. The optional `semantic_hypotheses` objective follows at most one authored
+`influences` or `related_to` edge, resolves its opposite endpoint through the
+semantic catalog, and returns deterministic, unscored Metric hypotheses. It is
+available only when the Session has a ready ontology binding; it does not assert
+causality, score candidates, or execute them. Whether scored candidate generation
+was reliable is decided by
 `assess_quality(candidate_set)`; whether a candidate is a real driver/anomaly is
 decided by downstream `hypothesis_test` or agent judgment. Thresholds are
 absolute z-score cutoffs with per-objective defaults (see each method's
-docstring). All objectives accept `analysis_purpose` to label the step.
+docstring). Scored objectives accept `analysis_purpose` to label the step;
+`semantic_hypotheses` intentionally accepts only `source` and the resource bound
+`limit`.
 
 ### `correlate`
 
@@ -574,18 +582,25 @@ baseline artifact fields.
 
 ## Candidate consumption
 
-`CandidateSet` items share common fields — `item_id`, `score` (ranking within the
-set only, not cross-artifact), `reason_codes`, `source_refs`, optional
+Scored `CandidateSet` items share common fields — `item_id`, `score` (ranking
+within the set only, not cross-artifact), `reason_codes`, `source_refs`, optional
 `selector`/`window`/`baseline_window`/`keys`/`axis`/`direction` — plus a small
 set of shape-specific required fields per objective. A candidate is a lead, not a
-proven fact.
+proven fact. `CandidateSet[semantic_hypothesis]` is a separate unscored shape:
+each row contains only `item_id`, `semantic_edge_ref`, `edge_relation`,
+`candidate_semantic_ref`, and resolved `metric_ref` as meaningful fields. Its
+metadata retains inherited scope, edge judgment context, resolution counts, and
+bounded exclusions.
 
-Candidates are consumed via `candidate_set.select(rank=1)`. The method returns
-one closed immutable variant: `PointAnomalySelection`, `PeriodShiftSelection`,
+Candidates are consumed via `candidate_set.select(item_id=...)`; numeric rank is
+not accepted. The method returns one closed immutable variant:
+`PointAnomalySelection`, `PeriodShiftSelection`,
 `DriverAxisSelection`, `SliceSelection`, `WindowSelection`, or
-`CrossSectionalOutlierSelection`. Each variant preserves the exact typed fields
-needed by the relevant downstream operator. Selection is a bounded read, not an
-artifact-producing step: it creates no job, lineage step, finding, or digest.
+`CrossSectionalOutlierSelection`. Semantic-hypothesis selection instead returns
+`SemanticMetricCandidate`, which can re-enter only through
+`session.observe(candidate, analysis_purpose=...)` with the exact inherited
+scope. Selection is a bounded read, not an artifact-producing step: it creates no
+job, lineage step, finding, or digest.
 
 Evaluation results (`HypothesisTestResult`, `AssociationResult`,
 `QualityReport`) are not directly re-fed into `compare`/`attribute`/`discover`.
@@ -599,14 +614,15 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 
 | Source | Legal downstream |
 | --- | --- |
-| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, `hypothesis_test`, `forecast`, `assess_quality` |
-| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, `hypothesis_test`, `assess_quality` |
+| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `forecast`, `assess_quality` |
+| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `assess_quality` |
 | `MetricFrame[panel]` | union of the time_series and segmented rows above |
-| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, `assess_quality` |
-| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `assess_quality` |
-| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, `assess_quality` |
+| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
+| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses`, `assess_quality` |
+| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
 | `AttributionFrame` | `transform`, `select`, `assess_quality` |
-| `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
+| Scored `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
+| `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `SemanticMetricCandidate` → exact-scope `session.observe` |
 | `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |
 
 Illegal paths fail closed: `candidate_set -> attribute` (select an axis/window/

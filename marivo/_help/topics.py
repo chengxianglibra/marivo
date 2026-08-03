@@ -30,6 +30,7 @@ def render_root() -> str:
                 "    datasource.* -> marivo.datasource capability registry",
                 "    semantic.*   -> marivo.semantic capability registry",
                 "    analysis.*   -> marivo.analysis capability registry",
+                "    ontology.*   -> marivo.ontology capability registry",
                 "",
                 "  Start:",
                 '    marivo.help("authoring")',
@@ -46,8 +47,11 @@ def render_root() -> str:
                 "  Analysis:",
                 '    marivo.help("analysis")',
                 "",
+                "  Optional ontology guidance:",
+                '    marivo.help("ontology.authoring")',
+                "",
                 "  Unique unqualified targets route automatically; qualify shared names.",
-                "  md and ms execute their domain APIs; neither exposes a public .help alias.",
+                "  Domain modules expose no public .help alias; use marivo.help(...).",
             )
         ),
         root=True,
@@ -78,6 +82,7 @@ def render_authoring() -> str:
                 "",
                 '  Datasource evidence and scope: marivo.help("datasource.authoring")',
                 '  Semantic source and validation: marivo.help("semantic.authoring")',
+                '  Optional ontology context: marivo.help("ontology.authoring")',
             )
         )
     )
@@ -88,7 +93,7 @@ def render_load() -> str:
         "\n".join(
             (
                 "load",
-                "  Two distinct typed operations share this local name:",
+                "  Typed loading operations have separate owners:",
                 "",
                 "  Datasource:",
                 "    import marivo.datasource as md",
@@ -99,6 +104,11 @@ def render_load() -> str:
                 "    import marivo.semantic as ms",
                 "    semantic_catalog = ms.load()",
                 '    marivo.help("semantic.load")',
+                "",
+                "  Optional ontology:",
+                "    import marivo.ontology as mo",
+                "    ontology = mo.load(semantic=semantic_catalog)",
+                '    marivo.help("ontology.authoring")',
                 "",
                 "  There is no marivo.load(kind=...) dispatcher.",
             )

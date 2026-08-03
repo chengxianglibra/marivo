@@ -1,10 +1,10 @@
-"""CandidateSet.select - one closed typed value for a ranked candidate row."""
+"""CandidateSet.select - one closed typed value by stable item identity."""
 
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -16,43 +16,89 @@ from marivo.analysis.frames.candidate import (
     DriverAxisSelection,
     PeriodShiftSelection,
     PointAnomalySelection,
+    SemanticHypothesisCandidateSetMeta,
     SliceSelection,
     WindowSelection,
+    _make_semantic_metric_candidate,
 )
 from marivo.analysis.windows import AbsoluteWindow
-from marivo.refs import DimensionKind, Ref
+from marivo.ontology.types import _restore_semantic_edge_ref
+from marivo.refs import DimensionKind, Ref, RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
 
 
-def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
-    """Return the shape-specific immutable value at a 1-indexed candidate rank."""
+def _ref_payload(raw: object) -> RefPayloadV1:
+    if not isinstance(raw, str) or not raw:
+        raise ValueError("candidate ref cell must be canonical JSON")
+    payload = json.loads(raw)
+    if not isinstance(payload, dict) or set(payload) != {"schema", "kind", "path"}:
+        raise ValueError("candidate ref cell has invalid fields")
+    return RefPayloadV1(
+        schema=payload["schema"],
+        kind=SemanticKind(payload["kind"]),
+        path=payload["path"],
+    )
+
+
+def select(candidate_set: CandidateSet, *, item_id: str) -> CandidateSelection:
+    """Return the immutable candidate whose exact stable item id matches."""
     if not isinstance(candidate_set, CandidateSet):
         raise SemanticKindMismatchError(
             message="select requires a CandidateSet input",
+            context={"expected_kind": "candidate_set", "got_kind": type(candidate_set).__name__},
+        )
+    if type(item_id) is not str or not item_id:
+        raise SemanticKindMismatchError(
+            message="select item_id must be a non-empty string",
+            context={"expected_kind": "candidate item_id", "got_kind": type(item_id).__name__},
+        )
+    matches = candidate_set._df.index[candidate_set._df["item_id"] == item_id].tolist()
+    if len(matches) != 1:
+        raise SemanticKindMismatchError(
+            message=f"select item_id {item_id!r} was not found exactly once",
             context={
-                "expected_kind": "candidate_set",
-                "got_kind": type(candidate_set).__name__,
+                "item_id": item_id,
+                "match_count": len(matches),
+                "row_count": len(candidate_set),
             },
         )
-    row_count = len(candidate_set._df)
-    if rank < 1 or rank > row_count:
-        raise SemanticKindMismatchError(
-            message=f"select rank {rank} is out of range",
-            context={"row_count": row_count, "requested_rank": rank},
-        )
-
-    row = candidate_set._df.iloc[rank - 1]
+    row = candidate_set._df.loc[matches[0]]
+    candidate_set_ref = candidate_set.meta.artifact_id or candidate_set.meta.ref
     common: dict[str, Any] = {
-        "candidate_ref": str(row["item_id"]),
+        "candidate_set_ref": candidate_set_ref,
+        "item_id": item_id,
         "source_artifact_ref": candidate_set.meta.source_ref,
-        "rank": rank,
+    }
+    shape = candidate_set.meta.shape
+    if shape == "semantic_hypothesis":
+        meta = candidate_set.meta
+        assert isinstance(meta, SemanticHypothesisCandidateSetMeta)
+        edge_ref = _restore_semantic_edge_ref(json.loads(str(row["semantic_edge_ref"])))
+        contexts = {context.semantic_edge_ref: context for context in meta.edge_contexts}
+        readiness = {binding.metric_ref: binding.fingerprint for binding in meta.readiness_bindings}
+        metric_ref = _ref_payload(row["metric_ref"])
+        return _make_semantic_metric_candidate(
+            **common,
+            metric_ref=metric_ref,
+            semantic_edge_ref=edge_ref,
+            edge_relation=cast("Literal['influences', 'related_to']", str(row["edge_relation"])),
+            candidate_semantic_ref=_ref_payload(row["candidate_semantic_ref"]),
+            edge_context=contexts[edge_ref],
+            inherited_scope=meta.inherited_scope,
+            readiness_fingerprint=readiness[metric_ref],
+            ontology_catalog_fingerprint=meta.ontology_catalog_fingerprint,
+            semantic_catalog_fingerprint=meta.semantic_catalog_fingerprint,
+            source_metric_ref=meta.source_metric_ref,
+            upstream_origins=meta.upstream_origins,
+        )
+    scored = {
+        **common,
         "score": float(row["score"]),
         "reason_codes": tuple(_json_list(row["reason_codes_json"])),
     }
-    shape = candidate_set.meta.shape
     if shape == "point_anomaly":
         return PointAnomalySelection(
-            **common,
+            **scored,
             window=_optional_window(row, "window_start", "window_end"),
             keys=_selector(row, "keys_json"),
             direction=str(row["direction"]),
@@ -62,7 +108,7 @@ def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
         )
     if shape == "period_shift":
         return PeriodShiftSelection(
-            **common,
+            **scored,
             window=_required_window(row, "window_start", "window_end", shape),
             baseline_window=_required_window(
                 row, "baseline_window_start", "baseline_window_end", shape
@@ -72,27 +118,27 @@ def select(candidate_set: CandidateSet, *, rank: int = 1) -> CandidateSelection:
         )
     if shape == "driver_axis":
         semantic_id = row.get("axis_semantic_id")
-        axis: Ref[DimensionKind] | str
-        if isinstance(semantic_id, str) and semantic_id:
-            axis = ref_factory.dimension(semantic_id)
-        else:
-            axis = str(row["axis"])
-        return DriverAxisSelection(**common, axis=axis)
+        axis: Ref[DimensionKind] | str = (
+            ref_factory.dimension(semantic_id)
+            if isinstance(semantic_id, str) and semantic_id
+            else str(row["axis"])
+        )
+        return DriverAxisSelection(**scored, axis=axis)
     if shape == "slice":
         return SliceSelection(
-            **common,
+            **scored,
             selector=_selector(row, "selector_json", required=True),
             window=_optional_window(row, "window_start", "window_end"),
         )
     if shape == "window":
         return WindowSelection(
-            **common,
+            **scored,
             window=_required_window(row, "window_start", "window_end", shape),
             keys=_selector(row, "keys_json"),
         )
     if shape == "cross_sectional_outlier":
         return CrossSectionalOutlierSelection(
-            **common,
+            **scored,
             keys=_selector(row, "keys_json", required=True),
             direction=str(row["direction"]),
             peer_scope=tuple(_json_list(row["peer_scope_json"])),
@@ -123,9 +169,7 @@ def _selector(
 
 
 def _selector_key(name: str) -> Ref[DimensionKind] | str:
-    if name.count(".") >= 2:
-        return ref_factory.dimension(name)
-    return name
+    return ref_factory.dimension(name) if name.count(".") >= 2 else name
 
 
 def _optional_window(row: pd.Series, start: str, end: str) -> AbsoluteWindow | None:
@@ -146,8 +190,7 @@ def _required_window(row: pd.Series, start: str, end: str, shape: str) -> Absolu
 
 def _absolute_window(start_value: Any, end_value: Any) -> AbsoluteWindow:
     return AbsoluteWindow(
-        start=pd.Timestamp(start_value).isoformat(),
-        end=pd.Timestamp(end_value).isoformat(),
+        start=pd.Timestamp(start_value).isoformat(), end=pd.Timestamp(end_value).isoformat()
     )
 
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
+from marivo.analysis.candidate_identity import validate_candidate_frame_identity
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
@@ -23,7 +24,11 @@ from marivo.analysis.frames.attribution import (
     FunnelAttributionFrameMeta,
 )
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
-from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
+from marivo.analysis.frames.candidate import (
+    CandidateSet,
+    CandidateSetMeta,
+    SemanticHypothesisCandidateSetMeta,
+)
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta, FunnelDeltaFrameMeta
@@ -46,6 +51,10 @@ from marivo.analysis.frames.lifecycle import (
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
+from marivo.analysis.intents._candidate_columns import (
+    CANDIDATE_COLUMNS,
+    validate_shape_columns,
+)
 from marivo.analysis.refs import ArtifactRef
 from marivo.semantic.metric_graph_canonical import (
     MetricGraphContractError,
@@ -419,6 +428,8 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         meta_cls = FunnelDeltaFrameMeta
     if kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate":
         meta_cls = FunnelAttributionFrameMeta
+    if kind == "candidate_set" and meta.get("shape") == "semantic_hypothesis":
+        meta_cls = SemanticHypothesisCandidateSetMeta
     if (
         kind == "delta_frame"
         and meta.get("semantic_kind") != "funnel"
@@ -454,6 +465,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             }
             or (kind == "delta_frame" and meta.get("semantic_kind") == "funnel")
             or (kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate")
+            or (kind == "candidate_set" and meta.get("shape") == "semantic_hypothesis")
+            # CandidateOrigin contains the sealed SemanticEdgeRef, whose
+            # persisted dict form is intentionally accepted only in JSON mode.
+            or bool(meta.get("candidate_origins"))
             else meta_cls(**meta)
         )
     except ValidationError as exc:
@@ -521,6 +536,22 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                         "missing_state": missing_state,
                     },
                 )
+    if isinstance(parsed_meta, (CandidateSetMeta, SemanticHypothesisCandidateSetMeta)):
+        if list(df.columns) != CANDIDATE_COLUMNS:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' has a non-canonical CandidateSet column layout",
+                context={
+                    "ref": ref,
+                    "got_columns": list(df.columns),
+                    "expected_columns": CANDIDATE_COLUMNS,
+                },
+            )
+        validate_shape_columns(parsed_meta.shape, df)
+        validate_candidate_frame_identity(
+            shape=parsed_meta.shape,
+            source_artifact_ref=parsed_meta.source_ref,
+            dataframe=df,
+        )
     auxiliary_frames: dict[str, Any] = {}
     if isinstance(parsed_meta, LifecycleHistoryFrameMeta):
         manifest = parsed_meta.violation_trace
