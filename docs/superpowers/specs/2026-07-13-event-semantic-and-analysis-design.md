@@ -1,11 +1,11 @@
 # Marivo Event and Lifecycle Semantic and Analysis Design
 
-Status: architecture revised; phases 1-4 and the coordinated agent-interface
-vNext cutover implemented; phase 5 pending
+Status: phases 1-4 and the coordinated agent-interface vNext cutover
+implemented; phase 5 designed and pending
 
 Date: 2026-07-13
 
-Last revised: 2026-07-27
+Last revised: 2026-08-04
 
 > This document is one of two specifications split from the original
 > `Marivo Executable Semantic and Ontology Extension Design`. It owns the
@@ -154,25 +154,29 @@ environment-bound public surface
   -> artifact contract, legal continuation, or executable repair
 ```
 
-The top-level package remains version-only. Examples and repairs use the
-canonical imports:
+The top-level package remains deliberately narrow: version metadata plus the
+unified help coordinator. Examples and repairs use the canonical imports:
 
 ```python
+import marivo
 import marivo.semantic as ms
 import marivo.analysis as mv
 ```
 
-A cold agent verifies the owning environment once through the track it is
-about to use:
+A cold agent verifies the owning environment once through the argument-free
+bootstrap command, then uses the Python help coordinator for focused native
+surfaces:
 
 ```text
-semantic authoring: <analysis-python> -m marivo help semantic
-analysis runtime:   <analysis-python> -m marivo help analysis
+environment bootstrap: <analysis-python> -m marivo help
+semantic authoring:    marivo.help("semantic")
+analysis runtime:      marivo.help("analysis")
 ```
 
-An analysis workflow does not proactively run both commands. After the one
-analysis-track check it follows the object already in hand: entry/ref briefing,
-artifact `show()`/`contract()`, or structured error repair. Event/Lifecycle
+An analysis workflow runs the bootstrap at most once and does not proactively
+request both focused topics. It follows the object already in hand: entry/ref
+briefing, artifact `show()`/`contract()`, or structured error repair. Passing a
+topic argument to `-m marivo help` is not a focused-help route. Event/Lifecycle
 introduces no top-level `marivo.event`, generic planner, ranked next-action API,
 or reflection-only recovery route.
 
@@ -188,7 +192,7 @@ checked. In this design that includes:
 
 - `SemanticCatalog.verify`, `preview`, `preview_many`, and `readiness` for
   Event, StateModel, and StateProjection;
-- `session.lifecycle.replay`'s StateModel input when phase 3 lands;
+- `session.lifecycle.replay`'s StateModel input;
 - Event/Lifecycle reducer, enrichment, and attribution axes that consume
   top-level Dimensions;
 - any later session-bound Event/Lifecycle parameter that directly consumes a
@@ -941,8 +945,10 @@ type name, declaration order, and tuple position are not chronology fallbacks.
 ### Matching and follow-up choice guidance
 
 Matching policy, follow-up horizon, and completeness basis are required
-business-caliber choices rather than tuning knobs. `mv.help(...)` must describe
-both their mechanical contracts and when each answers the intended question:
+business-caliber choices rather than tuning knobs.
+`marivo.help("analysis.events.match")` and its adjacent analysis topics must
+describe both their mechanical contracts and when each answers the intended
+question:
 
 | Choice | Business interpretation | Required caution |
 | --- | --- | --- |
@@ -1408,8 +1414,8 @@ overlapping intervals, or satisfies semantic readiness.
 
 ### Lifecycle execution choice guidance
 
-`mv.help(...)` must state the business and history preconditions of each
-lifecycle choice:
+`marivo.help("analysis.lifecycle")` must state the business and history
+preconditions of each lifecycle choice:
 
 | Choice | Use when | Reject or disclose |
 | --- | --- | --- |
@@ -1555,7 +1561,7 @@ dropouts = session.select_subjects(
 revenue_entry = session.catalog.metrics.get(revenue_metric)
 
 revenue = session.observe(
-    metric=revenue_entry,
+    metrics=revenue_entry,
     cohort=dropouts,
     time_scope={"start": start, "end": end},
 )
@@ -2049,7 +2055,7 @@ Registers:
   `state_projection`, and `projection_state`;
 - semantic verification, preview, readiness, details, lineage, persistence,
   exact typed catalog collections and entry cards, and the exact
-  `ms.help(...)` topics for those values;
+  focused targets reached from `marivo.help("semantic")` for those values;
 - current-catalog `CatalogEntry | Ref` admission and immediate ref
   normalization at the qualifying catalog-bound semantic runtime inputs,
   without widening authoring or standalone handle constructors.
@@ -2087,11 +2093,13 @@ calculation semantics. The sole Metric-surface addition is exact
 
 Public guidance preserves one owner per contract:
 
-- `ms.help(...)` describes Event, StateModel, StateProjection, Entity
+- `marivo.help("semantic")` and its focused targets describe Event, StateModel,
+  StateProjection, Entity
   change-log versioning, LifecycleState and NormalizedState authoring,
   participant, `participant_role`, `projection_state`, `model_state`,
   inception, transition, verification, preview, and readiness;
-- `mv.help(...)` describes keyed PatternStep construction, pattern matching,
+- `marivo.help("analysis")` and its focused targets describe keyed PatternStep
+  construction, pattern matching,
   subject-axis temporal ownership, completeness declarations, projection scope,
   typed state alignment, replay, exact distribution instants, reducers, typed
   SubjectSet selections, comparison, attribution, artifact families, and
@@ -2103,17 +2111,18 @@ Public guidance preserves one owner per contract:
 - `contract()` provides mechanically valid continuations;
 - structured errors provide typed repair.
 
-`mo.help(...)` and semantic-hypothesis discovery help are specified in the
+`marivo.help("ontology")` and
+`marivo.help("analysis.discover.semantic_hypotheses")` are specified in the
 companion ontology design.
 
 Equivalent callable targets resolve to one canonical capability descriptor. In
 particular:
 
 ```python
-mv.help("events.match")
-mv.help("Session.events.match")
-mv.help("session.events.match")
-mv.help(session.events.match)
+marivo.help("analysis.events.match")
+marivo.help("Session.events.match")
+marivo.help("session.events.match")
+marivo.help(session.events.match)
 ```
 
 all render canonical capability id `events.match` and public entrypoint
@@ -2245,7 +2254,7 @@ domain-specific errors owned by this design.
 | `invalid_projection_scope` | scope was supplied for an unversioned current source, omitted for a versioned source, incompatible with the inferred temporal shape, or selects an absent partition |
 | `ambiguous_state_change_order` | one projection subject has multiple different change rows at the same normalized effective time |
 | `insufficient_state_history` | replay cannot establish state before the requested range |
-| `ambiguous_event_order` | same-time Events have no deterministic business order and affect replay |
+| `ambiguous_event_order` | same-time Events have no deterministic business order and affect matching or replay |
 | `invalid_lifecycle_seed` | replay seed is unavailable, mismatched, or incompatible with the requested window |
 | `invalid_distribution_instants` | history distribution omits `at`, contains duplicate/out-of-scope instants, or snapshot distribution receives `at` |
 | `subject_set_mismatch` | SubjectSet Entity, identity, owner, or scope is incompatible |
@@ -2569,26 +2578,26 @@ The design is accepted when:
 
 ## Delivery Boundary
 
-Delivery proceeds through five public vertical phases rather than one
-all-or-nothing cutover:
+Delivery is organized as five public vertical phases:
 
-1. **Event journey core**: Event, participant roles, keyed
+1. **Event journey core — implemented**: Event, participant roles, keyed
    PatternStep/EventPattern, `events.match`, Event-input completeness
    declarations, journey recovery, quality, and evidence;
-2. **Event reducers and typed composition**: funnel/time-to-event reducers,
+2. **Event reducers and typed composition — implemented**:
+   funnel/time-to-event reducers,
    subject-axis funnel breakdown, Event-backed
    `select_subjects(dropped_before)`, and typed SubjectSet cohort admission on
    `session.observe` and `session.events.match`;
-3. **Replay-based Lifecycle core**: LifecycleState, StateModel,
+3. **Replay-based Lifecycle core — implemented**: LifecycleState, StateModel,
    ModelStateHandle, inception, lifecycle replay/history from
    `from_inception()`, fixed violation behavior, reducers, typed lifecycle
    `select_subjects(in_state)` selection, SubjectSet cohort admission on
    `session.lifecycle.replay`, quality, replay-Event completeness declarations,
    and evidence;
-4. **Funnel comparison and attribution**: exact funnel compare/attribute with
-   the existing one-axis/joint/hierarchy layouts, additive component
-   decomposition, and reconciliation;
-5. **Observed-state projection and reconciliation**: Entity
+4. **Funnel comparison and attribution — implemented**: exact funnel
+   compare/attribute with the existing one-axis/joint/hierarchy layouts,
+   additive component decomposition, and reconciliation;
+5. **Observed-state projection and reconciliation — pending**: Entity
    `ChangesVersioning`; StateProjection, NormalizedState,
    ProjectionStateHandle, and typed StateAlignment; inferred-current, explicit
    snapshot, change-log, and closed-open validity observation; projection
@@ -2599,40 +2608,19 @@ all-or-nothing cutover:
    `from_projection(snapshot)` replay seed; and replay/projection
    reconciliation.
 
-The public delivery order is phases 1 through 5. Phase 4 technically depends
-only on phase 2 and may be developed alongside phase 3, but it lands before the
-final StateProjection phase. StateProjection is intentionally last because it
+Phases 1–4 already use the completed agent-interface vNext contract. Phase 5 is
+the only remaining public phase and adopts that final input, help, result, and
+repair contract from its first release. StateProjection remains last because it
 is an independently observed state source, not a prerequisite for Event
 analysis or Event-driven lifecycle replay.
 
-These five vertical capability phases are distinct from the internal phases in
-the agent-interface vNext design. The already implemented Event journey core is
-a complete public vertical boundary at which that design may freeze its exact
-consumer inventory. The shared interface then cuts over qualifying Phase 1
-Event inputs, catalog collections/cards, help targets, artifact/contract
-results, errors, docs, tests, and packaged skill atomically. A partial state in
-which one qualifying Event consumer accepts entries while another still
-requires refs is not releasable. Event/Lifecycle phases released after that
-cutover adopt the final interface contract from their first public release;
-they do not reintroduce the older ref-only runtime surface.
-
-Phase 1 is intentionally a complete standalone journey-analysis capability:
-`EventFrame[journey]` supports bounded show/contract, quality, evidence, and
-recovery. Its contract does not advertise funnel, time-to-event, or
-select-subject continuations until phase 2 registers those consumers. “Thin”
-therefore means one canonical fact surface, not an incomplete published
-capability.
-
-Each phase ships its semantic inputs, public help, registry roles, artifact
+Every public phase ships its semantic inputs, public help, registry roles, artifact
 contract, persistence/recovery, evidence extractor, structured errors, and
 behavioral fixtures together. No phase may publish a partial capability whose
 artifact cannot be recovered or whose evidence contract is missing.
 
-Phases 1–2 form the standalone Event-analysis core. Phase 3 forms the
-standalone replay-based Lifecycle core. Phase 4 is an advanced Event-analysis
-continuation and does not block phase 3. Phase 5 delivers the complete
-StateProjection surface as one public phase: no StateProjectionRef,
-NormalizedState, ProjectionStateHandle, StateAlignment,
+Phase 5 delivers the complete StateProjection surface as one public phase: no
+StateProjectionRef, NormalizedState, ProjectionStateHandle, StateAlignment,
 `lifecycle.observe`, projection-specific completeness input,
 `from_projection(snapshot)`, Entity `ChangesVersioning`, projection
 continuation, or reconciliation capability is registered or advertised before
@@ -2646,19 +2634,12 @@ capabilities, or artifacts with incomplete recovery/evidence contracts. The
 phase lands only when every StateProjection source shape and registered
 continuation in this specification is coherent end to end.
 
-For every phase, implementation planning records:
-
-- the exact public constructors, semantic kinds, artifact families/shapes, and
-  capability-registry rows added in that phase;
-- the explicitly deferred continuations, which remain absent from help and
-  `contract()`;
-- the persisted row-contract and evidence variants introduced by the phase,
-  using only their final shapes and no legacy dual-read or migration path;
-- one end-to-end behavioral fixture, cold recovery with identical typed
-  continuations, and negative checks that illegal family/shape edges fail
-  before datasource execution;
-- the applicable acceptance-criteria numbers and the unchanged Metric-lane
-  regression gates.
+The phase 5 implementation plan must enumerate its public constructors, kinds,
+artifact shapes, capability rows, persisted row/evidence variants, and
+explicitly deferred continuations. It must also include one end-to-end fixture,
+cold recovery with identical typed continuations, negative family/shape gates,
+the applicable acceptance criteria, and unchanged Metric-lane regression
+coverage.
 
 Retention/cohort-return analysis and an organization-governed named
 analysis-recipe registry are explicit post-v1 extensions. Retention receives a
@@ -2670,5 +2651,5 @@ This extension is independent of, and never requires, the optional ontology
 discovery extension specified in the companion design; the ontology extension
 may ship afterward.
 
-This documentation-only revision does not itself implement the pending
-agent-interface vNext runtime, skill, or site cutover.
+This documentation-only revision does not implement phase 5 or the independent
+ontology extension.
