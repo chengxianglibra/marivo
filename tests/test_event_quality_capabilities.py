@@ -205,7 +205,7 @@ def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> Non
     assert frame.row_count == frame.shape[0]
     assert classify_input_family(frame.meta.pattern) == "EventPattern"
     assert classify_input_family(frame.meta.matching) == "EventMatchingPolicy"
-    validate_capability_inputs("assess_quality", target=frame)
+    validate_capability_inputs("assess_quality", frame=frame)
     validate_capability_inputs(
         "events.match",
         pattern=frame.meta.pattern,

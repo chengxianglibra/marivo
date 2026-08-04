@@ -1035,8 +1035,8 @@ class Session(RenderableResult):
         ):
             validate_capability_inputs(
                 "compare",
-                a=current_metric,
-                b=baseline_metric,
+                current=current_metric,
+                baseline=baseline_metric,
                 alignment=alignment,
             )
             return compare(
@@ -1406,7 +1406,7 @@ class Session(RenderableResult):
             family="core",
             intent="assess_quality",
         ):
-            validate_capability_inputs("assess_quality", target=frame)
+            validate_capability_inputs("assess_quality", frame=frame)
             return assess_quality(frame, analysis_purpose=analysis_purpose, session=self)
 
     def hypothesis_test(
@@ -1478,7 +1478,13 @@ class Session(RenderableResult):
             intent="hypothesis_test",
             attributes=attrs,
         ):
-            validate_capability_inputs("hypothesis_test", a=a, b=b, alignment=alignment)
+            validate_capability_inputs(
+                "hypothesis_test",
+                a=a,
+                b=b,
+                alignment=alignment,
+                sampling=sampling,
+            )
             return hypothesis_test(
                 a,
                 b,

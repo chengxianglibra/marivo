@@ -96,7 +96,7 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
     )
 
     with pytest.raises(AnalysisError, match="received RawSqlResult"):
-        validate_capability_inputs("compare", a=result, b=result)
+        validate_capability_inputs("compare", current=result, baseline=result)
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:

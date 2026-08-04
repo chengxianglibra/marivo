@@ -1019,17 +1019,16 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.session.core.Session.compare",
             receiver="Session",
             accepted_inputs={
-                "a": _MF | _EF,
-                "b": _MF | _EF,
+                "current": _MF | _EF,
+                "baseline": _MF | _EF,
                 "alignment": frozenset({"AlignmentPolicy"}),
-                "sampling": frozenset({"SamplingPolicy"}),
             },
             artifact_admission={
-                "a": ArtifactAdmissionRule(
+                "current": ArtifactAdmissionRule(
                     semantic_shapes={"EventFrame": frozenset({"funnel"})},
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
-                "b": ArtifactAdmissionRule(
+                "baseline": ArtifactAdmissionRule(
                     semantic_shapes={"EventFrame": frozenset({"funnel"})},
                     matching_kinds={"EventFrame": frozenset({"first_per_subject"})},
                 ),
@@ -1119,7 +1118,6 @@ def _build_registry() -> CapabilityRegistry:
                 "a": _MF,
                 "b": _MF,
                 "alignment": frozenset({"AlignmentPolicy"}),
-                "sampling": frozenset({"SamplingPolicy"}),
             },
             output_contract=_output("AssociationResult"),
             additional_examples=(
@@ -1155,6 +1153,7 @@ def _build_registry() -> CapabilityRegistry:
                 "a": _MF,
                 "b": _MF,
                 "alignment": frozenset({"AlignmentPolicy"}),
+                "sampling": frozenset({"SamplingPolicy"}),
             },
             output_contract=_output("HypothesisTestResult"),
         )
@@ -1193,10 +1192,10 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={
-                "target": _MF | _EF | _LF | _DF | _AF,
+                "frame": _MF | _EF | _LF | _DF | _AF,
             },
             artifact_admission={
-                "target": ArtifactAdmissionRule(
+                "frame": ArtifactAdmissionRule(
                     semantic_shapes={
                         "EventFrame": frozenset({"journey", "funnel", "time_to_event"}),
                         "LifecycleFrame": frozenset(
@@ -1725,7 +1724,7 @@ def _build_registry() -> CapabilityRegistry:
             "SamplingPolicy",
             "mv.SamplingPolicy(...)",
             "SamplingPolicy",
-            "Sampling policy for compare and correlate.",
+            "Sampling policy for hypothesis_test.",
             SamplingPolicy,
             "SamplingPolicy",
             "SamplingPolicy",

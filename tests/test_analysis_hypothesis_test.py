@@ -6,6 +6,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
+    AnalysisError,
     CrossSessionFrameError,
     SemanticKindMismatchError,
     TestPolicyError,
@@ -372,3 +373,22 @@ def test_test_operator_errors_and_persistence(tmp_path):
     loaded = load_frame(result.ref, session=session)
     assert loaded.meta.kind == "hypothesis_test_result"
     assert loaded.lineage.steps[-1].intent == "hypothesis_test"
+
+
+def test_hypothesis_test_sampling_gate_returns_typed_error(tmp_path):
+    """A non-SamplingPolicy ``sampling`` must fail at the family gate with a
+    Marivo typed error instead of surfacing a python native exception.
+
+    The registry now advertises ``sampling`` for hypothesis_test, so the gate
+    call must forward it; otherwise a string sampling reaches the intent and
+    raises ``AttributeError: 'str' object has no attribute 'pairing'``.
+    """
+    session = session_attach.get_or_create(name="demo")
+    ts = seeded_time_series_metric_frame(session=session, n_buckets=4)
+
+    with pytest.raises(AnalysisError) as exc_info:
+        session.hypothesis_test(ts, ts, sampling="paired_numeric_summary")  # type: ignore[arg-type]
+
+    assert exc_info.value.location == "hypothesis_test.sampling"
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.canonical_id == "hypothesis_test"

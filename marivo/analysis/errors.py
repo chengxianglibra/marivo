@@ -921,7 +921,7 @@ class ForecastInputQualityError(AnalysisError):
 class QualityShapeUnsupportedError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         return _DerivedFields(
-            location="session.assess_quality target",
+            location="session.assess_quality frame",
             repair=AnalysisRepair(
                 kind="retry",
                 action=(
