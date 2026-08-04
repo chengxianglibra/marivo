@@ -698,17 +698,14 @@ class Session(RenderableResult):
         time_scope: TimeScopeInput | _Unset = _UNSET,
         grain: GrainInput | _Unset = _UNSET,
         dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]]
-        | None
-        | _Unset = _UNSET,
-        slice_by: Mapping[
-            _SemanticInput[DimensionKind | TimeDimensionKind],
-            SliceValue,
-        ]
-        | None
-        | _Unset = _UNSET,
-        time_dimension: _SemanticInput[TimeDimensionKind] | None | _Unset = _UNSET,
-        expect_shape: SemanticShape | None | _Unset = _UNSET,
-        cohort: SubjectSet | None | _Unset = _UNSET,
+        | _Unset
+        | None = _UNSET,
+        slice_by: Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], SliceValue]
+        | _Unset
+        | None = _UNSET,
+        time_dimension: _SemanticInput[TimeDimensionKind] | _Unset | None = _UNSET,
+        expect_shape: SemanticShape | _Unset | None = _UNSET,
+        cohort: SubjectSet | _Unset | None = _UNSET,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Materialize one or more metric roots into a typed MetricFrame.
