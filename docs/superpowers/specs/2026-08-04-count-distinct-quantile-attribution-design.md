@@ -412,6 +412,7 @@ class ReproducibleQuantileAttributionV1(BaseModel):
     status: Literal["reproducible"]
     source_mode: Literal["exact", "approximate"]
     source_method: str
+    source_dtype: str
     distribution_representation: Literal[
         "exact_value_frequency",
         "mergeable_sketch",
@@ -700,6 +701,13 @@ class AttributionResolutionReconciliationV1(BaseModel):
     contribution_sum: float
     residual: float
     max_abs_residual: float = Field(ge=0)
+    quantile_execution: QuantileResolutionExecutionV1 | None = None
+
+class QuantileResolutionExecutionV1(BaseModel):
+    schema: Literal["quantile-resolution-execution/v1"]
+    coalition: Literal["exact_shapley", "permutation_shapley"]
+    permutation_count: int = Field(ge=0)
+    deterministic_seed_fingerprint: str | None = None
 
 MultiresolutionScopeV1 = Annotated[
     CompleteMultiresolutionScopeV1 | SelectedMultiresolutionScopeV1,
@@ -732,12 +740,17 @@ overlap-key count, `identities_persisted=False`, and an optional
 `attribution_mode="multiresolution"`.
 
 The quantile evidence records the effective `q` derived from the validated
-aggregate authority, source mode/method, representation, exact or permutation
-Shapley, evaluated partition count, permutation count, deterministic seed
-fingerprint, source error bound when available, operator version, and the same
-required multi-resolution evidence for multi-resolution mode. The copied
-effective `q` is result evidence only; dispatch and execution never read it
-instead of the validated aggregate authority.
+aggregate authority, source mode/method/dtype, representation, exact,
+permutation, or mixed bounded summary, evaluated partition count, permutation
+count, deterministic seed fingerprint, source error bound when available,
+operator version, and every bucket/resolution reconciliation in
+`scope_reconciliations`. Each reconciliation carries its own exact or
+permutation execution evidence, so a mixed game is never represented as one
+global method. Multi-resolution mode additionally carries the same records in
+its required multi-resolution evidence; `at_resolution(...)` filters both
+collections and recomputes the bounded summary. The copied effective `q` is
+result evidence only; dispatch and execution never read it instead of the
+validated aggregate authority.
 
 `generic-attribution-rows/v2` closes the method-specific row schemas described
 above. Recovery validates required columns, forbidden method-only columns,

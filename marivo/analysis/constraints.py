@@ -472,13 +472,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "lowered to sum/count_non_null components. If a DeltaFrame reports "
         "attribution_shape=weighted_mix lowered_from=mean, call attribute directly: its "
         "Tier-1 mean is already lowered to sum/count_non_null components, so do not manually "
-        "split numerator and denominator. For other unsupported non-additive metrics, "
-        "re-observe or attribute additive numerator and denominator separately.",
+        "split numerator and denominator. Graph-owned count_distinct and supported quantiles "
+        "also call attribute directly when DeltaFrame.contract().attribute_admission is "
+        "supported. Other non-additive aggregates remain blocked until they have an approved "
+        "distribution-aware attribution basis.",
         "Axis-sum attribution is valid for additive metrics, semi-additive metrics away "
         "from their status time axis, component-aware ratio or weighted-mean deltas, and "
         "Tier-1 means with persisted sum/count_non_null components.",
-        "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
-        "weighted_mean components, or attribute additive numerator and denominator separately.",
+        "Inspect DeltaFrame.contract().attribute_admission; re-observe and compare legacy "
+        "artifacts, or author an approved attribution basis for the aggregate.",
         help_target="attribute",
     ),
     ConstraintId.ATTRIBUTION_RECONCILIATION: _constraint(

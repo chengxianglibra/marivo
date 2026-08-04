@@ -1,15 +1,27 @@
 """AttributionFrame metadata, immutability, persistence, and load dispatch."""
 
+import json
 from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import FrameMutationError, SemanticKindMismatchError
-from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1
+from marivo.analysis.errors import (
+    FrameMetaInvalidError,
+    FrameMutationError,
+    SemanticKindMismatchError,
+)
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +113,75 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     assert loaded.meta.kind == "attribution_frame"
     assert loaded.meta.byte_size > 0
     assert list(loaded.to_pandas()["region"]) == ["north", "south"]
+
+
+def test_load_v6_hierarchy_normalizes_public_shape_and_mode() -> None:
+    session = session_attach.get_or_create(name="demo")
+    df = pd.DataFrame({"region": ["north"], "contribution": [1.0]})
+    meta = _meta(
+        session_id=session.id,
+        project_root=str(session.project_root),
+    ).model_copy(
+        update={
+            "method": "ordered_hierarchy_sum",
+            "params": {"mode": "hierarchy"},
+        }
+    )
+    written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
+    meta_path = session._layout.frames_dir / written.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["artifact_schema_version"] = "analysis-artifact/v6"
+    meta_path.write_text(json.dumps(payload))
+
+    loaded = session.get_frame(written.ref)
+
+    assert isinstance(loaded, AttributionFrame)
+    assert loaded.meta.method == "ordered_hierarchy_sum"
+    assert loaded.attribution_shape == "sum"
+    assert loaded.attribution_mode == "hierarchy"
+    assert "legacy_method" in loaded._card().render()
+
+
+def test_load_v2_attribution_rows_rejects_missing_required_column() -> None:
+    session = session_attach.get_or_create(name="demo")
+    df = pd.DataFrame(
+        {
+            "region": ["north"],
+            "contribution": [1.0],
+            "share_of_total_delta": [1.0],
+            "share_of_positive_pool": [1.0],
+            "share_of_negative_pool": [None],
+            "rank": [1],
+        }
+    )
+    meta = _meta(
+        session_id=session.id,
+        project_root=str(session.project_root),
+    ).model_copy(
+        update={
+            "row_contract_version": "generic-attribution-rows/v2",
+            "axis_bindings": (
+                AttributionAxisBindingV1(
+                    ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+                    output_column="region",
+                ),
+            ),
+            "reconciliation": AttributionReconciliation(
+                partition_count=1,
+                total_delta=1.0,
+                contribution_sum=1.0,
+                residual=0.0,
+                max_abs_residual=0.0,
+            ),
+        }
+    )
+    written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
+    data_path = session._layout.frames_dir / written.ref / "data.parquet"
+    corrupted = pd.read_parquet(data_path).drop(columns="rank")
+    corrupted.to_parquet(data_path, index=False)
+
+    with pytest.raises(FrameMetaInvalidError, match="corrupt generic attribution rows"):
+        session.get_frame(written.ref)
 
 
 def test_attribution_shape_reads_method():

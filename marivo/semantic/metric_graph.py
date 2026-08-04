@@ -301,6 +301,7 @@ class MetricArtifactIdentityV1:
     presentation_fingerprint: str
     artifact_schema_version: str
     fingerprint: str
+    attribution_basis_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -312,6 +313,7 @@ class DeltaComparisonIdentityV1:
     baseline_artifact_id: str
     comparable_semantics_fingerprint: str
     alignment_policy_fingerprint: str
+    attribution_basis_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

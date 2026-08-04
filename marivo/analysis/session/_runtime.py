@@ -128,6 +128,7 @@ def _validate_job_subject(value: object, *, role: str) -> None:
                 "baseline_artifact_id",
                 "comparable_semantics_fingerprint",
                 "alignment_policy_fingerprint",
+                "attribution_basis_fingerprint",
             },
             role=f"{role}.comparison",
         )
@@ -145,6 +146,14 @@ def _validate_job_subject(value: object, *, role: str) -> None:
         ):
             if type(comparison[field]) is not str or not comparison[field]:
                 raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
+        if comparison["attribution_basis_fingerprint"] is not None and (
+            type(comparison["attribution_basis_fingerprint"]) is not str
+            or not comparison["attribution_basis_fingerprint"]
+        ):
+            raise ValueError(
+                f"analysis job {role}.comparison.attribution_basis_fingerprint "
+                "must be a non-empty string or null"
+            )
         return
     if kind in {"event", "lifecycle", "subject_set"}:
         payload = _require_exact_object(

@@ -243,11 +243,13 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         "compare",
         "attribute",
         "correlate",
+        "AttributionFrame.at_resolution",
     )
     assert len(owners["observe"]) == 2
     assert len(owners["events.match"]) == 3
     assert len(owners["lifecycle.replay"]) == 2
     assert len(owners["lifecycle.distribution"]) == 1
+    assert len(owners["AttributionFrame.at_resolution"]) == 1
     assert len(owners["correlate"]) == 1
 
 
@@ -903,10 +905,10 @@ _REFLECTION_EXCLUDED: dict[str, str] = {
     # -- Per-class contract overrides: MetricFrame and DeltaFrame override
     #    BaseFrame.contract with their own gating logic, so their callable
     #    paths differ from the registered BaseFrame.contract canonical path.
-    #    AttributionFrame.contract inherits directly and is caught by the
-    #    registered_paths check.
+    #    AttributionFrame also specializes contract for multiresolution views.
     "MetricFrame.contract": "override of BaseFrame.contract, registered via canonical path",
     "DeltaFrame.contract": "override of BaseFrame.contract, registered via canonical path",
+    "AttributionFrame.contract": "override of BaseFrame.contract, registered via canonical path",
     "CandidateSet.contract": "override of BaseFrame.contract, registered via canonical path",
     # -- Internal metadata accessor
     "MetricFrame.measures_meta": "internal metadata accessor, not a public capability",

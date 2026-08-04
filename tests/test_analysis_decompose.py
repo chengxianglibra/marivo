@@ -226,7 +226,8 @@ def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
     )
 
     assert out.meta.driver_field == "path"
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
+    assert out.attribution_mode == "hierarchy"
     assert out.meta.params["axis_columns"] == ["region", "platform"]
     df = out.to_pandas()
     assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
@@ -936,7 +937,8 @@ def test_decompose_axes_multi_axis_handles_nan_in_level_two():
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.driver_field == "path"
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
+    assert out.attribution_mode == "hierarchy"
     df = out.to_pandas()
     level2 = df[df["level"] == 2]
     nan_rows = level2[level2["path"] == "CN > nan"]

@@ -9,6 +9,7 @@ from typing import Any, cast
 from marivo.analysis.errors import AttributionMaterializationError, JobNotFoundError
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payload
 from marivo.analysis.session.core import Session
@@ -51,6 +52,7 @@ class ObserveReplay:
     time_dimension: Ref[TimeDimensionKind] | None
     dependency_digest: str
     catalog_definition_fingerprint: str
+    cohort: SubjectSet | None = None
 
     def with_dimensions(self, axis_refs: list[Ref[FieldKind]]) -> ObserveReplay:
         dimensions = list(self.dimensions)
@@ -66,6 +68,21 @@ class ObserveReplay:
             time_dimension=self.time_dimension,
             dependency_digest=self.dependency_digest,
             catalog_definition_fingerprint=self.catalog_definition_fingerprint,
+            cohort=self.cohort,
+        )
+
+    def without_dimensions(self) -> ObserveReplay:
+        """Return the original replay scope without business dimensions."""
+        return ObserveReplay(
+            metric=self.metric,
+            time_scope=self.time_scope,
+            grain=self.grain,
+            dimensions=(),
+            slice_by=dict(self.slice_by),
+            time_dimension=self.time_dimension,
+            dependency_digest=self.dependency_digest,
+            catalog_definition_fingerprint=self.catalog_definition_fingerprint,
+            cohort=self.cohort,
         )
 
     def call_observe(self, session: Session) -> MetricFrame:
@@ -114,6 +131,7 @@ class ObserveReplay:
                 self.slice_by or None,
             ),
             time_dimension=self.time_dimension,
+            cohort=self.cohort,
             session=session,
         )
         stats = result.meta.execution_stats
@@ -253,6 +271,29 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
             },
         )
 
+    cohort: SubjectSet | None = None
+    if frame.meta.cohort is not None:
+        try:
+            loaded_cohort = session.get_frame(frame.meta.cohort.artifact_ref)
+        except Exception as exc:
+            raise AttributionMaterializationError(
+                message="MetricFrame cohort artifact is unavailable for replay",
+                context={
+                    "recoverability_status": "cohort_artifact_missing",
+                    "source_ref": frame.ref,
+                    "cohort_ref": frame.meta.cohort.artifact_ref,
+                },
+            ) from exc
+        if not isinstance(loaded_cohort, SubjectSet):
+            raise AttributionMaterializationError(
+                message="MetricFrame replay cohort is not a SubjectSet",
+                context={
+                    "recoverability_status": "cohort_artifact_invalid",
+                    "source_ref": frame.ref,
+                },
+            )
+        cohort = loaded_cohort
+
     return ObserveReplay(
         metric=metric,
         time_scope=original_timescope,
@@ -273,6 +314,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
         ),
         dependency_digest=dependency_digest.digest,
         catalog_definition_fingerprint=catalog_definition_fingerprint,
+        cohort=cohort,
     )
 
 

@@ -13,6 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from marivo.analysis.attribution_contract import AttributeAdmissionV1
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -30,7 +31,7 @@ from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v6"] = "analysis-artifact/v6"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v7"] = "analysis-artifact/v7"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 
 
@@ -186,6 +187,15 @@ class ArtifactInputRequirement(BaseModel):
     bindable_from_current_artifact: bool
 
 
+class ArtifactCallOption(BaseModel):
+    """One exact runnable call option owned by an artifact affordance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    label: str
+    semantic_refs: tuple[str, ...] = ()
+    snippet: str
+
+
 class ArtifactAffordance(BaseModel):
     """Mechanical compatibility entry, not a recommendation."""
 
@@ -197,6 +207,7 @@ class ArtifactAffordance(BaseModel):
     input_requirements: tuple[ArtifactInputRequirement, ...] = ()
     preconditions: tuple[ArtifactPrecondition, ...] = ()
     expected_output_family: str | None = None
+    call_options: tuple[ArtifactCallOption, ...] = ()
 
 
 class ArtifactBoundaryPort(BaseModel):
@@ -226,6 +237,14 @@ class ArtifactContract(BaseModel):
     issues: tuple[ArtifactIssue, ...] = ()
     affordances: tuple[ArtifactAffordance, ...] = ()
     boundary_ports: tuple[ArtifactBoundaryPort, ...] = ()
+    attribute_admission: AttributeAdmissionV1 | None = None
+    row_arithmetic: (
+        Literal[
+            "not_additive_across_resolutions",
+            "additive_once_per_comparison_bucket",
+        ]
+        | None
+    ) = None
 
     @computed_field  # type: ignore[prop-decorator]  # Pydantic wraps this property.
     @property
@@ -265,7 +284,9 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v6"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v6", "analysis-artifact/v7"] = (
+        CURRENT_ARTIFACT_SCHEMA_VERSION
+    )
     ref: str
     session_id: str
     project_root: str
@@ -431,6 +452,18 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
                 for issue in contract.issues
             ),
         )
+    if contract.attribute_admission is not None:
+        admission = contract.attribute_admission
+        admission_text = (
+            f"status={admission.status} attribution_shape={admission.attribution_shape}"
+        )
+        if admission.status == "blocked":
+            admission_text += f" blocker={admission.blocker}"
+        else:
+            admission_text += " multiple_axes=" + "|".join(admission.mode.multiple_axes)
+        card.field("attribute_admission", admission_text)
+    if contract.row_arithmetic is not None:
+        card.field("row_arithmetic", contract.row_arithmetic)
 
     affordances = tuple(
         affordance for affordance in contract.affordances if _affordance_visible(affordance)
@@ -465,11 +498,15 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
         )
         for requirement in affordance.input_requirements
     )
-    return (
+    base = (
         f"{affordance.capability_id}: {affordance.public_entrypoint}; "
         f"help={affordance.help_target}; inputs={bindings or 'none'}; "
         f"output={affordance.expected_output_family or 'none'}"
     )
+    if not affordance.call_options:
+        return base
+    options = " | ".join(f"{option.label}: {option.snippet}" for option in affordance.call_options)
+    return f"{base}; options={options}"
 
 
 def _render_precondition(

@@ -107,6 +107,13 @@ Typed analysis begins only through the registered public entry:
 After entry, continue through the concrete artifact `.contract()` or focused
 live help. Do not synthesize unregistered reducers or cross-family operations.
 
+For attribution, read `delta.contract().attribute_admission` first and still
+call only `session.attribute(...)`; never choose or emulate an attribution
+method yourself. Do not sum segmented quantile point estimates. Read the
+returned frame contract before selecting or aggregating a multiresolution view.
+The live help and artifact contract, not this skill, own the current method and
+mode matrix.
+
 ### Evidence integrity
 
 Scripts, chat summaries, historical sessions, and artifact digests are not

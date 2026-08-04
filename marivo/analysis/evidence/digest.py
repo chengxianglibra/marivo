@@ -374,6 +374,11 @@ def _build_item(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> Di
             contribution_rank=value.contribution_rank,
             decomposition_method=value.decomposition_method,
             reconciliation_residual=value.reconciliation_residual,
+            resolution_axis_refs=value.resolution_axis_refs,
+            rollup_safe=value.rollup_safe,
+            causal_claim=value.causal_claim,
+            contribution_std_error=value.contribution_std_error,
+            source_error_bound=value.source_error_bound,
         )
     if isinstance(value, AssociationFindingValue):
         return AssociationFact(

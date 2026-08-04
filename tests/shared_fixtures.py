@@ -549,6 +549,39 @@ def make_metric_frame(
     return frame
 
 
+def nonadditive_attribution_project_files() -> dict[str, str]:
+    """Return one minimal project with distinct and quantile metric roots."""
+    return {
+        "datasources/warehouse.py": (
+            "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        ),
+        "sales/_domain.py": (
+            "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+        ),
+        "sales/datasets.py": (
+            "import marivo.datasource as md\n"
+            "import marivo.semantic as ms\n"
+            "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+            "source=md.table('orders'))\n"
+            "created_at = ms.time_dimension_column(name='created_at', entity=orders, "
+            "column='created_at', granularity='day', is_default=True)\n"
+            "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
+            "channel = ms.dimension_column(name='channel', entity=orders, column='channel')\n"
+            "user_id = ms.measure_column(name='user_id', entity=orders, column='user_id', "
+            "additivity='non_additive')\n"
+            "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
+            "additivity='additive')\n"
+            "unique_users = ms.aggregate(name='unique_users', measure=user_id, "
+            "agg='count_distinct')\n"
+            "median_amount = ms.aggregate(name='median_amount', measure=amount, agg='median')\n"
+            "p50_amount = ms.aggregate(name='p50_amount', measure=amount, "
+            "agg=('percentile', 0.5))\n"
+            "p95_amount = ms.aggregate(name='p95_amount', measure=amount, "
+            "agg=('percentile', 0.95))\n"
+        ),
+    }
+
+
 def build_session_over_catalog(catalog: Any, tmp_path: Path) -> Any:
     """Build an analysis :class:`Session` backed by an existing semantic catalog.
 

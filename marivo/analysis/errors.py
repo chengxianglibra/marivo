@@ -1516,6 +1516,47 @@ class AttributionMaterializationError(AnalysisError):
         )
 
 
+class AttributionBasisMismatchError(AnalysisError):
+    """Persisted attribution bases or source graphs are incompatible."""
+
+    @property
+    def kind(self) -> str:
+        return "attribution_basis_mismatch"
+
+
+class AttributionShapeUnavailableError(AnalysisError):
+    """No closed mathematical attribution shape can be projected."""
+
+    @property
+    def kind(self) -> str:
+        return "attribution_shape_unavailable"
+
+
+class AttributeAdmissionBlockedError(AnalysisError):
+    """The effective installed-runtime attribution admission is blocked."""
+
+    @property
+    def kind(self) -> str:
+        return "attribute_admission_blocked"
+
+
+class AttributionResolutionError(AnalysisError):
+    """A requested multi-resolution axis prefix is not available."""
+
+    @property
+    def kind(self) -> str:
+        return "attribution_resolution_invalid"
+
+
+class AttributionDistributionError(AnalysisError):
+    """Distribution attribution cannot safely evaluate its governed game."""
+
+    @property
+    def kind(self) -> str:
+        reason = self._context.get("reason")
+        return str(reason) if isinstance(reason, str) and reason else "attribution_distribution"
+
+
 class InvalidEventPatternError(AnalysisError):
     @property
     def kind(self) -> str:

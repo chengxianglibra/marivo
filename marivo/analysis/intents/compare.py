@@ -15,6 +15,7 @@ import pandas as pd
 
 from marivo.analysis._cumulative import cumulative_compare_anchor
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
+from marivo.analysis.attribution_contract import basis_fingerprint
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
@@ -23,6 +24,7 @@ from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
     AnalysisRepair,
+    AttributionBasisMismatchError,
     CalendarPolicyError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
@@ -947,6 +949,15 @@ def compare(
         current.meta,
         baseline.meta,
     )
+    if current.meta.attribution_basis != baseline.meta.attribution_basis:
+        raise AttributionBasisMismatchError(
+            message="compare inputs carry incompatible attribution reproduction bases",
+            expected=repr(basis_fingerprint(current.meta.attribution_basis)),
+            received=repr(basis_fingerprint(baseline.meta.attribution_basis)),
+            location="session.compare attribution basis",
+            context={"current_ref": current.ref, "baseline_ref": baseline.ref},
+        )
+    attribution_basis = current.meta.attribution_basis
     # Record to-date alignment when the current frame is grain_to_date cumulative.
     # The ordinal alignment (window_info / coverage) is reused: paired_buckets
     # become matched_buckets, baseline_unpaired_buckets become the tail.
@@ -974,6 +985,9 @@ def compare(
             if status_time_dimension is not None
             else None
         ),
+        "attribution_basis": (
+            attribution_basis.model_dump(mode="json") if attribution_basis is not None else None
+        ),
     }
     assert current.meta.metric_id is not None
     assert baseline.meta.metric_id is not None
@@ -998,6 +1012,7 @@ def compare(
         baseline_artifact_id=baseline.meta.artifact_id or baseline.ref,
         comparable_semantics_fingerprint=comparable_fingerprint,
         alignment_policy_fingerprint=fingerprint(alignment_dump),
+        attribution_basis_fingerprint=basis_fingerprint(attribution_basis),
     )
     params["comparison_identity"] = canonical_value(comparison_identity)
     compare_anchors = CommitSemanticAnchors(
@@ -1116,6 +1131,7 @@ def compare(
         aggregation=aggregation,
         cumulative=cur_cumulative,
         component_ref=delta_component.ref if delta_component is not None else None,
+        attribution_basis=attribution_basis,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 

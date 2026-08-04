@@ -122,7 +122,12 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "as_segmented",
             "as_panel",
         ),
-        "AttributionFrame": ("as_sum", "as_ratio_mix", "as_weighted_mix"),
+        "AttributionFrame": (
+            "as_sum",
+            "as_ratio_mix",
+            "as_weighted_mix",
+            "at_resolution",
+        ),
         "EventFrame": (),
         "LifecycleFrame": (),
         "SubjectSet": (),
@@ -1054,7 +1059,10 @@ def _build_registry() -> CapabilityRegistry:
             help_target="attribute",
             summary=(
                 "Attribute a DeltaFrame's movement over explicit axes with "
-                "reconciled contributions and explicit share denominators."
+                "reconciled contributions and explicit share denominators. The installed "
+                "automatic methods are additive/component allocation, exact distinct "
+                "membership, exact value-frequency quantiles, and Trino mergeable qdigest; "
+                "non-mergeable reservoir quantiles remain blocked by the delta contract."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -1084,6 +1092,21 @@ def _build_registry() -> CapabilityRegistry:
             },
             output_contract=_output("AttributionFrame"),
             additional_examples=(
+                HelpExample(
+                    label="Canonical scalar-delta attribution",
+                    code=(
+                        "current = session.observe(metric, time_scope=current_window)\n"
+                        "baseline = session.observe(metric, time_scope=baseline_window)\n"
+                        "delta = session.compare(current, baseline)\n"
+                        "drivers = session.attribute(delta, axes=[region])"
+                    ),
+                    requires=(
+                        "baseline_window",
+                        "current_window",
+                        "metric",
+                        "region",
+                    ),
+                ),
                 HelpExample(
                     label="Attribute one funnel loss rate",
                     code=(
@@ -1445,6 +1468,28 @@ def _build_registry() -> CapabilityRegistry:
             result_kind="defensive_copy",
             read_bound="bounded",
             produced_input_family="OntologyMetricCandidate",
+        )
+    )
+    descriptors.append(
+        ReadCapability(
+            id="AttributionFrame.at_resolution",
+            public_entrypoint="frame.at_resolution(axes=[...])",
+            help_target="AttributionFrame.at_resolution",
+            summary="Select one exact ordered semantic-ref resolution without a query.",
+            root_group="family_operations",
+            root_visibility="grouped",
+            constraint_ids=("frame_kind_compatible",),
+            callable_path=("marivo.analysis.frames.attribution.AttributionFrame.at_resolution"),
+            receiver_family="AttributionFrame",
+            result_kind="defensive_copy",
+            read_bound="bounded",
+            additional_examples=(
+                HelpExample(
+                    label="Select one exact ordered semantic-ref prefix",
+                    code="regional = frame.at_resolution(axes=[region])",
+                    requires=("frame", "region"),
+                ),
+            ),
         )
     )
 
@@ -1825,20 +1870,21 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         ConstructorCapability(
             id="AttributionMode",
-            public_entrypoint='mode="joint" | mode="hierarchy"',
+            public_entrypoint=('mode="joint" | mode="hierarchy" | mode="multiresolution"'),
             help_target="AttributionMode",
             summary=(
                 "Multi-axis row layout: joint emits one additive row per complete axis "
-                "combination; hierarchy emits prefix rows and only its deepest level "
-                "reconciles. Multi-axis calls have no default. Omit mode for one axis, "
+                "combination; hierarchy emits rollup-safe prefix rows; multiresolution "
+                "independently recomputes each ordered prefix for non-additive methods. "
+                "Multi-axis calls have no default. Omit mode for one axis, "
                 "where a supplied value has no effect. Mode is distinct from attribution "
-                "method, so either layout can use weighted_mix."
+                "method. DeltaFrame.contract().attribute_admission lists the exact legal pair."
             ),
             root_group="policies_builders",
             root_visibility="grouped",
             constraint_ids=(),
             callable_path=None,
-            output_type='Literal["joint", "hierarchy"]',
+            output_type='Literal["joint", "hierarchy", "multiresolution"]',
         )
     )
 

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
+from marivo.analysis.attribution_contract import basis_fingerprint
 from marivo.analysis.candidate_identity import (
     validate_candidate_frame_identity,
     validate_semantic_hypothesis_frame_integrity,
@@ -25,6 +26,7 @@ from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionFrameMeta,
     FunnelAttributionFrameMeta,
+    validate_generic_attribution_rows,
 )
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
 from marivo.analysis.frames.candidate import (
@@ -238,9 +240,16 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
             artifact_identity.presentation_fingerprint != meta.presentation_fingerprint
         ),
         "artifact_schema_version": (
-            artifact_identity.artifact_schema_version != CURRENT_ARTIFACT_SCHEMA_VERSION
+            artifact_identity.artifact_schema_version != meta.artifact_schema_version
         ),
     }
+    if meta.artifact_schema_version == "analysis-artifact/v7":
+        artifact_mismatches["attribution_basis_fingerprint"] = (
+            artifact_identity.attribution_basis_fingerprint
+            != basis_fingerprint(meta.attribution_basis)
+        )
+    elif meta.attribution_basis is not None:
+        artifact_mismatches["attribution_basis"] = True
     failed_artifact_fields = sorted(
         field for field, mismatched in artifact_mismatches.items() if mismatched
     )
@@ -250,7 +259,7 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
             path="artifact_identity",
             reason=f"identity fields do not match frame state: {failed_artifact_fields}",
         )
-    artifact_identity_payload = {
+    artifact_identity_payload: dict[str, object] = {
         "metric_identities": artifact_identity.metric_identities,
         "scope_fingerprint": artifact_identity.scope_fingerprint,
         "source_domain_fingerprint": artifact_identity.source_domain_fingerprint,
@@ -260,6 +269,10 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
         "presentation_fingerprint": artifact_identity.presentation_fingerprint,
         "artifact_schema_version": artifact_identity.artifact_schema_version,
     }
+    if meta.artifact_schema_version == "analysis-artifact/v7":
+        artifact_identity_payload["attribution_basis_fingerprint"] = (
+            artifact_identity.attribution_basis_fingerprint
+        )
     if artifact_identity.fingerprint != fingerprint(artifact_identity_payload):
         raise _current_metric_state_error(
             ref,
@@ -350,7 +363,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
 
     artifact_schema_version = meta.get("artifact_schema_version")
-    if artifact_schema_version != CURRENT_ARTIFACT_SCHEMA_VERSION:
+    if artifact_schema_version not in {
+        "analysis-artifact/v6",
+        CURRENT_ARTIFACT_SCHEMA_VERSION,
+    }:
         raise FrameMetaInvalidError(
             message=(
                 f"frame '{ref}' uses unsupported artifact schema "
@@ -359,7 +375,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             context={
                 "ref": ref,
                 "got": artifact_schema_version,
-                "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                "expected": (
+                    "analysis-artifact/v6",
+                    CURRENT_ARTIFACT_SCHEMA_VERSION,
+                ),
             },
         )
     if meta.get("session_id") != session.id:
@@ -447,7 +466,12 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             },
         )
     if kind == "metric_frame":
-        missing_fields = sorted(_CURRENT_METRIC_FRAME_FIELDS - set(meta))
+        required_metric_fields = _CURRENT_METRIC_FRAME_FIELDS | (
+            {"attribution_basis"}
+            if artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION
+            else set()
+        )
+        missing_fields = sorted(required_metric_fields - set(meta))
         if missing_fields:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has a corrupt current-schema metadata payload",
@@ -457,6 +481,20 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     "missing_fields": missing_fields,
                 },
             )
+    if (
+        kind == "delta_frame"
+        and meta.get("semantic_kind") != "funnel"
+        and artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION
+        and "attribution_basis" not in meta
+    ):
+        raise FrameMetaInvalidError(
+            message=f"frame '{ref}' is missing its v7 attribution basis field",
+            context={
+                "ref": ref,
+                "artifact_schema_version": artifact_schema_version,
+                "missing_state": ["attribution_basis"],
+            },
+        )
     try:
         parsed_meta = (
             cast("Any", meta_cls).model_validate_json(json.dumps(meta))
@@ -520,6 +558,25 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 )
             _validate_current_metric_state(ref, parsed_meta)
     if isinstance(parsed_meta, DeltaFrameMeta):
+        expected_basis_fingerprint = basis_fingerprint(parsed_meta.attribution_basis)
+        if parsed_meta.artifact_schema_version == "analysis-artifact/v7":
+            if (
+                parsed_meta.comparison_identity.attribution_basis_fingerprint
+                != expected_basis_fingerprint
+            ):
+                raise FrameMetaInvalidError(
+                    message=f"frame '{ref}' has a mismatched attribution basis identity",
+                    context={
+                        "ref": ref,
+                        "artifact_schema_version": artifact_schema_version,
+                        "expected_basis_fingerprint": expected_basis_fingerprint,
+                    },
+                )
+        elif parsed_meta.attribution_basis is not None:
+            raise FrameMetaInvalidError(
+                message=f"legacy frame '{ref}' cannot carry a v7 attribution basis",
+                context={"ref": ref, "artifact_schema_version": artifact_schema_version},
+            )
         last_intent = parsed_meta.lineage.steps[-1].intent if parsed_meta.lineage.steps else None
         if last_intent == "compare":
             delta_required_state: dict[str, object | None] = {
@@ -539,6 +596,18 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                         "missing_state": missing_state,
                     },
                 )
+    if isinstance(parsed_meta, AttributionFrameMeta):
+        try:
+            validate_generic_attribution_rows(parsed_meta, df)
+        except ValueError as exc:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' has corrupt generic attribution rows",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": artifact_schema_version,
+                    "reason": str(exc),
+                },
+            ) from exc
     if isinstance(parsed_meta, (CandidateSetMeta, SemanticHypothesisCandidateSetMeta)):
         if list(df.columns) != CANDIDATE_COLUMNS:
             raise FrameMetaInvalidError(

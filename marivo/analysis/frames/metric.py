@@ -12,6 +12,7 @@ from marivo.analysis._cumulative import (
     cumulative_compare_blocker,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis.attribution_contract import AttributionBasisV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
@@ -294,6 +295,7 @@ class MetricFrameMeta(BaseFrameMeta):
     sample_set_digest: str | None = None
     quantile_mode: Literal["exact", "approximate"] | None = None
     quantile_method: str | None = None
+    attribution_basis: AttributionBasisV1 | None = None
     coverage_ref: str | None = None
     coverage_summary: dict[str, Any] | None = None
     cumulative: dict[str, Any] | None = None

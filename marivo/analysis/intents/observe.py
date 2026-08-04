@@ -15,6 +15,11 @@ from marivo.analysis._cumulative import (
     normalize_cumulative_anchor,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis.attribution_contract import (
+    AttributionBasisV1,
+    basis_fingerprint,
+    build_attribution_basis,
+)
 from marivo.analysis.candidate_lineage import CandidateOrigin
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -849,6 +854,35 @@ def observe(
                         ),
                     )
             graph_nodes = {record.node_id: record.node for record in graph_plan.graph.nodes}
+            attribution_basis: AttributionBasisV1 | None = None
+            root_node = graph_nodes.get(graph_plan.graph.roots[0])
+            root_leaf = next(
+                (leaf for leaf in graph_plan.leaves if leaf.node_id == graph_plan.graph.roots[0]),
+                None,
+            )
+            if isinstance(root_node, AggregateNodeV1) and root_leaf is not None:
+                base_plan = (
+                    root_leaf.plan.base_plan
+                    if hasattr(root_leaf.plan, "base_plan")
+                    else root_leaf.plan
+                )
+                try:
+                    source_dtype = str(
+                        resolver.measure_on(
+                            ref_factory.measure(root_node.target_ref.path),
+                            base_plan.table,
+                        ).type()
+                    )
+                except Exception:
+                    source_dtype = "unknown"
+                attribution_basis = build_attribution_basis(
+                    graph_plan.graph,
+                    source_dtype=source_dtype,
+                    engine_profile=datasource_engine_profile(
+                        session._connection_runtime,
+                        graph_plan.datasource_name,
+                    ),
+                )
             cumulative_meta = _cumulative_graph_marker(graph_plan, catalog=catalog)
             params_timescope = None
             if resolved_window is not None:
@@ -876,6 +910,11 @@ def observe(
                 "warnings": list(graph_plan.warnings),
                 "lineage_metadata": graph_plan.lineage_metadata,
                 "metric_semantics": _metric_semantics_payload(metric_ir),
+                "attribution_basis": (
+                    attribution_basis.model_dump(mode="json")
+                    if attribution_basis is not None
+                    else None
+                ),
                 "cohort": (
                     resolved_cohort.binding.model_dump(mode="json")
                     if resolved_cohort is not None
@@ -1114,6 +1153,7 @@ def observe(
             "coverage_fingerprint": coverage_fingerprint,
             "presentation_fingerprint": presentation_fingerprint,
             "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+            "attribution_basis_fingerprint": basis_fingerprint(attribution_basis),
         }
         artifact_identity = MetricArtifactIdentityV1(
             schema="metric-artifact/v1",
@@ -1125,6 +1165,7 @@ def observe(
             coverage_fingerprint=coverage_fingerprint,
             presentation_fingerprint=presentation_fingerprint,
             artifact_schema_version=CURRENT_ARTIFACT_SCHEMA_VERSION,
+            attribution_basis_fingerprint=basis_fingerprint(attribution_basis),
             fingerprint=fingerprint(artifact_identity_payload),
         )
         quantile_mode = None
@@ -1211,6 +1252,7 @@ def observe(
             ),
             quantile_mode=quantile_mode,
             quantile_method=quantile_method,
+            attribution_basis=attribution_basis,
         )
         frame = MetricFrame(_df=root_execution.frame, meta=meta)
         frame.meta = frame.meta.model_copy(
@@ -1801,6 +1843,7 @@ def _observe_metric_forest(
         "coverage_fingerprint": coverage_fingerprint,
         "presentation_fingerprint": presentation_fingerprint,
         "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+        "attribution_basis_fingerprint": None,
     }
     artifact_identity = MetricArtifactIdentityV1(
         schema="metric-artifact/v1",
@@ -1812,6 +1855,7 @@ def _observe_metric_forest(
         coverage_fingerprint=coverage_fingerprint,
         presentation_fingerprint=presentation_fingerprint,
         artifact_schema_version=CURRENT_ARTIFACT_SCHEMA_VERSION,
+        attribution_basis_fingerprint=None,
         fingerprint=fingerprint(artifact_payload),
     )
     measures = [

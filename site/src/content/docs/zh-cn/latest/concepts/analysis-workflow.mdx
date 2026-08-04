@@ -325,14 +325,15 @@ unknown，使后续归因 fail closed，而不是继承单侧语义。
 
 把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。
 component-aware 的 ratio 和 weighted-mean delta 会使用 mix attribution。普通
-非线性 sampled fold（例如 quantile、min、max、first 或 last）不能直接按 axis 求和；
-除非它们属于已持久化 component-aware derived metric delta，否则仍不支持。
+分段非线性 point estimate 仍不能直接按 axis 求和。对于 graph-owned 的
+`count_distinct`、`median` 与 `percentile(q)` root，只有已持久化 attribution basis
+明确 admission 时，才使用各自的 distribution-aware 方法。
 
 `DeltaFrame` 会持久化归因门所需的语义；执行归因时，Marivo 不会回查一个可能已经
 变化的 catalog。若请求的 axis 尚未物化，Marivo 也会先校验原始 delta，再 replay
-observe 来补齐 axis。`DeltaFrame.show()` 会直接显示归因是 supported、conditional
-还是 blocked，`DeltaFrame.contract()` 则把同一边界暴露为类型化 attribution
-precondition：unknown 与普通 non-additive delta 标记为失败；semi-additive delta
+observe 来补齐 axis。`DeltaFrame.show()` 会直接显示归因是 supported 还是 blocked；
+`DeltaFrame.contract().attribute_admission` 是这一机械边界的唯一类型化来源。
+unknown 与普通 non-additive delta 标记为失败；semi-additive delta
 要求 axes 排除 status time dimension；已持久化的 ratio/weighted-mean component
 路径仍保持可用。
 
@@ -342,21 +343,30 @@ precondition：unknown 与普通 non-additive delta 标记为失败；semi-addit
 | `semi_additive` | 支持非时间轴；在其 `status_time_dimension` 上拒绝。 |
 | Component-aware `ratio` / `weighted_mean` | 支持 ratio/weighted mix 归因。 |
 | 基于 measure 的 Tier-1 `mean` | observe 时自动展开为 `sum(measure)` / `count_non_null(measure)`，并支持 weighted mix 归因。 |
-| 其他 `non_additive` metric | 拒绝，包括 opaque/tier-2 mean、median、percentile、min、max、count-distinct、tier-2 non-additive metric，以及 non-additive linear composition。 |
+| Graph-owned `count_distinct` | 对可重现的 scalar key 使用 distinct membership；distinct raw key 始终留在 datasource。 |
+| Graph-owned `median` / `percentile(q)` | 支持 DuckDB exact value-frequency 或 Trino mergeable qdigest replacement；ClickHouse reservoir sampling 保持 blocked。 |
+| 其他 `non_additive` metric | 拒绝，包括 opaque/tier-2 mean、min、max、不受支持的 quantile source 与 non-additive linear composition。 |
 | 缺少 additivity metadata | 拒绝；重新执行 `observe` 和 `compare` 后再归因。 |
 
-mean 展开使用 measure 的非空计数，而不是 entity 行数。对于被拒绝的 metric，请建模
-显式 ratio/weighted-mean components，或分别归因可加的 numerator 与 denominator metric。
+mean 展开使用 measure 的非空计数，而不是 entity 行数。对于被拒绝的 metric，应按
+`DeltaFrame.contract().attribute_admission` 的 repair 处理：重新 observe legacy artifact，
+或补齐该 aggregate 明确要求的 component/distribution evidence。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | 是 | — | 要归因的 delta。 |
 | `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
-| `mode` | `"joint" \| "hierarchy"` | 仅多轴必填 | — | `joint` 为每个完整轴组合输出一行；`hierarchy` 输出有序前缀层级行。 |
+| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | 仅多轴必填 | — | additive/component 允许 `joint` 或 `hierarchy`；non-additive 允许 `joint` 或独立 `multiresolution`。合法组合以 delta admission 为准。 |
 
 ```python
 attribution = session.attribute(delta, axes=[region, platform], mode="joint")
 attribution.show()
+```
+
+标准单轴调用不传 `mode`：
+
+```python
+attribution = session.attribute(delta, axes=[region])
 ```
 
 `joint` 的 contribution 行可直接求和并与总变化对齐。`hierarchy` 的父级行会重复
@@ -372,6 +382,23 @@ hierarchy 输出；additive 单轴归因的 `attribution_shape` 为 `"sum"`。
 `attribution.attribution_mode` 表示行布局，而 `attribution.attribution_shape` / `meta.method`
 表示归因数学，因此两种布局都可能显示 `method="weighted_mix"`。可调用
 `marivo.help("analysis.AttributionMode")` 查看这一 focused contract。
+
+Count-distinct membership 在 datasource 内完成 `(key, partition)` 去重，并按
+`1 / membership_degree` 分配；raw key 不进入 frame、job、lineage、evidence、
+telemetry、日志或错误。Quantile 会独立 replay 无业务维度的 endpoint，而不是汇总
+segmented point estimate。DuckDB 对 value-frequency 使用 exact Shapley（不超过 8 个
+partition）或 128 次确定性 permutation（9–64 个）；Trino 在服务端 merge qdigest。
+任一中间 coalition 为空、partition 超过 64、frequency row 超过 250,000，或无法复现
+独立 endpoint 时，本次调用结构化阻塞且不持久化 attribution artifact。
+
+`mode="multiresolution"` 表示“独立多分辨率归因”：每个有序 axis prefix 都是独立重算、
+排名和对账的 game，完整结果不能跨 resolution 求和。消费前用 exact semantic-ref prefix
+选择 immutable、query-free view：
+
+```python
+regional = attribution.at_resolution(axes=[region])
+regional.to_pandas()  # 每个 comparison bucket 只求和一次
+```
 
 Contribution share 会显式说明分母：
 

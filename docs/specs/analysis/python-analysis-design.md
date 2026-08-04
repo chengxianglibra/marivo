@@ -298,6 +298,15 @@ arithmetic attribution with `causal_claim="none"`.
 Unsupported targets, grouped inputs, invalid modes, or zero denominators fail
 with `funnel_attribution_unsupported`.
 
+Generic metric attribution uses the same public `session.attribute(...)`
+entrypoint. `DeltaFrame.contract().attribute_admission` is the sole mechanical
+method/mode admission state. New generic artifacts persist typed axes, mode,
+`causal_claim="none"`, and discriminated method evidence; semantics are never
+inferred from free-form params. Graph-owned non-additive bases replay an
+independent unsegmented endpoint. Their multi-axis layout is either `joint` or
+independent `multiresolution`, where every ordered semantic-ref prefix is a
+separately recomputed and reconciled game rather than a rollup.
+
 `mv.dropped_before(step=...)` is the only Phase 2 SubjectSelection. It accepts
 one exact non-initial PatternStep from a first-per-subject journey, selects only
 resolved loss, and excludes coverage-censored truth. A SubjectSet persists only

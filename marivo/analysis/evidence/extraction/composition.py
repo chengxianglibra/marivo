@@ -5,7 +5,7 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -17,6 +17,7 @@ from marivo.analysis.evidence.types import (
     Finding,
     Subject,
 )
+from marivo.refs import RefPayloadV1
 
 _ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
 _RESERVED_COLUMNS = {
@@ -45,6 +46,11 @@ class DecompositionExtractionContract:
     direction: Direction
     decomposition_method: str
     reconciliation_residual: float | None
+    ordered_axis_refs: tuple[RefPayloadV1, ...] = ()
+    ordered_prefix_rows: bool = False
+    rollup_safe: bool | None = None
+    causal_claim: Literal["none"] = "none"
+    source_error_bound: float | None = None
 
 
 def _escape(value: Any) -> str:
@@ -107,6 +113,12 @@ def extract_decomposition_findings(
     )
     ranked_rows.sort(key=lambda entry: -abs(_to_float(entry[1].get(contribution_column)) or 0.0))
     for rank, (_, row) in enumerate(ranked_rows, start=1):
+        persisted_rank = _to_float(row.get("rank")) if contract is not None else None
+        contribution_rank = (
+            int(persisted_rank)
+            if persisted_rank is not None and persisted_rank >= 1 and persisted_rank.is_integer()
+            else rank
+        )
         if contract is None:
             dimension = str(row.get("dimension", ""))
             keys = {
@@ -120,6 +132,16 @@ def extract_decomposition_findings(
             decomposition_method = str(row.get("method") or "algebraic_decomposition")
             reconciliation_residual = _to_float(row.get("reconciliation_residual"))
         else:
+            resolution_refs = contract.ordered_axis_refs
+            if contract.ordered_prefix_rows:
+                level_value = row.get("level")
+                level = int(level_value) if level_value is not None else 0
+                resolution_refs = resolution_refs[:level]
+            identity_dimension = (
+                " > ".join(ref.path for ref in resolution_refs)
+                if resolution_refs
+                else contract.dimension_name
+            )
             dimension = contract.dimension_name
             keys = {
                 column: _json_value(row[column])
@@ -135,7 +157,10 @@ def extract_decomposition_findings(
             direction = contract.direction
             decomposition_method = contract.decomposition_method
             reconciliation_residual = contract.reconciliation_residual
-        item_key = _key_tuple(dimension, keys)
+        item_key = _key_tuple(
+            identity_dimension if contract is not None else dimension,
+            keys,
+        )
         findings.append(
             Finding(
                 finding_id=make_finding_id(
@@ -154,11 +179,22 @@ def extract_decomposition_findings(
                     dimension_keys=keys,
                     contribution_value=contribution_value,
                     contribution_share=contribution_share,
-                    contribution_rank=rank,
+                    contribution_rank=contribution_rank,
                     direction=direction,
                     decomposition_method=decomposition_method,
                     reconciliation_residual=reconciliation_residual,
                     scope_delta_ref=scope_delta_ref,
+                    resolution_axis_refs=resolution_refs if contract is not None else (),
+                    rollup_safe=contract.rollup_safe if contract is not None else None,
+                    causal_claim=contract.causal_claim if contract is not None else "none",
+                    contribution_std_error=(
+                        _to_float(row.get("contribution_std_error"))
+                        if contract is not None
+                        else None
+                    ),
+                    source_error_bound=(
+                        contract.source_error_bound if contract is not None else None
+                    ),
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.contribution",
