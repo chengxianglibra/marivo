@@ -669,8 +669,16 @@ def _finalize_attribution_output(
     output: pd.DataFrame,
     *,
     bucket_column: str | None,
+    deepest_only: bool = False,
 ) -> tuple[pd.DataFrame, AttributionReconciliation]:
-    """Validate every deepest attribution partition and remove internal columns."""
+    """Validate every deepest attribution partition and remove internal columns.
+
+    ``deepest_only`` is set by the hierarchy paths, which emit one row per
+    prefix level and must reconcile only the deepest level.  It is passed
+    explicitly rather than inferred from the presence of a ``level`` column,
+    so a legal business dimension literally named ``level`` is never mistaken
+    for the internal hierarchy level marker and cropped (issue #43).
+    """
     if output.empty:
         return (
             output.drop(
@@ -681,7 +689,7 @@ def _finalize_attribution_output(
         )
 
     checked = output
-    if "level" in checked.columns:
+    if deepest_only:
         checked = checked[checked["level"] == checked["level"].max()]
     grouped: list[pd.DataFrame]
     if bucket_column is None:
@@ -1540,6 +1548,7 @@ def decompose(
         output, reconciliation = _finalize_attribution_output(
             output,
             bucket_column=bucket_column,
+            deepest_only=validated_mode == "hierarchy",
         )
         driver_field = (
             component_axis_columns[0]
@@ -1619,6 +1628,7 @@ def decompose(
         output, reconciliation = _finalize_attribution_output(
             output,
             bucket_column=bucket_column,
+            deepest_only=validated_mode == "hierarchy",
         )
         params = {
             "source_ref": frame.ref,
