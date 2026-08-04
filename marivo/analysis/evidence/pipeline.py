@@ -75,6 +75,12 @@ from marivo.analysis.frames._meta_defaults import (
     compute_analysis_scope,
     compute_quality_summary,
 )
+from marivo.analysis.frames.attribution import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
+)
 from marivo.analysis.frames.base import (
     CURRENT_ARTIFACT_SCHEMA_VERSION,
     BaseFrame,
@@ -598,10 +604,10 @@ def _extract_findings(
             key_columns = [
                 column
                 for column in (
-                    "attribution_level",
-                    "attribution_axis",
-                    "attribution_driver",
-                    "attribution_path",
+                    ATTRIBUTION_LEVEL_COLUMN,
+                    ATTRIBUTION_AXIS_COLUMN,
+                    ATTRIBUTION_DRIVER_COLUMN,
+                    ATTRIBUTION_PATH_COLUMN,
                 )
                 if column in df.columns
             ] + key_columns

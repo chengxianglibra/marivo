@@ -30,6 +30,10 @@ from marivo.analysis.evidence.pipeline import (
 )
 from marivo.analysis.evidence.types import EventSubject
 from marivo.analysis.frames.attribution import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
     FunnelAttributionFrameMeta,
@@ -66,10 +70,10 @@ from marivo.refs import ref as ref_factory
 _RESERVED_FUNNEL_ATTRIBUTION_COLUMNS = frozenset(
     {
         *FUNNEL_ATTRIBUTION_COLUMNS,
-        "attribution_level",
-        "attribution_axis",
-        "attribution_driver",
-        "attribution_path",
+        ATTRIBUTION_LEVEL_COLUMN,
+        ATTRIBUTION_AXIS_COLUMN,
+        ATTRIBUTION_DRIVER_COLUMN,
+        ATTRIBUTION_PATH_COLUMN,
     }
 )
 
@@ -285,12 +289,12 @@ def _hierarchy_layout(
             .reset_index()
         )
         grouped = _with_shares(grouped, total_delta=decomposition.total_delta)
-        grouped.insert(0, "attribution_level", level)
-        grouped.insert(1, "attribution_axis", axis_columns[level - 1])
-        grouped.insert(2, "attribution_driver", grouped[axis_columns[level - 1]])
+        grouped.insert(0, ATTRIBUTION_LEVEL_COLUMN, level)
+        grouped.insert(1, ATTRIBUTION_AXIS_COLUMN, axis_columns[level - 1])
+        grouped.insert(2, ATTRIBUTION_DRIVER_COLUMN, grouped[axis_columns[level - 1]])
         grouped.insert(
             3,
-            "attribution_path",
+            ATTRIBUTION_PATH_COLUMN,
             grouped.apply(
                 lambda row, columns=prefix: " > ".join(str(row[column]) for column in columns),
                 axis=1,
@@ -299,10 +303,10 @@ def _hierarchy_layout(
         rows.append(
             grouped[
                 [
-                    "attribution_level",
-                    "attribution_axis",
-                    "attribution_driver",
-                    "attribution_path",
+                    ATTRIBUTION_LEVEL_COLUMN,
+                    ATTRIBUTION_AXIS_COLUMN,
+                    ATTRIBUTION_DRIVER_COLUMN,
+                    ATTRIBUTION_PATH_COLUMN,
                     *FUNNEL_ATTRIBUTION_COLUMNS,
                 ]
             ]

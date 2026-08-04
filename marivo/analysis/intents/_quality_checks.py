@@ -16,6 +16,10 @@ from marivo.analysis.frames._content_hash import (
 )
 from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
 from marivo.analysis.frames.attribution import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
     FunnelAttributionFrameMeta,
@@ -322,19 +326,23 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
     components_invalid += int(contributions.isna().sum())
     if frame.meta.mode == "hierarchy":
         layout_columns = {
-            "attribution_level",
-            "attribution_axis",
-            "attribution_driver",
-            "attribution_path",
+            ATTRIBUTION_LEVEL_COLUMN,
+            ATTRIBUTION_AXIS_COLUMN,
+            ATTRIBUTION_DRIVER_COLUMN,
+            ATTRIBUTION_PATH_COLUMN,
         }
         components_invalid += len(layout_columns - set(df.columns))
-        if "attribution_level" in df.columns and not df.empty:
-            levels = pd.to_numeric(df["attribution_level"], errors="coerce")
+        if ATTRIBUTION_LEVEL_COLUMN in df.columns and not df.empty:
+            levels = pd.to_numeric(df[ATTRIBUTION_LEVEL_COLUMN], errors="coerce")
             components_invalid += int(levels.isna().sum())
             deepest = df.loc[levels == levels.max()].copy()
         else:
             deepest = df.iloc[0:0].copy()
-        coordinate_columns = ["attribution_level", "attribution_path", "contribution_kind"]
+        coordinate_columns = [
+            ATTRIBUTION_LEVEL_COLUMN,
+            ATTRIBUTION_PATH_COLUMN,
+            "contribution_kind",
+        ]
     else:
         axis_columns = [axis.output_column for axis in frame.meta.axes]
         components_invalid += len([column for column in axis_columns if column not in df.columns])
