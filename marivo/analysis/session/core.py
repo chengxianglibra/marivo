@@ -974,10 +974,16 @@ class Session(RenderableResult):
             accepts no alignment argument, never aligns by position, zero-fills
             additive counts for one-sided tuples, and leaves absent-side rates
             null. Any coverage-censored aligned population is rejected.
+            The result keeps the dimension columns alongside the protocol
+            columns ``current``/``baseline``/``delta``/``pct_change``/
+            ``pct_change_status``/``presence_status``, so a semantic dimension
+            named like one of those is rejected with a semantic-authoring
+            repair instead of a raw duplicate-column error.
 
         Raises:
             SemanticKindMismatchError: Different value semantics or
-                ``semantic_kind``, or ``current``/``baseline`` is not a MetricFrame.
+                ``semantic_kind``, ``current``/``baseline`` is not a MetricFrame,
+                or a dimension column collides with a result protocol column.
             SegmentDimensionMismatchError: ``segmented`` frames disagree on segment columns.
             PanelGrainMismatchError: ``panel`` frames disagree on time grain.
             AlignmentPolicyNotApplicableError: Alignment kind incompatible with the frame shape.

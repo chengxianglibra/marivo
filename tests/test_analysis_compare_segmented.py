@@ -7,6 +7,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     SegmentDimensionMismatchError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
@@ -145,3 +146,51 @@ def test_compare_segmented_rejects_dimension_mismatch():
 
     with pytest.raises(SegmentDimensionMismatchError):
         compare(current, baseline, session=s)
+
+
+@pytest.mark.parametrize(
+    "conflicting_name",
+    [
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        "pct_change_status",
+        "presence_status",
+    ],
+)
+def test_compare_segmented_rejects_dimension_colliding_with_protocol_column(
+    conflicting_name: str,
+) -> None:
+    """A legal dimension named like a compare result protocol column must fail
+    closed with a typed error instead of surfacing a pandas duplicate-column
+    exception (issue #39).
+
+    ``observe`` can produce such a segmented MetricFrame (the semantic layer
+    allows these dimension names); only ``compare``'s align step renames the
+    value column to ``current``/``baseline`` and appends ``delta``/``pct_change``
+    protocol columns, so the collision surfaces there.
+    """
+    s = session_attach.get_or_create(name="demo")
+    current = _segmented_metric(
+        s,
+        [{conflicting_name: "A", "value": 100.0}],
+        dimension=conflicting_name,
+    )
+    baseline = _segmented_metric(
+        s,
+        [{conflicting_name: "A", "value": 70.0}],
+        dimension=conflicting_name,
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    error = exc_info.value
+    assert error._context["reason"] == "protocol_column_collision"
+    assert conflicting_name in error._context["conflicting_columns"]
+    assert error.location == "session.compare"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    # Failing closed before alignment must not leave compare job/frame residue.
+    assert [job.intent for job in s.jobs() if job.intent == "compare"] == []
