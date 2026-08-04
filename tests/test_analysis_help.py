@@ -1167,7 +1167,7 @@ def test_analysis_all_is_pinned() -> None:
         "MetricFrame",
         "QualityReport",
         "Session",
-        "SemanticMetricCandidate",
+        "OntologyMetricCandidate",
         "SubjectSet",
         "TimeScope",
         "dow_aligned",

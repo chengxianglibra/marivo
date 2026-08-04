@@ -700,7 +700,7 @@ generated call.
 Candidate consumption uses one object-local path:
 
 ```python
-selection = candidate_set.select(rank=1)
+selection = candidate_set.select(item_id="<copy one item_id from show()>")
 ```
 
 Remove the generic `attribute: str -> Any` selector and the contradictory
@@ -714,16 +714,18 @@ CandidateSelection = Annotated[
     | DriverAxisSelection
     | SliceSelection
     | WindowSelection
-    | CrossSectionalOutlierSelection,
+    | CrossSectionalOutlierSelection
+    | OntologyMetricCandidate,
     Field(discriminator="kind"),
 ]
 ```
 
-Every variant carries `candidate_ref`, `source_artifact_ref`, `rank`, score,
-reason codes, and the exact typed selector value for its shape. A selection is a
-typed plan value, not a new evidence artifact, finding, recommended next step,
-or continuation contract. Cutover A adds no `CandidateAffordance` or
-`CandidateConstraint` family.
+Every variant carries `candidate_set_ref`, stable `item_id`,
+`source_artifact_ref`, and the exact typed selector value for its shape. Existing
+scored variants additionally carry score and reason codes; unscored variants do
+not acquire those fields. A selection is a typed plan value, not a new evidence
+artifact, finding, recommended next step, or continuation contract. Cutover A
+adds no `CandidateAffordance` or `CandidateConstraint` family.
 
 ### Repair contract in Cutover A
 
@@ -1339,7 +1341,7 @@ policy explicitly rebuilds them.
 | public exports | remove knowledge/judgment/follow-up types; export only approved digest/item/issue/scope/trace, concrete page, and candidate-selection results |
 | frame meta/rendering | replace `evidence_summary` with `evidence_digest`; replace `blocking_issues` with typed `issues` |
 | artifact contracts | replace flattened affordance families with parameter-named input requirement rows; rename `blocking_issues` to `issues` and remove planner duplication |
-| candidate selection | make `CandidateSet.select(rank=...)` the sole route; return a closed typed selection instead of `attribute -> Any` |
+| candidate selection | make `CandidateSet.select(item_id=...)` the sole route; return a closed typed selection instead of `attribute -> Any` |
 | frame content hashing | replace the session-local `evidence_summary` exclusion with `evidence_digest` |
 | README/help/docs/site/skills | atomic bilingual public-contract cutover, including net-new evidence help topics |
 | Marivo tests | deterministic derivability, affordance-role, candidate typing, keyset paging, schema rejection, rendering, failure, and drift gates only |
@@ -1370,7 +1372,7 @@ The minimum loop-facing fixes additionally require deterministic tests for:
 - no `Any`, generic `source_ref`, flattened family-only `required_inputs`,
   invocation-option type, or generated code slot in the Cutover A affordance;
 - every candidate shape returning its exact `CandidateSelection` variant from
-  the one object-local `CandidateSet.select(rank=...)` path;
+  the one object-local `CandidateSet.select(item_id=...)` path;
 - candidate selection carrying no candidate-affordance/constraint machinery;
 - every public page enforcing positive bounded limits, stable keyset ordering,
   and truthful `has_more`/`next_cursor` without snapshot/HWM semantics;
@@ -1587,7 +1589,7 @@ The refactor is complete only when all of the following are true:
     surface.
 14. The minimum loop-facing fixes are present and no broader Loop V2 mechanism
     leaks into the cutover: affordances retain parameter names and bindability,
-    `CandidateSet.select(rank=...)` returns a closed typed variant, collection
+    `CandidateSet.select(item_id=...)` returns a closed typed variant, collection
     reads use simple bounded keyset pages with typed store-unavailable behavior,
     and no invocation-option, replacement-repair, candidate-affordance, or
     candidate-constraint type is public.

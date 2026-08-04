@@ -101,7 +101,7 @@ def test_multi_lane_dispatcher_signatures_are_explicit() -> None:
     assert str(compare.parameters["baseline"].annotation) == "MetricFrame | EventFrame"
     assert "target" in attribute.parameters
     assert str(attribute.parameters["target"].annotation) == "FunnelLossRate | None"
-    assert "SemanticMetricCandidate" in str(observe.parameters["metrics"].annotation)
+    assert "OntologyMetricCandidate" in str(observe.parameters["metrics"].annotation)
     assert "analysis_purpose" in observe.parameters
 
 

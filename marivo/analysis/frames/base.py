@@ -13,7 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from marivo.analysis.candidate_lineage import CandidateOrigin
+from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import (
     AnalysisRepair,
     FrameMutationError,
@@ -283,6 +283,13 @@ class BaseFrameMeta(BaseModel):
     issues: tuple[ArtifactIssue, ...] = ()
     content_hash: str | None = None
     candidate_origins: tuple[CandidateOrigin, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_candidate_origins(self) -> BaseFrameMeta:
+        normalized = merge_candidate_origins(self.candidate_origins)
+        if normalized != self.candidate_origins:
+            raise ValueError("candidate_origins must already be ordered and de-duplicated")
+        return self
 
 
 @dataclass(frozen=True, slots=True)

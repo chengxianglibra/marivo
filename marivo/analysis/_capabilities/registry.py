@@ -180,7 +180,7 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "SliceSelection",
             "WindowSelection",
             "CrossSectionalOutlierSelection",
-            "SemanticMetricCandidate",
+            "OntologyMetricCandidate",
         ),
         "EventFrame": (
             "journey",
@@ -654,7 +654,7 @@ def _build_registry() -> CapabilityRegistry:
             receiver="Session",
             accepted_inputs={
                 "metrics": frozenset(
-                    {"MetricSemantic", "RuntimeMetricExpression", "SemanticMetricCandidate"}
+                    {"MetricSemantic", "RuntimeMetricExpression", "OntologyMetricCandidate"}
                 ),
                 "time_scope": frozenset({"TimeScopeInput"}),
                 "dimensions": _FIELD_SEMANTIC,
@@ -1445,7 +1445,7 @@ def _build_registry() -> CapabilityRegistry:
             receiver_family="CandidateSet",
             result_kind="defensive_copy",
             read_bound="bounded",
-            produced_input_family="SemanticMetricCandidate",
+            produced_input_family="OntologyMetricCandidate",
         )
     )
 

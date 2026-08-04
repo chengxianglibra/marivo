@@ -135,9 +135,9 @@ def _classify_runtime_metric(value: object) -> str | None:
 
 
 def _classify_semantic_candidate(value: object) -> str | None:
-    from marivo.analysis.frames.candidate import SemanticMetricCandidate
+    from marivo.analysis.frames.candidate import OntologyMetricCandidate
 
-    return "SemanticMetricCandidate" if type(value) is SemanticMetricCandidate else None
+    return "OntologyMetricCandidate" if type(value) is OntologyMetricCandidate else None
 
 
 def _classify_policy_or_spec(value: object) -> str | None:

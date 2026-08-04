@@ -90,7 +90,7 @@ Analysis results and selections
    SliceSelection
    WindowSelection
    CrossSectionalOutlierSelection
-   SemanticMetricCandidate
+   OntologyMetricCandidate
    CandidateOrigin
 
 Evidence

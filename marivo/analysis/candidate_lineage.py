@@ -32,6 +32,16 @@ class SemanticEdgeContext(BaseModel):
     anchor_role: Literal["outcome", "related_endpoint"]
     candidate_role: Literal["driver", "related_endpoint"]
 
+    @model_validator(mode="after")
+    def _validate_roles(self) -> SemanticEdgeContext:
+        roles = (self.anchor_role, self.candidate_role)
+        if roles not in {
+            ("outcome", "driver"),
+            ("related_endpoint", "related_endpoint"),
+        }:
+            raise ValueError("semantic edge context roles do not identify one supported relation")
+        return self
+
 
 class InheritedObservationScope(BaseModel):
     """Exact immutable observation scope inherited by ontology discovery."""
@@ -117,6 +127,14 @@ class CandidateOrigin(BaseModel):
     inherited_scope_fingerprint: str
     readiness_fingerprint: str
 
+    @model_validator(mode="after")
+    def _validate_edge_context(self) -> CandidateOrigin:
+        if self.edge_context.semantic_edge_ref != self.semantic_edge_ref:
+            raise ValueError("CandidateOrigin edge context ref does not match semantic_edge_ref")
+        if self.edge_relation != _semantic_edge_context_relation(self.edge_context):
+            raise ValueError("CandidateOrigin edge relation does not match its edge context roles")
+        return self
+
 
 class CandidateResolutionIssue(BaseModel):
     """Repairable analysis-artifact issue for one excluded ontology path."""
@@ -151,6 +169,14 @@ def merge_candidate_origins(*groups: tuple[CandidateOrigin, ...]) -> tuple[Candi
             seen[key] = origin
             result.append(origin)
     return tuple(result)
+
+
+def _semantic_edge_context_relation(
+    context: SemanticEdgeContext,
+) -> Literal["influences", "related_to"]:
+    if context.anchor_role == "outcome" and context.candidate_role == "driver":
+        return "influences"
+    return "related_to"
 
 
 __all__ = [

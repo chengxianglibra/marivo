@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.candidate import (
         CandidateSet,
         CandidateStrategy,
-        SemanticMetricCandidate,
+        OntologyMetricCandidate,
     )
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.event import EventFrame
@@ -656,7 +656,7 @@ class Session(RenderableResult):
     @overload
     def observe(
         self,
-        metrics: SemanticMetricCandidate,
+        metrics: OntologyMetricCandidate,
         *,
         analysis_purpose: str | None = None,
     ) -> MetricFrame: ...
@@ -690,7 +690,7 @@ class Session(RenderableResult):
         metrics: (
             _SemanticInput[MetricKind]
             | RuntimeMetricExpr
-            | SemanticMetricCandidate
+            | OntologyMetricCandidate
             | list[_SemanticInput[MetricKind] | RuntimeMetricExpr]
             | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
         ),
@@ -799,19 +799,19 @@ class Session(RenderableResult):
             CandidateNotObservableError,
             CandidateScopeOverrideForbiddenError,
         )
-        from marivo.analysis.frames.candidate import SemanticMetricCandidate
+        from marivo.analysis.frames.candidate import OntologyMetricCandidate
         from marivo.analysis.intents.observe import observe
 
         if isinstance(metrics, (list, tuple)) and any(
-            isinstance(item, SemanticMetricCandidate) for item in metrics
+            isinstance(item, OntologyMetricCandidate) for item in metrics
         ):
             raise CandidateNotObservableError(
-                message="SemanticMetricCandidate cannot be observed in a collection",
+                message="OntologyMetricCandidate cannot be observed in a collection",
                 expected="one selected candidate passed directly to session.observe(candidate)",
                 received="candidate collection or mixed Metric/candidate input",
             )
 
-        if isinstance(metrics, SemanticMetricCandidate):
+        if isinstance(metrics, OntologyMetricCandidate):
             overrides = tuple(
                 name
                 for name, value in (
@@ -828,7 +828,7 @@ class Session(RenderableResult):
             if overrides:
                 raise CandidateScopeOverrideForbiddenError(
                     message="candidate observation cannot override inherited scope",
-                    expected="only analysis_purpose= is accepted with SemanticMetricCandidate",
+                    expected="only analysis_purpose= is accepted with OntologyMetricCandidate",
                     received=", ".join(overrides),
                 )
             from marivo.analysis.intents.observe_candidate import observe_candidate

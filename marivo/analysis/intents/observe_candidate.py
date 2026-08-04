@@ -11,11 +11,12 @@ from marivo.analysis.errors import (
     CandidateNotObservableError,
 )
 from marivo.analysis.evidence.identity import make_scope_fingerprint
-from marivo.analysis.frames.candidate import CandidateSet, SemanticMetricCandidate
+from marivo.analysis.frames.candidate import CandidateSet, OntologyMetricCandidate
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.subject import SubjectSet
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.semantic_hypotheses import (
+    _edge_context,
     _payload_ref,
     _readiness_fingerprint,
     _scope_compatible,
@@ -44,15 +45,15 @@ def _not_observable(message: str, *, received: str) -> CandidateNotObservableErr
 
 
 def observe_candidate(
-    candidate: SemanticMetricCandidate,
+    candidate: OntologyMetricCandidate,
     *,
     analysis_purpose: str | None,
     session: Session,
 ) -> MetricFrame:
-    """Revalidate and observe one exact SemanticMetricCandidate with inherited scope."""
-    if type(candidate) is not SemanticMetricCandidate:
+    """Revalidate and observe one exact OntologyMetricCandidate with inherited scope."""
+    if type(candidate) is not OntologyMetricCandidate:
         raise _not_observable(
-            "candidate observation requires an exact SemanticMetricCandidate",
+            "candidate observation requires an exact OntologyMetricCandidate",
             received=type(candidate).__name__,
         )
     try:
@@ -68,7 +69,7 @@ def observe_candidate(
             received=type(recovered).__name__,
         )
     selected = recovered.select(item_id=candidate.item_id)
-    if type(selected) is not SemanticMetricCandidate or selected != candidate:
+    if type(selected) is not OntologyMetricCandidate or selected != candidate:
         raise _not_observable(
             "candidate payload does not match its persisted selected item",
             received="forged or stale candidate fields",
@@ -87,6 +88,41 @@ def observe_candidate(
         raise _not_observable(
             "live semantic catalog fingerprint no longer matches candidate creation",
             received=session.catalog.definition_fingerprint,
+        )
+    assert session._ontology_catalog is not None
+    live_edge = next(
+        (
+            edge
+            for edge in session._ontology_catalog._edges_for_discovery()
+            if edge.ref == candidate.semantic_edge_ref
+        ),
+        None,
+    )
+    if live_edge is None:
+        raise _not_observable(
+            "candidate semantic edge is absent from the matching live ontology",
+            received=candidate.semantic_edge_ref.key,
+        )
+    source_metric_ref = cast("Ref[MetricKind]", _payload_ref(candidate.source_metric_ref))
+    candidate_semantic_ref = _payload_ref(candidate.candidate_semantic_ref)
+    anchors = set(session.catalog._ontology_anchors_for_metric(source_metric_ref))
+    edge_matches = (
+        live_edge.relation == candidate.edge_relation
+        and _edge_context(live_edge) == candidate.edge_context
+        and (
+            live_edge.target in anchors and live_edge.source == candidate_semantic_ref
+            if live_edge.relation == "influences"
+            else (
+                (live_edge.source in anchors) != (live_edge.target in anchors)
+                and candidate_semantic_ref
+                == (live_edge.target if live_edge.source in anchors else live_edge.source)
+            )
+        )
+    )
+    if not edge_matches:
+        raise _not_observable(
+            "candidate payload does not match the current ontology edge semantics",
+            received=candidate.semantic_edge_ref.key,
         )
     scope_payload = candidate.inherited_scope.model_dump(mode="json", exclude={"fingerprint"})
     if make_scope_fingerprint(scope_payload) != candidate.inherited_scope.fingerprint:

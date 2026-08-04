@@ -160,7 +160,7 @@ ANALYSIS_PUBLIC = {
     "from_inception",
     "in_state",
     "Session",
-    "SemanticMetricCandidate",
+    "OntologyMetricCandidate",
     "SubjectSet",
     "LifecycleFrame",
     "MetricFrame",
@@ -268,6 +268,11 @@ def test_semantic_all_is_pinned() -> None:
 
 def test_analysis_all_is_pinned() -> None:
     assert set(ma.__all__) == ANALYSIS_PUBLIC
+
+
+def test_ontology_metric_candidate_has_no_legacy_alias() -> None:
+    assert hasattr(ma, "OntologyMetricCandidate")
+    assert not hasattr(ma, "SemanticMetricCandidate")
 
 
 def test_phase2_datasource_all_is_pinned_to_the_baseline() -> None:

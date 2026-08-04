@@ -68,7 +68,7 @@ InputFamily = (
         "LifecycleSeed",
         "SubjectSelection",
         "FunnelLossRate",
-        "SemanticMetricCandidate",
+        "OntologyMetricCandidate",
     ]
 )
 

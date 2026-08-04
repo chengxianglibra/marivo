@@ -91,6 +91,19 @@ def _session(con):
     return session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
 
+def test_ontology_reverse_index_includes_every_effective_entity(tmp_path):
+    _bootstrap(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    session = _session(con)
+
+    metric_refs = session.catalog._ontology_metrics_for_endpoint(
+        make_ref("sales.order_items", SemanticKind.ENTITY)
+    )
+
+    assert metric_refs == (make_ref("sales.gmv_by_category", SemanticKind.METRIC),)
+
+
 def test_segmented_observe_aggregate_then_join(tmp_path):
     _bootstrap(tmp_path)
     con = ibis.duckdb.connect(":memory:")

@@ -604,14 +604,14 @@ def observe(
     _candidate_origins: tuple[CandidateOrigin, ...] = (),
     _candidate_input_refs: tuple[str, ...] = (),
 ) -> MetricFrame:
-    from marivo.analysis.frames.candidate import SemanticMetricCandidate
+    from marivo.analysis.frames.candidate import OntologyMetricCandidate
 
     if isinstance(metrics, (list, tuple)):
-        if any(isinstance(item, SemanticMetricCandidate) for item in metrics):
+        if any(isinstance(item, OntologyMetricCandidate) for item in metrics):
             from marivo.analysis.errors import CandidateNotObservableError
 
             raise CandidateNotObservableError(
-                message="SemanticMetricCandidate must be observed as one exact selected value",
+                message="OntologyMetricCandidate must be observed as one exact selected value",
                 expected="session.observe(candidate)",
                 received="candidate inside a list or tuple",
             )

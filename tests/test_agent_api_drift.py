@@ -355,7 +355,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "from_inception",
         "in_state",
         "Session",
-        "SemanticMetricCandidate",
+        "OntologyMetricCandidate",
         "SubjectSet",
         "MetricFrame",
         "DeltaFrame",
