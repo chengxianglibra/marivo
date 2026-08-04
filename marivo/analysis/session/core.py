@@ -22,6 +22,10 @@ from marivo.render import Card, RenderableResult
 class _Unset:
     __slots__ = ()
 
+    def __repr__(self) -> str:
+        """Deterministic repr so live help never leaks a memory address."""
+        return "<unset>"
+
 
 _UNSET = _Unset()
 
