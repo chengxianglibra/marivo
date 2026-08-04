@@ -473,14 +473,43 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
 
 _ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
 _ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
-_SINGLE_AXIS_ATTRIBUTION_RESERVED_COLUMNS = frozenset(
+# Every decompose path keeps the dimension columns and the attribution base
+# protocol columns as distinct columns.
+_ATTRIBUTION_BASE_RESERVED_COLUMNS = frozenset(
     {
         _ATTRIBUTION_TOTAL_DELTA_COLUMN,
+        _ATTRIBUTION_ONE_SIDED_COLUMN,
         "contribution",
         "rank",
         "share_of_negative_pool",
         "share_of_positive_pool",
         "share_of_total_delta",
+    }
+)
+# value_effect/mix_effect/residual appear on the component mix/linear paths
+# and the additive multi-axis joint/hierarchy paths, but NOT on the
+# single-axis additive path.
+_ATTRIBUTION_EFFECT_RESERVED_COLUMNS = frozenset(
+    {
+        "value_effect",
+        "mix_effect",
+        "residual",
+    }
+)
+# current_share/baseline_share appear only on the component-aware mix path.
+_ATTRIBUTION_COMPONENT_SHARE_RESERVED_COLUMNS = frozenset(
+    {
+        "current_share",
+        "baseline_share",
+    }
+)
+# level/axis/driver/path appear only on multi-axis joint/hierarchy layouts.
+_ATTRIBUTION_HIERARCHY_RESERVED_COLUMNS = frozenset(
+    {
+        "level",
+        "axis",
+        "driver",
+        "path",
     }
 )
 
@@ -1127,22 +1156,35 @@ def _axis_columns_for_delta(
     return axis_columns
 
 
-def _single_axis_sum_output(
-    df: pd.DataFrame,
+def _validate_attribution_axis_columns(
+    axis_columns: list[str],
     *,
-    axis_column: str,
     value_column: str,
     bucket_column: str | None = None,
-) -> pd.DataFrame:
-    """Aggregate an additive delta while preserving its single dimension column."""
-    dynamic_reserved_columns = {value_column}
+    extra_reserved_columns: set[str] | None = None,
+) -> None:
+    """Fail closed when a requested axis column collides with the final row layout.
+
+    The caller selects the reserved namespace for the branch that will run
+    (single-axis additive, component mix/linear, multi-axis joint/hierarchy),
+    so a dimension that only collides on another path stays usable here
+    (issue #40).  Without the branch-aware check, a ``contribution``/``rank``
+    axis would reach the pandas layout step and surface a raw ``ValueError``
+    instead of a typed semantic error.
+    """
+    reserved_columns = set(_ATTRIBUTION_BASE_RESERVED_COLUMNS)
+    if value_column:
+        reserved_columns.add(value_column)
     if bucket_column is not None:
-        dynamic_reserved_columns.add(bucket_column)
-    reserved_columns = _SINGLE_AXIS_ATTRIBUTION_RESERVED_COLUMNS | dynamic_reserved_columns
-    if axis_column in reserved_columns:
+        reserved_columns.add(bucket_column)
+    if extra_reserved_columns:
+        reserved_columns.update(extra_reserved_columns)
+    for axis_column in axis_columns:
+        if axis_column not in reserved_columns:
+            continue
         raise SemanticKindMismatchError(
-            message=("single-axis attribution dimension conflicts with a reserved result column"),
-            expected="a dimension name outside the single-axis attribution reserved namespace",
+            message="attribution dimension conflicts with a reserved result column",
+            expected="a dimension name outside the attribution reserved namespace",
             received=repr(axis_column),
             location="session.attribute axes",
             repair=AnalysisRepair(
@@ -1154,8 +1196,8 @@ def _single_axis_sum_output(
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
             ),
             hint=(
-                "Single-axis output must keep the dimension and attribution protocol fields "
-                "as distinct columns."
+                "Every attribution output must keep the dimension and attribution "
+                "protocol fields as distinct columns."
             ),
             context={
                 "argument": "axes",
@@ -1164,6 +1206,21 @@ def _single_axis_sum_output(
                 "reserved_columns": sorted(reserved_columns),
             },
         )
+
+
+def _single_axis_sum_output(
+    df: pd.DataFrame,
+    *,
+    axis_column: str,
+    value_column: str,
+    bucket_column: str | None = None,
+) -> pd.DataFrame:
+    """Aggregate an additive delta while preserving its single dimension column."""
+    _validate_attribution_axis_columns(
+        [axis_column],
+        value_column=value_column,
+        bucket_column=bucket_column,
+    )
     rows: list[dict[str, object]] = []
     bucket_values: list[object] = [None]
     if bucket_column is not None:
@@ -1435,6 +1492,25 @@ def decompose(
                     message="component-aware panel decompose requires a bucket column",
                     context={"delta_ref": frame.ref, "component_ref": component.ref},
                 )
+        # Validate against the columns this component path actually writes:
+        # base protocol fields, value/mix/residual effects, component share
+        # fields, the current_/baseline_ component role columns, and (for
+        # multi-axis) the hierarchy row-layout fields.
+        component_extra_reserved = set(_ATTRIBUTION_EFFECT_RESERVED_COLUMNS)
+        component_extra_reserved.update(_ATTRIBUTION_COMPONENT_SHARE_RESERVED_COLUMNS)
+        component_extra_reserved.update(
+            column
+            for column in component_columns
+            if column.startswith(("current_", "baseline_"))
+        )
+        if validated_mode is not None:
+            component_extra_reserved.update(_ATTRIBUTION_HIERARCHY_RESERVED_COLUMNS)
+        _validate_attribution_axis_columns(
+            component_axis_columns,
+            value_column=value_column,
+            bucket_column=bucket_column,
+            extra_reserved_columns=component_extra_reserved,
+        )
         if validated_mode is None and component.meta.composition_kind == "linear":
             output = _component_linear_output_for_df(
                 df=component._dataframe_copy(),
@@ -1510,6 +1586,17 @@ def decompose(
     if validated_mode is not None:
         bucket_column = (
             _bucket_column_for_panel(frame) if frame.meta.semantic_kind == "panel" else None
+        )
+        # Multi-axis additive joint/hierarchy emits value/mix/residual effects;
+        # hierarchy additionally emits the level/axis/driver/path layout fields.
+        multi_axis_extra_reserved = set(_ATTRIBUTION_EFFECT_RESERVED_COLUMNS)
+        if validated_mode == "hierarchy":
+            multi_axis_extra_reserved.update(_ATTRIBUTION_HIERARCHY_RESERVED_COLUMNS)
+        _validate_attribution_axis_columns(
+            axis_columns,
+            value_column=value_column,
+            bucket_column=bucket_column,
+            extra_reserved_columns=multi_axis_extra_reserved,
         )
         if validated_mode == "joint":
             output = _multi_axis_joint_sum_output(

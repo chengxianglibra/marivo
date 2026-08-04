@@ -278,6 +278,93 @@ def test_attribute_rejects_reserved_single_axis_column(
     assert error.repair.kind == "semantic_authoring"
 
 
+def _reserved_axis_project(axis_name: str) -> str:
+    """Return datasets.py source declaring a dimension named ``axis_name``."""
+    return (
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "orders = ms.entity("
+        "name='orders', datasource=ms.ref.datasource('warehouse'), "
+        "source=md.table('orders'))\n"
+        f"reserved_axis = ms.dimension_column(name={axis_name!r}, "
+        f"entity=orders, column={axis_name!r})\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "mode,axis_name",
+    [
+        ("joint", "contribution"),
+        ("joint", "rank"),
+        ("joint", "value_effect"),
+        ("joint", "mix_effect"),
+        ("joint", "residual"),
+        ("hierarchy", "contribution"),
+        ("hierarchy", "rank"),
+        ("hierarchy", "value_effect"),
+        ("hierarchy", "mix_effect"),
+        ("hierarchy", "residual"),
+        ("hierarchy", "level"),
+        ("hierarchy", "axis"),
+        ("hierarchy", "driver"),
+        ("hierarchy", "path"),
+    ],
+)
+def test_attribute_multi_axis_rejects_reserved_axis_column(
+    semantic_project_factory,
+    mode: str,
+    axis_name: str,
+) -> None:
+    """Multi-axis joint/hierarchy must fail closed when an axis column collides
+    with an attribution protocol column (issue #40).
+
+    Previously the reserved-name check only ran in the single-axis additive
+    path, so a reserved-named axis combined with another axis reached
+    pandas and raised a raw ``ValueError`` instead of a typed error.
+    """
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                _reserved_axis_project(axis_name)
+                + "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+            ),
+        }
+    )
+    session = mv.session.get_or_create(name="demo")
+    reserved_axis = session.catalog.require(
+        make_ref(f"sales.orders.{axis_name}", SemanticKind.DIMENSION)
+    ).ref
+    region_axis = session.catalog.require(
+        make_ref("sales.orders.region", SemanticKind.DIMENSION)
+    ).ref
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                axis_name: ["US", "US", "CN"],
+                "region": ["east", "west", "east"],
+                "delta": [6.0, 4.0, -3.0],
+            }
+        ),
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(
+            frame,
+            axes=[reserved_axis, region_axis],
+            mode=mode,  # type: ignore[arg-type]
+        )
+
+    error = exc_info.value
+    assert error._context["reason"] == "reserved_axis_column"
+    assert error._context["axis_column"] == axis_name
+    assert error.location == "session.attribute axes"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+
+
 @pytest.mark.parametrize(
     "axis_name",
     [
@@ -287,6 +374,21 @@ def test_attribute_rejects_reserved_single_axis_column(
         "direction",
         "method",
         "reconciliation_residual",
+        # Single-axis additive does NOT emit these columns, so a dimension
+        # named like one of them must stay usable (issue #40 P1 regression).
+        "value_effect",
+        "mix_effect",
+        "residual",
+        "current_share",
+        "baseline_share",
+        "path",
+        "driver",
+        # NOTE: ``level`` is intentionally absent: decompose's finalize step
+        # sniffs for a "level" column and keeps only the deepest rows
+        # (decompose.py _finalize_attribution_output), so a dimension literally
+        # named "level" with >1 distinct value drops rows and fails
+        # reconciliation.  That is a pre-existing bug tracked separately, not a
+        # reserved protocol name (MR !36 re-review).
     ],
 )
 def test_attribute_evidence_protocol_does_not_reserve_dimension_names(

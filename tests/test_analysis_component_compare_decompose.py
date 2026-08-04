@@ -11,6 +11,7 @@ from marivo.analysis.errors import (
     ComponentDecompositionError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
@@ -1180,3 +1181,98 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
 
     assert "bucket_start_a" in attribution.to_pandas().columns
     assert attribution.meta.driver_field == "bucket_start_a"
+
+
+def test_decompose_component_ratio_rejects_reserved_axis_column(
+    semantic_project_factory,
+) -> None:
+    """Component-aware ratio path must fail closed when the axis column collides
+    with an attribution protocol column (issue #40).
+
+    Previously the reserved-name check only ran in the single-axis additive
+    path, so a component ratio/weighted delta with a ``contribution`` axis
+    reached the reconciliation step and surfaced a raw pandas ``TypeError``.
+    """
+
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity("
+                "name='orders', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('orders'))\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.dimension(entity=orders)\n"
+                "def contribution(orders):\n"
+                "    return orders.contribution\n"
+            ),
+        }
+    )
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current",
+        rows=[
+            {"contribution": "NORTH", "failure_rate": 0.25},
+            {"contribution": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "contribution": "NORTH",
+                "failed_count": 25.0,
+                "total_count": 100.0,
+                "failure_rate": 0.25,
+            },
+            {
+                "contribution": "SOUTH",
+                "failed_count": 50.0,
+                "total_count": 100.0,
+                "failure_rate": 0.50,
+            },
+        ],
+        axes={"contribution": {"role": "dimension", "column": "contribution"}},
+        semantic_kind="segmented",
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline",
+        rows=[
+            {"contribution": "NORTH", "failure_rate": 0.10},
+            {"contribution": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "contribution": "NORTH",
+                "failed_count": 10.0,
+                "total_count": 100.0,
+                "failure_rate": 0.10,
+            },
+            {
+                "contribution": "SOUTH",
+                "failed_count": 20.0,
+                "total_count": 50.0,
+                "failure_rate": 0.40,
+            },
+        ],
+        axes={"contribution": {"role": "dimension", "column": "contribution"}},
+        semantic_kind="segmented",
+    )
+    delta = session.compare(current, baseline)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(
+            delta,
+            axes=[make_ref("sales.orders.contribution", SemanticKind.DIMENSION)],
+        )
+
+    error = exc_info.value
+    assert error._context["reason"] == "reserved_axis_column"
+    assert error._context["axis_column"] == "contribution"
+    assert error.location == "session.attribute axes"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    # Failing closed must not leave a partially-persisted attribution artifact.
+    assert [job.intent for job in session.jobs() if job.intent == "attribute"] == []
