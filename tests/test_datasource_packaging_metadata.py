@@ -25,3 +25,9 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
     assert optional_dependencies["all"] == [
         "ibis-framework[duckdb,sqlite,trino,mysql,postgres,clickhouse]>=12.0.0"
     ]
+
+
+def test_dev_extra_avoids_native_mysql_dependency() -> None:
+    optional_dependencies = _optional_dependencies()
+
+    assert all("mysql" not in dependency for dependency in optional_dependencies["dev"])
