@@ -1230,3 +1230,29 @@ def test_focused_help_does_not_silently_exceed_budget() -> None:
         assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints, (
             f"{target}: {len(text)} chars > {SURFACE_LIMITS.focused_help_max_codepoints}"
         )
+
+
+@pytest.mark.parametrize("target", ["observe", "compare", "forecast", "Session", "MetricFrame"])
+def test_live_help_signature_has_no_memory_address_defaults(target: str) -> None:
+    """Live help must not leak a per-process memory address into any agent-visible
+    signature, and observe (which uses the _Unset sentinel) renders <unset>.
+    The sweep covers more targets than the bug so a future sentinel in another
+    signature is caught too (issue #46)."""
+    from marivo.analysis.session.core import _UNSET
+
+    assert repr(_UNSET) == "<unset>"
+    text = _text(target)
+    assert "0x" not in text
+    if target == "observe":
+        assert "<unset>" in text
+
+
+def test_unset_repr_does_not_break_identity_guard() -> None:
+    """Adding __repr__ to _Unset must not change the sentinel's identity-based
+    guard semantics (issue #46 review)."""
+    from marivo.analysis.session.core import _UNSET, _normalize_unset
+
+    assert _normalize_unset(_UNSET) is None
+    assert _normalize_unset("value") == "value"
+    # repr is deterministic and carries no address.
+    assert repr(_UNSET) == "<unset>" == str(_UNSET)
