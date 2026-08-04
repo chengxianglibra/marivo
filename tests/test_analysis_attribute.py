@@ -110,7 +110,12 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert out.meta.params["axes"] == ["sales.orders.region"]
     assert out.meta.driver_field == "region"
     result = out.to_pandas()
-    assert {"driver", "path", "level", "axis"}.isdisjoint(result.columns)
+    assert {
+        "attribution_driver",
+        "attribution_path",
+        "attribution_level",
+        "attribution_axis",
+    }.isdisjoint(result.columns)
     assert result[["region", "contribution"]].to_dict("records") == [
         {"region": "US", "contribution": 14.0},
         {"region": "CN", "contribution": -2.0},
@@ -161,10 +166,17 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
     df = out.to_pandas()
     assert out.meta.method == "sum"
     assert out.attribution_mode == "hierarchy"
-    assert out.meta.driver_field == "path"
-    assert {"region", "platform", "value_effect", "mix_effect", "residual"}.issubset(df.columns)
-    assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
-    assert df.loc[df["level"] == 1, "platform"].isna().all()
+    assert out.meta.driver_field == "attribution_path"
+    assert {
+        "region",
+        "platform",
+        "value_effect",
+        "mix_effect",
+        "residual",
+        "attribution_level",
+    }.issubset(df.columns)
+    assert df.loc[df["attribution_level"] == 2, "contribution"].sum() == pytest.approx(8.0)
+    assert df.loc[df["attribution_level"] == 1, "platform"].isna().all()
 
 
 def test_attribute_requires_explicit_axes() -> None:
@@ -305,10 +317,10 @@ def _reserved_axis_project(axis_name: str) -> str:
         ("hierarchy", "value_effect"),
         ("hierarchy", "mix_effect"),
         ("hierarchy", "residual"),
-        ("hierarchy", "level"),
-        ("hierarchy", "axis"),
-        ("hierarchy", "driver"),
-        ("hierarchy", "path"),
+        ("hierarchy", "attribution_level"),
+        ("hierarchy", "attribution_axis"),
+        ("hierarchy", "attribution_driver"),
+        ("hierarchy", "attribution_path"),
     ],
 )
 def test_attribute_multi_axis_rejects_reserved_axis_column(

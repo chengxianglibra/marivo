@@ -422,7 +422,12 @@ def test_multi_axis_requires_mode_and_hierarchy_has_layout(
         mode="hierarchy",
         target=target,
     )
-    assert {"level", "axis", "driver", "path"}.issubset(hierarchy.columns)
+    assert {
+        "attribution_level",
+        "attribution_axis",
+        "attribution_driver",
+        "attribution_path",
+    }.issubset(hierarchy.columns)
 
 
 def test_quality_reports_cover_both_new_shapes(

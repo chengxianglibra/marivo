@@ -473,6 +473,15 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
 
 _ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
 _ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
+# Multi-axis hierarchy emits one row per prefix level with these layout
+# columns.  They are namespaced with an ``attribution_`` prefix so a legal
+# business dimension literally named ``level``/``axis``/``driver``/``path``
+# (org tier, log level, URL path, channel tier) is never mistaken for the
+# internal hierarchy layout marker (issues #43/#44).
+_ATTRIBUTION_LEVEL_COLUMN = "attribution_level"
+_ATTRIBUTION_AXIS_COLUMN = "attribution_axis"
+_ATTRIBUTION_DRIVER_COLUMN = "attribution_driver"
+_ATTRIBUTION_PATH_COLUMN = "attribution_path"
 # Every decompose path keeps the dimension columns and the attribution base
 # protocol columns as distinct columns.
 _ATTRIBUTION_BASE_RESERVED_COLUMNS = frozenset(
@@ -503,13 +512,13 @@ _ATTRIBUTION_COMPONENT_SHARE_RESERVED_COLUMNS = frozenset(
         "baseline_share",
     }
 )
-# level/axis/driver/path appear only on multi-axis joint/hierarchy layouts.
+# The hierarchy layout columns appear only on multi-axis joint/hierarchy layouts.
 _ATTRIBUTION_HIERARCHY_RESERVED_COLUMNS = frozenset(
     {
-        "level",
-        "axis",
-        "driver",
-        "path",
+        _ATTRIBUTION_LEVEL_COLUMN,
+        _ATTRIBUTION_AXIS_COLUMN,
+        _ATTRIBUTION_DRIVER_COLUMN,
+        _ATTRIBUTION_PATH_COLUMN,
     }
 )
 
@@ -690,7 +699,9 @@ def _finalize_attribution_output(
 
     checked = output
     if deepest_only:
-        checked = checked[checked["level"] == checked["level"].max()]
+        checked = checked[
+            checked[_ATTRIBUTION_LEVEL_COLUMN] == checked[_ATTRIBUTION_LEVEL_COLUMN].max()
+        ]
     grouped: list[pd.DataFrame]
     if bucket_column is None:
         grouped = [checked]
@@ -1088,12 +1099,23 @@ def _component_multi_axis_output(
             effect_columns = [column for column in piece.columns if column not in prefix]
             for axis_column in axis_columns[level:]:
                 piece[axis_column] = pd.NA
-            piece.insert(0, "path", piece[prefix].astype(str).agg(" > ".join, axis=1))
-            piece.insert(0, "driver", piece[axis_columns[level - 1]])
-            piece.insert(0, "axis", axis_columns[level - 1])
-            piece.insert(0, "level", level)
+            piece.insert(
+                0, _ATTRIBUTION_PATH_COLUMN, piece[prefix].astype(str).agg(" > ".join, axis=1)
+            )
+            piece.insert(0, _ATTRIBUTION_DRIVER_COLUMN, piece[axis_columns[level - 1]])
+            piece.insert(0, _ATTRIBUTION_AXIS_COLUMN, axis_columns[level - 1])
+            piece.insert(0, _ATTRIBUTION_LEVEL_COLUMN, level)
             pieces.append(
-                piece[["level", "axis", "driver", "path", *axis_columns, *effect_columns]]
+                piece[
+                    [
+                        _ATTRIBUTION_LEVEL_COLUMN,
+                        _ATTRIBUTION_AXIS_COLUMN,
+                        _ATTRIBUTION_DRIVER_COLUMN,
+                        _ATTRIBUTION_PATH_COLUMN,
+                        *axis_columns,
+                        *effect_columns,
+                    ]
+                ]
             )
         return pd.concat(pieces, ignore_index=True)
 
@@ -1381,10 +1403,10 @@ def _multi_axis_hierarchy_output(
             for rank, (_, row) in enumerate(grouped.iterrows(), start=1):
                 contribution = float(row["contribution"])
                 output_row: dict[str, object] = {
-                    "level": level,
-                    "axis": axis_columns[level - 1],
-                    "driver": row[axis_columns[level - 1]],
-                    "path": " > ".join(str(row[column]) for column in prefix),
+                    _ATTRIBUTION_LEVEL_COLUMN: level,
+                    _ATTRIBUTION_AXIS_COLUMN: axis_columns[level - 1],
+                    _ATTRIBUTION_DRIVER_COLUMN: row[axis_columns[level - 1]],
+                    _ATTRIBUTION_PATH_COLUMN: " > ".join(str(row[column]) for column in prefix),
                     "contribution": contribution,
                     "share_of_total_delta": row["share_of_total_delta"],
                     "share_of_positive_pool": row["share_of_positive_pool"],
@@ -1401,10 +1423,10 @@ def _multi_axis_hierarchy_output(
                     output_row[bucket_column] = bucket_value
                 rows.append(output_row)
     columns = [
-        "level",
-        "axis",
-        "driver",
-        "path",
+        _ATTRIBUTION_LEVEL_COLUMN,
+        _ATTRIBUTION_AXIS_COLUMN,
+        _ATTRIBUTION_DRIVER_COLUMN,
+        _ATTRIBUTION_PATH_COLUMN,
         *axis_columns,
         "contribution",
         "share_of_total_delta",
@@ -1553,7 +1575,7 @@ def decompose(
         driver_field = (
             component_axis_columns[0]
             if validated_mode is None
-            else "path"
+            else _ATTRIBUTION_PATH_COLUMN
             if validated_mode == "hierarchy"
             else None
         )
@@ -1627,7 +1649,7 @@ def decompose(
                 value_column=value_column,
                 bucket_column=bucket_column,
             )
-            driver_field = "path"
+            driver_field = _ATTRIBUTION_PATH_COLUMN
             method = "sum"
         output, reconciliation = _finalize_attribution_output(
             output,

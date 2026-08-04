@@ -83,7 +83,12 @@ def test_joint_mode_is_additive_and_reconciles_end_to_end(
     assert type(drivers) is AttributionFrame
     assert drivers.meta.mode == "joint"
     assert {"acquisition_channel", "plan_tier"}.issubset(rows.columns)
-    assert {"level", "axis", "driver", "path"}.isdisjoint(rows.columns)
+    assert {
+        "attribution_level",
+        "attribution_axis",
+        "attribution_driver",
+        "attribution_path",
+    }.isdisjoint(rows.columns)
     assert rows["contribution"].sum() == pytest.approx(
         drivers.meta.reconciliation.target_loss_rate_delta
     )
@@ -111,14 +116,16 @@ def test_hierarchy_pool_shares_are_level_local_and_metadata_uses_deepest_pool(
     )
 
     rows = drivers.to_pandas()
-    for _, level_rows in rows.groupby("level"):
+    for _, level_rows in rows.groupby("attribution_level"):
         positive = level_rows.loc[level_rows["contribution"] > 0]
         negative = level_rows.loc[level_rows["contribution"] < 0]
         if not positive.empty:
             assert positive["share_of_positive_pool"].sum() == pytest.approx(1.0)
         if not negative.empty:
             assert negative["share_of_negative_pool"].sum() == pytest.approx(1.0)
-    deepest = rows.loc[rows["level"] == rows["level"].max()]
+    deepest = rows.loc[
+        rows["attribution_level"] == rows["attribution_level"].max()
+    ]
     assert deepest.loc[deepest["contribution"] > 0, "contribution"].sum() == pytest.approx(
         drivers.meta.reconciliation.positive_pool
     )

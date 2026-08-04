@@ -290,8 +290,9 @@ denominator_mix(g) = l_baseline(g) * (1/E_current - 1/E_baseline)
 The two component families sum exactly to the target loss-rate delta within
 `1e-9`. Rows expose `contribution_kind`, signed `contribution`, and shares of
 the total, positive pool, and negative pool. Single-axis and joint layouts keep
-concrete Dimension columns; hierarchy uses `level`, `axis`, `driver`, and
-`path`. Hierarchy pool shares are normalized independently within each visible
+concrete Dimension columns; hierarchy uses `attribution_level`,
+`attribution_axis`, `attribution_driver`, and `attribution_path`. Hierarchy
+pool shares are normalized independently within each visible
 level because prefix aggregation can cancel signs; metadata retains the
 deepest joint-partition pools used by the exact reconciliation. This is
 arithmetic attribution with `causal_claim="none"`.

@@ -188,7 +188,12 @@ def test_decompose_axes_single_axis_preserves_dimension_column():
     assert out.meta.params["axes"] == ["sales.orders.region"]
     assert "mode" not in out.meta.params
     df = out.to_pandas()
-    assert {"driver", "path", "level", "axis"}.isdisjoint(df.columns)
+    assert {
+        "attribution_driver",
+        "attribution_path",
+        "attribution_level",
+        "attribution_axis",
+    }.isdisjoint(df.columns)
     df = df.set_index("region")
     assert df.loc["north", "contribution"] == pytest.approx(15.0)
     assert df.loc["north", "share_of_total_delta"] == pytest.approx(1.25)
@@ -225,13 +230,13 @@ def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
         session=session,
     )
 
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "attribution_path"
     assert out.meta.method == "sum"
     assert out.attribution_mode == "hierarchy"
     assert out.meta.params["axis_columns"] == ["region", "platform"]
     df = out.to_pandas()
-    assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
-    assert df.loc[df["level"] == 1, "platform"].isna().all()
+    assert df.loc[df["attribution_level"] == 2, "contribution"].sum() == pytest.approx(8.0)
+    assert df.loc[df["attribution_level"] == 1, "platform"].isna().all()
 
 
 def test_decompose_multi_axis_requires_an_explicit_mode():
@@ -936,13 +941,13 @@ def test_decompose_axes_multi_axis_handles_nan_in_level_two():
     )
 
     assert isinstance(out, AttributionFrame)
-    assert out.meta.driver_field == "path"
+    assert out.meta.driver_field == "attribution_path"
     assert out.meta.method == "sum"
     assert out.attribution_mode == "hierarchy"
     df = out.to_pandas()
-    level2 = df[df["level"] == 2]
-    nan_rows = level2[level2["path"] == "CN > nan"]
+    level2 = df[df["attribution_level"] == 2]
+    nan_rows = level2[level2["attribution_path"] == "CN > nan"]
     assert len(nan_rows) == 1
     assert nan_rows.iloc[0]["contribution"] == pytest.approx(-3.0)
-    assert nan_rows.iloc[0]["axis"] == "platform"
+    assert nan_rows.iloc[0]["attribution_axis"] == "platform"
     assert nan_rows.iloc[0]["rank"] == 3

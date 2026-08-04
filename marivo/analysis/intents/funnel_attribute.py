@@ -66,10 +66,10 @@ from marivo.refs import ref as ref_factory
 _RESERVED_FUNNEL_ATTRIBUTION_COLUMNS = frozenset(
     {
         *FUNNEL_ATTRIBUTION_COLUMNS,
-        "level",
-        "axis",
-        "driver",
-        "path",
+        "attribution_level",
+        "attribution_axis",
+        "attribution_driver",
+        "attribution_path",
     }
 )
 
@@ -285,12 +285,12 @@ def _hierarchy_layout(
             .reset_index()
         )
         grouped = _with_shares(grouped, total_delta=decomposition.total_delta)
-        grouped.insert(0, "level", level)
-        grouped.insert(1, "axis", axis_columns[level - 1])
-        grouped.insert(2, "driver", grouped[axis_columns[level - 1]])
+        grouped.insert(0, "attribution_level", level)
+        grouped.insert(1, "attribution_axis", axis_columns[level - 1])
+        grouped.insert(2, "attribution_driver", grouped[axis_columns[level - 1]])
         grouped.insert(
             3,
-            "path",
+            "attribution_path",
             grouped.apply(
                 lambda row, columns=prefix: " > ".join(str(row[column]) for column in columns),
                 axis=1,
@@ -299,10 +299,10 @@ def _hierarchy_layout(
         rows.append(
             grouped[
                 [
-                    "level",
-                    "axis",
-                    "driver",
-                    "path",
+                    "attribution_level",
+                    "attribution_axis",
+                    "attribution_driver",
+                    "attribution_path",
                     *FUNNEL_ATTRIBUTION_COLUMNS,
                 ]
             ]
