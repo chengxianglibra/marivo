@@ -34,16 +34,12 @@ if TYPE_CHECKING:
     from marivo.refs import DimensionKind, TimeDimensionKind
     from marivo.semantic.catalog import _SemanticInput
 
-# Multi-axis hierarchy emits one row per prefix level with these layout
-# columns.  They are namespaced with an ``attribution_`` prefix so a legal
-# business dimension literally named ``level``/``axis``/``driver``/``path``
-# (org tier, log level, URL path, channel tier) is never mistaken for the
-# internal hierarchy layout marker (issues #43/#44).  Single source of truth
-# shared by decompose, funnel_attribute, evidence, and quality checks.
-ATTRIBUTION_LEVEL_COLUMN = "attribution_level"
-ATTRIBUTION_AXIS_COLUMN = "attribution_axis"
-ATTRIBUTION_DRIVER_COLUMN = "attribution_driver"
-ATTRIBUTION_PATH_COLUMN = "attribution_path"
+from marivo.analysis.frames._attribution_columns import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
+)
 
 
 class AttributionReconciliation(BaseModel):
@@ -391,7 +387,7 @@ def _reconciliation_bucket_scalar(value: object) -> JsonScalar:
 def _validate_row_ranks(meta: AttributionFrameMeta, dataframe: Any) -> None:
     group_columns = [] if meta.bucket_column is None else [meta.bucket_column]
     if meta.attribution_mode in {"hierarchy", "multiresolution"}:
-        group_columns.append("level")
+        group_columns.append(ATTRIBUTION_LEVEL_COLUMN)
     groups = (
         ((None, dataframe),)
         if not group_columns
@@ -416,7 +412,7 @@ def _validate_scope_reconciliations(
     has_levels = meta.attribution_mode == "multiresolution"
     observed_keys: set[tuple[int, tuple[tuple[str, JsonScalar], ...]]] = set()
     for _, row in dataframe.iterrows():
-        level = int(row["level"]) if has_levels else len(axis_refs)
+        level = int(row[ATTRIBUTION_LEVEL_COLUMN]) if has_levels else len(axis_refs)
         bucket_key = (
             ()
             if bucket_column is None
@@ -440,7 +436,7 @@ def _validate_scope_reconciliations(
         if key in expected_keys:
             raise ValueError("attribution reconciliation scope is duplicated")
         expected_keys.add(key)
-        rows = dataframe[dataframe["level"] == level] if has_levels else dataframe
+        rows = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == level] if has_levels else dataframe
         if bucket_column is not None:
             expected_bucket = reconciliation.bucket_key[0][1]
             rows = rows[rows[bucket_column].map(_reconciliation_bucket_scalar) == expected_bucket]
@@ -488,7 +484,7 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     }
     if meta.bucket_column is not None:
         required.add(meta.bucket_column)
-    prefix_columns = {"level", "axis", "driver", "path"}
+    prefix_columns = {ATTRIBUTION_LEVEL_COLUMN, ATTRIBUTION_AXIS_COLUMN, ATTRIBUTION_DRIVER_COLUMN, ATTRIBUTION_PATH_COLUMN}
     if meta.attribution_mode in {"hierarchy", "multiresolution"}:
         required.update(prefix_columns)
     elif columns & prefix_columns:
@@ -533,14 +529,14 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
         evidence = meta.method_evidence
         assert evidence is not None and evidence.multiresolution is not None
         valid_levels = set(range(1, len(axis_columns) + 1))
-        observed_levels = {int(value) for value in dataframe["level"].dropna().unique()}
+        observed_levels = {int(value) for value in dataframe[ATTRIBUTION_LEVEL_COLUMN].dropna().unique()}
         scope = evidence.multiresolution.scope
         expected_levels = valid_levels if scope.kind == "complete" else {len(scope.axis_refs)}
         if observed_levels != expected_levels:
             raise ValueError("multiresolution row levels do not match typed scope")
         for _, row in dataframe.iterrows():
-            level = int(row["level"])
-            if row["axis"] != axis_columns[level - 1]:
+            level = int(row[ATTRIBUTION_LEVEL_COLUMN])
+            if row[ATTRIBUTION_AXIS_COLUMN] != axis_columns[level - 1]:
                 raise ValueError("multiresolution row axis does not match its ordered prefix")
             for column in axis_columns[level:]:
                 if not pd.isna(row[column]):
@@ -560,8 +556,8 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     assert reconciliation is not None
     reconciled_rows = dataframe
     if meta.attribution_mode in {"hierarchy", "multiresolution"}:
-        reconciled_level = int(dataframe["level"].max())
-        reconciled_rows = dataframe[dataframe["level"] == reconciled_level]
+        reconciled_level = int(dataframe[ATTRIBUTION_LEVEL_COLUMN].max())
+        reconciled_rows = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == reconciled_level]
     contribution_sum = float(reconciled_rows["contribution"].sum())
     if reconciliation.contribution_sum is None or not math.isclose(
         contribution_sum,
@@ -807,14 +803,14 @@ class AttributionFrame(BaseFrame):
             )
         level = len(requested_refs)
         selected_df = self._dataframe_copy()
-        if "level" not in selected_df.columns:
+        if ATTRIBUTION_LEVEL_COLUMN not in selected_df.columns:
             raise AttributionResolutionError(
                 message="multiresolution rows are missing the required level coordinate",
                 expected="generic-attribution-rows/v2 with level",
                 received=repr(list(selected_df.columns)),
                 location="AttributionFrame.at_resolution",
             )
-        selected_df = selected_df[selected_df["level"] == level].reset_index(drop=True)
+        selected_df = selected_df[selected_df[ATTRIBUTION_LEVEL_COLUMN] == level].reset_index(drop=True)
         selected_reconciliations = tuple(
             item
             for item in multiresolution.resolution_reconciliations

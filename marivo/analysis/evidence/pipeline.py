@@ -67,6 +67,12 @@ from marivo.analysis.evidence.types import (
     Subject,
     SubjectSetSubject,
 )
+from marivo.analysis.frames._attribution_columns import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
+)
 from marivo.analysis.frames._content_hash import (
     compute_file_content_hash,
     compute_frame_content_hash,
@@ -74,12 +80,6 @@ from marivo.analysis.frames._content_hash import (
 from marivo.analysis.frames._meta_defaults import (
     compute_analysis_scope,
     compute_quality_summary,
-)
-from marivo.analysis.frames.attribution import (
-    ATTRIBUTION_AXIS_COLUMN,
-    ATTRIBUTION_DRIVER_COLUMN,
-    ATTRIBUTION_LEVEL_COLUMN,
-    ATTRIBUTION_PATH_COLUMN,
 )
 from marivo.analysis.frames.base import (
     CURRENT_ARTIFACT_SCHEMA_VERSION,

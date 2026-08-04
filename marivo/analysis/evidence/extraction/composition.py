@@ -17,6 +17,7 @@ from marivo.analysis.evidence.types import (
     Finding,
     Subject,
 )
+from marivo.analysis.frames._attribution_columns import ATTRIBUTION_LEVEL_COLUMN
 from marivo.refs import RefPayloadV1
 
 _ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
@@ -134,7 +135,7 @@ def extract_decomposition_findings(
         else:
             resolution_refs = contract.ordered_axis_refs
             if contract.ordered_prefix_rows:
-                level_value = row.get("level")
+                level_value = row.get(ATTRIBUTION_LEVEL_COLUMN)
                 level = int(level_value) if level_value is not None else 0
                 resolution_refs = resolution_refs[:level]
             identity_dimension = (

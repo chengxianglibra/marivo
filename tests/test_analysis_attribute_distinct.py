@@ -82,7 +82,7 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
 
     rows = result.to_pandas()
     assert result.attribution_mode == "multiresolution"
-    assert rows.groupby("level")["contribution"].sum().to_dict() == pytest.approx({1: 0.0, 2: 0.0})
+    assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx({1: 0.0, 2: 0.0})
     contract = result.contract()
     assert contract.row_arithmetic == "not_additive_across_resolutions"
     resolution_affordance = next(
@@ -103,13 +103,13 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
         item.capability_id == "AttributionFrame.at_resolution"
         for item in region_rows.contract().affordances
     )
-    assert set(region_rows.to_pandas()["level"]) == {1}
+    assert set(region_rows.to_pandas()["attribution_level"]) == {1}
     assert region_rows.meta.method_evidence is not None
     assert region_rows.meta.method_evidence.multiresolution is not None
     assert region_rows.meta.method_evidence.multiresolution.scope.kind == "selected"
 
     corrupted = result.to_pandas()
-    corrupted.loc[corrupted["level"] == 1, "contribution"] = 999.0
+    corrupted.loc[corrupted["attribution_level"] == 1, "contribution"] = 999.0
     with pytest.raises(ValueError, match="typed scope contribution sum"):
         validate_generic_attribution_rows(result.meta, corrupted)
     assert result.evidence_digest is not None
