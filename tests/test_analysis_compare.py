@@ -1021,3 +1021,42 @@ def test_compare_rejects_different_explicit_time_dimension_identities(tmp_path):
     assert exc_info.value._context["kind"] == "TimeDimensionIdentityMismatch"
     assert exc_info.value._context["current_time_dimension"] == "sales.orders.order_date"
     assert exc_info.value._context["baseline_time_dimension"] == "sales.orders.shipped_date"
+
+
+@pytest.mark.parametrize("conflicting_name", ["current", "baseline", "delta"])
+def test_compare_time_series_rejects_time_column_colliding_with_protocol(
+    tmp_path, conflicting_name: str
+) -> None:
+    """A time_series time column named like a compare protocol column must fail
+    closed with a typed error instead of a pandas raw exception (issue #39,
+    time_series path)."""
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(name="demo")
+    cur = make_metric_frame(
+        pd.DataFrame({conflicting_name: ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": conflicting_name, "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=s,
+    )
+    base = make_metric_frame(
+        pd.DataFrame({conflicting_name: ["2026-04-01", "2026-04-02"], "revenue": [5.0, 15.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": conflicting_name, "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=s,
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    error = exc_info.value
+    assert error._context["reason"] == "protocol_column_collision"
+    assert conflicting_name in error._context["conflicting_columns"]
+    assert error.location == "session.compare"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"

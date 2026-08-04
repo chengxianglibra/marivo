@@ -22,6 +22,7 @@ from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_c
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
+    AnalysisRepair,
     CalendarPolicyError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
@@ -72,6 +73,7 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
@@ -82,6 +84,74 @@ from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
+
+# Result protocol columns every compare alignment path produces.  A semantic
+# dimension column named like one of these would collide when the value column
+# is renamed to ``current``/``baseline`` or ``delta``/``pct_change`` are
+# appended, so the collision must fail closed before any pandas merge/rename
+# instead of surfacing a raw duplicate-column exception (issue #39).
+_COMPARE_RESULT_PROTOCOL_COLUMNS = frozenset(
+    {
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        PCT_CHANGE_STATUS_COLUMN,
+        PRESENCE_STATUS_COLUMN,
+    }
+)
+
+
+def _validate_compare_protocol_columns(
+    columns: list[str],
+    *,
+    time_column: str | None = None,
+    role: str = "dimension",
+) -> None:
+    """Fail closed when a semantic column collides with the compare result layout.
+
+    ``columns`` are the semantic columns the current path keeps alongside the
+    result protocol columns (dimension columns for segmented/panel, and the
+    time column for time_series/panel).  A column named ``current``/``baseline``/
+    ``delta``/``pct_change``/``pct_change_status``/``presence_status`` would
+    collide when the value column is renamed or those fields are appended, so
+    it must fail closed before any pandas merge/rename (issue #39).
+    """
+    reserved_columns = set(_COMPARE_RESULT_PROTOCOL_COLUMNS)
+    if time_column is not None:
+        # Panel ordinal alignment also emits a paired baseline bucket column;
+        # a dimension/time column matching either name must be rejected too.
+        reserved_columns.add(f"{time_column}_b")
+    conflicting_columns = [
+        column for column in columns if column in reserved_columns
+    ]
+    if not conflicting_columns:
+        return
+    raise SemanticKindMismatchError(
+        message="compare semantic column conflicts with a result protocol column",
+        expected="a semantic column outside the compare result protocol namespace",
+        received=", ".join(repr(column) for column in conflicting_columns),
+        location="session.compare",
+        repair=AnalysisRepair(
+            kind="semantic_authoring",
+            action=(
+                f"Rename {role} column(s) {', '.join(repr(c) for c in conflicting_columns)} "
+                "to non-reserved semantic names, reload the catalog, then re-observe "
+                "and compare before retrying."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+        ),
+        hint=(
+            "The compare result keeps the semantic columns and the current/baseline/"
+            "delta/pct_change protocol fields as distinct columns."
+        ),
+        context={
+            "argument": role,
+            "reason": "protocol_column_collision",
+            "conflicting_columns": conflicting_columns,
+            "reserved_columns": sorted(reserved_columns),
+        },
+    )
 
 
 def _presence_status(*, has_current: bool, has_baseline: bool) -> str | float:
@@ -1516,6 +1586,7 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
             message="segmented compare requires at least one dimension axis",
             context={"kind": "SegmentDimensionMissing"},
         )
+    _validate_compare_protocol_columns(dim_columns)
     a_df = a._dataframe_copy()
     b_df = b._dataframe_copy()
     a_value = _value_column_segmented(a, a_df, dim_columns=dim_columns)
@@ -1576,6 +1647,11 @@ def _align_panel(
                 "baseline_time_column": b_time_column,
             },
         )
+    _validate_compare_protocol_columns(
+        [*dim_columns, time_column],
+        time_column=time_column,
+        role="dimension",
+    )
 
     a_df = a._dataframe_copy()
     b_df = b._dataframe_copy()
@@ -1895,6 +1971,14 @@ def _align_time_series_window_bucket(
                 "baseline_time_column": b_time_column,
             },
         )
+    # The time column is kept in the result and the value column is renamed to
+    # current/baseline, so a time column named like a protocol column must fail
+    # closed here too (issue #39, time_series path).
+    _validate_compare_protocol_columns(
+        [time_column],
+        time_column=time_column,
+        role="time",
+    )
     a_df = a._dataframe_copy()
     b_df = b._dataframe_copy()
     a_value = _value_column(a, a_df, time_column=time_column)

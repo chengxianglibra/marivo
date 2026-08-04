@@ -8,7 +8,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import AlignmentFailedError, PanelGrainMismatchError
+from marivo.analysis.errors import (
+    AlignmentFailedError,
+    PanelGrainMismatchError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
@@ -603,3 +607,131 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
     assert by_region.loc["APP", "align_quality"] == "unmatched"
     assert by_region.loc["APP", "baseline_failed_count"] == pytest.approx(0.0)
     assert by_region.loc["APP", "delta_failed_count"] == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize(
+    "conflicting_name",
+    [
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        "pct_change_status",
+        "presence_status",
+    ],
+)
+def test_compare_panel_rejects_dimension_colliding_with_protocol_column(
+    conflicting_name: str,
+) -> None:
+    """A legal panel dimension named like a compare protocol column must fail
+    closed with a typed error instead of a pandas duplicate-column exception
+    (issue #39, panel path).
+    """
+    s = session_attach.get_or_create(name="demo")
+    current = _panel_metric(
+        s,
+        [
+            {
+                "bucket_start": pd.Timestamp("2026-07-01"),
+                conflicting_name: "A",
+                "value": 100.0,
+            }
+        ],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_dimension": "order_date",
+            },
+            conflicting_name: {"role": "dimension", "column": conflicting_name},
+        },
+    )
+    baseline = _panel_metric(
+        s,
+        [
+            {
+                "bucket_start": pd.Timestamp("2026-07-01"),
+                conflicting_name: "A",
+                "value": 70.0,
+            }
+        ],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_dimension": "order_date",
+            },
+            conflicting_name: {"role": "dimension", "column": conflicting_name},
+        },
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    error = exc_info.value
+    assert error._context["reason"] == "protocol_column_collision"
+    assert conflicting_name in error._context["conflicting_columns"]
+    assert error.location == "session.compare"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert [job.intent for job in s.jobs() if job.intent == "compare"] == []
+
+
+@pytest.mark.parametrize("conflicting_name", ["current", "baseline", "delta"])
+def test_compare_panel_rejects_time_column_colliding_with_protocol(
+    conflicting_name: str,
+) -> None:
+    """A panel time column named like a compare protocol column must fail
+    closed with a typed error instead of a pandas raw exception (issue #39,
+    panel time-column side)."""
+    s = session_attach.get_or_create(name="demo")
+    cur = _panel_metric(
+        s,
+        [
+            {
+                conflicting_name: pd.Timestamp("2026-07-01"),
+                "region": "A",
+                "value": 100.0,
+            }
+        ],
+        axes={
+            "time": {
+                "role": "time",
+                "column": conflicting_name,
+                "grain": "day",
+                "time_dimension": "order_date",
+            },
+            "region": {"role": "dimension", "column": "region"},
+        },
+    )
+    base = _panel_metric(
+        s,
+        [
+            {
+                conflicting_name: pd.Timestamp("2026-07-01"),
+                "region": "A",
+                "value": 70.0,
+            }
+        ],
+        axes={
+            "time": {
+                "role": "time",
+                "column": conflicting_name,
+                "grain": "day",
+                "time_dimension": "order_date",
+            },
+            "region": {"role": "dimension", "column": "region"},
+        },
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    error = exc_info.value
+    assert error._context["reason"] == "protocol_column_collision"
+    assert conflicting_name in error._context["conflicting_columns"]
+    assert error.location == "session.compare"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
