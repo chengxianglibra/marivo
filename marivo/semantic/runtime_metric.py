@@ -557,7 +557,10 @@ def aggregate(
         agg: Registered aggregate kind, including ``("percentile", q)``.
         fold: Optional authoring-aligned time fold.
         slice_by: Optional branch-local typed slice copied into the descriptor.
-        label: Required presentation-only label and stable public value-column handle.
+        label: Required presentation-only label and stable public value-column
+            handle. It becomes the public value-column name on the observed
+            frame, so it must not collide with a requested dimension or time
+            bucket column (such a collision fails closed at ``observe``).
 
     Returns:
         A frozen ``RuntimeAggregateExpr`` accepted by ``session.observe`` or by
