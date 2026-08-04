@@ -18,8 +18,8 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
+from marivo.analysis.frames._attribution_columns import ATTRIBUTION_PATH_COLUMN
 from marivo.analysis.frames.attribution import (
-    ATTRIBUTION_PATH_COLUMN,
     AttributionFrame,
     QuantileReplacementEvidenceV1,
 )

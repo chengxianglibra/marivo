@@ -33,11 +33,13 @@ from marivo.analysis.executor.windowing import (
     datasource_read_timezone,
     resolve_window_time_field,
 )
-from marivo.analysis.frames.attribution import (
+from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
+)
+from marivo.analysis.frames.attribution import (
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
     AttributionResolutionReconciliationV1,

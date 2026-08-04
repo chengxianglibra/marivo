@@ -10,16 +10,18 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo.analysis.frames._attribution_columns import (
+    ATTRIBUTION_AXIS_COLUMN,
+    ATTRIBUTION_DRIVER_COLUMN,
+    ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
+)
 from marivo.analysis.frames._content_hash import (
     compute_file_content_hash,
     compute_frame_content_hash,
 )
 from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
 from marivo.analysis.frames.attribution import (
-    ATTRIBUTION_AXIS_COLUMN,
-    ATTRIBUTION_DRIVER_COLUMN,
-    ATTRIBUTION_LEVEL_COLUMN,
-    ATTRIBUTION_PATH_COLUMN,
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
     FunnelAttributionFrameMeta,
