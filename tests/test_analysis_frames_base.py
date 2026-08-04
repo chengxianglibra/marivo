@@ -193,15 +193,14 @@ def test_affordance_preserves_compare_parameter_roles_without_call_planner():
         item for item in _metric_frame().contract().affordances if item.capability_id == "compare"
     )
     assert [item.parameter for item in affordance.input_requirements] == [
-        "a",
         "alignment",
-        "b",
-        "sampling",
+        "baseline",
+        "current",
     ]
     assert {
         item.parameter: item.bindable_from_current_artifact
         for item in affordance.input_requirements
-    } == {"a": True, "alignment": False, "b": True, "sampling": False}
+    } == {"alignment": False, "baseline": True, "current": True}
     assert not hasattr(affordance, "required_inputs")
     assert not hasattr(affordance, "param_template")
 

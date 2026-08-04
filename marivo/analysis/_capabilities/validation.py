@@ -603,7 +603,7 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
                     message="assess_quality does not support this artifact shape.",
                     expected=admission.expected,
                     received=admission.received,
-                    location="assess_quality.target",
+                    location="assess_quality.frame",
                     repair=AnalysisRepair(
                         kind="inspect",
                         action="Inspect the artifact contract for supported quality shapes.",

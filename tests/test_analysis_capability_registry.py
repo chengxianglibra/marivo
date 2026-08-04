@@ -9,6 +9,7 @@ complete immutable capability registry with type algebra.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from typing import get_args
@@ -1009,3 +1010,87 @@ def test_registry_is_immutable() -> None:
 def test_registry_descriptors_is_a_tuple() -> None:
     assert isinstance(REGISTRY.descriptors, tuple)
     assert len(REGISTRY.descriptors) > 0
+
+
+# ---------------------------------------------------------------------------
+# Registry: accepted-input keys drift against installed callable signature
+# ---------------------------------------------------------------------------
+
+
+def _installed_signature_parameter_names(callable_path: str) -> set[str]:
+    """Return the public parameter names of the callable at ``callable_path``.
+
+    Resolves through the same ``import_registered_callable`` helper the live
+    help renderer uses so the drift check mirrors what ``mv.help(...)`` sees.
+    """
+    from marivo.introspection.live.reflect import import_registered_callable
+
+    callable_obj = import_registered_callable(callable_path)
+    return {
+        parameter.name
+        for parameter in inspect.signature(callable_obj).parameters.values()
+        if parameter.name != "self"
+    }
+
+
+def test_operator_accepted_input_keys_exist_in_installed_signature() -> None:
+    """Every accepted-input parameter must exist on the installed callable.
+
+    This pins the fix for issue #41: the live help (owned by the capability
+    registry) advertised ``a``/``b``/``sampling`` for ``compare`` while the
+    public signature is ``current``/``baseline``.  Advertising a keyword the
+    signature does not accept forces agents into ``unexpected keyword
+    argument`` errors instead of Marivo typed errors.
+
+    The exemption is key-level, not descriptor-level: frame/transform
+    operators legitimately declare a ``receiver`` accepted input that names
+    the method owner (``self``) rather than a callable keyword, so only that
+    single key is skipped.  Every other accepted-input key on every operator
+    must still exist in the installed signature, so a future
+    ``transform.rollup`` ``grain``/``granularity`` typo or a stale policy
+    parameter is caught exactly like the issue #41 drift.
+    """
+    unaccounted: list[str] = []
+    for desc in REGISTRY.descriptors:
+        if desc.kind != "operator" or not desc.callable_path:
+            continue
+        try:
+            signature_names = _installed_signature_parameter_names(desc.callable_path)
+        except (ImportError, AttributeError, TypeError, ValueError):
+            # Unresolvable or non-signature callables are out of scope; the
+            # signature line in live help simply falls back to accepted_inputs.
+            continue
+        for parameter in desc.accepted_inputs:
+            if parameter == "receiver":
+                # The method owner is bound as ``self``; it is not a keyword
+                # the signature accepts, so it is exempt by convention.
+                continue
+            if parameter not in signature_names:
+                unaccounted.append(
+                    f"{desc.id} accepted input {parameter!r} is not a parameter "
+                    f"of {desc.callable_path} (signature: {sorted(signature_names)})"
+                )
+    assert not unaccounted, "Accepted inputs advertise parameters the callable lacks:\n  " + "\n  ".join(
+        unaccounted
+    )
+
+
+def test_operator_artifact_admission_keys_match_accepted_inputs() -> None:
+    """``artifact_admission`` keys must line up with ``accepted_inputs`` keys.
+
+    Both mappings are keyed by public parameter name; a drift here would make
+    the family gate evaluate a rule for a parameter the operator does not
+    accept (or leave an accepted parameter without admission rules).
+    """
+    mismatches: list[str] = []
+    for desc in REGISTRY.descriptors:
+        if desc.kind != "operator" or not desc.artifact_admission:
+            continue
+        accepted_keys = set(desc.accepted_inputs)
+        admission_keys = set(desc.artifact_admission)
+        if not admission_keys <= accepted_keys:
+            mismatches.append(
+                f"{desc.id} artifact_admission keys {sorted(admission_keys)} "
+                f"not all in accepted_inputs keys {sorted(accepted_keys)}"
+            )
+    assert not mismatches, "\n  ".join(mismatches)

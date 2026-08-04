@@ -133,43 +133,59 @@ def test_classify_time_dimension_semantic_ref():
 
 def test_gate_compare_accepts_metric_frames():
     session = session_attach.get_or_create(name="mtx")
-    a = _metric_frame(session)
-    b = _metric_frame(session)
-    validate_capability_inputs("compare", a=a, b=b, alignment=AlignmentPolicy(kind="window_bucket"))
+    current = _metric_frame(session)
+    baseline = _metric_frame(session)
+    validate_capability_inputs(
+        "compare",
+        current=current,
+        baseline=baseline,
+        alignment=AlignmentPolicy(kind="window_bucket"),
+    )
 
 
-def test_gate_compare_rejects_delta_frame_for_a():
+def test_gate_compare_rejects_delta_frame_for_current():
     session = session_attach.get_or_create(name="mtx")
     mf = _metric_frame(session)
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
         validate_capability_inputs(
-            "compare", a=df, b=mf, alignment=AlignmentPolicy(kind="window_bucket")
+            "compare",
+            current=df,
+            baseline=mf,
+            alignment=AlignmentPolicy(kind="window_bucket"),
         )
-    assert exc.value.location == "compare.a"
+    assert exc.value.location == "compare.current"
     assert exc.value.repair is not None
     assert exc.value.repair.help_target == LiveHelpTarget(
         surface="analysis", canonical_id="compare"
     )
 
 
-def test_gate_compare_rejects_delta_frame_for_b():
+def test_gate_compare_rejects_delta_frame_for_baseline():
     session = session_attach.get_or_create(name="mtx")
     mf = _metric_frame(session)
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
         validate_capability_inputs(
-            "compare", a=mf, b=df, alignment=AlignmentPolicy(kind="window_bucket")
+            "compare",
+            current=mf,
+            baseline=df,
+            alignment=AlignmentPolicy(kind="window_bucket"),
         )
-    assert exc.value.location == "compare.b"
+    assert exc.value.location == "compare.baseline"
 
 
 def test_gate_compare_rejects_wrong_alignment():
     session = session_attach.get_or_create(name="mtx")
-    a = _metric_frame(session)
-    b = _metric_frame(session)
+    current = _metric_frame(session)
+    baseline = _metric_frame(session)
     with pytest.raises(AnalysisError) as exc:
-        validate_capability_inputs("compare", a=a, b=b, alignment="window_bucket")
+        validate_capability_inputs(
+            "compare",
+            current=current,
+            baseline=baseline,
+            alignment="window_bucket",
+        )
     assert exc.value.location == "compare.alignment"
     assert exc.value.repair is not None
     assert exc.value.repair.help_target == LiveHelpTarget(
@@ -214,15 +230,15 @@ def test_gate_forecast_rejects_delta_frame():
 def test_gate_assess_quality_accepts_metric_frame():
     session = session_attach.get_or_create(name="mtx")
     mf = _metric_frame(session)
-    validate_capability_inputs("assess_quality", target=mf)
+    validate_capability_inputs("assess_quality", frame=mf)
 
 
 def test_gate_assess_quality_rejects_delta_frame():
     session = session_attach.get_or_create(name="mtx")
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
-        validate_capability_inputs("assess_quality", target=df)
-    assert exc.value.location == "assess_quality.target"
+        validate_capability_inputs("assess_quality", frame=df)
+    assert exc.value.location == "assess_quality.frame"
 
 
 def test_gate_correlate_rejects_delta_frame():
@@ -328,7 +344,7 @@ def test_session_compare_rejects_delta_at_gate():
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
         session.compare(mf, df)  # type: ignore[arg-type]
-    assert exc.value.location == "compare.b"
+    assert exc.value.location == "compare.baseline"
     assert exc.value.repair is not None
     assert exc.value.repair.help_target == LiveHelpTarget(
         surface="analysis", canonical_id="compare"
@@ -356,7 +372,7 @@ def test_session_assess_quality_rejects_delta_at_gate():
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
         session.assess_quality(df)  # type: ignore[arg-type]
-    assert exc.value.location == "assess_quality.target"
+    assert exc.value.location == "assess_quality.frame"
 
 
 def test_session_correlate_rejects_delta_at_gate():
@@ -421,7 +437,7 @@ def test_compare_calls_gate_with_compare_id():
     with patch("marivo.analysis._capabilities.validation.validate_capability_inputs") as mock_gate:
         mock_gate.side_effect = AnalysisError(
             message="gate spy",
-            location="compare.b",
+            location="compare.baseline",
             repair=AnalysisRepair(
                 kind="retry",
                 action="spy",

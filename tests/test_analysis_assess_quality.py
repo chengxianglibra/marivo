@@ -283,7 +283,7 @@ def test_non_metric_frame_raises(tmp_path):
     )
     with pytest.raises(AnalysisError) as exc:
         session.assess_quality(delta)
-    assert exc.value.location == "assess_quality.target"
+    assert exc.value.location == "assess_quality.frame"
 
 
 def test_quality_report_render_surfaces_check_results(tmp_path):
