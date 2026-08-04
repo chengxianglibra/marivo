@@ -1519,6 +1519,19 @@ class AttributionMaterializationError(AnalysisError):
 class AttributionBasisMismatchError(AnalysisError):
     """Persisted attribution bases or source graphs are incompatible."""
 
+    def _derive_fields(self) -> _DerivedFields:
+        return _DerivedFields(
+            location="session.attribute attribution basis",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Re-run observe and compare from the current semantic graph, then retry "
+                    "attribute with the newly persisted DeltaFrame."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+        )
+
     @property
     def kind(self) -> str:
         return "attribution_basis_mismatch"
@@ -1526,6 +1539,19 @@ class AttributionBasisMismatchError(AnalysisError):
 
 class AttributionShapeUnavailableError(AnalysisError):
     """No closed mathematical attribution shape can be projected."""
+
+    def _derive_fields(self) -> _DerivedFields:
+        return _DerivedFields(
+            location="DeltaFrame.predicted_attribution_shape()",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Inspect DeltaFrame.contract().attribute_admission and use its typed "
+                    "repair before attempting attribution."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+        )
 
     @property
     def kind(self) -> str:
@@ -1535,6 +1561,19 @@ class AttributionShapeUnavailableError(AnalysisError):
 class AttributeAdmissionBlockedError(AnalysisError):
     """The effective installed-runtime attribution admission is blocked."""
 
+    def _derive_fields(self) -> _DerivedFields:
+        return _DerivedFields(
+            location="session.attribute",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Inspect DeltaFrame.contract().attribute_admission and apply its typed "
+                    "repair before retrying attribute."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+        )
+
     @property
     def kind(self) -> str:
         return "attribute_admission_blocked"
@@ -1543,6 +1582,21 @@ class AttributeAdmissionBlockedError(AnalysisError):
 class AttributionResolutionError(AnalysisError):
     """A requested multi-resolution axis prefix is not available."""
 
+    def _derive_fields(self) -> _DerivedFields:
+        return _DerivedFields(
+            location="AttributionFrame.at_resolution",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Choose one exact ordered semantic-ref prefix from frame.contract(), "
+                    "then call frame.at_resolution(axes=[...]) again."
+                ),
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="AttributionFrame.at_resolution"
+                ),
+            ),
+        )
+
     @property
     def kind(self) -> str:
         return "attribution_resolution_invalid"
@@ -1550,6 +1604,41 @@ class AttributionResolutionError(AnalysisError):
 
 class AttributionDistributionError(AnalysisError):
     """Distribution attribution cannot safely evaluate its governed game."""
+
+    def _derive_fields(self) -> _DerivedFields:
+        reason = self._context.get("reason")
+        if reason == "empty_coalition_distribution":
+            kind: RepairKind = "retry"
+            action = (
+                "Retry attribute with a coarser axis or overlapping partitions so every "
+                "evaluated coalition has a non-null distribution."
+            )
+        elif reason in {"partition_limit_exceeded", "frequency_row_limit_exceeded"}:
+            kind = "retry"
+            action = (
+                "Retry attribute with a coarser or lower-cardinality axis so the governed "
+                "distribution game stays within its execution limit."
+            )
+        elif reason == "endpoint_reproduction_mismatch":
+            kind = "inspect"
+            action = (
+                "Re-run observe and compare against the active datasource, then inspect the "
+                "persisted attribution basis before retrying attribute."
+            )
+        else:
+            kind = "inspect"
+            action = (
+                "Inspect DeltaFrame.contract().attribute_admission and the persisted source "
+                "method before retrying distribution attribution."
+            )
+        return _DerivedFields(
+            location="session.attribute distribution evaluation",
+            repair=AnalysisRepair(
+                kind=kind,
+                action=action,
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+        )
 
     @property
     def kind(self) -> str:
