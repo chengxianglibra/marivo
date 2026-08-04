@@ -321,15 +321,20 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
     )
     components_invalid += int(contributions.isna().sum())
     if frame.meta.mode == "hierarchy":
-        layout_columns = {"level", "axis", "driver", "path"}
+        layout_columns = {
+            "attribution_level",
+            "attribution_axis",
+            "attribution_driver",
+            "attribution_path",
+        }
         components_invalid += len(layout_columns - set(df.columns))
-        if "level" in df.columns and not df.empty:
-            levels = pd.to_numeric(df["level"], errors="coerce")
+        if "attribution_level" in df.columns and not df.empty:
+            levels = pd.to_numeric(df["attribution_level"], errors="coerce")
             components_invalid += int(levels.isna().sum())
             deepest = df.loc[levels == levels.max()].copy()
         else:
             deepest = df.iloc[0:0].copy()
-        coordinate_columns = ["level", "path", "contribution_kind"]
+        coordinate_columns = ["attribution_level", "attribution_path", "contribution_kind"]
     else:
         axis_columns = [axis.output_column for axis in frame.meta.axes]
         components_invalid += len([column for column in axis_columns if column not in df.columns])

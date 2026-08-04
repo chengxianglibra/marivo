@@ -321,9 +321,10 @@ issues/lineage, never a next-step recommendation or narrative.
 There is no default for a multi-axis call; a single-axis call omits `mode`, and
 supplying one there has no effect. A single-axis result preserves the resolved
 dimension column (for example, `cluster`) and sets `driver_field` to that name,
-so its pandas rows join directly to the source `DeltaFrame`. Generic
-`level` / `axis` / `driver` / `path` columns are reserved for multi-axis
-hierarchy output. Additive single-axis results report `method="sum"`.
+so its pandas rows join directly to the source `DeltaFrame`. Namespaced
+`attribution_level` / `attribution_axis` / `attribution_driver` /
+`attribution_path` columns are reserved for multi-axis hierarchy output.
+Additive single-axis results report `method="sum"`.
 The preserved dimension name must not collide with attribution result, value,
 or panel bucket columns. Such a collision fails closed with a
 `SemanticKindMismatchError` and a semantic-authoring repair instead of

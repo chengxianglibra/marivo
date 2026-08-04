@@ -374,8 +374,9 @@ attribution = session.attribute(delta, axes=[region])
 在两种模式下都会保留 `value_effect`、`mix_effect` 与 `residual`。
 多轴调用没有默认 mode；单轴应省略 `mode`，即使传入也不会改变输出。
 单轴输出会保留解析后的维度列名（例如 `cluster`），因此可以直接按该列与来源
-`DeltaFrame` 连接。通用的 `level`、`axis`、`driver` 与 `path` 列仅用于多轴
-hierarchy 输出；additive 单轴归因的 `attribution_shape` 为 `"sum"`。
+`DeltaFrame` 连接。带命名空间的 `attribution_level`、`attribution_axis`、
+`attribution_driver` 与 `attribution_path` 列仅用于多轴 hierarchy 输出；additive
+单轴归因的 `attribution_shape` 为 `"sum"`。
 保留的维度名不能与归因结果、value 或 panel bucket 列冲突；发生冲突时，Marivo
 会 fail closed 并返回结构化 semantic-authoring repair，而不会生成重复列或含义
 歧义的列。Evidence 协议字段通过 metadata 显式映射，不会占用用户维度名。

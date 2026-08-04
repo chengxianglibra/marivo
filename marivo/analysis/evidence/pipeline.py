@@ -596,7 +596,14 @@ def _extract_findings(
         )
         if not typed_v2 and isinstance(params, dict) and params.get("mode") == "hierarchy":
             key_columns = [
-                column for column in ("level", "axis", "driver", "path") if column in df.columns
+                column
+                for column in (
+                    "attribution_level",
+                    "attribution_axis",
+                    "attribution_driver",
+                    "attribution_path",
+                )
+                if column in df.columns
             ] + key_columns
         bucket_column = (
             getattr(meta, "bucket_column", None)
