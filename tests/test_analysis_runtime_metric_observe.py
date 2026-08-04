@@ -908,3 +908,79 @@ def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> N
     with pytest.raises(FrameMetaInvalidError, match="delta identity") as exc_info:
         runtime_session.get_frame(delta.ref)
     assert exc_info.value._context["missing_state"] == ["comparison_identity"]
+
+
+def test_observe_multi_metric_label_colliding_with_dimension_fails_closed(
+    runtime_session,
+) -> None:
+    """A runtime label that equals a requested dimension column must fail closed
+    instead of silently overwriting the axis values (issue #37).
+
+    Pre-fix this produced an artifact whose region column was overwritten with
+    aggregate values while meta.axes still declared region a dimension.
+    """
+    amount = _measure_ref(runtime_session)
+    region = runtime_session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        runtime_session.observe(
+            [
+                mv.runtime_metric.aggregate(amount, agg="sum", label="region"),
+                mv.runtime_metric.aggregate(amount, agg="count", label="row_count"),
+            ],
+            dimensions=[region],
+        )
+
+    error = exc_info.value
+    assert "region" in str(error.message)
+    assert error.repair is not None
+    # No partial artifact/job/evidence may remain.
+    assert [job.intent for job in runtime_session.jobs() if job.intent == "observe"] == []
+
+
+def test_observe_multi_metric_label_colliding_with_time_column_fails_closed(
+    runtime_session,
+) -> None:
+    """A runtime label equal to the time bucket column must fail closed
+    (issue #37, time-axis side)."""
+    amount = _measure_ref(runtime_session)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        runtime_session.observe(
+            [
+                mv.runtime_metric.aggregate(amount, agg="sum", label="bucket_start"),
+                mv.runtime_metric.aggregate(amount, agg="count", label="row_count"),
+            ],
+            time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+            grain="day",
+        )
+
+    error = exc_info.value
+    assert error._context["reason"] == "output_column_collision"
+    assert "bucket_start" in error._context["colliding_column"] or error._context[
+        "colliding_column"
+    ] in {"bucket_start", "order_date"}
+    assert error.repair is not None
+    assert [job.intent for job in runtime_session.jobs() if job.intent == "observe"] == []
+
+
+def test_observe_multi_metric_duplicate_labels_are_uniquely_suffixed(
+    runtime_session,
+) -> None:
+    """Labels ["x", "x_2", "x"] must resolve to globally unique columns
+    ["x", "x_2", "x_3"] so arity, value_columns, and the actual frame columns
+    all line up (issue #37)."""
+    amount = _measure_ref(runtime_session)
+
+    frame = runtime_session.observe(
+        [
+            mv.runtime_metric.aggregate(amount, agg="sum", label="x"),
+            mv.runtime_metric.aggregate(amount, agg="count", label="x_2"),
+            mv.runtime_metric.aggregate(amount, agg="mean", label="x"),
+        ]
+    )
+
+    assert frame.arity == 3
+    assert frame.value_columns == ("x", "x_2", "x_3")
+    assert set(frame.to_pandas().columns) >= {"x", "x_2", "x_3"}
+    assert len(frame.to_pandas().columns) == 3

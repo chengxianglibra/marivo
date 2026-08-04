@@ -17,6 +17,7 @@ from marivo.analysis._cumulative import (
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.candidate_lineage import CandidateOrigin
 from marivo.analysis.errors import (
+    AnalysisRepair,
     SemanticKindMismatchError,
     SliceEmptyResultError,
 )
@@ -168,6 +169,7 @@ from marivo.analysis.windows.spec import (
     TimeScopeInput,
     dump_window,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import (
     DimensionKind,
     MetricKind,
@@ -1386,7 +1388,19 @@ def observe(
 def _forest_output_columns(
     metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
     identities: tuple[Any, ...],
+    *,
+    reserved_columns: frozenset[str] = frozenset(),
 ) -> list[str]:
+    """Resolve unique public output columns for a metric forest.
+
+    Each requested name (catalog short name or runtime label) becomes a public
+    value-column handle.  The resolved names must be globally unique and must
+    not collide with any axis key column or another metric, otherwise the
+    output would silently overwrite an axis or lose a metric (issue #37).  A
+    requested name equal to a reserved axis column fails closed with a
+    semantic-authoring repair; a later duplicate is disambiguated by a suffix
+    that is itself checked against the reserved namespace.
+    """
     requested: list[str] = []
     for index, (metric_input, identity) in enumerate(zip(metric_inputs, identities, strict=True)):
         if isinstance(identity, CatalogMetricIdentity):
@@ -1401,11 +1415,40 @@ def _forest_output_columns(
             ):
                 raise AssertionError(f"runtime metric identity at index {index} has no expression")
             requested.append(metric_input.label)
-    counts: dict[str, int] = {}
+    used: set[str] = set(reserved_columns)
     result: list[str] = []
     for name in requested:
-        counts[name] = counts.get(name, 0) + 1
-        result.append(name if counts[name] == 1 else f"{name}_{counts[name]}")
+        if name in reserved_columns:
+            raise SemanticKindMismatchError(
+                message=(
+                    "observe metric output label conflicts with an axis "
+                    f"column: {name!r}"
+                ),
+                expected="a metric label outside the observe output reserved namespace",
+                received=repr(name),
+                location="session.observe metrics",
+                repair=AnalysisRepair(
+                    kind="semantic_authoring",
+                    action=(
+                        f"Rename the metric label {name!r} (or the colliding axis) to a "
+                        "non-reserved semantic name, reload the catalog, then re-observe."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
+                context={
+                    "argument": "metrics",
+                    "reason": "output_column_collision",
+                    "colliding_column": name,
+                    "reserved_columns": sorted(reserved_columns),
+                },
+            )
+        candidate = name
+        suffix = 1
+        while candidate in used:
+            suffix += 1
+            candidate = f"{name}_{suffix}"
+        used.add(candidate)
+        result.append(candidate)
     return result
 
 
@@ -1556,10 +1599,6 @@ def _observe_metric_forest(
             if resolved_window is not None
             else None
         )
-        output_columns = _forest_output_columns(
-            canonical_metric_inputs,
-            graph_plan.forest.identities,
-        )
         params = {
             "metric_identities": canonical_value(graph_plan.forest.identities),
             "replay_expressions": [replay_payload(item) for item in canonical_metric_inputs],
@@ -1572,7 +1611,6 @@ def _observe_metric_forest(
             "datasource_compatibility_domain": canonical_value(graph_plan.source_domain),
             "lineage_metadata": graph_plan.lineage_metadata,
             "warnings": list(graph_plan.warnings),
-            "output_columns": output_columns,
             "cohort": (
                 resolved_cohort.binding.model_dump(mode="json")
                 if resolved_cohort is not None
@@ -1621,6 +1659,21 @@ def _observe_metric_forest(
     params["snapshot_fingerprint"] = snapshot_fingerprint
     params["coverage_fingerprint"] = coverage_fingerprint
     persisted_axis_bindings = _axis_bindings(session.catalog, execution.roots[0].axes)
+    # The output columns must not collide with any axis key column.  Resolve
+    # them against the executed axis schema and fail closed if a runtime label
+    # equals a dimension/time bucket column (issue #37).
+    axis_columns = frozenset(
+        axis_column
+        for axis in execution.roots[0].axes.values()
+        if isinstance(axis, dict)
+        and isinstance((axis_column := axis.get("column")), str)
+    )
+    output_columns = _forest_output_columns(
+        canonical_metric_inputs,
+        graph_plan.forest.identities,
+        reserved_columns=axis_columns,
+    )
+    params["output_columns"] = output_columns
     commit_anchors = CommitSemanticAnchors(
         catalog_definition_fingerprint=session.catalog.definition_fingerprint,
         semantic_dependency_digest=graph_plan.forest.dependency_digest,
