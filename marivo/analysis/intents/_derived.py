@@ -259,6 +259,10 @@ def persist_attribution_frame(
     )
     register_frame_artifact(session, frame)
     _captured_queries = session._connection_runtime.take_captured_queries()
+    # commit_result may reuse an already-committed immutable artifact: the
+    # returned frame keeps the original producer/purpose, so this invocation
+    # is recorded as a reuse rather than rewriting history (issue #38).
+    reused_artifact = frame.meta.produced_by_job != job_ref
     persist_job_record(
         session,
         {
@@ -274,6 +278,7 @@ def persist_attribution_frame(
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
+            "reused_artifact": reused_artifact,
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
             "queries": [qe.to_dict() for qe in _captured_queries],

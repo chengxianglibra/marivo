@@ -31,7 +31,11 @@ from marivo.analysis.intents._funnel_delta import build_funnel_delta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
+from marivo.analysis.session._runtime import (
+    persist_job_record,
+    persist_reused_artifact_job,
+    register_frame_artifact,
+)
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.introspection.live.model import LiveHelpTarget
 
@@ -232,7 +236,20 @@ def compare_funnels(
         semantic_anchors=anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
-        return cast("DeltaFrame", load_frame(prospective_id, session=session))
+        reused_delta = cast("DeltaFrame", load_frame(prospective_id, session=session))
+        persist_reused_artifact_job(
+            session,
+            intent="compare.funnel",
+            analysis_purpose=analysis_purpose,
+            params=params,
+            input_frame_refs=list(inputs.input_refs),
+            output_frame_ref=reused_delta.meta.artifact_id or reused_delta.ref,
+            semantics=job_semantics_from_frames(reused_delta),
+            started_at=started_at,
+            started_monotonic=started,
+            semantic_project_root=str(session.catalog.semantic_root),
+        )
+        return reused_delta
 
     source_current_fingerprint = current_meta.content_hash
     source_baseline_fingerprint = baseline_meta.content_hash
@@ -327,6 +344,7 @@ def compare_funnels(
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
+                "reused_artifact": False,
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
             },

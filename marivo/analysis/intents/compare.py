@@ -67,6 +67,7 @@ from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import (
     persist_frame,
     persist_job_record,
+    persist_reused_artifact_job,
     register_frame_artifact,
     require_current_session,
 )
@@ -945,7 +946,24 @@ def compare(
         semantic_anchors=compare_anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
-        return cast("DeltaFrame", load_frame(prospective_id, session=session))
+        reused_delta = cast("DeltaFrame", load_frame(prospective_id, session=session))
+        # The numeric artifact identity dedups, but every invocation must keep
+        # an independent, recoverable job record carrying its own
+        # analysis_purpose (issue #38).  The frame meta is not rewritten, so
+        # the artifact keeps its original producer/purpose.
+        persist_reused_artifact_job(
+            session,
+            intent="compare",
+            analysis_purpose=analysis_purpose,
+            params=params,
+            input_frame_refs=[current.ref, baseline.ref],
+            output_frame_ref=reused_delta.meta.artifact_id or reused_delta.ref,
+            semantics=job_semantics_from_frames(reused_delta),
+            started_at=started_at,
+            started_monotonic=started,
+            semantic_project_root=str(session.catalog._project.semantic_root),
+        )
+        return reused_delta
 
     delta_component: ComponentFrame | None = None
     if current_component is not None and baseline_component is not None:
@@ -1073,6 +1091,7 @@ def compare(
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
+                "reused_artifact": False,
                 "error": None,
                 "semantic_project_root": str(session.catalog._project.semantic_root),
             },
