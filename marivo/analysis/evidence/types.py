@@ -600,6 +600,11 @@ class ContributionFindingValue(_FrozenModel):
     decomposition_method: str
     reconciliation_residual: float | None = None
     scope_delta_ref: str
+    resolution_axis_refs: tuple[RefPayloadV1, ...] = ()
+    rollup_safe: bool | None = None
+    causal_claim: Literal["none"] = "none"
+    contribution_std_error: float | None = None
+    source_error_bound: float | None = None
 
 
 class AnomalyCandidateFindingValue(_FrozenModel):
@@ -771,6 +776,11 @@ class ContributionFact(_DigestItemBase):
     contribution_rank: int | None = Field(default=None, ge=1)
     decomposition_method: str
     reconciliation_residual: float | None = None
+    resolution_axis_refs: tuple[RefPayloadV1, ...] = ()
+    rollup_safe: bool | None = None
+    causal_claim: Literal["none"] = "none"
+    contribution_std_error: float | None = None
+    source_error_bound: float | None = None
 
 
 class AssociationFact(_DigestItemBase):

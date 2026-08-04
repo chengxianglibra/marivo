@@ -16,6 +16,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1, AttributionMode
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import CrossSessionFrameError, SemanticKindMismatchError
 from marivo.analysis.evidence.pipeline import (
@@ -28,6 +29,7 @@ from marivo.analysis.evidence.types import ArtifactIssue, Subject
 from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionFrameMeta,
+    AttributionMethodEvidenceV1,
     AttributionReconciliation,
 )
 from marivo.analysis.frames.base import BaseFrame
@@ -38,6 +40,8 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.metric import MetricFrame
@@ -194,6 +198,11 @@ def persist_attribution_frame(
     analysis_purpose: str | None = None,
     extra_issues: Sequence[ArtifactIssue] | None = None,
     reconciliation: AttributionReconciliation | None = None,
+    axis_ids: list[str],
+    axis_columns: list[str],
+    mode: AttributionMode | None,
+    bucket_column: str | None = None,
+    method_evidence: AttributionMethodEvidenceV1 | None = None,
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
     if reconciliation is not None:
@@ -239,6 +248,24 @@ def persist_attribution_frame(
         semantic_model=semantic_model,
         issues=tuple(extra_issues or ()),
         reconciliation=reconciliation,
+        row_contract_version="generic-attribution-rows/v2",
+        causal_claim="none",
+        axis_bindings=tuple(
+            AttributionAxisBindingV1(
+                ref=RefPayloadV1.from_ref(
+                    ref_factory.time_dimension(axis_id)
+                    if session.catalog._require_index()
+                    .registry.dimensions[axis_id]
+                    .is_time_dimension
+                    else ref_factory.dimension(axis_id)
+                ),
+                output_column=axis_column,
+            )
+            for axis_id, axis_column in zip(axis_ids, axis_columns, strict=True)
+        ),
+        attribution_mode=mode,
+        bucket_column=bucket_column,
+        method_evidence=method_evidence,
     )
     frame = AttributionFrame(_df=df.copy(), meta=meta)
     source_ref_values = [source.meta.artifact_id or source.ref for source in sources]

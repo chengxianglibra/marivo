@@ -8,6 +8,15 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import ConfigDict, Field, model_validator
 
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis.attribution_contract import (
+    AttributeAdmissionV1,
+    AttributeModeAdmissionV1,
+    AttributionBasisV1,
+    AttributionShape,
+    BlockedAttributeAdmissionV1,
+    SupportedAttributeAdmissionV1,
+    attribute_method_is_installed,
+)
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.event import (
     CompletenessDeclaration,
@@ -39,7 +48,6 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.metric import MetricFrameMeta
     from marivo.analysis.frames.transforms import DeltaFrameTransforms
-    from marivo.analysis.intents._shape import AttributionShape
 
 
 Additivity = Literal["additive", "semi_additive", "non_additive"]
@@ -78,6 +86,153 @@ def _component_attribution_shape(meta: DeltaFrameMeta) -> Literal["ratio_mix", "
     return "ratio_mix" if kind == "ratio" else "weighted_mix"
 
 
+def _attribute_repair(
+    action: str, *, kind: Literal["inspect", "semantic_authoring"] = "inspect"
+) -> AnalysisRepair:
+    return AnalysisRepair(
+        kind=kind,
+        action=action,
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+    )
+
+
+def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
+    """Project the single effective installed-runtime attribution admission."""
+    rollup_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "hierarchy"))
+    nonadditive_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "multiresolution"))
+    basis = meta.attribution_basis
+    if meta.cumulative is not None:
+        if basis is not None:
+            cumulative_shape: AttributionShape | Literal["unavailable"] = (
+                "distinct_membership" if basis.kind == "count_distinct" else "quantile_replacement"
+            )
+        elif _supports_component_attribution(meta):
+            cumulative_shape = _component_attribution_shape(meta)
+        elif meta.additivity in {"additive", "semi_additive"}:
+            cumulative_shape = "sum"
+        else:
+            cumulative_shape = "unavailable"
+        return BlockedAttributeAdmissionV1(
+            attribution_shape=cumulative_shape,
+            blocker="cumulative_delta",
+            repair=_attribute_repair(
+                "Inspect the underlying flow metric frames; cumulative deltas cannot be "
+                "attributed mechanically."
+            ),
+        )
+    if basis is not None:
+        shape: AttributionShape = (
+            "distinct_membership" if basis.kind == "count_distinct" else "quantile_replacement"
+        )
+        reproduction = basis.reproduction
+        if reproduction.status == "blocked":
+            blocker = reproduction.blocker
+            action = {
+                "unsupported_key_type": (
+                    "Author a scalar distinct key type and re-run observe and compare."
+                ),
+                "non_mergeable_sample": (
+                    "Use an exact or matching mergeable-sketch datasource and re-run observe."
+                ),
+                "point_estimate_only": (
+                    "Use a datasource that exposes matching distribution evidence."
+                ),
+                "missing_method_metadata": (
+                    "Re-observe with a datasource profile that declares its quantile method."
+                ),
+                "matching_evaluator_unavailable": (
+                    "Use a datasource with an installed matching quantile evaluator."
+                ),
+            }[blocker]
+            return BlockedAttributeAdmissionV1(
+                attribution_shape=shape,
+                blocker=blocker,
+                repair=_attribute_repair(action),
+            )
+        if not attribute_method_is_installed(basis):
+            return BlockedAttributeAdmissionV1(
+                attribution_shape=shape,
+                blocker="operator_method_not_installed",
+                repair=_attribute_repair(
+                    "Use an installed Marivo runtime that activates this persisted "
+                    "attribution method."
+                ),
+            )
+        return SupportedAttributeAdmissionV1(
+            attribution_shape=shape,
+            mode=nonadditive_modes,
+        )
+    if meta.additivity == "non_additive" and (
+        meta.aggregation == "count_distinct"
+        or meta.aggregation == "median"
+        or (meta.aggregation or "").startswith("percentile(")
+    ):
+        return BlockedAttributeAdmissionV1(
+            attribution_shape=(
+                "distinct_membership"
+                if meta.aggregation == "count_distinct"
+                else "quantile_replacement"
+            ),
+            blocker="legacy_missing_basis",
+            repair=_attribute_repair(
+                "Re-run observe and compare to persist graph-owned attribution evidence."
+            ),
+        )
+    if _supports_component_attribution(meta):
+        return SupportedAttributeAdmissionV1(
+            attribution_shape=_component_attribution_shape(meta),
+            mode=rollup_modes,
+        )
+    if meta.additivity == "semi_additive" and meta.status_time_dimension is None:
+        return BlockedAttributeAdmissionV1(
+            attribution_shape="sum",
+            blocker="missing_additivity_metadata",
+            repair=_attribute_repair(
+                "Author the semi-additive status-time dimension and re-run observe and compare.",
+                kind="semantic_authoring",
+            ),
+        )
+    if meta.additivity in {"additive", "semi_additive"}:
+        return SupportedAttributeAdmissionV1(
+            attribution_shape="sum",
+            mode=rollup_modes,
+        )
+    return BlockedAttributeAdmissionV1(
+        attribution_shape="unavailable",
+        blocker="unsupported_aggregate",
+        repair=_attribute_repair(
+            "Inspect the aggregate contract and author an approved attribution basis.",
+            kind="semantic_authoring",
+        ),
+    )
+
+
+def _attribute_admission_text(meta: DeltaFrameMeta, admission: AttributeAdmissionV1) -> str:
+    """Render the effective admission with bounded persisted source diagnostics."""
+    status = (
+        f"supported attribution_shape={admission.attribution_shape}"
+        if admission.status == "supported"
+        else f"blocked: {admission.blocker}"
+    )
+    basis = meta.attribution_basis
+    if basis is None:
+        return status
+    if basis.kind == "count_distinct":
+        distinct_reproduction = basis.reproduction
+        detail = (
+            "source=exact_distinct_membership"
+            if distinct_reproduction.status == "reproducible"
+            else f"source_dtype={distinct_reproduction.source_dtype}"
+        )
+    else:
+        quantile_reproduction = basis.reproduction
+        source_method = quantile_reproduction.source_method or "unknown"
+        detail = (
+            f"q={basis.effective_q:.12g} source={quantile_reproduction.source_mode}/{source_method}"
+        )
+    return f"{status} {detail}"
+
+
 def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondition | None:
     """Describe the persisted additivity gate without loading sidecars."""
     if meta.cumulative is not None:
@@ -94,6 +249,11 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
             ),
         )
+    if meta.attribution_basis is not None:
+        # The typed admission is the only mechanical support state for a
+        # graph-owned non-additive basis; do not add a contradictory legacy
+        # additivity precondition to the same affordance.
+        return None
     if _supports_component_attribution(meta):
         shape = _component_attribution_shape(meta)
         lowered_from = meta.composition.get("lowered_from") if meta.composition else None
@@ -176,6 +336,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     status_time_dimension: str | None = Field(default=None, exclude=True)
     cumulative: dict[str, Any] | None = None
     rollup_fold: Literal["last"] | None = None
+    attribution_basis: AttributionBasisV1 | None = None
 
     @model_validator(mode="after")
     def _derive_semantic_displays(self) -> DeltaFrameMeta:
@@ -440,12 +601,24 @@ class DeltaFrame(BaseFrame):
                 )
             )
         card = self._base_card()
+        admission = _attribute_admission(self.meta)
         precondition = _attribution_contract_precondition(self.meta)
-        if precondition is None:
-            card.field("attribute", "supported attribution_shape=sum")
-        elif precondition.status == "pass":
-            card.field("attribute", precondition.reason or "supported")
-        elif precondition.check == "attribution_status_time_axis_excluded":
+        if admission.status == "supported" and _supports_component_attribution(self.meta):
+            card.field(
+                "attribute",
+                precondition.reason or "direct attribute is supported"
+                if precondition is not None
+                else "direct attribute is supported",
+            )
+        elif admission.status == "supported":
+            card.field(
+                "attribute",
+                _attribute_admission_text(self.meta, admission),
+            )
+        elif (
+            precondition is not None
+            and precondition.check == "attribution_status_time_axis_excluded"
+        ):
             card.field(
                 "attribute",
                 f"conditional: {precondition.reason}; inspect .contract() for repair",
@@ -453,7 +626,8 @@ class DeltaFrame(BaseFrame):
         else:
             card.field(
                 "attribute",
-                f"blocked: {precondition.reason}; inspect .contract() for repair",
+                _attribute_admission_text(self.meta, admission)
+                + "; inspect .contract() for repair",
             )
         to_date = self._to_date_tail()
         if to_date is not None:
@@ -493,7 +667,12 @@ class DeltaFrame(BaseFrame):
                     }
                 )
             affordances.append(affordance)
-        contract = contract.model_copy(update={"affordances": tuple(affordances)})
+        contract = contract.model_copy(
+            update={
+                "affordances": tuple(affordances),
+                "attribute_admission": _attribute_admission(self.meta),
+            }
+        )
         to_date = self._to_date_tail()
         if to_date is None:
             return contract

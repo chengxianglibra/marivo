@@ -1590,6 +1590,10 @@ def decompose(
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
             reconciliation=reconciliation,
+            axis_ids=axis_ids,
+            axis_columns=component_axis_columns,
+            mode=validated_mode,
+            bucket_column=bucket_column,
         )
 
     if validated_mode is not None:
@@ -1624,7 +1628,7 @@ def decompose(
                 bucket_column=bucket_column,
             )
             driver_field = "path"
-            method = "ordered_hierarchy_sum"
+            method = "sum"
         output, reconciliation = _finalize_attribution_output(
             output,
             bucket_column=bucket_column,
@@ -1662,6 +1666,10 @@ def decompose(
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
             reconciliation=reconciliation,
+            axis_ids=axis_ids,
+            axis_columns=axis_columns,
+            mode=validated_mode,
+            bucket_column=bucket_column,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1708,6 +1716,10 @@ def decompose(
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
             reconciliation=reconciliation,
+            axis_ids=axis_ids,
+            axis_columns=axis_columns,
+            mode=None,
+            bucket_column=bucket_column,
         )
 
     axis_column = axis_columns[0]
@@ -1747,4 +1759,8 @@ def decompose(
         analysis_purpose=_analysis_purpose,
         extra_issues=coverage_warnings,
         reconciliation=reconciliation,
+        axis_ids=axis_ids,
+        axis_columns=axis_columns,
+        mode=None,
+        bucket_column=None,
     )

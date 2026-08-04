@@ -7,7 +7,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
-    AttributionAdditivityError,
+    AttributeAdmissionBlockedError,
     ComponentDecompositionError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
@@ -287,10 +287,10 @@ def test_decompose_rejects_non_additive_linear_composition() -> None:
     )
     delta = session.compare(current, baseline)
 
-    with pytest.raises(AttributionAdditivityError) as exc_info:
+    with pytest.raises(AttributeAdmissionBlockedError) as exc_info:
         session.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
 
-    assert exc_info.value._context["reason"] == "non_additive_metric"
+    assert exc_info.value._context["blocker"] == "unsupported_aggregate"
     assert exc_info.value._context["composition_kind"] == "linear"
 
 

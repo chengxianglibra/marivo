@@ -299,6 +299,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "coverage_fingerprint": parent_artifact_identity.coverage_fingerprint,
             "presentation_fingerprint": presentation_fingerprint,
             "artifact_schema_version": parent_artifact_identity.artifact_schema_version,
+            "attribution_basis_fingerprint": None,
         }
         projected_artifact_identity = MetricArtifactIdentityV1(
             schema="metric-artifact/v1",
@@ -310,6 +311,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             coverage_fingerprint=parent_artifact_identity.coverage_fingerprint,
             presentation_fingerprint=presentation_fingerprint,
             artifact_schema_version=parent_artifact_identity.artifact_schema_version,
+            attribution_basis_fingerprint=None,
             fingerprint=fingerprint(artifact_payload),
         )
     meta = MetricFrameMeta(

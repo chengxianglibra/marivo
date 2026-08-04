@@ -8,14 +8,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from marivo.analysis.errors import ComponentDecompositionError
+from marivo.analysis.attribution_contract import AttributionShape
+from marivo.analysis.errors import (
+    AttributionShapeUnavailableError,
+    ComponentDecompositionError,
+)
+
+__all__ = [
+    "AttributionShape",
+    "SemanticShape",
+    "attribution_output_shape",
+    "compare_output_shape",
+    "observe_output_shape",
+]
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.delta import DeltaFrameMeta
     from marivo.analysis.frames.metric import MetricFrameMeta
 
 SemanticShape = Literal["scalar", "time_series", "segmented", "panel"]
-AttributionShape = Literal["sum", "ratio_mix", "weighted_mix"]
 
 
 def observe_output_shape(*, has_grain: bool, has_dimensions: bool) -> SemanticShape:
@@ -51,8 +62,24 @@ def attribution_output_shape(delta_meta: DeltaFrameMeta) -> AttributionShape:
     ComponentFrameMeta.composition_kind is the authoritative source; the delta's
     composition["kind"] mirrors it for a cheap read.
     """
+    basis = getattr(delta_meta, "attribution_basis", None)
+    if basis is not None:
+        return "distinct_membership" if basis.kind == "count_distinct" else "quantile_replacement"
     if delta_meta.component_ref is None:
-        return "sum"
+        if delta_meta.additivity is None:
+            return "sum"
+        if delta_meta.additivity == "additive" or (
+            delta_meta.additivity == "semi_additive"
+            and delta_meta.status_time_dimension is not None
+        ):
+            return "sum"
+        raise AttributionShapeUnavailableError(
+            message="no closed mathematical attribution shape is available for this delta",
+            expected="a persisted attribution basis, component basis, or rollup-safe aggregate",
+            received=f"aggregation={delta_meta.aggregation!r} additivity={delta_meta.additivity!r}",
+            location="DeltaFrame.predicted_attribution_shape()",
+            context={"next": "inspect DeltaFrame.contract() for admission and repair"},
+        )
     kind = (delta_meta.composition or {}).get("kind")
     if kind == "ratio":
         return "ratio_mix"

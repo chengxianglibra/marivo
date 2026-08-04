@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -170,9 +170,14 @@ def _require_target(
     return target, meta.pattern.steps[index - 1].key
 
 
-def _validate_mode(axis_ids: list[str], mode: AttributionMode | None) -> AttributionMode | None:
+def _validate_mode(
+    axis_ids: list[str], mode: AttributionMode | None
+) -> Literal["joint", "hierarchy"] | None:
     try:
-        return validate_attribution_mode(axis_ids, mode, intent="session.attribute")
+        return cast(
+            "Literal['joint', 'hierarchy'] | None",
+            validate_attribution_mode(axis_ids, mode, intent="session.attribute"),
+        )
     except SemanticKindMismatchError as exc:
         raise FunnelAttributionUnsupportedError(
             message=str(exc),

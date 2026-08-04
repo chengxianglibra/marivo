@@ -9,7 +9,10 @@ import pytest
 
 from marivo.analysis.errors import FindingExtractionFailedError
 from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
-from marivo.analysis.evidence.extraction.composition import extract_decomposition_findings
+from marivo.analysis.evidence.extraction.composition import (
+    DecompositionExtractionContract,
+    extract_decomposition_findings,
+)
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
@@ -19,6 +22,8 @@ from marivo.analysis.evidence.extraction.observation import (
 )
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.types import AnalysisScope, Subject
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 
@@ -143,6 +148,38 @@ def test_contribution_has_rank_and_method_but_no_driver_role() -> None:
     assert findings[0].value.contribution_value == 8.0
     assert findings[0].value.decomposition_method == "algebraic_decomposition"
     assert not hasattr(findings[0].value, "contribution_role")
+
+
+def test_typed_contribution_findings_preserve_scope_local_rank() -> None:
+    findings = extract_decomposition_findings(
+        df=pd.DataFrame(
+            {
+                "bucket_start": ["a", "a", "b", "b"],
+                "region": ["us", "eu", "us", "eu"],
+                "contribution": [10.0, 2.0, 9.0, 1.0],
+                "rank": [1, 2, 1, 2],
+            }
+        ),
+        artifact_id="art_attr",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="decomposition"),
+        committed_at=_now(),
+        scope_delta_ref="art_delta",
+        contract=DecompositionExtractionContract(
+            dimension_name="region",
+            key_columns=("bucket_start", "region"),
+            contribution_column="contribution",
+            contribution_share_column=None,
+            direction="increase",
+            decomposition_method="sum",
+            reconciliation_residual=0.0,
+            ordered_axis_refs=(
+                RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+            ),
+        ),
+    )
+
+    assert [finding.value.contribution_rank for finding in findings] == [1, 1, 2, 2]
 
 
 def test_association_keeps_missing_significance_explicit() -> None:

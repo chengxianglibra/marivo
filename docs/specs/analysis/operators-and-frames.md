@@ -309,7 +309,9 @@ Missing or mismatched source semantics produce an unknown gate on the
 
 `attribute` performs deterministic attribution of a `DeltaFrame` over explicit
 axes and returns an `AttributionFrame`. It is not a planner: with no axes or
-search policy it fails closed. A multi-axis call explicitly chooses
+search policy it fails closed. `DeltaFrame.contract().attribute_admission` is
+the sole typed mechanical admission state; `show()` and `attribute()` project
+that same state. A rollup-safe multi-axis call explicitly chooses
 `mode="joint"` for one additive row per full axis combination, or
 `mode="hierarchy"` for flattened prefix rows. Hierarchy parent rows repeat
 their descendants' totals, so only the deepest level is additive. Candidate
@@ -333,6 +335,26 @@ and legacy artifacts). It is intentionally distinct from
 `AttributionFrame.attribution_shape` / `meta.method`, which identify the
 attribution math. Both layouts may therefore report `method="weighted_mix"`.
 `marivo.help("analysis.AttributionMode")` owns this focused contract.
+
+Graph-owned attribution bases also admit three non-additive aggregate roots:
+
+| Aggregate root | Installed method | Admission and execution boundary |
+| --- | --- | --- |
+| `count_distinct(key)` | Distinct membership allocation | Scalar keys only. `(key, partition)` deduplication, membership degree, and `1 / degree` allocation execute in the datasource; raw keys never cross the artifact boundary. |
+| DuckDB `median` / `percentile(q)` | Exact value-frequency replacement game | Linear weighted order statistics; exact Shapley through 8 partitions, 128 deterministic permutations for 9–64, and a 250,000 frequency-row cap. |
+| Trino `median` / `percentile(q)` | Mergeable qdigest replacement game | `qdigest_agg -> merge -> value_at_quantile` stays server-side and preserves the admitted bigint/double/real source type. Endpoint reproduction is mandatory; source error remains unknown. |
+| ClickHouse reservoir quantile | — | Blocked because the sampled states are not an admitted mergeable distribution contract. |
+
+These methods independently replay an unsegmented `observe -> compare` endpoint;
+segmented point estimates are explanatory only and are never summed into the
+target delta. Non-additive multi-axis calls allow only `mode="joint"` or
+`mode="multiresolution"`. Multiresolution is **independent multiresolution
+attribution**: each exact ordered semantic-ref prefix is recomputed, ranked,
+and reconciled as a separate game. Complete rows must never be summed across
+resolutions. Select one query-free immutable view with
+`frame.at_resolution(axes=[...])`; the selected rows may be summed once per
+comparison bucket. Empty intermediate quantile coalitions, endpoint mismatch,
+more than 64 partitions, or oversized distribution evidence fail closed.
 
 Every contribution row uses explicit denominators: `share_of_total_delta` is
 the signed contribution divided by the independently computed overall delta;
@@ -365,13 +387,16 @@ condition, and persisted ratio/weighted-mean component paths remain available.
 | `semi_additive` | Supported on non-time axes; rejected when `axes` contains its `status_time_dimension`. |
 | Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
-| `non_additive` without supported component math | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Graph-owned `count_distinct` | Supported by distinct membership when the key type is reproducible. |
+| Graph-owned `median` / `percentile(q)` | Supported by exact value-frequency or Trino qdigest when the persisted basis admits the installed method. |
+| Other `non_additive` without supported component math | Rejected, including opaque/tier-2 means, min, max, unsupported quantile sources, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
 
 The mean lowering is runtime-only and never substitutes entity row count for
-`count_non_null(measure)`. For an unsupported metric, model explicit
-ratio/weighted-mean components or attribute additive numerator and denominator
-metrics separately. Existing non-linear sampled-fold validation still runs first.
+`count_non_null(measure)`. For a rejected metric, inspect
+`DeltaFrame.contract().attribute_admission`: re-observe legacy artifacts or
+author the aggregate-specific component/distribution evidence named by its
+repair. Existing non-linear sampled-fold validation still runs first.
 
 ```python
 drivers = session.attribute(

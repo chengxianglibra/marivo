@@ -11,7 +11,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyValidationError,
-    AttributionAdditivityError,
+    AttributeAdmissionBlockedError,
     ComponentFrameUnavailableError,
     SemanticKindMismatchError,
 )
@@ -176,12 +176,12 @@ def test_compare_fails_attribution_closed_when_metric_semantics_differ(
     assert delta.meta.additivity is None
     assert delta.meta.aggregation is None
     assert delta.meta.status_time_dimension is None
-    with pytest.raises(AttributionAdditivityError) as exc_info:
+    with pytest.raises(AttributeAdmissionBlockedError) as exc_info:
         session.attribute(
             delta,
             axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         )
-    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
+    assert exc_info.value._context["blocker"] == "unsupported_aggregate"
 
 
 def test_compare_rejects_delta_frame_as_second_argument(tmp_path):

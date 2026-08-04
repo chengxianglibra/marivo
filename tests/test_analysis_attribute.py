@@ -159,7 +159,8 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
     )
 
     df = out.to_pandas()
-    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.method == "sum"
+    assert out.attribution_mode == "hierarchy"
     assert out.meta.driver_field == "path"
     assert {"region", "platform", "value_effect", "mix_effect", "residual"}.issubset(df.columns)
     assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
@@ -548,10 +549,10 @@ def test_attribute_validates_original_delta_before_axis_materialization(
     delta = session.compare(current, baseline)
     delta.meta = delta.meta.model_copy(update={"additivity": None})
 
-    with pytest.raises(mv.errors.AttributionAdditivityError) as exc_info:
+    with pytest.raises(mv.errors.AttributeAdmissionBlockedError) as exc_info:
         session.attribute(delta, axes=[region])
 
-    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
+    assert exc_info.value._context["blocker"] == "unsupported_aggregate"
     assert [job.intent for job in session.jobs()].count("observe") == 2
     assert [job.intent for job in session.jobs()].count("compare") == 1
 

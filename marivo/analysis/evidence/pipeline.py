@@ -573,23 +573,51 @@ def _extract_findings(
         contribution_column = getattr(meta, "contribution_column", None)
         reconciliation = getattr(meta, "reconciliation", None)
         params = getattr(meta, "params", {})
-        axis_columns = params.get("axis_columns", []) if isinstance(params, dict) else []
+        typed_v2 = getattr(meta, "row_contract_version", None) == "generic-attribution-rows/v2"
+        axis_bindings = getattr(meta, "axis_bindings", ()) if typed_v2 else ()
+        axis_columns = (
+            [binding.output_column for binding in axis_bindings]
+            if typed_v2
+            else params.get("axis_columns", [])
+            if isinstance(params, dict)
+            else []
+        )
         key_columns = [
             str(column)
             for column in axis_columns
             if isinstance(column, str) and column in df.columns
         ]
-        if isinstance(params, dict) and params.get("mode") == "hierarchy":
+        attribution_mode = (
+            getattr(meta, "attribution_mode", None)
+            if typed_v2
+            else params.get("mode")
+            if isinstance(params, dict)
+            else None
+        )
+        if not typed_v2 and isinstance(params, dict) and params.get("mode") == "hierarchy":
             key_columns = [
                 column for column in ("level", "axis", "driver", "path") if column in df.columns
             ] + key_columns
-        bucket_column = params.get("bucket_column") if isinstance(params, dict) else None
+        bucket_column = (
+            getattr(meta, "bucket_column", None)
+            if typed_v2
+            else params.get("bucket_column")
+            if isinstance(params, dict)
+            else None
+        )
         if isinstance(bucket_column, str) and bucket_column in df.columns:
             key_columns.insert(0, bucket_column)
         if not key_columns and isinstance(driver_field, str) and driver_field in df.columns:
             key_columns.append(driver_field)
         if not isinstance(contribution_column, str) or contribution_column not in df.columns:
             return []
+        method_evidence = getattr(meta, "method_evidence", None)
+        source_error_bound = (
+            method_evidence.source_error_bound
+            if method_evidence is not None
+            and getattr(method_evidence, "kind", None) == "quantile_replacement"
+            else None
+        )
         findings = extract_decomposition_findings(
             df=df,
             artifact_id=artifact_id,
@@ -609,6 +637,11 @@ def _extract_findings(
                 reconciliation_residual=(
                     reconciliation.residual if reconciliation is not None else None
                 ),
+                ordered_axis_refs=tuple(binding.ref for binding in axis_bindings),
+                ordered_prefix_rows=attribution_mode in {"hierarchy", "multiresolution"},
+                rollup_safe=(method_evidence is None and attribution_mode != "multiresolution"),
+                causal_claim=getattr(meta, "causal_claim", "none"),
+                source_error_bound=source_error_bound,
             ),
         )
     elif extractor_family == "association_result":

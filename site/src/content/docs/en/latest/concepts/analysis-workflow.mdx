@@ -379,15 +379,16 @@ closed instead of inheriting one side.
 Attribute a delta's movement across explicit axes. This is the default public
 entry point for "why did it change?" analysis.
 Component-aware ratio and weighted-mean deltas use mix attribution. Plain
-non-linear sampled folds such as quantile, min, max, first, or last cannot be
-summed by axis unless they are part of a persisted component-aware derived
-metric delta.
+segmented non-linear point estimates still cannot be summed. Graph-owned
+`count_distinct`, `median`, and `percentile(q)` roots instead use dedicated
+distribution-aware methods when their persisted attribution basis is admitted.
 
 The `DeltaFrame` persists the semantic gate used by attribution; Marivo does
 not look up a possibly changed catalog at attribution time. The original delta
 is checked before Marivo replays observations to materialize a requested axis.
-`DeltaFrame.show()` states whether attribution is supported, conditional, or
-blocked, and `DeltaFrame.contract()` exposes the same boundary as a typed precondition:
+`DeltaFrame.show()` states whether attribution is supported or blocked, and
+`DeltaFrame.contract().attribute_admission` is the sole typed source for that
+same boundary:
 unknown and ordinary non-additive deltas fail, semi-additive deltas require axes
 that exclude the status time dimension, and persisted ratio/weighted-mean
 component paths remain available.
@@ -398,22 +399,31 @@ component paths remain available.
 | `semi_additive` | Supported on non-time axes; rejected on its `status_time_dimension`. |
 | Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Automatically lowered to `sum(measure)` / `count_non_null(measure)` and supported by weighted mix attribution. |
-| Other `non_additive` metrics | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Graph-owned `count_distinct` | Distinct membership allocation for reproducible scalar keys; raw distinct keys remain in the datasource. |
+| Graph-owned `median` / `percentile(q)` | Exact DuckDB value-frequency or mergeable Trino qdigest replacement attribution. ClickHouse reservoir sampling remains blocked. |
+| Other `non_additive` metrics | Rejected, including opaque/tier-2 means, min, max, unsupported quantile sources, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected. Re-run `observe` and `compare` before retrying. |
 
-Mean lowering uses non-null measure count, not entity row count. For rejected
-metrics, model explicit ratio/weighted-mean components or attribute additive
-numerator and denominator metrics separately.
+Mean lowering uses non-null measure count, not entity row count. For a rejected
+metric, follow `DeltaFrame.contract().attribute_admission`: re-observe legacy
+artifacts or author the aggregate-specific component/distribution evidence named
+by its repair.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
 | `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
-| `mode` | `"joint" \| "hierarchy"` | Multi-axis only | — | `joint` returns one row per full axis combination; `hierarchy` returns ordered prefix rows. |
+| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | Multi-axis only | — | Additive/component methods allow `joint` or `hierarchy`; non-additive methods allow `joint` or independent `multiresolution`. Read the delta admission for the legal pair. |
 
 ```python
 attribution = session.attribute(delta, axes=[region, platform], mode="joint")
 attribution.show()
+```
+
+For the canonical single-axis case, omit `mode`:
+
+```python
+attribution = session.attribute(delta, axes=[region])
 ```
 
 For `joint`, contribution rows are additive and sum to the overall change. For
@@ -435,6 +445,25 @@ do not reserve user dimension names.
 layout, while `attribution.attribution_shape` / `meta.method` expose the
 attribution math. Both layouts can therefore report `method="weighted_mix"`.
 Use `marivo.help("analysis.AttributionMode")` for the focused distinction.
+
+Count-distinct membership is deduplicated and allocated in the datasource as
+`1 / membership_degree`; raw keys do not enter frames, jobs, lineage, evidence,
+telemetry, logs, or errors. Quantiles replay an independent unsegmented endpoint
+instead of summing segmented point estimates. DuckDB uses exact value-frequency
+evidence with exact Shapley through 8 partitions and 128 deterministic
+permutations through 64; Trino merges qdigest sketches server-side. Empty
+intermediate coalitions, more than 64 partitions, more than 250,000 frequency
+rows, or failure to reproduce the independent endpoint block the call and do
+not persist an attribution artifact.
+
+`mode="multiresolution"` recomputes every ordered axis prefix as an independent
+game. Complete rows are not additive across resolutions. Select one immutable,
+query-free view by exact semantic-ref prefix before consuming it:
+
+```python
+regional = attribution.at_resolution(axes=[region])
+regional.to_pandas()  # sum once within each comparison bucket
+```
 
 Contribution shares name their denominator explicitly:
 

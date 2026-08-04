@@ -556,6 +556,11 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "call attribute directly" in text
     assert "already lowered to sum/count_non_null components" in text
     assert "do not manually split numerator and denominator" in text
+    assert "Graph-owned count_distinct and supported quantiles" in text
+    assert "approved distribution-aware attribution basis" in text
+    assert "current = session.observe(metric, time_scope=current_window)" in text
+    assert "baseline = session.observe(metric, time_scope=baseline_window)" in text
+    assert "delta = session.compare(current, baseline)" in text
     assert "status time axis" in text
     assert "numerator" in text
     assert "denominator" in text
@@ -570,13 +575,13 @@ def test_attribute_help_explains_additivity_boundary() -> None:
 def test_attribution_mode_help_is_self_contained_and_not_in_root_index() -> None:
     text = _text("AttributionMode")
 
-    assert 'Values: mode="joint" | mode="hierarchy"' in text
+    assert 'mode="joint" | mode="hierarchy" | mode="multiresolution"' in text
     assert "one additive row per complete axis combination" in text
-    assert "only its deepest level reconciles" in text
+    assert "independently recomputes each ordered prefix" in text
     assert "Multi-axis calls have no default" in text
     assert "Omit mode for one axis" in text
     assert "distinct from attribution method" in text
-    assert "either layout can use weighted_mix" in text
+    assert "DeltaFrame.contract().attribute_admission" in text
     assert "AttributionMode" in _text("attribute")
     assert "AttributionMode" not in _text(None)
 
