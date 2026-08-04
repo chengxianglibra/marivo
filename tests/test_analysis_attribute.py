@@ -648,3 +648,89 @@ def test_attribute_missing_axis_without_replayable_sources_fails_closed() -> Non
         "source_frame_missing",
         "observe_params_missing",
     }
+
+
+def test_attribute_single_axis_with_level_dimension_is_not_cropped(
+    semantic_project_factory,
+) -> None:
+    """A legal business dimension named ``level`` must attribute normally
+    instead of being cropped by the hierarchy deepest-level reconciliation
+    sniff (issue #43).
+
+    Pre-fix, decompose's finalize step sniffed for a ``level`` column and kept
+    only the deepest rows, dropping every other level value and failing
+    reconciliation.
+    """
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                _reserved_axis_project("level")
+            ),
+        }
+    )
+    session = mv.session.get_or_create(name="demo")
+    level_axis = session.catalog.require(
+        make_ref("sales.orders.level", SemanticKind.DIMENSION)
+    ).ref
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "level": ["l1", "l2", "l3"],
+                "delta": [3.0, -1.0, 4.0],
+            }
+        ),
+    )
+
+    attribution = session.attribute(frame, axes=[level_axis])
+
+    assert attribution.meta.evidence_status == "complete"
+    result = attribution.to_pandas()
+    assert set(result["level"]) == {"l1", "l2", "l3"}
+    assert result["contribution"].sum() == pytest.approx(6.0)
+
+
+def test_attribute_joint_level_dimension_is_not_cropped(
+    semantic_project_factory,
+) -> None:
+    """Joint-mode attribution with a legal ``level`` dimension must not be
+    cropped by the hierarchy deepest-level reconciliation sniff (issue #43,
+    joint path)."""
+    semantic_project_factory(
+        {
+            "sales/datasets.py": (
+                _reserved_axis_project("level")
+                + "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+            ),
+        }
+    )
+    session = mv.session.get_or_create(name="demo")
+    level_axis = session.catalog.require(
+        make_ref("sales.orders.level", SemanticKind.DIMENSION)
+    ).ref
+    region_axis = session.catalog.require(
+        make_ref("sales.orders.region", SemanticKind.DIMENSION)
+    ).ref
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "level": ["l1", "l1", "l2", "l2"],
+                "region": ["north", "south", "north", "south"],
+                "delta": [6.0, 4.0, -3.0, -2.0],
+            }
+        ),
+    )
+
+    attribution = session.attribute(
+        frame,
+        axes=[level_axis, region_axis],
+        mode="joint",
+    )
+
+    assert attribution.meta.evidence_status == "complete"
+    result = attribution.to_pandas()
+    assert {"level", "region"}.issubset(result.columns)
+    assert result["contribution"].sum() == pytest.approx(5.0)
