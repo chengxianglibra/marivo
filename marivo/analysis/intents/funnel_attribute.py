@@ -29,11 +29,13 @@ from marivo.analysis.evidence.pipeline import (
     rollback_committed_result,
 )
 from marivo.analysis.evidence.types import EventSubject
-from marivo.analysis.frames.attribution import (
+from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
+)
+from marivo.analysis.frames.attribution import (
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
     FunnelAttributionFrameMeta,

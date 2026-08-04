@@ -19,11 +19,13 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
-from marivo.analysis.frames.attribution import (
+from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
+)
+from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionReconciliation,
 )
