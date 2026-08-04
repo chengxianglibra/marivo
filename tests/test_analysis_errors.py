@@ -8,6 +8,11 @@ from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
     AnalysisRepair,
+    AttributeAdmissionBlockedError,
+    AttributionBasisMismatchError,
+    AttributionDistributionError,
+    AttributionResolutionError,
+    AttributionShapeUnavailableError,
     BackendError,
     CrossBackendMetricError,
     CrossSessionFrameError,
@@ -108,6 +113,52 @@ def test_analysis_repair_defaults() -> None:
     )
     assert repair.snippet is None
     assert repair.candidates == ()
+
+
+@pytest.mark.parametrize(
+    ("error_type", "repair_kind", "help_target"),
+    [
+        (AttributionBasisMismatchError, "retry", "attribute"),
+        (AttributionShapeUnavailableError, "inspect", "attribute"),
+        (AttributeAdmissionBlockedError, "inspect", "attribute"),
+        (AttributionResolutionError, "retry", "AttributionFrame.at_resolution"),
+    ],
+)
+def test_attribution_errors_derive_actionable_repairs(
+    error_type: type[AnalysisError],
+    repair_kind: str,
+    help_target: str,
+) -> None:
+    error = error_type(message="test attribution error")
+
+    assert error.repair is not None
+    assert error.repair.kind == repair_kind
+    assert error.repair.action
+    assert error.repair.help_target.canonical_id == help_target
+
+
+@pytest.mark.parametrize(
+    ("reason", "repair_kind", "action_fragment"),
+    [
+        ("empty_coalition_distribution", "retry", "overlapping partitions"),
+        ("partition_limit_exceeded", "retry", "lower-cardinality axis"),
+        ("frequency_row_limit_exceeded", "retry", "lower-cardinality axis"),
+        ("endpoint_reproduction_mismatch", "inspect", "active datasource"),
+        (None, "inspect", "persisted source method"),
+    ],
+)
+def test_attribution_distribution_error_derives_reason_specific_repair(
+    reason: str | None,
+    repair_kind: str,
+    action_fragment: str,
+) -> None:
+    context = {} if reason is None else {"reason": reason}
+    error = AttributionDistributionError(message="test distribution error", context=context)
+
+    assert error.repair is not None
+    assert error.repair.kind == repair_kind
+    assert action_fragment in error.repair.action
+    assert error.repair.help_target.canonical_id == "attribute"
 
 
 def test_analysis_repair_candidates_is_tuple() -> None:

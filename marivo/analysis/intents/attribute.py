@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal, cast
+from typing import Literal
 
 from marivo.analysis.attribution_contract import (
     DistinctAttributionBasisV1,
@@ -169,9 +169,8 @@ def _attribute_nonadditive(
         alignment=recover_alignment_policy(frame),
         session=session,
     )
-    nonadditive_mode = cast(
-        "Literal['joint', 'multiresolution'] | None",
-        mode if mode in {"joint", "multiresolution"} else None,
+    nonadditive_mode: Literal["joint", "multiresolution"] | None = (
+        mode if mode == "joint" or mode == "multiresolution" else None
     )
     if isinstance(basis, DistinctAttributionBasisV1):
         result = attribute_distinct(
