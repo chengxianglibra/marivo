@@ -575,3 +575,44 @@ def test_attribute_funnel_rejects_a_metric_delta_directly(
         kind="funnel_attribution_unsupported",
         location="session.attribute(frame)",
     )
+
+
+def test_attribution_funnel_repeated_call_records_reused_invocation_job(
+    funnel_session: Any,
+    payment_step: Any,
+    acquisition_channel_entry: Any,
+) -> None:
+    """Repeated funnel attribute with different purposes must keep one job per
+    invocation, marking the reuse (issue #38, funnel attribute path)."""
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    target = mv.funnel_loss_rate(step=payment_step)
+
+    first = funnel_session.attribute(
+        delta,
+        axes=[acquisition_channel_entry],
+        target=target,
+        analysis_purpose="first attr purpose",
+    )
+    second = funnel_session.attribute(
+        delta,
+        axes=[acquisition_channel_entry],
+        target=target,
+        analysis_purpose="second attr purpose",
+    )
+
+    assert second.ref == first.ref
+    attribute_jobs = [
+        funnel_session.job(job.id)
+        for job in funnel_session.jobs()
+        if funnel_session.job(job.id).get("intent") == "attribute.funnel_loss_rate"
+    ]
+    assert {job.get("analysis_purpose") for job in attribute_jobs} >= {
+        "first attr purpose",
+        "second attr purpose",
+    }
+    reused_flags = [job.get("reused_artifact") for job in attribute_jobs]
+    assert reused_flags.count(True) == 1
+    assert reused_flags.count(False) == 1
+    reused = next(job for job in attribute_jobs if job.get("reused_artifact") is True)
+    assert reused["analysis_purpose"] == "second attr purpose"

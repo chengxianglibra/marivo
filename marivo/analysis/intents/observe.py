@@ -158,6 +158,7 @@ from marivo.analysis.semantic_inputs import (
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import (
     persist_job_record,
+    persist_reused_artifact_job,
     require_current_session,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
@@ -977,6 +978,29 @@ def observe(
                 artifact_ref=prospective_id,
             )
             _raise_on_empty_slice_result(cached_frame, where_by_id)
+            # The numeric artifact identity dedups, but every invocation must
+            # keep an independent, recoverable job record carrying its own
+            # analysis_purpose (issue #38).  The frame meta is not rewritten,
+            # so the artifact keeps its original producer/purpose.
+            persist_reused_artifact_job(
+                session,
+                intent="observe",
+                analysis_purpose=analysis_purpose,
+                params=params,
+                input_frame_refs=[
+                    *(
+                        [resolved_cohort.binding.artifact_ref]
+                        if resolved_cohort is not None
+                        else []
+                    ),
+                    *_candidate_input_refs,
+                ],
+                output_frame_ref=cached_frame.meta.artifact_id or cached_frame.ref,
+                semantics=_observe_job_semantics(cached_frame),
+                started_at=started_at,
+                started_monotonic=started,
+                semantic_project_root=str(session.catalog.semantic_root),
+            )
             return _mark_artifact_deduplicated(cached_frame)
         finished_at = datetime.now(UTC)
         # The evidence artifact id is already deterministic at this point. Use
@@ -1340,6 +1364,7 @@ def observe(
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
+                "reused_artifact": False,
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
                 "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in captured_queries],
@@ -1614,6 +1639,7 @@ def _observe_metric_forest(
         semantic_anchors=commit_anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
+        cached_forest_frame = cast("MetricFrame", load_frame(prospective_id, session=session))
         _remember_snapshot_verified_artifact(
             session=session,
             graph_plan=graph_plan,
@@ -1621,9 +1647,23 @@ def _observe_metric_forest(
             starting_token=starting_snapshot_token,
             artifact_ref=prospective_id,
         )
-        return _mark_artifact_deduplicated(
-            cast("MetricFrame", load_frame(prospective_id, session=session))
+        # Every invocation keeps an independent job with its own purpose, even
+        # when the artifact identity dedups (issue #38).
+        persist_reused_artifact_job(
+            session,
+            intent="observe",
+            analysis_purpose=analysis_purpose,
+            params=params,
+            input_frame_refs=(
+                [resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []
+            ),
+            output_frame_ref=cached_forest_frame.meta.artifact_id or cached_forest_frame.ref,
+            semantics=_observe_job_semantics(cached_forest_frame),
+            started_at=started_at,
+            started_monotonic=started,
+            semantic_project_root=str(session.catalog.semantic_root),
         )
+        return _mark_artifact_deduplicated(cached_forest_frame)
     first_root = execution.roots[0]
     for root in execution.roots[1:]:
         if (
@@ -1869,6 +1909,7 @@ def _observe_metric_forest(
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
+            "reused_artifact": False,
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
             "queries": [

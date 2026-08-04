@@ -529,3 +529,39 @@ def test_cold_recovery_restores_funnel_variants(
         ) == warm
     finally:
         recovered.close()
+
+
+def test_compare_funnel_repeated_call_records_reused_invocation_job(
+    funnel_session: Any,
+) -> None:
+    """Repeated funnel compare with different purposes must keep one job per
+    invocation, marking the reuse (issue #38, funnel compare path)."""
+    current, baseline = two_scope_funnel_frames(funnel_session)
+
+    first = funnel_session.compare(
+        current,
+        baseline,
+        analysis_purpose="first funnel purpose",
+    )
+    second = funnel_session.compare(
+        current,
+        baseline,
+        analysis_purpose="second funnel purpose",
+    )
+
+    assert second.ref == first.ref
+    compare_purposes = {
+        funnel_session.job(job.id).get("analysis_purpose")
+        for job in funnel_session.jobs()
+        if funnel_session.job(job.id).get("intent") == "compare.funnel"
+    }
+    assert "first funnel purpose" in compare_purposes
+    assert "second funnel purpose" in compare_purposes
+    reused = [
+        funnel_session.job(job.id)
+        for job in funnel_session.jobs()
+        if funnel_session.job(job.id).get("intent") == "compare.funnel"
+        and funnel_session.job(job.id).get("reused_artifact") is True
+    ]
+    assert len(reused) == 1
+    assert reused[0]["analysis_purpose"] == "second funnel purpose"

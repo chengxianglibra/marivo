@@ -16,9 +16,11 @@ This module owns:
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.errors import NoActiveSessionError, SessionStateError
@@ -1335,3 +1337,47 @@ def persist_job_record(session: Session, record: dict[str, Any]) -> None:
             session._layout.jobs_dir / f"{persisted['id']}.json"
         ),
     )
+
+
+def persist_reused_artifact_job(
+    session: Session,
+    *,
+    intent: str,
+    analysis_purpose: str | None,
+    params: dict[str, Any],
+    input_frame_refs: list[str],
+    output_frame_ref: str,
+    semantics: dict[str, Any],
+    started_at: datetime,
+    started_monotonic: float,
+    semantic_project_root: str,
+) -> str:
+    """Record one invocation that reused an already-committed artifact.
+
+    The artifact identity dedups, but every invocation must keep an
+    independent, recoverable job record carrying its own analysis_purpose
+    (issue #38).  The frame meta is never rewritten, so the artifact keeps its
+    original producer/purpose while this job marks the reuse explicitly.
+    """
+    job_ref = f"job_{secrets.token_hex(4)}"
+    persist_job_record(
+        session,
+        {
+            "id": job_ref,
+            "session_id": session.id,
+            "intent": intent,
+            **semantics,
+            "analysis_purpose": analysis_purpose,
+            "params": params,
+            "input_frame_refs": input_frame_refs,
+            "output_frame_ref": output_frame_ref,
+            "started_at": started_at.isoformat(),
+            "finished_at": datetime.now(UTC).isoformat(),
+            "duration_ms": int((monotonic() - started_monotonic) * 1000),
+            "status": "succeeded",
+            "reused_artifact": True,
+            "error": None,
+            "semantic_project_root": semantic_project_root,
+        },
+    )
+    return job_ref

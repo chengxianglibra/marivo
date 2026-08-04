@@ -54,7 +54,11 @@ from marivo.analysis.intents._funnel_attribution import (
 )
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
+from marivo.analysis.session._runtime import (
+    persist_job_record,
+    persist_reused_artifact_job,
+    register_frame_artifact,
+)
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import ref as ref_factory
@@ -471,7 +475,20 @@ def attribute_funnel(
         semantic_anchors=anchors,
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
-        return cast("AttributionFrame", load_frame(prospective_id, session=session))
+        reused_attribution = cast("AttributionFrame", load_frame(prospective_id, session=session))
+        persist_reused_artifact_job(
+            session,
+            intent="attribute.funnel_loss_rate",
+            analysis_purpose=analysis_purpose,
+            params={**params, "axis_lineage": [*current_lineage, *baseline_lineage]},
+            input_frame_refs=list(inputs.input_refs),
+            output_frame_ref=reused_attribution.meta.artifact_id or reused_attribution.ref,
+            semantics=job_semantics_from_frames(reused_attribution),
+            started_at=started_at,
+            started_monotonic=started,
+            semantic_project_root=str(session.catalog.semantic_root),
+        )
+        return reused_attribution
     if not meta.content_hash:
         raise FunnelAttributionUnsupportedError(
             message="funnel delta must be persisted before attribution",
@@ -571,6 +588,7 @@ def attribute_funnel(
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
+                "reused_artifact": False,
                 "error": None,
                 "semantic_project_root": str(session.catalog.semantic_root),
             },
