@@ -18,7 +18,11 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
-from marivo.analysis.frames.attribution import AttributionFrame, QuantileReplacementEvidenceV1
+from marivo.analysis.frames.attribution import (
+    ATTRIBUTION_PATH_COLUMN,
+    AttributionFrame,
+    QuantileReplacementEvidenceV1,
+)
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta, _attribute_admission
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
@@ -247,7 +251,7 @@ def _attribute_nonadditive(
         driver_field=(
             result.axis_columns[0]
             if len(result.axis_columns) == 1
-            else "path"
+            else ATTRIBUTION_PATH_COLUMN
             if nonadditive_mode == "multiresolution"
             else None
         ),
