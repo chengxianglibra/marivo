@@ -479,6 +479,7 @@ def semantic_hypotheses(
     ]
     candidate_count = len(ordered_rows)
     emitted_rows = ordered_rows[:limit]
+    emitted_metric_paths = {str(json.loads(row["metric_ref"])["path"]) for row in emitted_rows}
     bounded_exclusions = tuple(exclusions[:_MAX_EXCLUSIONS])
     summary = SemanticHypothesisResolutionSummary(
         examined_edges=examined_edges,
@@ -544,6 +545,7 @@ def semantic_hypotheses(
         readiness_bindings=tuple(
             CandidateReadinessBinding(metric_ref=ref, fingerprint=value)
             for ref, value in sorted(readiness_bindings.items(), key=lambda item: item[0].path)
+            if ref.path in emitted_metric_paths
         ),
         upstream_origins=source.meta.candidate_origins,
         candidate_origins=source.meta.candidate_origins,

@@ -35,7 +35,7 @@ def _metric(session, df: pd.DataFrame, *, semantic_kind: str = "time_series") ->
     )
 
 
-def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> None:
+def test_discover_point_anomalies_commits_without_seeding_findings() -> None:
     session = session_attach.get_or_create(name="discover_evidence")
     frame = _metric(
         session,
@@ -63,7 +63,7 @@ def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> N
         ).fetchall()
 
     assert artifact_rows == [("discover", "candidate_set", "complete")]
-    assert finding_types == [("anomaly_candidate",), ("anomaly_candidate",)]
+    assert finding_types == []
 
 
 def test_discover_non_anomaly_objective_commits_without_seeding() -> None:

@@ -19,7 +19,7 @@ from marivo.analysis.frames.candidate import (
     SemanticHypothesisCandidateSetMeta,
     SliceSelection,
     WindowSelection,
-    _make_semantic_metric_candidate,
+    _make_ontology_metric_candidate,
 )
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.ontology.types import _restore_semantic_edge_ref
@@ -77,7 +77,7 @@ def select(candidate_set: CandidateSet, *, item_id: str) -> CandidateSelection:
         contexts = {context.semantic_edge_ref: context for context in meta.edge_contexts}
         readiness = {binding.metric_ref: binding.fingerprint for binding in meta.readiness_bindings}
         metric_ref = _ref_payload(row["metric_ref"])
-        return _make_semantic_metric_candidate(
+        return _make_ontology_metric_candidate(
             **common,
             metric_ref=metric_ref,
             semantic_edge_ref=edge_ref,

@@ -17,10 +17,11 @@ import marivo.semantic as ms
 from marivo.analysis.errors import (
     CandidateNotObservableError,
     CandidateScopeOverrideForbiddenError,
+    FrameMetaInvalidError,
     OntologyNotConfiguredError,
     OntologyUnavailableError,
 )
-from marivo.analysis.frames.candidate import CandidateSet, SemanticMetricCandidate
+from marivo.analysis.frames.candidate import CandidateSet, OntologyMetricCandidate
 from marivo.ontology.errors import InvalidSemanticEdgeError, OntologyLoadError
 from tests.conftest import bootstrap_sales_project
 
@@ -253,10 +254,10 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
 
     recovered = session.get_frame(candidates.ref)
     selected = recovered.select(item_id=str(row["item_id"]))
-    assert isinstance(selected, SemanticMetricCandidate)
+    assert isinstance(selected, OntologyMetricCandidate)
     assert selected.metric_ref.path == "sales.order_count"
     with pytest.raises(TypeError):
-        SemanticMetricCandidate()
+        OntologyMetricCandidate()
     with pytest.raises(CandidateScopeOverrideForbiddenError):
         session.observe(selected, time_scope=None)
     with pytest.raises(CandidateNotObservableError):
@@ -434,8 +435,84 @@ def test_candidate_recovery_rejects_digest_tampering(tmp_path) -> None:
     data.loc[0, "item_id"] = "candidate_" + "0" * 64
     data.to_parquet(data_path, index=False)
 
-    from marivo.analysis.errors import FrameMetaInvalidError
-
     with pytest.raises(FrameMetaInvalidError) as exc_info:
         session.get_frame(candidates.ref)
     assert exc_info.value._context["reason"] == "digest_mismatch"
+
+
+def test_candidate_recovery_rejects_edge_relation_context_mismatch(tmp_path) -> None:
+    _ready_project(tmp_path)
+    session = _session_with_orders(tmp_path)
+    source = session.observe(ms.ref.metric("sales.revenue"))
+    candidates = session.discover.semantic_hypotheses(source)
+    artifact = session._store.get_artifact(session.id, candidates.ref)
+    assert artifact is not None
+    data_path = session.project_root / artifact["path"]
+    data = pd.read_parquet(data_path)
+    data.loc[0, "edge_relation"] = "related_to"
+    data.to_parquet(data_path, index=False)
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        session.get_frame(candidates.ref)
+
+    assert exc_info.value._context["reason"] == "edge_relation_context_mismatch"
+
+
+def test_frame_recovery_rejects_conflicting_candidate_origins(tmp_path) -> None:
+    _ready_project(tmp_path)
+    session = _session_with_orders(tmp_path)
+    source = session.observe(ms.ref.metric("sales.revenue"))
+    candidates = session.discover.semantic_hypotheses(source)
+    selected = candidates.select(item_id=str(candidates.to_pandas().iloc[0]["item_id"]))
+    observed = session.observe(selected)
+    artifact = session._store.get_artifact(session.id, observed.ref)
+    assert artifact is not None
+    meta_path = session.project_root / artifact["meta_path"]
+    payload = json.loads(meta_path.read_text())
+    duplicate = json.loads(json.dumps(payload["candidate_origins"][0]))
+    duplicate["readiness_fingerprint"] += "-conflict"
+    payload["candidate_origins"].append(duplicate)
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        session.get_frame(observed.ref)
+
+    assert "conflicting CandidateOrigin payload" in str(
+        exc_info.value._context["validation_errors"]
+    )
+
+
+def test_candidate_limit_bounds_readiness_bindings_to_emitted_rows(tmp_path) -> None:
+    _ready_project(tmp_path)
+    datasets = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets.write_text(
+        datasets.read_text()
+        + "\n@ms.metric(entities=[orders], additivity='additive', "
+        + "name='positive_order_count', ai_context=ms.ai_context("
+        + "business_definition='Count of orders with positive amounts.'))\n"
+        + "def positive_order_count(orders):\n"
+        + "    return orders.amount.count()\n"
+    )
+    ontology = tmp_path / "models" / "ontology.py"
+    ontology.write_text(
+        ontology.read_text()
+        + "\nmo.influences(\n"
+        + "    name='sales.positive_order_count_influences_revenue',\n"
+        + "    driver=ms.ref.metric('sales.positive_order_count'),\n"
+        + "    outcome=ms.ref.metric('sales.revenue'),\n"
+        + "    ai_context=ms.ai_context("
+        + "business_definition='Positive order volume may help explain revenue.'),\n"
+        + ")\n"
+    )
+    session = _session_with_orders(tmp_path)
+    source = session.observe(ms.ref.metric("sales.revenue"))
+
+    candidates = session.discover.semantic_hypotheses(source, limit=1)
+
+    row_metric = json.loads(candidates.to_pandas().iloc[0]["metric_ref"])["path"]
+    binding_metrics = tuple(
+        binding.metric_ref.path for binding in candidates.meta.readiness_bindings
+    )
+    assert candidates.meta.resolution_summary.candidate_count_before_limit == 2
+    assert candidates.meta.resolution_summary.emitted_candidates == 1
+    assert binding_metrics == (row_metric,)

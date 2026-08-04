@@ -184,7 +184,7 @@ MetricFrame or same-Metric DeltaFrame contract also exposes
 `discover.semantic_hypotheses`. That continuation returns unscored candidates
 derived from one explicit ontology edge plus semantic-catalog resolution. The
 agent must inspect the persisted context, select a stable `item_id`, and explicitly
-observe the resulting `SemanticMetricCandidate`; Marivo never auto-executes or
+observe the resulting `OntologyMetricCandidate`; Marivo never auto-executes or
 promotes it to a causal fact.
 
 ### Catalog-backed semantic inputs

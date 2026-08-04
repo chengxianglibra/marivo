@@ -481,7 +481,7 @@ lifecycle operators return the latter, and both accept only
 Separately, the ontology discovery extension registers
 `discover.semantic_hypotheses`. It reuses `CandidateSet` with the closed
 `semantic_hypothesis` shape and adds the consumed-not-constructed
-`SemanticMetricCandidate` value. It adds no third artifact family, graph-query
+`OntologyMetricCandidate` value. It adds no third artifact family, graph-query
 surface, or Event/Lifecycle dependency.
 
 The registry mapping is closed and one-to-one at the operator/shape level:
@@ -608,7 +608,7 @@ StateModel are additive executable objects in the existing semantic catalog.
 
 The ontology discovery extension independently adds the
 `semantic_hypothesis` CandidateSet shape and the consumed-not-constructed
-`SemanticMetricCandidate` value returned only by selecting a ready candidate
+`OntologyMetricCandidate` value returned only by selecting a ready candidate
 row. `observe.metric` accepts either the ordinary `MetricSemantic` family or
 this provenance-carrying value. The registry records shape constraints and the
 ontology-configured precondition in capability-specific validation rather than
@@ -791,7 +791,7 @@ observe / boundary.derive_metric_frame -> MetricFrame -> compare, correlate,
   hypothesis_test, forecast, assess_quality, discover (group), transform (group)
 compare -> DeltaFrame -> attribute, transform (group)
 discover (group) -> CandidateSet -> CandidateSet.select
-CandidateSet.select(analysis_target) -> SemanticMetricCandidate -> observe
+CandidateSet.select(analysis_target) -> OntologyMetricCandidate -> observe
 events.sequence / events.funnel / events.time_to_event -> EventFrame ->
   assess_quality
 lifecycle.distribution / lifecycle.transitions / lifecycle.dwell /
@@ -812,7 +812,7 @@ The generated `discover` grouping includes
 identify its exact `semantic_hypothesis` shape, optional ontology ownership,
 and `ontology_not_configured` runtime precondition. A configured ontology with
 no eligible edge is represented by an empty CandidateSet, not by that error. The
-`SemanticMetricCandidate` row is registered as a consumed value, not an
+`OntologyMetricCandidate` row is registered as a consumed value, not an
 artifact family, constructor, or executable affordance. `EventFrame` and
 `LifecycleFrame` do not acquire a transform, compare, attribute, correlate,
 hypothesis-test, forecast, or discover consumer merely because they implement
@@ -869,7 +869,7 @@ For the two extensions, the shared gate enforces these family edges before
 shape-specific validation:
 
 - `discover.semantic_hypotheses.source` accepts `MetricFrame` or `DeltaFrame`;
-- `observe.metric` accepts `MetricSemantic` or `SemanticMetricCandidate`; the
+- `observe.metric` accepts `MetricSemantic` or `OntologyMetricCandidate`; the
   latter must carry a ready row fingerprint and matching candidate origin;
 - event intents accept the declared `EventSemantic`, `EntitySemantic`, and
   `ParticipantRoleSemantic` parameters and return `EventFrame`;
@@ -1281,7 +1281,7 @@ Both extensions follow the same affordance rule:
   boundary port. They do not copy metric-only affordances.
 - A `CandidateSet[semantic_hypothesis]` keeps target-specific continuations in
   each row's existing item-level affordance field. A ready resolved metric may
-  expose `observe` over its selected `SemanticMetricCandidate`; a blocked row
+  expose `observe` over its selected `OntologyMetricCandidate`; a blocked row
   exposes no `analysis_target` or executable analysis affordance and retains
   its typed semantic or readiness repair evidence.
 - Candidate item affordances never become artifact-level
@@ -1491,7 +1491,7 @@ candidate to:
   a visible `ontology_not_configured` precondition;
 - add `CandidateSet[semantic_hypothesis]` without adding a public graph-query
   artifact or a second candidate family;
-- add the consumed-not-constructed `SemanticMetricCandidate` selection value
+- add the consumed-not-constructed `OntologyMetricCandidate` selection value
   as the sole lineage-preserving `observe` bridge;
 - distinguish missing ontology from a configured ontology that validly returns
   zero candidates;
@@ -1603,7 +1603,7 @@ not executed by make test and its policy limits do not live in SURFACE_LIMITS.
 - `CandidateSet[semantic_hypothesis]` is unscored, deterministically ordered,
   rejects `select(attribute="score")`, keeps ready or blocked item-level
   affordances, returns
-  `SemanticMetricCandidate` only for a ready `analysis_target`, and contributes
+  `OntologyMetricCandidate` only for a ready `analysis_target`, and contributes
   no artifact-level recommendation.
 - For every capability/input-family pair, the shared runtime family gate accepts
   exactly the registered families, rejects all other public families with the
@@ -1723,7 +1723,7 @@ Review at least these independent legal paths:
     eligible edge and receive a valid empty CandidateSet.
 13. Discover semantic hypotheses from a persisted MetricFrame, inspect one
     ready and one blocked candidate, explicitly observe the ready Metric, and
-    verify that `SemanticMetricCandidate` preserves the source candidate and
+    verify that `OntologyMetricCandidate` preserves the source candidate and
     SemanticEdgeRef without implicit graph traversal or candidate execution.
 14. Produce a lifecycle violation and confirm that it remains an observation
     rather than a Rule, Policy, quality blocker, or causal fact.
@@ -1824,7 +1824,7 @@ and verify that historical versioned docs have no diff.
   eligible edges returns a valid empty CandidateSet.
 - Semantic candidates expose unranked item-level affordances only; blocked rows
   remain visible without an `analysis_target`, executable affordance, or system
-  recommendation. Ready rows yield `SemanticMetricCandidate`, and `observe`
+  recommendation. Ready rows yield `OntologyMetricCandidate`, and `observe`
   preserves its origin without changing ordinary MetricSemantic behavior.
 - Event/lifecycle observation extraction and semantic-candidate non-seeding are
   active before any of these public capabilities can ship. Complete evidence

@@ -2923,7 +2923,8 @@ class SemanticCatalog(RenderableResult):
             anchors: list[Ref[SemanticKindTag]] = [cast("Ref[SemanticKindTag]", entry.ref)]
             if details.root_entity is not None:
                 anchors.append(details.root_entity)
-                metrics_by_endpoint_mutable.setdefault(details.root_entity, []).append(entry.ref)
+            for entity_ref in details.effective_entities:
+                metrics_by_endpoint_mutable.setdefault(entity_ref, []).append(entry.ref)
             seen_measures: set[Ref[SemanticKindTag]] = set()
             for _role, measure_ref in details.measure_lineage:
                 if measure_ref not in seen_measures:

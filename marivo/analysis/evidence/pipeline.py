@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
-from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
 from marivo.analysis.evidence.extraction.composition import (
     DecompositionExtractionContract,
     extract_decomposition_findings,
@@ -611,19 +610,6 @@ def _extract_findings(
                     reconciliation.residual if reconciliation is not None else None
                 ),
             ),
-        )
-    elif extractor_family == "candidate_set":
-        objective = getattr(meta, "discovery_objective", None) or getattr(meta, "objective", None)
-        findings = (
-            extract_anomaly_candidate_findings(
-                df=df,
-                artifact_id=artifact_id,
-                session_id=session_id,
-                subject=subject,
-                committed_at=committed_at,
-            )
-            if objective == "point_anomalies"
-            else []
         )
     elif extractor_family == "association_result":
         prepared = df.copy()

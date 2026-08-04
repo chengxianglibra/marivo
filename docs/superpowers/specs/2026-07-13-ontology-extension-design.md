@@ -213,7 +213,7 @@ refund_pressure = mo.influences(
 Passing an entry raises `invalid_ontology_ref` with the `.ref` conversion as its
 repair. The runtime bridge contributes no `SemanticInput[K]` parameters to the
 vNext Phase 0 inventory: discovery consumes an analysis artifact, and
-`session.observe(candidate)` consumes the exact `SemanticMetricCandidate` type.
+`session.observe(candidate)` consumes the exact `OntologyMetricCandidate` type.
 
 ### Read-only semantic index
 
@@ -525,7 +525,7 @@ contains exactly the five scalar/ref fields above. The existing shared physical
 CandidateSet union layout also contains the other shapes' columns with neutral
 values; those columns carry no semantic-hypothesis meaning and validation rejects
 any non-neutral value.
-`SemanticMetricCandidate` is never a DataFrame cell or a serialized arbitrary
+`OntologyMetricCandidate` is never a DataFrame cell or a serialized arbitrary
 object. Shared source Metric, source Entity, ontology/semantic catalog
 fingerprints, inherited-scope fingerprint, and the closed `resolution_summary`
 below live in shape-specific CandidateSet metadata rather than repeating on
@@ -654,7 +654,7 @@ coordinate produces a different id.
 
 The selection algebra likewise has no base class that makes scoring universal.
 Existing scored variants inherit `ScoredCandidateSelectionBase` and retain
-their required `score` and `reason_codes`. `SemanticMetricCandidate` is an
+their required `score` and `reason_codes`. `OntologyMetricCandidate` is an
 independent `CandidateSelection` variant sharing only artifact coordinates
 (`candidate_set_ref`, `item_id`, and `source_artifact_ref`);
 `candidate_set_ref` is the exact persisted CandidateSet artifact ref. Score,
@@ -663,12 +663,12 @@ schema.
 All union variants set `extra="forbid"` and dispatch by the CandidateSet shape.
 
 For `CandidateSet[semantic_hypothesis]`, `select(...)` returns the immutable
-`SemanticMetricCandidate` directly rather than a wrapper selection with an
-indirect observation target. `SemanticMetricCandidate` joins the selected row
+`OntologyMetricCandidate` directly rather than a wrapper selection with an
+indirect observation target. `OntologyMetricCandidate` joins the selected row
 with its CandidateSet metadata and becomes one additional closed
 `CandidateSelection` variant.
 
-`SemanticMetricCandidate` has no public constructor and carries:
+`OntologyMetricCandidate` has no public constructor and carries:
 
 - resolved MetricRef;
 - candidate-set and item identities;
@@ -704,7 +704,7 @@ session.observe(
 ) -> MetricFrame
 
 session.observe(
-    candidate: SemanticMetricCandidate,
+    candidate: OntologyMetricCandidate,
     *,
     analysis_purpose: str | None = None,
 ) -> MetricFrame
@@ -729,7 +729,7 @@ MetricFrame lineage, retaining the first occurrence of each
 behavior.
 
 Candidate creation is a point-in-time validation, not a promise of permanent
-readiness. A forged `SemanticMetricCandidate` or one that no longer passes
+readiness. A forged `OntologyMetricCandidate` or one that no longer passes
 identity, fingerprint, readiness, or inherited-scope revalidation raises the
 existing structured `candidate_not_observable` path with the current cause and
 repair.
@@ -802,7 +802,7 @@ Registers:
 
 - `discover.semantic_hypotheses`;
 - `CandidateSet[semantic_hypothesis]`;
-- the consumed-not-constructed `SemanticMetricCandidate` selection value;
+- the consumed-not-constructed `OntologyMetricCandidate` selection value;
 - the `CandidateResolutionIssue` analysis-artifact issue variant;
 - the uniform `CandidateSet.select(item_id=...)` read for all candidate shapes;
 - the ontology-binding precondition and empty-result diagnostics.
@@ -1059,7 +1059,7 @@ an Entity-wide filter for a SubjectSet.
 
 ### Candidate observation overload
 
-Observing one selected `SemanticMetricCandidate` with only
+Observing one selected `OntologyMetricCandidate` with only
 `analysis_purpose=` succeeds, preserves upstream origins, and appends the
 selected `CandidateOrigin`. Supplying
 `time_scope=`, `grain=`, `dimensions=`, `slice_by=`, `time_dimension=`,
@@ -1081,7 +1081,7 @@ companion semantic execution surface. A cold general-purpose coding agent:
    `contract()` and reads its focused help;
 4. calls ontology discovery, reads bounded candidate context and resolution
    diagnostics from `show()`, selects one stable `item_id`, and explicitly
-   observes the returned `SemanticMetricCandidate`;
+   observes the returned `OntologyMetricCandidate`;
 5. recovers EventFrame and LifecycleFrame artifacts and reads their contracts;
 6. never manipulates source internals, raw SemanticEdge objects, or a graph
    query language;
@@ -1139,7 +1139,7 @@ The design is accepted when:
     failed preconditions; non-Metric Delta shapes never advertise it.
 11. Every CandidateSet shape uses the one stable
     `select(item_id=...) -> CandidateSelection` contract with no numeric-rank
-    alias; semantic-hypothesis selection returns `SemanticMetricCandidate`
+    alias; semantic-hypothesis selection returns `OntologyMetricCandidate`
     directly. Scored and semantic-hypothesis shapes have separate closed
     metadata/selection bases, and the candidate observe overload forbids scope
     overrides and collection/mixed-input ambiguity.

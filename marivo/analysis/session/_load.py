@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
-from marivo.analysis.candidate_identity import validate_candidate_frame_identity
+from marivo.analysis.candidate_identity import (
+    validate_candidate_frame_identity,
+    validate_semantic_hypothesis_frame_integrity,
+)
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
@@ -552,6 +555,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             source_artifact_ref=parsed_meta.source_ref,
             dataframe=df,
         )
+        if isinstance(parsed_meta, SemanticHypothesisCandidateSetMeta):
+            validate_semantic_hypothesis_frame_integrity(
+                dataframe=df,
+                edge_contexts=parsed_meta.edge_contexts,
+                readiness_fingerprints={
+                    binding.metric_ref: binding.fingerprint
+                    for binding in parsed_meta.readiness_bindings
+                },
+                exclusions=parsed_meta.resolution_summary.exclusions,
+            )
     auxiliary_frames: dict[str, Any] = {}
     if isinstance(parsed_meta, LifecycleHistoryFrameMeta):
         manifest = parsed_meta.violation_trace

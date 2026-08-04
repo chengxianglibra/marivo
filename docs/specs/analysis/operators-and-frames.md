@@ -597,10 +597,19 @@ not accepted. The method returns one closed immutable variant:
 `PointAnomalySelection`, `PeriodShiftSelection`,
 `DriverAxisSelection`, `SliceSelection`, `WindowSelection`, or
 `CrossSectionalOutlierSelection`. Semantic-hypothesis selection instead returns
-`SemanticMetricCandidate`, which can re-enter only through
+`OntologyMetricCandidate`, which can re-enter only through
 `session.observe(candidate, analysis_purpose=...)` with the exact inherited
 scope. Selection is a bounded read, not an artifact-producing step: it creates no
 job, lineage step, finding, or digest.
+
+Only the ontology variant is an `observe` input because it resolves a different,
+not-yet-materialized Metric together with the exact inherited scope required to
+observe it. Scored selections identify coordinates already computed in their
+source artifact: an anomaly row, comparison period, driver axis, slice, window,
+or peer outlier. Passing those values to `observe` would be ambiguous between
+re-querying semantic data and projecting the existing artifact, so they remain
+typed terminal selectors until a shape-specific downstream operator explicitly
+accepts them.
 
 Evaluation results (`HypothesisTestResult`, `AssociationResult`,
 `QualityReport`) are not directly re-fed into `compare`/`attribute`/`discover`.
@@ -622,7 +631,7 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 | `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
 | `AttributionFrame` | `transform`, `select`, `assess_quality` |
 | Scored `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
-| `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `SemanticMetricCandidate` → exact-scope `session.observe` |
+| `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `OntologyMetricCandidate` → exact-scope `session.observe` |
 | `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |
 
 Illegal paths fail closed: `candidate_set -> attribute` (select an axis/window/

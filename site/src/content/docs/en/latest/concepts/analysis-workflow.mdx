@@ -562,10 +562,14 @@ candidate = hypotheses.select(item_id="candidate_<full-sha256>")
 driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis")
 ```
 
-The selected `SemanticMetricCandidate` inherits the source observation scope;
+The selected `OntologyMetricCandidate` inherits the source observation scope;
 scope overrides are rejected. Ontology edges and candidates do not seed
 findings or prove causality. Statistical evidence begins only after the explicit
 observation and a suitable downstream operator.
+
+Other scored discovery selections are not accepted by `session.observe`. They
+identify a row, period, axis, slice, window, or peer already computed in the
+source artifact rather than a new Metric that still needs materialization.
 
 ## Transform reference — `frame.transform.*`
 

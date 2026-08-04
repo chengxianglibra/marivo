@@ -7,7 +7,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis.candidate_lineage import (
     CandidateOrigin,
@@ -15,12 +15,13 @@ from marivo.analysis.candidate_lineage import (
     InheritedObservationScope,
     SemanticEdgeContext,
     SemanticHypothesisResolutionSummary,
+    merge_candidate_origins,
 )
 from marivo.analysis.evidence.types import ArtifactIssue, JsonScalar
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.ontology.types import SemanticEdgeRef
-from marivo.refs import DimensionKind, Ref, RefPayloadV1
+from marivo.refs import DimensionKind, Ref, RefPayloadV1, SemanticKind
 from marivo.render import Card
 
 if TYPE_CHECKING:
@@ -56,8 +57,8 @@ CandidateStrategy = Literal[
 CandidateSourceKind = Literal["metric_frame", "delta_frame"]
 CandidateSemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
-_SEMANTIC_CANDIDATE_CONSTRUCTION: ContextVar[bool] = ContextVar(
-    "_marivo_semantic_candidate_construction", default=False
+_ONTOLOGY_CANDIDATE_CONSTRUCTION: ContextVar[bool] = ContextVar(
+    "_marivo_ontology_candidate_construction", default=False
 )
 
 
@@ -105,6 +106,40 @@ class SemanticHypothesisCandidateSetMeta(BaseFrameMeta):
     edge_contexts: tuple[SemanticEdgeContext, ...]
     readiness_bindings: tuple[CandidateReadinessBinding, ...]
     upstream_origins: tuple[CandidateOrigin, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_closed_metadata(self) -> SemanticHypothesisCandidateSetMeta:
+        if self.source_metric_ref.kind is not SemanticKind.METRIC:
+            raise ValueError("source_metric_ref must identify a Metric")
+        if (
+            self.source_entity_ref is not None
+            and self.source_entity_ref.kind is not SemanticKind.ENTITY
+        ):
+            raise ValueError("source_entity_ref must identify an Entity")
+        context_refs = tuple(context.semantic_edge_ref for context in self.edge_contexts)
+        if len(set(context_refs)) != len(context_refs):
+            raise ValueError("edge_contexts must contain unique semantic edge refs")
+        readiness_refs = tuple(binding.metric_ref for binding in self.readiness_bindings)
+        if any(ref.kind is not SemanticKind.METRIC for ref in readiness_refs):
+            raise ValueError("readiness_bindings must identify Metrics")
+        if len(set(readiness_refs)) != len(readiness_refs):
+            raise ValueError("readiness_bindings must contain unique Metric refs")
+        normalized_upstream = merge_candidate_origins(self.upstream_origins)
+        if normalized_upstream != self.upstream_origins:
+            raise ValueError("upstream_origins must already be ordered and de-duplicated")
+        if self.upstream_origins != self.candidate_origins:
+            raise ValueError("upstream_origins must equal the CandidateSet candidate_origins")
+        summary = self.resolution_summary
+        if summary.emitted_candidates != self.row_count:
+            raise ValueError("emitted candidate count must match CandidateSet row_count")
+        if (
+            summary.candidate_count_before_limit - summary.emitted_candidates
+            != summary.candidates_omitted
+        ):
+            raise ValueError("candidate omission count does not match the resolution summary")
+        if summary.emitted_candidates > summary.candidate_limit:
+            raise ValueError("emitted candidate count exceeds candidate_limit")
+        return self
 
 
 # Existing internal imports keep this scored name; the public algebra is the sibling union below.
@@ -165,7 +200,7 @@ class CrossSectionalOutlierSelection(ScoredCandidateSelectionBase):
     peer_scope: tuple[str, ...] = ()
 
 
-class SemanticMetricCandidate(BaseModel):
+class OntologyMetricCandidate(BaseModel):
     """One selected, unscored ontology candidate ready for explicit observation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -187,26 +222,26 @@ class SemanticMetricCandidate(BaseModel):
     upstream_origins: tuple[CandidateOrigin, ...] = ()
 
     def __init__(self, **data: Any) -> None:
-        if not _SEMANTIC_CANDIDATE_CONSTRUCTION.get():
+        if not _ONTOLOGY_CANDIDATE_CONSTRUCTION.get():
             raise TypeError(
-                "SemanticMetricCandidate has no public constructor; "
+                "OntologyMetricCandidate has no public constructor; "
                 "use candidates.select(item_id=...)"
             )
         super().__init__(**data)
 
     def __repr__(self) -> str:
         return (
-            "SemanticMetricCandidate("
+            "OntologyMetricCandidate("
             f"item_id={self.item_id!r}, metric_ref={self.metric_ref.path!r})"
         )
 
 
-def _make_semantic_metric_candidate(**data: Any) -> SemanticMetricCandidate:
-    token = _SEMANTIC_CANDIDATE_CONSTRUCTION.set(True)
+def _make_ontology_metric_candidate(**data: Any) -> OntologyMetricCandidate:
+    token = _ONTOLOGY_CANDIDATE_CONSTRUCTION.set(True)
     try:
-        return SemanticMetricCandidate(**data)
+        return OntologyMetricCandidate(**data)
     finally:
-        _SEMANTIC_CANDIDATE_CONSTRUCTION.reset(token)
+        _ONTOLOGY_CANDIDATE_CONSTRUCTION.reset(token)
 
 
 CandidateSelection = Annotated[
@@ -216,7 +251,7 @@ CandidateSelection = Annotated[
     | SliceSelection
     | WindowSelection
     | CrossSectionalOutlierSelection
-    | SemanticMetricCandidate,
+    | OntologyMetricCandidate,
     Field(discriminator="kind"),
 ]
 

@@ -132,7 +132,7 @@ def test_nested_evidence_target() -> None:
         "Finding",
         "ArtifactIssue",
         "CandidateSelection",
-        "SemanticMetricCandidate",
+        "OntologyMetricCandidate",
         "CandidateOrigin",
         "CandidateResolutionIssue",
         "ArtifactDigestPage",

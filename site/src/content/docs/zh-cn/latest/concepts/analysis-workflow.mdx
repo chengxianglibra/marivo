@@ -489,9 +489,12 @@ candidate = hypotheses.select(item_id="candidate_<full-sha256>")
 driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis")
 ```
 
-选中的 `SemanticMetricCandidate` 继承源 observation scope，任何 scope override 都会被拒绝。
+选中的 `OntologyMetricCandidate` 继承源 observation scope，任何 scope override 都会被拒绝。
 Ontology edge 和 candidate 不会生成 finding，也不构成因果证明。只有显式 observe 并运行合适的
 下游 operator 后，才会产生统计证据。
+
+其他 scored discovery selection 不能传给 `session.observe`。它们表示源 artifact 中已经计算出的
+row、period、axis、slice、window 或 peer，而不是仍需 materialize 的新 Metric。
 
 ## Transform 参考 —— `frame.transform.*`
 

@@ -10,6 +10,11 @@ from typing import Any, cast
 
 import pandas as pd
 
+from marivo.analysis.candidate_lineage import (
+    SemanticEdgeContext,
+    SemanticHypothesisExclusion,
+    _semantic_edge_context_relation,
+)
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.identity import canonical_json
 from marivo.ontology.types import SemanticEdgeRef, _restore_semantic_edge_ref
@@ -236,6 +241,67 @@ def validate_candidate_frame_identity(
             )
 
 
+def validate_semantic_hypothesis_frame_integrity(
+    *,
+    dataframe: pd.DataFrame,
+    edge_contexts: tuple[SemanticEdgeContext, ...],
+    readiness_fingerprints: Mapping[RefPayloadV1, str],
+    exclusions: tuple[SemanticHypothesisExclusion, ...],
+) -> None:
+    """Reject semantic candidate rows whose persisted metadata is not an exact closure."""
+
+    def invalid(reason: str, *, row_index: object | None = None) -> FrameMetaInvalidError:
+        context: dict[str, object] = {
+            "kind": "CandidateFrameIntegrityInvalid",
+            "reason": reason,
+        }
+        if row_index is not None:
+            context["row_index"] = str(row_index)
+        return FrameMetaInvalidError(
+            message="semantic-hypothesis CandidateSet metadata does not match its rows",
+            context=context,
+        )
+
+    contexts = {context.semantic_edge_ref: context for context in edge_contexts}
+    row_edge_refs: set[SemanticEdgeRef] = set()
+    row_metric_refs: set[RefPayloadV1] = set()
+    for index, row in dataframe.iterrows():
+        try:
+            edge_ref = _restore_semantic_edge_ref(decode_json_cell(row["semantic_edge_ref"]))
+            candidate_ref = _ref_payload_cell(row["candidate_semantic_ref"])
+            metric_ref = _ref_payload_cell(row["metric_ref"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise invalid("invalid_semantic_coordinates", row_index=index) from error
+        if candidate_ref.kind not in {
+            SemanticKind.ENTITY,
+            SemanticKind.MEASURE,
+            SemanticKind.METRIC,
+        }:
+            raise invalid("unsupported_candidate_semantic_kind", row_index=index)
+        if metric_ref.kind is not SemanticKind.METRIC:
+            raise invalid("resolved_ref_is_not_metric", row_index=index)
+        context = contexts.get(edge_ref)
+        if context is None:
+            raise invalid("missing_edge_context", row_index=index)
+        relation = row["edge_relation"]
+        if relation not in {"influences", "related_to"}:
+            raise invalid("unsupported_edge_relation", row_index=index)
+        if relation != _semantic_edge_context_relation(context):
+            raise invalid("edge_relation_context_mismatch", row_index=index)
+        if metric_ref not in readiness_fingerprints:
+            raise invalid("missing_readiness_binding", row_index=index)
+        row_edge_refs.add(edge_ref)
+        row_metric_refs.add(metric_ref)
+
+    expected_context_refs = row_edge_refs | {
+        exclusion.semantic_edge_ref for exclusion in exclusions
+    }
+    if set(contexts) != expected_context_refs:
+        raise invalid("edge_context_closure_mismatch")
+    if set(readiness_fingerprints) != row_metric_refs:
+        raise invalid("readiness_binding_closure_mismatch")
+
+
 __all__ = [
     "assign_scored_frame_item_ids",
     "assign_scored_item_ids",
@@ -244,4 +310,5 @@ __all__ = [
     "scored_candidate_coordinates",
     "semantic_hypothesis_item_id",
     "validate_candidate_frame_identity",
+    "validate_semantic_hypothesis_frame_integrity",
 ]
