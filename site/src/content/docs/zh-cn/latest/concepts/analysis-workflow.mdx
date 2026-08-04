@@ -553,21 +553,28 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
   窗口聚合（不是累计值），因此这些意图会产生有意义的结果。单调趋势注意事项仅适用于
   `all_history` 和 `grain_to_date` 锚点——解读结果时需留意。
 - `compare` 按锚点分派：
-  - `all_history`：拒绝。请 observe base 流量 metric 再 compare——一个窗口内的累计差值等于
-    该窗口内的 base 总量。
+  - `all_history`：当两个 frame 共享有效锚点，且业务坐标能够按精确 `evaluation_end` cutoff
+    配对时允许。结果是 current 减 baseline 的观测 level 差，不声明等价于区间 flow；source
+    revision 未验证。
   - `trailing`：当两个 frame 共享相同的 trailing 锚点 payload（`count`、`unit`）时允许。
     滚动窗口值按序对齐。
   - `grain_to_date`：对单周期、边界锚定的窗口允许。窗口必须从重置边界开始，至多跨越一个
     重置周期，且两个 frame 必须共享重置粒度和查询粒度。结果 DeltaFrame 会在
     `alignment_dump["to_date"]` 下记录 to-date 对齐信息。
-- 对 derived metric，仅当所有外层 component 都是 cumulative，且完全共享一个 `trailing` 或
-  `grain_to_date` 锚点时，才复用上述 compare 路径。`all_history`、混合锚点、累计与非累计混合、
-  非法 metadata，以及 current/baseline 锚点不一致都会 fail closed。
+- 对 derived metric，仅当所有外层 component 都是 cumulative，且完全共享同一个锚点（包括
+  `all_history`）时，才复用上述 compare 路径。混合锚点、累计与非累计混合、非法 metadata，
+  以及 current/baseline 锚点不一致都会 fail closed。all-history component sidecar 使用 parent
+  的精确配对业务坐标集合。
 - `attribute`、`decompose` 和 `forecast` 无论锚点如何都拒绝累计 frame；即使 compare 已接受
   derived cumulative DeltaFrame 也不例外。请为这些意图重新 observe base 流量 metric。
 - `transform.rollup(...)` 通过 `rollup_fold="last"` 重新聚合累计 frame：时间轴被重新分桶到目标
-  `grain`，每个周期贡献其最后一个 bucket（周期末值）。既不可重新聚合、又未携带 `rollup_fold`
-  的 frame 会被拒绝——请在目标粒度重新 observe。
+  `grain`，每个周期贡献完整的最后一行（包括 `evaluation_end`）。既不可重新聚合、又未携带
+  `rollup_fold` 的 frame 会被拒绝——请在目标粒度重新 observe。
+
+每个 direct 或结构完整的 derived cumulative row 都携带系统保留、以 UTC 序列化的
+`evaluation_end` 坐标。对于 all-history delta，请读取精确的 `current_evaluation_end` 和
+`baseline_evaluation_end` 列。单侧坐标会被删除并计入
+`delta.meta.alignment["cumulative_pairs"]`；已配对的 null 仍保持配对并产生 null delta。
 
 ```python
 cum_frame = session.observe(

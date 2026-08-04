@@ -1267,6 +1267,70 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     assert df[rolled.value_columns[0]].tolist() == expected["revenue"].tolist()
 
 
+def test_transform_rollup_cumulative_panel_preserves_common_evaluation_end(tmp_path):
+    frame = _make_panel(tmp_path)
+    frame._df["evaluation_end"] = pd.to_datetime(
+        frame._df["bucket_start"], utc=True
+    ) + pd.Timedelta(days=1)
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": {
+                "kind": "cumulative",
+                "base": "sales.revenue",
+                "over": "sales.orders.time",
+                "anchor": "all_history",
+                "components": None,
+            },
+            "reaggregatable": False,
+            "rollup_fold": "last",
+        }
+    )
+    country = session_attach.current().catalog.dimensions.get("sales.orders.country")
+
+    rolled = _active_transform(frame, op="rollup", drop_axes=[country])
+
+    assert rolled.meta.semantic_kind == "time_series"
+    expected = (
+        frame.to_pandas()
+        .groupby("bucket_start", as_index=False)
+        .agg({"revenue": "sum", "evaluation_end": "first"})
+    )
+    actual = rolled.to_pandas()
+    assert actual["evaluation_end"].tolist() == expected["evaluation_end"].tolist()
+    assert actual[rolled.value_columns[0]].tolist() == expected["revenue"].tolist()
+
+
+def test_transform_rollup_cumulative_rejects_different_evaluation_ends(tmp_path):
+    from marivo.analysis.errors import TransformShapeUnsupportedError
+
+    frame = _make_panel(tmp_path)
+    frame._df["evaluation_end"] = pd.to_datetime(
+        frame._df["bucket_start"], utc=True
+    ) + pd.Timedelta(days=1)
+    same_bucket = frame._df["bucket_start"] == frame._df["bucket_start"].iloc[0]
+    changed_index = frame._df.index[same_bucket][-1]
+    frame._df.loc[changed_index, "evaluation_end"] += pd.Timedelta(hours=1)
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": {
+                "kind": "cumulative",
+                "base": "sales.revenue",
+                "over": "sales.orders.time",
+                "anchor": "all_history",
+                "components": None,
+            },
+            "reaggregatable": False,
+            "rollup_fold": "last",
+        }
+    )
+    country = session_attach.current().catalog.dimensions.get("sales.orders.country")
+
+    with pytest.raises(TransformShapeUnsupportedError) as exc_info:
+        _active_transform(frame, op="rollup", drop_axes=[country])
+
+    assert exc_info.value._context["reason"] == "cumulative_evaluation_coordinates_differ"
+
+
 def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_path):
     frame = _make_delta_panel(tmp_path)
     rolled = _active_transform(
@@ -1566,6 +1630,7 @@ def test_transform_window_preserves_cumulative_marker(tmp_path):
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
                 "value": [10.0, 12.0],
+                "evaluation_end": pd.to_datetime(["2026-07-02", "2026-07-03"], utc=True),
             }
         ),
         metric_id="sales.cum_gmv",
@@ -1596,6 +1661,7 @@ def test_transform_window_preserves_cumulative_marker(tmp_path):
     )
 
     assert clipped.meta.cumulative == cumulative_payload
+    assert clipped.to_pandas()["evaluation_end"].tolist() == [pd.Timestamp("2026-07-03", tz="UTC")]
     assert clipped.meta.component_ref is None
     assert clipped.meta.composition is None
 
@@ -1603,7 +1669,7 @@ def test_transform_window_preserves_cumulative_marker(tmp_path):
 def test_transform_window_preserves_grain_to_date_cumulative_anchor(tmp_path):
     """transform.window preserves the cumulative marker for a grain_to_date anchor.
 
-    The v2 cumulative marker carries the anchor tuple (e.g.
+    The cumulative marker carries the anchor tuple (e.g.
     ('grain_to_date', 'month')) so downstream contract()/show() can dispatch
     on the anchor. transform.window must propagate meta.cumulative verbatim
     (model_dump round-trip), preserving the anchor kind and grain.
@@ -1930,6 +1996,13 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     assert rolled.meta.rollup_fold == "last"
     assert rolled.meta.cumulative is not None
     assert rolled.meta.cumulative.get("anchor") == ("grain_to_date", "month")
+    feb_source = raw.loc[raw["bucket_start"] == pd.Timestamp("2026-02-15")].iloc[0]
+    feb_rolled = df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01")].iloc[0]
+    assert feb_rolled["evaluation_end"] == feb_source["evaluation_end"]
+    recovered = session.get_frame(rolled.ref)
+    assert recovered.to_pandas().sort_values("bucket_start")["evaluation_end"].tolist() == (
+        df["evaluation_end"].tolist()
+    )
 
 
 def test_rollup_grain_sums_reaggregatable_frame(cumulative_day_session):
@@ -2009,7 +2082,7 @@ def test_rollup_chains_day_month_quarter(cumulative_day_session):
     """day -> month -> quarter chain: quarter row == last month's value in that
     quarter (period ends chain)."""
     session = cumulative_day_session
-    frame = _observe_cumulative_day(session, end="2026-04-01")
+    frame = _observe_cumulative_day(session, end="2026-03-16")
     day_to_month = frame.transform.rollup(grain="month")
     month_to_quarter = day_to_month.transform.rollup(grain="quarter")
 
@@ -2030,6 +2103,13 @@ def test_rollup_chains_day_month_quarter(cumulative_day_session):
     )
     assert month_to_quarter.meta.rollup_fold == "last"
     assert month_to_quarter.meta.cumulative is not None
+    mar_endpoint = month_df.loc[
+        month_df["bucket_start"] == pd.Timestamp("2026-03-01"), "evaluation_end"
+    ].iloc[0]
+    assert (
+        q_df.loc[q_df["bucket_start"] == pd.Timestamp("2026-01-01"), "evaluation_end"].iloc[0]
+        == mar_endpoint
+    )
 
 
 def test_rollup_partial_tail_coverage(cumulative_day_session):

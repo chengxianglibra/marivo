@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal, cast
 
-CUMULATIVE_CONTRACT_VERSION = 2
+CUMULATIVE_CONTRACT_VERSION = 3
+
+EVALUATION_END_COLUMN = "evaluation_end"
+CURRENT_EVALUATION_END_COLUMN = "current_evaluation_end"
+BASELINE_EVALUATION_END_COLUMN = "baseline_evaluation_end"
 
 type CumulativeAnchor = (
     Literal["all_history"]
@@ -129,3 +133,9 @@ def cumulative_compare_blocker(
     if blocker is None and cumulative_compare_anchor(cumulative) is not None:
         return None
     return "unresolved_component_anchor"
+
+
+def cumulative_has_evaluation_contract(cumulative: Mapping[str, object] | None) -> bool:
+    """Return whether a marker describes a complete cumulative value contract."""
+
+    return cumulative_compare_anchor(cumulative) is not None

@@ -243,6 +243,9 @@ def _dimension_columns_from_meta(meta: Any) -> list[str] | None:
 def _time_column_from_meta(meta: Any) -> str | None:
     axes = getattr(meta, "axes", None)
     if not isinstance(axes, dict):
+        alignment = getattr(meta, "alignment", None)
+        axes = alignment.get("axes") if isinstance(alignment, dict) else None
+    if not isinstance(axes, dict):
         return None
     for axis in axes.values():
         if isinstance(axis, dict) and axis.get("role") == "time":
@@ -568,6 +571,7 @@ def _extract_findings(
             semantic_kind=semantic_kind,
             committed_at=committed_at,
             dimension_columns=_dimension_columns_from_meta(meta),
+            time_column=_time_column_from_meta(meta),
             unit=getattr(meta, "unit", None),
         )
     elif extractor_family == "attribution_frame":

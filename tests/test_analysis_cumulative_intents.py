@@ -9,6 +9,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis._cumulative import (
+    BASELINE_EVALUATION_END_COLUMN,
+    CURRENT_EVALUATION_END_COLUMN,
+    EVALUATION_END_COLUMN,
+)
 from marivo.analysis.errors import AnalysisError, CumulativeFrameUnsupportedError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
@@ -98,7 +103,7 @@ def _history(session):
             }
         ),
         metric_id="sales.cum_gmv",
-        axes={"time": {"role": "time", "column": "bucket_start", "grain": "1day"}},
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
         measure={"name": "cum_gmv"},
         semantic_kind="time_series",
         semantic_model="sales",
@@ -145,16 +150,17 @@ def _delta(session, *, cumulative: dict | None = None) -> DeltaFrame:
     return DeltaFrame(_df=pd.DataFrame({"region": ["US"], "delta": [1.0]}), meta=meta)
 
 
-def test_compare_rejects_cumulative_metric_frame(tmp_path, monkeypatch) -> None:
+def test_compare_requires_evaluation_contract_for_cumulative_metric_frame(
+    tmp_path, monkeypatch
+) -> None:
     session = _session(tmp_path, monkeypatch)
     current = _history(session)
     baseline = _history(session)
 
-    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
+    with pytest.raises(AnalysisError) as exc_info:
         compare(current, baseline, session=session)
 
-    assert exc_info.value._context["intent"] == "compare"
-    assert exc_info.value._context["base_metric_id"] == "sales.gmv"
+    assert exc_info.value._context["kind"] == "CumulativeEvaluationEndMissing"
 
 
 def test_forecast_rejects_cumulative_history(tmp_path, monkeypatch) -> None:
@@ -217,13 +223,18 @@ def _ts_frame(
     anchor: object = "all_history",
 ) -> MetricFrame:
     """Build a persisted time_series MetricFrame carrying a cumulative marker."""
+    data = {
+        "bucket_start": pd.to_datetime(bucket_starts),
+        "value": values,
+    }
+    if anchor == "all_history":
+        window_end_ts = pd.Timestamp(window_end, tz="UTC")
+        data[EVALUATION_END_COLUMN] = [
+            min(pd.Timestamp(bucket, tz="UTC") + pd.Timedelta(days=1), window_end_ts)
+            for bucket in bucket_starts
+        ]
     frame = make_metric_frame(
-        pd.DataFrame(
-            {
-                "bucket_start": pd.to_datetime(bucket_starts),
-                "value": values,
-            }
-        ),
+        pd.DataFrame(data),
         metric_id=metric_id,
         axes={"time": {"role": "time", "column": "bucket_start", "grain": grain}},
         measure={"name": "cum_gmv"},
@@ -236,8 +247,391 @@ def _ts_frame(
     return frame
 
 
-def test_compare_all_history_still_rejected(tmp_path, monkeypatch) -> None:
-    """all_history cumulative frames stay compare-gated (names base ref)."""
+def _all_history_shape_frame(
+    session,
+    *,
+    semantic_kind: str,
+    rows: list[dict[str, object]],
+    window_start: str,
+    window_end: str,
+) -> MetricFrame:
+    """Build a persisted all-history frame with explicit canonical cutoffs."""
+
+    axes: dict[str, object] = {}
+    if semantic_kind in {"time_series", "panel"}:
+        axes["time"] = {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "order_date",
+        }
+    if semantic_kind in {"segmented", "panel"}:
+        axes["region"] = {"role": "dimension", "column": "region"}
+    frame = make_metric_frame(
+        pd.DataFrame(rows),
+        metric_id="sales.cum_gmv",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind=semantic_kind,
+        semantic_model="sales",
+        window={"start": window_start, "end": window_end, "grain": "day"},
+        session=session,
+    )
+    frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker()})
+    return frame
+
+
+@pytest.mark.parametrize(
+    ("semantic_kind", "current_rows", "baseline_rows", "expected_deltas"),
+    [
+        (
+            "scalar",
+            [{"value": 15.0, EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC")}],
+            [{"value": 10.0, EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC")}],
+            [5.0],
+        ),
+        (
+            "segmented",
+            [
+                {
+                    "region": "US",
+                    "value": 15.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+                }
+            ],
+            [
+                {
+                    "region": "US",
+                    "value": 10.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+                }
+            ],
+            [5.0],
+        ),
+        (
+            "time_series",
+            [
+                {
+                    "bucket_start": pd.Timestamp("2026-07-01"),
+                    "value": 15.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-07-02", tz="UTC"),
+                },
+                {
+                    "bucket_start": pd.Timestamp("2026-07-02"),
+                    "value": 22.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-07-03", tz="UTC"),
+                },
+            ],
+            [
+                {
+                    "bucket_start": pd.Timestamp("2026-06-01"),
+                    "value": 10.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-06-02", tz="UTC"),
+                },
+                {
+                    "bucket_start": pd.Timestamp("2026-06-02"),
+                    "value": 18.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-06-03", tz="UTC"),
+                },
+            ],
+            [5.0, 4.0],
+        ),
+        (
+            "panel",
+            [
+                {
+                    "bucket_start": pd.Timestamp("2026-07-01"),
+                    "region": "US",
+                    "value": 15.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-07-02", tz="UTC"),
+                }
+            ],
+            [
+                {
+                    "bucket_start": pd.Timestamp("2026-06-01"),
+                    "region": "US",
+                    "value": 10.0,
+                    EVALUATION_END_COLUMN: pd.Timestamp("2026-06-02", tz="UTC"),
+                }
+            ],
+            [5.0],
+        ),
+    ],
+)
+def test_compare_all_history_all_shapes_persist_exact_endpoint_evidence(
+    tmp_path,
+    monkeypatch,
+    semantic_kind,
+    current_rows,
+    baseline_rows,
+    expected_deltas,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind=semantic_kind,
+        rows=current_rows,
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind=semantic_kind,
+        rows=baseline_rows,
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+    )
+
+    delta = compare(current, baseline, session=session)
+    recovered = session.get_frame(delta.ref)
+    recovered_df = recovered.to_pandas()
+
+    assert recovered_df["delta"].tolist() == pytest.approx(expected_deltas)
+    assert recovered.meta.cumulative_change.model_dump(mode="json") == {
+        "schema": "all-history-level-change/v1"
+    }
+    assert CURRENT_EVALUATION_END_COLUMN in recovered_df
+    assert BASELINE_EVALUATION_END_COLUMN in recovered_df
+    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    assert len(findings) == len(recovered_df)
+    expected_endpoint_pairs = sorted(
+        (
+            pd.Timestamp(current_end).isoformat(),
+            pd.Timestamp(baseline_end).isoformat(),
+        )
+        for current_end, baseline_end in zip(
+            recovered_df[CURRENT_EVALUATION_END_COLUMN],
+            recovered_df[BASELINE_EVALUATION_END_COLUMN],
+            strict=True,
+        )
+    )
+    actual_endpoint_pairs = sorted(
+        (finding.value.current_evaluation_end, finding.value.baseline_evaluation_end)
+        for finding in findings
+    )
+    assert actual_endpoint_pairs == expected_endpoint_pairs
+
+
+def test_compare_all_history_drops_one_sided_and_retains_matched_null(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "MATCHED_NULL",
+                "value": None,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            },
+            {
+                "region": "CURRENT_ONLY",
+                "value": 20.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            },
+        ],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "MATCHED_NULL",
+                "value": 10.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            },
+            {
+                "region": "BASELINE_ONLY",
+                "value": 30.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            },
+        ],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+    )
+
+    delta = compare(current, baseline, session=session)
+    df = delta.to_pandas()
+    pair_info = delta.meta.alignment["cumulative_pairs"]
+
+    assert df["region"].tolist() == ["MATCHED_NULL"]
+    assert df["presence_status"].tolist() == ["matched"]
+    assert pd.isna(df["delta"].iloc[0])
+    assert pair_info == {
+        "anchor": "all_history",
+        "matched_rows": 1,
+        "matched_null_rows": 1,
+        "current_unpaired_rows": 1,
+        "baseline_unpaired_rows": 1,
+        "unpaired_action": "dropped",
+    }
+    finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
+    assert finding.value.presence is None
+    assert finding.value.magnitude is None
+    rendered = delta.render()
+    assert "matched_null_rows=1" in rendered
+    assert "current_unpaired_rows=1" in rendered
+    assert "baseline_unpaired_rows=1" in rendered
+
+
+def test_compare_all_history_no_paired_coordinates_has_structured_repair(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "CURRENT_ONLY",
+                "value": 20.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            }
+        ],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "BASELINE_ONLY",
+                "value": 30.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            }
+        ],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+    )
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+
+    error = exc_info.value
+    assert error.expected == "at least one business coordinate present in both frames"
+    assert error.received == "current_only=1, baseline_only=1"
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "compare"
+
+
+@pytest.mark.parametrize("semantic_kind", ["time_series", "panel"])
+def test_compare_all_history_drops_one_sided_time_and_panel_coordinates(
+    tmp_path, monkeypatch, semantic_kind
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+
+    def rows(prefix: str, values: list[float]) -> list[dict[str, object]]:
+        month = "07" if prefix == "current" else "06"
+        output: list[dict[str, object]] = []
+        for index, value in enumerate(values, start=1):
+            row: dict[str, object] = {
+                "bucket_start": pd.Timestamp(f"2026-{month}-{index:02d}"),
+                "value": value,
+                EVALUATION_END_COLUMN: pd.Timestamp(f"2026-{month}-{index + 1:02d}", tz="UTC"),
+            }
+            if semantic_kind == "panel":
+                row["region"] = "US"
+            output.append(row)
+        return output
+
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind=semantic_kind,
+        rows=rows("current", [10.0, 20.0]),
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind=semantic_kind,
+        rows=rows("baseline", [5.0, 12.0, 18.0]),
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+    )
+
+    delta = compare(current, baseline, session=session)
+    pair_info = delta.meta.alignment["cumulative_pairs"]
+
+    assert len(delta.to_pandas()) == 2
+    assert pair_info["matched_rows"] == 2
+    assert pair_info["current_unpaired_rows"] == 0
+    assert pair_info["baseline_unpaired_rows"] == 1
+    assert len(session.evidence.findings(artifact_ref=delta.ref).items) == 2
+
+
+def test_all_history_endpoint_order_is_stable_after_recovery(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+
+    def scalar(value: float, endpoint: str) -> MetricFrame:
+        return _all_history_shape_frame(
+            session,
+            semantic_kind="scalar",
+            rows=[
+                {
+                    "value": value,
+                    EVALUATION_END_COLUMN: pd.Timestamp(endpoint, tz="UTC"),
+                }
+            ],
+            window_start="2026-01-01",
+            window_end="2026-01-02",
+        )
+
+    for expected, current_end, baseline_end in (
+        ("forward", "2026-07-04", "2026-06-04"),
+        ("reverse", "2026-06-04", "2026-07-04"),
+        ("same", "2026-07-04", "2026-07-04"),
+    ):
+        delta = compare(scalar(15.0, current_end), scalar(10.0, baseline_end), session=session)
+        assert f"endpoint_order={expected}" in delta.render()
+        assert f"endpoint_order={expected}" in session.get_frame(delta.ref).render()
+
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "forward",
+                "value": 15.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            },
+            {
+                "region": "reverse",
+                "value": 8.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            },
+        ],
+        window_start="2026-01-01",
+        window_end="2026-01-02",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind="segmented",
+        rows=[
+            {
+                "region": "forward",
+                "value": 10.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            },
+            {
+                "region": "reverse",
+                "value": 10.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            },
+        ],
+        window_start="2026-01-01",
+        window_end="2026-01-02",
+    )
+    mixed = compare(current, baseline, session=session)
+    assert "endpoint_order=mixed" in mixed.render()
+    assert "endpoint_order=mixed" in session.get_frame(mixed.ref).render()
+
+
+def test_compare_all_history_level_change_is_allowed(tmp_path, monkeypatch) -> None:
+    """all_history compare records an observed level change."""
     session = _session(tmp_path, monkeypatch)
     current = _ts_frame(
         session,
@@ -255,9 +649,9 @@ def test_compare_all_history_still_rejected(tmp_path, monkeypatch) -> None:
         window_end="2026-06-04",
         anchor="all_history",
     )
-    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
-        compare(current, baseline, session=session)
-    assert "base" in str(exc_info.value).lower()
+    delta = compare(current, baseline, session=session)
+    assert delta.meta.cumulative_change is not None
+    assert delta.meta.alignment["cumulative_pairs"]["matched_rows"] == 3
 
 
 def test_compare_trailing_same_anchor_allowed(tmp_path, monkeypatch) -> None:
@@ -306,6 +700,10 @@ def test_compare_trailing_anchor_mismatch_rejected(tmp_path, monkeypatch) -> Non
     with pytest.raises(Exception) as exc_info:
         compare(current, baseline, session=session)
     assert "anchor" in str(exc_info.value).lower()
+    assert exc_info.value.expected == "('trailing', 7, 'day')"
+    assert exc_info.value.received == "('trailing', 30, 'day')"
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.canonical_id == "compare"
 
 
 def test_compare_grain_to_date_single_period_aligned(tmp_path, monkeypatch) -> None:
@@ -707,8 +1105,8 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
     assert "ordinal alignment matched" in rendered_contract
 
 
-def test_compare_derived_all_history_components_still_rejected(tmp_path, monkeypatch) -> None:
-    """Derived all-history cumulative wrappers stay compare-gated."""
+def test_compare_derived_all_history_components_are_allowed(tmp_path, monkeypatch) -> None:
+    """Valid derived all-history cumulative wrappers compare by level."""
     session = _session(tmp_path, monkeypatch)
     component_marker = _cum_marker_anchor("all_history")
     derived_marker = {
@@ -738,9 +1136,8 @@ def test_compare_derived_all_history_components_still_rejected(tmp_path, monkeyp
         metric_id="sales.derived_over_cum",
     )
     baseline.meta = baseline.meta.model_copy(update={"cumulative": derived_marker})
-    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
-        compare(current, baseline, session=session)
-    assert "all-history" in exc_info.value.hint.lower()
+    delta = compare(current, baseline, session=session)
+    assert delta.meta.cumulative_change is not None
 
 
 def test_compare_rejects_cumulative_marker_presence_mismatch(tmp_path, monkeypatch) -> None:
@@ -890,24 +1287,27 @@ def _anchor_frame(
     return frame
 
 
-def test_contract_all_history_compare_gated(tmp_path, monkeypatch) -> None:
-    """all_history compare stays a hard caveat (running_total_caveat on compare)."""
+def test_contract_all_history_compare_is_locally_available(tmp_path, monkeypatch) -> None:
+    """A single valid frame does not invent pair-compatibility preconditions."""
     session = _session(tmp_path, monkeypatch)
     frame = _anchor_frame(session, anchor="all_history")
     c = frame.contract()
     cmp = next(a for a in c.affordances if a.capability_id == "compare")
-    assert any(p.check == "running_total_caveat" for p in cmp.preconditions)
+    assert not any(
+        p.check in {"running_total_caveat", "compare_anchor_match"} for p in cmp.preconditions
+    )
 
 
-def test_contract_grain_to_date_compare_condional(tmp_path, monkeypatch) -> None:
-    """grain_to_date compare is a conditional affordance stating preconditions."""
+def test_contract_grain_to_date_defers_pair_checks_to_compare(tmp_path, monkeypatch) -> None:
+    """Pair-dependent boundary rules are evaluated only with both frames."""
     session = _session(tmp_path, monkeypatch)
     frame = _anchor_frame(session, anchor=("grain_to_date", "month"))
     c = frame.contract()
     cmp = next(a for a in c.affordances if a.capability_id == "compare")
-    # compare is a conditional affordance stating preconditions (not a hard fail)
-    reasons = " ".join(p.reason or "" for p in cmp.preconditions)
-    assert "single-period" in reasons.lower() or "boundary" in reasons.lower()
+    assert not any(
+        p.check in {"compare_anchor_match", "compare_single_period_boundary"}
+        for p in cmp.preconditions
+    )
 
 
 def test_contract_trailing_autocorrelation_caveat(tmp_path, monkeypatch) -> None:

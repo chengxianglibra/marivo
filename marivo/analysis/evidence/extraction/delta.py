@@ -8,6 +8,10 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo.analysis._cumulative import (
+    BASELINE_EVALUATION_END_COLUMN,
+    CURRENT_EVALUATION_END_COLUMN,
+)
 from marivo.analysis.evidence.identity import make_finding_id
 from marivo.analysis.evidence.types import DeltaFindingValue, DerivationRule, Finding, Subject
 
@@ -41,6 +45,30 @@ def _presence(
     if current is None and baseline is not None:
         return "baseline_only"
     return None
+
+
+def _timestamp_text(value: Any) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert("UTC")
+    return timestamp.isoformat()
+
+
+def _row_presence(
+    row: pd.Series,
+    current: float | None,
+    baseline: float | None,
+) -> Literal["current_only", "baseline_only"] | None:
+    if (
+        CURRENT_EVALUATION_END_COLUMN in row.index
+        and BASELINE_EVALUATION_END_COLUMN in row.index
+        and pd.notna(row[CURRENT_EVALUATION_END_COLUMN])
+        and pd.notna(row[BASELINE_EVALUATION_END_COLUMN])
+    ):
+        return None
+    return _presence(current, baseline)
 
 
 _ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
@@ -88,7 +116,7 @@ def extract_delta_findings(
 ) -> list[Finding]:
     """Extract delta findings from a comparison DataFrame.
 
-    Supports scalar and segmented semantic kinds.
+    Supports scalar, segmented, time-series, and panel semantic kinds.
     """
     if df.empty:
         return []
@@ -122,14 +150,29 @@ def extract_delta_findings(
                         else None
                     ),
                     direction=_classify_direction(delta_val, current, baseline),
-                    presence=_presence(current, baseline),
+                    presence=_row_presence(row, current, baseline),
                     unit=unit,
+                    current_evaluation_end=_timestamp_text(row.get(CURRENT_EVALUATION_END_COLUMN)),
+                    baseline_evaluation_end=_timestamp_text(
+                        row.get(BASELINE_EVALUATION_END_COLUMN)
+                    ),
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.delta",
                     rule_version="v2",
                     operator="compare",
-                    source_fields=("current", "baseline", "delta", "pct_change"),
+                    source_fields=tuple(
+                        field
+                        for field in (
+                            "current",
+                            "baseline",
+                            "delta",
+                            "pct_change",
+                            CURRENT_EVALUATION_END_COLUMN,
+                            BASELINE_EVALUATION_END_COLUMN,
+                        )
+                        if field in row.index
+                    ),
                     source_finding_refs=(),
                 ),
                 source_refs=(artifact_id,),
@@ -170,9 +213,15 @@ def extract_delta_findings(
                             else None
                         ),
                         direction=_classify_direction(delta_val, current, baseline),
-                        presence=_presence(current, baseline),
+                        presence=_row_presence(row, current, baseline),
                         unit=unit,
                         dimension_keys={k: str(v) for k, v in keys.items()},
+                        current_evaluation_end=_timestamp_text(
+                            row.get(CURRENT_EVALUATION_END_COLUMN)
+                        ),
+                        baseline_evaluation_end=_timestamp_text(
+                            row.get(BASELINE_EVALUATION_END_COLUMN)
+                        ),
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
@@ -184,6 +233,86 @@ def extract_delta_findings(
                             "baseline",
                             "delta",
                             "pct_change",
+                            *(
+                                (CURRENT_EVALUATION_END_COLUMN, BASELINE_EVALUATION_END_COLUMN)
+                                if CURRENT_EVALUATION_END_COLUMN in row.index
+                                and BASELINE_EVALUATION_END_COLUMN in row.index
+                                else ()
+                            ),
+                        ),
+                        source_finding_refs=(),
+                    ),
+                    source_refs=(artifact_id,),
+                    committed_at=committed_at,
+                )
+            )
+        return findings
+
+    if semantic_kind in {"time_series", "panel"}:
+        if time_column is None:
+            raise ValueError(f"{semantic_kind} delta extraction requires time_column")
+        if semantic_kind == "panel" and not dimension_columns:
+            raise ValueError("panel delta extraction requires dimension_columns")
+        findings = []
+        for _, row in df.iterrows():
+            keys = {column: row[column] for column in (dimension_columns or [])}
+            bucket = _timestamp_text(row.get(time_column)) or str(row.get(time_column))
+            stable_parts = [f"{key}={_escape_seg_component(keys[key])}" for key in sorted(keys)]
+            stable_parts.append(f"bucket={_escape_seg_component(bucket)}")
+            canonical_item_key = "rows:" + "|".join(stable_parts)
+            current = _to_float(row.get("current"))
+            baseline = _to_float(row.get("baseline"))
+            delta_val = _to_float(row.get("delta"))
+            pct = _to_float(row.get("pct_change"))
+            findings.append(
+                Finding(
+                    finding_id=make_finding_id(artifact_id, "delta", canonical_item_key),
+                    finding_type="delta",
+                    epistemic_kind="algebraic",
+                    artifact_id=artifact_id,
+                    session_id=session_id,
+                    subject=subject,
+                    canonical_item_key=canonical_item_key,
+                    value=DeltaFindingValue(
+                        delta_kind=delta_kind,
+                        current=current,
+                        baseline=baseline,
+                        magnitude=delta_val,
+                        relative_delta=pct,
+                        relative_delta_undefined_reason=(
+                            "baseline_zero_or_missing"
+                            if pct is None and delta_val is not None
+                            else None
+                        ),
+                        direction=_classify_direction(delta_val, current, baseline),
+                        presence=_row_presence(row, current, baseline),
+                        unit=unit,
+                        dimension_keys={key: str(value) for key, value in keys.items()},
+                        bucket=bucket,
+                        current_evaluation_end=_timestamp_text(
+                            row.get(CURRENT_EVALUATION_END_COLUMN)
+                        ),
+                        baseline_evaluation_end=_timestamp_text(
+                            row.get(BASELINE_EVALUATION_END_COLUMN)
+                        ),
+                    ),
+                    derivation=DerivationRule(
+                        rule_id="extract.delta",
+                        rule_version="v3",
+                        operator="compare",
+                        source_fields=(
+                            *(dimension_columns or []),
+                            time_column,
+                            "current",
+                            "baseline",
+                            "delta",
+                            "pct_change",
+                            *(
+                                (CURRENT_EVALUATION_END_COLUMN, BASELINE_EVALUATION_END_COLUMN)
+                                if CURRENT_EVALUATION_END_COLUMN in row.index
+                                and BASELINE_EVALUATION_END_COLUMN in row.index
+                                else ()
+                            ),
                         ),
                         source_finding_refs=(),
                     ),

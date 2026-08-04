@@ -1,13 +1,9 @@
-"""Environment-bound tests for bootstrap-only ``marivo help``.
+"""Environment-bound tests for the installed ``marivo`` entry points.
 
-These tests verify that:
-
-1. Product root help advertises the bootstrap command and doctor commands.
-2. ``marivo help`` prints the canonical environment handoff.
-3. Every track or target argument exits with bootstrap-only guidance.
-4. ``python -m marivo help`` agrees with the console script.
-5. Environment fingerprints differ across separate venvs but agree within a
-   single venv (console script vs ``python -m marivo``).
+The ordinary CLI contract is covered by ``tests/test_cli.py``. These tests
+only cover behavior that requires isolated virtual environments: fingerprints
+must distinguish editable and copy installs, and the console script must agree
+with ``python -m marivo``.
 """
 
 from __future__ import annotations
@@ -19,9 +15,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
-import marivo
-from marivo.cli import main
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,104 +101,6 @@ def _extract_fingerprint(output: str) -> tuple[str, str, str] | None:
 
 
 # ---------------------------------------------------------------------------
-# In-process CLI route and fingerprint tests
-# ---------------------------------------------------------------------------
-
-
-def test_root_help_advertises_bootstrap_help(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--help"])
-    assert exc_info.value.code == 0
-    captured = capsys.readouterr()
-    assert "marivo help" in captured.out
-    assert "marivo help analysis" not in captured.out
-
-
-def test_root_help_has_no_track_routing(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit):
-        main(["--help"])
-    captured = capsys.readouterr()
-    assert "marivo help semantic" not in captured.out
-    assert "marivo help datasource" not in captured.out
-
-
-def test_root_help_preserves_doctor_commands(capsys: pytest.CaptureFixture[str]) -> None:
-    """Root help must preserve doctor command pointers."""
-    with pytest.raises(SystemExit):
-        main(["--help"])
-    captured = capsys.readouterr()
-    assert "marivo doctor" in captured.out
-    assert "marivo doctor --semantic" in captured.out
-    assert "marivo doctor --datasource <name> --connect" in captured.out
-
-
-def test_cli_output_equals_private_bootstrap_renderer(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from marivo._help.bootstrap import render_bootstrap_help
-
-    main(["help"])
-    captured = capsys.readouterr()
-    assert captured.out.rstrip("\n") == render_bootstrap_help().rstrip("\n")
-
-
-def test_cli_bootstrap_help_has_fingerprint(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["help"])
-    captured = capsys.readouterr()
-    fingerprint = _extract_fingerprint(captured.out)
-    assert fingerprint is not None
-    assert marivo.__version__ in fingerprint[0]
-
-
-def test_unknown_target_exits_nonzero(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", "analysis", "nonexistent_thing_xyz"])
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert "bootstrap-only" in captured.err
-    assert "marivo.help" in captured.err
-
-
-def test_unknown_track_exits_nonzero(capsys: pytest.CaptureFixture[str]) -> None:
-    """``marivo help <unknown-track>`` must exit non-zero."""
-    with pytest.raises(SystemExit) as exc_info:
-        main(["help", "nonexistent_track_xyz"])
-    assert exc_info.value.code != 0
-
-
-# ---------------------------------------------------------------------------
-# Subprocess tests via python -m marivo
-# ---------------------------------------------------------------------------
-
-
-def test_module_root_help_exits_zero() -> None:
-    result = _run_cli(["help"])
-    assert result.returncode == 0
-    assert "Marivo:" in result.stdout
-    assert "Python:" in result.stdout
-    assert "Package:" in result.stdout
-
-
-def test_module_focused_help_is_rejected() -> None:
-    result = _run_cli(["help", "analysis", "observe"])
-    assert result.returncode == 2
-    assert "bootstrap-only" in result.stderr
-
-
-def test_module_unknown_target_exits_nonzero() -> None:
-    result = _run_cli(["help", "analysis", "nonexistent_thing_xyz"])
-    assert result.returncode == 2
-    assert "bootstrap-only" in result.stderr
-
-
-def test_module_version_flag() -> None:
-    """``python -m marivo --version`` prints the package version."""
-    result = _run_cli(["--version"])
-    assert result.returncode == 0
-    assert result.stdout.strip() == f"marivo {marivo.__version__}"
-
-
-# ---------------------------------------------------------------------------
 # Environment fingerprint fixtures
 # ---------------------------------------------------------------------------
 
@@ -259,7 +154,7 @@ def venv_a(tmp_path_factory: pytest.TempPathFactory) -> Path:
     python = _create_venv(venv_dir)
     result = _install_marivo(python, editable=True)
     if result.returncode != 0:
-        pytest.skip(f"pip install failed in venv_a: {result.stderr[:500]}")
+        pytest.fail(f"pip install failed in venv_a: {result.stderr[:500]}")
     return python
 
 
@@ -270,7 +165,7 @@ def venv_b(tmp_path_factory: pytest.TempPathFactory) -> Path:
     python = _create_venv(venv_dir)
     result = _install_marivo(python, editable=False)
     if result.returncode != 0:
-        pytest.skip(f"pip install failed in venv_b: {result.stderr[:500]}")
+        pytest.fail(f"pip install failed in venv_b: {result.stderr[:500]}")
     return python
 
 
@@ -326,10 +221,8 @@ def test_console_and_module_agree_within_one_venv(venv_a: Path) -> None:
     # Module execution
     result_module = _run_cli(["help"], python=str(venv_a))
 
-    if result_console.returncode != 0:
-        pytest.skip(f"console script not available: {result_console.stderr[:300]}")
-
-    assert result_module.returncode == 0
+    assert result_console.returncode == 0, result_console.stderr
+    assert result_module.returncode == 0, result_module.stderr
 
     fp_console = _extract_fingerprint(result_console.stdout)
     fp_module = _extract_fingerprint(result_module.stdout)
@@ -348,10 +241,7 @@ def test_bootstrap_only_rejection_matches_across_console_and_module(venv_a: Path
     result_console = _run_console(["help", "analysis", "observe"], bin_dir=bin_dir)
     result_module = _run_cli(["help", "analysis", "observe"], python=str(venv_a))
 
-    if result_console.returncode != 0:
-        pytest.skip(f"console script not available: {result_console.stderr[:300]}")
-
-    assert result_module.returncode == 2
-    assert result_console.returncode == 2
+    assert result_module.returncode == 2, result_module.stdout
+    assert result_console.returncode == 2, result_console.stdout
 
     assert result_console.stderr.rstrip("\n") == result_module.stderr.rstrip("\n")

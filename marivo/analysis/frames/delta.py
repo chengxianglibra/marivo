@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import ConfigDict, Field, model_validator
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
+from marivo.analysis._cumulative import (
+    BASELINE_EVALUATION_END_COLUMN,
+    CURRENT_EVALUATION_END_COLUMN,
+)
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.attribution_contract import (
     AttributeAdmissionV1,
@@ -307,6 +312,22 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
     )
 
 
+class AllHistoryLevelChangeV1(BaseModel):
+    """Versioned meaning marker for an observed all-history level difference."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    schema_: Literal["all-history-level-change/v1"] = Field(
+        default="all-history-level-change/v1",
+        alias="schema",
+        serialization_alias="schema",
+    )
+
+    @model_serializer(mode="plain")
+    def _serialize_marker(self) -> dict[str, str]:
+        return {"schema": self.schema_}
+
+
 class DeltaFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
@@ -335,6 +356,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     aggregation: str | None = None
     status_time_dimension: str | None = Field(default=None, exclude=True)
     cumulative: dict[str, Any] | None = None
+    cumulative_change: AllHistoryLevelChangeV1 | None = None
     rollup_fold: Literal["last"] | None = None
     attribution_basis: AttributionBasisV1 | None = None
 
@@ -580,6 +602,24 @@ class DeltaFrame(BaseFrame):
             return None
         return to_date
 
+    def _cumulative_endpoint_order(self) -> Literal["forward", "reverse", "same", "mixed"]:
+        """Compute direction from the exact persisted endpoint coordinates."""
+
+        current = pd.to_datetime(self._df[CURRENT_EVALUATION_END_COLUMN], utc=True, errors="raise")
+        baseline = pd.to_datetime(
+            self._df[BASELINE_EVALUATION_END_COLUMN], utc=True, errors="raise"
+        )
+        directions = {
+            "forward" if left > right else "reverse" if left < right else "same"
+            for left, right in zip(current, baseline, strict=True)
+        }
+        if len(directions) == 1:
+            return cast(
+                "Literal['forward', 'reverse', 'same', 'mixed']",
+                next(iter(directions)),
+            )
+        return "mixed"
+
     def _card(self) -> Card:
         if self.meta.semantic_kind == "funnel":
             meta = self.meta
@@ -601,6 +641,31 @@ class DeltaFrame(BaseFrame):
                 )
             )
         card = self._base_card()
+        if self.meta.cumulative_change is not None:
+            pair_info = self.meta.alignment.get("cumulative_pairs", {})
+            card.field(
+                "cumulative_change",
+                "all_history observed_level_difference "
+                f"endpoint_order={self._cumulative_endpoint_order()}",
+            )
+            card.field(
+                "caveat",
+                "source revision unverified; interval-flow equivalence not asserted",
+            )
+            card.field(
+                "endpoints",
+                "columns=current_evaluation_end,baseline_evaluation_end",
+            )
+            card.field(
+                "alignment",
+                (
+                    f"matched_rows={pair_info.get('matched_rows')} "
+                    f"matched_null_rows={pair_info.get('matched_null_rows')} "
+                    f"current_unpaired_rows={pair_info.get('current_unpaired_rows')} "
+                    f"baseline_unpaired_rows={pair_info.get('baseline_unpaired_rows')} "
+                    f"action={pair_info.get('unpaired_action')}"
+                ),
+            )
         admission = _attribute_admission(self.meta)
         precondition = _attribution_contract_precondition(self.meta)
         if admission.status == "supported" and _supports_component_attribution(self.meta):

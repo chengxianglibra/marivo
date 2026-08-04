@@ -621,6 +621,14 @@ def test_compare_help_explains_cumulative_component_compatibility() -> None:
     assert "trailing" in text
     assert "grain_to_date" in text
     assert "all_history" in text
+    assert "current_evaluation_end" in text
+    assert "baseline_evaluation_end" in text
+    assert "delta.show()" in text
+    assert "delta.contract()" in text
+    assert "exc.expected" in text
+    assert "exc.received" in text
+    assert "exc.repair.action" in text
+    assert "Requires from prerequisites or the preceding example: AnalysisError" not in text
 
 
 def test_attribute_help_explains_cumulative_hard_gate() -> None:

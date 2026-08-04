@@ -16,6 +16,7 @@ from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
     AnalysisError,
+    AnalysisRepair,
     AxisNotInPanelDimensionsError,
     CumulativeFrameUnsupportedError,
     MetricArityError,
@@ -24,6 +25,7 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.validation import ValidationIssue
+from marivo.introspection.live.model import LiveHelpTarget
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -104,7 +106,7 @@ def cumulative_compare_issue(
     Returns a teaching error when the compare must be rejected, or None when the
     anchor's compare path is allowed:
 
-    - ``all_history``: rejected (existing class; hint names the base ref).
+    - ``all_history``: allowed when both markers resolve to that exact anchor.
     - ``trailing``: allowed iff both frames' anchor payloads match exactly.
     - ``grain_to_date``: allowed via :func:`_grain_to_date_compare_validations`.
     - incompatible derived wrappers and malformed markers: rejected.
@@ -116,7 +118,16 @@ def cumulative_compare_issue(
     if cur_cum is None or base_cum is None:
         return AnalysisError(
             message="compare requires both frames to share cumulative metadata state.",
-            hint="Re-observe both frames from the same metric contract before comparing.",
+            expected="cumulative metadata present on both frames or absent on both",
+            received=(
+                f"current_present={cur_cum is not None}, baseline_present={base_cum is not None}"
+            ),
+            location="session.compare",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Re-observe both frames from the same metric contract before comparing.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
             context={
                 "kind": "CumulativeMarkerPresenceMismatch",
                 "current_cumulative": cur_cum,
@@ -126,7 +137,14 @@ def cumulative_compare_issue(
     if cur_cum.get("kind") != base_cum.get("kind"):
         return AnalysisError(
             message="compare requires both frames to share the same cumulative marker kind.",
-            hint="Re-observe both frames from the same metric contract before comparing.",
+            expected=repr(cur_cum.get("kind")),
+            received=repr(base_cum.get("kind")),
+            location="session.compare",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Re-observe both frames from the same metric contract before comparing.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
             context={
                 "kind": "CumulativeMarkerKindMismatch",
                 "current_kind": cur_cum.get("kind"),
@@ -141,29 +159,27 @@ def cumulative_compare_issue(
             metric_id=current.meta.metric_id,
             cumulative=cur_cum,
         )
-    if anchor == "all_history":
-        return CumulativeFrameUnsupportedError(
-            intent="compare",
-            frame_ref=current.ref,
-            metric_id=current.meta.metric_id,
-            cumulative=cur_cum,
+    base_anchor = cumulative_compare_anchor(base_cum)
+    if base_anchor != anchor:
+        return AnalysisError(
+            message="compare requires both cumulative frames to share the same anchor.",
+            expected=repr(anchor),
+            received=repr(base_anchor),
+            location="session.compare",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=("Re-observe both frames from one cumulative metric with the same anchor."),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+            context={
+                "kind": "CumulativeAnchorMismatch",
+                "current_anchor": anchor,
+                "baseline_anchor": base_anchor,
+            },
         )
+    if anchor == "all_history":
+        return None
     if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
-        # Allowed iff both frames' anchor payloads match exactly.
-        base_anchor = cumulative_compare_anchor(base_cum)
-        if base_anchor != anchor:
-            return AnalysisError(
-                message=(
-                    "compare(trailing) requires both frames to share the same "
-                    "trailing anchor payload."
-                ),
-                hint=f"Observe the baseline with the same anchor {anchor!r}.",
-                context={
-                    "kind": "TrailingAnchorMismatch",
-                    "current_anchor": anchor,
-                    "baseline_anchor": base_anchor,
-                },
-            )
         return None
     if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
         return _grain_to_date_compare_validations(
