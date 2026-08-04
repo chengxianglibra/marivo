@@ -16,6 +16,11 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+from marivo.analysis._cumulative import (
+    BASELINE_EVALUATION_END_COLUMN,
+    CURRENT_EVALUATION_END_COLUMN,
+    EVALUATION_END_COLUMN,
+)
 from marivo.analysis._semantic_persistence import (
     AxisBindingV1,
     SlicePredicateV1,
@@ -746,7 +751,17 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
 def _rollup_measure_columns(
     frame: TransformFrame, df: pd.DataFrame, axis_columns: set[str]
 ) -> list[str]:
-    measure_columns = [column for column in df.columns if column not in axis_columns]
+    measure_columns = [
+        column
+        for column in df.columns
+        if column not in axis_columns
+        and column
+        not in {
+            EVALUATION_END_COLUMN,
+            CURRENT_EVALUATION_END_COLUMN,
+            BASELINE_EVALUATION_END_COLUMN,
+        }
+    ]
     if not isinstance(frame, DeltaFrame):
         return measure_columns
     return [
@@ -1743,8 +1758,33 @@ def _op_rollup(
             context={"op": "rollup", "axes": axes},
         )
 
+    evaluation_columns = [
+        column
+        for column in (
+            EVALUATION_END_COLUMN,
+            CURRENT_EVALUATION_END_COLUMN,
+            BASELINE_EVALUATION_END_COLUMN,
+        )
+        if column in df.columns
+    ]
+    if evaluation_columns:
+        distinct_cutoffs = df.groupby(remaining_axis_columns, dropna=False)[
+            evaluation_columns
+        ].nunique(dropna=False)
+        if (distinct_cutoffs > 1).any(axis=None):
+            raise TransformShapeUnsupportedError(
+                message="transform(op='rollup') cannot combine rows with different evaluation cutoffs",
+                hint="Keep the time axis, or roll up to a grain that selects one complete last row.",
+                context={
+                    "op": "rollup",
+                    "reason": "cumulative_evaluation_coordinates_differ",
+                    "frame_ref": frame.ref,
+                    "evaluation_columns": evaluation_columns,
+                },
+            )
+    group_columns = [*remaining_axis_columns, *evaluation_columns]
     new_df = (
-        df.groupby(remaining_axis_columns, as_index=False, dropna=False)[measure_columns]
+        df.groupby(group_columns, as_index=False, dropna=False)[measure_columns]
         .sum(min_count=1)
         .reset_index(drop=True)
     )
@@ -1955,16 +1995,16 @@ def _op_rollup_grain(
     group_keys = [*dims, "_target_period"]
 
     if rollup_fold == "last":
+        # Select one complete source row per target period. DataFrameGroupBy.last
+        # selects the last non-null value independently per column and can splice
+        # together values from different cumulative cutoffs.
         new_df = (
             df.sort_values([*dims, time_col])
-            .groupby(group_keys, as_index=False, dropna=False)
-            .last()
-            .drop(columns=["_target_period"])
+            .groupby(group_keys, dropna=False, sort=False)
+            .tail(1)
+            .reset_index(drop=True)
         )
-        # Restore the time column name as the period-start bucket. The .last()
-        # above keeps the original time_col values; replace with the period
-        # start so the rolled frame's time axis is the target grain.
-        new_df[time_col] = _trunc_to_grain_tz(new_df[time_col], grain).values
+        new_df[time_col] = new_df.pop("_target_period")
         fold_meta: dict[str, Any] = {"rollup_fold": "last"}
     else:
         axis_columns = set(_axis_columns_by_id(_frame_axes(frame)).values())

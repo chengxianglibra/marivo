@@ -13,7 +13,12 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-from marivo.analysis._cumulative import cumulative_compare_anchor
+from marivo.analysis._cumulative import (
+    BASELINE_EVALUATION_END_COLUMN,
+    CURRENT_EVALUATION_END_COLUMN,
+    EVALUATION_END_COLUMN,
+    cumulative_compare_anchor,
+)
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.attribution_contract import basis_fingerprint
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
@@ -23,6 +28,7 @@ from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_c
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
+    AnalysisError,
     AnalysisRepair,
     AttributionBasisMismatchError,
     CalendarPolicyError,
@@ -49,6 +55,7 @@ from marivo.analysis.frames.component import (
     resolve_role_columns,
 )
 from marivo.analysis.frames.delta import (
+    AllHistoryLevelChangeV1,
     DeltaFrame,
     DeltaFrameMeta,
     _compatible_metric_semantics,
@@ -100,6 +107,8 @@ _COMPARE_RESULT_PROTOCOL_COLUMNS = frozenset(
         "pct_change",
         PCT_CHANGE_STATUS_COLUMN,
         PRESENCE_STATUS_COLUMN,
+        CURRENT_EVALUATION_END_COLUMN,
+        BASELINE_EVALUATION_END_COLUMN,
     }
 )
 
@@ -124,9 +133,7 @@ def _validate_compare_protocol_columns(
         # Panel ordinal alignment also emits a paired baseline bucket column;
         # a dimension/time column matching either name must be rejected too.
         reserved_columns.add(f"{time_column}_b")
-    conflicting_columns = [
-        column for column in columns if column in reserved_columns
-    ]
+    conflicting_columns = [column for column in columns if column in reserved_columns]
     if not conflicting_columns:
         return
     raise SemanticKindMismatchError(
@@ -595,8 +602,57 @@ def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
             "delta",
             "pct_change",
             PCT_CHANGE_STATUS_COLUMN,
+            CURRENT_EVALUATION_END_COLUMN,
+            BASELINE_EVALUATION_END_COLUMN,
         }
     ]
+
+
+def _restrict_component_to_parent_pairs(
+    component: pd.DataFrame,
+    parent: pd.DataFrame,
+) -> pd.DataFrame:
+    """Apply the parent's already-materialized business-coordinate pair set."""
+
+    parent_keys = _aligned_key_columns(parent)
+    component_keys = _aligned_key_columns(component)
+    # Component alignment can retain the baseline-side coordinate (for example
+    # ``bucket_start_b``) even after the parent all-history pair finalization
+    # keeps only the canonical current coordinate.  The parent keys are the
+    # authoritative pair contract; extra component coordinates are safe to
+    # carry through the restricted component frame.
+    if not set(parent_keys).issubset(component_keys):
+        raise ComponentFrameMismatchError(
+            message="component alignment does not match the parent pair-key contract",
+            context={
+                "expected_key_columns": parent_keys,
+                "received_key_columns": component_keys,
+            },
+        )
+    if not parent_keys:
+        if len(parent) != len(component):
+            raise ComponentFrameMismatchError(
+                message="scalar component alignment does not match the parent pair count",
+                context={"parent_rows": len(parent), "component_rows": len(component)},
+            )
+        return component.reset_index(drop=True)
+    parent_pair_keys = parent[parent_keys].drop_duplicates().reset_index(drop=True)
+    restricted = pd.merge(
+        parent_pair_keys,
+        component,
+        on=parent_keys,
+        how="inner",
+        validate="one_to_one",
+    )
+    if len(restricted) != len(parent_pair_keys):
+        raise ComponentFrameMismatchError(
+            message="component alignment is missing a canonical parent pair key",
+            context={
+                "parent_pair_rows": len(parent_pair_keys),
+                "component_pair_rows": len(restricted),
+            },
+        )
+    return restricted
 
 
 def _align_component_frames(
@@ -789,6 +845,215 @@ def _drop_unpaired_grain_to_date_rows(
     return df.loc[paired].reset_index(drop=True)
 
 
+def _evaluation_frame(frame: MetricFrame, *, label: str) -> pd.DataFrame:
+    """Return source rows with a validated, timezone-aware UTC cutoff column."""
+
+    source = frame._dataframe_copy()
+    if EVALUATION_END_COLUMN not in source.columns:
+        raise AnalysisError(
+            message=f"all-history compare input '{label}' is missing evaluation_end",
+            expected="every cumulative row to carry timezone-aware evaluation_end",
+            received=f"columns={list(source.columns)!r}",
+            location=f"session.compare.{label}",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=f"Re-observe the {label} cumulative frame under the current contract.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+            context={
+                "kind": "CumulativeEvaluationEndMissing",
+                "frame": label,
+                "frame_ref": frame.ref,
+            },
+        )
+    normalized: list[pd.Timestamp] = []
+    for row_index, value in enumerate(source[EVALUATION_END_COLUMN]):
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError) as exc:
+            raise AnalysisError(
+                message=f"all-history compare input '{label}' has invalid evaluation_end",
+                expected="a timezone-aware timestamp on every row",
+                received=f"row={row_index}, value={value!r}",
+                location=f"session.compare.{label}",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=f"Re-observe the {label} cumulative frame under the current contract.",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                ),
+                context={"kind": "CumulativeEvaluationEndInvalid", "frame": label},
+            ) from exc
+        if pd.isna(timestamp) or timestamp.tzinfo is None:
+            raise AnalysisError(
+                message=f"all-history compare input '{label}' has invalid evaluation_end",
+                expected="a non-null timezone-aware timestamp on every row",
+                received=f"row={row_index}, value={value!r}",
+                location=f"session.compare.{label}",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=f"Re-observe the {label} cumulative frame under the current contract.",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                ),
+                context={"kind": "CumulativeEvaluationEndInvalid", "frame": label},
+            )
+        normalized.append(timestamp.tz_convert("UTC"))
+    source[EVALUATION_END_COLUMN] = pd.Series(
+        normalized,
+        index=source.index,
+        dtype="datetime64[ns, UTC]",
+    )
+    return source
+
+
+def _attach_endpoint_side(
+    result: pd.DataFrame,
+    source_frame: MetricFrame,
+    source: pd.DataFrame,
+    *,
+    result_time_column: str | None,
+    endpoint_column: str,
+    calendar_aligned: bool,
+    report_tz: str,
+) -> pd.DataFrame:
+    dimensions = _dimension_columns(source_frame)
+    source_keys = list(dimensions)
+    result_keys = list(dimensions)
+    temporary_time_key: str | None = None
+    if source_frame.meta.semantic_kind in {"time_series", "panel"}:
+        source_time_column = _time_axis_column(source_frame)
+        if result_time_column is None or result_time_column not in result.columns:
+            raise AlignmentFailedError(
+                message="all-history compare alignment lost a paired time coordinate",
+                context={
+                    "kind": "CumulativeAlignedTimeMissing",
+                    "result_time_column": result_time_column,
+                },
+            )
+        source = source.copy()
+        output = result.copy()
+        temporary_time_key = f"__{endpoint_column}_time_key"
+        if calendar_aligned:
+            source[temporary_time_key] = _local_dates(
+                source[source_time_column], report_tz=report_tz
+            ).map(lambda value: value.isoformat())
+            output[temporary_time_key] = output[result_time_column].map(
+                lambda value: str(value) if pd.notna(value) else None
+            )
+        else:
+            source[temporary_time_key] = source[source_time_column].map(
+                lambda value: pd.Timestamp(value).isoformat() if pd.notna(value) else None
+            )
+            output[temporary_time_key] = output[result_time_column].map(
+                lambda value: pd.Timestamp(value).isoformat() if pd.notna(value) else None
+            )
+        source_keys.append(temporary_time_key)
+        result_keys.append(temporary_time_key)
+    else:
+        output = result
+    if not source_keys:
+        if len(source) != 1:
+            raise AlignmentFailedError(
+                message="all-history scalar compare requires exactly one row per frame",
+                context={"kind": "ScalarCompareRequiresSingleRow", "rows": len(source)},
+            )
+        output = result.copy()
+        output[endpoint_column] = source[EVALUATION_END_COLUMN].iloc[0]
+        return output
+
+    lookup = source[[*source_keys, EVALUATION_END_COLUMN]].rename(
+        columns={
+            **dict(zip(source_keys, result_keys, strict=True)),
+            EVALUATION_END_COLUMN: endpoint_column,
+        }
+    )
+    if lookup.duplicated(result_keys).any():
+        raise AlignmentFailedError(
+            message="all-history compare requires unique business coordinates",
+            context={"kind": "CumulativeEvaluationCoordinateDuplicate", "keys": result_keys},
+        )
+    merged = pd.merge(output, lookup, on=result_keys, how="left", validate="many_to_one")
+    if temporary_time_key is not None:
+        merged = merged.drop(columns=[temporary_time_key])
+    return merged
+
+
+def _finalize_all_history_pairs(
+    df: pd.DataFrame,
+    current: MetricFrame,
+    baseline: MetricFrame,
+    *,
+    alignment: AlignmentPolicy,
+    report_tz: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Attach exact cutoffs and retain only coordinates observed on both sides."""
+
+    current_source = _evaluation_frame(current, label="current")
+    baseline_source = _evaluation_frame(baseline, label="baseline")
+    current_time_column: str | None = None
+    baseline_time_column: str | None = None
+    calendar_aligned = alignment.kind != "window_bucket"
+    if current.meta.semantic_kind in {"time_series", "panel"}:
+        time_column = _time_axis_column(current)
+        if calendar_aligned:
+            current_time_column = "bucket_start_a"
+            baseline_time_column = "bucket_start_b"
+        else:
+            current_time_column = time_column
+            baseline_candidate = f"{time_column}_b"
+            baseline_time_column = (
+                baseline_candidate if baseline_candidate in df.columns else time_column
+            )
+    paired = _attach_endpoint_side(
+        df,
+        current,
+        current_source,
+        result_time_column=current_time_column,
+        endpoint_column=CURRENT_EVALUATION_END_COLUMN,
+        calendar_aligned=calendar_aligned,
+        report_tz=report_tz,
+    )
+    paired = _attach_endpoint_side(
+        paired,
+        baseline,
+        baseline_source,
+        result_time_column=baseline_time_column,
+        endpoint_column=BASELINE_EVALUATION_END_COLUMN,
+        calendar_aligned=calendar_aligned,
+        report_tz=report_tz,
+    )
+    has_current = paired[CURRENT_EVALUATION_END_COLUMN].notna()
+    has_baseline = paired[BASELINE_EVALUATION_END_COLUMN].notna()
+    matched = has_current & has_baseline
+    retained = paired.loc[matched].reset_index(drop=True)
+    if retained.empty:
+        raise AlignmentFailedError(
+            message="all-history alignment produced no paired cumulative levels",
+            expected="at least one business coordinate present in both frames",
+            received=(
+                f"current_only={int((has_current & ~has_baseline).sum())}, "
+                f"baseline_only={int((~has_current & has_baseline).sum())}"
+            ),
+            location="session.compare.alignment",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Choose windows and dimensions with at least one shared observed coordinate.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+            context={"kind": "AllHistoryNoPairedLevels"},
+        )
+    if PRESENCE_STATUS_COLUMN in retained.columns:
+        retained[PRESENCE_STATUS_COLUMN] = "matched"
+    pair_info = {
+        "anchor": "all_history",
+        "matched_rows": len(retained),
+        "matched_null_rows": int((retained["current"].isna() | retained["baseline"].isna()).sum()),
+        "current_unpaired_rows": int((has_current & ~has_baseline).sum()),
+        "baseline_unpaired_rows": int((~has_current & has_baseline).sum()),
+        "unpaired_action": "dropped",
+    }
+    return retained, pair_info
+
+
 def compare(
     current: MetricFrame,
     baseline: MetricFrame,
@@ -851,6 +1116,7 @@ def compare(
     calendar_info: dict[str, Any] | None = None
     segment_info: dict[str, Any] | None = None
     window_info: dict[str, Any] | None = None
+    cumulative_pairs: dict[str, Any] | None = None
     if current.meta.semantic_kind == "segmented":
         df, segment_info = _align_segmented(current, baseline)
     elif current.meta.semantic_kind == "panel":
@@ -879,6 +1145,11 @@ def compare(
                         "baseline_rows": len(baseline_df),
                     },
                 )
+            if current.meta.semantic_kind == "scalar":
+                current_value = _value_column(current, current_df, time_column="")
+                baseline_value = _value_column(baseline, baseline_df, time_column="")
+                current_df = current_df[[current_value]]
+                baseline_df = baseline_df[[baseline_value]]
             df = _align_and_compute(current_df, baseline_df)
     else:
         calendar_ref = alignment.calendar
@@ -928,6 +1199,15 @@ def compare(
         )
         calendar_info = info.model_dump(mode="json")
     df = _drop_unpaired_grain_to_date_rows(df, current)
+    cur_cumulative_anchor = cumulative_compare_anchor(current.meta.cumulative)
+    if cur_cumulative_anchor == "all_history":
+        df, cumulative_pairs = _finalize_all_history_pairs(
+            df,
+            current,
+            baseline,
+            alignment=alignment,
+            report_tz=session.report_tz_name,
+        )
     if df.empty:
         raise AlignmentFailedError(message=f"alignment '{alignment.kind}' produced no rows")
     finished_at = datetime.now(UTC)
@@ -943,6 +1223,8 @@ def compare(
         alignment_dump["coverage"] = window_info
     if segment_info is not None:
         alignment_dump["segment_info"] = segment_info
+    if cumulative_pairs is not None:
+        alignment_dump["cumulative_pairs"] = cumulative_pairs
     if current.meta.semantic_kind in {"segmented", "panel", "time_series"}:
         alignment_dump["axes"] = current.meta.axes
     additivity, aggregation, status_time_dimension = _compatible_metric_semantics(
@@ -963,6 +1245,9 @@ def compare(
     # become matched_buckets, baseline_unpaired_buckets become the tail.
     cur_cumulative = current.meta.cumulative
     cur_cumulative_anchor = cumulative_compare_anchor(cur_cumulative)
+    cumulative_change = (
+        AllHistoryLevelChangeV1() if cur_cumulative_anchor == "all_history" else None
+    )
     if (
         cur_cumulative is not None
         and isinstance(cur_cumulative_anchor, tuple)
@@ -987,6 +1272,9 @@ def compare(
         ),
         "attribution_basis": (
             attribution_basis.model_dump(mode="json") if attribution_basis is not None else None
+        ),
+        "cumulative_change": (
+            cumulative_change.model_dump(mode="json") if cumulative_change is not None else None
         ),
     }
     assert current.meta.metric_id is not None
@@ -1061,6 +1349,8 @@ def compare(
             session=session,
         )
         comp_df = _drop_unpaired_grain_to_date_rows(comp_df, current)
+        if cur_cumulative_anchor == "all_history":
+            comp_df = _restrict_component_to_parent_pairs(comp_df, df)
         delta_component = _build_delta_component_frame(
             session,
             comp_df,
@@ -1130,6 +1420,7 @@ def compare(
         additivity=additivity,
         aggregation=aggregation,
         cumulative=cur_cumulative,
+        cumulative_change=cumulative_change,
         component_ref=delta_component.ref if delta_component is not None else None,
         attribution_basis=attribution_basis,
     )
@@ -1517,7 +1808,11 @@ def _value_column(frame: MetricFrame, df: pd.DataFrame, *, time_column: str) -> 
     # Canonical "value" column (current frames) takes priority.
     if "value" in df.columns and time_column != "value":
         return "value"
-    non_time_columns = [str(column) for column in df.columns if str(column) != time_column]
+    non_time_columns = [
+        str(column)
+        for column in df.columns
+        if str(column) not in {time_column, EVALUATION_END_COLUMN}
+    ]
     measure_name = frame.meta.measure.get("name")
     if (
         isinstance(measure_name, str)
@@ -1558,7 +1853,11 @@ def _value_column_segmented(frame: MetricFrame, df: pd.DataFrame, *, dim_columns
     # Canonical "value" column (current frames) takes priority.
     if "value" in df.columns and "value" not in dim_columns:
         return "value"
-    non_dimension_columns = [str(column) for column in df.columns if str(column) not in dim_columns]
+    non_dimension_columns = [
+        str(column)
+        for column in df.columns
+        if str(column) not in {*dim_columns, EVALUATION_END_COLUMN}
+    ]
     measure_name = frame.meta.measure.get("name")
     if (
         isinstance(measure_name, str)

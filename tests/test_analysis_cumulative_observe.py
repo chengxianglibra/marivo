@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
+from marivo.analysis._cumulative import EVALUATION_END_COLUMN
 from marivo.analysis.errors import CumulativeFrameUnsupportedError
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.attribute import attribute
@@ -104,7 +105,9 @@ def _session(tmp_path, monkeypatch):
     _bootstrap_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return session_attach.get_or_create(name="cum", backends={"warehouse": lambda: con})
+    return session_attach.get_or_create(
+        name="cum", backends={"warehouse": lambda: con}, report_timezone="UTC"
+    )
 
 
 def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
@@ -134,7 +137,7 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "aggregation": None,
         "status_time_dimension_ref": None,
     }
-    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 2
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 3
     legacy_params = dict(frame.lineage.steps[-1].params)
     legacy_params.pop("cumulative_contract_version")
     legacy_params.pop("metric_semantics")
@@ -152,6 +155,11 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "2026-07-04": pytest.approx(45.0),
         "2026-07-05": pytest.approx(56.0),
     }
+    assert df[EVALUATION_END_COLUMN].dt.tz is not None
+    expected_endpoints = pd.date_range(
+        "2026-07-02", "2026-07-06", freq="D", tz=session.report_tz_name
+    ).tz_convert("UTC")
+    assert df[EVALUATION_END_COLUMN].tolist() == expected_endpoints.tolist()
 
 
 def test_cumulative_weighted_mean_accumulates_components_before_dividing(
@@ -221,6 +229,30 @@ def test_cumulative_count_distinct_uses_first_seen_not_bucket_sum(tmp_path, monk
     }
 
 
+def test_all_history_count_distinct_compare_is_labeled_as_level_change(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = observe(
+        make_ref("sales.cum_active_users", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        session=session,
+    )
+    baseline = observe(
+        make_ref("sales.cum_active_users", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        session=session,
+    )
+
+    delta = compare(current, baseline, session=session)
+    rendered = delta.render().lower()
+
+    assert delta.to_pandas()["delta"].iloc[0] == pytest.approx(1.0)
+    assert "observed_level_difference" in rendered
+    assert "interval-flow equivalence not asserted" in rendered
+    assert "interval distinct" not in rendered
+
+
 def test_cumulative_panel_counts_once_per_slice(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
 
@@ -234,6 +266,8 @@ def test_cumulative_panel_counts_once_per_slice(tmp_path, monkeypatch) -> None:
 
     df = _metric_pandas(frame)
     assert frame.meta.semantic_kind == "panel"
+    assert EVALUATION_END_COLUMN in df.columns
+    assert frame.value_columns == ("cum_active_users",)
     ca = df[(df["region"] == "CA") & (df["bucket_start"].dt.date.astype(str) == "2026-07-05")]
     us = df[(df["region"] == "US") & (df["bucket_start"].dt.date.astype(str) == "2026-07-05")]
     assert ca.iloc[0]["value"] == pytest.approx(2.0)
@@ -251,6 +285,9 @@ def test_cumulative_scalar_as_of_window_end(tmp_path, monkeypatch) -> None:
 
     assert frame.meta.semantic_kind == "scalar"
     assert _metric_pandas(frame).iloc[0]["value"] == pytest.approx(45.0)
+    assert frame.to_pandas()[EVALUATION_END_COLUMN].iloc[0] == pd.Timestamp(
+        "2026-07-04", tz=session.report_tz_name
+    ).tz_convert("UTC")
 
 
 def test_cumulative_month_grain_does_not_hang(tmp_path, monkeypatch) -> None:
@@ -423,7 +460,7 @@ def test_cumulative_subday_multi_count_grain_day_anchored(tmp_path, monkeypatch)
       03:00  amount=20.0   -> SQL bucket 02:00  (before window -> baseline)
       05:00  amount= 7.0   -> SQL bucket 04:00  (in window -> flow)
 
-    Window [03:30, 08:00), grain=2h.
+    Window [03:30, 07:15), grain=2h; the final 06:00 bucket is partial.
     Baseline (all history before 03:30) = 10.0 + 20.0 = 30.0.
     Aligned start = 02:00 (day-anchored).
     Spine: 02:00, 04:00, 06:00.
@@ -433,7 +470,7 @@ def test_cumulative_subday_multi_count_grain_day_anchored(tmp_path, monkeypatch)
 
     frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01 03:30", "end": "2026-07-01 08:00"},
+        time_scope={"start": "2026-07-01 03:30", "end": "2026-07-01 07:15"},
         grain="2h",
         session=session,
     )
@@ -445,6 +482,11 @@ def test_cumulative_subday_multi_count_grain_day_anchored(tmp_path, monkeypatch)
         "04:00": pytest.approx(37.0),
         "06:00": pytest.approx(37.0),
     }
+    assert df[EVALUATION_END_COLUMN].tolist() == [
+        pd.Timestamp("2026-07-01 04:00", tz="UTC"),
+        pd.Timestamp("2026-07-01 06:00", tz="UTC"),
+        pd.Timestamp("2026-07-01 07:15", tz="UTC"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +516,8 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
     assert frame.meta.cumulative["components"]["numerator"]["over"] == "sales.events.event_time"
     assert frame.meta.cumulative["components"]["denominator"]["over"] == "sales.events.event_time"
     assert frame.meta.component_ref is not None
-    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 2
+    assert frame.value_columns == ("cum_active_rate",)
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 3
     legacy_params = dict(frame.lineage.steps[-1].params)
     legacy_params.pop("cumulative_contract_version")
     legacy_params.pop("cumulative")
@@ -488,6 +531,56 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
     assert {"bucket_start", "cum_buyers", "cum_active_users", "cum_active_rate"}.issubset(
         components.columns
     )
+    expected_endpoints = (
+        pd.date_range("2026-07-02", "2026-07-06", freq="D", tz=session.report_tz_name)
+        .tz_convert("UTC")
+        .tolist()
+    )
+    assert frame.to_pandas()[EVALUATION_END_COLUMN].tolist() == expected_endpoints
+    recovered = session.get_frame(frame.ref)
+    assert recovered.to_pandas()[EVALUATION_END_COLUMN].tolist() == expected_endpoints
+
+
+def test_derived_cumulative_partial_bucket_uses_exact_window_end(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frame = observe(
+        make_ref("sales.cum_active_rate", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-05 12:00"},
+        grain="day",
+        session=session,
+    )
+
+    expected = pd.Timestamp("2026-07-05 12:00", tz=session.report_tz_name).tz_convert("UTC")
+    assert frame.to_pandas()[EVALUATION_END_COLUMN].iloc[-1] == expected
+    assert session.get_frame(frame.ref).to_pandas()[EVALUATION_END_COLUMN].iloc[-1] == expected
+
+
+def test_all_history_derived_compare_restricts_components_to_parent_pairs(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = observe(
+        make_ref("sales.cum_active_rate", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        grain="day",
+        session=session,
+    )
+    baseline = observe(
+        make_ref("sales.cum_active_rate", SemanticKind.METRIC),
+        time_scope={"start": "2026-06-29", "end": "2026-07-03"},
+        grain="day",
+        session=session,
+    )
+
+    delta = compare(current, baseline, session=session)
+    parent = delta.to_pandas()
+    components = delta.components().to_pandas()
+
+    assert delta.meta.cumulative_change is not None
+    assert delta.meta.alignment["cumulative_pairs"]["matched_rows"] == 4
+    assert delta.meta.alignment["cumulative_pairs"]["current_unpaired_rows"] == 1
+    assert len(parent) == len(components) == 4
+    assert parent["bucket_start"].tolist() == components["bucket_start"].tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -770,7 +863,10 @@ def test_compare_mtd_ratio_over_cumulative_components_after_reload(
     compare_affordance = next(
         item for item in current.contract().affordances if item.capability_id == "compare"
     )
-    assert any("boundary" in item.reason for item in compare_affordance.preconditions)
+    assert not any(
+        item.check in {"compare_anchor_match", "compare_single_period_boundary"}
+        for item in compare_affordance.preconditions
+    )
 
     delta = compare(current, baseline, session=duckdb_session)
 

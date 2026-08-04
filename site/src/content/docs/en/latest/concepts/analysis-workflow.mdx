@@ -633,8 +633,9 @@ accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
   produce meaningful results. The monotonic-trend caveat applies only to `all_history`
   and `grain_to_date` anchors — keep it in mind when interpreting results.
 - `compare` is anchor-dispatched:
-  - `all_history`: rejected. Observe the base flow metric and compare that — a cumulative
-    delta over a window equals the base total over that window.
+  - `all_history`: allowed when both frames share the valid anchor and have paired
+    business coordinates with exact `evaluation_end` cutoffs. The result is current minus
+    baseline observed level, not asserted interval flow; source revision is unverified.
   - `trailing`: allowed when both frames share the same trailing anchor payload
     (`count`, `unit`). The windowed rolling values align ordinally.
   - `grain_to_date`: allowed for a single-period, boundary-anchored window. The window
@@ -642,16 +643,23 @@ accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
     must share the reset grain and query grain. The resulting DeltaFrame records the
     to-date alignment under `alignment_dump["to_date"]`.
 - For derived metrics, the same compare paths are allowed only when every outer component
-  is cumulative and all components share exactly one `trailing` or `grain_to_date` anchor.
-  `all_history`, mixed anchors, cumulative/non-cumulative mixes, malformed metadata, and
-  current/baseline anchor differences fail closed.
+  is cumulative and all components share exactly one anchor, including `all_history`.
+  Mixed anchors, cumulative/non-cumulative mixes, malformed metadata, and current/baseline
+  anchor differences fail closed. All-history component sidecars use the parent's exact
+  paired business-coordinate set.
 - `attribute`, `decompose`, and `forecast` reject cumulative frames regardless of anchor;
   this includes a derived cumulative DeltaFrame that compare accepted. Re-observe
   the base flow metric for those intents.
 - `transform.rollup(...)` re-aggregates cumulative frames with `rollup_fold="last"`: the
-  time axis is re-bucketed to the target `grain` and each period contributes its last
-  bucket (the period-end value). Frames that are neither re-aggregatable nor carrying a
-  `rollup_fold` are rejected — re-observe at the target grain instead.
+  time axis is re-bucketed to the target `grain` and each period contributes its complete
+  last row, including `evaluation_end`. Frames that are neither re-aggregatable nor
+  carrying a `rollup_fold` are rejected — re-observe at the target grain instead.
+
+Every direct or structurally complete derived cumulative row carries the reserved,
+UTC-serialized `evaluation_end` coordinate. For all-history deltas, inspect the exact
+`current_evaluation_end` and `baseline_evaluation_end` columns. One-sided coordinates are
+dropped and counted in `delta.meta.alignment["cumulative_pairs"]`; a matched null remains
+paired and produces a null delta.
 
 ```python
 cum_frame = session.observe(

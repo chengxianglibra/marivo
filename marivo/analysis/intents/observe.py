@@ -7,11 +7,14 @@ from datetime import UTC, datetime
 from time import monotonic
 from types import SimpleNamespace
 from typing import Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from marivo.analysis._cumulative import (
     CUMULATIVE_CONTRACT_VERSION,
+    EVALUATION_END_COLUMN,
+    cumulative_has_evaluation_contract,
     normalize_cumulative_anchor,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
@@ -22,6 +25,7 @@ from marivo.analysis.attribution_contract import (
 )
 from marivo.analysis.candidate_lineage import CandidateOrigin
 from marivo.analysis.errors import (
+    AnalysisError,
     AnalysisRepair,
     SemanticKindMismatchError,
     SliceEmptyResultError,
@@ -588,6 +592,138 @@ def _cumulative_graph_marker(
     }
 
 
+def _evaluation_timestamp_utc(value: object, *, report_tz: str) -> pd.Timestamp:
+    """Interpret a cumulative cutoff in report time and serialize it in UTC."""
+
+    timestamp = pd.Timestamp(cast("Any", value))
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(ZoneInfo(report_tz))
+    return timestamp.tz_convert("UTC")
+
+
+def _bucket_evaluation_end_utc(
+    value: object,
+    *,
+    grain: Any,
+    report_tz: str,
+) -> pd.Timestamp:
+    """Return one represented bucket's exclusive end in canonical UTC."""
+
+    timestamp = pd.Timestamp(cast("Any", value))
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(ZoneInfo(report_tz)).tz_localize(None)
+    unit = grain.unit
+    count = grain.count
+    if unit == "second":
+        exclusive_end = timestamp + pd.Timedelta(seconds=count)
+    elif unit == "minute":
+        exclusive_end = timestamp + pd.Timedelta(minutes=count)
+    elif unit == "hour":
+        exclusive_end = timestamp + pd.Timedelta(hours=count)
+    elif unit == "day":
+        exclusive_end = timestamp + pd.DateOffset(days=count)
+    elif unit == "week":
+        exclusive_end = timestamp + pd.DateOffset(weeks=count)
+    elif unit == "month":
+        exclusive_end = timestamp + pd.DateOffset(months=count)
+    elif unit == "quarter":
+        exclusive_end = timestamp + pd.DateOffset(months=3 * count)
+    elif unit == "year":
+        exclusive_end = timestamp + pd.DateOffset(years=count)
+    else:  # pragma: no cover - Grain validates the closed unit set.
+        raise ValueError(f"unsupported cumulative evaluation grain {unit!r}")
+    return _evaluation_timestamp_utc(exclusive_end, report_tz=report_tz)
+
+
+def _materialize_cumulative_evaluation_end(
+    df: pd.DataFrame,
+    *,
+    cumulative: dict[str, Any] | None,
+    axes: dict[str, Any],
+    semantic_kind: str,
+    resolved_window: Any | None,
+    report_tz: str,
+) -> pd.DataFrame:
+    """Attach the system-owned cutoff coordinate to complete cumulative rows."""
+
+    if EVALUATION_END_COLUMN in df.columns:
+        raise SemanticKindMismatchError(
+            message="observe output collides with the reserved evaluation_end column",
+            expected="metric and axis output columns outside the system-owned namespace",
+            received=EVALUATION_END_COLUMN,
+            location="session.observe output",
+            repair=AnalysisRepair(
+                kind="semantic_authoring",
+                action=(
+                    "Rename the metric or axis output named 'evaluation_end', reload the "
+                    "catalog, and re-observe."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
+            context={"kind": "ObserveReservedColumnCollision"},
+        )
+    if not cumulative_has_evaluation_contract(cumulative):
+        return df
+    if resolved_window is None:
+        raise AnalysisError(
+            message="cumulative observation requires an evaluation window",
+            expected="a resolved observation window with an exclusive end",
+            received="no resolved observation window",
+            location="session.observe",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Re-observe the cumulative metric with an explicit time_scope.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
+            context={"kind": "CumulativeEvaluationWindowMissing"},
+        )
+    window_end = _evaluation_timestamp_utc(resolved_window.end, report_tz=report_tz)
+    output = df.copy()
+    if semantic_kind in {"scalar", "segmented"}:
+        output[EVALUATION_END_COLUMN] = pd.Series(
+            [window_end] * len(output),
+            index=output.index,
+            dtype="datetime64[ns, UTC]",
+        )
+        return output
+
+    time_column = next(
+        (
+            axis.get("column")
+            for axis in axes.values()
+            if isinstance(axis, dict) and axis.get("role") == "time"
+        ),
+        None,
+    )
+    grain = resolved_window.grain
+    if not isinstance(time_column, str) or time_column not in output.columns or grain is None:
+        raise AnalysisError(
+            message="cumulative time-shaped observation cannot derive evaluation_end",
+            expected="a persisted time axis and resolved grain",
+            received=f"time_column={time_column!r}, grain={grain!r}",
+            location="session.observe",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Re-observe with an explicit time_dimension and grain.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
+            context={"kind": "CumulativeEvaluationAxisMissing"},
+        )
+    evaluation_ends = [
+        min(
+            _bucket_evaluation_end_utc(value, grain=grain, report_tz=report_tz),
+            window_end,
+        )
+        for value in output[time_column]
+    ]
+    output[EVALUATION_END_COLUMN] = pd.Series(
+        evaluation_ends,
+        index=output.index,
+        dtype="datetime64[ns, UTC]",
+    )
+    return output
+
+
 def observe(
     metrics: (
         _SemanticInput[MetricKind]
@@ -943,6 +1079,8 @@ def observe(
             if cumulative_meta is not None:
                 params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
                 params["cumulative"] = cumulative_meta
+                if cumulative_has_evaluation_contract(cumulative_meta):
+                    params["evaluation_end_column"] = EVALUATION_END_COLUMN
             if any(isinstance(node, RatioNodeV1) for node in graph_nodes.values()):
                 params["zero_division"] = "null"
             anchor_time_ref = _status_time_dimension_payload(planner_time_dimension_id)
@@ -1049,6 +1187,14 @@ def observe(
         frame_ref = prospective_id
         job_ref = _gen_ref("job")
         root_execution = graph_execution.roots[0]
+        materialized_frame = _materialize_cumulative_evaluation_end(
+            root_execution.frame,
+            cumulative=cumulative_meta,
+            axes=root_execution.axes,
+            semantic_kind=root_execution.semantic_kind,
+            resolved_window=resolved_window,
+            report_tz=session.report_tz_name,
+        )
         folded_leaves = [
             leaf
             for leaf in graph_plan.leaves
@@ -1106,7 +1252,7 @@ def observe(
         key_fields = tuple(
             MetricKeyFieldV1(
                 name=column,
-                dtype=str(root_execution.frame[column].dtype),
+                dtype=str(materialized_frame[column].dtype),
                 # Key nullability is a stable contract, not a fact inferred
                 # from one observed window.  Composite outer alignment and
                 # nullable source dimensions can both produce null keys even
@@ -1189,7 +1335,7 @@ def observe(
             produced_by_job=job_ref,
             analysis_purpose=analysis_purpose,
             created_at=finished_at,
-            row_count=len(root_execution.frame),
+            row_count=len(materialized_frame),
             byte_size=0,
             lineage=Lineage(
                 steps=[
@@ -1245,16 +1391,12 @@ def observe(
             cumulative=cumulative_meta,
             zero_denominator_rows=root_execution.quality.zero_division_rows,
             cohort=resolved_cohort.binding if resolved_cohort is not None else None,
-            rollup_fold=(
-                "last"
-                if cumulative_meta is not None and cumulative_meta["kind"] == "cumulative"
-                else None
-            ),
+            rollup_fold=("last" if cumulative_has_evaluation_contract(cumulative_meta) else None),
             quantile_mode=quantile_mode,
             quantile_method=quantile_method,
             attribution_basis=attribution_basis,
         )
-        frame = MetricFrame(_df=root_execution.frame, meta=meta)
+        frame = MetricFrame(_df=materialized_frame, meta=meta)
         frame.meta = frame.meta.model_copy(
             update={"issues": _unit_capability_issues(frame, root_execution)}
         )
@@ -1462,10 +1604,7 @@ def _forest_output_columns(
     for name in requested:
         if name in reserved_columns:
             raise SemanticKindMismatchError(
-                message=(
-                    "observe metric output label conflicts with an axis "
-                    f"column: {name!r}"
-                ),
+                message=(f"observe metric output label conflicts with an axis column: {name!r}"),
                 expected="a metric label outside the observe output reserved namespace",
                 received=repr(name),
                 location="session.observe metrics",
@@ -1707,13 +1846,12 @@ def _observe_metric_forest(
     axis_columns = frozenset(
         axis_column
         for axis in execution.roots[0].axes.values()
-        if isinstance(axis, dict)
-        and isinstance((axis_column := axis.get("column")), str)
+        if isinstance(axis, dict) and isinstance((axis_column := axis.get("column")), str)
     )
     output_columns = _forest_output_columns(
         canonical_metric_inputs,
         graph_plan.forest.identities,
-        reserved_columns=axis_columns,
+        reserved_columns=axis_columns | {EVALUATION_END_COLUMN},
     )
     params["output_columns"] = output_columns
     commit_anchors = CommitSemanticAnchors(

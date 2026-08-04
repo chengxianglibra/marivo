@@ -260,13 +260,16 @@ keeps `sample_interval=None`, and does not fabricate expected-slot coverage.
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,
 `trailing`). `transform.window(...)` clips display rows for every anchor;
 `attribute`, `decompose`, and `forecast` reject cumulative frames (re-observe the base flow
-metric). `compare` is anchor-dispatched: `all_history` is rejected (a cumulative
-delta over a window equals the base total — observe and compare the base flow
-metric); `trailing` is allowed when both frames share the same trailing anchor
-payload; `grain_to_date` is allowed for a single reset-boundary-anchored period
-that spans at most one reset period and equal elapsed length. `transform.rollup`
-re-aggregates with `rollup_fold="last"`. The anchor-specific caveat is surfaced
-by `contract()`, `show()`, and `marivo.help(ref)`.
+metric). `compare` is anchor-dispatched: `all_history` is allowed when both
+frames carry the same valid anchor and paired business coordinates with exact
+`evaluation_end` cutoffs; its result is current minus baseline observed level,
+not an asserted interval flow, and source revision is unverified. `trailing` is
+allowed when both frames share the same trailing anchor payload;
+`grain_to_date` is allowed for a single reset-boundary-anchored period that spans
+at most one reset period and equal elapsed length. `transform.rollup`
+re-aggregates with `rollup_fold="last"`, selecting the complete last row so its
+`evaluation_end` is retained. The anchor-specific caveat is surfaced by
+`contract()`, `show()`, and `marivo.help(ref)`.
 
 For a derived metric, compare applies the same anchor rules only when every
 outer component is cumulative and every component has exactly the same anchor.
@@ -274,10 +277,13 @@ Its `derived_contains_cumulative` marker is the required closed structure
 `{kind, anchor, compare_blocker, components}`. `anchor` is the common anchor or
 `None`; `compare_blocker` is `non_cumulative_component`,
 `mixed_component_anchors`, `unresolved_component_anchor`, or `None`. Mixed,
-incomplete, malformed, and `all_history` wrappers fail closed. Both sides must
-carry the same marker kind and effective anchor. This is a breaking artifact
-contract: cumulative observes include contract version 2 in artifact identity,
-and persisted legacy markers are neither read nor migrated.
+incomplete, and malformed wrappers fail closed. A complete homogeneous
+`all_history` wrapper is comparable by derived observed level, with component
+sidecars restricted to the parent's paired key set. Both sides must carry the
+same marker kind and effective anchor. This is a breaking artifact contract:
+cumulative observes include contract version 3 and the reserved
+`evaluation_end` coordinate in artifact identity; persisted legacy rows are
+neither expanded nor migrated.
 
 **Versioned joins.** `ms.snapshot()` / `ms.validity()` declare dataset
 versioning. The planner auto-selects `as_of_root_time` when the root dataset has
@@ -299,6 +305,13 @@ current = session.observe(metrics=m, time_scope={"start": "2026-06-18", "end": "
 baseline = session.observe(metrics=m, time_scope={"start": "2026-06-11", "end": "2026-06-18"}, grain="day")
 delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
+
+For an all-history cumulative comparison, every persisted delta row carries
+`current_evaluation_end` and `baseline_evaluation_end`. One-sided business
+coordinates are dropped and counted in `meta.alignment["cumulative_pairs"]`;
+matched rows with a null level remain paired with a null delta. The
+`cumulative_change` marker and `show()` identify the result as an observed level
+difference and state that source revision is unverified.
 
 `compare` propagates additivity, aggregation, and status-time semantics only
 when both source frames carry the same three values and additivity is known.

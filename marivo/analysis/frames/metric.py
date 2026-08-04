@@ -172,55 +172,6 @@ def _cumulative_status_line(anchor: object, *, blocker: str | None = None) -> st
     )
 
 
-def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondition]:
-    """Conditional compare preconditions for trailing/grain_to_date frames.
-
-    For trailing the precondition states the identical-anchor requirement; for
-    grain_to_date it states the single-period boundary-anchored requirement.
-    The running_total_caveat is still attached so the agent sees the statistical
-    hazard alongside the mechanical precondition.
-    """
-    caveat = _cumulative_caveat(anchor)
-    if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
-        conditional = ArtifactPrecondition(
-            check="compare_anchor_match",
-            status="fail",
-            reason=(
-                "trailing cumulative compare requires an identical anchor payload "
-                "(same count and unit) on both frames"
-            ),
-            repair=AnalysisRepair(
-                kind="inspect",
-                action=(
-                    "Inspect both cumulative frames and confirm the same trailing "
-                    "anchor payload (count and unit)."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
-            ),
-        )
-    elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
-        conditional = ArtifactPrecondition(
-            check="compare_single_period_boundary",
-            status="fail",
-            reason=(
-                "grain_to_date cumulative compare requires single-period, "
-                "boundary-anchored windows on both frames (window starts on a "
-                "reset boundary and spans exactly one reset period)"
-            ),
-            repair=AnalysisRepair(
-                kind="inspect",
-                action=(
-                    "Inspect both grain_to_date frames and confirm single-period, "
-                    "boundary-anchored windows."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
-            ),
-        )
-    else:
-        return [caveat]
-    return [caveat, conditional]
-
-
 def _attach_rollup_affordance(contract: ArtifactContract) -> ArtifactContract:
     """Expose the persisted rollup capability as a visible precondition fact."""
     affordances: list[ArtifactAffordance] = []
@@ -736,6 +687,15 @@ class MetricFrame(BaseFrame):
         blocker = cumulative_compare_blocker(self.meta.cumulative)
         if self.meta.cumulative is not None:
             card.field("cumulative", _cumulative_status_line(anchor, blocker=blocker))
+        if anchor == "all_history" and blocker is None:
+            card.field(
+                "compare",
+                "available: pair compatibility is validated with the baseline at call time",
+            )
+            card.field(
+                "caveat",
+                "the result is not asserted to be interval flow; source history may be restated",
+            )
         if self.arity > 1:
             card.listing(
                 label="measures",
@@ -753,14 +713,11 @@ class MetricFrame(BaseFrame):
         At arity > 1, gated affordances (compare, correlate, transform,
         assess_quality, hypothesis_test, forecast, discover) carry a
         ``single_metric`` precondition teaching the agent to project to one
-        metric first. When ``meta.cumulative`` is set, affordances carry an
-        anchor-dispatched ``running_total_caveat`` precondition: all_history
-        keeps the v1 monotonic-trend caveat (hard fail on compare); trailing
-        surfaces rolling-window autocorrelation and grain_to_date surfaces
-        the non-stationary period-reset caveat, with compare downgraded to a
-        conditional affordance stating the mechanical preconditions. Derived
-        wrappers surface either their common anchor or their exact compare
-        blocker. A rollup transform affordance appears iff
+        metric first. Cumulative pair-dependent checks are evaluated only by
+        ``session.compare(...)`` once both frames and the selected alignment
+        are available. Other statistical continuations retain their local
+        running-total caveat. Derived wrappers surface either their common
+        anchor or their exact local compare blocker. A rollup transform affordance appears iff
         ``meta.rollup_fold`` is set.
         """
         contract = super().contract()
@@ -783,17 +740,12 @@ class MetricFrame(BaseFrame):
             contract = contract.model_copy(update={"affordances": tuple(blocked_affordances)})
         elif anchor is not None:
             caveat = _cumulative_caveat(anchor)
-            compare_preconditions = _compare_conditional_preconditions(anchor)
             anchored_affordances: list[ArtifactAffordance] = []
             for affordance in contract.affordances:
                 if affordance.capability_id == "compare":
-                    # all_history: hard caveat only. trailing/grain_to_date:
-                    # conditional affordance (caveat + mechanical preconditions).
-                    preconditions = (
-                        [caveat]
-                        if not isinstance(anchor, tuple)
-                        else [*affordance.preconditions, *compare_preconditions]
-                    )
+                    # Pair-dependent anchor, grain, timezone, dimensions, and
+                    # aligned-row checks do not belong to a single-frame contract.
+                    preconditions = list(affordance.preconditions)
                 else:
                     preconditions = [*affordance.preconditions, caveat]
                 anchored_affordances.append(

@@ -399,7 +399,7 @@ def test_cumulative_frame_unsupported_derives_fields_via_derive_fields() -> None
         cumulative={"base": "sales.gmv_base", "kind": "all_history"},
     )
 
-    assert err.expected == "period-level flow metric frame"
+    assert err.expected == "a cumulative frame supported by the selected intent"
     assert err.received == "cumulative metric frame"
     assert err.location == "session.forecast"
     assert err.repair is not None
@@ -424,4 +424,4 @@ def test_cumulative_frame_unsupported_derives_fields_for_compare() -> None:
     assert err.location == "session.compare"
     assert err.repair is not None
     assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="compare")
-    assert "base total over that window" in err.hint
+    assert "compatible cumulative anchor" in err.hint

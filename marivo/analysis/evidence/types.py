@@ -587,6 +587,9 @@ class DeltaFindingValue(_FrozenModel):
     presence: Literal["current_only", "baseline_only"] | None = None
     unit: str | None = None
     dimension_keys: dict[str, JsonScalar] = Field(default_factory=dict)
+    bucket: str | None = None
+    current_evaluation_end: str | None = None
+    baseline_evaluation_end: str | None = None
 
 
 class ContributionFindingValue(_FrozenModel):

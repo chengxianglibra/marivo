@@ -1044,6 +1044,42 @@ def _build_registry() -> CapabilityRegistry:
             ),
             additional_examples=(
                 HelpExample(
+                    label="Compare compatible all-history cumulative levels",
+                    code=(
+                        "current = session.observe(\n"
+                        "    cumulative_metric,\n"
+                        '    time_scope={"start": "2026-07-01", "end": "2026-07-08"},\n'
+                        '    grain="day",\n'
+                        ")\n"
+                        "baseline = session.observe(\n"
+                        "    cumulative_metric,\n"
+                        '    time_scope={"start": "2026-06-01", "end": "2026-06-08"},\n'
+                        '    grain="day",\n'
+                        ")\n"
+                        "delta = session.compare(current, baseline)\n"
+                        "delta.show()\n"
+                        "delta.contract()\n"
+                        "endpoints = delta.to_pandas()[[\n"
+                        '    "current_evaluation_end",\n'
+                        '    "baseline_evaluation_end",\n'
+                        "]]"
+                    ),
+                    requires=("cumulative_metric",),
+                ),
+                HelpExample(
+                    label="Inspect a structured cumulative incompatibility",
+                    code=(
+                        "from marivo.analysis.errors import AnalysisError\n"
+                        "try:\n"
+                        "    session.compare(current, incompatible_baseline)\n"
+                        "except AnalysisError as exc:\n"
+                        "    print(exc.expected)\n"
+                        "    print(exc.received)\n"
+                        "    print(exc.repair.action if exc.repair else None)"
+                    ),
+                    requires=("current", "incompatible_baseline"),
+                ),
+                HelpExample(
                     label="Compare two exact funnel scopes",
                     code="delta = session.compare(current_funnel, baseline_funnel)",
                     requires=("baseline_funnel", "current_funnel"),
@@ -2391,6 +2427,17 @@ def _validate_additional_examples(descriptor: CapabilityDescriptor) -> None:
             for node in ast.walk(tree)
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
         }
+        assigned_names.update(
+            alias.asname or alias.name.split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        )
+        assigned_names.update(
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ExceptHandler) and isinstance(node.name, str)
+        )
         loaded_names = {
             node.id
             for node in ast.walk(tree)

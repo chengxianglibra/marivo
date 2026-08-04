@@ -1383,19 +1383,15 @@ class CumulativeFrameUnsupportedError(AnalysisError):
         if intent == "compare" and isinstance(compare_blocker, str):
             hint = (
                 f"Derived cumulative compare is blocked by {compare_blocker!r}. Every outer "
-                "component must be cumulative and share one trailing or grain_to_date anchor."
+                "component must be cumulative and share one supported anchor."
             )
         elif intent == "compare" and anchor == "all_history":
             hint = (
-                "All-history cumulative compare is unsupported. Compare the base flow "
-                "metric: a cumulative delta equals the base total over that window. "
-                "Alternatively, use matching trailing or grain_to_date cumulative anchors."
+                "Re-observe both all-history cumulative frames so every row carries the "
+                "current evaluation_end contract."
             )
         elif intent == "compare":
-            hint = (
-                "Use the base flow metric for this intent: a cumulative delta equals the "
-                "base total over that window."
-            )
+            hint = "Re-observe both frames with one compatible cumulative anchor."
         elif intent in {"attribute", "decompose"}:
             hint = (
                 f"{intent} is unsupported for direct and derived cumulative deltas. "
@@ -1434,13 +1430,10 @@ class CumulativeFrameUnsupportedError(AnalysisError):
         elif intent_str == "compare" and isinstance(blocker, str):
             action = (
                 f"Resolve {blocker!r}: every outer component must be cumulative and share "
-                "one trailing or grain_to_date anchor, then re-observe both frames."
+                "one supported anchor, then re-observe both frames."
             )
         elif intent_str == "compare" and anchor == "all_history":
-            action = (
-                "Compare the base flow metric, or re-observe both frames with matching "
-                "trailing or grain_to_date anchors."
-            )
+            action = "Re-observe both frames so every row carries evaluation_end."
         else:
             metric = f" ({base_str})" if base_str is not None else ""
             action = (
@@ -1448,7 +1441,7 @@ class CumulativeFrameUnsupportedError(AnalysisError):
                 "on that frame."
             )
         return _DerivedFields(
-            expected="period-level flow metric frame",
+            expected="a cumulative frame supported by the selected intent",
             received="cumulative metric frame",
             location=f"session.{intent_str}",
             repair=AnalysisRepair(

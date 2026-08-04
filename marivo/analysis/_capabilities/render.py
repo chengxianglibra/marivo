@@ -1140,7 +1140,9 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
         (
             "note: cumulative values are running totals anchored to all history; "
             "shared monotonic trend can pollute correlation and hypothesis-test "
-            "interpretation. compare is gated; observe the base flow metric instead."
+            "interpretation. compare accepts compatible observed levels with exact "
+            "evaluation endpoints; it does not assert interval-flow equivalence and "
+            "source revision remains unverified."
         ),
     ]
 

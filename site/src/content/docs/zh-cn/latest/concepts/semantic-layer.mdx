@@ -541,8 +541,9 @@ rolling7_active = ms.cumulative(
   Trailing 要求时间粒度。
 
 Derived metric 可以组合 cumulative component。只有所有外层 component 都是 cumulative，且共享
-完全相同的 `trailing` 或 `grain_to_date` 锚点时才支持 compare。`all_history`、混合锚点以及累计与
-非累计 component 混合都会被拒绝；`attribute`、`decompose` 和 `forecast` 仍不支持。
+完全相同的锚点时才支持 compare，其中包括 `all_history`。它的结果是携带精确 evaluation cutoff
+的观测 level 差，不声明等价于区间 flow，且 source revision 未验证。混合锚点以及累计与非累计
+component 混合都会被拒绝；`attribute`、`decompose` 和 `forecast` 仍不支持。
 
 ## 使用并检查模型
 
