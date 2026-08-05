@@ -227,6 +227,10 @@ class BlockedAttributeAdmissionV1(BaseModel):
         "operator_method_not_installed",
         "legacy_missing_basis",
         "cumulative_delta",
+        "base_non_additive",
+        "bridge_grain_mismatch",
+        "component_time_bridge_unsupported",
+        "over_plus_business_axis_unsupported",
         "missing_additivity_metadata",
         "unsupported_aggregate",
     ]
@@ -237,6 +241,42 @@ type AttributeAdmissionV1 = Annotated[
     SupportedAttributeAdmissionV1 | BlockedAttributeAdmissionV1,
     Field(discriminator="status"),
 ]
+
+
+class SupportedCumulativeAttributionRouteV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["supported"] = "supported"
+    path: Literal["cumulative_level_decomposition", "accumulation_time_bridge"]
+
+
+class BlockedCumulativeAttributionRouteV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["blocked"] = "blocked"
+    blocker: Literal[
+        "base_non_additive",
+        "bridge_grain_mismatch",
+        "component_time_bridge_unsupported",
+        "over_plus_business_axis_unsupported",
+    ]
+    repair: AnalysisRepair
+
+
+type CumulativeAttributionRouteAdmissionV1 = Annotated[
+    SupportedCumulativeAttributionRouteV1 | BlockedCumulativeAttributionRouteV1,
+    Field(discriminator="status"),
+]
+
+
+class CumulativeAttributionCapabilityV1(BaseModel):
+    """Query-free route map derived from one compact cumulative contract."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    business_axes: CumulativeAttributionRouteAdmissionV1
+    accumulation_time: CumulativeAttributionRouteAdmissionV1
+    mixed_axes: BlockedCumulativeAttributionRouteV1
 
 
 class AttributionAxisBindingV1(BaseModel):
@@ -337,13 +377,17 @@ __all__ = [
     "AttributionMode",
     "AttributionShape",
     "BlockedAttributeAdmissionV1",
+    "BlockedCumulativeAttributionRouteV1",
     "BlockedDistinctAttributionReproductionV1",
     "BlockedQuantileAttributionReproductionV1",
+    "CumulativeAttributionCapabilityV1",
+    "CumulativeAttributionRouteAdmissionV1",
     "DistinctAttributionBasisV1",
     "QuantileAttributionBasisV1",
     "ReproducibleDistinctAttributionV1",
     "ReproducibleQuantileAttributionV1",
     "SupportedAttributeAdmissionV1",
+    "SupportedCumulativeAttributionRouteV1",
     "aggregate_attribution_authority",
     "basis_fingerprint",
     "build_attribution_basis",

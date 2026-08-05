@@ -30,6 +30,12 @@ from marivo.analysis.attribution_contract import basis_fingerprint
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
+from marivo.analysis.cumulative_attribution import (
+    CumulativeAttributionContractV1,
+    build_cumulative_attribution_contract,
+    cumulative_over_ref,
+    derive_cumulative_bridge,
+)
 from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -61,6 +67,7 @@ from marivo.analysis.frames.component import (
     resolve_role_columns,
 )
 from marivo.analysis.frames.delta import (
+    CumulativeDeltaFrameMetaV1,
     DeltaFrame,
     DeltaFrameMeta,
     _compatible_metric_semantics,
@@ -353,7 +360,7 @@ def _component_role_columns(component: ComponentFrame) -> list[str]:
 
 
 def _component_root_roles(component: ComponentFrame) -> tuple[tuple[str, str], ...] | None:
-    """Return the canonical immediate-root role/node mapping when available."""
+    """Return the first semantic branch roles below transparent unary roots."""
 
     graph = component.meta.component_graph
     if graph is None:
@@ -365,25 +372,41 @@ def _component_root_roles(component: ComponentFrame) -> tuple[tuple[str, str], .
             message="compare requires an arity-one component graph",
             context={"component_ref": component.ref, "root_node_ids": roots},
         )
-    root_id = roots[0]
-    root = next(
-        (node for node in nodes if isinstance(node, dict) and node.get("node_id") == root_id),
-        None,
-    )
-    if root is None:
-        raise ComponentFrameMismatchError(
-            message="compare component graph is missing its root node",
-            context={"component_ref": component.ref, "root_node_id": root_id},
-        )
-    ordered_children = root.get("ordered_children")
-    if not isinstance(ordered_children, list):
-        raise ComponentFrameMismatchError(
-            message="compare component graph root has no ordered child roles",
-            context={"component_ref": component.ref, "root_node_id": root_id},
-        )
-    if not ordered_children:
-        return None
-    return tuple((str(child["role"]), str(child["node_id"])) for child in ordered_children)
+    node_by_id = {
+        str(node["node_id"]): node
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("node_id"), str)
+    }
+    node_id = str(roots[0])
+    visited: set[str] = set()
+    while True:
+        if node_id in visited:
+            raise ComponentFrameMismatchError(
+                message="compare component graph contains a unary wrapper cycle",
+                context={"component_ref": component.ref, "root_node_id": roots[0]},
+            )
+        visited.add(node_id)
+        node = node_by_id.get(node_id)
+        if node is None:
+            raise ComponentFrameMismatchError(
+                message="compare component graph is missing its root node",
+                context={"component_ref": component.ref, "root_node_id": node_id},
+            )
+        ordered_children = node.get("ordered_children")
+        if not isinstance(ordered_children, list):
+            raise ComponentFrameMismatchError(
+                message="compare component graph root has no ordered child roles",
+                context={"component_ref": component.ref, "root_node_id": node_id},
+            )
+        if not ordered_children:
+            return None
+        if len(ordered_children) == 1 and ordered_children[0].get("role") in {
+            "base",
+            "child",
+        }:
+            node_id = str(ordered_children[0]["node_id"])
+            continue
+        return tuple((str(child["role"]), str(child["node_id"])) for child in ordered_children)
 
 
 def _component_role_column_pairs(
@@ -1346,6 +1369,53 @@ def compare(
             baseline_anchor=baseline_cumulative_anchor,
             pairs=cumulative_pair_summary,
         )
+    cumulative_attribution: CumulativeAttributionContractV1 | None = None
+    if cur_cumulative is not None:
+        baseline_cumulative = baseline.meta.cumulative
+        current_graph = current.meta.expression_graph
+        baseline_graph = baseline.meta.expression_graph
+        if baseline_cumulative is None or current_graph is None or baseline_graph is None:
+            raise AnalysisError(
+                message="cumulative attribution requires two current expression contracts",
+                context={
+                    "kind": "CumulativeAttributionSourceContractMissing",
+                    "current_ref": current.ref,
+                    "baseline_ref": baseline.ref,
+                },
+            )
+        try:
+            current_over = cumulative_over_ref(cur_cumulative)
+            baseline_over = cumulative_over_ref(baseline_cumulative)
+            if current_over != baseline_over:
+                raise ValueError("cumulative attribution sources have different over refs")
+            bridge = derive_cumulative_bridge(
+                current_semantic_kind=current.meta.semantic_kind,
+                baseline_semantic_kind=baseline.meta.semantic_kind,
+                current_axis_bindings=current.meta.axis_bindings,
+                baseline_axis_bindings=baseline.meta.axis_bindings,
+                over_ref=current_over,
+                current_declared_over_grain=_declared_over_granularity(session, current_over),
+                baseline_declared_over_grain=_declared_over_granularity(session, baseline_over),
+                current_report_timezone=(_observe_report_tz(current) or session.report_tz_name),
+                baseline_report_timezone=(_observe_report_tz(baseline) or session.report_tz_name),
+            )
+            cumulative_attribution = build_cumulative_attribution_contract(
+                current_graph=current_graph,
+                baseline_graph=baseline_graph,
+                current_cumulative=cur_cumulative,
+                baseline_cumulative=baseline_cumulative,
+                bridge=bridge,
+            )
+        except ValueError as exc:
+            raise AnalysisError(
+                message="cumulative attribution source contracts are incompatible",
+                context={
+                    "kind": "CumulativeAttributionContractMismatch",
+                    "current_ref": current.ref,
+                    "baseline_ref": baseline.ref,
+                    "reason": str(exc),
+                },
+            ) from exc
     params: dict[str, Any] = {
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
@@ -1366,6 +1436,11 @@ def compare(
         "cumulative_alignment": (
             cumulative_alignment.model_dump(mode="json", by_alias=True)
             if cumulative_alignment is not None
+            else None
+        ),
+        "cumulative_attribution": (
+            cumulative_attribution.model_dump(mode="json", by_alias=True)
+            if cumulative_attribution is not None
             else None
         ),
     }
@@ -1539,6 +1614,11 @@ def compare(
         component_ref=delta_component.ref if delta_component is not None else None,
         attribution_basis=attribution_basis,
     )
+    if cumulative_attribution is not None:
+        meta = CumulativeDeltaFrameMetaV1(
+            **{field_name: getattr(meta, field_name) for field_name in DeltaFrameMeta.model_fields},
+            cumulative_attribution=cumulative_attribution,
+        )
     output_frame = DeltaFrame(_df=df, meta=meta)
 
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
@@ -1663,6 +1743,14 @@ def _observe_report_tz(frame: MetricFrame) -> str | None:
         if isinstance(report_tz, str) and report_tz:
             return report_tz
     return None
+
+
+def _declared_over_granularity(session: Session, over_ref: RefPayloadV1) -> str | None:
+    """Read the current time-dimension granularity used for scalar bridges."""
+
+    member = session.catalog.require(ref_factory.time_dimension(over_ref.path))
+    granularity = getattr(member.details(), "granularity", None)
+    return granularity if isinstance(granularity, str) and granularity else None
 
 
 def _time_axis_column(frame: MetricFrame) -> str:

@@ -6,16 +6,22 @@ import hashlib
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from marivo.analysis._cumulative import (
+    GrainToDateAnchorSemanticsV1,
+    TrailingAnchorSemanticsV1,
+)
 from marivo.analysis.attribution_contract import (
     AttributionAxisBindingV1,
     AttributionMode,
     AttributionShape,
 )
+from marivo.analysis.cumulative_attribution import CumulativeBridgeGrainV1
 from marivo.analysis.errors import AttributionResolutionError
 from marivo.analysis.event import EventMatchingPolicy
 from marivo.analysis.frames.base import (
@@ -185,10 +191,165 @@ def summarize_quantile_resolution_executions(
     }
 
 
-type AttributionMethodEvidenceV1 = Annotated[
-    DistinctMembershipEvidenceV1 | QuantileReplacementEvidenceV1,
+class CumulativeAttributionPartitionV1(BaseModel):
+    """Closed reconciliation for one parent cumulative comparison row."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    comparison_key: tuple[tuple[str, JsonScalar], ...]
+    target_delta: float
+    contribution_sum: float
+    row_count: int = Field(ge=0)
+    residual: float
+    tolerance: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_reconciliation(self) -> CumulativeAttributionPartitionV1:
+        if abs(self.residual) > self.tolerance:
+            raise ValueError("cumulative attribution partition residual exceeds tolerance")
+        if not math.isclose(
+            self.target_delta - self.contribution_sum,
+            self.residual,
+            rel_tol=0.0,
+            abs_tol=self.tolerance,
+        ):
+            raise ValueError("cumulative attribution partition arithmetic is inconsistent")
+        return self
+
+
+class CumulativeAllHistoryPartitionV1(CumulativeAttributionPartitionV1):
+    """One all-history bridge partition with exact observed cutoffs."""
+
+    current_evaluation_end: datetime
+    baseline_evaluation_end: datetime
+
+    @model_validator(mode="after")
+    def _validate_cutoffs(self) -> CumulativeAllHistoryPartitionV1:
+        if (
+            self.current_evaluation_end.tzinfo is None
+            or self.baseline_evaluation_end.tzinfo is None
+        ):
+            raise ValueError("all-history cumulative attribution cutoffs must be timezone-aware")
+        return self
+
+
+class CumulativeComparablePeriodPartitionV1(CumulativeAttributionPartitionV1):
+    """One paired cumulative scope on each independently replayed side."""
+
+    current_scope_start: datetime
+    current_scope_end: datetime
+    baseline_scope_start: datetime
+    baseline_scope_end: datetime
+
+    @model_validator(mode="after")
+    def _validate_scopes(self) -> CumulativeComparablePeriodPartitionV1:
+        values = (
+            self.current_scope_start,
+            self.current_scope_end,
+            self.baseline_scope_start,
+            self.baseline_scope_end,
+        )
+        if any(value.tzinfo is None for value in values):
+            raise ValueError("cumulative attribution scopes must be timezone-aware")
+        if self.current_scope_start >= self.current_scope_end:
+            raise ValueError("current cumulative attribution scope must be non-empty")
+        if self.baseline_scope_start >= self.baseline_scope_end:
+            raise ValueError("baseline cumulative attribution scope must be non-empty")
+        return self
+
+
+class AllHistoryAnchorSemanticsV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["all_history"] = "all_history"
+
+
+type CumulativeAttributionAnchorV1 = Annotated[
+    AllHistoryAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1 | TrailingAnchorSemanticsV1,
     Field(discriminator="kind"),
 ]
+
+
+class CumulativeBusinessAxisEvidenceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["cumulative_business_axes"] = "cumulative_business_axes"
+    route: Literal["business_axes"] = "business_axes"
+    anchor: CumulativeAttributionAnchorV1
+    over_ref: RefPayloadV1
+    partitions: tuple[CumulativeAttributionPartitionV1, ...]
+
+
+class CumulativeAllHistoryFlowEvidenceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["cumulative_all_history_flow"] = "cumulative_all_history_flow"
+    route: Literal["accumulation_time"] = "accumulation_time"
+    anchor: AllHistoryAnchorSemanticsV1
+    over_ref: RefPayloadV1
+    bridge_grain: CumulativeBridgeGrainV1
+    effect_kinds: tuple[Literal["between_cutoffs"], ...] = ("between_cutoffs",)
+    partitions: tuple[CumulativeAllHistoryPartitionV1, ...]
+
+
+class CumulativeGrainToDateFlowEvidenceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["cumulative_grain_to_date_flow"] = "cumulative_grain_to_date_flow"
+    route: Literal["accumulation_time"] = "accumulation_time"
+    anchor: GrainToDateAnchorSemanticsV1
+    over_ref: RefPayloadV1
+    bridge_grain: CumulativeBridgeGrainV1
+    effect_kinds: tuple[Literal["current_scope", "baseline_scope", "shared_scope_change"], ...] = (
+        "current_scope",
+        "baseline_scope",
+        "shared_scope_change",
+    )
+    partitions: tuple[CumulativeComparablePeriodPartitionV1, ...]
+
+
+class CumulativeTrailingFlowEvidenceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["cumulative_trailing_flow"] = "cumulative_trailing_flow"
+    route: Literal["accumulation_time"] = "accumulation_time"
+    anchor: TrailingAnchorSemanticsV1
+    over_ref: RefPayloadV1
+    bridge_grain: CumulativeBridgeGrainV1
+    effect_kinds: tuple[Literal["entering", "leaving", "retained_change"], ...] = (
+        "entering",
+        "leaving",
+        "retained_change",
+    )
+    partitions: tuple[CumulativeComparablePeriodPartitionV1, ...]
+
+
+type CumulativeAttributionEvidenceV1 = Annotated[
+    CumulativeBusinessAxisEvidenceV1
+    | CumulativeAllHistoryFlowEvidenceV1
+    | CumulativeGrainToDateFlowEvidenceV1
+    | CumulativeTrailingFlowEvidenceV1,
+    Field(discriminator="kind"),
+]
+
+
+type AttributionMethodEvidenceV1 = Annotated[
+    DistinctMembershipEvidenceV1
+    | QuantileReplacementEvidenceV1
+    | CumulativeBusinessAxisEvidenceV1
+    | CumulativeAllHistoryFlowEvidenceV1
+    | CumulativeGrainToDateFlowEvidenceV1
+    | CumulativeTrailingFlowEvidenceV1,
+    Field(discriminator="kind"),
+]
+
+
+def _multiresolution_evidence(
+    evidence: AttributionMethodEvidenceV1 | None,
+) -> IndependentMultiresolutionEvidenceV1 | None:
+    if isinstance(evidence, DistinctMembershipEvidenceV1 | QuantileReplacementEvidenceV1):
+        return evidence.multiresolution
+    return None
 
 
 class AttributionFrameMeta(BaseFrameMeta):
@@ -207,7 +368,9 @@ class AttributionFrameMeta(BaseFrameMeta):
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
     reconciliation: AttributionReconciliation | None = None
-    row_contract_version: Literal["generic-attribution-rows/v2"] | None = None
+    row_contract_version: (
+        Literal["generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"] | None
+    ) = None
     causal_claim: Literal["none"] = "none"
     axis_bindings: tuple[AttributionAxisBindingV1, ...] = ()
     attribution_mode: AttributionMode | None = None
@@ -219,11 +382,49 @@ class AttributionFrameMeta(BaseFrameMeta):
     def _validate_generic_v2(self) -> AttributionFrameMeta:
         if self.row_contract_version is None:
             return self
+        cumulative_evidence = (
+            self.method_evidence
+            if isinstance(
+                self.method_evidence,
+                CumulativeBusinessAxisEvidenceV1
+                | CumulativeAllHistoryFlowEvidenceV1
+                | CumulativeGrainToDateFlowEvidenceV1
+                | CumulativeTrailingFlowEvidenceV1,
+            )
+            else None
+        )
+        if self.row_contract_version == "cumulative-flow-attribution-rows/v1":
+            if not isinstance(
+                cumulative_evidence,
+                CumulativeAllHistoryFlowEvidenceV1
+                | CumulativeGrainToDateFlowEvidenceV1
+                | CumulativeTrailingFlowEvidenceV1,
+            ):
+                raise ValueError("cumulative flow rows require typed flow evidence")
+            if self.method != "sum" or self.attribution_mode is not None:
+                raise ValueError("cumulative flow rows require single-axis sum attribution")
+            if (
+                len(self.axis_bindings) != 1
+                or self.axis_bindings[0].ref != cumulative_evidence.over_ref
+            ):
+                raise ValueError("cumulative flow axis must be the evidence over_ref")
+            if self.reconciliation is None:
+                raise ValueError("cumulative flow rows require typed reconciliation")
+            return self
+        if isinstance(cumulative_evidence, CumulativeBusinessAxisEvidenceV1):
+            if any(binding.ref == cumulative_evidence.over_ref for binding in self.axis_bindings):
+                raise ValueError("cumulative business-axis rows cannot include over_ref")
+        elif cumulative_evidence is not None:
+            raise ValueError("generic attribution rows cannot carry cumulative flow evidence")
         if self.method in {"distinct_membership", "quantile_replacement"} and (
             self.method_evidence is None
         ):
             raise ValueError("non-additive attribution rows v2 require typed method evidence")
-        if self.method_evidence is not None and self.method_evidence.kind != self.method:
+        if (
+            self.method_evidence is not None
+            and cumulative_evidence is None
+            and self.method_evidence.kind != self.method
+        ):
             raise ValueError("generic attribution method and typed method evidence must agree")
         if self.method not in {
             "sum",
@@ -251,7 +452,12 @@ class AttributionFrameMeta(BaseFrameMeta):
         elif self.attribution_mode == "multiresolution":
             raise ValueError("rollup-safe attribution forbids multiresolution mode")
         multiresolution = (
-            self.method_evidence.multiresolution if self.method_evidence is not None else None
+            self.method_evidence.multiresolution
+            if isinstance(
+                self.method_evidence,
+                DistinctMembershipEvidenceV1 | QuantileReplacementEvidenceV1,
+            )
+            else None
         )
         if (self.attribution_mode == "multiresolution") != (multiresolution is not None):
             raise ValueError("multiresolution mode and method evidence must agree")
@@ -382,6 +588,193 @@ def _reconciliation_bucket_scalar(value: object) -> JsonScalar:
     if value is not None and not isinstance(value, (str, int, float, bool)):
         value = str(value)
     return value
+
+
+def _cumulative_partition_rows(
+    dataframe: Any,
+    partition: CumulativeAttributionPartitionV1,
+    *,
+    hierarchy: bool,
+) -> Any:
+    rows = dataframe
+    for name, value in partition.comparison_key:
+        rows = rows[rows[name].map(_reconciliation_bucket_scalar) == value]
+    if hierarchy and not rows.empty:
+        rows = rows[rows[ATTRIBUTION_LEVEL_COLUMN] == rows[ATTRIBUTION_LEVEL_COLUMN].max()]
+    return rows
+
+
+def reconcile_cumulative_business_evidence(
+    evidence: CumulativeBusinessAxisEvidenceV1,
+    dataframe: Any,
+    *,
+    hierarchy: bool,
+) -> CumulativeBusinessAxisEvidenceV1:
+    """Bind cumulative business evidence to the rows that will be persisted."""
+
+    partitions = []
+    for partition in evidence.partitions:
+        rows = _cumulative_partition_rows(dataframe, partition, hierarchy=hierarchy)
+        contribution_sum = float(pd.to_numeric(rows["contribution"], errors="raise").sum())
+        partitions.append(
+            CumulativeAttributionPartitionV1.model_validate(
+                {
+                    **partition.model_dump(),
+                    "contribution_sum": contribution_sum,
+                    "row_count": len(rows),
+                    "residual": partition.target_delta - contribution_sum,
+                }
+            )
+        )
+    return evidence.model_copy(update={"partitions": tuple(partitions)})
+
+
+def cumulative_reconciliation_from_partitions(
+    partitions: Sequence[CumulativeAttributionPartitionV1],
+    *,
+    one_sided_contribution_sum: float | None = None,
+) -> AttributionReconciliation:
+    """Build the one canonical summary of typed cumulative partitions."""
+
+    max_abs_residual = max((abs(item.residual) for item in partitions), default=0.0)
+    single = partitions[0] if len(partitions) == 1 else None
+    return AttributionReconciliation(
+        partition_count=len(partitions),
+        total_delta=single.target_delta if single is not None else None,
+        contribution_sum=single.contribution_sum if single is not None else None,
+        one_sided_contribution_sum=one_sided_contribution_sum,
+        unattributed_contribution_sum=single.residual if single is not None else None,
+        residual=single.residual if single is not None else None,
+        max_abs_residual=max_abs_residual,
+    )
+
+
+def _validate_cumulative_reconciliation_summary(
+    reconciliation: AttributionReconciliation,
+    partitions: Sequence[CumulativeAttributionPartitionV1],
+) -> None:
+    if reconciliation.partition_count != len(partitions):
+        raise ValueError("cumulative attribution reconciliation partition count mismatch")
+    max_abs_residual = max((abs(item.residual) for item in partitions), default=0.0)
+    if not math.isclose(
+        reconciliation.max_abs_residual,
+        max_abs_residual,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("cumulative attribution reconciliation residual bound mismatch")
+    scalar_fields = (
+        reconciliation.total_delta,
+        reconciliation.contribution_sum,
+        reconciliation.residual,
+    )
+    if len(partitions) == 1:
+        partition = partitions[0]
+        expected = (
+            partition.target_delta,
+            partition.contribution_sum,
+            partition.residual,
+        )
+        if any(value is None for value in scalar_fields) or any(
+            not math.isclose(cast("float", value), expected_value, rel_tol=0.0, abs_tol=1e-12)
+            for value, expected_value in zip(scalar_fields, expected, strict=True)
+        ):
+            raise ValueError("cumulative attribution scalar reconciliation mismatch")
+        if reconciliation.unattributed_contribution_sum is not None and not math.isclose(
+            reconciliation.unattributed_contribution_sum,
+            partition.residual,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError("cumulative attribution unattributed sum mismatch")
+    elif any(value is not None for value in scalar_fields) or (
+        reconciliation.unattributed_contribution_sum is not None
+    ):
+        raise ValueError("multi-partition cumulative reconciliation must omit scalar totals")
+
+
+def _validate_share(actual: object, expected: float | None, *, label: str) -> None:
+    if expected is None:
+        if not pd.isna(cast("Any", actual)):
+            raise ValueError(f"cumulative attribution {label} must be null")
+        return
+    if pd.isna(cast("Any", actual)) or not math.isclose(
+        float(cast("Any", actual)), expected, rel_tol=0.0, abs_tol=1e-9
+    ):
+        raise ValueError(f"cumulative attribution {label} is inconsistent")
+
+
+def _validate_cumulative_partition_shares(
+    rows: Any,
+    partition: CumulativeAttributionPartitionV1,
+) -> None:
+    contributions = pd.to_numeric(rows["contribution"], errors="raise")
+    positive_pool = float(contributions[contributions > 0].sum())
+    negative_pool = float(-contributions[contributions < 0].sum())
+    for index, contribution in contributions.items():
+        total_share = (
+            float(contribution) / partition.target_delta if partition.target_delta != 0 else None
+        )
+        positive_share = (
+            float(contribution) / positive_pool if contribution > 0 and positive_pool > 0 else None
+        )
+        negative_share = (
+            -float(contribution) / negative_pool if contribution < 0 and negative_pool > 0 else None
+        )
+        _validate_share(
+            rows.loc[index, "share_of_total_delta"],
+            total_share,
+            label="share_of_total_delta",
+        )
+        _validate_share(
+            rows.loc[index, "share_of_positive_pool"],
+            positive_share,
+            label="share_of_positive_pool",
+        )
+        _validate_share(
+            rows.loc[index, "share_of_negative_pool"],
+            negative_share,
+            label="share_of_negative_pool",
+        )
+
+
+def _validate_cumulative_partition_rows(
+    meta: AttributionFrameMeta,
+    dataframe: Any,
+    partitions: Sequence[CumulativeAttributionPartitionV1],
+) -> None:
+    coordinate_names = tuple(name for name, _ in partitions[0].comparison_key) if partitions else ()
+    if any(
+        tuple(name for name, _ in partition.comparison_key) != coordinate_names
+        for partition in partitions
+    ):
+        raise ValueError("cumulative attribution partition coordinate layouts differ")
+    observed_keys = {
+        tuple((name, _reconciliation_bucket_scalar(row[name])) for name in coordinate_names)
+        for _, row in dataframe.iterrows()
+    }
+    expected_keys = {
+        partition.comparison_key for partition in partitions if partition.row_count > 0
+    }
+    if observed_keys != expected_keys:
+        raise ValueError("cumulative attribution rows and partition keys differ")
+    hierarchy = meta.attribution_mode == "hierarchy"
+    for partition in partitions:
+        rows = _cumulative_partition_rows(dataframe, partition, hierarchy=hierarchy)
+        if len(rows) != partition.row_count:
+            raise ValueError("cumulative attribution partition row count mismatch")
+        contribution_sum = float(pd.to_numeric(rows["contribution"], errors="raise").sum())
+        if not math.isclose(
+            contribution_sum,
+            partition.contribution_sum,
+            rel_tol=0.0,
+            abs_tol=partition.tolerance,
+        ):
+            raise ValueError("cumulative attribution partition contribution sum mismatch")
+        _validate_cumulative_partition_shares(rows, partition)
+    reconciliation = meta.reconciliation
+    assert reconciliation is not None
+    _validate_cumulative_reconciliation_summary(reconciliation, partitions)
 
 
 def _validate_row_ranks(meta: AttributionFrameMeta, dataframe: Any) -> None:
@@ -532,12 +925,13 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     _validate_row_ranks(meta, dataframe)
     if meta.attribution_mode == "multiresolution":
         evidence = meta.method_evidence
-        assert evidence is not None and evidence.multiresolution is not None
+        multiresolution = _multiresolution_evidence(evidence)
+        assert multiresolution is not None
         valid_levels = set(range(1, len(axis_columns) + 1))
         observed_levels = {
             int(value) for value in dataframe[ATTRIBUTION_LEVEL_COLUMN].dropna().unique()
         }
-        scope = evidence.multiresolution.scope
+        scope = multiresolution.scope
         expected_levels = valid_levels if scope.kind == "complete" else {len(scope.axis_refs)}
         if observed_levels != expected_levels:
             raise ValueError("multiresolution row levels do not match typed scope")
@@ -551,7 +945,7 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
         _validate_scope_reconciliations(
             meta,
             dataframe,
-            evidence.multiresolution.resolution_reconciliations,
+            multiresolution.resolution_reconciliations,
         )
     elif meta.method_evidence is not None and meta.method_evidence.kind == "quantile_replacement":
         _validate_scope_reconciliations(
@@ -559,6 +953,10 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
             dataframe,
             meta.method_evidence.scope_reconciliations,
         )
+    evidence = meta.method_evidence
+    if isinstance(evidence, CumulativeBusinessAxisEvidenceV1):
+        _validate_cumulative_partition_rows(meta, dataframe, evidence.partitions)
+        return
     reconciliation = meta.reconciliation
     assert reconciliation is not None
     reconciled_rows = dataframe
@@ -586,6 +984,144 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
         raise ValueError("generic attribution reconciliation arithmetic is inconsistent")
     if reconciliation.max_abs_residual > 1e-9:
         raise ValueError("generic attribution reconciliation exceeds tolerance")
+
+
+def validate_cumulative_flow_attribution_rows(meta: AttributionFrameMeta, dataframe: Any) -> None:
+    """Fail closed when persisted cumulative-flow rows contradict typed evidence."""
+
+    if meta.row_contract_version != "cumulative-flow-attribution-rows/v1":
+        return
+    evidence = meta.method_evidence
+    if not isinstance(
+        evidence,
+        CumulativeAllHistoryFlowEvidenceV1
+        | CumulativeGrainToDateFlowEvidenceV1
+        | CumulativeTrailingFlowEvidenceV1,
+    ):
+        raise ValueError("cumulative flow rows are missing typed flow evidence")
+    over_column = meta.axis_bindings[0].output_column
+    required = {
+        over_column,
+        "flow_interval_start",
+        "flow_interval_end",
+        "source_side",
+        "effect_kind",
+        "current_value",
+        "baseline_value",
+        "contribution",
+        "rank",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
+    }
+    comparison_names = (
+        tuple(name for name, _ in evidence.partitions[0].comparison_key)
+        if evidence.partitions
+        else ()
+    )
+    if any(
+        tuple(name for name, _ in partition.comparison_key) != comparison_names
+        for partition in evidence.partitions
+    ):
+        raise ValueError("cumulative flow partition coordinate layouts differ")
+    required.update(comparison_names)
+    columns = {str(column) for column in dataframe.columns}
+    missing = sorted(required - columns)
+    if missing:
+        raise ValueError(f"cumulative flow row columns mismatch: missing={missing!r}")
+
+    allowed_pairs: set[tuple[str, str]]
+    if isinstance(evidence, CumulativeAllHistoryFlowEvidenceV1):
+        allowed_pairs = {("between_cutoffs", "current"), ("between_cutoffs", "baseline")}
+    elif isinstance(evidence, CumulativeGrainToDateFlowEvidenceV1):
+        allowed_pairs = {
+            ("current_scope", "current"),
+            ("baseline_scope", "baseline"),
+            ("shared_scope_change", "both"),
+        }
+    else:
+        allowed_pairs = {
+            ("entering", "current"),
+            ("leaving", "baseline"),
+            ("retained_change", "both"),
+        }
+    partition_by_key = {item.comparison_key: item for item in evidence.partitions}
+    for _, row in dataframe.iterrows():
+        pair = (str(row["effect_kind"]), str(row["source_side"]))
+        if pair not in allowed_pairs:
+            raise ValueError("cumulative flow effect_kind/source_side pair is invalid")
+        current_missing = pd.isna(row["current_value"])
+        baseline_missing = pd.isna(row["baseline_value"])
+        if pair[1] == "current" and (current_missing or not baseline_missing):
+            raise ValueError("current-side flow row has invalid value nullability")
+        if pair[1] == "baseline" and (baseline_missing or not current_missing):
+            raise ValueError("baseline-side flow row has invalid value nullability")
+        if pair[1] == "both" and (current_missing or baseline_missing):
+            raise ValueError("both-side flow row requires two observed values")
+        start = pd.Timestamp(row["flow_interval_start"])
+        end = pd.Timestamp(row["flow_interval_end"])
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("cumulative flow row intervals must be timezone-aware")
+        if start >= end:
+            raise ValueError("cumulative flow row interval must be non-empty")
+        partition_key = tuple(
+            (name, _reconciliation_bucket_scalar(row[name])) for name in comparison_names
+        )
+        partition = partition_by_key.get(partition_key)
+        if partition is None:
+            raise ValueError("cumulative flow row has an undeclared comparison partition")
+        if isinstance(evidence, CumulativeAllHistoryFlowEvidenceV1):
+            assert isinstance(partition, CumulativeAllHistoryPartitionV1)
+            current_end = pd.Timestamp(partition.current_evaluation_end)
+            baseline_end = pd.Timestamp(partition.baseline_evaluation_end)
+            if current_end == baseline_end:
+                raise ValueError("equal all-history cutoffs cannot carry flow rows")
+            expected_side = "current" if current_end > baseline_end else "baseline"
+            if pair[1] != expected_side:
+                raise ValueError("all-history flow source side contradicts cutoff direction")
+            scope_start = min(current_end, baseline_end)
+            scope_end = max(current_end, baseline_end)
+            if start < scope_start or end > scope_end:
+                raise ValueError("all-history flow interval is outside the cutoff scope")
+        else:
+            assert isinstance(partition, CumulativeComparablePeriodPartitionV1)
+            current_scope = (
+                pd.Timestamp(partition.current_scope_start),
+                pd.Timestamp(partition.current_scope_end),
+            )
+            baseline_scope = (
+                pd.Timestamp(partition.baseline_scope_start),
+                pd.Timestamp(partition.baseline_scope_end),
+            )
+            in_current = start >= current_scope[0] and end <= current_scope[1]
+            in_baseline = start >= baseline_scope[0] and end <= baseline_scope[1]
+            if pair[1] == "current" and not in_current:
+                raise ValueError("current-side flow interval is outside its typed scope")
+            if pair[1] == "baseline" and not in_baseline:
+                raise ValueError("baseline-side flow interval is outside its typed scope")
+            if pair[1] == "both" and not (in_current and in_baseline):
+                raise ValueError("both-side flow interval is outside a typed scope")
+        expected_contribution = (
+            float(row["current_value"])
+            if pair[1] == "current"
+            else -float(row["baseline_value"])
+            if pair[1] == "baseline"
+            else float(row["current_value"]) - float(row["baseline_value"])
+        )
+        if not math.isclose(
+            float(row["contribution"]),
+            expected_contribution,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise ValueError("cumulative flow contribution contradicts observed side values")
+
+    _validate_cumulative_partition_rows(meta, dataframe, evidence.partitions)
+    for partition in evidence.partitions:
+        rows = _cumulative_partition_rows(dataframe, partition, hierarchy=False)
+        ranks = sorted(int(value) for value in rows["rank"])
+        if ranks != list(range(1, len(rows) + 1)):
+            raise ValueError("cumulative flow ranks must restart within each partition")
 
 
 @dataclass(repr=False)
@@ -638,7 +1174,7 @@ class AttributionFrame(BaseFrame):
                         f"identities_persisted={str(evidence.identities_persisted).lower()}"
                     ),
                 )
-            else:
+            elif isinstance(evidence, QuantileReplacementEvidenceV1):
                 card.field(
                     "method_evidence",
                     (
@@ -646,8 +1182,17 @@ class AttributionFrame(BaseFrame):
                         f"{evidence.source_method} coalition={evidence.coalition}"
                     ),
                 )
-            if evidence.multiresolution is not None:
-                scope = evidence.multiresolution.scope
+            else:
+                card.field(
+                    "method_evidence",
+                    (
+                        f"route={evidence.route} anchor={evidence.anchor.kind} "
+                        f"partitions={len(evidence.partitions)}"
+                    ),
+                )
+            multiresolution = _multiresolution_evidence(evidence)
+            if multiresolution is not None:
+                scope = multiresolution.scope
                 selected = (
                     ""
                     if scope.kind == "complete"
@@ -657,7 +1202,7 @@ class AttributionFrame(BaseFrame):
                     "multiresolution",
                     (
                         "rollup_safe=false "
-                        f"resolutions={len(evidence.multiresolution.resolution_reconciliations)}"
+                        f"resolutions={len(multiresolution.resolution_reconciliations)}"
                         f"{selected}"
                     ),
                 )
@@ -759,7 +1304,7 @@ class AttributionFrame(BaseFrame):
                 received=repr(self.meta.attribution_mode),
                 location="AttributionFrame.at_resolution",
             )
-        multiresolution = evidence.multiresolution
+        multiresolution = _multiresolution_evidence(evidence)
         if multiresolution is None or multiresolution.scope.kind != "complete":
             raise AttributionResolutionError(
                 message="this attribution frame already has a selected resolution",
@@ -898,11 +1443,15 @@ class AttributionFrame(BaseFrame):
     def contract(self) -> ArtifactContract:
         """Return the mechanical contract, marking selected views non-canonical."""
         contract = super().contract()
+        multiresolution = (
+            None
+            if self.meta.semantic_kind == "funnel_loss_rate"
+            else _multiresolution_evidence(self.meta.method_evidence)
+        )
         if (
             self.meta.semantic_kind != "funnel_loss_rate"
-            and self.meta.method_evidence is not None
-            and self.meta.method_evidence.multiresolution is not None
-            and self.meta.method_evidence.multiresolution.scope.kind == "complete"
+            and multiresolution is not None
+            and multiresolution.scope.kind == "complete"
         ):
             from marivo.analysis.frames.base import ArtifactAffordance, ArtifactCallOption
 
@@ -939,9 +1488,8 @@ class AttributionFrame(BaseFrame):
             )
         if (
             self.meta.semantic_kind != "funnel_loss_rate"
-            and self.meta.method_evidence is not None
-            and self.meta.method_evidence.multiresolution is not None
-            and self.meta.method_evidence.multiresolution.scope.kind == "selected"
+            and multiresolution is not None
+            and multiresolution.scope.kind == "selected"
         ):
             return contract.model_copy(
                 update={

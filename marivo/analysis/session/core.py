@@ -1065,6 +1065,13 @@ class Session(RenderableResult):
         requested axis is missing from the input DeltaFrame, Marivo attempts to
         replay the source observe/compare lineage with the extra axis and fails
         closed when replay is not recoverable.
+        For a current cumulative delta, business dimensions replay cumulative
+        endpoint levels. Exactly the cumulative ``over`` time dimension uses
+        the additive base-flow bridge and emits a distinct temporal row
+        contract with exact intervals, source side, effect kind, and per-parent
+        reconciliation. Mixing the ``over`` axis with business dimensions is
+        blocked; derived component time bridges and cumulative count-distinct
+        bases are also blocked by the persisted route map.
         For multiple axes, choose ``mode="joint"`` for one row per complete
         axis combination, or ``mode="hierarchy"`` for prefix-level drill-down
         rows. Joint rows are additive; hierarchy rows repeat parent totals, so

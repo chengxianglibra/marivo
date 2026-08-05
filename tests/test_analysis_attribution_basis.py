@@ -103,9 +103,11 @@ def test_observe_compare_persist_graph_owned_distinct_basis(
     assert incomplete_semi_additive.blocker == "missing_additivity_metadata"
 
     delta.meta = original_meta.model_copy(update={"cumulative": {"kind": "all_history"}})
-    cumulative = delta.contract().attribute_admission
-    assert cumulative.status == "blocked"
-    assert cumulative.blocker == "cumulative_delta"
+    with pytest.raises(
+        ValueError,
+        match="cumulative delta metadata requires cumulative-delta/v1",
+    ):
+        delta.contract()
     delta.meta = original_meta
 
     monkeypatch.setattr(attribution_contract, "INSTALLED_ATTRIBUTE_METHODS", frozenset())

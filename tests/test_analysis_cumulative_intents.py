@@ -20,8 +20,17 @@ from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
     canonical_cumulative_expression_fingerprint,
 )
-from marivo.analysis.errors import AnalysisError, CumulativeFrameUnsupportedError
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.errors import (
+    AnalysisError,
+    AttributionMaterializationError,
+    CumulativeFrameUnsupportedError,
+)
+from marivo.analysis.frames.attribution import validate_cumulative_flow_attribution_rows
+from marivo.analysis.frames.delta import (
+    CumulativeDeltaFrameMetaV1,
+    DeltaFrame,
+    DeltaFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
@@ -30,15 +39,17 @@ from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
+from marivo.analysis.session._runtime import persist_frame
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
-    CatalogBodyLeafV1,
+    AggregateNodeV1,
     CumulativeEquivalentComparisonSemanticsV1,
     CumulativeNodeV1,
     ExactComparisonSemanticsV1,
     ExpressionOccurrenceV1,
     MetricExpressionGraphV1,
+    RatioNodeV1,
     SliceNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import fingerprint, intern_nodes
@@ -49,7 +60,7 @@ def _cum_marker() -> dict:
     return {
         "kind": "cumulative",
         "base": "sales.gmv",
-        "over": "sales.orders.event_time",
+        "over": "sales.orders.order_date",
         "anchor": "all_history",
         "components": None,
     }
@@ -101,7 +112,11 @@ def _bootstrap_project(tmp_path) -> None:
         "amount = ms.measure_column("
         "name='amount', entity=orders, column='amount', additivity='additive', unit='USD')\n"
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-        "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=order_date)\n",
+        "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=order_date)\n"
+        "mtd_gmv = ms.cumulative(name='mtd_gmv', base=gmv, over=order_date, "
+        "anchor=ms.grain_to_date(grain='month'))\n"
+        "trailing_2d_gmv = ms.cumulative(name='trailing_2d_gmv', base=gmv, "
+        "over=order_date, anchor=ms.trailing(count=2, unit='day'))\n",
         encoding="utf-8",
     )
 
@@ -111,10 +126,20 @@ def _seed(con) -> None:
         "orders",
         pd.DataFrame(
             {
-                "order_id": [1, 2, 3],
-                "created_at": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
-                "amount": [10.0, 12.0, 18.0],
-                "region": ["US", "US", "CA"],
+                "order_id": [1, 2, 3, 4, 5, 6, 7],
+                "created_at": pd.to_datetime(
+                    [
+                        "2026-06-01",
+                        "2026-06-02",
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-03",
+                    ]
+                ),
+                "amount": [4.0, 6.0, 10.0, 12.0, 5.0, 18.0, 7.0],
+                "region": ["US", "CA", "US", "US", "CA", "CA", "EU"],
             }
         ),
         overwrite=True,
@@ -219,15 +244,15 @@ def test_decompose_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
     assert exc_info.value._context["base_metric_id"] == "sales.gmv"
 
 
-def test_attribute_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
+def test_attribute_rejects_legacy_cumulative_delta_schema(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
     delta = _delta(session, cumulative=_cum_marker())
+    region = ref_factory.dimension("sales.orders.region")
 
-    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
-        attribute(delta, axes=["sales.orders.region"], session=session)
+    with pytest.raises(AttributionMaterializationError) as exc_info:
+        attribute(delta, axes=[region], session=session)
 
-    assert exc_info.value._context["intent"] == "attribute"
-    assert exc_info.value._context["base_metric_id"] == "sales.gmv"
+    assert exc_info.value._context["recoverability_status"] == "unsupported_artifact_schema"
 
 
 # ---------------------------------------------------------------------------
@@ -240,10 +265,174 @@ def _cum_marker_anchor(anchor: object) -> dict:
     return {
         "kind": "cumulative",
         "base": "sales.gmv",
-        "over": "sales.orders.event_time",
+        "over": "sales.orders.order_date",
         "anchor": anchor,
         "components": None,
     }
+
+
+def _attach_direct_cumulative_contract(
+    session, frame: MetricFrame, *, anchor: object
+) -> MetricFrame:
+    """Attach one complete current cumulative graph to a synthetic metric frame."""
+
+    base_node = AggregateNodeV1(
+        kind="aggregate",
+        target_ref=RefPayloadV1.from_ref(ref_factory.measure("sales.orders.amount")),
+        dependency_fingerprint=fingerprint(("test-base", "sales.orders.amount")),
+        agg="sum",
+        fold=None,
+    )
+    base_id = fingerprint(base_node)
+    cumulative_node = CumulativeNodeV1(
+        kind="cumulative",
+        child_id=base_id,
+        time_dimension_ref=RefPayloadV1.from_ref(
+            ref_factory.time_dimension("sales.orders.order_date")
+        ),
+        anchor=anchor,
+        dependency_fingerprint=fingerprint(("test-time", "sales.orders.order_date")),
+    )
+    cumulative_id = fingerprint(cumulative_node)
+    graph = MetricExpressionGraphV1(
+        schema="metric-expression/v1",
+        roots=(cumulative_id,),
+        nodes=intern_nodes((base_node, cumulative_node)),
+        occurrences=(
+            ExpressionOccurrenceV1(
+                path="root[0]",
+                node_id=cumulative_id,
+                child_paths=("root[0].base",),
+            ),
+            ExpressionOccurrenceV1(path="root[0].base", node_id=base_id),
+        ),
+    )
+    comparable = frame.meta.comparable_value_semantics
+    assert comparable is not None
+    comparable_payload = {
+        "expression_fingerprint": cumulative_id,
+        "evaluator_contracts": comparable.evaluator_contracts,
+        "global_slice": comparable.global_slice,
+        "key_schema_fingerprint": comparable.key_schema_fingerprint,
+        "unit": comparable.unit,
+        "fold": comparable.fold,
+        "source_domain_fingerprint": comparable.source_domain_fingerprint,
+        "definition_transform_fingerprint": comparable.definition_transform_fingerprint,
+    }
+    comparable = replace(
+        comparable,
+        expression_fingerprint=cumulative_id,
+        fingerprint=fingerprint(comparable_payload),
+    )
+    frame.meta = frame.meta.model_copy(
+        update={
+            "expression_graph": graph,
+            "expression_fingerprint": cumulative_id,
+            "comparable_value_semantics": comparable,
+            "cumulative": _cum_marker_anchor(anchor),
+        }
+    )
+    frame.meta = persist_frame(session, frame)
+    return frame
+
+
+def _attach_ratio_cumulative_contract(
+    session, frame: MetricFrame, *, anchor: object
+) -> MetricFrame:
+    """Attach a real ratio-of-cumulative-components graph to a synthetic frame."""
+
+    time_ref = RefPayloadV1.from_ref(ref_factory.time_dimension("sales.orders.order_date"))
+    aggregates = (
+        AggregateNodeV1(
+            kind="aggregate",
+            target_ref=RefPayloadV1.from_ref(ref_factory.measure("sales.orders.amount")),
+            dependency_fingerprint=fingerprint(("test-base", "amount")),
+            agg="sum",
+            fold=None,
+        ),
+        AggregateNodeV1(
+            kind="aggregate",
+            target_ref=RefPayloadV1.from_ref(ref_factory.measure("sales.orders.amount")),
+            dependency_fingerprint=fingerprint(("test-base", "count")),
+            agg="count",
+            fold=None,
+        ),
+    )
+    aggregate_ids = tuple(fingerprint(node) for node in aggregates)
+    cumulative_nodes = tuple(
+        CumulativeNodeV1(
+            kind="cumulative",
+            child_id=child_id,
+            time_dimension_ref=time_ref,
+            anchor=anchor,
+            dependency_fingerprint=fingerprint(("test-time", "sales.orders.order_date")),
+        )
+        for child_id in aggregate_ids
+    )
+    cumulative_ids = tuple(fingerprint(node) for node in cumulative_nodes)
+    ratio_node = RatioNodeV1(
+        kind="ratio",
+        numerator_id=cumulative_ids[0],
+        denominator_id=cumulative_ids[1],
+        zero_division="null",
+    )
+    ratio_id = fingerprint(ratio_node)
+    graph = MetricExpressionGraphV1(
+        schema="metric-expression/v1",
+        roots=(ratio_id,),
+        nodes=intern_nodes((*aggregates, *cumulative_nodes, ratio_node)),
+        occurrences=(
+            ExpressionOccurrenceV1(
+                path="root[0]",
+                node_id=ratio_id,
+                child_paths=("root[0].numerator", "root[0].denominator"),
+            ),
+            ExpressionOccurrenceV1(
+                path="root[0].numerator",
+                node_id=cumulative_ids[0],
+                child_paths=("root[0].numerator.base",),
+            ),
+            ExpressionOccurrenceV1(path="root[0].numerator.base", node_id=aggregate_ids[0]),
+            ExpressionOccurrenceV1(
+                path="root[0].denominator",
+                node_id=cumulative_ids[1],
+                child_paths=("root[0].denominator.base",),
+            ),
+            ExpressionOccurrenceV1(path="root[0].denominator.base", node_id=aggregate_ids[1]),
+        ),
+    )
+    comparable = frame.meta.comparable_value_semantics
+    assert comparable is not None
+    comparable_payload = {
+        "expression_fingerprint": ratio_id,
+        "evaluator_contracts": comparable.evaluator_contracts,
+        "global_slice": comparable.global_slice,
+        "key_schema_fingerprint": comparable.key_schema_fingerprint,
+        "unit": comparable.unit,
+        "fold": comparable.fold,
+        "source_domain_fingerprint": comparable.source_domain_fingerprint,
+        "definition_transform_fingerprint": comparable.definition_transform_fingerprint,
+    }
+    component = _cum_marker_anchor(anchor)
+    frame.meta = frame.meta.model_copy(
+        update={
+            "expression_graph": graph,
+            "expression_fingerprint": ratio_id,
+            "comparable_value_semantics": replace(
+                comparable,
+                expression_fingerprint=ratio_id,
+                fingerprint=fingerprint(comparable_payload),
+            ),
+            "cumulative": {
+                "kind": "derived_contains_cumulative",
+                "anchor": anchor,
+                "compare_blocker": None,
+                "components": {"numerator": component, "denominator": component},
+            },
+        }
+    )
+    frame.meta = persist_frame(session, frame)
+    return frame
 
 
 def _ts_frame(
@@ -264,6 +453,10 @@ def _ts_frame(
         "value": values,
     }
     axes: dict[str, object] = {"time": {"role": "time", "column": "bucket_start", "grain": grain}}
+    axes["time"] = {
+        **axes["time"],
+        "time_dimension": "sales.orders.order_date",
+    }
     semantic_kind = "time_series"
     if regions is not None:
         data["region"] = regions
@@ -283,66 +476,10 @@ def _ts_frame(
         semantic_kind=semantic_kind,
         semantic_model="sales",
         window={"start": window_start, "end": window_end, "grain": grain},
+        aggregation="sum",
         session=session,
     )
-    if anchor != "all_history":
-        base_node = CatalogBodyLeafV1(
-            kind="catalog_body_leaf",
-            metric_ref=RefPayloadV1.from_ref(ref_factory.metric("sales.gmv")),
-            dependency_fingerprint=fingerprint(("test-base", "sales.gmv")),
-        )
-        base_id = fingerprint(base_node)
-        cumulative_node = CumulativeNodeV1(
-            kind="cumulative",
-            child_id=base_id,
-            time_dimension_ref=RefPayloadV1.from_ref(
-                ref_factory.time_dimension("sales.orders.event_time")
-            ),
-            anchor=anchor,
-            dependency_fingerprint=fingerprint(("test-time", "sales.orders.event_time")),
-        )
-        cumulative_id = fingerprint(cumulative_node)
-        graph = MetricExpressionGraphV1(
-            schema="metric-expression/v1",
-            roots=(cumulative_id,),
-            nodes=intern_nodes((base_node, cumulative_node)),
-            occurrences=(
-                ExpressionOccurrenceV1(
-                    path="root[0]",
-                    node_id=cumulative_id,
-                    child_paths=("root[0].base",),
-                ),
-                ExpressionOccurrenceV1(path="root[0].base", node_id=base_id),
-            ),
-        )
-        comparable = frame.meta.comparable_value_semantics
-        assert comparable is not None
-        comparable_payload = {
-            "expression_fingerprint": cumulative_id,
-            "evaluator_contracts": comparable.evaluator_contracts,
-            "global_slice": comparable.global_slice,
-            "key_schema_fingerprint": comparable.key_schema_fingerprint,
-            "unit": comparable.unit,
-            "fold": comparable.fold,
-            "source_domain_fingerprint": comparable.source_domain_fingerprint,
-            "definition_transform_fingerprint": comparable.definition_transform_fingerprint,
-        }
-        comparable = replace(
-            comparable,
-            expression_fingerprint=cumulative_id,
-            fingerprint=fingerprint(comparable_payload),
-        )
-        frame.meta = frame.meta.model_copy(
-            update={
-                "expression_graph": graph,
-                "expression_fingerprint": cumulative_id,
-                "comparable_value_semantics": comparable,
-                "cumulative": _cum_marker_anchor(anchor),
-            }
-        )
-    else:
-        frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
-    return frame
+    return _attach_direct_cumulative_contract(session, frame, anchor=anchor)
 
 
 def _all_history_shape_frame(
@@ -373,10 +510,10 @@ def _all_history_shape_frame(
         semantic_kind=semantic_kind,
         semantic_model="sales",
         window={"start": window_start, "end": window_end, "grain": "day"},
+        aggregation="sum",
         session=session,
     )
-    frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker()})
-    return frame
+    return _attach_direct_cumulative_contract(session, frame, anchor="all_history")
 
 
 @pytest.mark.parametrize(
@@ -573,7 +710,7 @@ def test_compare_all_history_drops_one_sided_and_retains_matched_null(
     invalid_pairs = invalid_meta["alignment"]["cumulative_pairs"]
     invalid_pairs["matching_rows"] = invalid_pairs.pop("matched_rows")
     with pytest.raises(ValueError, match="matched_rows"):
-        DeltaFrameMeta.model_validate(invalid_meta)
+        CumulativeDeltaFrameMetaV1.model_validate(invalid_meta)
     finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
     assert finding.value.presence is None
     assert finding.value.magnitude is None
@@ -1561,29 +1698,196 @@ def test_compare_grain_to_date_delta_carries_marker(tmp_path, monkeypatch) -> No
     assert delta.meta.cumulative is not None
 
 
-def test_compare_grain_to_date_delta_attribute_still_gated(tmp_path, monkeypatch) -> None:
-    """A cumulative DeltaFrame stays attribute-gated even after compare is allowed."""
+def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatch) -> None:
+    """A current cumulative delta replays one missing business dimension."""
     session = _session(tmp_path, monkeypatch)
-    anchor = ("grain_to_date", "month")
-    current = _ts_frame(
-        session,
-        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
-        values=[10.0, 22.0, 40.0],
-        window_start="2026-07-01",
-        window_end="2026-07-04",
-        anchor=anchor,
+    metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
+    current = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
     )
-    baseline = _ts_frame(
-        session,
-        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
-        values=[5.0, 11.0, 18.0],
-        window_start="2026-06-01",
-        window_end="2026-06-04",
-        anchor=anchor,
+    baseline = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
     )
     delta = compare(current, baseline, session=session)
-    with pytest.raises(CumulativeFrameUnsupportedError):
-        attribute(delta, axes=["sales.orders.region"], session=session)
+    region = session.catalog.require(ref_factory.dimension("sales.orders.region")).ref
+
+    drivers = attribute(delta, axes=[region], session=session)
+    by_region = dict(
+        zip(
+            drivers.to_pandas()["region"],
+            drivers.to_pandas()["contribution"],
+            strict=True,
+        )
+    )
+
+    assert by_region == {
+        "CA": pytest.approx(18.0),
+        "EU": pytest.approx(7.0),
+        "US": pytest.approx(0.0),
+    }
+    assert drivers.meta.method == "sum"
+    assert "cumulative_route" not in drivers.meta.params
+    assert drivers.meta.method_evidence is not None
+    assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
+
+
+def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, monkeypatch) -> None:
+    """The exact cumulative over axis explains the base flow between cutoffs."""
+    session = _session(tmp_path, monkeypatch)
+    metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
+    current = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+    )
+    baseline = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+    )
+    delta = compare(current, baseline, session=session)
+    order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
+
+    flow = attribute(delta, axes=[order_date], session=session)
+    rows = flow.to_pandas()
+
+    assert flow.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
+    assert flow.meta.method_evidence is not None
+    assert flow.meta.method_evidence.kind == "cumulative_all_history_flow"
+    assert rows["source_side"].tolist() == ["current"]
+    assert rows["effect_kind"].tolist() == ["between_cutoffs"]
+    assert rows["contribution"].tolist() == [pytest.approx(25.0)]
+    assert rows["flow_interval_start"].tolist() == [pd.Timestamp("2026-07-02T16:00:00Z")]
+    assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-03T16:00:00Z")]
+    reloaded = session.get_frame(flow.ref)
+    assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
+
+
+def test_cumulative_flow_validator_rejects_semantic_evidence_corruption(
+    tmp_path, monkeypatch
+) -> None:
+    """Cold-load validation binds intervals, direction, shares, and summary to evidence."""
+
+    session = _session(tmp_path, monkeypatch)
+    metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
+    current = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+    )
+    baseline = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+    )
+    delta = compare(current, baseline, session=session)
+    order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
+    flow = attribute(delta, axes=[order_date], session=session)
+    rows = flow.to_pandas()
+
+    outside_scope = rows.copy()
+    outside_scope.loc[0, "flow_interval_start"] = pd.Timestamp("2026-06-01T00:00:00Z")
+    with pytest.raises(ValueError, match="outside the cutoff scope"):
+        validate_cumulative_flow_attribution_rows(flow.meta, outside_scope)
+
+    wrong_direction = rows.copy()
+    wrong_direction.loc[0, "source_side"] = "baseline"
+    wrong_direction.loc[0, "baseline_value"] = wrong_direction.loc[0, "current_value"]
+    wrong_direction.loc[0, "current_value"] = float("nan")
+    wrong_direction.loc[0, "contribution"] *= -1
+    with pytest.raises(ValueError, match="cutoff direction"):
+        validate_cumulative_flow_attribution_rows(flow.meta, wrong_direction)
+
+    wrong_share = rows.copy()
+    wrong_share.loc[0, "share_of_total_delta"] = 2.0
+    with pytest.raises(ValueError, match="share_of_total_delta"):
+        validate_cumulative_flow_attribution_rows(flow.meta, wrong_share)
+
+    assert flow.meta.reconciliation is not None
+    wrong_summary = flow.meta.model_copy(
+        update={
+            "reconciliation": flow.meta.reconciliation.model_copy(update={"partition_count": 99})
+        }
+    )
+    with pytest.raises(ValueError, match="partition count mismatch"):
+        validate_cumulative_flow_attribution_rows(wrong_summary, rows)
+
+
+@pytest.mark.parametrize(
+    ("metric_path", "expected_kind", "expected_effects"),
+    [
+        (
+            "sales.mtd_gmv",
+            "cumulative_grain_to_date_flow",
+            {"current_scope", "baseline_scope"},
+        ),
+        (
+            "sales.trailing_2d_gmv",
+            "cumulative_trailing_flow",
+            {"entering", "leaving"},
+        ),
+    ],
+)
+def test_cumulative_delta_attributes_comparable_period_flow(
+    tmp_path,
+    monkeypatch,
+    metric_path: str,
+    expected_kind: str,
+    expected_effects: set[str],
+) -> None:
+    """GTD and trailing bridges reconcile independently for every paired cutoff."""
+    session = _session(tmp_path, monkeypatch)
+    metric = session.catalog.require(ref_factory.metric(metric_path)).ref
+    current = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+    )
+    baseline = session.observe(
+        metric,
+        time_scope={"start": "2026-06-01", "end": "2026-06-04"},
+        grain="day",
+    )
+    delta = compare(current, baseline, session=session)
+    order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
+
+    flow = attribute(delta, axes=[order_date], session=session)
+    rows = flow.to_pandas()
+
+    assert flow.meta.method_evidence is not None
+    assert flow.meta.method_evidence.kind == expected_kind
+    assert set(rows["effect_kind"]) == expected_effects
+    assert flow.meta.reconciliation is not None
+    assert flow.meta.reconciliation.max_abs_residual <= 1e-9
+    assert len(flow.meta.method_evidence.partitions) == len(delta.to_pandas())
+
+
+def test_grain_to_date_flow_uses_period_owning_exclusive_boundary(tmp_path, monkeypatch) -> None:
+    """An endpoint on a reset boundary still belongs to the preceding bucket period."""
+
+    session = _session(tmp_path, monkeypatch)
+    metric = session.catalog.require(ref_factory.metric("sales.mtd_gmv")).ref
+    current = session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        grain="day",
+    )
+    baseline = session.observe(
+        metric,
+        time_scope={"start": "2026-06-01", "end": "2026-07-01"},
+        grain="day",
+    )
+    delta = compare(current, baseline, session=session)
+    order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
+
+    flow = attribute(delta, axes=[order_date], session=session)
+
+    assert flow.meta.reconciliation is not None
+    assert flow.meta.reconciliation.max_abs_residual <= 1e-9
+    assert flow.meta.method_evidence is not None
+    assert flow.meta.method_evidence.kind == "cumulative_grain_to_date_flow"
+    assert all(
+        abs(partition.residual) <= partition.tolerance
+        for partition in flow.meta.method_evidence.partitions
+    )
 
 
 def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -> None:
@@ -1626,16 +1930,6 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
 def test_compare_derived_all_history_components_are_allowed(tmp_path, monkeypatch) -> None:
     """Valid derived all-history cumulative wrappers compare by level."""
     session = _session(tmp_path, monkeypatch)
-    component_marker = _cum_marker_anchor("all_history")
-    derived_marker = {
-        "kind": "derived_contains_cumulative",
-        "anchor": "all_history",
-        "compare_blocker": None,
-        "components": {
-            "numerator": component_marker,
-            "denominator": component_marker,
-        },
-    }
     current = _ts_frame(
         session,
         bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
@@ -1644,7 +1938,7 @@ def test_compare_derived_all_history_components_are_allowed(tmp_path, monkeypatc
         window_end="2026-07-04",
         metric_id="sales.derived_over_cum",
     )
-    current.meta = current.meta.model_copy(update={"cumulative": derived_marker})
+    current = _attach_ratio_cumulative_contract(session, current, anchor="all_history")
     baseline = _ts_frame(
         session,
         bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
@@ -1653,7 +1947,7 @@ def test_compare_derived_all_history_components_are_allowed(tmp_path, monkeypatc
         window_end="2026-06-04",
         metric_id="sales.derived_over_cum",
     )
-    baseline.meta = baseline.meta.model_copy(update={"cumulative": derived_marker})
+    baseline = _attach_ratio_cumulative_contract(session, baseline, anchor="all_history")
     delta = compare(current, baseline, session=session)
     assert delta.meta.cumulative_change is not None
 

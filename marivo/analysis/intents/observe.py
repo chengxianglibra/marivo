@@ -1237,7 +1237,11 @@ def observe(
         key_fields = tuple(
             MetricKeyFieldV1(
                 name=column,
-                dtype=str(materialized_frame[column].dtype),
+                dtype=(
+                    _stable_key_dtype(materialized_frame[column])
+                    if cumulative_meta is not None
+                    else str(materialized_frame[column].dtype)
+                ),
                 # Key nullability is a stable contract, not a fact inferred
                 # from one observed window.  Composite outer alignment and
                 # nullable source dimensions can both produce null keys even
@@ -1456,13 +1460,18 @@ def observe(
                 persist_parent=False,
             )
         elif root_execution.aggregate_component_df is not None:
-            aggregate_contract = _aggregate_component_contract(metric_ir)
+            aggregate_contract = root_execution.aggregate_component_contract
             if aggregate_contract is not None:
                 aggregate_components = aggregate_contract["components"]
                 assert isinstance(aggregate_components, dict)
+                aggregate_component_df = root_execution.aggregate_component_df.copy()
+                if "value" in aggregate_component_df.columns:
+                    aggregate_component_df = aggregate_component_df.rename(
+                        columns={"value": metric_name}
+                    )
                 component = _persist_metric_component_frame(
                     session=session,
-                    df=root_execution.aggregate_component_df,
+                    df=aggregate_component_df,
                     parent=frame,
                     metric_ir=metric_ir,
                     axes=root_execution.axes,
@@ -1655,9 +1664,7 @@ def _preferred_status_time_dimension_for_metric(
     ):
         return None
     if metric_ir is None:
-        normalized = normalize_metric_ref_input(
-            catalog, metric_input, argument="observe.metrics"
-        )
+        normalized = normalize_metric_ref_input(catalog, metric_input, argument="observe.metrics")
         metric_id = _normalize_metric_boundary(catalog, normalized)
         metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
         assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
@@ -1669,10 +1676,10 @@ def _preferred_status_time_dimension_for_metric(
         return str(metric_ir.status_time_dimension)
     if metric_ir.metric_type == "derived" and metric_ir.composition is not None:
         for _role, component_id in metric_ir.composition.components.items():
-            component_details = _catalog_object(catalog, component_id, SemanticKind.METRIC).details()
-            assert isinstance(
-                component_details, (SimpleMetricDetails, DerivedMetricDetails)
-            )
+            component_details = _catalog_object(
+                catalog, component_id, SemanticKind.METRIC
+            ).details()
+            assert isinstance(component_details, (SimpleMetricDetails, DerivedMetricDetails))
             component_ir = _planned_metric(component_details)
             if (
                 getattr(component_ir, "additivity", None) == "semi_additive"
@@ -2384,6 +2391,18 @@ def _dimension_ref_payloads(catalog: Any, paths: list[str]) -> list[dict[str, st
         )
         payloads.append(RefPayloadV1.from_ref(ref).to_dict())
     return payloads
+
+
+def _stable_key_dtype(series: pd.Series) -> str:
+    """Return a logical key dtype independent of pandas string storage choices."""
+
+    dtype = str(series.dtype)
+    if dtype not in {"object", "str", "string"}:
+        return dtype
+    inferred = pd.api.types.infer_dtype(series, skipna=True)
+    if inferred in {"string", "unicode", "empty"}:
+        return "string"
+    return dtype
 
 
 def _comparable_slice(catalog: Any, where: dict[str, Any]) -> tuple[CanonicalSliceEntryV1, ...]:

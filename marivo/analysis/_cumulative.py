@@ -31,7 +31,7 @@ from marivo.semantic.metric_graph_canonical import (
     validate_graph,
 )
 
-CUMULATIVE_CONTRACT_VERSION = 3
+CUMULATIVE_CONTRACT_VERSION = 4
 
 EVALUATION_END_COLUMN = "evaluation_end"
 CURRENT_EVALUATION_END_COLUMN = "current_evaluation_end"

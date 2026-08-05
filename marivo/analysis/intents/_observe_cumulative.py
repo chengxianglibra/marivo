@@ -97,6 +97,15 @@ def _weighted_mean_from_accumulated_components(df: Any) -> Any:
     return result.drop(columns=[_WEIGHTED_MEAN_NUMERATOR, _WEIGHTED_MEAN_WEIGHT])
 
 
+def _weighted_mean_component_frame(df: Any) -> Any:
+    """Retain exact accumulated roles alongside their recomposed value."""
+
+    result = df.copy()
+    denominator = result[_WEIGHTED_MEAN_WEIGHT]
+    result["value"] = result[_WEIGHTED_MEAN_NUMERATOR] / denominator.mask(denominator == 0)
+    return result
+
+
 def _base_measure_ref(metric_ir: Any) -> str | None:
     """Return the base metric's measure semantic_id, or None for count-without-measure."""
     return getattr(metric_ir, "measure", None)
@@ -163,6 +172,7 @@ def _execute_trailing_distinct(
     Any,
     dict[str, Any],
     Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
     Any | None,
 ]:
     """Execute a trailing (rolling N) cumulative for a count_distinct base.
@@ -402,7 +412,7 @@ def _execute_trailing_distinct(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = (
         "panel" if dimension_names else "time_series"
     )
-    return _Result(dense_df), axes, semantic_kind, coverage_df
+    return _Result(dense_df), axes, semantic_kind, coverage_df, None
 
 
 def _execute_trailing_additive(
@@ -423,6 +433,7 @@ def _execute_trailing_additive(
     Any,
     dict[str, Any],
     Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
     Any | None,
 ]:
     """Execute a trailing (rolling N) cumulative for sum/count base aggregates.
@@ -595,10 +606,11 @@ def _execute_trailing_additive(
             value_column=_WEIGHTED_MEAN_WEIGHT,
         )
         merge_keys = ["bucket_start", *dimension_names]
-        dense_df = _weighted_mean_from_accumulated_components(
-            numerator_df.merge(weight_df, on=merge_keys, how="outer")
-        )
+        accumulated = numerator_df.merge(weight_df, on=merge_keys, how="outer")
+        component_df = _weighted_mean_component_frame(accumulated)
+        dense_df = _weighted_mean_from_accumulated_components(accumulated)
     else:
+        component_df = None
         dense_df = _trailing_rolling_frame(
             flow_df=flow_df,
             bucket_values=extended_bucket_values,
@@ -649,7 +661,7 @@ def _execute_trailing_additive(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = (
         "panel" if dimension_names else "time_series"
     )
-    return _Result(dense_df), axes, semantic_kind, coverage_df
+    return _Result(dense_df), axes, semantic_kind, coverage_df, component_df
 
 
 def _execute_cumulative(
@@ -663,6 +675,7 @@ def _execute_cumulative(
     Any,
     dict[str, Any],
     Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
     Any | None,
 ]:
     """Execute a graph-native cumulative physical leaf.
@@ -763,7 +776,9 @@ def _execute_cumulative(
                 raw_table = raw_table.filter(
                     time_expr < ibis.literal(resolved_window.end).cast(time_expr.type())
                 )
-        # Apply dimension projections on the raw table
+        # Apply dimension projections on the raw table. Weighted means retain
+        # their exact numerator/weight roles so cumulative business-axis replay
+        # can recompose across every segment rather than summing segment means.
         if resolved_dimensions:
             dimension_exprs = {
                 field_ir.name: _validate_field_expr(
@@ -775,16 +790,35 @@ def _execute_cumulative(
                 for _, field_ir in resolved_dimensions
             }
             raw_table = raw_table.mutate(**dimension_exprs)
-            dataset_tables = dict.fromkeys(metric_datasets, raw_table)
-            metric_expr = _metric_expr(
-                catalog, resolver, base_metric_ir.semantic_id, metric_datasets, dataset_tables
-            )
-            grouped_expr = (
-                raw_table.group_by(dimension_names)
-                .aggregate(value=metric_expr)
-                .order_by(dimension_names)
-                .select(*dimension_names, "value")
-            )
+            if getattr(base_metric_ir, "weighted_mean", None) is not None:
+                aggregations = _flow_aggregations(
+                    catalog=catalog,
+                    resolver=resolver,
+                    metric_ir=base_metric_ir,
+                    metric_datasets=metric_datasets,
+                    table=raw_table,
+                )
+                grouped_expr = (
+                    raw_table.group_by(dimension_names)
+                    .aggregate(**aggregations)
+                    .order_by(dimension_names)
+                    .select(*dimension_names, *aggregations)
+                )
+            else:
+                dataset_tables = dict.fromkeys(metric_datasets, raw_table)
+                metric_expr = _metric_expr(
+                    catalog,
+                    resolver,
+                    base_metric_ir.semantic_id,
+                    metric_datasets,
+                    dataset_tables,
+                )
+                grouped_expr = (
+                    raw_table.group_by(dimension_names)
+                    .aggregate(value=metric_expr)
+                    .order_by(dimension_names)
+                    .select(*dimension_names, "value")
+                )
             result = execute(
                 grouped_expr,
                 datasource_name=primary_datasource,
@@ -801,11 +835,25 @@ def _execute_cumulative(
             }
             semantic_kind = "segmented"
         else:
-            dataset_tables = dict.fromkeys(metric_datasets, raw_table)
-            metric_expr = _metric_expr(
-                catalog, resolver, base_metric_ir.semantic_id, metric_datasets, dataset_tables
-            )
-            grouped_expr = raw_table.aggregate(value=metric_expr)
+            if getattr(base_metric_ir, "weighted_mean", None) is not None:
+                aggregations = _flow_aggregations(
+                    catalog=catalog,
+                    resolver=resolver,
+                    metric_ir=base_metric_ir,
+                    metric_datasets=metric_datasets,
+                    table=raw_table,
+                )
+                grouped_expr = raw_table.aggregate(**aggregations)
+            else:
+                dataset_tables = dict.fromkeys(metric_datasets, raw_table)
+                metric_expr = _metric_expr(
+                    catalog,
+                    resolver,
+                    base_metric_ir.semantic_id,
+                    metric_datasets,
+                    dataset_tables,
+                )
+                grouped_expr = raw_table.aggregate(value=metric_expr)
             result = execute(
                 grouped_expr,
                 datasource_name=primary_datasource,
@@ -813,7 +861,13 @@ def _execute_cumulative(
                 session_id=session.id,
             )
             semantic_kind = "scalar"
-        return result, axes, semantic_kind, None
+        public_result: Any = result
+        if getattr(base_metric_ir, "weighted_mean", None) is not None:
+            component_df = _weighted_mean_component_frame(result.df)
+            public_result = _Result(_weighted_mean_from_accumulated_components(result.df))
+        else:
+            component_df = None
+        return public_result, axes, semantic_kind, None, component_df
 
     # --- Time-series/panel: baseline + flow + dense spine + cumsum ---
     assert resolved_window is not None
@@ -1216,10 +1270,13 @@ def _execute_cumulative(
                 dimension_columns=dimension_names,
                 value_column=_WEIGHTED_MEAN_WEIGHT,
             )
-        dense_df = _weighted_mean_from_accumulated_components(
-            numerator_df.merge(weight_df, on=["bucket_start", *dimension_names], how="outer")
+        accumulated = numerator_df.merge(
+            weight_df, on=["bucket_start", *dimension_names], how="outer"
         )
+        component_df = _weighted_mean_component_frame(accumulated)
+        dense_df = _weighted_mean_from_accumulated_components(accumulated)
     elif is_grain_to_date and reset_grain is not None:
+        component_df = None
         dense_df = _grain_to_date_dense_frame(
             seed_df=baseline_df,
             flow_df=flow_df,
@@ -1228,6 +1285,7 @@ def _execute_cumulative(
             reset_grain=reset_grain,
         )
     else:
+        component_df = None
         dense_df = _dense_cumulative_frame(
             baseline_df=baseline_df,
             flow_df=flow_df,
@@ -1255,7 +1313,7 @@ def _execute_cumulative(
     }
     semantic_kind = "panel" if dimension_names else "time_series"
 
-    return _Result(dense_df), axes, semantic_kind, None
+    return _Result(dense_df), axes, semantic_kind, None, component_df
 
 
 # ``_FIXED_UNIT_SECONDS`` is imported from ``marivo.analysis.windows.grain``

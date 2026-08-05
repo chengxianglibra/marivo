@@ -13,7 +13,10 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from marivo.analysis.attribution_contract import AttributeAdmissionV1
+from marivo.analysis.attribution_contract import (
+    AttributeAdmissionV1,
+    CumulativeAttributionCapabilityV1,
+)
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -238,6 +241,7 @@ class ArtifactContract(BaseModel):
     affordances: tuple[ArtifactAffordance, ...] = ()
     boundary_ports: tuple[ArtifactBoundaryPort, ...] = ()
     attribute_admission: AttributeAdmissionV1 | None = None
+    cumulative_attribution: CumulativeAttributionCapabilityV1 | None = None
     row_arithmetic: (
         Literal[
             "not_additive_across_resolutions",
@@ -462,6 +466,19 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
         else:
             admission_text += " multiple_axes=" + "|".join(admission.mode.multiple_axes)
         card.field("attribute_admission", admission_text)
+    if contract.cumulative_attribution is not None:
+        capability = contract.cumulative_attribution
+        for route_name, route in (
+            ("business_axes", capability.business_axes),
+            ("accumulation_time", capability.accumulation_time),
+            ("mixed_axes", capability.mixed_axes),
+        ):
+            route_text = (
+                f"supported path={route.path}"
+                if route.status == "supported"
+                else f"blocked blocker={route.blocker}"
+            )
+            card.field(f"attribute.{route_name}", route_text)
     if contract.row_arithmetic is not None:
         card.field("row_arithmetic", contract.row_arithmetic)
 
