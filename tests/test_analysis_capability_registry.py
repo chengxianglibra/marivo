@@ -73,6 +73,16 @@ def test_every_descriptor_root_group_is_in_root_group_order() -> None:
         )
 
 
+def test_root_group_order_matches_render_labels() -> None:
+    """The renderer's group labels and the teaching order must stay in sync.
+    A label key that is not in ``ROOT_GROUP_ORDER`` (or vice versa) would either
+    render a header with no members or leave a group untitled; both point at a
+    group-removal edit that forgot one of the two sources."""
+    from marivo.analysis._capabilities.render import _GROUP_LABELS
+
+    assert set(ROOT_GROUP_ORDER) == set(_GROUP_LABELS)
+
+
 # ---------------------------------------------------------------------------
 # Artifact families
 # ---------------------------------------------------------------------------
