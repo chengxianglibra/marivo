@@ -192,7 +192,6 @@ def _constraints_for_descriptor(desc: CapabilityDescriptor) -> tuple[Constraint,
 # ---------------------------------------------------------------------------
 
 _GROUP_LABELS: dict[str, str] = {
-    "session_state": "Session state",
     "semantic_inputs": "Semantic inputs",
     "policies_builders": "Policies and builders",
     "artifact_production": "Artifact production",
@@ -282,6 +281,15 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
     """
     if desc.root_visibility != "grouped":
         return None
+    # Session recovery members collapse under the recovery topic, not under
+    # the session grouping entry: that grouping mirrors the recovery root
+    # group (a navigation-only anchor) and never renders a root line itself.
+    if desc.id.startswith("session.") and desc.root_group == "recovery":
+        try:
+            REGISTRY.by_help_target("recovery")
+            return "recovery"
+        except KeyError:
+            return None
     # Collapse under the longest registered prefix in the same root group.
     parts = desc.id.split(".")
     for end in range(len(parts) - 1, 0, -1):
@@ -292,20 +300,6 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
             continue
         if grouping.callable_path is None and grouping.root_group == desc.root_group:
             return topic
-    # session.evidence.* collapses under recovery.
-    if desc.id.startswith("session.evidence."):
-        try:
-            REGISTRY.by_help_target("recovery")
-            return "recovery"
-        except KeyError:
-            return None
-    # session.jobs, session.get_frame, etc. collapse under recovery.
-    if desc.id.startswith("session.") and desc.root_group == "recovery":
-        try:
-            REGISTRY.by_help_target("recovery")
-            return "recovery"
-        except KeyError:
-            return None
     # BaseFrame.show, BaseFrame.contract collapse under artifacts.
     if desc.id.startswith("BaseFrame."):
         try:
