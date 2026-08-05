@@ -849,43 +849,24 @@ def observe(
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
-    # For semi-additive metrics, inject status_time_dimension into the window if
-    # not already specified so downstream resolution picks the status axis.
+    # For semi-additive simple/derived metrics, inject the preferred status time
+    # axis into the window if not already specified so downstream resolution
+    # picks the status axis.  The same rule drives multi-metric observe (issue
+    # #36); keep it in one place via _preferred_status_time_dimension_for_metric.
     if (
-        getattr(metric_ir, "additivity", None) == "semi_additive"
-        and metric_ir.status_time_dimension is not None
-        and time_dimension_id is None
+        time_dimension_id is None
         and resolved_window is not None
         and resolved_window.time_dimension is None
     ):
-        resolved_window, original_timescope = _resolve_timescope(
-            time_scope,
-            grain=grain,
-            time_dimension=metric_ir.status_time_dimension,
+        status_time_dimension = _preferred_status_time_dimension_for_metric(
+            catalog, normalized_metric
         )
-
-    # For derived metrics with semi-additive components, inject the first
-    # component's status_time_dimension so the planner resolves the status axis.
-    if (
-        metric_ir.metric_type == "derived"
-        and time_dimension_id is None
-        and resolved_window is not None
-        and resolved_window.time_dimension is None
-    ):
-        for _role, _comp_id in metric_ir.composition.components.items():
-            _comp_details = _catalog_object(catalog, _comp_id, SemanticKind.METRIC).details()
-            assert isinstance(_comp_details, (SimpleMetricDetails, DerivedMetricDetails))
-            _comp_ir = _planned_metric(_comp_details)
-            if (
-                getattr(_comp_ir, "additivity", None) == "semi_additive"
-                and getattr(_comp_ir, "status_time_dimension", None) is not None
-            ):
-                resolved_window, original_timescope = _resolve_timescope(
-                    time_scope,
-                    grain=grain,
-                    time_dimension=_comp_ir.status_time_dimension,
-                )
-                break
+        if status_time_dimension is not None:
+            resolved_window, original_timescope = _resolve_timescope(
+                time_scope,
+                grain=grain,
+                time_dimension=status_time_dimension,
+            )
 
     planner_time_dimension_id = (
         resolved_window.time_dimension if resolved_window is not None else time_dimension_id
@@ -1700,6 +1681,14 @@ def _resolve_forest_status_time_dimension(
             expected="one shared status time dimension across the metric roots",
             received=", ".join(sorted(preferred)),
             location="observe.time_dimension",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Pass an explicit time_dimension that both metric roots "
+                    "agree on, then re-observe."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
             context={"conflicting_status_time_dimensions": sorted(preferred)},
         )
     return next(iter(preferred))
