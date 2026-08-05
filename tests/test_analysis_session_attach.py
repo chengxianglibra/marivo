@@ -70,6 +70,26 @@ def test_recent_returns_all_sessions_in_project(tmp_path):
     assert sorted(s.name for s in session_facade.recent(limit=100).items) == ["a", "b"]
 
 
+def test_removed_list_reports_migration_hint(tmp_path):
+    """``mv.session.list()`` was removed; the error must point agents at the
+    bounded replacements so a stale call is recoverable instead of a bare
+    no-attribute error."""
+    with pytest.raises(AttributeError, match=r"session\.list\(\) was removed in favor"):
+        session_facade.list()
+    with pytest.raises(AttributeError, match=r"mv\.session\.recent\(limit, cursor\)"):
+        session_facade.list()
+    with pytest.raises(AttributeError, match=r"mv\.session\.inspect\(name\)"):
+        session_facade.list()
+
+
+def test_unrelated_missing_names_keep_generic_error(tmp_path):
+    """The ``list`` migration hint is a narrow special case; neighboring
+    unknown names must still raise the generic no-attribute error."""
+    for name in ("lst", "listt", "nope"):
+        with pytest.raises(AttributeError, match=rf"has no attribute {name!r}"):
+            getattr(session_facade, name)
+
+
 def test_delete_is_noop_for_unknown_name(tmp_path):
     # Should not raise
     session_facade.delete("nonexistent")

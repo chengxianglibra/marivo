@@ -284,6 +284,10 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
     # Session recovery members collapse under the recovery topic, not under
     # the session grouping entry: that grouping mirrors the recovery root
     # group (a navigation-only anchor) and never renders a root line itself.
+    # This check must run BEFORE the prefix-collapse loop below: the session
+    # grouping now sits in the same root group as its members, so the loop
+    # would otherwise match it first and drop session.evidence.* / session.*
+    # (11 descriptors) under the session topic instead of recovery.
     if desc.id.startswith("session.") and desc.root_group == "recovery":
         try:
             REGISTRY.by_help_target("recovery")
