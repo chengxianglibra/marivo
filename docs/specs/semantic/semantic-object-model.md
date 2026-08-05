@@ -401,7 +401,10 @@ accumulation shape:
 | `ms.trailing(count=..., unit=...)` | Fixed-size rolling window ending at each bucket; empty windows are true zero, partial windows are marked `partial`. |
 
 `trailing` accepts only fixed-size units (`second`..`week`); calendar-variable
-units are rejected with a teaching error pointing to `grain_to_date`.
+units are rejected with a teaching error pointing to `grain_to_date`. A
+trailing `day` is exactly 86,400 seconds and a trailing `week` is exactly
+604,800 seconds; these are not report-timezone civil periods and do not resize
+at DST transitions.
 Cross-anchor constraints: `grain_to_date` requires every display bucket to lie
 within one reset period (a `week` grain under a `month` reset is illegal);
 `trailing` requires the window span to be an integer multiple of the query grain.

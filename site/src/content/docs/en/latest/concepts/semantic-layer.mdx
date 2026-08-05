@@ -573,6 +573,9 @@ windows are true zero, not carried forward. Partial windows (the span reaches be
 data start) show the actual partial accumulation and are marked `partial` in coverage.
 `unit` accepts only fixed-size units (`second`, `minute`, `hour`, `day`, `week`);
 calendar-variable units (`month`, `quarter`, `year`) are rejected with a teaching error.
+A trailing `day` is exactly 86,400 seconds and a trailing `week` is exactly 604,800
+seconds. They are not report-timezone civil periods, so DST transitions do not resize
+the rolling span.
 
 ```python
 rolling7_active = ms.cumulative(

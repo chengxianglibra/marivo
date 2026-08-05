@@ -121,6 +121,13 @@ trailing(168, hour) == trailing(7, day)
 trailing(28, day) != trailing(1, week)
 ```
 
+These are absolute fixed durations: `day` is exactly 86,400 seconds and `week`
+is exactly 604,800 seconds. They are not report-timezone civil-day or civil-week
+units, so a 23-hour or 25-hour local day at a DST transition does not change
+anchor equivalence. Compare still requires both frames to share the same query
+grain and report timezone; existing bucket-timezone warnings remain visible and
+are not repaired or suppressed by duration canonicalization.
+
 The original authored payload remains available in each source frame and its
 artifact identity. A dedicated typed `DeltaFrameMeta.cumulative_alignment`
 record, defined below, records both payloads and the canonical projection, so

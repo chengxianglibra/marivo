@@ -522,6 +522,8 @@ mtd_revenue = ms.cumulative(
 展示实际的部分累计值，并在 coverage 中标记为 `partial`。`unit` 仅接受固定大小单位（`second`、
 `minute`、`hour`、`day`、`week`）；日历可变单位（`month`、`quarter`、`year`）会被拒绝并给出
 教学错误。
+trailing `day` 始终等于 86,400 秒，trailing `week` 始终等于 604,800 秒；它们不是 report
+timezone 下的民用日历周期，因此 DST 切换不会改变滚动窗口长度。
 
 ```python
 rolling7_active = ms.cumulative(

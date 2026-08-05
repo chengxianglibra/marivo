@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from marivo._fixed_duration import FixedDurationUnit, fixed_duration_seconds
+from marivo._fixed_duration import fixed_duration_seconds
 from marivo.analysis.errors import GrainUnsupportedError
 
 GrainUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -121,7 +121,7 @@ class Grain(BaseModel):
                 f"Grain.width_seconds() is undefined for calendar-variable grain "
                 f"{self.to_token()!r}; use report_tz date-truncation for period math."
             )
-        return fixed_duration_seconds(self.count, cast("FixedDurationUnit", self.unit))
+        return fixed_duration_seconds(self.count, self.unit)
 
     def to_token(self) -> str:
         return self.unit if self.count == 1 else f"{self.count}{self.unit}"
