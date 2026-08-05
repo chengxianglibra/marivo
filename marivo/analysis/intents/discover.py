@@ -257,8 +257,7 @@ def _discover_dispatch(
     if isinstance(source.meta, FunnelDeltaFrameMeta):
         raise SemanticKindMismatchError(
             message=(
-                f"discover objective {discover_objective!r} does not accept "
-                "DeltaFrame[funnel]"
+                f"discover objective {discover_objective!r} does not accept DeltaFrame[funnel]"
             ),
             context={
                 "objective": discover_objective,

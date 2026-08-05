@@ -545,9 +545,7 @@ def test_funnel_delta_does_not_pretend_metric_delta_semantics(
 def test_metric_delta_retains_metric_semantics(funnel_session: Any) -> None:
     """The metric DeltaFrameMeta keeps its component and metric facets; the
     funnel continuation matrix must not over-narrow the generic shape."""
-    metric = funnel_session.catalog.require(
-        ms.ref.metric("commerce.order_count")
-    )
+    metric = funnel_session.catalog.require(ms.ref.metric("commerce.order_count"))
     current = funnel_session.observe(
         metric,
         time_scope={"start": "2026-07-01", "end": "2026-07-15"},
@@ -572,6 +570,48 @@ def test_funnel_delta_transform_fails_closed(funnel_session: Any) -> None:
     with pytest.raises(SemanticKindMismatchError) as excinfo:
         delta.transform.filter(predicate=lambda df: df["step_key"] == "cart")
     assert "funnel" in excinfo.value.message
+
+
+def test_funnel_delta_contract_hides_metric_only_affordances(
+    funnel_session: Any,
+) -> None:
+    """contract() must not advertise Metric-only continuations on a funnel
+    delta; the surviving affordances are the real runtime-capable paths."""
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    assert delta.meta.semantic_kind == "funnel"
+
+    metric_only = {"DeltaFrame.components"} | {
+        f"transform.{name}"
+        for name in ("bottomk", "filter", "rank", "rollup", "slice", "topk", "window")
+    }
+    advertised = {affordance.capability_id for affordance in delta.contract().affordances}
+    assert advertised & metric_only == set()
+    # The real funnel continuations must survive the filter.
+    assert {"attribute", "assess_quality"}.issubset(advertised)
+    assert advertised >= {
+        "discover.driver_axes",
+        "discover.interesting_slices",
+        "discover.interesting_windows",
+        "discover.period_shifts",
+    }
+
+
+def test_funnel_delta_discover_rejects_objective_with_expected_kind(
+    funnel_session: Any,
+) -> None:
+    """A discover objective fed a funnel delta fails closed with the funnel
+    kind and the objective's accepted semantic kinds in context."""
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        funnel_session.discover.period_shifts(delta)
+    # The dedicated funnel guard's message, not the generic
+    # _check_objective_compatibility fallback.
+    assert "DeltaFrame[funnel]" in excinfo.value.message
+    assert excinfo.value._context["semantic_kind"] == "funnel"
+    assert excinfo.value._context["objective"] == "period_shifts"
+    assert excinfo.value._context["expected_kind"] == "panel|time_series"
 
 
 def test_cold_recovery_restores_funnel_variants(
