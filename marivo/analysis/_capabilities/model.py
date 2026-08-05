@@ -23,7 +23,6 @@ CapabilityKind = Literal["operator", "constructor", "read", "recovery", "boundar
 RootVisibility = Literal["direct", "grouped"]
 
 RootGroup = Literal[
-    "session_state",
     "semantic_inputs",
     "policies_builders",
     "artifact_production",

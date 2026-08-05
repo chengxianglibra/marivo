@@ -336,6 +336,12 @@ class _FacadeModule(types.ModuleType):
             return object.__getattribute__(self, name)
         if name.startswith("__") and name.endswith("__"):
             return object.__getattribute__(self, name)
+        if name == "list":
+            raise AttributeError(
+                "module 'marivo.analysis.session' has no attribute 'list'; "
+                "session.list() was removed in favor of bounded mv.session.recent(limit, cursor) "
+                "and mv.session.inspect(name)"
+            )
         raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
 
     def __getattribute__(self, name: str) -> Any:

@@ -60,6 +60,19 @@ def test_root_group_order_has_no_duplicates() -> None:
     assert len(set(ROOT_GROUP_ORDER)) == len(ROOT_GROUP_ORDER)
 
 
+def test_every_descriptor_root_group_is_in_root_group_order() -> None:
+    """Every registered capability descriptor must reference a root group that
+    is actually in the teaching order. A descriptor that points at a group
+    removed from ``ROOT_GROUP_ORDER`` would silently never render in root help;
+    this pins that invariant so future group removals cannot leave dangling
+    references behind."""
+    for descriptor in REGISTRY.descriptors:
+        assert descriptor.root_group in ROOT_GROUP_ORDER, (
+            f"{descriptor.id} references root_group {descriptor.root_group!r} "
+            f"which is not in ROOT_GROUP_ORDER"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Artifact families
 # ---------------------------------------------------------------------------
@@ -146,7 +159,7 @@ _BASE_INIT_KWARGS: dict[str, str] = {
     "public_entrypoint": "test.frozen()",
     "help_target": "test.frozen",
     "summary": "frozen check",
-    "root_group": "session_state",
+    "root_group": "recovery",
     "root_visibility": "direct",
 }
 
@@ -190,7 +203,7 @@ def test_capability_base_defaults() -> None:
         public_entrypoint="test.base()",
         help_target="test.base",
         summary="base summary",
-        root_group="session_state",
+        root_group="recovery",
         root_visibility="direct",
     )
     assert base.constraint_ids == ()

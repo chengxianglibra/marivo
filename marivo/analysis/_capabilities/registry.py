@@ -2165,7 +2165,7 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "session",
             "Analysis session lifecycle and persistence helpers.",
-            "session_state",
+            "recovery",
         )
     )
 
