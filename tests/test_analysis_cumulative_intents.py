@@ -468,6 +468,14 @@ def test_compare_all_history_drops_one_sided_and_retains_matched_null(
         "baseline_unpaired_rows": 1,
         "unpaired_action": "dropped",
     }
+    typed_pair_info = delta.meta.all_history_pair_alignment()
+    assert typed_pair_info is not None
+    assert typed_pair_info.model_dump(mode="json") == pair_info
+    invalid_meta = delta.meta.model_dump(mode="json")
+    invalid_pairs = invalid_meta["alignment"]["cumulative_pairs"]
+    invalid_pairs["matching_rows"] = invalid_pairs.pop("matched_rows")
+    with pytest.raises(ValueError, match="matched_rows"):
+        DeltaFrameMeta.model_validate(invalid_meta)
     finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
     assert finding.value.presence is None
     assert finding.value.magnitude is None

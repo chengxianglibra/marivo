@@ -10,11 +10,12 @@ import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from marivo.analysis._cumulative import AllHistoryLevelChangeV1, AllHistoryPairAlignmentV1
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
@@ -105,6 +106,12 @@ from marivo.telemetry import staged
 class CommitInputs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     input_refs: list[str]
+
+
+class _DeltaEvidenceMeta(Protocol):
+    alignment: dict[str, Any]
+    unit: str | None
+    cumulative_change: AllHistoryLevelChangeV1 | None
 
 
 class CommitParams(BaseModel):
@@ -563,14 +570,10 @@ def _extract_findings(
             )
         return _FINDINGS_ADAPTER.validate_python(findings)
     if extractor_family == "delta_frame":
-        alignment = getattr(meta, "alignment", None)
+        delta_meta = cast("_DeltaEvidenceMeta", meta)
         cumulative_pairs = (
-            alignment.get("cumulative_pairs") if isinstance(alignment, dict) else None
-        )
-        cumulative_change = getattr(meta, "cumulative_change", None)
-        cumulative_change_payload = (
-            cumulative_change.model_dump(mode="json")
-            if isinstance(cumulative_change, BaseModel)
+            AllHistoryPairAlignmentV1.model_validate(delta_meta.alignment["cumulative_pairs"])
+            if delta_meta.cumulative_change is not None
             else None
         )
         findings = extract_delta_findings(
@@ -582,14 +585,9 @@ def _extract_findings(
             committed_at=committed_at,
             dimension_columns=_dimension_columns_from_meta(meta),
             time_column=_time_column_from_meta(meta),
-            unit=getattr(meta, "unit", None),
-            cumulative_pairs=(cumulative_pairs if isinstance(cumulative_pairs, dict) else None),
-            cumulative_change_schema=(
-                cumulative_change_payload.get("schema")
-                if isinstance(cumulative_change_payload, dict)
-                and isinstance(cumulative_change_payload.get("schema"), str)
-                else None
-            ),
+            unit=delta_meta.unit,
+            cumulative_pairs=cumulative_pairs,
+            cumulative_change=delta_meta.cumulative_change,
         )
     elif extractor_family == "attribution_frame":
         refs = getattr(meta, "source_refs", [])

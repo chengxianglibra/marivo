@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
+    AllHistoryLevelChangeV1,
+    AllHistoryPairAlignmentV1,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.attribution_contract import (
@@ -312,22 +314,6 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
     )
 
 
-class AllHistoryLevelChangeV1(BaseModel):
-    """Versioned meaning marker for an observed all-history level difference."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
-
-    schema_: Literal["all-history-level-change/v1"] = Field(
-        default="all-history-level-change/v1",
-        alias="schema",
-        serialization_alias="schema",
-    )
-
-    @model_serializer(mode="plain")
-    def _serialize_marker(self) -> dict[str, str]:
-        return {"schema": self.schema_}
-
-
 class DeltaFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
@@ -399,7 +385,27 @@ class DeltaFrameMeta(BaseFrameMeta):
         if self.status_time_dimension is not None and self.status_time_dimension != derived_status:
             raise ValueError("delta status time display does not match structured ref")
         self.status_time_dimension = derived_status
+
+        pair_payload = self.alignment.get("cumulative_pairs")
+        if self.cumulative_change is None:
+            if pair_payload is not None:
+                raise ValueError(
+                    "delta cumulative_pairs require an all-history cumulative_change marker"
+                )
+        elif pair_payload is None:
+            raise ValueError(
+                "all-history cumulative_change requires cumulative_pairs alignment evidence"
+            )
+        else:
+            AllHistoryPairAlignmentV1.model_validate(pair_payload)
         return self
+
+    def all_history_pair_alignment(self) -> AllHistoryPairAlignmentV1 | None:
+        """Return validated all-history pair evidence when the marker is present."""
+
+        if self.cumulative_change is None:
+            return None
+        return AllHistoryPairAlignmentV1.model_validate(self.alignment["cumulative_pairs"])
 
 
 FUNNEL_DELTA_COLUMNS = (
@@ -642,7 +648,8 @@ class DeltaFrame(BaseFrame):
             )
         card = self._base_card()
         if self.meta.cumulative_change is not None:
-            pair_info = self.meta.alignment.get("cumulative_pairs", {})
+            pair_info = self.meta.all_history_pair_alignment()
+            assert pair_info is not None
             card.field(
                 "cumulative_change",
                 "all_history observed_level_difference "
@@ -659,11 +666,11 @@ class DeltaFrame(BaseFrame):
             card.field(
                 "alignment",
                 (
-                    f"matched_rows={pair_info.get('matched_rows')} "
-                    f"matched_null_rows={pair_info.get('matched_null_rows')} "
-                    f"current_unpaired_rows={pair_info.get('current_unpaired_rows')} "
-                    f"baseline_unpaired_rows={pair_info.get('baseline_unpaired_rows')} "
-                    f"action={pair_info.get('unpaired_action')}"
+                    f"matched_rows={pair_info.matched_rows} "
+                    f"matched_null_rows={pair_info.matched_null_rows} "
+                    f"current_unpaired_rows={pair_info.current_unpaired_rows} "
+                    f"baseline_unpaired_rows={pair_info.baseline_unpaired_rows} "
+                    f"action={pair_info.unpaired_action}"
                 ),
             )
         admission = _attribute_admission(self.meta)

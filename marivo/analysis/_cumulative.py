@@ -5,11 +5,46 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal, cast
 
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
+
 CUMULATIVE_CONTRACT_VERSION = 3
 
 EVALUATION_END_COLUMN = "evaluation_end"
 CURRENT_EVALUATION_END_COLUMN = "current_evaluation_end"
 BASELINE_EVALUATION_END_COLUMN = "baseline_evaluation_end"
+
+type AllHistoryLevelChangeSchema = Literal["all-history-level-change/v1"]
+ALL_HISTORY_LEVEL_CHANGE_SCHEMA: AllHistoryLevelChangeSchema = "all-history-level-change/v1"
+
+
+class AllHistoryLevelChangeV1(BaseModel):
+    """Versioned meaning marker for an observed all-history level difference."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    schema_: AllHistoryLevelChangeSchema = Field(
+        default=ALL_HISTORY_LEVEL_CHANGE_SCHEMA,
+        alias="schema",
+        serialization_alias="schema",
+    )
+
+    @model_serializer(mode="plain")
+    def _serialize_marker(self) -> dict[str, AllHistoryLevelChangeSchema]:
+        return {"schema": self.schema_}
+
+
+class AllHistoryPairAlignmentV1(BaseModel):
+    """Validated alignment evidence for one all-history level comparison."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    anchor: Literal["all_history"] = "all_history"
+    matched_rows: int = Field(ge=0)
+    matched_null_rows: int = Field(ge=0)
+    current_unpaired_rows: int = Field(ge=0)
+    baseline_unpaired_rows: int = Field(ge=0)
+    unpaired_action: Literal["dropped"] = "dropped"
+
 
 type CumulativeAnchor = (
     Literal["all_history"]

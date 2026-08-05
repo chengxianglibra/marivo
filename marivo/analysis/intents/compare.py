@@ -17,6 +17,8 @@ from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
     EVALUATION_END_COLUMN,
+    AllHistoryLevelChangeV1,
+    AllHistoryPairAlignmentV1,
     cumulative_compare_anchor,
 )
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
@@ -55,7 +57,6 @@ from marivo.analysis.frames.component import (
     resolve_role_columns,
 )
 from marivo.analysis.frames.delta import (
-    AllHistoryLevelChangeV1,
     DeltaFrame,
     DeltaFrameMeta,
     _compatible_metric_semantics,
@@ -984,7 +985,7 @@ def _finalize_all_history_pairs(
     *,
     alignment: AlignmentPolicy,
     report_tz: str,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
+) -> tuple[pd.DataFrame, AllHistoryPairAlignmentV1]:
     """Attach exact cutoffs and retain only coordinates observed on both sides."""
 
     current_source = _evaluation_frame(current, label="current")
@@ -1043,14 +1044,12 @@ def _finalize_all_history_pairs(
         )
     if PRESENCE_STATUS_COLUMN in retained.columns:
         retained[PRESENCE_STATUS_COLUMN] = "matched"
-    pair_info = {
-        "anchor": "all_history",
-        "matched_rows": len(retained),
-        "matched_null_rows": int((retained["current"].isna() | retained["baseline"].isna()).sum()),
-        "current_unpaired_rows": int((has_current & ~has_baseline).sum()),
-        "baseline_unpaired_rows": int((~has_current & has_baseline).sum()),
-        "unpaired_action": "dropped",
-    }
+    pair_info = AllHistoryPairAlignmentV1(
+        matched_rows=len(retained),
+        matched_null_rows=int((retained["current"].isna() | retained["baseline"].isna()).sum()),
+        current_unpaired_rows=int((has_current & ~has_baseline).sum()),
+        baseline_unpaired_rows=int((~has_current & has_baseline).sum()),
+    )
     return retained, pair_info
 
 
@@ -1116,7 +1115,7 @@ def compare(
     calendar_info: dict[str, Any] | None = None
     segment_info: dict[str, Any] | None = None
     window_info: dict[str, Any] | None = None
-    cumulative_pairs: dict[str, Any] | None = None
+    cumulative_pairs: AllHistoryPairAlignmentV1 | None = None
     if current.meta.semantic_kind == "segmented":
         df, segment_info = _align_segmented(current, baseline)
     elif current.meta.semantic_kind == "panel":
@@ -1224,7 +1223,7 @@ def compare(
     if segment_info is not None:
         alignment_dump["segment_info"] = segment_info
     if cumulative_pairs is not None:
-        alignment_dump["cumulative_pairs"] = cumulative_pairs
+        alignment_dump["cumulative_pairs"] = cumulative_pairs.model_dump(mode="json")
     if current.meta.semantic_kind in {"segmented", "panel", "time_series"}:
         alignment_dump["axes"] = current.meta.axes
     additivity, aggregation, status_time_dimension = _compatible_metric_semantics(

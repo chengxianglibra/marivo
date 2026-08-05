@@ -7,6 +7,7 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
+from marivo.analysis._cumulative import AllHistoryLevelChangeSchema
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
@@ -595,7 +596,7 @@ class DeltaFindingValue(_FrozenModel):
     current_unpaired_rows: int | None = Field(default=None, ge=0)
     baseline_unpaired_rows: int | None = Field(default=None, ge=0)
     unpaired_action: Literal["dropped"] | None = None
-    cumulative_change: Literal["all-history-level-change/v1"] | None = None
+    cumulative_change: AllHistoryLevelChangeSchema | None = None
     source_revision: Literal["unverified"] | None = None
     interval_flow_equivalence: Literal["not_asserted"] | None = None
 

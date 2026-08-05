@@ -484,7 +484,12 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     }
     if meta.bucket_column is not None:
         required.add(meta.bucket_column)
-    prefix_columns = {ATTRIBUTION_LEVEL_COLUMN, ATTRIBUTION_AXIS_COLUMN, ATTRIBUTION_DRIVER_COLUMN, ATTRIBUTION_PATH_COLUMN}
+    prefix_columns = {
+        ATTRIBUTION_LEVEL_COLUMN,
+        ATTRIBUTION_AXIS_COLUMN,
+        ATTRIBUTION_DRIVER_COLUMN,
+        ATTRIBUTION_PATH_COLUMN,
+    }
     if meta.attribution_mode in {"hierarchy", "multiresolution"}:
         required.update(prefix_columns)
     elif columns & prefix_columns:
@@ -529,7 +534,9 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
         evidence = meta.method_evidence
         assert evidence is not None and evidence.multiresolution is not None
         valid_levels = set(range(1, len(axis_columns) + 1))
-        observed_levels = {int(value) for value in dataframe[ATTRIBUTION_LEVEL_COLUMN].dropna().unique()}
+        observed_levels = {
+            int(value) for value in dataframe[ATTRIBUTION_LEVEL_COLUMN].dropna().unique()
+        }
         scope = evidence.multiresolution.scope
         expected_levels = valid_levels if scope.kind == "complete" else {len(scope.axis_refs)}
         if observed_levels != expected_levels:
@@ -810,7 +817,9 @@ class AttributionFrame(BaseFrame):
                 received=repr(list(selected_df.columns)),
                 location="AttributionFrame.at_resolution",
             )
-        selected_df = selected_df[selected_df[ATTRIBUTION_LEVEL_COLUMN] == level].reset_index(drop=True)
+        selected_df = selected_df[selected_df[ATTRIBUTION_LEVEL_COLUMN] == level].reset_index(
+            drop=True
+        )
         selected_reconciliations = tuple(
             item
             for item in multiresolution.resolution_reconciliations
