@@ -218,10 +218,12 @@ def _session_summary() -> SessionSummary:
     )
 
 
-def test_frame_summary_entry_id_aliases_ref() -> None:
+def test_frame_summary_entry_exposes_ref_without_id_alias() -> None:
     entry = _frame_summary_entry()
 
-    assert entry.id == entry.ref
+    # Artifact identity is exposed via ``ref`` only; there is no ``id`` alias.
+    assert entry.ref == "frame_ab12"
+    assert not hasattr(entry, "id")
 
 
 def _authoring_assessment() -> AuthoringAssessment:

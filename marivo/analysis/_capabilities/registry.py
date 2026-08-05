@@ -147,7 +147,6 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "BaseFrame": (
-            "id",
             "ref",
             "kind",
             "lineage",
@@ -236,7 +235,7 @@ PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
         ),
         "SessionEvents": PublicObjectContract(),
         "SessionLifecycle": PublicObjectContract(),
-        "FrameSummaryEntry": PublicObjectContract(properties=("id",)),
+        "FrameSummaryEntry": PublicObjectContract(properties=("ref",)),
     }
 )
 

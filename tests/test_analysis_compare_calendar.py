@@ -638,7 +638,7 @@ def test_compare_calendar_returns_delta_frame(calendar_project):
     assert len(compare_jobs) == 1
     job_record = s.job(compare_jobs[0].id)
     assert job_record["params"]["alignment"]["kind"] == "dow_aligned"
-    assert job_record["params"]["alignment"]["calendar"] == {"id": "cn_holidays"}
+    assert job_record["params"]["alignment"]["calendar"] == {"ref": "cn_holidays"}
     assert job_record["params"]["alignment"]["calendar_info"]["calendar_name"] == "cn_holidays"
 
     assert isinstance(out, DeltaFrame)
@@ -706,7 +706,7 @@ def test_compare_calendar_uses_calendar_ref_without_session_default(calendar_pro
         session=s,
     )
 
-    assert out.meta.alignment["calendar"]["id"] == "cn_holidays"
+    assert out.meta.alignment["calendar"]["ref"] == "cn_holidays"
 
 
 def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):

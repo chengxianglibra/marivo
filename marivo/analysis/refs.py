@@ -10,25 +10,25 @@ __all__ = ["ArtifactRef", "CalendarRef"]
 class _RefBase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str
+    ref: str
 
-    def __init__(self, id: str | None = None, **data: object) -> None:
-        if id is not None:
-            if "id" in data:
-                raise TypeError("ref id supplied both positionally and by keyword")
-            data["id"] = id
+    def __init__(self, ref: str | None = None, **data: object) -> None:
+        if ref is not None:
+            if "ref" in data:
+                raise TypeError("ref value supplied both positionally and by keyword")
+            data["ref"] = ref
         super().__init__(**data)
 
-    @field_validator("id")
+    @field_validator("ref")
     @classmethod
     def validate_non_empty(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("ref id must be non-empty")
+            raise ValueError("ref value must be non-empty")
         return normalized
 
     def __str__(self) -> str:
-        return self.id
+        return self.ref
 
 
 class CalendarRef(_RefBase):

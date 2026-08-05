@@ -23,17 +23,17 @@ def test_semantic_refs_stay_on_the_semantic_surface():
     assert not hasattr(mv, "Ref")
     assert not hasattr(mv, "SemanticKind")
     assert not hasattr(mv, "CatalogObject")
-    assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
-    assert CalendarRef("cn_holidays").id == "cn_holidays"
+    assert mv.CalendarRef("cn_holidays").ref == "cn_holidays"
+    assert CalendarRef("cn_holidays").ref == "cn_holidays"
 
 
-def test_artifact_ref_is_exported_and_preserves_id():
+def test_artifact_ref_is_exported_and_preserves_ref():
     assert mv.ArtifactRef is ArtifactRef
-    assert ArtifactRef("frame_abc123").id == "frame_abc123"
+    assert ArtifactRef("frame_abc123").ref == "frame_abc123"
     assert str(ArtifactRef("frame_abc123")) == "frame_abc123"
 
 
-def test_refs_reject_empty_ids():
+def test_refs_reject_empty_refs():
     for ref_cls in (CalendarRef, ArtifactRef):
         with pytest.raises(ValidationError):
             ref_cls(" ")
@@ -41,7 +41,7 @@ def test_refs_reject_empty_ids():
 
 def test_refs_reject_extra_fields_with_validation_error():
     with pytest.raises(ValidationError):
-        CalendarRef(id="cn", extra=1)
+        CalendarRef(ref="cn", extra=1)
 
 
 def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
@@ -58,7 +58,7 @@ def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
         AlignmentPolicy(kind="dow_aligned")
 
     with pytest.raises(ValidationError):
-        AlignmentPolicy(kind="dow_aligned", calendar={"id": "cn", "extra": 1})
+        AlignmentPolicy(kind="dow_aligned", calendar={"ref": "cn", "extra": 1})
 
     policy = AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=CalendarRef("cn"))
     assert policy.kind == "holiday_and_dow_aligned"
