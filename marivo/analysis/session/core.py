@@ -1314,9 +1314,11 @@ class Session(RenderableResult):
 
         When to use: project a time series forward; requires time_series or panel shape.
 
-        v1 requires continuous time buckets and no NaN values. Impute or re-observe
-        before forecasting. ``seasonal_naive`` needs at least
-        ``seasonality_period + 1`` training rows per series.
+        v1 requires continuous time buckets and no NaN values. Every panel series
+        must cover the same training buckets; forecast never treats a missing
+        segment bucket as zero. Impute or re-observe before forecasting.
+        ``seasonal_naive`` needs at least ``seasonality_period + 1`` training rows
+        per series.
 
         Args:
             history: A ``time_series`` or ``panel`` MetricFrame.
@@ -1333,7 +1335,8 @@ class Session(RenderableResult):
                 or its grain is not in {day, week, month, quarter}.
             ForecastPolicyError: ``horizon`` or ``interval_level`` is out of range.
             ForecastInsufficientHistoryError: Not enough rows for the chosen model.
-            ForecastInputQualityError: ``history`` contains NaN values in ``value``.
+            ForecastInputQualityError: ``history`` contains NaN values or missing
+                time buckets globally or within a panel series.
             CrossSessionFrameError: ``history`` belongs to a different session.
 
         Example:

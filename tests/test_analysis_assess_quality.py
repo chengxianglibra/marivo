@@ -174,7 +174,7 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
         session,
         [{"segment": "US", "value": 1.0}, {"segment": "US", "value": 2.0}],
         semantic_kind="segmented",
-        axes={"dimensions": [{"field": "segment"}]},
+        axes={"segment": {"role": "dimension", "field": "segment"}},
         window=None,
     )
 
@@ -233,7 +233,7 @@ def test_segmented_metric_single_row_still_emits_row_count_warning(tmp_path):
         session,
         [{"segment": "US", "value": 1.0}],
         semantic_kind="segmented",
-        axes={"dimensions": [{"field": "segment"}]},
+        axes={"segment": {"role": "dimension", "field": "segment"}},
         window=None,
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from math import sqrt
 from time import monotonic
@@ -34,6 +35,10 @@ from marivo.analysis.intents._derived import (
     params_digest,
     resolve_metric_value_column,
     resolve_session,
+)
+from marivo.analysis.intents._metric_axes import (
+    metric_dimension_columns,
+    metric_time_axis,
 )
 from marivo.analysis.intents._validate import cumulative_issue, require_single_metric
 from marivo.analysis.lineage import LineageStep
@@ -94,6 +99,13 @@ def forecast(
         seasonality_period=seasonality_period,
     )
 
+    segment_dims = metric_dimension_columns(history)
+    if semantic_kind == "panel" and not segment_dims:
+        raise ForecastShapeUnsupportedError(
+            message="forecast panel input requires at least one dimension axis",
+            context={"semantic_kind": semantic_kind},
+        )
+
     df = history._dataframe_copy()
     value_column = resolve_metric_value_column(
         history,
@@ -105,11 +117,15 @@ def forecast(
     value_col = value_column.internal_name
     if df[value_col].isna().any():
         raise ForecastInputQualityError(message="forecast history contains NaN values")
-    _ensure_no_time_gap(df, time_col=time_col, grain=grain)
+    _ensure_no_time_gap(
+        df,
+        time_col=time_col,
+        grain=grain,
+        segment_dims=segment_dims if semantic_kind == "panel" else (),
+    )
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    segment_dims = _segment_dimensions(history)
     future_times = _future_times(df[time_col], grain=grain, horizon=horizon)
     if semantic_kind == "panel":
         rows, counts = _forecast_panel(
@@ -232,15 +248,7 @@ def forecast(
 
 
 def _time_axis(frame: MetricFrame) -> tuple[str, str]:
-    axis = frame.meta.axes.get("time", {})
-    if not isinstance(axis, dict):
-        raise ForecastShapeUnsupportedError(message="forecast requires a time axis")
-    return str(axis.get("field") or axis.get("column") or "time"), str(axis.get("grain", "day"))
-
-
-def _segment_dimensions(frame: MetricFrame) -> list[str]:
-    dims = frame.meta.axes.get("dimensions", [])
-    return [str(dim["field"]) for dim in dims if isinstance(dim, dict) and "field" in dim]
+    return metric_time_axis(frame)
 
 
 def _resolve_seasonality(*, model: str, grain: str, seasonality_period: int | None) -> int | None:
@@ -253,11 +261,46 @@ def _resolve_seasonality(*, model: str, grain: str, seasonality_period: int | No
     return seasonality_period
 
 
-def _ensure_no_time_gap(df: pd.DataFrame, *, time_col: str, grain: str) -> None:
+def _ensure_no_time_gap(
+    df: pd.DataFrame,
+    *,
+    time_col: str,
+    grain: str,
+    segment_dims: Sequence[str] = (),
+) -> None:
     values = pd.to_datetime(df[time_col]).drop_duplicates().sort_values()
     expected = pd.date_range(values.iloc[0], values.iloc[-1], freq=_FREQ[grain])
     if values.nunique() != len(expected):
         raise ForecastInputQualityError(message="forecast history has missing time buckets")
+    if not segment_dims:
+        return
+
+    expected_set = {pd.Timestamp(value) for value in expected}
+    invalid_segments: list[dict[str, object]] = []
+    group_key: str | list[str] = segment_dims[0] if len(segment_dims) == 1 else list(segment_dims)
+    for segment_key, group in df.groupby(group_key, dropna=False):
+        values_tuple = segment_key if isinstance(segment_key, tuple) else (segment_key,)
+        observed = {pd.Timestamp(value) for value in pd.to_datetime(group[time_col]).unique()}
+        missing = sorted(expected_set - observed)
+        if not missing:
+            continue
+        invalid_segments.append(
+            {
+                "keys": dict(zip(segment_dims, values_tuple, strict=True)),
+                "missing_bucket_count": len(missing),
+                "missing_buckets": [value.isoformat() for value in missing[:5]],
+            }
+        )
+    if invalid_segments:
+        invalid_segments.sort(key=lambda item: repr(item["keys"]))
+        raise ForecastInputQualityError(
+            message="forecast panel history has missing time buckets within segments",
+            context={
+                "segment_dimensions": list(segment_dims),
+                "invalid_segment_count": len(invalid_segments),
+                "invalid_segments": invalid_segments[:5],
+            },
+        )
 
 
 def _future_times(series: pd.Series, *, grain: str, horizon: int) -> pd.DatetimeIndex:

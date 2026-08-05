@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ibis
 import pandas as pd
 import pytest
 
@@ -11,7 +12,12 @@ from marivo.analysis.errors import (
     ForecastShapeUnsupportedError,
 )
 from marivo.analysis.session._load import load_frame
-from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
+from marivo.semantic.catalog import SemanticKind
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import (
+    make_metric_frame,
+    seeded_time_series_metric_frame,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -57,8 +63,8 @@ def test_forecast_resolves_public_value_name_and_excludes_numeric_dimension(tmp_
         ),
         metric_id="sales.revenue",
         axes={
-            "time": {"field": "time", "grain": "day"},
-            "dimensions": [{"field": "segment"}],
+            "time": {"role": "time", "field": "time", "grain": "day"},
+            "segment": {"role": "dimension", "field": "segment"},
         },
         measure={"name": "revenue"},
         semantic_kind="panel",
@@ -125,18 +131,18 @@ def test_interval_width_grows_with_horizon(tmp_path):
 
 def test_panel_per_segment_and_insufficient_history(tmp_path):
     session = session_attach.get_or_create(name="demo")
-    full = seeded_time_series_metric_frame(
-        session=session,
-        n_buckets=4,
-        segments=["US"],
-        value_pattern="linear",
-    )
-    short_rows = [{"segment": "CA", "time": pd.Timestamp("2026-01-01"), "value": 3.0}]
-    combined = pd.concat([full._dataframe_copy(), pd.DataFrame(short_rows)], ignore_index=True)
     history = make_metric_frame(
-        combined,
+        pd.DataFrame(
+            [
+                {"segment": "US", "time": pd.Timestamp("2026-01-01"), "value": 10.0},
+                {"segment": "CA", "time": pd.Timestamp("2026-01-01"), "value": 3.0},
+            ]
+        ),
         metric_id="sales.revenue",
-        axes={"time": {"field": "time", "grain": "day"}, "dimensions": [{"field": "segment"}]},
+        axes={
+            "time": {"role": "time", "field": "time", "grain": "day"},
+            "segment": {"role": "dimension", "field": "segment"},
+        },
         measure={"field": "value", "aggregation": "sum"},
         semantic_kind="panel",
         semantic_model="sales",
@@ -153,11 +159,139 @@ def test_panel_per_segment_and_insufficient_history(tmp_path):
 
     assert len(df) == 4
     assert set(df["segment"]) == {"US", "CA"}
-    assert df[df["segment"] == "CA"]["reason_code"].tolist() == [
-        "insufficient_history",
-        "insufficient_history",
-    ]
-    assert df[df["segment"] == "CA"]["predicted"].isna().all()
+    assert set(df["reason_code"]) == {"insufficient_history"}
+    assert df["predicted"].isna().all()
+
+
+def test_forecast_observe_panel_uses_canonical_dimension_axes(tmp_path, semantic_project_factory):
+    semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/model.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders', datasource=ms.ref.datasource('warehouse'),\n"
+                "    source=md.table('orders'),\n"
+                ")\n"
+                "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
+                "def order_date(orders):\n"
+                "    return orders.created_at.cast('date')\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region.upper()\n"
+                "@ms.metric(entities=[orders], additivity='additive')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
+        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 10.0, 'north', 100),"
+        "(2, DATE '2026-07-02', 20.0, 'north', 101),"
+        "(3, DATE '2026-07-01', 30.0, 'south', 200),"
+        "(4, DATE '2026-07-02', 40.0, 'south', 201)"
+    )
+    session = session_attach.get_or_create(
+        name="demo",
+        backends={"warehouse": lambda: con},
+    )
+    history = session.observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        grain="day",
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    result = session.forecast(history, horizon=2, model="naive")
+    output = result.to_pandas()
+
+    assert len(output) == 4
+    assert set(output["region"]) == {"NORTH", "SOUTH"}
+    assert result.meta.segment_dimensions == ["region"]
+    assert result.meta.train_row_count_per_segment == {"NORTH": 2, "SOUTH": 2}
+
+
+def test_forecast_panel_rejects_missing_bucket_within_segment(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    months = pd.date_range("2026-01-01", periods=4, freq="MS")
+    history = make_metric_frame(
+        pd.DataFrame(
+            [
+                {"major_category": category, "time": month, "value": float(index + 1)}
+                for category in ("Baking", "Produce")
+                for index, month in enumerate(months)
+                if not (category == "Baking" and month == pd.Timestamp("2026-04-01"))
+            ]
+        ),
+        metric_id="sales.revenue",
+        axes={
+            "time": {"role": "time", "column": "time", "grain": "month"},
+            "major_category": {
+                "role": "dimension",
+                "column": "major_category",
+            },
+        },
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        window={
+            "start": "2026-01-01",
+            "end": "2026-05-01",
+            "grain": "month",
+            "time_dimension": "time",
+        },
+        session=session,
+    )
+
+    with pytest.raises(ForecastInputQualityError) as exc_info:
+        session.forecast(history, horizon=4, model="naive")
+
+    error = exc_info.value
+    assert error.message == "forecast panel history has missing time buckets within segments"
+    assert error._context == {
+        "segment_dimensions": ["major_category"],
+        "invalid_segment_count": 1,
+        "invalid_segments": [
+            {
+                "keys": {"major_category": "Baking"},
+                "missing_bucket_count": 1,
+                "missing_buckets": ["2026-04-01T00:00:00"],
+            }
+        ],
+    }
+
+
+def test_forecast_panel_without_dimension_axis_raises_typed_shape_error(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    history = make_metric_frame(
+        pd.DataFrame(
+            [
+                {"time": pd.Timestamp("2026-01-01"), "value": 1.0},
+                {"time": pd.Timestamp("2026-02-01"), "value": 2.0},
+            ]
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "time", "grain": "month"}},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+
+    with pytest.raises(
+        ForecastShapeUnsupportedError,
+        match="forecast panel input requires at least one dimension axis",
+    ):
+        session.forecast(history, horizon=1, model="naive")
 
 
 def test_forecast_errors_and_persistence(tmp_path):

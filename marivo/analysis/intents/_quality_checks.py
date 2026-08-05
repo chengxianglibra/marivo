@@ -63,6 +63,10 @@ from marivo.analysis.intents._lifecycle_transitions import (
 from marivo.analysis.intents._lifecycle_violations import (
     reduce_lifecycle_violations,
 )
+from marivo.analysis.intents._metric_axes import (
+    metric_dimension_columns,
+    metric_time_axis,
+)
 
 _FREQ = GRAIN_FREQ
 
@@ -1599,10 +1603,7 @@ def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, s
 
 
 def _time_axis(frame: MetricFrame) -> tuple[str, str]:
-    axis = frame.meta.axes.get("time", {})
-    if isinstance(axis, dict):
-        return str(axis.get("field") or axis.get("column") or "time"), str(axis.get("grain", "day"))
-    return "time", "day"
+    return metric_time_axis(frame)
 
 
 def _time_coverage_check(
@@ -1658,21 +1659,7 @@ def _time_coverage_check(
 
 
 def _segment_dimensions(frame: MetricFrame) -> list[str]:
-    dims = frame.meta.axes.get("dimensions")
-    if isinstance(dims, list):
-        return [
-            str(dim.get("column") or dim.get("field"))
-            for dim in dims
-            if isinstance(dim, dict) and (dim.get("column") or dim.get("field"))
-        ]
-    columns: list[str] = []
-    for axis in frame.meta.axes.values():
-        if not isinstance(axis, dict) or axis.get("role") != "dimension":
-            continue
-        column = axis.get("column") or axis.get("field")
-        if isinstance(column, str):
-            columns.append(column)
-    return columns
+    return metric_dimension_columns(frame)
 
 
 def _duplicate_keys_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]:

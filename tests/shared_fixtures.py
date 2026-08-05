@@ -859,7 +859,7 @@ def seeded_time_series_metric_frame(
         semantic_kind = "panel"
         axes = {
             "time": {"role": "time", "field": "time", "grain": grain},
-            "dimensions": [{"field": "segment"}],
+            "segment": {"role": "dimension", "field": "segment"},
         }
 
     return make_metric_frame(
