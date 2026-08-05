@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
-type FixedDurationUnit = Literal["second", "minute", "hour", "day", "week"]
-
-_FIXED_UNIT_SECONDS: dict[FixedDurationUnit, int] = {
+_FIXED_UNIT_SECONDS: dict[str, int] = {
     "second": 1,
     "minute": 60,
     "hour": 3_600,
@@ -15,7 +11,7 @@ _FIXED_UNIT_SECONDS: dict[FixedDurationUnit, int] = {
 }
 
 
-def fixed_duration_seconds(count: int, unit: FixedDurationUnit) -> int:
+def fixed_duration_seconds(count: int, unit: str) -> int:
     """Return the exact second span for one positive fixed-duration value."""
 
     if type(count) is not int or count <= 0:
@@ -27,4 +23,4 @@ def fixed_duration_seconds(count: int, unit: FixedDurationUnit) -> int:
     return count * unit_seconds
 
 
-__all__ = ["FixedDurationUnit", "fixed_duration_seconds"]
+__all__ = ["fixed_duration_seconds"]

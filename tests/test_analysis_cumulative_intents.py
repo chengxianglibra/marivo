@@ -17,6 +17,7 @@ from marivo.analysis._cumulative import (
     CURRENT_EVALUATION_END_COLUMN,
     EVALUATION_END_COLUMN,
     CumulativeAlignmentV1,
+    canonical_comparable_period_anchor,
     canonical_cumulative_expression_fingerprint,
 )
 from marivo.analysis.errors import AnalysisError, CumulativeFrameUnsupportedError
@@ -821,6 +822,18 @@ def test_compare_trailing_equivalent_units_use_canonical_identity(tmp_path, monk
     assert delta.meta.cumulative_alignment.canonical_anchor.kind == "trailing"
     assert delta.meta.cumulative_alignment.canonical_anchor.span_seconds == 604_800
     assert delta.meta.cumulative_alignment.pairs.matched_rows == 3
+
+
+def test_trailing_canonical_duration_is_absolute_across_dst() -> None:
+    spring_start = pd.Timestamp("2026-03-08T00:00:00", tz="America/New_York")
+    spring_end = pd.Timestamp("2026-03-09T00:00:00", tz="America/New_York")
+    assert (spring_end - spring_start).total_seconds() == 82_800
+
+    one_day = canonical_comparable_period_anchor(("trailing", 1, "day"))
+    twenty_four_hours = canonical_comparable_period_anchor(("trailing", 24, "hour"))
+
+    assert one_day == twenty_four_hours
+    assert one_day.span_seconds == 86_400
 
 
 def test_compare_trailing_rejects_calendar_bucket_mode(tmp_path, monkeypatch) -> None:

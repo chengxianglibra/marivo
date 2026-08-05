@@ -63,10 +63,10 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
         # Canonical "value" column takes priority over the legacy metric-name column.
         if "value" in frame._df.columns:
             col = "value"
-        if col and col in frame._df.columns:
+        if isinstance(col, str) and col in frame._df.columns:
             n = len(frame._df)
-            # ``col`` is a single column name (guarded by ``in frame._df.columns``),
-            # so ``isna().sum()`` is a scalar value.
+            # ``col`` is a scalar string key, so pandas returns one Series and
+            # ``isna().sum()`` is a scalar value across supported pandas-stubs.
             null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n
 
         if semantic_kind in {"time_series", "panel"} and isinstance(axes, dict):
