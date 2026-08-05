@@ -65,8 +65,10 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
             col = "value"
         if col and col in frame._df.columns:
             n = len(frame._df)
-            # ``col`` is a single column name guarded by membership in the frame columns.
-            null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n
+            # ``col`` is a single column name (guarded by ``in frame._df.columns``),
+            # so ``isna().sum()`` is a scalar int; pandas-stubs types the index
+            # expression as Series|DataFrame, hence the ignore.
+            null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n  # type: ignore[arg-type]
 
         if semantic_kind in {"time_series", "panel"} and isinstance(axes, dict):
             time_axis = axes.get("time", {})
