@@ -17,7 +17,11 @@ from marivo.analysis._cumulative import (
     cumulative_has_evaluation_contract,
     normalize_cumulative_anchor,
 )
-from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis._semantic_persistence import (
+    AxisBindingV1,
+    MeasureBindingV1,
+    SlicePredicateV1,
+)
 from marivo.analysis.attribution_contract import (
     AttributionBasisV1,
     basis_fingerprint,
@@ -1358,6 +1362,22 @@ def observe(
             ),
             axes=root_execution.axes,
             measure={"name": metric_name},
+            measure_bindings=(
+                MeasureBindingV1(
+                    identity=metric_identity,
+                    value_column="value",
+                    display_name=metric_name,
+                    unit=root_execution.unit,
+                    unit_state=root_execution.unit_state,
+                    additivity=_meta_additivity(root_execution.additivity),
+                    aggregation=_meta_aggregation(metric_ir.aggregation),
+                    reaggregatable=fold_meta is None and cumulative_meta is None,
+                    status_time_dimension_ref=_status_time_dimension_payload(
+                        metric_ir.status_time_dimension
+                    ),
+                    cumulative=cumulative_meta,
+                ),
+            ),
             window=dump_window(resolved_window),
             where=stored_where,
             semantic_kind=root_execution.semantic_kind,
@@ -2083,28 +2103,47 @@ def _observe_metric_forest(
         attribution_basis_fingerprint=None,
         fingerprint=fingerprint(artifact_payload),
     )
-    measures = [
-        {
-            "metric_id": (
-                identity.metric_ref.path
-                if isinstance(identity, CatalogMetricIdentity)
-                else f"runtime:{identity.expression_fingerprint}"
-            ),
-            "name": output_column,
-            "column": output_column,
-            "unit": root.unit,
-            "unit_state": canonical_value(root.unit_state),
-            "additivity": _meta_additivity(root.additivity),
-            "aggregation": None,
-            "status_time_dimension": None,
-            "reaggregatable": root.fold is None,
-        }
+    measure_bindings = tuple(
+        MeasureBindingV1(
+            identity=identity,
+            value_column=output_column,
+            display_name=output_column,
+            unit=root.unit,
+            unit_state=root.unit_state,
+            additivity=_meta_additivity(root.additivity),
+            aggregation=None,
+            reaggregatable=root.fold is None,
+        )
         for identity, output_column, root in zip(
             graph_plan.forest.identities,
             output_columns,
             execution.roots,
             strict=True,
         )
+    )
+    measures = [
+        {
+            "metric_id": (
+                binding.identity.metric_ref.path
+                if isinstance(binding.identity, CatalogMetricIdentity)
+                else f"runtime:{binding.identity.expression_fingerprint}"
+            ),
+            "name": binding.display_name,
+            "column": binding.value_column,
+            "unit": binding.unit,
+            "unit_state": canonical_value(binding.unit_state)
+            if binding.unit_state is not None
+            else None,
+            "additivity": binding.additivity,
+            "aggregation": binding.aggregation,
+            "status_time_dimension": (
+                binding.status_time_dimension_ref.path
+                if binding.status_time_dimension_ref is not None
+                else None
+            ),
+            "reaggregatable": binding.reaggregatable,
+        }
+        for binding in measure_bindings
     ]
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -2151,13 +2190,14 @@ def _observe_metric_forest(
         axes=first_root.axes,
         measure={},
         measures=measures,
+        measure_bindings=measure_bindings,
         window=dump_window(resolved_window),
         where=stored_where,
         semantic_kind=first_root.semantic_kind,
         semantic_model=model_name,
         unit=None,
         unit_state=None,
-        reaggregatable=all(bool(item["reaggregatable"]) for item in measures),
+        reaggregatable=all(binding.reaggregatable for binding in measure_bindings),
         additivity=None,
         zero_denominator_rows=None,
         cohort=resolved_cohort.binding if resolved_cohort is not None else None,
@@ -2209,7 +2249,14 @@ def _observe_metric_forest(
             if resolved_window is not None and resolved_window.grain is not None
             else None
         ),
-        metric_ids=[str(item["metric_id"]) for item in measures],
+        metric_ids=[
+            (
+                binding.identity.metric_ref.path
+                if isinstance(binding.identity, CatalogMetricIdentity)
+                else f"runtime:{binding.identity.expression_fingerprint}"
+            )
+            for binding in measure_bindings
+        ],
         models=[model_name],
         input_refs=([resolved_cohort.binding.artifact_ref] if resolved_cohort is not None else []),
     )

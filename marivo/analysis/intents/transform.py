@@ -691,6 +691,26 @@ def _frame_axes(frame: TransformFrame) -> dict[str, Any]:
     return cast("dict[str, Any]", axes) if isinstance(axes, dict) else {}
 
 
+def _metric_measure_column(frame: MetricFrame) -> str | None:
+    """Resolve the persisted measure value column from typed bindings."""
+    bindings = frame.meta.measure_bindings
+    if bindings:
+        return bindings[0].value_column
+    measure = frame.meta.measure if isinstance(frame.meta.measure, dict) else {}
+    column = measure.get("column")
+    return str(column) if isinstance(column, str) else None
+
+
+def _metric_measure_name(frame: MetricFrame) -> str | None:
+    """Resolve the persisted measure display name from typed bindings."""
+    bindings = frame.meta.measure_bindings
+    if bindings:
+        return bindings[0].display_name
+    measure = frame.meta.measure if isinstance(frame.meta.measure, dict) else {}
+    name = measure.get("name")
+    return str(name) if isinstance(name, str) else None
+
+
 def _semantic_kind_from_axes(
     axes: dict[str, Any],
 ) -> Literal["scalar", "time_series", "segmented", "panel"]:
@@ -858,7 +878,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
         # Canonical "value" column takes priority.
         if "value" in df.columns and "value" not in axis_columns:
             return "value"
-        declared_column = frame.meta.measure.get("column")
+        declared_column = _metric_measure_column(frame)
         if declared_column is not None:
             if not isinstance(declared_column, str) or declared_column not in df.columns:
                 raise TransformArgError(
@@ -881,7 +901,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
                     },
                 )
             return declared_column
-        declared_name = frame.meta.measure.get("name")
+        declared_name = _metric_measure_name(frame)
         if declared_name is not None:
             if (
                 isinstance(declared_name, str)

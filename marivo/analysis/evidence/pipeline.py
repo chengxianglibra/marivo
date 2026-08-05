@@ -339,11 +339,11 @@ def _metric_entries(
     scope: AnalysisScope,
 ) -> list[tuple[Subject, str, str | None, bool, str | None]]:
     meta = frame.meta
-    measures = getattr(meta, "measures", None)
-    if measures:
+    bindings = getattr(meta, "measure_bindings", ())
+    if bindings:
         identities = tuple(getattr(meta, "metric_identities", ()))
         entries: list[tuple[Subject, str, str | None, bool, str | None]] = []
-        for index, entry in enumerate(measures):
+        for index, binding in enumerate(bindings):
             updates: dict[str, object] = {}
             if index < len(identities):
                 typed_subject = _typed_subject_for_identity(
@@ -354,16 +354,50 @@ def _metric_entries(
                 )
                 if typed_subject is not None:
                     updates["typed_metric_subject"] = typed_subject
+            prefix = (
+                None
+                if len(bindings) == 1
+                else (
+                    f"metric:{binding.identity.metric_ref.path}"
+                    if isinstance(binding.identity, CatalogMetricIdentity)
+                    else f"metric:runtime:{binding.identity.expression_fingerprint}"
+                )
+            )
             entries.append(
                 (
                     subject.model_copy(update=updates),
+                    binding.value_column,
+                    prefix,
+                    binding.additivity == "additive",
+                    binding.unit if isinstance(binding.unit, str) else None,
+                )
+            )
+        return entries
+    measures = getattr(meta, "measures", None)
+    if measures:
+        identities = tuple(getattr(meta, "metric_identities", ()))
+        legacy_entries: list[tuple[Subject, str, str | None, bool, str | None]] = []
+        for index, entry in enumerate(measures):
+            entry_updates: dict[str, object] = {}
+            if index < len(identities):
+                typed_subject = _typed_subject_for_identity(
+                    identity=identities[index],
+                    frame=frame,
+                    artifact_id=artifact_id,
+                    scope=scope,
+                )
+                if typed_subject is not None:
+                    entry_updates["typed_metric_subject"] = typed_subject
+            legacy_entries.append(
+                (
+                    subject.model_copy(update=entry_updates),
                     entry["column"],
                     f"metric:{entry['metric_id']}",
                     entry.get("additivity") == "additive",
                     entry.get("unit") if isinstance(entry.get("unit"), str) else None,
                 )
             )
-        return entries
+        return legacy_entries
     measure = getattr(meta, "measure", {})
     column = (
         measure.get("name") or measure.get("column") or measure.get("field") or "value"
