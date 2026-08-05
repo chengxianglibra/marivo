@@ -507,11 +507,19 @@ def _resolution_rows(
     out = piece.copy()
     for column in all_axis_columns[level:]:
         out[column] = pd.NA
-    out.insert(0, ATTRIBUTION_PATH_COLUMN, out[list(prefix_columns)].astype(str).agg(" > ".join, axis=1))
+    out.insert(
+        0, ATTRIBUTION_PATH_COLUMN, out[list(prefix_columns)].astype(str).agg(" > ".join, axis=1)
+    )
     out.insert(0, ATTRIBUTION_DRIVER_COLUMN, out[prefix_columns[-1]])
     out.insert(0, ATTRIBUTION_AXIS_COLUMN, prefix_columns[-1])
     out.insert(0, ATTRIBUTION_LEVEL_COLUMN, level)
-    ordered = [ATTRIBUTION_LEVEL_COLUMN, ATTRIBUTION_AXIS_COLUMN, ATTRIBUTION_DRIVER_COLUMN, ATTRIBUTION_PATH_COLUMN, *all_axis_columns]
+    ordered = [
+        ATTRIBUTION_LEVEL_COLUMN,
+        ATTRIBUTION_AXIS_COLUMN,
+        ATTRIBUTION_DRIVER_COLUMN,
+        ATTRIBUTION_PATH_COLUMN,
+        *all_axis_columns,
+    ]
     bucket_columns = [column for column in out.columns if column == "bucket_start"]
     if bucket_columns:
         ordered = [bucket_columns[0], *ordered]
