@@ -87,9 +87,9 @@ def test_root_group_order_matches_render_labels() -> None:
 def test_root_group_literal_matches_order() -> None:
     """The ``RootGroup`` literal must equal the teaching order exactly. A stale
     member left in the literal (the historical ``session_state`` drift) has no
-    runtime consumer to trip over, so narrowing the literal is only caught by
-    mypy — but widening it (keeping a removed group) passes every gate unless
-    this contract pins the two sets equal."""
+    runtime consumer to trip over, so narrowing the literal was previously
+    caught only by mypy — but widening it (keeping a removed group) passes
+    every gate unless this contract pins the two sets equal."""
     assert set(get_args(RootGroup)) == set(ROOT_GROUP_ORDER)
 
 
