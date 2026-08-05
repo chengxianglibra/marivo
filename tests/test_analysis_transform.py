@@ -17,7 +17,7 @@ from marivo.analysis import (
     DeltaFrame,
     MetricFrame,
 )
-from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis.errors import FrameMetaInvalidError, SemanticKindMismatchError
 from marivo.analysis.frames.attribution import AttributionFrameMeta
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
@@ -297,6 +297,21 @@ def test_frame_transform_methods_preserve_family(tmp_path):
 
     assert isinstance(metric_out, MetricFrame)
     assert isinstance(delta_out, DeltaFrame)
+
+
+def test_transformed_delta_recovery_revalidates_comparison_identity(tmp_path):
+    delta = _make_delta_panel(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    transformed = delta.transform.topk(by="delta", limit=1)
+    meta_path = session._layout.frames_dir / transformed.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["comparison_identity"]["semantics"]["comparable_semantics_fingerprint"] = (
+        "sha256:tampered-but-nonempty"
+    )
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError, match="invalid delta comparison identity"):
+        session.get_frame(transformed.ref)
 
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):

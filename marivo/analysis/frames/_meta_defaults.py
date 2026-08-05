@@ -20,7 +20,7 @@ from marivo.analysis.evidence.types import (
 )
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.refs import RefPayloadV1
-from marivo.semantic.metric_graph import DeltaComparisonIdentityV1, MetricIdentity
+from marivo.semantic.metric_graph import DeltaComparisonIdentity, MetricIdentity
 
 GRAIN_FREQ = {"hour": "h", "day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 
@@ -66,9 +66,8 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
         if col and col in frame._df.columns:
             n = len(frame._df)
             # ``col`` is a single column name (guarded by ``in frame._df.columns``),
-            # so ``isna().sum()`` is a scalar int; pandas-stubs types the index
-            # expression as Series|DataFrame, hence the ignore.
-            null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n  # type: ignore[arg-type]
+            # so ``isna().sum()`` is a scalar value.
+            null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n
 
         if semantic_kind in {"time_series", "panel"} and isinstance(axes, dict):
             time_axis = axes.get("time", {})
@@ -274,7 +273,7 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
         )
 
     metric_identities: tuple[MetricIdentity, ...] = ()
-    comparison: DeltaComparisonIdentityV1 | None = None
+    comparison: DeltaComparisonIdentity | None = None
     axis_refs: tuple[RefPayloadV1, ...] = ()
     segment_predicates: tuple[SlicePredicateV1, ...] = ()
     window: dict[str, JsonValue] | None = None
@@ -294,7 +293,7 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
     if isinstance(predicates_attr, tuple):
         segment_predicates = predicates_attr
     comparison_attr = getattr(meta, "comparison_identity", None)
-    if isinstance(comparison_attr, DeltaComparisonIdentityV1):
+    if isinstance(comparison_attr, DeltaComparisonIdentity):
         comparison = comparison_attr
 
     if window_attr is not None:

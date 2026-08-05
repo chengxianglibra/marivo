@@ -20,6 +20,8 @@ from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
     EVALUATION_END_COLUMN,
+    CumulativeAlignmentV1,
+    CumulativePairSummaryV1,
 )
 from marivo.analysis._semantic_persistence import (
     AxisBindingV1,
@@ -99,6 +101,68 @@ _SUPPORTED_OPS: tuple[str, ...] = (
 )
 
 _TransformHandlerResult = tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]
+
+
+def _transformed_cumulative_alignment(
+    parent: DeltaFrame,
+    df: pd.DataFrame,
+    *,
+    op: object,
+) -> CumulativeAlignmentV1 | None:
+    """Derive pairing evidence for the rows retained by one Delta transform."""
+
+    meta = parent.meta
+    if not isinstance(meta, DeltaFrameMeta):
+        return None
+    alignment = meta.cumulative_alignment
+    if alignment is None:
+        return None
+    parent_pairs = alignment.pairs
+    if "align_quality" in df.columns:
+        fallback_rows = int((df["align_quality"].astype(str) == "fallback").sum())
+    elif parent_pairs.fallback_rows:
+        raise TransformShapeUnsupportedError(
+            message="transform cannot preserve cumulative fallback evidence for this result shape",
+            expected="row-level align_quality evidence on every retained cumulative pair",
+            received="transform output without align_quality",
+            location="frame.transform",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Keep the existing comparison grain, or filter/rank the DeltaFrame without "
+                    "dropping its align_quality column."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="transform"),
+            ),
+            context={
+                "op": op,
+                "frame_ref": parent.ref,
+                "fallback_rows": parent_pairs.fallback_rows,
+            },
+        )
+    else:
+        fallback_rows = 0
+    matched_null_rows = (
+        int((df["current"].isna() | df["baseline"].isna()).sum())
+        if {"current", "baseline"}.issubset(df.columns)
+        else 0
+    )
+    pairs = CumulativePairSummaryV1(
+        schema="cumulative-pair-summary/v1",
+        matched_rows=len(df),
+        matched_null_rows=matched_null_rows,
+        current_unpaired_rows=parent_pairs.current_unpaired_rows,
+        baseline_unpaired_rows=parent_pairs.baseline_unpaired_rows,
+        fallback_rows=fallback_rows,
+        unpaired_action="dropped",
+    )
+    return CumulativeAlignmentV1(
+        schema="cumulative-alignment/v1",
+        current_authored_anchor=alignment.current_authored_anchor,
+        baseline_authored_anchor=alignment.baseline_authored_anchor,
+        canonical_anchor=alignment.canonical_anchor,
+        pairs=pairs,
+    )
 
 
 def _prepare_transform[TTransformFrame: TransformFrame](
@@ -2203,6 +2267,12 @@ def _persist_transform_frame(
             "lineage": lineage,
         }
     )
+    if isinstance(parent, DeltaFrame):
+        meta_payload["cumulative_alignment"] = _transformed_cumulative_alignment(
+            parent,
+            df,
+            op=params.get("op"),
+        )
     # Transforms change data shape; component links and component-derived
     # row facts from the parent no longer apply.
     meta_payload["component_ref"] = None

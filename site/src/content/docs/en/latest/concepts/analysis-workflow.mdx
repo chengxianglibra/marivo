@@ -535,13 +535,15 @@ Read `report.overall_status`, `report.blocking_issue_count`, and
 `report.warning_count` for the authoritative verdict and counts.
 `report.state` remains `ArtifactState` materialization metadata; it is not a
 quality status.
+For a cumulative comparable-period `DeltaFrame`, the report reads the typed
+pairing evidence and surfaces matched-null, unpaired, and fallback counts.
 The report's `contract().issues` contains typed data-quality failures. Do not
 report a window as a complete period fact when its report contains a blocking
 `time_coverage_incomplete` issue.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `frame` | `MetricFrame` | Yes | — | The frame to inspect. |
+| `frame` | supported analysis artifact | Yes | — | The frame to inspect, including metric DeltaFrames. |
 
 ### `hypothesis_test` → `HypothesisTestResult`
 
@@ -640,12 +642,15 @@ accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
   - `all_history`: allowed when both frames share the valid anchor and have paired
     business coordinates with exact `evaluation_end` cutoffs. The result is current minus
     baseline observed level, not asserted interval flow; source revision is unverified.
-  - `trailing`: allowed when both frames share the same trailing anchor payload
-    (`count`, `unit`). The windowed rolling values align ordinally.
+  - `trailing`: allowed when both frames have the same canonical fixed-duration span;
+    equivalent units such as `7 day` and `1 week` compare successfully.
   - `grain_to_date`: allowed for a single-period, boundary-anchored window. The window
     must start on a reset boundary and span at most one reset period, and both frames
-    must share the reset grain and query grain. The resulting DeltaFrame records the
-    to-date alignment under `alignment_dump["to_date"]`.
+    must share the reset grain and query grain.
+  - Both comparable-period anchors support ordinal window alignment plus DOW, holiday,
+    and holiday-then-DOW position alignment. For `grain_to_date`, the calendar policy's
+    `period` must equal the reset grain. Workday-position alignment is not a public
+    comparison mode in this version.
 - For derived metrics, the same compare paths are allowed only when every outer component
   is cumulative and all components share exactly one anchor, including `all_history`.
   Mixed anchors, cumulative/non-cumulative mixes, malformed metadata, and current/baseline
@@ -664,6 +669,11 @@ UTC-serialized `evaluation_end` coordinate. For all-history deltas, inspect the 
 `current_evaluation_end` and `baseline_evaluation_end` columns. One-sided coordinates are
 dropped and counted in `delta.meta.alignment["cumulative_pairs"]`; a matched null remains
 paired and produces a null delta.
+
+Trailing and grain-to-date deltas expose `delta.meta.cumulative_alignment`, which retains
+both authored anchors, the canonical anchor used for identity, and exact matched-null,
+current-only, baseline-only, and fallback counts. Only matched coordinates enter the final
+delta, including for panel frames.
 
 ```python
 cum_frame = session.observe(

@@ -15,6 +15,7 @@ from marivo.analysis._cumulative import (
     AllHistoryLevelChangeSchema,
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
+    CumulativePairSummaryV1,
 )
 from marivo.analysis.evidence.identity import make_finding_id
 from marivo.analysis.evidence.types import DeltaFindingValue, DerivationRule, Finding, Subject
@@ -76,13 +77,22 @@ def _row_presence(
 
 
 def _cumulative_pair_evidence(
-    pairs: AllHistoryPairAlignmentV1 | None,
+    pairs: AllHistoryPairAlignmentV1 | CumulativePairSummaryV1 | None,
 ) -> dict[str, Any]:
     """Project the canonical alignment counters into persisted evidence."""
 
     if pairs is None:
         return {}
-    return pairs.model_dump(mode="json", exclude={"anchor"})
+    payload: dict[str, Any] = {
+        "matched_rows": pairs.matched_rows,
+        "matched_null_rows": pairs.matched_null_rows,
+        "current_unpaired_rows": pairs.current_unpaired_rows,
+        "baseline_unpaired_rows": pairs.baseline_unpaired_rows,
+        "unpaired_action": pairs.unpaired_action,
+    }
+    if isinstance(pairs, CumulativePairSummaryV1):
+        payload["fallback_rows"] = pairs.fallback_rows
+    return payload
 
 
 _ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
@@ -127,7 +137,7 @@ def extract_delta_findings(
     dimension_columns: list[str] | None = None,
     time_column: str | None = None,
     unit: str | None = None,
-    cumulative_pairs: AllHistoryPairAlignmentV1 | None = None,
+    cumulative_pairs: AllHistoryPairAlignmentV1 | CumulativePairSummaryV1 | None = None,
     cumulative_change: AllHistoryLevelChangeV1 | None = None,
 ) -> list[Finding]:
     """Extract delta findings from a comparison DataFrame.

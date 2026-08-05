@@ -410,9 +410,12 @@ Cumulative metrics may serve as ratio components; do not use cumulative over
 
 A derived ratio/weighted/linear metric over cumulative components can be
 compared only when every outer component is cumulative and all components share
-the same `trailing` or `grain_to_date` anchor. `all_history`, mixed anchors, and
-cumulative/non-cumulative mixes are rejected. This compare allowance does not
-extend to `attribute`, `decompose`, or `forecast`.
+a compatible `all_history`, `trailing`, or `grain_to_date` anchor. Trailing anchors
+compare by canonical fixed duration (`7 day` equals `1 week`); grain-to-date anchors
+must share one reset grain. Comparable-period results retain paired coordinates only
+and may align by window ordinal, DOW position, holiday position, or holiday-then-DOW
+position. Mixed anchors and cumulative/non-cumulative mixes are rejected. This compare
+allowance does not extend to `attribute`, `decompose`, or `forecast`.
 
 ## Metric unit (UCUM)
 

@@ -869,9 +869,12 @@ def test_compare_mtd_ratio_over_cumulative_components_after_reload(
     )
 
     delta = compare(current, baseline, session=duckdb_session)
+    delta = duckdb_session.get_frame(delta.ref)
 
     assert delta.meta.cumulative == current.meta.cumulative
-    assert delta.meta.alignment["to_date"]["reset_grain"] == "month"
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.canonical_anchor.kind == "grain_to_date"
+    assert delta.meta.cumulative_alignment.canonical_anchor.reset_grain == "month"
     assert delta.meta.component_ref is not None
 
 
@@ -892,11 +895,13 @@ def test_compare_mtd_ratio_drops_baseline_tail_from_parent_and_components(
     )
 
     delta = compare(current, baseline, session=duckdb_session)
+    delta = duckdb_session.get_frame(delta.ref)
     parent_df = delta.to_pandas()
     component_df = delta.components().to_pandas()
 
-    assert delta.meta.alignment["to_date"]["matched_buckets"] == 2
-    assert delta.meta.alignment["to_date"]["baseline_tail_buckets"] == 1
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.pairs.matched_rows == 2
+    assert delta.meta.cumulative_alignment.pairs.baseline_unpaired_rows == 1
     assert len(parent_df) == 2
     assert len(component_df) == 2
     assert parent_df["current"].notna().all()

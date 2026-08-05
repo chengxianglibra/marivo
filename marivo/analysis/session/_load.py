@@ -6,12 +6,18 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
+from marivo.analysis._cumulative import (
+    authored_comparable_period_anchor,
+    cumulative_compare_anchor,
+    cumulative_equivalent_comparison_semantics,
+)
 from marivo.analysis.attribution_contract import basis_fingerprint
 from marivo.analysis.candidate_identity import (
     validate_candidate_frame_identity,
     validate_semantic_hypothesis_frame_integrity,
 )
 from marivo.analysis.errors import (
+    AnalysisRepair,
     CrossSessionFrameError,
     FrameCacheCorruptedError,
     FrameMetaInvalidError,
@@ -60,7 +66,13 @@ from marivo.analysis.intents._candidate_columns import (
     CANDIDATE_COLUMNS,
     validate_shape_columns,
 )
+from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import ArtifactRef
+from marivo.introspection.live.model import LiveHelpTarget
+from marivo.semantic.metric_graph import (
+    DeltaComparisonSemantics,
+    ExactComparisonSemanticsV1,
+)
 from marivo.semantic.metric_graph_canonical import (
     MetricGraphContractError,
     fingerprint,
@@ -321,6 +333,130 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
     _validate_current_replay_payload(ref, meta)
 
 
+def _delta_identity_recovery_error(ref: str, *, reason: str) -> FrameMetaInvalidError:
+    return FrameMetaInvalidError(
+        message=f"frame '{ref}' has an invalid delta comparison identity",
+        repair=AnalysisRepair(
+            kind="retry",
+            action="Re-run session.compare(current, baseline, alignment=...) from the source MetricFrames.",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            snippet="delta = session.compare(current, baseline, alignment=alignment)",
+        ),
+        context={
+            "ref": ref,
+            "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+            "reason": reason,
+        },
+    )
+
+
+def _validate_delta_comparison_state(
+    ref: str,
+    meta: DeltaFrameMeta,
+    *,
+    session: Session,
+) -> None:
+    """Recompute persisted delta identity semantics from its two source frames."""
+
+    current = load_frame(meta.source_current_ref, session=session)
+    baseline = load_frame(meta.source_baseline_ref, session=session)
+    if not isinstance(current, MetricFrame) or not isinstance(baseline, MetricFrame):
+        raise _delta_identity_recovery_error(
+            ref,
+            reason="delta sources must both recover as MetricFrames",
+        )
+    identity = meta.comparison_identity
+    current_identity = current.meta.metric_identity
+    baseline_identity = baseline.meta.metric_identity
+    current_comparable = current.meta.comparable_value_semantics
+    baseline_comparable = baseline.meta.comparable_value_semantics
+    if current_identity is None or baseline_identity is None:
+        raise _delta_identity_recovery_error(ref, reason="source metric identity is missing")
+    if current_comparable is None or baseline_comparable is None:
+        raise _delta_identity_recovery_error(
+            ref,
+            reason="source comparable semantics are missing",
+        )
+    mismatches: list[str] = []
+    if identity.current != current_identity:
+        mismatches.append("current metric identity")
+    if identity.baseline != baseline_identity:
+        mismatches.append("baseline metric identity")
+    if identity.current_artifact_id != (current.meta.artifact_id or current.ref):
+        mismatches.append("current artifact id")
+    if identity.baseline_artifact_id != (baseline.meta.artifact_id or baseline.ref):
+        mismatches.append("baseline artifact id")
+
+    policy_fields = {
+        key: meta.alignment[key]
+        for key in ("kind", "calendar", "period", "fallback", "mode", "strict_lengths")
+        if key in meta.alignment
+    }
+    try:
+        policy = AlignmentPolicy.model_validate(policy_fields)
+    except ValidationError as exc:
+        raise _delta_identity_recovery_error(
+            ref,
+            reason=f"persisted alignment policy is invalid: {exc}",
+        ) from exc
+    if identity.alignment_policy_fingerprint != fingerprint(policy.model_dump(mode="json")):
+        mismatches.append("alignment policy fingerprint")
+
+    cumulative_alignment = meta.cumulative_alignment
+    expected_semantics: DeltaComparisonSemantics
+    if cumulative_alignment is None:
+        expected_semantics = ExactComparisonSemanticsV1(
+            schema="exact-comparison-semantics/v1",
+            comparable_semantics_fingerprint=current_comparable.fingerprint,
+        )
+        if current_comparable.fingerprint != baseline_comparable.fingerprint:
+            mismatches.append("exact source comparable semantics")
+    else:
+        current_anchor = cumulative_compare_anchor(current.meta.cumulative)
+        baseline_anchor = cumulative_compare_anchor(baseline.meta.cumulative)
+        if not isinstance(current_anchor, tuple) or not isinstance(baseline_anchor, tuple):
+            raise _delta_identity_recovery_error(
+                ref,
+                reason="comparable-period delta sources have invalid cumulative anchors",
+            )
+        if cumulative_alignment.current_authored_anchor != authored_comparable_period_anchor(
+            current_anchor
+        ):
+            mismatches.append("current authored cumulative anchor")
+        if cumulative_alignment.baseline_authored_anchor != authored_comparable_period_anchor(
+            baseline_anchor
+        ):
+            mismatches.append("baseline authored cumulative anchor")
+        current_graph = current.meta.expression_graph
+        baseline_graph = baseline.meta.expression_graph
+        if current_graph is None or baseline_graph is None:
+            raise _delta_identity_recovery_error(
+                ref,
+                reason="comparable-period delta sources are missing expression graphs",
+            )
+        try:
+            expected_semantics = cumulative_equivalent_comparison_semantics(
+                current_graph=current_graph,
+                baseline_graph=baseline_graph,
+                current_comparable=current_comparable,
+                baseline_comparable=baseline_comparable,
+                current_anchor=current_anchor,
+                baseline_anchor=baseline_anchor,
+            )
+        except (TypeError, ValueError) as exc:
+            raise _delta_identity_recovery_error(
+                ref,
+                reason=f"source cumulative semantics cannot be recomputed: {exc}",
+            ) from exc
+    if identity.semantics != expected_semantics:
+        mismatches.append("comparison semantics")
+    if mismatches:
+        raise _delta_identity_recovery_error(
+            ref,
+            reason=f"identity fields do not match recovered source state: {sorted(mismatches)}",
+        )
+
+
 def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     """Load a persisted analysis frame by ref from the given or active session."""
     import json
@@ -465,6 +601,18 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 "missing_state": ["comparison_identity"],
             },
         )
+    if kind == "delta_frame" and meta.get("semantic_kind") != "funnel":
+        comparison_payload = meta.get("comparison_identity")
+        if isinstance(comparison_payload, dict) and comparison_payload.get("schema") != (
+            "delta-comparison/v2"
+        ):
+            raise _delta_identity_recovery_error(
+                ref,
+                reason=(
+                    "only delta-comparison/v2 is supported; persisted V1 deltas must be "
+                    "re-created from their source MetricFrames"
+                ),
+            )
     if kind == "metric_frame":
         required_metric_fields = _CURRENT_METRIC_FRAME_FIELDS | (
             {"attribution_basis"}
@@ -577,25 +725,24 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 message=f"legacy frame '{ref}' cannot carry a v7 attribution basis",
                 context={"ref": ref, "artifact_schema_version": artifact_schema_version},
             )
-        last_intent = parsed_meta.lineage.steps[-1].intent if parsed_meta.lineage.steps else None
-        if last_intent == "compare":
-            delta_required_state: dict[str, object | None] = {
-                "metric_identity": parsed_meta.metric_identity,
-                "baseline_metric_identity": parsed_meta.baseline_metric_identity,
-                "comparison_identity": parsed_meta.comparison_identity,
-            }
-            missing_state = sorted(
-                name for name, value in delta_required_state.items() if value is None
+        delta_required_state: dict[str, object | None] = {
+            "metric_identity": parsed_meta.metric_identity,
+            "baseline_metric_identity": parsed_meta.baseline_metric_identity,
+            "comparison_identity": parsed_meta.comparison_identity,
+        }
+        missing_state = sorted(
+            name for name, value in delta_required_state.items() if value is None
+        )
+        if missing_state:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' has incomplete current-schema delta identity",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "missing_state": missing_state,
+                },
             )
-            if missing_state:
-                raise FrameMetaInvalidError(
-                    message=f"frame '{ref}' has incomplete current-schema delta identity",
-                    context={
-                        "ref": ref,
-                        "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
-                        "missing_state": missing_state,
-                    },
-                )
+        _validate_delta_comparison_state(ref, parsed_meta, session=session)
     if isinstance(parsed_meta, AttributionFrameMeta):
         try:
             validate_generic_attribution_rows(parsed_meta, df)

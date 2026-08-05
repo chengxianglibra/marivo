@@ -48,6 +48,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._quality_checks import (
+    run_delta_checks,
     run_event_checks,
     run_funnel_attribution_checks,
     run_funnel_delta_checks,
@@ -80,7 +81,8 @@ def assess_quality(
                 "assess_quality supports MetricFrame, registered EventFrame "
                 "journey/funnel/time-to-event shapes, and registered LifecycleFrame "
                 "history/distribution/transitions/dwell/violations shapes, "
-                "DeltaFrame[funnel], and AttributionFrame[funnel_loss_rate]"
+                "metric DeltaFrame shapes, DeltaFrame[funnel], and "
+                "AttributionFrame[funnel_loss_rate]"
             ),
             context={"frame_kind": frame.meta.kind},
         )
@@ -101,6 +103,8 @@ def assess_quality(
         rows = run_lifecycle_checks(frame)
     elif isinstance(frame, DeltaFrame) and frame.meta.semantic_kind == "funnel":
         rows = run_funnel_delta_checks(frame)
+    elif isinstance(frame, DeltaFrame):
+        rows = run_delta_checks(frame)
     elif isinstance(frame, AttributionFrame) and frame.meta.semantic_kind == "funnel_loss_rate":
         rows = run_funnel_attribution_checks(frame)
     else:
@@ -122,7 +126,7 @@ def assess_quality(
     elif isinstance(frame, LifecycleFrame):
         report_shape = f"lifecycle_{frame.meta.semantic_kind}"
     elif isinstance(frame, DeltaFrame):
-        report_shape = "funnel_delta"
+        report_shape = "funnel_delta" if frame.meta.semantic_kind == "funnel" else "delta"
     else:
         report_shape = "funnel_attribution"
     params = {
@@ -182,9 +186,19 @@ def assess_quality(
             if isinstance(frame, DeltaFrame)
             else "attribution_frame"
         ),
-        target_metric_id=frame.meta.metric_id if isinstance(frame, MetricFrame) else None,
+        target_metric_id=(
+            frame.meta.metric_id
+            if isinstance(frame, MetricFrame)
+            else frame.meta.metric_id
+            if isinstance(frame, DeltaFrame) and not isinstance(frame.meta, FunnelDeltaFrameMeta)
+            else None
+        ),
         target_semantic_model=(
-            frame.meta.semantic_model if isinstance(frame, MetricFrame) else None
+            frame.meta.semantic_model
+            if isinstance(frame, MetricFrame)
+            else frame.meta.semantic_model
+            if isinstance(frame, DeltaFrame) and not isinstance(frame.meta, FunnelDeltaFrameMeta)
+            else None
         ),
         target_semantic_kind=cast("Any", frame.meta.semantic_kind),
         target_event_pattern_fingerprint=target_pattern_fingerprint,
@@ -310,6 +324,10 @@ def _quality_issues(
             kind = "event_censoring_present"
             observed = int(details["coverage_censored_count"])
             expectation = "coverage_censored_count == 0"
+        elif row["check_kind"] == "delta_row_contract":
+            kind = "delta_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
         elif row["check_kind"] in {
             "event_funnel_row_contract",
             "event_funnel_math",
@@ -330,6 +348,10 @@ def _quality_issues(
             kind = "event_row_contract_invalid"
             observed = int(details["invalid_count"])
             expectation = "invalid_count == 0"
+        elif row["check_kind"] == "cumulative_pairing":
+            kind = "cumulative_alignment_caveat_present"
+            observed = int(details["caveat_count"])
+            expectation = "matched_null_rows, unpaired rows, and fallback_rows are all zero"
         elif row["check_kind"] in {
             "lifecycle_history_row_contract",
             "lifecycle_history_state",

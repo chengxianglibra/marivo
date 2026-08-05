@@ -22,6 +22,7 @@ from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._layout import read_frame_from_disk
 from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame
@@ -70,6 +71,8 @@ def test_compare_returns_delta_frame(tmp_path):
     assert d.meta.comparison_identity is not None
     assert d.meta.comparison_identity.current_artifact_id == q3.ref
     assert d.meta.comparison_identity.baseline_artifact_id == q2.ref
+    assert d.meta.comparison_identity.schema == "delta-comparison/v2"
+    assert isinstance(d.meta.comparison_identity.semantics, ExactComparisonSemanticsV1)
     df = d.to_pandas()
     assert set(df.columns) >= {"current", "baseline", "delta", "pct_change"}
     assert df.iloc[0]["current"] == pytest.approx(30.0)

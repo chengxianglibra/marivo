@@ -516,12 +516,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "CumulativeFrameUnsupported",
         "runtime",
         ("compare", "MetricFrame", "DeltaFrame"),
-        "Cumulative compare supports trailing, grain_to_date, and all_history anchors; every "
-        "outer component must share one anchor, and all_history rows additionally carry "
-        "exact evaluation_end coordinates and produce observed level differences.",
+        "Cumulative compare supports trailing, grain_to_date, and all_history anchors; "
+        "every outer component must resolve to one compatible anchor, trailing uses canonical "
+        "fixed duration, grain_to_date uses one reset grain, and all_history rows carry exact "
+        "evaluation_end coordinates.",
         "A derived cumulative frame is comparable only when every outer component is "
         "cumulative and all components share the same anchor; mixed or unresolved component "
-        "anchors are rejected, and all-history source revision remains unverified.",
+        "anchors are rejected. Comparable-period deltas keep paired ordinal, DOW, or holiday "
+        "positions only; all-history source revision remains unverified.",
         "Re-observe both sides under the current cumulative contract, then compare compatible "
         "frames with at least one shared business coordinate.",
         help_target="compare",

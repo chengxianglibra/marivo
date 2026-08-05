@@ -263,7 +263,8 @@ def make_test_delta_contract(
     from marivo.refs import RefPayloadV1
     from marivo.semantic.metric_graph import (
         CatalogMetricIdentity,
-        DeltaComparisonIdentityV1,
+        DeltaComparisonIdentity,
+        ExactComparisonSemanticsV1,
         SemanticDependencyDigestV1,
         SemanticDependencyEntryV1,
     )
@@ -298,13 +299,16 @@ def make_test_delta_contract(
             if status_time_dimension is not None
             else None
         ),
-        "comparison_identity": DeltaComparisonIdentityV1(
-            schema="delta-comparison/v1",
+        "comparison_identity": DeltaComparisonIdentity(
+            schema="delta-comparison/v2",
             current=current,
             baseline=baseline,
             current_artifact_id=current_artifact_id,
             baseline_artifact_id=baseline_artifact_id,
-            comparable_semantics_fingerprint="sha256:test-comparable",
+            semantics=ExactComparisonSemanticsV1(
+                schema="exact-comparison-semantics/v1",
+                comparable_semantics_fingerprint="sha256:test-comparable",
+            ),
             alignment_policy_fingerprint="sha256:test-alignment",
         ),
     }

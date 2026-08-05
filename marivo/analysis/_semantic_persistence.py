@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
-    DeltaComparisonIdentityV1,
+    DeltaComparisonIdentity,
     MetricIdentity,
     RuntimeExpressionIdentity,
 )
@@ -376,14 +376,14 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
         }
 
     identities: list[MetricIdentity] = []
-    comparisons: list[DeltaComparisonIdentityV1] = []
+    comparisons: list[DeltaComparisonIdentity] = []
     digests: list[object] = []
     axis_bindings: list[AxisBindingV1] = []
     predicates: list[SlicePredicateV1] = []
     for frame in frames:
         meta = frame.meta
         comparison = getattr(meta, "comparison_identity", None)
-        if isinstance(comparison, DeltaComparisonIdentityV1) and comparison not in comparisons:
+        if isinstance(comparison, DeltaComparisonIdentity) and comparison not in comparisons:
             comparisons.append(comparison)
         frame_identities = tuple(getattr(meta, "metric_identities", ()))
         if not frame_identities:

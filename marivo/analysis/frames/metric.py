@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis._cumulative import (
+    canonical_comparable_period_anchor,
     cumulative_compare_anchor,
     cumulative_compare_blocker,
 )
@@ -148,6 +149,29 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             action=repair_action,
             help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         ),
+    )
+
+
+def _cumulative_compare_pair_contract(anchor: object) -> ArtifactPrecondition | None:
+    if not isinstance(anchor, tuple) or anchor[0] not in {"trailing", "grain_to_date"}:
+        return None
+    canonical = canonical_comparable_period_anchor(anchor)
+    if canonical.kind == "trailing":
+        reason = (
+            "baseline must have the same canonical trailing span "
+            f"({canonical.span_seconds} seconds); equivalent fixed units are accepted, and "
+            "only paired DOW/holiday positions enter the delta"
+        )
+    else:
+        reason = (
+            f"baseline must use the same {canonical.reset_grain} reset and query grain; "
+            "calendar alignment is allowed only at that reset period, and only paired "
+            "DOW/holiday positions enter the delta"
+        )
+    return ArtifactPrecondition(
+        check="cumulative_comparable_period_pair",
+        status="pass",
+        reason=reason,
     )
 
 
@@ -746,6 +770,9 @@ class MetricFrame(BaseFrame):
                     # Pair-dependent anchor, grain, timezone, dimensions, and
                     # aligned-row checks do not belong to a single-frame contract.
                     preconditions = list(affordance.preconditions)
+                    pair_contract = _cumulative_compare_pair_contract(anchor)
+                    if pair_contract is not None:
+                        preconditions.append(pair_contract)
                 else:
                     preconditions = [*affordance.preconditions, caveat]
                 anchored_affordances.append(

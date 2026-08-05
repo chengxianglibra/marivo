@@ -19,7 +19,11 @@ from marivo.analysis._cumulative import (
     EVALUATION_END_COLUMN,
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
+    CumulativeAlignmentV1,
+    CumulativePairSummaryV1,
+    cumulative_alignment_evidence,
     cumulative_compare_anchor,
+    cumulative_equivalent_comparison_semantics,
 )
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.attribution_contract import basis_fingerprint
@@ -88,7 +92,9 @@ from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
-    DeltaComparisonIdentityV1,
+    DeltaComparisonIdentity,
+    DeltaComparisonSemantics,
+    ExactComparisonSemanticsV1,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 
@@ -549,6 +555,9 @@ def _align_component_role(
                 current_role,
                 baseline_role,
                 alignment=alignment,
+                track_presence_status=(
+                    isinstance(cumulative_compare_anchor(current_role.meta.cumulative), tuple)
+                ),
             )
             return aligned
         calendar_ref = alignment.calendar
@@ -828,22 +837,85 @@ def _rollback_compare_commit(
             continue
 
 
-def _drop_unpaired_grain_to_date_rows(
+def _finalize_comparable_period_pairs(
     df: pd.DataFrame,
     frame: MetricFrame,
-) -> pd.DataFrame:
-    """Keep only rows whose current and baseline ordinal buckets are both present."""
+    *,
+    alignment: AlignmentPolicy,
+    calendar_info: dict[str, Any] | None,
+) -> tuple[pd.DataFrame, CumulativePairSummaryV1 | None]:
+    """Retain mechanically paired trailing/GTD rows and account for every removal."""
+
     anchor = cumulative_compare_anchor(frame.meta.cumulative)
-    if not (isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date"):
-        return df
-    if frame.meta.semantic_kind not in {"time_series", "panel"}:
-        return df
-    time_column = _time_axis_column(frame)
-    baseline_time_column = f"{time_column}_b"
-    if time_column not in df.columns or baseline_time_column not in df.columns:
-        return df
-    paired = df[time_column].notna() & df[baseline_time_column].notna()
-    return df.loc[paired].reset_index(drop=True)
+    if not (isinstance(anchor, tuple) and anchor and anchor[0] in {"trailing", "grain_to_date"}):
+        return df, None
+
+    current_unpaired = 0
+    baseline_unpaired = 0
+    if PRESENCE_STATUS_COLUMN in df.columns:
+        status = df[PRESENCE_STATUS_COLUMN]
+        matched = status == "matched"
+        current_unpaired = int((status == "new").sum())
+        baseline_unpaired = int((status == "churned").sum())
+    elif frame.meta.semantic_kind in {"time_series", "panel"}:
+        if alignment.kind == "window_bucket":
+            time_column = _time_axis_column(frame)
+            baseline_time_column = f"{time_column}_b"
+        else:
+            time_column = "bucket_start_a"
+            baseline_time_column = "bucket_start_b"
+        if time_column not in df.columns or baseline_time_column not in df.columns:
+            raise AlignmentFailedError(
+                message="cumulative comparison lost its paired cutoff coordinates",
+                context={
+                    "kind": "CumulativePairCoordinatesMissing",
+                    "current_coordinate": time_column,
+                    "baseline_coordinate": baseline_time_column,
+                    "columns": [str(column) for column in df.columns],
+                },
+            )
+        has_current = df[time_column].notna()
+        has_baseline = df[baseline_time_column].notna()
+        matched = has_current & has_baseline
+        current_unpaired = int((has_current & ~has_baseline).sum())
+        baseline_unpaired = int((~has_current & has_baseline).sum())
+    else:
+        matched = pd.Series(True, index=df.index)
+
+    fallback_rows = 0
+    if calendar_info is not None:
+        current_unpaired += int(calendar_info.get("dropped_rows_a", 0))
+        baseline_unpaired += int(calendar_info.get("dropped_rows_b", 0))
+        fallback_rows = int(calendar_info.get("fallback_rows", 0))
+
+    retained = df.loc[matched].reset_index(drop=True)
+    if retained.empty:
+        raise AlignmentFailedError(
+            message="cumulative comparable-period alignment produced no paired rows",
+            expected="at least one mechanically paired current and baseline cutoff",
+            received=(
+                f"current_unpaired={current_unpaired}, baseline_unpaired={baseline_unpaired}"
+            ),
+            location="session.compare.alignment",
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Choose windows and alignment with at least one shared cumulative cutoff.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+            context={"kind": "CumulativeComparablePeriodNoPairs"},
+        )
+    if PRESENCE_STATUS_COLUMN in retained.columns:
+        retained[PRESENCE_STATUS_COLUMN] = "matched"
+    pairs = CumulativePairSummaryV1(
+        schema="cumulative-pair-summary/v1",
+        matched_rows=len(retained),
+        matched_null_rows=int((retained["current"].isna() | retained["baseline"].isna()).sum()),
+        current_unpaired_rows=current_unpaired,
+        baseline_unpaired_rows=baseline_unpaired,
+        fallback_rows=fallback_rows,
+        unpaired_action="dropped",
+    )
+    return retained, pairs
 
 
 def _evaluation_frame(frame: MetricFrame, *, label: str) -> pd.DataFrame:
@@ -1116,6 +1188,12 @@ def compare(
     segment_info: dict[str, Any] | None = None
     window_info: dict[str, Any] | None = None
     cumulative_pairs: AllHistoryPairAlignmentV1 | None = None
+    cumulative_pair_summary: CumulativePairSummaryV1 | None = None
+    cur_cumulative_anchor = cumulative_compare_anchor(current.meta.cumulative)
+    comparable_period = isinstance(cur_cumulative_anchor, tuple) and cur_cumulative_anchor[0] in {
+        "trailing",
+        "grain_to_date",
+    }
     if current.meta.semantic_kind == "segmented":
         df, segment_info = _align_segmented(current, baseline)
     elif current.meta.semantic_kind == "panel":
@@ -1129,6 +1207,7 @@ def compare(
                 current,
                 baseline,
                 alignment=alignment,
+                track_presence_status=comparable_period,
             )
         else:
             current_df = current._dataframe_copy()
@@ -1197,8 +1276,12 @@ def compare(
             report_tz=report_tz,
         )
         calendar_info = info.model_dump(mode="json")
-    df = _drop_unpaired_grain_to_date_rows(df, current)
-    cur_cumulative_anchor = cumulative_compare_anchor(current.meta.cumulative)
+    df, cumulative_pair_summary = _finalize_comparable_period_pairs(
+        df,
+        current,
+        alignment=alignment,
+        calendar_info=calendar_info,
+    )
     if cur_cumulative_anchor == "all_history":
         df, cumulative_pairs = _finalize_all_history_pairs(
             df,
@@ -1239,25 +1322,30 @@ def compare(
             context={"current_ref": current.ref, "baseline_ref": baseline.ref},
         )
     attribution_basis = current.meta.attribution_basis
-    # Record to-date alignment when the current frame is grain_to_date cumulative.
-    # The ordinal alignment (window_info / coverage) is reused: paired_buckets
-    # become matched_buckets, baseline_unpaired_buckets become the tail.
     cur_cumulative = current.meta.cumulative
     cur_cumulative_anchor = cumulative_compare_anchor(cur_cumulative)
+    baseline_cumulative_anchor = cumulative_compare_anchor(baseline.meta.cumulative)
     cumulative_change = (
         AllHistoryLevelChangeV1() if cur_cumulative_anchor == "all_history" else None
     )
-    if (
-        cur_cumulative is not None
-        and isinstance(cur_cumulative_anchor, tuple)
-        and cur_cumulative_anchor[0] == "grain_to_date"
-        and isinstance(window_info, dict)
-    ):
-        alignment_dump["to_date"] = {
-            "reset_grain": cur_cumulative_anchor[1],
-            "matched_buckets": window_info.get("paired_buckets"),
-            "baseline_tail_buckets": window_info.get("baseline_unpaired_buckets"),
-        }
+    cumulative_alignment: CumulativeAlignmentV1 | None = None
+    if cumulative_pair_summary is not None:
+        if not isinstance(cur_cumulative_anchor, tuple) or not isinstance(
+            baseline_cumulative_anchor, tuple
+        ):
+            raise AnalysisError(
+                message="cumulative pair evidence requires two comparable-period anchors",
+                context={
+                    "kind": "CumulativePairAnchorMissing",
+                    "current_anchor": cur_cumulative_anchor,
+                    "baseline_anchor": baseline_cumulative_anchor,
+                },
+            )
+        cumulative_alignment = cumulative_alignment_evidence(
+            current_anchor=cur_cumulative_anchor,
+            baseline_anchor=baseline_cumulative_anchor,
+            pairs=cumulative_pair_summary,
+        )
     params: dict[str, Any] = {
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
@@ -1275,6 +1363,11 @@ def compare(
         "cumulative_change": (
             cumulative_change.model_dump(mode="json") if cumulative_change is not None else None
         ),
+        "cumulative_alignment": (
+            cumulative_alignment.model_dump(mode="json", by_alias=True)
+            if cumulative_alignment is not None
+            else None
+        ),
     }
     assert current.meta.metric_id is not None
     assert baseline.meta.metric_id is not None
@@ -1289,16 +1382,39 @@ def compare(
     baseline_comparable = baseline.meta.comparable_value_semantics
     assert current_comparable is not None
     assert baseline_comparable is not None
-    assert current_comparable.fingerprint == baseline_comparable.fingerprint
-    comparable_fingerprint = current_comparable.fingerprint
-    comparison_identity = DeltaComparisonIdentityV1(
-        schema="delta-comparison/v1",
+    comparison_semantics: DeltaComparisonSemantics
+    if cumulative_alignment is not None:
+        current_graph = current.meta.expression_graph
+        baseline_graph = baseline.meta.expression_graph
+        if current_graph is None or baseline_graph is None:
+            raise AnalysisError(
+                message="cumulative comparison identity requires persisted expression graphs",
+                context={"kind": "CumulativeExpressionGraphMissing"},
+            )
+        assert isinstance(cur_cumulative_anchor, tuple)
+        assert isinstance(baseline_cumulative_anchor, tuple)
+        comparison_semantics = cumulative_equivalent_comparison_semantics(
+            current_graph=current_graph,
+            baseline_graph=baseline_graph,
+            current_comparable=current_comparable,
+            baseline_comparable=baseline_comparable,
+            current_anchor=cur_cumulative_anchor,
+            baseline_anchor=baseline_cumulative_anchor,
+        )
+    else:
+        assert current_comparable.fingerprint == baseline_comparable.fingerprint
+        comparison_semantics = ExactComparisonSemanticsV1(
+            schema="exact-comparison-semantics/v1",
+            comparable_semantics_fingerprint=current_comparable.fingerprint,
+        )
+    comparison_identity = DeltaComparisonIdentity(
+        schema="delta-comparison/v2",
         current=current_identity,
         baseline=baseline_identity,
         current_artifact_id=current.meta.artifact_id or current.ref,
         baseline_artifact_id=baseline.meta.artifact_id or baseline.ref,
-        comparable_semantics_fingerprint=comparable_fingerprint,
-        alignment_policy_fingerprint=fingerprint(alignment_dump),
+        semantics=comparison_semantics,
+        alignment_policy_fingerprint=fingerprint(alignment.model_dump(mode="json")),
         attribution_basis_fingerprint=basis_fingerprint(attribution_basis),
     )
     params["comparison_identity"] = canonical_value(comparison_identity)
@@ -1347,8 +1463,7 @@ def compare(
             alignment=alignment,
             session=session,
         )
-        comp_df = _drop_unpaired_grain_to_date_rows(comp_df, current)
-        if cur_cumulative_anchor == "all_history":
+        if cumulative_pair_summary is not None or cur_cumulative_anchor == "all_history":
             comp_df = _restrict_component_to_parent_pairs(comp_df, df)
         delta_component = _build_delta_component_frame(
             session,
@@ -1420,6 +1535,7 @@ def compare(
         aggregation=aggregation,
         cumulative=cur_cumulative,
         cumulative_change=cumulative_change,
+        cumulative_alignment=cumulative_alignment,
         component_ref=delta_component.ref if delta_component is not None else None,
         attribution_basis=attribution_basis,
     )
@@ -2273,6 +2389,7 @@ def _align_time_series_window_bucket(
     b: MetricFrame,
     *,
     alignment: AlignmentPolicy,
+    track_presence_status: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any] | None]:
     time_column = _time_axis_column(a)
     b_time_column = _time_axis_column(b)
@@ -2318,6 +2435,7 @@ def _align_time_series_window_bucket(
         current_frame=a,
         baseline_frame=b,
         alignment=alignment,
+        track_presence_status=track_presence_status,
     )
 
 

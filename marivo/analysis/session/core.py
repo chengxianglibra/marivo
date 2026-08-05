@@ -1384,16 +1384,17 @@ class Session(RenderableResult):
     def assess_quality(
         self, frame: BaseFrame, *, analysis_purpose: str | None = None
     ) -> QualityReport:
-        """Run quality checks over a MetricFrame or EventFrame and return a report.
+        """Run registered quality checks over an analysis artifact and return a report.
 
         When to use: check data quality and coverage before downstream analysis.
 
-        EventFrame[journey] checks include row identity, participant resolution,
-        ordering determinism, per-input completeness, declarations, and censoring.
-        Other derived frame families remain unsupported.
+        Metric DeltaFrame checks validate the result row contract. Comparable-period
+        cumulative deltas additionally surface matched-null, unpaired, and fallback
+        counts from their authoritative typed alignment evidence.
 
         Args:
-            frame: A MetricFrame or EventFrame[journey] to inspect.
+            frame: A supported MetricFrame, EventFrame, LifecycleFrame, DeltaFrame,
+                or AttributionFrame to inspect.
 
         Raises:
             QualityShapeUnsupportedError: ``frame`` is not a supported frame.

@@ -305,15 +305,89 @@ class MetricArtifactIdentityV1:
 
 
 @dataclass(frozen=True)
-class DeltaComparisonIdentityV1:
-    schema: Literal["delta-comparison/v1"]
+class ExactComparisonSemanticsV1:
+    schema: Literal["exact-comparison-semantics/v1"]
+    comparable_semantics_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.schema != "exact-comparison-semantics/v1":
+            raise ValueError(
+                "exact comparison semantics schema must be 'exact-comparison-semantics/v1'"
+            )
+        if not self.comparable_semantics_fingerprint:
+            raise ValueError("exact comparison semantics fingerprint must be non-empty")
+
+
+@dataclass(frozen=True)
+class CumulativeEquivalentComparisonSemanticsV1:
+    schema: Literal["cumulative-equivalent-comparison-semantics/v1"]
+    current_expression_fingerprint: str
+    baseline_expression_fingerprint: str
+    canonical_expression_fingerprint: str
+    current_comparable_semantics_fingerprint: str
+    baseline_comparable_semantics_fingerprint: str
+    canonical_comparable_semantics_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.schema != "cumulative-equivalent-comparison-semantics/v1":
+            raise ValueError(
+                "cumulative-equivalent comparison semantics schema must be "
+                "'cumulative-equivalent-comparison-semantics/v1'"
+            )
+        fields = (
+            self.current_expression_fingerprint,
+            self.baseline_expression_fingerprint,
+            self.canonical_expression_fingerprint,
+            self.current_comparable_semantics_fingerprint,
+            self.baseline_comparable_semantics_fingerprint,
+            self.canonical_comparable_semantics_fingerprint,
+        )
+        if any(type(value) is not str or not value for value in fields):
+            raise ValueError(
+                "cumulative-equivalent comparison semantics fingerprints must be non-empty"
+            )
+
+
+type DeltaComparisonSemantics = (
+    ExactComparisonSemanticsV1 | CumulativeEquivalentComparisonSemanticsV1
+)
+
+
+@dataclass(frozen=True)
+class DeltaComparisonIdentity:
+    schema: Literal["delta-comparison/v2"]
     current: MetricIdentity
     baseline: MetricIdentity
     current_artifact_id: str
     baseline_artifact_id: str
-    comparable_semantics_fingerprint: str
+    semantics: DeltaComparisonSemantics
     alignment_policy_fingerprint: str
     attribution_basis_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.schema != "delta-comparison/v2":
+            raise ValueError("delta comparison schema must be 'delta-comparison/v2'")
+        if type(self.current_artifact_id) is not str or not self.current_artifact_id:
+            raise ValueError("delta comparison current_artifact_id must be non-empty")
+        if type(self.baseline_artifact_id) is not str or not self.baseline_artifact_id:
+            raise ValueError("delta comparison baseline_artifact_id must be non-empty")
+        if type(self.semantics) not in {
+            ExactComparisonSemanticsV1,
+            CumulativeEquivalentComparisonSemanticsV1,
+        }:
+            raise TypeError("delta comparison semantics must use a closed semantics variant")
+        if (
+            type(self.alignment_policy_fingerprint) is not str
+            or not self.alignment_policy_fingerprint
+        ):
+            raise ValueError("delta comparison alignment policy fingerprint must be non-empty")
+        if self.attribution_basis_fingerprint is not None and (
+            type(self.attribution_basis_fingerprint) is not str
+            or not self.attribution_basis_fingerprint
+        ):
+            raise ValueError(
+                "delta comparison attribution basis fingerprint must be non-empty when provided"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,7 +412,7 @@ class RuntimeExpressionSubjectV1:
 class DeltaMetricSubjectV1:
     kind: Literal["delta_metric"]
     session_id: str
-    comparison: DeltaComparisonIdentityV1
+    comparison: DeltaComparisonIdentity
 
 
 type TypedEvidenceSubject = (
@@ -370,10 +444,13 @@ __all__ = [
     "CatalogMetricIdentity",
     "CatalogMetricSubjectV1",
     "ComparableValueSemanticsV1",
+    "CumulativeEquivalentComparisonSemanticsV1",
     "CumulativeNodeV1",
     "DatasourceCompatibilityDomainV1",
-    "DeltaComparisonIdentityV1",
+    "DeltaComparisonIdentity",
+    "DeltaComparisonSemantics",
     "DeltaMetricSubjectV1",
+    "ExactComparisonSemanticsV1",
     "ExpressionOccurrenceV1",
     "ExpressionPresentationV1",
     "LinearNodeV1",

@@ -264,9 +264,14 @@ metric). `compare` is anchor-dispatched: `all_history` is allowed when both
 frames carry the same valid anchor and paired business coordinates with exact
 `evaluation_end` cutoffs; its result is current minus baseline observed level,
 not an asserted interval flow, and source revision is unverified. `trailing` is
-allowed when both frames share the same trailing anchor payload;
+allowed when both frames have the same fixed-duration span (`7 day` and `1 week`
+are equivalent);
 `grain_to_date` is allowed for a single reset-boundary-anchored period that spans
-at most one reset period and equal elapsed length. `transform.rollup`
+at most one reset period and equal elapsed length. Comparable-period deltas use
+paired coordinates only. Ordinal window alignment is supported for both anchors;
+DOW, holiday, and holiday-then-DOW position alignment are also supported, and a
+grain-to-date calendar policy must use the reset grain as its alignment period.
+`transform.rollup`
 re-aggregates with `rollup_fold="last"`, selecting the complete last row so its
 `evaluation_end` is retained. The anchor-specific caveat is surfaced by
 `contract()`, `show()`, and `marivo.help(ref)`.
@@ -312,6 +317,12 @@ coordinates are dropped and counted in `meta.alignment["cumulative_pairs"]`;
 matched rows with a null level remain paired with a null delta. The
 `cumulative_change` marker and `show()` identify the result as an observed level
 difference and state that source revision is unverified.
+
+For trailing and grain-to-date comparisons, inspect
+`delta.meta.cumulative_alignment`. It preserves each authored anchor, their
+canonical comparison anchor, and exact matched/null/current-only/baseline-only/
+fallback row counts. One-sided rows are always dropped before the delta is
+materialized, including panel coordinates.
 
 `compare` propagates additivity, aggregation, and status-time semantics only
 when both source frames carry the same three values and additivity is known.
@@ -490,6 +501,10 @@ attributability — never business good/bad. It is distinct from the cheap
 facts already on the artifact; `assess_quality` runs explicit checks and produces
 a terminal report. A source artifact records at most a
 `latest_quality_report_ref`, never a copied full report.
+
+For a metric `DeltaFrame`, assessment validates the delta row contract. When the
+delta carries `CumulativeAlignmentV1`, the report reads that typed field directly
+and surfaces matched-null, unpaired, and fallback counts as explicit caveats.
 
 `QualityReport.overall_status`, `.blocking_issue_count`, and `.warning_count`
 are read-only projections of the authoritative report metadata for programmatic
