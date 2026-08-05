@@ -1639,12 +1639,13 @@ def _row_count_check(
 
 
 def _measure_columns(frame: MetricFrame) -> list[str]:
+    columns = [binding.value_column for binding in frame.meta.measure_bindings]
     measure = frame.meta.measure
     if isinstance(measure.get("field"), str):
-        return [str(measure["field"])]
+        columns.append(str(measure["field"]))
     if isinstance(measure.get("fields"), list):
-        return [str(column) for column in measure["fields"]]
-    return []
+        columns.extend(str(column) for column in measure["fields"])
+    return list(dict.fromkeys(columns))
 
 
 def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, str]]:

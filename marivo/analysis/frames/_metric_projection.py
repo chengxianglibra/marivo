@@ -6,7 +6,10 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
-from marivo.analysis._semantic_persistence import job_semantics_from_frames
+from marivo.analysis._semantic_persistence import (
+    MeasureBindingV1,
+    job_semantics_from_frames,
+)
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
@@ -380,6 +383,26 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         ),
         axes=frame.meta.axes,
         measure={"name": entry["name"]},
+        measure_bindings=(
+            MeasureBindingV1(
+                identity=metric_identity,
+                value_column="value",
+                display_name=entry["name"],
+                unit=entry.get("unit"),
+                unit_state=entry.get("unit_state"),
+                additivity=entry.get("additivity"),
+                aggregation=entry.get("aggregation"),
+                reaggregatable=bool(entry.get("reaggregatable", True)),
+                status_time_dimension_ref=(
+                    RefPayloadV1.from_ref(
+                        ref_factory.time_dimension(status_time_dimension)
+                    )
+                    if isinstance(status_time_dimension, str)
+                    else None
+                ),
+                cumulative=frame.meta.cumulative,
+            ),
+        ),
         window=frame.meta.window,
         where=frame.meta.where,
         semantic_kind=frame.meta.semantic_kind,

@@ -476,6 +476,7 @@ def make_metric_frame(
     session: Any,
 ) -> Any:
     """Create a persisted MetricFrame for tests without exposing a public constructor."""
+    from marivo.analysis._semantic_persistence import MeasureBindingV1
     from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
     from marivo.analysis.lineage import Lineage, LineageStep
     from marivo.analysis.session._runtime import persist_frame
@@ -529,6 +530,17 @@ def make_metric_frame(
         **metric_contract,
         axes=axes,
         measure=measure,
+        measure_bindings=(
+            MeasureBindingV1(
+                identity=metric_contract["metric_identity"],
+                value_column="value",
+                display_name=measure.get("name") or metric_id,
+                unit=measure.get("unit"),
+                additivity=additivity,
+                aggregation=aggregation,
+                reaggregatable=True,
+            ),
+        ),
         window=dump_window(resolved_window),
         where=where or {},
         semantic_kind=semantic_kind,

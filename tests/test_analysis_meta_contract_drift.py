@@ -14,7 +14,8 @@ from marivo.analysis.intents._metric_axes import (
     metric_dimension_columns,
     metric_time_axis,
 )
-from marivo.refs import RefPayloadV1, SemanticKind, ref as ref_factory
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     RuntimeExpressionIdentity,
@@ -196,7 +197,7 @@ def _meta_with_bindings(*bindings: AxisBindingV1) -> object:
 def _frame_with_bindings(*bindings: AxisBindingV1) -> object:
     import pandas as pd
 
-    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+    from marivo.analysis.frames.metric import MetricFrame
 
     meta = _meta_with_bindings(*bindings)
     return MetricFrame(_df=pd.DataFrame(), meta=meta)  # type: ignore[arg-type]
@@ -244,3 +245,123 @@ def test_metric_time_axis_ignores_legacy_axes_dict() -> None:
     column, grain = metric_time_axis(frame)  # type: ignore[arg-type]
     assert column == "created_at"
     assert grain == "week"
+
+
+# ---------------------------------------------------------------------------
+# measure_bindings is the typed authority for measure semantics.
+# ---------------------------------------------------------------------------
+
+
+def test_measure_bindings_arity_mismatch_rejected() -> None:
+    import sys
+
+    import pytest
+
+    from marivo.analysis.frames.metric import MetricFrameMeta
+    from marivo.analysis.lineage import Lineage, LineageStep
+
+    sys.path.insert(0, __file__.rsplit("/", 1)[0])
+    from shared_fixtures import make_test_multi_metric_contract
+
+    contract = make_test_multi_metric_contract(
+        "sales.revenue",
+        "sales.order_count",
+        axes={"time": {"role": "time", "column": "created_at"}},
+    )
+    # Two identities but one binding -> validator must reject.
+    with pytest.raises(ValueError, match="count must match"):
+        MetricFrameMeta(
+            kind="metric_frame",
+            ref="frame_1",
+            session_id="sess",
+            project_root="/tmp",
+            produced_by_job=None,
+            created_at=__import__("datetime").datetime.now(
+                __import__("datetime").UTC
+            ),
+            row_count=0,
+            byte_size=0,
+            lineage=Lineage(
+                steps=[
+                    LineageStep(
+                        intent="test",
+                        job_ref=None,
+                        inputs=[],
+                        params_digest="x",
+                    )
+                ]
+            ),
+            **contract,
+            axes={},
+            measure={},
+            measures=[],
+            measure_bindings=(
+                MeasureBindingV1(
+                    identity=contract["metric_identities"][0],
+                    value_column="revenue",
+                    display_name="revenue",
+                ),
+            ),
+            window=None,
+            where={},
+            semantic_kind="time_series",
+            semantic_model="sales",
+        )
+
+
+def test_measure_bindings_identity_mismatch_rejected() -> None:
+    import sys
+
+    import pytest
+
+    from marivo.analysis.frames.metric import MetricFrameMeta
+    from marivo.analysis.lineage import Lineage, LineageStep
+
+    sys.path.insert(0, __file__.rsplit("/", 1)[0])
+    from shared_fixtures import make_test_metric_contract
+
+    contract = make_test_metric_contract(
+        __import__("pandas").DataFrame(),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "created_at"}},
+        where={},
+    )
+    # Binding identity must equal the metric identity; an unrelated identity is
+    # rejected even though the arity count matches.
+    with pytest.raises(ValueError, match="does not match"):
+        MetricFrameMeta(
+            kind="metric_frame",
+            ref="frame_1",
+            session_id="sess",
+            project_root="/tmp",
+            produced_by_job=None,
+            created_at=__import__("datetime").datetime.now(
+                __import__("datetime").UTC
+            ),
+            row_count=0,
+            byte_size=0,
+            lineage=Lineage(
+                steps=[
+                    LineageStep(
+                        intent="test",
+                        job_ref=None,
+                        inputs=[],
+                        params_digest="x",
+                    )
+                ]
+            ),
+            **contract,
+            axes={},
+            measure={"name": "revenue"},
+            measure_bindings=(
+                MeasureBindingV1(
+                    identity=_catalog_identity("sales.orders_count"),
+                    value_column="value",
+                    display_name="orders",
+                ),
+            ),
+            window=None,
+            where={},
+            semantic_kind="time_series",
+            semantic_model="sales",
+        )

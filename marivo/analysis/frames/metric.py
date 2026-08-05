@@ -12,7 +12,11 @@ from marivo.analysis._cumulative import (
     cumulative_compare_anchor,
     cumulative_compare_blocker,
 )
-from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
+from marivo.analysis._semantic_persistence import (
+    AxisBindingV1,
+    MeasureBindingV1,
+    SlicePredicateV1,
+)
 from marivo.analysis.attribution_contract import AttributionBasisV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
@@ -249,6 +253,7 @@ class MetricFrameMeta(BaseFrameMeta):
     status_time_dimension_ref: RefPayloadV1 | None = None
     unit: str | None = None
     unit_state: MetricUnitStateV2 | None = None
+    measure_bindings: tuple[MeasureBindingV1, ...] = ()
     axes: dict[str, Any] = Field(default_factory=dict, exclude=True)
     measure: dict[str, Any]
     measures: list[dict[str, Any]] | None = None
@@ -290,6 +295,18 @@ class MetricFrameMeta(BaseFrameMeta):
                 )
         elif self.metric_identities != (self.metric_identity,):
             raise ValueError("metric_identity requires metric_identities=(metric_identity,)")
+        if self.measure_bindings:
+            if len(self.measure_bindings) != len(self.metric_identities):
+                raise ValueError(
+                    "measure_bindings count must match metric_identities count"
+                )
+            for measure_binding, identity in zip(
+                self.measure_bindings, self.metric_identities, strict=True
+            ):
+                if measure_binding.identity != identity:
+                    raise ValueError(
+                        "measure binding identity does not match metric_identities entry"
+                    )
         if self.measures is not None:
             expected_measure_ids = tuple(
                 identity.metric_ref.path
@@ -557,7 +574,36 @@ class MetricFrame(BaseFrame):
         return self.meta.semantic_kind
 
     def measures_meta(self) -> list[dict[str, Any]]:
-        """Ordered per-metric measure records; derived from scalar fields at arity-1."""
+        """Ordered per-metric measure records; derived from typed bindings.
+
+        Issue #54: typed ``measure_bindings`` are the authority; the compact
+        ``measures``/``measure`` dicts are a render-only projection and are only
+        consulted for the display name.
+        """
+        bindings = self.meta.measure_bindings
+        if bindings:
+            return [
+                {
+                    "metric_id": (
+                        binding.identity.metric_ref.path
+                        if isinstance(binding.identity, CatalogMetricIdentity)
+                        else f"runtime:{binding.identity.expression_fingerprint}"
+                    ),
+                    "name": binding.display_name,
+                    "column": binding.value_column,
+                    "unit": binding.unit,
+                    "additivity": binding.additivity,
+                    "aggregation": binding.aggregation,
+                    "status_time_dimension": (
+                        binding.status_time_dimension_ref.path
+                        if binding.status_time_dimension_ref is not None
+                        else None
+                    ),
+                    "reaggregatable": binding.reaggregatable,
+                    "cumulative": binding.cumulative,
+                }
+                for binding in bindings
+            ]
         if self.meta.measures:
             return [dict(entry) for entry in self.meta.measures]
         measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
