@@ -44,6 +44,7 @@ from marivo.semantic.metric_graph import (
     RuntimeExpressionIdentity,
     SemanticDependencyDigestV1,
 )
+from marivo.semantic.metric_graph_canonical import canonical_value
 from marivo.semantic.unit_algebra import MetricUnitStateV2
 
 if TYPE_CHECKING:
@@ -297,9 +298,7 @@ class MetricFrameMeta(BaseFrameMeta):
             raise ValueError("metric_identity requires metric_identities=(metric_identity,)")
         if self.measure_bindings:
             if len(self.measure_bindings) != len(self.metric_identities):
-                raise ValueError(
-                    "measure_bindings count must match metric_identities count"
-                )
+                raise ValueError("measure_bindings count must match metric_identities count")
             for measure_binding, identity in zip(
                 self.measure_bindings, self.metric_identities, strict=True
             ):
@@ -592,6 +591,11 @@ class MetricFrame(BaseFrame):
                     "name": binding.display_name,
                     "column": binding.value_column,
                     "unit": binding.unit,
+                    "unit_state": (
+                        canonical_value(binding.unit_state)
+                        if binding.unit_state is not None
+                        else None
+                    ),
                     "additivity": binding.additivity,
                     "aggregation": binding.aggregation,
                     "status_time_dimension": (
@@ -605,7 +609,15 @@ class MetricFrame(BaseFrame):
                 for binding in bindings
             ]
         if self.meta.measures:
-            return [dict(entry) for entry in self.meta.measures]
+            return [
+                {
+                    **dict(entry),
+                    # The compact legacy records predate the cumulative marker;
+                    # normalize the display key set to match the typed branch.
+                    "cumulative": self.meta.cumulative,
+                }
+                for entry in self.meta.measures
+            ]
         measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
         return [
             {

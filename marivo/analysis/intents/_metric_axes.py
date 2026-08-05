@@ -30,11 +30,7 @@ def metric_time_axis(frame: MetricFrame) -> tuple[str, str]:
 
 
 def _columns_for_role(frame: MetricFrame, *, role: AxisRole) -> list[str]:
-    columns = [
-        binding.column
-        for binding in frame.meta.axis_bindings
-        if binding.role == role
-    ]
+    columns = [binding.column for binding in frame.meta.axis_bindings if binding.role == role]
     return list(dict.fromkeys(columns))
 
 

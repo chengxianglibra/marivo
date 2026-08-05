@@ -24,9 +24,7 @@ from marivo.semantic.metric_graph import (
 
 def _time_binding(*, column: str, grain: str | None = "day") -> AxisBindingV1:
     return AxisBindingV1(
-        ref=RefPayloadV1.from_ref(
-            ref_factory.time_dimension("sales.orders.created_at")
-        ),
+        ref=RefPayloadV1.from_ref(ref_factory.time_dimension("sales.orders.created_at")),
         column=column,
         role="time_dimension",
         grain=grain,
@@ -276,9 +274,7 @@ def test_measure_bindings_arity_mismatch_rejected() -> None:
             session_id="sess",
             project_root="/tmp",
             produced_by_job=None,
-            created_at=__import__("datetime").datetime.now(
-                __import__("datetime").UTC
-            ),
+            created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
             row_count=0,
             byte_size=0,
             lineage=Lineage(
@@ -335,9 +331,7 @@ def test_measure_bindings_identity_mismatch_rejected() -> None:
             session_id="sess",
             project_root="/tmp",
             produced_by_job=None,
-            created_at=__import__("datetime").datetime.now(
-                __import__("datetime").UTC
-            ),
+            created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
             row_count=0,
             byte_size=0,
             lineage=Lineage(
@@ -365,3 +359,193 @@ def test_measure_bindings_identity_mismatch_rejected() -> None:
             semantic_kind="time_series",
             semantic_model="sales",
         )
+
+
+# ---------------------------------------------------------------------------
+# measures_meta() must expose the same closed key set from both branches and
+# must carry unit_state (issue #54 P1 regression: typed branch dropped it).
+# ---------------------------------------------------------------------------
+
+
+def _metric_meta_holder(
+    *,
+    measure_bindings: tuple[MeasureBindingV1, ...] = (),
+    measures: list[dict] | None = None,
+) -> object:
+    import sys
+    from datetime import UTC, datetime
+
+    from marivo.analysis.frames.metric import MetricFrameMeta
+    from marivo.analysis.lineage import Lineage, LineageStep
+
+    sys.path.insert(0, __file__.rsplit("/", 1)[0])
+    from shared_fixtures import make_test_metric_contract
+
+    contract = make_test_metric_contract(
+        __import__("pandas").DataFrame(),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "created_at"}},
+        where={},
+    )
+    return MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_1",
+        session_id="sess",
+        project_root="/tmp",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="test",
+                    job_ref=None,
+                    inputs=[],
+                    params_digest="x",
+                )
+            ]
+        ),
+        **contract,
+        axes={},
+        measure={"name": "revenue"},
+        measures=measures,
+        measure_bindings=measure_bindings,
+        window=None,
+        where={},
+        semantic_kind="time_series",
+        semantic_model="sales",
+    )
+
+
+def _unit_state_unknown() -> object:
+    from marivo.semantic.unit_algebra import UnknownUnitV2
+
+    return UnknownUnitV2(schema="metric-unit-unknown/v2")
+
+
+def test_measures_meta_key_sets_closed_equality_across_branches() -> None:
+    """Typed and legacy branches must expose the same closed key set.
+
+    Issue #54 P1 regression: the typed branch dropped ``unit_state``. Pin the
+    full key set on both branches so a future omission fails loudly.
+    """
+    import pandas as pd
+
+    from marivo.analysis.frames.metric import MetricFrame
+
+    typed_meta = _metric_meta_holder(
+        measure_bindings=(
+            MeasureBindingV1(
+                identity=_catalog_identity("sales.revenue"),
+                value_column="value",
+                display_name="revenue",
+                unit="CNY",
+                unit_state=_unit_state_unknown(),
+                additivity="additive",
+                reaggregatable=True,
+            ),
+        )
+    )
+    legacy_meta = _metric_meta_holder(
+        measures=[
+            {
+                "metric_id": "sales.revenue",
+                "name": "revenue",
+                "column": "value",
+                "unit": "CNY",
+                "unit_state": None,
+                "additivity": "additive",
+                "aggregation": None,
+                "status_time_dimension": None,
+                "reaggregatable": True,
+            }
+        ]
+    )
+    typed_keys = set(MetricFrame(_df=pd.DataFrame(), meta=typed_meta).measures_meta()[0])
+    legacy_keys = set(MetricFrame(_df=pd.DataFrame(), meta=legacy_meta).measures_meta()[0])
+    assert (
+        typed_keys
+        == legacy_keys
+        == {
+            "metric_id",
+            "name",
+            "column",
+            "unit",
+            "unit_state",
+            "additivity",
+            "aggregation",
+            "status_time_dimension",
+            "reaggregatable",
+            "cumulative",
+        }
+    )
+
+
+def test_measures_meta_typed_branch_carries_unit_state() -> None:
+    """The typed branch must surface the binding's unit_state, not drop it."""
+    import pandas as pd
+
+    from marivo.analysis.frames.metric import MetricFrame
+
+    meta = _metric_meta_holder(
+        measure_bindings=(
+            MeasureBindingV1(
+                identity=_catalog_identity("sales.revenue"),
+                value_column="value",
+                display_name="revenue",
+                unit="CNY",
+                unit_state=_unit_state_unknown(),
+                additivity="additive",
+                reaggregatable=True,
+            ),
+        )
+    )
+    entry = MetricFrame(_df=pd.DataFrame(), meta=meta).measures_meta()[0]
+    assert entry["unit_state"] == {"schema": "metric-unit-unknown/v2"}
+
+
+def test_legacy_meta_without_bindings_remains_v7_compatible() -> None:
+    """A legacy v7 artifact (no measure_bindings) must keep loading.
+
+    Issue #54 P2-2: ``measure_bindings`` defaults to ``()`` so an old v7 frame
+    that only persisted the compact ``measures`` dict must not be treated as
+    corrupt. Its display projection stays on the legacy branch and the key set
+    is normalized to the same closed set as the typed branch.
+    """
+    import pandas as pd
+
+    from marivo.analysis.frames.metric import MetricFrame
+
+    legacy_meta = _metric_meta_holder(
+        measures=[
+            {
+                "metric_id": "sales.revenue",
+                "name": "revenue",
+                "column": "value",
+                "unit": "CNY",
+                "unit_state": {"schema": "metric-unit-unknown/v2"},
+                "additivity": "additive",
+                "aggregation": None,
+                "status_time_dimension": None,
+                "reaggregatable": True,
+            }
+        ]
+    )
+    assert legacy_meta.measure_bindings == ()
+    frame = MetricFrame(_df=pd.DataFrame(), meta=legacy_meta)
+    entry = frame.measures_meta()[0]
+    assert entry["unit_state"] == {"schema": "metric-unit-unknown/v2"}
+    assert set(entry) == {
+        "metric_id",
+        "name",
+        "column",
+        "unit",
+        "unit_state",
+        "additivity",
+        "aggregation",
+        "status_time_dimension",
+        "reaggregatable",
+        "cumulative",
+    }
+    assert entry["cumulative"] is None

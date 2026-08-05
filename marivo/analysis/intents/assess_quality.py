@@ -11,7 +11,7 @@ from typing import Any, Literal, cast
 import pandas as pd
 
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
-from marivo.analysis.errors import QualityShapeUnsupportedError
+from marivo.analysis.errors import AnalysisRepair, QualityShapeUnsupportedError
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -62,6 +62,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
 )
 from marivo.analysis.session.core import Session, ensure_session_can_execute
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def assess_quality(
@@ -404,9 +405,24 @@ def _quality_issues(
                 observed_value=observed,
                 expectation=expectation,
                 evaluated_scope=scope,
+                repair=_quality_repair(kind),
             )
         )
     return issues
+
+
+def _quality_repair(kind: str) -> AnalysisRepair | None:
+    """Return a concrete next step for blocking quality issues, if one exists."""
+    if kind == "null_rate_high":
+        return AnalysisRepair(
+            kind="retry",
+            action=(
+                "Widen the observed window or slice to bring the null ratio "
+                "under 0.5 before continuing."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+        )
+    return None
 
 
 def _quality_subject(

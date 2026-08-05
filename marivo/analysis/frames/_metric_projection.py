@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from marivo.analysis._semantic_persistence import (
     MeasureBindingV1,
@@ -171,6 +171,44 @@ def _project_component_graph_payload(
     }
 
 
+def _semantic_unit(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+    """Return the authoritative unit for one measure.
+
+    Issue #54: ``measure_bindings`` is the typed authority; the compact
+    ``measures_meta()`` dict is a render-only projection. Legacy frames carry no
+    bindings, so their persisted dict remains the fallback.
+    """
+    return binding.unit if binding is not None else entry.get("unit")
+
+
+def _semantic_unit_state(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+    return binding.unit_state if binding is not None else entry.get("unit_state")
+
+
+def _semantic_additivity(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+    return binding.additivity if binding is not None else entry.get("additivity")
+
+
+def _semantic_aggregation(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+    return binding.aggregation if binding is not None else entry.get("aggregation")
+
+
+def _semantic_reaggregatable(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> bool:
+    return (
+        binding.reaggregatable if binding is not None else bool(entry.get("reaggregatable", True))
+    )
+
+
+def _semantic_status_time_dimension(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+    if binding is not None:
+        return (
+            binding.status_time_dimension_ref.path
+            if binding.status_time_dimension_ref is not None
+            else None
+        )
+    return entry.get("status_time_dimension")
+
+
 def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
     """Project one metric out of a multi-metric frame as an arity-1 MetricFrame.
 
@@ -252,6 +290,8 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
     if isinstance(window, dict):
         grain_token = window.get("grain")
     metric_identity = frame.meta.metric_identities[entry_index]
+    bindings = frame.meta.measure_bindings
+    binding = bindings[entry_index] if entry_index < len(bindings) else None
     projected_forest = _projected_expression_forest(
         frame,
         entry_index=entry_index,
@@ -272,7 +312,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "evaluator_contracts": evaluator_contracts,
             "global_slice": comparable.global_slice,
             "key_schema_fingerprint": key_schema.fingerprint,
-            "unit": entry["unit"],
+            "unit": binding.unit if binding is not None else entry["unit"],
             "fold": None,
             "source_domain_fingerprint": comparable.source_domain_fingerprint,
             "definition_transform_fingerprint": None,
@@ -283,7 +323,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             evaluator_contracts=evaluator_contracts,
             global_slice=comparable.global_slice,
             key_schema_fingerprint=key_schema.fingerprint,
-            unit=entry["unit"],
+            unit=binding.unit if binding is not None else entry["unit"],
             fold=None,
             source_domain_fingerprint=comparable.source_domain_fingerprint,
             definition_transform_fingerprint=None,
@@ -376,7 +416,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         status_time_dimension_ref=(
             RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
             if isinstance(
-                status_time_dimension := entry.get("status_time_dimension"),
+                status_time_dimension := _semantic_status_time_dimension(binding, entry),
                 str,
             )
             else None
@@ -388,15 +428,13 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
                 identity=metric_identity,
                 value_column="value",
                 display_name=entry["name"],
-                unit=entry.get("unit"),
-                unit_state=entry.get("unit_state"),
-                additivity=entry.get("additivity"),
-                aggregation=entry.get("aggregation"),
-                reaggregatable=bool(entry.get("reaggregatable", True)),
+                unit=_semantic_unit(binding, entry),
+                unit_state=_semantic_unit_state(binding, entry),
+                additivity=_semantic_additivity(binding, entry),
+                aggregation=_semantic_aggregation(binding, entry),
+                reaggregatable=_semantic_reaggregatable(binding, entry),
                 status_time_dimension_ref=(
-                    RefPayloadV1.from_ref(
-                        ref_factory.time_dimension(status_time_dimension)
-                    )
+                    RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
                     if isinstance(status_time_dimension, str)
                     else None
                 ),
@@ -407,12 +445,12 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         where=frame.meta.where,
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=metric_id.split(".", 1)[0],
-        unit=entry["unit"],
-        unit_state=entry.get("unit_state"),
-        reaggregatable=bool(entry["reaggregatable"]),
-        additivity=entry["additivity"],
-        aggregation=entry.get("aggregation"),
-        status_time_dimension=entry.get("status_time_dimension"),
+        unit=_semantic_unit(binding, entry),
+        unit_state=_semantic_unit_state(binding, entry),
+        reaggregatable=_semantic_reaggregatable(binding, entry),
+        additivity=_semantic_additivity(binding, entry),
+        aggregation=_semantic_aggregation(binding, entry),
+        status_time_dimension=_semantic_status_time_dimension(binding, entry),
         cumulative=frame.meta.cumulative,
     )
     projected = MetricFrame(_df=df, meta=meta)
