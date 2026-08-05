@@ -13,7 +13,12 @@ from marivo.semantic.metric_graph import (
     RuntimeExpressionIdentity,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value
-from marivo.semantic.unit_algebra import MetricUnitStateV2
+from marivo.semantic.unit_algebra import (
+    FactorizedUnitV2,
+    MetricUnitStateV2,
+    OpaqueUnitV2,
+    UnknownUnitV2,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
@@ -122,6 +127,13 @@ class MeasureBindingV1:
         ):
             raise TypeError(
                 "measure binding status_time_dimension_ref must be an exact RefPayloadV1"
+            )
+        if self.unit_state is not None and not isinstance(
+            self.unit_state, (FactorizedUnitV2, OpaqueUnitV2, UnknownUnitV2)
+        ):
+            raise TypeError(
+                "measure binding unit_state must be a MetricUnitStateV2, "
+                f"got {type(self.unit_state).__name__}"
             )
 
 

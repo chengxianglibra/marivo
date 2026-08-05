@@ -129,6 +129,34 @@ def unit_state(unit: str | None) -> MetricUnitStateV2:
     return _factorized(numerator, denominator)
 
 
+def unit_state_from_dict(payload: object) -> MetricUnitStateV2 | None:
+    """Rebuild a typed unit state from its canonical dict form.
+
+    ``canonical_value`` (metric_graph_canonical) renders a ``MetricUnitStateV2``
+    dataclass to a deterministic JSON dict; this is its inverse for the legacy
+    compact ``measures`` dict path. ``None`` and ``payload`` that is already a
+    typed state pass through unchanged.
+    """
+    if payload is None or isinstance(payload, (FactorizedUnitV2, OpaqueUnitV2, UnknownUnitV2)):
+        return payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("schema"), str):
+        return None
+    schema = payload["schema"]
+    if schema == "metric-unit-algebra/v2":
+        numerator = payload.get("numerator", ())
+        denominator = payload.get("denominator", ())
+        return FactorizedUnitV2(
+            schema=schema,
+            numerator=tuple(numerator),
+            denominator=tuple(denominator),
+        )
+    if schema == "metric-unit-opaque/v2":
+        return OpaqueUnitV2(schema=schema, value=payload["value"])
+    if schema == "metric-unit-unknown/v2":
+        return UnknownUnitV2(schema=schema)
+    return None
+
+
 def render_unit(state: MetricUnitStateV2) -> str | None:
     """Render a unit state without inventing text for unknown state."""
     match state:
@@ -219,4 +247,5 @@ __all__ = [
     "render_unit",
     "tier1_unit",
     "unit_state",
+    "unit_state_from_dict",
 ]

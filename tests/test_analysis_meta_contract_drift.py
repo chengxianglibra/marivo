@@ -98,6 +98,33 @@ def test_measure_binding_rejects_missing_status_dimension_ref_type() -> None:
         )
 
 
+def test_measure_binding_rejects_dict_unit_state() -> None:
+    """A raw canonical dict must not pass as a typed unit_state.
+
+    Issue #54 P2: ``_semantic_unit_state``'s legacy fallback could hand the
+    binding a canonical *dict*, which then diverged from the typed form after a
+    disk reload (cold/hot type split on the same ref). The binding is fail-closed:
+    only a real ``MetricUnitStateV2`` is accepted.
+    """
+    import pytest
+
+    from marivo.semantic.unit_algebra import UnknownUnitV2
+
+    # Typed state passes.
+    MeasureBindingV1(
+        identity=_catalog_identity("sales.revenue"),
+        value_column="value",
+        unit_state=UnknownUnitV2(schema="metric-unit-unknown/v2"),
+    )
+    # Canonical dict form is rejected.
+    with pytest.raises(TypeError, match="unit_state must be a MetricUnitStateV2"):
+        MeasureBindingV1(
+            identity=_catalog_identity("sales.revenue"),
+            value_column="value",
+            unit_state={"schema": "metric-unit-unknown/v2"},  # type: ignore[arg-type]
+        )
+
+
 def test_measure_binding_serializes_to_stable_json() -> None:
     import dataclasses
     import json
@@ -371,6 +398,7 @@ def _metric_meta_holder(
     *,
     measure_bindings: tuple[MeasureBindingV1, ...] = (),
     measures: list[dict] | None = None,
+    unit_state: object | None = None,
 ) -> object:
     import sys
     from datetime import UTC, datetime
@@ -411,6 +439,7 @@ def _metric_meta_holder(
         measure={"name": "revenue"},
         measures=measures,
         measure_bindings=measure_bindings,
+        unit_state=unit_state,
         window=None,
         where={},
         semantic_kind="time_series",
@@ -425,10 +454,11 @@ def _unit_state_unknown() -> object:
 
 
 def test_measures_meta_key_sets_closed_equality_across_branches() -> None:
-    """Typed and legacy branches must expose the same closed key set.
+    """All three branches must expose the same closed key set.
 
     Issue #54 P1 regression: the typed branch dropped ``unit_state``. Pin the
-    full key set on both branches so a future omission fails loudly.
+    full key set on all three branches (typed bindings / compact ``measures`` /
+    single ``measure`` fallback) so a future omission fails loudly.
     """
     import pandas as pd
 
@@ -462,24 +492,28 @@ def test_measures_meta_key_sets_closed_equality_across_branches() -> None:
             }
         ]
     )
+    # Third branch: no bindings, no compact measures — falls back to the single
+    # ``measure`` dict and top-level meta scalars.
+    single_measure_meta = _metric_meta_holder(
+        measures=None,
+        unit_state=_unit_state_unknown(),
+    )
+    expected_measures_keys = {
+        "metric_id",
+        "name",
+        "column",
+        "unit",
+        "unit_state",
+        "additivity",
+        "aggregation",
+        "status_time_dimension",
+        "reaggregatable",
+        "cumulative",
+    }
     typed_keys = set(MetricFrame(_df=pd.DataFrame(), meta=typed_meta).measures_meta()[0])
     legacy_keys = set(MetricFrame(_df=pd.DataFrame(), meta=legacy_meta).measures_meta()[0])
-    assert (
-        typed_keys
-        == legacy_keys
-        == {
-            "metric_id",
-            "name",
-            "column",
-            "unit",
-            "unit_state",
-            "additivity",
-            "aggregation",
-            "status_time_dimension",
-            "reaggregatable",
-            "cumulative",
-        }
-    )
+    single_keys = set(MetricFrame(_df=pd.DataFrame(), meta=single_measure_meta).measures_meta()[0])
+    assert typed_keys == legacy_keys == single_keys == expected_measures_keys
 
 
 def test_measures_meta_typed_branch_carries_unit_state() -> None:
@@ -500,6 +534,21 @@ def test_measures_meta_typed_branch_carries_unit_state() -> None:
                 reaggregatable=True,
             ),
         )
+    )
+    entry = MetricFrame(_df=pd.DataFrame(), meta=meta).measures_meta()[0]
+    assert entry["unit_state"] == {"schema": "metric-unit-unknown/v2"}
+
+
+def test_measures_meta_single_measure_branch_carries_unit_state() -> None:
+    """The third branch (single ``measure`` fallback) must also surface
+    ``unit_state`` — the P3 sibling of the P1 leak."""
+    import pandas as pd
+
+    from marivo.analysis.frames.metric import MetricFrame
+
+    meta = _metric_meta_holder(
+        measures=None,
+        unit_state=_unit_state_unknown(),
     )
     entry = MetricFrame(_df=pd.DataFrame(), meta=meta).measures_meta()[0]
     assert entry["unit_state"] == {"schema": "metric-unit-unknown/v2"}
