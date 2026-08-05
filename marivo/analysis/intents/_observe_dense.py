@@ -7,10 +7,10 @@ each function.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
+from marivo._fixed_duration import FixedDurationUnit, fixed_duration_seconds
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.windows.grain import _FIXED_UNIT_SECONDS
 
 _GRAIN_PANDAS_FREQ: dict[str, str] = {
     "second": "s",
@@ -43,7 +43,7 @@ def _align_to_grain_start(ts: Any, unit: str, count: int = 1) -> Any:
 
     if unit in _FIXED_GRAINS:
         if count > 1 and unit in ("second", "minute", "hour"):
-            width = count * _FIXED_UNIT_SECONDS[unit]
+            width = fixed_duration_seconds(count, cast("FixedDurationUnit", unit))
             day_start = ts.floor("D")
             elapsed = int((ts - day_start).total_seconds())
             offset = (elapsed // width) * width
@@ -401,4 +401,6 @@ def _trailing_coverage_df(
 
 def _fixed_grain_seconds_for_coverage(count: int, unit: str) -> int:
     """Convert a grain (count, unit) to total seconds for coverage expected_samples calculation."""
-    return count * _FIXED_UNIT_SECONDS.get(unit, 0)
+    if unit not in {"second", "minute", "hour", "day", "week"}:
+        return 0
+    return fixed_duration_seconds(count, cast("FixedDurationUnit", unit))

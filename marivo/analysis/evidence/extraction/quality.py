@@ -58,6 +58,22 @@ def _predicate(
             {"expected": 0},
             duplicate_count == 0,
         )
+    if check_kind == "delta_row_contract":
+        invalid_count = int(details.get("invalid_count", 0))
+        return (
+            invalid_count,
+            "invalid_count_equals_zero",
+            {"expected": 0},
+            invalid_count == 0,
+        )
+    if check_kind == "cumulative_pairing":
+        caveat_count = int(details.get("caveat_count", 0))
+        return (
+            caveat_count,
+            "cumulative_pairing_caveat_count_equals_zero",
+            {"expected": 0},
+            caveat_count == 0,
+        )
     event_detail_fields = {
         "event_row_contract": "invalid_count",
         "event_identity": "invalid_count",

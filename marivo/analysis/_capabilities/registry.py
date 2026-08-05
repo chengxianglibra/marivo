@@ -201,6 +201,7 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         "QualityReport": (
             "metric",
+            "delta",
             "event_journey",
             "event_funnel",
             "event_time_to_event",
@@ -1010,8 +1011,8 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="session.compare(...)",
             help_target="compare",
             summary=(
-                "Compute a typed Metric delta or exactly align two compatible "
-                "EventFrame[funnel] artifacts."
+                "Compute a typed Metric delta, including canonical cumulative-period "
+                "pairing, or exactly align two compatible EventFrame[funnel] artifacts."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -1065,6 +1066,18 @@ def _build_registry() -> CapabilityRegistry:
                         "]]"
                     ),
                     requires=("cumulative_metric",),
+                ),
+                HelpExample(
+                    label="Compare month-to-date by day-of-week position",
+                    code=(
+                        "alignment = mv.dow_aligned(\n"
+                        '    calendar=mv.CalendarRef("cn_holidays"),\n'
+                        '    period="month",\n'
+                        ")\n"
+                        "delta = session.compare(current_mtd, baseline_mtd, alignment=alignment)\n"
+                        "print(delta.meta.cumulative_alignment.pairs)"
+                    ),
+                    requires=("baseline_mtd", "current_mtd"),
                 ),
                 HelpExample(
                     label="Inspect a structured cumulative incompatibility",
@@ -1243,7 +1256,7 @@ def _build_registry() -> CapabilityRegistry:
             help_target="assess_quality",
             summary=(
                 "Run fixed quality checks over supported MetricFrame, EventFrame, "
-                "LifecycleFrame, funnel DeltaFrame, and funnel AttributionFrame shapes."
+                "LifecycleFrame, metric/funnel DeltaFrame, and funnel AttributionFrame shapes."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -1260,7 +1273,9 @@ def _build_registry() -> CapabilityRegistry:
                         "LifecycleFrame": frozenset(
                             {"history", "distribution", "transitions", "dwell", "violations"}
                         ),
-                        "DeltaFrame": frozenset({"funnel"}),
+                        "DeltaFrame": frozenset(
+                            {"scalar", "time_series", "segmented", "panel", "funnel"}
+                        ),
                         "AttributionFrame": frozenset({"funnel_loss_rate"}),
                     },
                 ),

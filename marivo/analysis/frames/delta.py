@@ -13,6 +13,11 @@ from marivo.analysis._cumulative import (
     CURRENT_EVALUATION_END_COLUMN,
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
+    AuthoredGrainToDateAnchorV1,
+    AuthoredTrailingAnchorV1,
+    CumulativeAlignmentV1,
+    authored_comparable_period_anchor,
+    cumulative_compare_anchor,
 )
 from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.attribution_contract import (
@@ -45,7 +50,9 @@ from marivo.refs import RefPayloadV1
 from marivo.render import Card
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
-    DeltaComparisonIdentityV1,
+    CumulativeEquivalentComparisonSemanticsV1,
+    DeltaComparisonIdentity,
+    ExactComparisonSemanticsV1,
     MetricIdentity,
     SemanticDependencyDigestV1,
 )
@@ -326,7 +333,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     metric_id: str = Field(default="", exclude=True)
     metric_identity: MetricIdentity | None = None
     baseline_metric_identity: MetricIdentity | None = None
-    comparison_identity: DeltaComparisonIdentityV1
+    comparison_identity: DeltaComparisonIdentity
     unit: str | None = None
     source_current_ref: str
     source_baseline_ref: str
@@ -343,6 +350,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     status_time_dimension: str | None = Field(default=None, exclude=True)
     cumulative: dict[str, Any] | None = None
     cumulative_change: AllHistoryLevelChangeV1 | None = None
+    cumulative_alignment: CumulativeAlignmentV1 | None = None
     rollup_fold: Literal["last"] | None = None
     attribution_basis: AttributionBasisV1 | None = None
 
@@ -398,6 +406,37 @@ class DeltaFrameMeta(BaseFrameMeta):
             )
         else:
             AllHistoryPairAlignmentV1.model_validate(pair_payload)
+
+        anchor = cumulative_compare_anchor(self.cumulative)
+        comparable_period = isinstance(anchor, tuple) and anchor[0] in {"trailing", "grain_to_date"}
+        semantics = self.comparison_identity.semantics
+        if comparable_period:
+            assert isinstance(anchor, tuple)
+            if self.cumulative_alignment is None:
+                raise ValueError(
+                    "trailing/grain-to-date delta requires typed cumulative alignment evidence"
+                )
+            if not isinstance(semantics, CumulativeEquivalentComparisonSemanticsV1):
+                raise ValueError(
+                    "trailing/grain-to-date delta requires cumulative-equivalent identity semantics"
+                )
+            if self.cumulative_alignment.current_authored_anchor != (
+                authored_comparable_period_anchor(anchor)
+            ):
+                raise ValueError(
+                    "delta cumulative alignment current anchor does not match cumulative marker"
+                )
+            if self.cumulative_alignment.pairs.matched_rows != self.row_count:
+                raise ValueError("delta row_count does not match cumulative alignment matched_rows")
+        else:
+            if self.cumulative_alignment is not None:
+                raise ValueError(
+                    "typed cumulative alignment evidence requires trailing/grain-to-date delta"
+                )
+            if not isinstance(semantics, ExactComparisonSemanticsV1):
+                raise ValueError(
+                    "ordinary/all-history delta requires exact comparison identity semantics"
+                )
         return self
 
     def all_history_pair_alignment(self) -> AllHistoryPairAlignmentV1 | None:
@@ -406,6 +445,11 @@ class DeltaFrameMeta(BaseFrameMeta):
         if self.cumulative_change is None:
             return None
         return AllHistoryPairAlignmentV1.model_validate(self.alignment["cumulative_pairs"])
+
+    def comparable_period_alignment(self) -> CumulativeAlignmentV1 | None:
+        """Return typed trailing/grain-to-date alignment evidence when present."""
+
+        return self.cumulative_alignment
 
 
 FUNNEL_DELTA_COLUMNS = (
@@ -591,23 +635,6 @@ class DeltaFrame(BaseFrame):
         )
         return self
 
-    def _to_date_tail(self) -> dict[str, Any] | None:
-        """Return the to-date alignment dump when a non-empty baseline tail exists.
-
-        Surfaced in ``show()`` / ``contract()`` so the agent knows the baseline
-        window was longer than the current window: the extra tail buckets were
-        dropped from the delta rows but remain available via ``to_pandas()``.
-        """
-        if self.meta.semantic_kind == "funnel":
-            return None
-        to_date = self.meta.alignment.get("to_date") if self.meta.alignment else None
-        if not isinstance(to_date, dict):
-            return None
-        tail = to_date.get("baseline_tail_buckets")
-        if not isinstance(tail, int) or tail <= 0:
-            return None
-        return to_date
-
     def _cumulative_endpoint_order(self) -> Literal["forward", "reverse", "same", "mixed"]:
         """Compute direction from the exact persisted endpoint coordinates."""
 
@@ -673,6 +700,45 @@ class DeltaFrame(BaseFrame):
                     f"action={pair_info.unpaired_action}"
                 ),
             )
+        comparable_alignment = self.meta.comparable_period_alignment()
+        if comparable_alignment is not None:
+            current_anchor = comparable_alignment.current_authored_anchor
+            baseline_anchor = comparable_alignment.baseline_authored_anchor
+            canonical = comparable_alignment.canonical_anchor
+            if isinstance(current_anchor, AuthoredTrailingAnchorV1):
+                assert isinstance(baseline_anchor, AuthoredTrailingAnchorV1)
+                assert canonical.kind == "trailing"
+                card.field(
+                    "cumulative_alignment",
+                    (
+                        f"trailing span={canonical.span_seconds}s "
+                        f"authored=current({current_anchor.count} {current_anchor.unit}), "
+                        f"baseline({baseline_anchor.count} {baseline_anchor.unit})"
+                    ),
+                )
+                card.field(
+                    "caveat",
+                    "rolling values overlap and are autocorrelated",
+                )
+            else:
+                assert isinstance(current_anchor, AuthoredGrainToDateAnchorV1)
+                card.field(
+                    "cumulative_alignment",
+                    (
+                        f"grain_to_date reset={current_anchor.reset_grain} "
+                        f"policy={self.meta.alignment.get('kind')}"
+                    ),
+                )
+            pairs = comparable_alignment.pairs
+            card.field(
+                "pairing",
+                (
+                    f"matched={pairs.matched_rows} matched_null={pairs.matched_null_rows} "
+                    f"current_unpaired={pairs.current_unpaired_rows} "
+                    f"baseline_unpaired={pairs.baseline_unpaired_rows} "
+                    f"fallback={pairs.fallback_rows} action={pairs.unpaired_action}"
+                ),
+            )
         admission = _attribute_admission(self.meta)
         precondition = _attribution_contract_precondition(self.meta)
         if admission.status == "supported" and _supports_component_attribution(self.meta):
@@ -700,16 +766,6 @@ class DeltaFrame(BaseFrame):
                 "attribute",
                 _attribute_admission_text(self.meta, admission)
                 + "; inspect .contract() for repair",
-            )
-        to_date = self._to_date_tail()
-        if to_date is not None:
-            card.field(
-                "to_date_alignment",
-                (
-                    f"matched_buckets={to_date.get('matched_buckets')} "
-                    f"baseline_tail_buckets={to_date.get('baseline_tail_buckets')} "
-                    f"reset_grain={to_date.get('reset_grain')}"
-                ),
             )
         return card.lazy_table(
             columns=_display_column_names(self._df.columns),
@@ -745,16 +801,18 @@ class DeltaFrame(BaseFrame):
                 "attribute_admission": _attribute_admission(self.meta),
             }
         )
-        to_date = self._to_date_tail()
-        if to_date is None:
+        comparable_alignment = self.meta.comparable_period_alignment()
+        if comparable_alignment is None:
             return contract
+        pairs = comparable_alignment.pairs
         caveat = ArtifactPrecondition(
-            check="to_date_baseline_tail",
+            check="cumulative_pairing",
             status="pass",
             reason=(
-                f"ordinal alignment matched {to_date.get('matched_buckets')} buckets; "
-                f"{to_date.get('baseline_tail_buckets')} baseline tail bucket(s) dropped "
-                f"from delta rows (reset_grain={to_date.get('reset_grain')})"
+                f"alignment retained {pairs.matched_rows} paired rows and dropped "
+                f"{pairs.current_unpaired_rows} current / "
+                f"{pairs.baseline_unpaired_rows} baseline unpaired rows; "
+                f"fallback_rows={pairs.fallback_rows}"
             ),
         )
         affordances = [

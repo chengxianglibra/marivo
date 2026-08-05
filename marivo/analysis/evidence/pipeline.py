@@ -15,7 +15,11 @@ from typing import Any, Literal, Protocol, cast
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from marivo.analysis._cumulative import AllHistoryLevelChangeV1, AllHistoryPairAlignmentV1
+from marivo.analysis._cumulative import (
+    AllHistoryLevelChangeV1,
+    AllHistoryPairAlignmentV1,
+    CumulativeAlignmentV1,
+)
 from marivo.analysis._semantic_persistence import SlicePredicateV1
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
@@ -92,7 +96,7 @@ from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
-    DeltaComparisonIdentityV1,
+    DeltaComparisonIdentity,
     DeltaMetricSubjectV1,
     RuntimeExpressionIdentity,
     RuntimeExpressionSubjectV1,
@@ -112,6 +116,7 @@ class _DeltaEvidenceMeta(Protocol):
     alignment: dict[str, Any]
     unit: str | None
     cumulative_change: AllHistoryLevelChangeV1 | None
+    cumulative_alignment: CumulativeAlignmentV1 | None
 
 
 class CommitParams(BaseModel):
@@ -130,7 +135,7 @@ class CommitSemanticAnchors(BaseModel):
     catalog_definition_fingerprint: str | None = None
     semantic_dependency_digest: SemanticDependencyDigestV1 | None = None
     metric_identities: tuple[CatalogMetricIdentity | RuntimeExpressionIdentity, ...] = ()
-    comparison_identity: DeltaComparisonIdentityV1 | None = None
+    comparison_identity: DeltaComparisonIdentity | None = None
     axis_refs: tuple[RefPayloadV1, ...] = ()
     slice_predicates: tuple[SlicePredicateV1, ...] = ()
 
@@ -572,7 +577,9 @@ def _extract_findings(
     if extractor_family == "delta_frame":
         delta_meta = cast("_DeltaEvidenceMeta", meta)
         cumulative_pairs = (
-            AllHistoryPairAlignmentV1.model_validate(delta_meta.alignment["cumulative_pairs"])
+            delta_meta.cumulative_alignment.pairs
+            if delta_meta.cumulative_alignment is not None
+            else AllHistoryPairAlignmentV1.model_validate(delta_meta.alignment["cumulative_pairs"])
             if delta_meta.cumulative_change is not None
             else None
         )
@@ -1031,7 +1038,7 @@ def _bind_typed_metric_subject(
         )
     if comparison_identity is None:
         comparison_identity = semantic_anchors.comparison_identity
-    if isinstance(comparison_identity, DeltaComparisonIdentityV1):
+    if isinstance(comparison_identity, DeltaComparisonIdentity):
         typed_subject = DeltaMetricSubjectV1(
             kind="delta_metric",
             session_id=frame.meta.session_id,

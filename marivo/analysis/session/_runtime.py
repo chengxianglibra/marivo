@@ -126,14 +126,14 @@ def _validate_job_subject(value: object, *, role: str) -> None:
                 "baseline",
                 "current_artifact_id",
                 "baseline_artifact_id",
-                "comparable_semantics_fingerprint",
+                "semantics",
                 "alignment_policy_fingerprint",
                 "attribution_basis_fingerprint",
             },
             role=f"{role}.comparison",
         )
-        if comparison["schema"] != "delta-comparison/v1":
-            raise ValueError(f"analysis job {role}.comparison.schema must be 'delta-comparison/v1'")
+        if comparison["schema"] != "delta-comparison/v2":
+            raise ValueError(f"analysis job {role}.comparison.schema must be 'delta-comparison/v2'")
         _validate_metric_identity_payload(comparison["current"], role=f"{role}.comparison.current")
         _validate_metric_identity_payload(
             comparison["baseline"], role=f"{role}.comparison.baseline"
@@ -141,11 +141,55 @@ def _validate_job_subject(value: object, *, role: str) -> None:
         for field in (
             "current_artifact_id",
             "baseline_artifact_id",
-            "comparable_semantics_fingerprint",
             "alignment_policy_fingerprint",
         ):
             if type(comparison[field]) is not str or not comparison[field]:
                 raise ValueError(f"analysis job {role}.comparison.{field} must be non-empty")
+        semantics = comparison["semantics"]
+        if not isinstance(semantics, dict):
+            raise ValueError(f"analysis job {role}.comparison.semantics must be an object")
+        semantics_schema = semantics.get("schema")
+        if semantics_schema == "exact-comparison-semantics/v1":
+            exact = _require_exact_object(
+                semantics,
+                fields={"schema", "comparable_semantics_fingerprint"},
+                role=f"{role}.comparison.semantics",
+            )
+            value = exact["comparable_semantics_fingerprint"]
+            if type(value) is not str or not value:
+                raise ValueError(
+                    f"analysis job {role}.comparison.semantics."
+                    "comparable_semantics_fingerprint must be non-empty"
+                )
+        elif semantics_schema == "cumulative-equivalent-comparison-semantics/v1":
+            cumulative = _require_exact_object(
+                semantics,
+                fields={
+                    "schema",
+                    "current_expression_fingerprint",
+                    "baseline_expression_fingerprint",
+                    "canonical_expression_fingerprint",
+                    "current_comparable_semantics_fingerprint",
+                    "baseline_comparable_semantics_fingerprint",
+                    "canonical_comparable_semantics_fingerprint",
+                },
+                role=f"{role}.comparison.semantics",
+            )
+            for field in (
+                "current_expression_fingerprint",
+                "baseline_expression_fingerprint",
+                "canonical_expression_fingerprint",
+                "current_comparable_semantics_fingerprint",
+                "baseline_comparable_semantics_fingerprint",
+                "canonical_comparable_semantics_fingerprint",
+            ):
+                value = cumulative[field]
+                if type(value) is not str or not value:
+                    raise ValueError(
+                        f"analysis job {role}.comparison.semantics.{field} must be non-empty"
+                    )
+        else:
+            raise ValueError(f"analysis job {role}.comparison.semantics.schema is unsupported")
         if comparison["attribution_basis_fingerprint"] is not None and (
             type(comparison["attribution_basis_fingerprint"]) is not str
             or not comparison["attribution_basis_fingerprint"]

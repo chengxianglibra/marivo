@@ -82,6 +82,77 @@ def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict
     return rows
 
 
+def run_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
+    """Return deterministic row-contract and cumulative-pairing checks."""
+
+    if isinstance(frame.meta, FunnelDeltaFrameMeta):
+        raise ValueError("metric delta quality does not accept DeltaFrame[funnel]")
+    df = frame._dataframe_copy()
+    rows = [_row_count_check(df, semantic_kind=frame.meta.semantic_kind)]
+    required_columns = {
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        "pct_change_status",
+    }
+    missing_columns = sorted(required_columns - set(df.columns))
+    invalid_count = len(missing_columns) + int(len(df) != frame.meta.row_count)
+    severity = "blocking" if invalid_count else "ok"
+    rows.append(
+        _result(
+            "delta_row_contract",
+            "delta_row_contract",
+            severity,
+            severity,
+            (
+                "Delta rows match the persisted result contract"
+                if not invalid_count
+                else f"Delta rows have {invalid_count} contract violation(s)"
+            ),
+            {
+                "invalid_count": invalid_count,
+                "missing_columns": missing_columns,
+                "row_count": len(df),
+                "metadata_row_count": frame.meta.row_count,
+            },
+        )
+    )
+    alignment = frame.meta.cumulative_alignment
+    if alignment is not None:
+        pairs = alignment.pairs
+        caveat_count = (
+            pairs.matched_null_rows
+            + pairs.current_unpaired_rows
+            + pairs.baseline_unpaired_rows
+            + pairs.fallback_rows
+        )
+        severity = "warning" if caveat_count else "ok"
+        rows.append(
+            _result(
+                "cumulative_pairing",
+                "cumulative_pairing",
+                severity,
+                severity,
+                (
+                    "Cumulative pairing contains no null, unpaired, or fallback caveats"
+                    if not caveat_count
+                    else "Cumulative pairing retains explicit alignment caveats"
+                ),
+                {
+                    "caveat_count": caveat_count,
+                    "matched_rows": pairs.matched_rows,
+                    "matched_null_rows": pairs.matched_null_rows,
+                    "current_unpaired_rows": pairs.current_unpaired_rows,
+                    "baseline_unpaired_rows": pairs.baseline_unpaired_rows,
+                    "fallback_rows": pairs.fallback_rows,
+                    "unpaired_action": pairs.unpaired_action,
+                },
+            )
+        )
+    return rows
+
+
 def run_event_journey_checks(frame: EventFrame) -> list[dict[str, str]]:
     """Return deterministic quality predicates for a journey-shaped EventFrame."""
     df = frame._dataframe_copy()

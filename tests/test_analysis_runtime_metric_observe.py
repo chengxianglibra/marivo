@@ -910,6 +910,33 @@ def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> N
     assert exc_info.value._context["missing_state"] == ["comparison_identity"]
 
 
+def test_current_delta_rejects_v1_identity_with_rerun_repair(runtime_session) -> None:
+    amount = _measure_ref(runtime_session)
+    current = runtime_session.observe(
+        mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    )
+    baseline = runtime_session.observe(
+        runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
+    )
+    delta = runtime_session.compare(current, baseline)
+    meta_path = runtime_session._layout.frames_dir / delta.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["comparison_identity"] = {
+        "schema": "delta-comparison/v1",
+        "current": payload["comparison_identity"]["current"],
+        "baseline": payload["comparison_identity"]["baseline"],
+    }
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError, match="invalid delta comparison identity") as exc:
+        runtime_session.get_frame(delta.ref)
+
+    assert "only delta-comparison/v2" in exc.value._context["reason"]
+    assert exc.value.repair is not None
+    assert "session.compare" in exc.value.repair.action
+    assert exc.value.repair.help_target.canonical_id == "compare"
+
+
 def test_observe_multi_metric_label_colliding_with_dimension_fails_closed(
     runtime_session,
 ) -> None:

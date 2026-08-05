@@ -19,6 +19,7 @@ class QualityReportMeta(BaseFrameMeta):
     source_refs: list[str]
     report_shape: Literal[
         "metric",
+        "delta",
         "event_journey",
         "event_funnel",
         "event_time_to_event",
@@ -107,6 +108,26 @@ class QualityReportMeta(BaseFrameMeta):
                 or self.target_state_model_fingerprint is not None
             ):
                 raise ValueError("metric quality reports cannot carry a StateModel")
+            return self
+        if self.report_shape == "delta":
+            if self.target_kind != "delta_frame" or self.target_semantic_kind not in {
+                "scalar",
+                "time_series",
+                "segmented",
+                "panel",
+            }:
+                raise ValueError("delta quality reports require a metric DeltaFrame target")
+            if not self.target_metric_id or self.target_semantic_model is None:
+                raise ValueError("delta quality reports require metric target identity")
+            if self.target_event_pattern_fingerprint is not None:
+                raise ValueError("metric delta quality reports cannot carry an Event pattern")
+            if self.target_coverage_basis is not None:
+                raise ValueError("metric delta quality reports cannot carry Event coverage")
+            if (
+                self.target_state_model_ref is not None
+                or self.target_state_model_fingerprint is not None
+            ):
+                raise ValueError("metric delta quality reports cannot carry a StateModel")
             return self
         if self.report_shape.startswith("lifecycle_"):
             expected_semantic_kind = self.report_shape.removeprefix("lifecycle_")

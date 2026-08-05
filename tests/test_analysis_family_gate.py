@@ -81,7 +81,16 @@ def _delta_frame(session, *, semantic_kind="time_series"):
         semantic_model="sales",
     )
     return DeltaFrame(
-        _df=pd.DataFrame({"bucket": ["a", "b", "c", "d"], "delta": [1.0, 2.0, 3.0, 4.0]}),
+        _df=pd.DataFrame(
+            {
+                "bucket": ["a", "b", "c", "d"],
+                "current": [2.0, 4.0, 6.0, 8.0],
+                "baseline": [1.0, 2.0, 3.0, 4.0],
+                "delta": [1.0, 2.0, 3.0, 4.0],
+                "pct_change": [1.0, 1.0, 1.0, 1.0],
+                "pct_change_status": ["computed"] * 4,
+            }
+        ),
         meta=meta,
     )
 
@@ -233,12 +242,10 @@ def test_gate_assess_quality_accepts_metric_frame():
     validate_capability_inputs("assess_quality", frame=mf)
 
 
-def test_gate_assess_quality_rejects_delta_frame():
+def test_gate_assess_quality_accepts_delta_frame():
     session = session_attach.get_or_create(name="mtx")
     df = _delta_frame(session)
-    with pytest.raises(AnalysisError) as exc:
-        validate_capability_inputs("assess_quality", frame=df)
-    assert exc.value.location == "assess_quality.frame"
+    validate_capability_inputs("assess_quality", frame=df)
 
 
 def test_gate_correlate_rejects_delta_frame():
@@ -367,12 +374,11 @@ def test_session_forecast_rejects_delta_at_gate():
     assert exc.value.location == "forecast.history"
 
 
-def test_session_assess_quality_rejects_delta_at_gate():
+def test_session_assess_quality_accepts_metric_delta():
     session = session_attach.get_or_create(name="int")
     df = _delta_frame(session)
-    with pytest.raises(AnalysisError) as exc:
-        session.assess_quality(df)  # type: ignore[arg-type]
-    assert exc.value.location == "assess_quality.frame"
+    report = session.assess_quality(df)
+    assert report.meta.report_shape == "delta"
 
 
 def test_session_correlate_rejects_delta_at_gate():

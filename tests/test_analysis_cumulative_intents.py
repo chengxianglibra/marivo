@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import ibis
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 import marivo.analysis.session as session_attach
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
     EVALUATION_END_COLUMN,
+    CumulativeAlignmentV1,
+    canonical_cumulative_expression_fingerprint,
 )
 from marivo.analysis.errors import AnalysisError, CumulativeFrameUnsupportedError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
@@ -24,6 +29,18 @@ from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
+from marivo.semantic.metric_graph import (
+    CatalogBodyLeafV1,
+    CumulativeEquivalentComparisonSemanticsV1,
+    CumulativeNodeV1,
+    ExactComparisonSemanticsV1,
+    ExpressionOccurrenceV1,
+    MetricExpressionGraphV1,
+    SliceNodeV1,
+)
+from marivo.semantic.metric_graph_canonical import fingerprint, intern_nodes
 from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
@@ -53,6 +70,23 @@ def _bootstrap_project(tmp_path) -> None:
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
+    )
+    calendar_dir = tmp_path / ".marivo" / "calendar"
+    calendar_dir.mkdir(parents=True)
+    (calendar_dir / "cn_holidays.json").write_text(
+        json.dumps(
+            {
+                "name": "cn_holidays",
+                "holidays": [
+                    {"date": "2025-05-01", "holiday_id": "labor-day"},
+                    {"date": "2026-05-01", "holiday_id": "labor-day"},
+                    {"date": "2026-04-30", "holiday_id": "labor-day"},
+                    {"date": "2026-05-02", "holiday_id": "other-day"},
+                ],
+                "adjusted_workdays": [],
+            }
+        ),
         encoding="utf-8",
     )
     (semantic_dir / "datasets.py").write_text(
@@ -221,12 +255,19 @@ def _ts_frame(
     grain: str = "day",
     metric_id: str = "sales.cum_gmv",
     anchor: object = "all_history",
+    regions: list[str] | None = None,
 ) -> MetricFrame:
     """Build a persisted time_series MetricFrame carrying a cumulative marker."""
     data = {
         "bucket_start": pd.to_datetime(bucket_starts),
         "value": values,
     }
+    axes: dict[str, object] = {"time": {"role": "time", "column": "bucket_start", "grain": grain}}
+    semantic_kind = "time_series"
+    if regions is not None:
+        data["region"] = regions
+        axes["region"] = {"role": "dimension", "column": "region"}
+        semantic_kind = "panel"
     if anchor == "all_history":
         window_end_ts = pd.Timestamp(window_end, tz="UTC")
         data[EVALUATION_END_COLUMN] = [
@@ -236,14 +277,70 @@ def _ts_frame(
     frame = make_metric_frame(
         pd.DataFrame(data),
         metric_id=metric_id,
-        axes={"time": {"role": "time", "column": "bucket_start", "grain": grain}},
+        axes=axes,
         measure={"name": "cum_gmv"},
-        semantic_kind="time_series",
+        semantic_kind=semantic_kind,
         semantic_model="sales",
         window={"start": window_start, "end": window_end, "grain": grain},
         session=session,
     )
-    frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+    if anchor != "all_history":
+        base_node = CatalogBodyLeafV1(
+            kind="catalog_body_leaf",
+            metric_ref=RefPayloadV1.from_ref(ref_factory.metric("sales.gmv")),
+            dependency_fingerprint=fingerprint(("test-base", "sales.gmv")),
+        )
+        base_id = fingerprint(base_node)
+        cumulative_node = CumulativeNodeV1(
+            kind="cumulative",
+            child_id=base_id,
+            time_dimension_ref=RefPayloadV1.from_ref(
+                ref_factory.time_dimension("sales.orders.event_time")
+            ),
+            anchor=anchor,
+            dependency_fingerprint=fingerprint(("test-time", "sales.orders.event_time")),
+        )
+        cumulative_id = fingerprint(cumulative_node)
+        graph = MetricExpressionGraphV1(
+            schema="metric-expression/v1",
+            roots=(cumulative_id,),
+            nodes=intern_nodes((base_node, cumulative_node)),
+            occurrences=(
+                ExpressionOccurrenceV1(
+                    path="root[0]",
+                    node_id=cumulative_id,
+                    child_paths=("root[0].base",),
+                ),
+                ExpressionOccurrenceV1(path="root[0].base", node_id=base_id),
+            ),
+        )
+        comparable = frame.meta.comparable_value_semantics
+        assert comparable is not None
+        comparable_payload = {
+            "expression_fingerprint": cumulative_id,
+            "evaluator_contracts": comparable.evaluator_contracts,
+            "global_slice": comparable.global_slice,
+            "key_schema_fingerprint": comparable.key_schema_fingerprint,
+            "unit": comparable.unit,
+            "fold": comparable.fold,
+            "source_domain_fingerprint": comparable.source_domain_fingerprint,
+            "definition_transform_fingerprint": comparable.definition_transform_fingerprint,
+        }
+        comparable = replace(
+            comparable,
+            expression_fingerprint=cumulative_id,
+            fingerprint=fingerprint(comparable_payload),
+        )
+        frame.meta = frame.meta.model_copy(
+            update={
+                "expression_graph": graph,
+                "expression_fingerprint": cumulative_id,
+                "comparable_value_semantics": comparable,
+                "cumulative": _cum_marker_anchor(anchor),
+            }
+        )
+    else:
+        frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
     return frame
 
 
@@ -668,6 +765,7 @@ def test_compare_all_history_level_change_is_allowed(tmp_path, monkeypatch) -> N
     delta = compare(current, baseline, session=session)
     assert delta.meta.cumulative_change is not None
     assert delta.meta.alignment["cumulative_pairs"]["matched_rows"] == 3
+    assert isinstance(delta.meta.comparison_identity.semantics, ExactComparisonSemanticsV1)
 
 
 def test_compare_trailing_same_anchor_allowed(tmp_path, monkeypatch) -> None:
@@ -694,6 +792,229 @@ def test_compare_trailing_same_anchor_allowed(tmp_path, monkeypatch) -> None:
     assert delta is not None
 
 
+def test_compare_trailing_equivalent_units_use_canonical_identity(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=("trailing", 1, "week"),
+    )
+
+    delta = compare(current, baseline, session=session)
+
+    semantics = delta.meta.comparison_identity.semantics
+    assert isinstance(semantics, CumulativeEquivalentComparisonSemanticsV1)
+    assert semantics.current_expression_fingerprint != semantics.baseline_expression_fingerprint
+    assert semantics.canonical_expression_fingerprint
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.canonical_anchor.kind == "trailing"
+    assert delta.meta.cumulative_alignment.canonical_anchor.span_seconds == 604_800
+    assert delta.meta.cumulative_alignment.pairs.matched_rows == 3
+
+
+def test_compare_trailing_rejects_calendar_bucket_mode(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[20.0, 30.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 15.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=("trailing", 1, "week"),
+    )
+
+    with pytest.raises(AnalysisError) as exc:
+        compare(
+            current,
+            baseline,
+            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            session=session,
+        )
+
+    assert exc.value.location == "session.compare.alignment"
+    assert exc.value._context["kind"] == "CumulativeComparablePeriodAlignmentUnsupported"
+
+
+def test_trailing_delta_topk_rebuilds_pair_summary(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=("trailing", 1, "week"),
+    )
+    delta = compare(current, baseline, session=session)
+
+    top = delta.transform.topk(by="delta", limit=1)
+
+    assert len(top.to_pandas()) == 1
+    assert top.meta.cumulative_alignment is not None
+    assert top.meta.cumulative_alignment.pairs.matched_rows == 1
+    assert top.meta.cumulative_alignment.pairs.matched_null_rows == 0
+
+
+def test_cumulative_delta_quality_reads_typed_pairing_caveats(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=("trailing", 1, "week"),
+    )
+    delta = compare(current, baseline, session=session)
+
+    report = session.assess_quality(delta)
+    pairing = report.to_pandas().set_index("check_kind").loc["cumulative_pairing"]
+    details = json.loads(pairing["details_json"])
+
+    assert report.meta.report_shape == "delta"
+    assert pairing["severity"] == "warning"
+    assert details["matched_rows"] == 2
+    assert details["baseline_unpaired_rows"] == 1
+    assert any(
+        issue.kind == "cumulative_alignment_caveat_present" for issue in report.contract().issues
+    )
+
+
+def test_cumulative_alignment_requires_complete_strict_persisted_payload() -> None:
+    incomplete = {
+        "current_authored_anchor": {"count": 7, "unit": "day"},
+        "baseline_authored_anchor": {"count": 1, "unit": "week"},
+        "canonical_anchor": {"span_seconds": 604_800},
+        "pairs": {
+            "matched_rows": 1,
+            "matched_null_rows": 0,
+            "current_unpaired_rows": 0,
+            "baseline_unpaired_rows": 0,
+            "fallback_rows": 0,
+        },
+    }
+    with pytest.raises(ValidationError):
+        CumulativeAlignmentV1.model_validate(incomplete)
+
+    wrong_types = {
+        "schema": "cumulative-alignment/v1",
+        "current_authored_anchor": {"kind": "trailing", "count": 7, "unit": "day"},
+        "baseline_authored_anchor": {"kind": "trailing", "count": 1, "unit": "week"},
+        "canonical_anchor": {"kind": "trailing", "span_seconds": 604_800},
+        "pairs": {
+            "schema": "cumulative-pair-summary/v1",
+            "matched_rows": "1",
+            "matched_null_rows": 0,
+            "current_unpaired_rows": 0,
+            "baseline_unpaired_rows": 0,
+            "fallback_rows": 0,
+            "unpaired_action": "dropped",
+        },
+    }
+    with pytest.raises(ValidationError):
+        CumulativeAlignmentV1.model_validate(wrong_types)
+
+
+def test_canonical_cumulative_expression_reinterns_ancestors(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frames = (
+        _ts_frame(
+            session,
+            bucket_starts=["2026-07-01"],
+            values=[10.0],
+            window_start="2026-07-01",
+            window_end="2026-07-02",
+            anchor=("trailing", 7, "day"),
+        ),
+        _ts_frame(
+            session,
+            bucket_starts=["2026-06-01"],
+            values=[5.0],
+            window_start="2026-06-01",
+            window_end="2026-06-02",
+            anchor=("trailing", 1, "week"),
+        ),
+    )
+    projected_graphs: list[MetricExpressionGraphV1] = []
+    for frame in frames:
+        graph = frame.meta.expression_graph
+        assert graph is not None
+        cumulative_root = graph.roots[0]
+        slice_node = SliceNodeV1(
+            kind="slice",
+            child_id=cumulative_root,
+            predicates=(),
+            predicate_dependencies=(),
+        )
+        slice_id = fingerprint(slice_node)
+        cumulative_record = next(
+            record for record in graph.nodes if record.node_id == cumulative_root
+        )
+        leaf_id = cumulative_record.node.child_id
+        projected_graphs.append(
+            MetricExpressionGraphV1(
+                schema="metric-expression/v1",
+                roots=(slice_id,),
+                nodes=intern_nodes((*(record.node for record in graph.nodes), slice_node)),
+                occurrences=(
+                    ExpressionOccurrenceV1(
+                        path="root[0]",
+                        node_id=slice_id,
+                        child_paths=("root[0].child",),
+                    ),
+                    ExpressionOccurrenceV1(
+                        path="root[0].child",
+                        node_id=cumulative_root,
+                        child_paths=("root[0].child.base",),
+                    ),
+                    ExpressionOccurrenceV1(
+                        path="root[0].child.base",
+                        node_id=leaf_id,
+                    ),
+                ),
+            )
+        )
+
+    assert canonical_cumulative_expression_fingerprint(
+        projected_graphs[0]
+    ) == canonical_cumulative_expression_fingerprint(projected_graphs[1])
+
+
 def test_compare_trailing_anchor_mismatch_rejected(tmp_path, monkeypatch) -> None:
     """trailing frames with different anchor payloads are rejected."""
     session = _session(tmp_path, monkeypatch)
@@ -716,8 +1037,8 @@ def test_compare_trailing_anchor_mismatch_rejected(tmp_path, monkeypatch) -> Non
     with pytest.raises(Exception) as exc_info:
         compare(current, baseline, session=session)
     assert "anchor" in str(exc_info.value).lower()
-    assert exc_info.value.expected == "('trailing', 7, 'day')"
-    assert exc_info.value.received == "('trailing', 30, 'day')"
+    assert "span_seconds=604800" in exc_info.value.expected
+    assert "span_seconds=2592000" in exc_info.value.received
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.help_target.canonical_id == "compare"
 
@@ -748,8 +1069,181 @@ def test_compare_grain_to_date_single_period_aligned(tmp_path, monkeypatch) -> N
     df = delta.to_pandas()
     # Bucket i pairs with bucket i (period-position alignment).
     assert len(df) == current.meta.row_count
-    assert delta.meta.alignment["to_date"]["matched_buckets"] == current.meta.row_count
-    assert delta.meta.alignment["to_date"]["baseline_tail_buckets"] >= 0
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.pairs.matched_rows == current.meta.row_count
+    assert delta.meta.cumulative_alignment.pairs.baseline_unpaired_rows == 0
+
+
+@pytest.mark.parametrize("kind", ["dow_aligned", "holiday_and_dow_aligned"])
+def test_compare_grain_to_date_supports_calendar_position_alignment(
+    tmp_path,
+    monkeypatch,
+    kind: str,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    if kind == "holiday_and_dow_aligned":
+        current_days = ["2026-05-01", "2026-05-02"]
+        baseline_days = ["2025-05-01", "2025-05-02"]
+    else:
+        current_days = ["2026-07-01", "2026-07-02", "2026-07-03"]
+        baseline_days = ["2026-06-01", "2026-06-02", "2026-06-03"]
+    current = _ts_frame(
+        session,
+        bucket_starts=current_days,
+        values=[10.0] * len(current_days),
+        window_start=current_days[0],
+        window_end=str(pd.Timestamp(current_days[-1]) + pd.Timedelta(days=1))[:10],
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=baseline_days,
+        values=[5.0] * len(baseline_days),
+        window_start=baseline_days[0],
+        window_end=str(pd.Timestamp(baseline_days[-1]) + pd.Timedelta(days=1))[:10],
+        anchor=anchor,
+    )
+
+    delta = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind=kind,
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=session,
+    )
+
+    assert delta.meta.cumulative_alignment is not None
+    assert delta.meta.cumulative_alignment.pairs.matched_rows == len(delta.to_pandas())
+    assert set(delta.to_pandas()["presence_status"]) == {"matched"}
+
+
+def test_compare_grain_to_date_calendar_period_must_match_reset(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01"],
+        values=[10.0],
+        window_start="2026-07-01",
+        window_end="2026-07-02",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01"],
+        values=[5.0],
+        window_start="2026-06-01",
+        window_end="2026-06-02",
+        anchor=anchor,
+    )
+
+    with pytest.raises(Exception, match="period='month'"):
+        compare(
+            current,
+            baseline,
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="quarter",
+            ),
+            session=session,
+        )
+
+
+def test_compare_trailing_calendar_panel_drops_and_counts_one_sided_coordinates(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("trailing", 7, "day")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-01"],
+        values=[10.0, 20.0],
+        regions=["US", "CA"],
+        window_start="2026-07-01",
+        window_end="2026-07-02",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-03"],
+        values=[5.0],
+        regions=["US"],
+        window_start="2026-06-01",
+        window_end="2026-06-02",
+        anchor=anchor,
+    )
+
+    delta = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=session,
+    )
+
+    result = delta.to_pandas()
+    assert list(result["region"]) == ["US"]
+    assert delta.meta.cumulative_alignment is not None
+    pairs = delta.meta.cumulative_alignment.pairs
+    assert pairs.matched_rows == 1
+    assert pairs.current_unpaired_rows == 1
+    assert pairs.baseline_unpaired_rows == 0
+    assert pairs.unpaired_action == "dropped"
+
+
+def test_compare_trailing_holiday_fallback_is_typed_and_counted(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("trailing", 7, "day")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"],
+        values=[100.0, 70.0, 30.0, 40.0],
+        window_start="2026-05-01",
+        window_end="2026-05-05",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-04-30", "2026-04-03", "2026-04-02", "2026-04-04"],
+        values=[80.0, 10.0, 0.0, 50.0],
+        window_start="2026-04-01",
+        window_end="2026-04-05",
+        anchor=anchor,
+    )
+
+    delta = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="holiday_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+            fallback="nearest_prior_workday",
+        ),
+        session=session,
+    )
+
+    assert delta.meta.cumulative_alignment is not None
+    pairs = delta.meta.cumulative_alignment.pairs
+    assert pairs.matched_rows == 4
+    assert pairs.fallback_rows == 3
+    assert pairs.current_unpaired_rows == 0
+    assert pairs.baseline_unpaired_rows == 1
+    assert (delta.to_pandas()["align_quality"] == "fallback").sum() == 3
+
+    top = delta.transform.topk(by="delta", limit=1)
+    assert top.meta.cumulative_alignment is not None
+    assert top.meta.cumulative_alignment.pairs.matched_rows == 1
+    assert top.meta.cumulative_alignment.pairs.fallback_rows == 1
 
 
 def test_compare_grain_to_date_boundary_required(tmp_path, monkeypatch) -> None:
@@ -999,16 +1493,7 @@ def test_compare_grain_to_date_scalar_rejects_fractional_elapsed_mismatch(
     assert exc_info.value._context["kind"] == "GrainToDateElapsedSpanMismatch"
 
 
-@pytest.mark.parametrize(
-    "alignment",
-    [
-        AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
-        AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("test_calendar")),
-    ],
-)
-def test_compare_grain_to_date_requires_ordinal_window_bucket(
-    tmp_path, monkeypatch, alignment: AlignmentPolicy
-) -> None:
+def test_compare_grain_to_date_rejects_calendar_bucket_mode(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
     anchor = ("grain_to_date", "month")
     current = _ts_frame(
@@ -1029,9 +1514,14 @@ def test_compare_grain_to_date_requires_ordinal_window_bucket(
     )
 
     with pytest.raises(AnalysisError) as exc_info:
-        compare(current, baseline, alignment=alignment, session=session)
+        compare(
+            current,
+            baseline,
+            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            session=session,
+        )
 
-    assert exc_info.value._context["kind"] == "GrainToDateAlignmentPolicyUnsupported"
+    assert exc_info.value._context["kind"] == "CumulativeComparablePeriodAlignmentUnsupported"
 
 
 def test_compare_grain_to_date_delta_carries_marker(tmp_path, monkeypatch) -> None:
@@ -1110,15 +1600,14 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
     assert delta_df["current"].notna().all()
     assert delta_df["baseline"].notna().all()
     text = delta.render()
-    assert "matched_buckets" in text
-    assert "baseline_tail_buckets" in text
-    # The contract affordances should carry a to_date tail note (prose).
+    assert "pairing" in text
+    assert "baseline_unpaired=1" in text
     contract = delta.contract()
-    rendered_contract = "\n".join(
-        f"{a.capability_id}: {[p.reason for p in a.preconditions]}" for a in contract.affordances
+    assert any(
+        p.check == "cumulative_pairing"
+        for affordance in contract.affordances
+        for p in affordance.preconditions
     )
-    assert "tail bucket" in rendered_contract
-    assert "ordinal alignment matched" in rendered_contract
 
 
 def test_compare_derived_all_history_components_are_allowed(tmp_path, monkeypatch) -> None:
@@ -1324,6 +1813,11 @@ def test_contract_grain_to_date_defers_pair_checks_to_compare(tmp_path, monkeypa
         p.check in {"compare_anchor_match", "compare_single_period_boundary"}
         for p in cmp.preconditions
     )
+    pair_contract = next(
+        p for p in cmp.preconditions if p.check == "cumulative_comparable_period_pair"
+    )
+    assert "same month reset" in (pair_contract.reason or "")
+    assert "DOW/holiday positions" in (pair_contract.reason or "")
 
 
 def test_contract_trailing_autocorrelation_caveat(tmp_path, monkeypatch) -> None:

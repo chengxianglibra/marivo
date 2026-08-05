@@ -17,7 +17,7 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
-    DeltaComparisonIdentityV1,
+    DeltaComparisonIdentity,
     DeltaMetricSubjectV1,
     MetricIdentity,
     RuntimeExpressionIdentity,
@@ -138,7 +138,7 @@ class AnalysisScope(_FrozenModel):
 
     kind: Literal["metric"] = "metric"
     metric_identities: tuple[MetricIdentity, ...] = ()
-    comparison: DeltaComparisonIdentityV1 | None = None
+    comparison: DeltaComparisonIdentity | None = None
     axis_refs: tuple[RefPayloadV1, ...] = ()
     segment_predicates: tuple[SlicePredicateV1, ...] = ()
     window: dict[str, JsonValue] | None = None
@@ -595,6 +595,7 @@ class DeltaFindingValue(_FrozenModel):
     matched_null_rows: int | None = Field(default=None, ge=0)
     current_unpaired_rows: int | None = Field(default=None, ge=0)
     baseline_unpaired_rows: int | None = Field(default=None, ge=0)
+    fallback_rows: int | None = Field(default=None, ge=0)
     unpaired_action: Literal["dropped"] | None = None
     cumulative_change: AllHistoryLevelChangeSchema | None = None
     source_revision: Literal["unverified"] | None = None
@@ -945,6 +946,8 @@ DataQualityIssueKind = Literal[
     "time_coverage_incomplete",
     "outlier_sensitivity_detected",
     "duplicate_keys_detected",
+    "delta_row_contract_invalid",
+    "cumulative_alignment_caveat_present",
     "unit_capability_unknown",
     "event_identity_invalid",
     "event_participant_invalid",

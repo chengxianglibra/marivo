@@ -11,7 +11,11 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
-from marivo.analysis._cumulative import cumulative_compare_anchor
+from marivo.analysis._cumulative import (
+    canonical_comparable_period_anchor,
+    cumulative_compare_anchor,
+    cumulative_equivalent_comparison_semantics,
+)
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
@@ -107,7 +111,7 @@ def cumulative_compare_issue(
     anchor's compare path is allowed:
 
     - ``all_history``: allowed when both markers resolve to that exact anchor.
-    - ``trailing``: allowed iff both frames' anchor payloads match exactly.
+    - ``trailing``: allowed iff both frames have the same canonical duration.
     - ``grain_to_date``: allowed via :func:`_grain_to_date_compare_validations`.
     - incompatible derived wrappers and malformed markers: rejected.
     """
@@ -160,11 +164,26 @@ def cumulative_compare_issue(
             cumulative=cur_cum,
         )
     base_anchor = cumulative_compare_anchor(base_cum)
-    if base_anchor != anchor:
+    anchors_match = base_anchor == anchor
+    canonical_anchor: object = anchor
+    canonical_base_anchor: object = base_anchor
+    if (
+        isinstance(anchor, tuple)
+        and anchor[0] in {"trailing", "grain_to_date"}
+        and isinstance(base_anchor, tuple)
+        and base_anchor[0] in {"trailing", "grain_to_date"}
+    ):
+        try:
+            canonical_anchor = canonical_comparable_period_anchor(anchor)
+            canonical_base_anchor = canonical_comparable_period_anchor(base_anchor)
+            anchors_match = canonical_anchor == canonical_base_anchor
+        except ValueError:
+            anchors_match = False
+    if not anchors_match:
         return AnalysisError(
-            message="compare requires both cumulative frames to share the same anchor.",
-            expected=repr(anchor),
-            received=repr(base_anchor),
+            message="compare requires canonically equivalent cumulative anchors.",
+            expected=repr(canonical_anchor),
+            received=repr(canonical_base_anchor),
             location="session.compare",
             repair=AnalysisRepair(
                 kind="retry",
@@ -175,6 +194,8 @@ def cumulative_compare_issue(
                 "kind": "CumulativeAnchorMismatch",
                 "current_anchor": anchor,
                 "baseline_anchor": base_anchor,
+                "current_canonical_anchor": repr(canonical_anchor),
+                "baseline_canonical_anchor": repr(canonical_base_anchor),
             },
         )
     if anchor == "all_history":
@@ -400,27 +421,64 @@ def validate_compare(
     anchor = cumulative_compare_anchor(current.meta.cumulative)
     if (
         isinstance(anchor, tuple)
-        and anchor
-        and anchor[0] == "grain_to_date"
-        and (alignment.kind != "window_bucket" or alignment.mode != "ordinal_bucket")
+        and anchor[0] in {"trailing", "grain_to_date"}
+        and alignment.kind == "window_bucket"
+        and alignment.mode != "ordinal_bucket"
     ):
         return [
             AnalysisError(
                 message=(
-                    "compare(grain_to_date) requires ordinal window-bucket alignment; "
-                    f"got kind={alignment.kind!r}, mode={alignment.mode!r}."
+                    "comparable-period cumulative compare requires ordinal window-bucket "
+                    f"alignment; got mode={alignment.mode!r}."
                 ),
-                hint=(
-                    "Use AlignmentPolicy(kind='window_bucket', mode='ordinal_bucket') "
-                    "for period-position comparison."
+                expected="window_bucket mode='ordinal_bucket' or a DOW/holiday policy",
+                received=f"window_bucket mode={alignment.mode!r}",
+                location="session.compare.alignment",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        "Use mv.window_bucket(mode='ordinal_bucket') or choose an explicit "
+                        "DOW/holiday alignment policy."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 ),
                 context={
-                    "kind": "GrainToDateAlignmentPolicyUnsupported",
+                    "kind": "CumulativeComparablePeriodAlignmentUnsupported",
+                    "anchor_kind": anchor[0],
                     "alignment_kind": alignment.kind,
                     "alignment_mode": alignment.mode,
                 },
             )
         ]
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        reset_grain = anchor[1]
+        unsupported = False
+        if alignment.kind == "window_bucket":
+            unsupported = alignment.mode != "ordinal_bucket"
+        else:
+            unsupported = alignment.period != reset_grain
+        if unsupported:
+            return [
+                AnalysisError(
+                    message=(
+                        "compare(grain_to_date) requires ordinal window-bucket alignment "
+                        f"or calendar alignment with period={reset_grain!r}; got "
+                        f"kind={alignment.kind!r}, mode={alignment.mode!r}, "
+                        f"period={alignment.period!r}."
+                    ),
+                    hint=(
+                        "Use mv.window_bucket(mode='ordinal_bucket') or a DOW/holiday "
+                        f"alignment policy with period={reset_grain!r}."
+                    ),
+                    context={
+                        "kind": "GrainToDateAlignmentPolicyUnsupported",
+                        "alignment_kind": alignment.kind,
+                        "alignment_mode": alignment.mode,
+                        "alignment_period": alignment.period,
+                        "reset_grain": reset_grain,
+                    },
+                )
+            ]
     if current.meta.semantic_kind != baseline.meta.semantic_kind:
         return [
             SemanticKindMismatchError(
@@ -540,7 +598,54 @@ def validate_compare(
                 },
             )
         ]
-    if current_comparable.fingerprint != baseline_comparable.fingerprint:
+    baseline_anchor = cumulative_compare_anchor(baseline.meta.cumulative)
+    if (
+        isinstance(anchor, tuple)
+        and anchor[0] in {"trailing", "grain_to_date"}
+        and isinstance(baseline_anchor, tuple)
+        and baseline_anchor[0] in {"trailing", "grain_to_date"}
+    ):
+        current_graph = current.meta.expression_graph
+        baseline_graph = baseline.meta.expression_graph
+        if current_graph is None or baseline_graph is None:
+            return [
+                SemanticKindMismatchError(
+                    message="cumulative compare requires persisted expression graphs.",
+                    hint="Re-observe both inputs under the current artifact contract.",
+                    context={
+                        "current_has_expression_graph": current_graph is not None,
+                        "baseline_has_expression_graph": baseline_graph is not None,
+                    },
+                )
+            ]
+        try:
+            cumulative_equivalent_comparison_semantics(
+                current_graph=current_graph,
+                baseline_graph=baseline_graph,
+                current_comparable=current_comparable,
+                baseline_comparable=baseline_comparable,
+                current_anchor=anchor,
+                baseline_anchor=baseline_anchor,
+            )
+        except (TypeError, ValueError) as exc:
+            return [
+                SemanticKindMismatchError(
+                    message="cumulative compare inputs do not share canonical value semantics.",
+                    expected="equal canonical expression and all non-expression semantics",
+                    received=str(exc),
+                    location="session.compare",
+                    repair=AnalysisRepair(
+                        kind="retry",
+                        action=(
+                            "Re-observe both frames from canonically equivalent cumulative "
+                            "metrics with matching grain, slice, unit, fold, and source domain."
+                        ),
+                        help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                    ),
+                    context={"kind": "CumulativeComparableSemanticsMismatch"},
+                )
+            ]
+    elif current_comparable.fingerprint != baseline_comparable.fingerprint:
         return [
             SemanticKindMismatchError(
                 message=(

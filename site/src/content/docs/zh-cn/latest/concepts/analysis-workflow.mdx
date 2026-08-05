@@ -463,12 +463,14 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 使用 `report.overall_status`、`report.blocking_issue_count` 和
 `report.warning_count` 读取权威质量判定与计数。`report.state` 仍是描述
 materialization 的 `ArtifactState` metadata，不是质量状态。
+对于 cumulative comparable-period `DeltaFrame`，report 直接读取 typed pairing
+evidence，并呈现 matched-null、unpaired 和 fallback 计数。
 Report 的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
 `time_coverage_incomplete` issue 时，不得把该窗口作为完整周期事实报告。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `frame` | `MetricFrame` | 是 | — | 要检查的 frame。 |
+| `frame` | 支持的 analysis artifact | 是 | — | 要检查的 frame，包括 metric DeltaFrame。 |
 
 ### `hypothesis_test` → `HypothesisTestResult`
 
@@ -560,11 +562,12 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
   - `all_history`：当两个 frame 共享有效锚点，且业务坐标能够按精确 `evaluation_end` cutoff
     配对时允许。结果是 current 减 baseline 的观测 level 差，不声明等价于区间 flow；source
     revision 未验证。
-  - `trailing`：当两个 frame 共享相同的 trailing 锚点 payload（`count`、`unit`）时允许。
-    滚动窗口值按序对齐。
+  - `trailing`：当两个 frame 的固定时长规范化后相同时允许；例如 `7 day` 与 `1 week`
+    可直接比较。
   - `grain_to_date`：对单周期、边界锚定的窗口允许。窗口必须从重置边界开始，至多跨越一个
-    重置周期，且两个 frame 必须共享重置粒度和查询粒度。结果 DeltaFrame 会在
-    `alignment_dump["to_date"]` 下记录 to-date 对齐信息。
+    重置周期，且两个 frame 必须共享重置粒度和查询粒度。
+  - 两类可比期间都支持窗口序号对齐，以及星期位置、节假日位置、节假日优先再星期位置对齐。
+    `grain_to_date` 的日历策略 `period` 必须等于重置粒度。本版本不公开工作日位置比较模式。
 - 对 derived metric，仅当所有外层 component 都是 cumulative，且完全共享同一个锚点（包括
   `all_history`）时，才复用上述 compare 路径。混合锚点、累计与非累计混合、非法 metadata，
   以及 current/baseline 锚点不一致都会 fail closed。all-history component sidecar 使用 parent
@@ -579,6 +582,10 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 `evaluation_end` 坐标。对于 all-history delta，请读取精确的 `current_evaluation_end` 和
 `baseline_evaluation_end` 列。单侧坐标会被删除并计入
 `delta.meta.alignment["cumulative_pairs"]`；已配对的 null 仍保持配对并产生 null delta。
+
+trailing 与 grain-to-date delta 通过 `delta.meta.cumulative_alignment` 暴露双方原始锚点、
+身份计算使用的规范锚点，以及已配对 null、current 单侧、baseline 单侧和 fallback 的精确计数。
+最终 delta 只保留已配对坐标，panel frame 也遵循同一规则。
 
 ```python
 cum_frame = session.observe(

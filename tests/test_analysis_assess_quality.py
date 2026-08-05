@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._load import load_frame
@@ -258,10 +257,18 @@ def test_panel_all_checks_and_persistence(tmp_path):
     assert loaded.lineage.steps[-1].intent == "assess_quality"
 
 
-def test_non_metric_frame_raises(tmp_path):
+def test_metric_delta_quality_validates_row_contract(tmp_path):
     session = session_attach.get_or_create(name="demo")
     delta = DeltaFrame(
-        _df=pd.DataFrame({"delta": [1.0]}),
+        _df=pd.DataFrame(
+            {
+                "current": [2.0],
+                "baseline": [1.0],
+                "delta": [1.0],
+                "pct_change": [1.0],
+                "pct_change_status": ["computed"],
+            }
+        ),
         meta=DeltaFrameMeta(
             **make_test_delta_contract("sales.revenue"),
             kind="delta_frame",
@@ -281,9 +288,12 @@ def test_non_metric_frame_raises(tmp_path):
             semantic_kind="time_series",
         ),
     )
-    with pytest.raises(AnalysisError) as exc:
-        session.assess_quality(delta)
-    assert exc.value.location == "assess_quality.frame"
+    report = session.assess_quality(delta)
+    recovered = session.get_frame(report.ref)
+
+    assert report.meta.report_shape == "delta"
+    assert set(report.to_pandas()["check_kind"]) == {"row_count", "delta_row_contract"}
+    assert recovered.meta.report_shape == "delta"
 
 
 def test_quality_report_render_surfaces_check_results(tmp_path):

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from marivo._fixed_duration import FixedDurationUnit, fixed_duration_seconds
 from marivo.analysis.errors import GrainUnsupportedError
 
 GrainUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -36,13 +37,6 @@ _UNIT_SECONDS: dict[str, int] = {"second": 1, "minute": 60, "hour": 3600}
 # fixed second-width and require date-truncation for period math. This is the
 # single source of truth for fixed-grain second-widths; observe.py imports it
 # for sampled-fold coverage math.
-_FIXED_UNIT_SECONDS: dict[str, int] = {
-    "second": 1,
-    "minute": 60,
-    "hour": 3600,
-    "day": 86_400,
-    "week": 604_800,
-}
 _TRUNCATE_CODE: dict[str, str] = {
     "second": "s",
     "minute": "m",
@@ -122,13 +116,12 @@ class Grain(BaseModel):
         callers needing period math should use report-timezone date-truncation
         rather than seconds.
         """
-        seconds = _FIXED_UNIT_SECONDS.get(self.unit)
-        if seconds is None:
+        if self.unit not in {"second", "minute", "hour", "day", "week"}:
             raise ValueError(
                 f"Grain.width_seconds() is undefined for calendar-variable grain "
                 f"{self.to_token()!r}; use report_tz date-truncation for period math."
             )
-        return self.count * seconds
+        return fixed_duration_seconds(self.count, cast("FixedDurationUnit", self.unit))
 
     def to_token(self) -> str:
         return self.unit if self.count == 1 else f"{self.count}{self.unit}"
