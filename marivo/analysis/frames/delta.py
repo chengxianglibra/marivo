@@ -740,6 +740,22 @@ class DeltaFrame(BaseFrame):
         """Return the mechanical contract with persisted attribution gates."""
         contract = super().contract()
         if self.meta.semantic_kind == "funnel":
+            # Metric-only continuations are structurally impossible on the
+            # closed funnel union; do not advertise them to the agent. Keep
+            # the real affordances (attribute / assess_quality / discover.*).
+            metric_only = {"DeltaFrame.components"} | {
+                f"transform.{name}"
+                for name in ("bottomk", "filter", "rank", "rollup", "slice", "topk", "window")
+            }
+            contract = contract.model_copy(
+                update={
+                    "affordances": tuple(
+                        affordance
+                        for affordance in contract.affordances
+                        if affordance.capability_id not in metric_only
+                    ),
+                }
+            )
             return contract
         from marivo.analysis.ontology_contract import attach_ontology_discovery_preconditions
 
