@@ -859,7 +859,7 @@ def observe(
         and resolved_window.time_dimension is None
     ):
         status_time_dimension = _preferred_status_time_dimension_for_metric(
-            catalog, normalized_metric
+            catalog, normalized_metric, metric_ir
         )
         if status_time_dimension is not None:
             resolved_window, original_timescope = _resolve_timescope(
@@ -1617,6 +1617,7 @@ def _forest_output_columns(
 def _preferred_status_time_dimension_for_metric(
     catalog: Any,
     metric_input: Ref[MetricKind] | RuntimeMetricExpr,
+    metric_ir: Any | None = None,
 ) -> str | None:
     """Resolve the status time axis a metric wants to observe on.
 
@@ -1624,17 +1625,23 @@ def _preferred_status_time_dimension_for_metric(
     prefers its own status_time_dimension; a derived metric prefers the first
     component whose additivity is semi-additive (issue #36).  Runtime metrics
     carry no catalog status axis and return ``None``.
+
+    ``metric_ir`` may be passed in by a caller that already resolved the metric
+    (single-metric observe), avoiding a redundant catalog parse.
     """
     if isinstance(
         metric_input,
         RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
     ):
         return None
-    normalized = normalize_metric_ref_input(catalog, metric_input, argument="observe.metrics")
-    metric_id = _normalize_metric_boundary(catalog, normalized)
-    metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
-    assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
-    metric_ir = _planned_metric(metric_details)
+    if metric_ir is None:
+        normalized = normalize_metric_ref_input(
+            catalog, metric_input, argument="observe.metrics"
+        )
+        metric_id = _normalize_metric_boundary(catalog, normalized)
+        metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
+        assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
+        metric_ir = _planned_metric(metric_details)
     if (
         getattr(metric_ir, "additivity", None) == "semi_additive"
         and getattr(metric_ir, "status_time_dimension", None) is not None
