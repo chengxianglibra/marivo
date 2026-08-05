@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 @dataclass(frozen=True, repr=False)
 class SessionSummary(RenderableResult):
-    """Lightweight session metadata returned by list_sessions."""
+    """Lightweight session metadata returned by page_sessions / session_summary."""
 
     id: str
     name: str
@@ -268,39 +268,6 @@ class SessionStore:
         """
         with self._connect() as conn:
             return self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (session_id,))
-
-    def list_sessions(self) -> list[SessionSummary]:
-        """Return summaries for all sessions, including live counts.
-
-        ``job_count`` and ``frame_count`` are computed from the ``jobs`` and
-        ``artifacts`` tables at list time.
-
-        Returns:
-            A list of :class:`SessionSummary` instances.
-        """
-        with self._connect() as conn:
-            rows = self._fetchall(conn, "SELECT * FROM sessions ORDER BY created_at")
-            summaries: list[SessionSummary] = []
-            for row in rows:
-                sid = row["id"]
-                job_count = conn.execute(
-                    "SELECT COUNT(*) FROM jobs WHERE session_id = ?", (sid,)
-                ).fetchone()[0]
-                frame_count = conn.execute(
-                    "SELECT COUNT(*) FROM artifacts WHERE session_id = ?", (sid,)
-                ).fetchone()[0]
-                summaries.append(
-                    SessionSummary(
-                        id=sid,
-                        name=row["name"],
-                        question=row["question"],
-                        created_at=row["created_at"],
-                        updated_at=row["updated_at"],
-                        job_count=job_count,
-                        frame_count=frame_count,
-                    )
-                )
-            return summaries
 
     def page_sessions(
         self,

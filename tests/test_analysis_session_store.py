@@ -140,23 +140,11 @@ def test_duplicate_create_race_handled_gracefully(store: SessionStore, project_r
 
 
 # ---------------------------------------------------------------------------
-# Summary counts: list_sessions
+# Summary counts (bounded page / inspect paths)
 # ---------------------------------------------------------------------------
 
 
-def test_list_sessions_returns_session_summary(store: SessionStore, project_root: Path) -> None:
-    store.get_or_insert_session(name="s", question="q", cwd=project_root, default_calendar=None)
-    summaries = store.list_sessions()
-    assert len(summaries) == 1
-    s = summaries[0]
-    assert isinstance(s, SessionSummary)
-    assert s.name == "s"
-    assert s.question == "q"
-    assert s.job_count == 0
-    assert s.frame_count == 0
-
-
-def test_list_sessions_job_count(store: SessionStore, project_root: Path) -> None:
+def test_page_sessions_includes_counts(store: SessionStore, project_root: Path) -> None:
     row = store.get_or_insert_session(
         name="s", question="q", cwd=project_root, default_calendar=None
     )
@@ -171,15 +159,6 @@ def test_list_sessions_job_count(store: SessionStore, project_root: Path) -> Non
         output_artifact_id=None,
         record_path="jobs/j1.json",
     )
-    summaries = store.list_sessions()
-    assert summaries[0].job_count == 1
-
-
-def test_list_sessions_frame_count(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    sid = row["id"]
     store.record_artifact(
         session_id=sid,
         artifact_id="a1",
@@ -189,8 +168,14 @@ def test_list_sessions_frame_count(store: SessionStore, project_root: Path) -> N
         content_hash=None,
         produced_by_job=None,
     )
-    summaries = store.list_sessions()
-    assert summaries[0].frame_count == 1
+    page = store.page_sessions(limit=10, after=None)
+    assert len(page) == 1
+    s = page[0]
+    assert isinstance(s, SessionSummary)
+    assert s.name == "s"
+    assert s.question == "q"
+    assert s.job_count == 1
+    assert s.frame_count == 1
 
 
 def test_page_sessions_uses_stable_newest_updated_order(

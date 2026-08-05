@@ -1960,15 +1960,6 @@ def _build_registry() -> CapabilityRegistry:
             "none",
         ),
         (
-            "session.list",
-            "mv.session.list()",
-            "session.list",
-            "List sessions in the current project.",
-            "session_state",
-            "SessionSummary",
-            "none",
-        ),
-        (
             "session.recent",
             "mv.session.recent()",
             "session.recent",

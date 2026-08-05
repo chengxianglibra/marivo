@@ -334,7 +334,6 @@ CapabilityDescriptor = (
 # ---------------------------------------------------------------------------
 
 ROOT_GROUP_ORDER: tuple[RootGroup, ...] = (
-    "session_state",
     "semantic_inputs",
     "policies_builders",
     "artifact_production",

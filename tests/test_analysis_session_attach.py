@@ -64,10 +64,10 @@ def test_delete_removes_session_dir_and_store_row(tmp_path):
     assert not session_dir.is_dir()
 
 
-def test_list_returns_all_sessions_in_project(tmp_path):
+def test_recent_returns_all_sessions_in_project(tmp_path):
     session_facade.get_or_create(name="a", backends=_backends())
     session_facade.get_or_create(name="b", backends=_backends())
-    assert sorted(s.name for s in session_facade.list()) == ["a", "b"]
+    assert sorted(s.name for s in session_facade.recent(limit=100).items) == ["a", "b"]
 
 
 def test_delete_is_noop_for_unknown_name(tmp_path):

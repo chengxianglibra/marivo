@@ -46,11 +46,10 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
   what makes a script safe to re-run across loop turns.
 - `mv.session.current() -> Session | None` — a safe probe for the current session
   (process-current, else the persisted `current_session_id`, else `None`).
-- `mv.session.list() -> list[SessionSummary]` — lightweight rows (name, counts,
-  timestamps), not live sessions. Each summary already supports bounded
-  `.show()`; attach by its `name` to obtain a live `Session`.
 - `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
-  newest-updated-first keyset page for selective historical reference.
+  newest-updated-first keyset page for selective historical reference. This is
+  the discovery path for historical sessions; each summary supports bounded
+  `.show()`, and attach by its `name` to obtain a live `Session`.
 - `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
   — a bounded metadata snapshot containing the exact session summary, recent
   frame summaries, and recent jobs. It does not resume the session, move the

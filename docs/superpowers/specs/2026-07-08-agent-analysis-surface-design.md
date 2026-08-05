@@ -230,7 +230,8 @@ listing is redesigned later, that should be a separate catalog contract change.
 This topic should avoid `Session.__init__` and focus on public helpers:
 
 - `mv.session.get_or_create(...)`
-- `mv.session.list()`
+- `mv.session.recent(...)`
+- `mv.session.inspect(name)`
 - `mv.session.current()`
 - `session.frame_summaries()`
 - `session.recent_jobs(limit=5)`
