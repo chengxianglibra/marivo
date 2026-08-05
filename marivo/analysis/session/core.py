@@ -1235,6 +1235,11 @@ class Session(RenderableResult):
         The result carries one row per lag and ``meta.best_lag`` marks the strongest.
         Default is lag 0 only. Both frames must belong to the active session.
 
+        Alignment keys are taken exclusively from the time and dimension axes
+        declared on both frames; common columns that are not declared as axes are
+        never inferred as alignment keys. With no shared declared axes the frames
+        are aligned positionally.
+
         Args:
             a: First MetricFrame.
             b: Second MetricFrame.
