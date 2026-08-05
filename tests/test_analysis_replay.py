@@ -194,6 +194,24 @@ def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
     assert exc_info.value._context["delta_ref"] == "frame_delta"
 
 
+def test_recover_alignment_policy_rejects_legacy_calendar_id_shape() -> None:
+    """Old artifacts persisted the calendar identity as ``{"id": ...}``; after
+    the ref rename they must fail closed with a repair that re-creates the delta."""
+    session = mv.session.get_or_create(name="demo")
+    delta = _delta_frame(
+        session,
+        alignment={"kind": "dow_aligned", "calendar": {"id": "cn_holidays"}},
+    )
+
+    with pytest.raises(AttributionMaterializationError) as exc_info:
+        recover_alignment_policy(delta)
+
+    assert exc_info.value._context["recoverability_status"] == "alignment_calendar_legacy_id"
+    assert exc_info.value._context["delta_ref"] == "frame_delta"
+    assert exc_info.value.repair is not None
+    assert "ref" in exc_info.value.message
+
+
 _OBSERVE_PARAMS: dict[str, object] = {
     "replay_expression": replay_payload(ref_factory.metric("sales.revenue")),
     "timescope": {
