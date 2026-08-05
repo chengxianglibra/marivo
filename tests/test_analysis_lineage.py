@@ -1,5 +1,7 @@
 """Lineage + LineageStep dataclasses."""
 
+import pytest
+
 from marivo.analysis.lineage import Lineage, LineageStep
 
 
@@ -21,17 +23,20 @@ def test_lineage_default_empty():
     assert lin.external_inputs == []
 
 
+def test_lineage_rejects_positional_construction():
+    with pytest.raises(TypeError):
+        Lineage([], [])  # type: ignore[misc, call-arg]
+
+
 def test_lineage_with_steps():
     step = LineageStep(intent="observe", job_ref="job_1", inputs=[], params_digest="x")
     lin = Lineage(steps=[step])
     assert len(lin.steps) == 1
 
 
-def test_lineage_step_positional_params_compatibility():
-    step = LineageStep("observe", "job_1", [], "sha256:abc", {"metric": "sales.revenue"})
-
-    assert step.params == {"metric": "sales.revenue"}
-    assert step.analysis_purpose is None
+def test_lineage_step_rejects_positional_construction():
+    with pytest.raises(TypeError):
+        LineageStep("observe", "job_1", [], "sha256:abc", {"metric": "sales.revenue"})  # type: ignore[misc, call-arg]
 
 
 def test_external_inputs_track_from_dataframe_entries():
