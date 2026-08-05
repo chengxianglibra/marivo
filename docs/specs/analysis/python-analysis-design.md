@@ -299,6 +299,13 @@ arithmetic attribution with `causal_claim="none"`.
 Unsupported targets, grouped inputs, invalid modes, or zero denominators fail
 with `funnel_attribution_unsupported`.
 
+`DeltaFrame[funnel]` is a closed artifact family. Its meta exposes only funnel
+fields and never projects Metric Delta facets; generic consumers dispatch on
+the `DeltaFrameMeta | FunnelDeltaFrameMeta` closed union. Metric-only
+continuations (`components()`, `transform.*`) fail closed with
+`semantic_kind_mismatch` rather than reading absent metric fields as optional
+`None` facets.
+
 Generic metric attribution uses the same public `session.attribute(...)`
 entrypoint. `DeltaFrame.contract().attribute_admission` is the sole mechanical
 method/mode admission state. New generic artifacts persist typed axes, mode,

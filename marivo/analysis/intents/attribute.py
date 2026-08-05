@@ -127,6 +127,7 @@ def _attribute_nonadditive(
     session: Session,
 ) -> AttributionFrame:
     """Execute graph-owned non-additive attribution with independent endpoints."""
+    assert isinstance(frame.meta, DeltaFrameMeta)
     started_at = datetime.now(UTC)
     started = monotonic()
     current = _load_metric_source(
@@ -286,6 +287,12 @@ def attribute(
     ensure_session_can_execute(resolved_session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="attribute requires a DeltaFrame input")
+    if not isinstance(frame.meta, DeltaFrameMeta):
+        raise SemanticKindMismatchError(
+            message="generic attribute requires a metric DeltaFrame; DeltaFrame[funnel] "
+            "attributes via session.attribute(<DeltaFrame[funnel]>, target=...)",
+            context={"semantic_kind": frame.meta.semantic_kind},
+        )
     if frame.meta.cumulative is not None:
         raise CumulativeFrameUnsupportedError(
             intent="attribute",
@@ -294,11 +301,6 @@ def attribute(
             cumulative=frame.meta.cumulative,
         )
     ensure_frame_in_session(frame, session=resolved_session, label="attribute frame")
-    if not isinstance(frame.meta, DeltaFrameMeta):
-        raise SemanticKindMismatchError(
-            message="generic attribute requires a metric DeltaFrame",
-            context={"semantic_kind": frame.meta.semantic_kind},
-        )
     axis_ids = _normalize_attribute_axes(resolved_session, axes)
     admission = _attribute_admission(frame.meta)
     if admission.status == "blocked":

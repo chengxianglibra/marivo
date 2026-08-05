@@ -29,7 +29,7 @@ from marivo.analysis.attribution_contract import (
     SupportedAttributeAdmissionV1,
     attribute_method_is_installed,
 )
-from marivo.analysis.errors import AnalysisRepair
+from marivo.analysis.errors import AnalysisRepair, SemanticKindMismatchError
 from marivo.analysis.event import (
     CompletenessDeclaration,
     EventMatchingPolicy,
@@ -531,52 +531,15 @@ class FunnelDeltaFrameMeta(BaseFrameMeta):
             raise ValueError("DeltaFrame[funnel] axes must have unique output columns")
         return self
 
-    # Read-only family compatibility projections. These are intentionally
-    # properties rather than persisted model fields: funnel continuation
-    # admission is shape-gated, while generic DeltaFrame readers can still
-    # inspect a closed, non-Metric value for legacy optional facets.
+    # Funnel continuation admission is shape-gated: the funnel shape exposes
+    # only its own fields and never projects Metric Delta facets. Consumers
+    # must dispatch on the DeltaFrameMeta | FunnelDeltaFrameMeta union.
     @property
     def alignment(self) -> dict[str, Any]:
         return {
             "kind": self.alignment_kind,
             "axes": [axis.output_column for axis in self.axes],
         }
-
-    @property
-    def component_ref(self) -> None:
-        return None
-
-    @property
-    def composition(self) -> None:
-        return None
-
-    @property
-    def status_time_dimension(self) -> None:
-        return None
-
-    @property
-    def fold(self) -> None:
-        return None
-
-    @property
-    def additivity(self) -> None:
-        return None
-
-    @property
-    def aggregation(self) -> None:
-        return None
-
-    @property
-    def cumulative(self) -> None:
-        return None
-
-    @property
-    def metric_id(self) -> str:
-        return "funnel_loss_rate"
-
-    @property
-    def semantic_model(self) -> str:
-        return ""
 
 
 DeltaFrameMetaVariant = Annotated[
@@ -847,6 +810,17 @@ class DeltaFrame(BaseFrame):
         from marivo.analysis.frames._component import _load_component_frame
 
         validate_capability_inputs("DeltaFrame.components", receiver=self)
+        if not isinstance(self.meta, DeltaFrameMeta):
+            raise SemanticKindMismatchError(
+                message=(
+                    "DeltaFrame[funnel] has no component frame; the funnel shape "
+                    "does not project a Metric Delta component graph"
+                ),
+                context={
+                    "semantic_kind": self.meta.semantic_kind,
+                    "frame_ref": self.ref,
+                },
+            )
         return _load_component_frame(
             parent_ref=self.ref,
             parent_kind=self.meta.kind,

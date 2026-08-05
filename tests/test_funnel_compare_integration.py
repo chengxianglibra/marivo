@@ -16,6 +16,7 @@ from marivo.analysis.errors import (
     EventCoverageUnknownError,
     FunnelAttributionUnsupportedError,
     FunnelComparisonMismatchError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
@@ -500,6 +501,77 @@ def test_funnel_quality_detects_row_corruption_without_crashing(
     assert attribution_status["funnel_attribution_pools"] == "blocking"
     assert attribution_status["funnel_attribution_residual"] == "blocking"
     assert attribution_status["funnel_attribution_reconciliation"] == "blocking"
+
+
+def test_funnel_delta_does_not_pretend_metric_delta_semantics(
+    funnel_session: Any,
+) -> None:
+    """FunnelDelta consumers must dispatch on the closed union, not project
+    Metric Delta optional facets onto a funnel shape.
+
+    A funnel delta has no component graph, no metric additivity/aggregation,
+    no cumulative alignment, and no metric display identity. The removed
+    compatibility projections let generic readers silently treat those as
+    absent Metric facets; the continuation contract is instead a closed
+    ``SemanticKindMismatchError`` so the funnel shape exposes only its own
+    fields.
+    """
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    assert type(delta.meta).__name__ == "FunnelDeltaFrameMeta"
+    assert delta.meta.semantic_kind == "funnel"
+
+    # Metric-only facets are no longer projected onto the funnel shape.
+    for removed in (
+        "component_ref",
+        "composition",
+        "status_time_dimension",
+        "fold",
+        "additivity",
+        "aggregation",
+        "cumulative",
+        "metric_id",
+        "semantic_model",
+    ):
+        assert not hasattr(delta.meta, removed), removed
+
+    # components() fails closed instead of silently pretending there is no
+    # component graph (the old projection returned None for component_ref).
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        delta.components()
+    assert "funnel" in excinfo.value.message
+
+
+def test_metric_delta_retains_metric_semantics(funnel_session: Any) -> None:
+    """The metric DeltaFrameMeta keeps its component and metric facets; the
+    funnel continuation matrix must not over-narrow the generic shape."""
+    metric = funnel_session.catalog.require(
+        ms.ref.metric("commerce.order_count")
+    )
+    current = funnel_session.observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-15"},
+    )
+    baseline = funnel_session.observe(
+        metric,
+        time_scope={"start": "2026-06-01", "end": "2026-06-15"},
+    )
+    delta = funnel_session.compare(current, baseline)
+    assert delta.meta.semantic_kind in {"scalar", "time_series", "segmented", "panel"}
+    assert hasattr(delta.meta, "component_ref")
+    assert hasattr(delta.meta, "composition")
+    assert hasattr(delta.meta, "additivity")
+    assert hasattr(delta.meta, "metric_id")
+
+
+def test_funnel_delta_transform_fails_closed(funnel_session: Any) -> None:
+    """transform is a Metric continuation; a funnel delta must reject it
+    explicitly instead of projecting a nonexistent metric contract."""
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        delta.transform.filter(predicate=lambda df: df["step_key"] == "cart")
+    assert "funnel" in excinfo.value.message
 
 
 def test_cold_recovery_restores_funnel_variants(

@@ -34,7 +34,7 @@ from marivo.analysis.frames.candidate import (
     ScoredCandidateObjective,
     ScoredCandidateShape,
 )
-from marivo.analysis.frames.delta import DeltaFrame
+from marivo.analysis.frames.delta import DeltaFrame, FunnelDeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._candidate_columns import (
     build_union_columns,
@@ -254,6 +254,18 @@ def _discover_dispatch(
     source_kind: CandidateSourceKind = (
         "metric_frame" if isinstance(source, MetricFrame) else "delta_frame"
     )
+    if isinstance(source.meta, FunnelDeltaFrameMeta):
+        raise SemanticKindMismatchError(
+            message=(
+                f"discover objective {discover_objective!r} does not accept "
+                "DeltaFrame[funnel]"
+            ),
+            context={
+                "objective": discover_objective,
+                "semantic_kind": source.meta.semantic_kind,
+                "expected_kind": "|".join(sorted(_OBJECTIVE_SEMANTIC_KINDS[discover_objective])),
+            },
+        )
     _check_objective_compatibility(discover_objective, source.meta.semantic_kind)
 
     resolved_strategy = _resolve_strategy(discover_objective, strategy)
@@ -322,10 +334,7 @@ def _discover_dispatch(
         source_ref=source_artifact_ref,
         source_kind=source_kind,
         metric_ids=[source.meta.metric_id],
-        semantic_kind=cast(
-            "Literal['scalar', 'time_series', 'segmented', 'panel']",
-            source.meta.semantic_kind,
-        ),
+        semantic_kind=source.meta.semantic_kind,
         semantic_model=source.meta.semantic_model,
         source_refs=[source.ref],
         params=full_params,

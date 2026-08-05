@@ -172,6 +172,12 @@ def _prepare_transform[TTransformFrame: TransformFrame](
     ensure_session_can_execute(session)
     if isinstance(frame, MetricFrame):
         require_single_metric(frame, intent="transform")
+    if isinstance(frame, DeltaFrame) and not isinstance(frame.meta, DeltaFrameMeta):
+        raise SemanticKindMismatchError(
+            message="transform requires a metric DeltaFrame; DeltaFrame[funnel] has no "
+            "transformable metric contract",
+            context={"semantic_kind": frame.meta.semantic_kind},
+        )
     if frame.meta.session_id != session.id:
         raise CrossSessionFrameError(
             message=(
