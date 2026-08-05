@@ -910,6 +910,11 @@ hierarchy 的 pool share 在每个可见层级内分别归一化；artifact meta
 对账的最深 joint partition pool。这些 contribution 只描述观测变化的算术分解，
 不代表因果关系。
 
+`DeltaFrame[funnel]` 是 closed artifact family：只暴露自身 funnel 字段，绝不投影
+Metric Delta 的 facet。Metric 专属 continuation（`components()`、`transform.*`）
+会以结构化错误 fail closed，而不是伪装出并不存在的 component graph 或 metric
+contract。
+
 ### Replay 规范生命周期
 
 Lifecycle analysis 会把一个精确的当前 StateModel 应用于其 modeled Event stream。

@@ -1025,6 +1025,11 @@ shares normalize within each displayed level; artifact metadata retains the
 deepest joint-partition pools used for reconciliation. Contributions describe
 arithmetic decomposition of an observed change, not causality.
 
+`DeltaFrame[funnel]` is a closed artifact family: it exposes only its own
+funnel fields and never projects Metric Delta facets. Metric-only
+continuations (`components()`, `transform.*`) fail closed with a structured
+error instead of pretending a nonexistent component graph or metric contract.
+
 ### Replay a normative lifecycle
 
 Lifecycle analysis applies one exact current StateModel to its modeled Event

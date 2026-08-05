@@ -34,7 +34,7 @@ from marivo.analysis.frames.component import (
     resolve_role_column_name,
     resolve_role_columns,
 )
-from marivo.analysis.frames.delta import DeltaFrame
+from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
@@ -160,6 +160,7 @@ def _component_bucket_column(frame: DeltaFrame, columns: list[str]) -> str | Non
 
 
 def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> ComponentFrame | None:
+    assert isinstance(frame.meta, DeltaFrameMeta)
     if frame.meta.component_ref is None:
         return None
     loaded = load_frame(frame.meta.component_ref, session=session)
@@ -301,6 +302,7 @@ def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[Com
 
 
 def _status_time_dimension(frame: DeltaFrame) -> str | None:
+    assert isinstance(frame.meta, DeltaFrameMeta)
     if frame.meta.status_time_dimension is not None:
         return frame.meta.status_time_dimension
     fold = frame.meta.fold
@@ -319,6 +321,7 @@ def _raise_attribution_additivity_error(
     status_time_dimension: str | None = None,
     component: ComponentFrame | None = None,
 ) -> None:
+    assert isinstance(frame.meta, DeltaFrameMeta)
     if status_time_dimension is None:
         status_time_dimension = _status_time_dimension(frame)
     if reason == "missing_additivity_metadata":
@@ -381,6 +384,7 @@ def _validate_attribution_additivity(
     axes: list[str],
     component: ComponentFrame | None,
 ) -> None:
+    assert isinstance(frame.meta, DeltaFrameMeta)
     if _component_allows_non_linear_fold(component):
         return
     if frame.meta.additivity == "additive":
@@ -1461,6 +1465,12 @@ def decompose(
     ensure_session_can_execute(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
+    if not isinstance(frame.meta, DeltaFrameMeta):
+        raise SemanticKindMismatchError(
+            message="decompose requires a metric DeltaFrame; DeltaFrame[funnel] has no "
+            "component or additivity contract to decompose",
+            context={"semantic_kind": frame.meta.semantic_kind},
+        )
     if frame.meta.cumulative is not None:
         raise CumulativeFrameUnsupportedError(
             intent=_intent,
@@ -1472,10 +1482,6 @@ def decompose(
     validated_mode = validate_attribution_mode(axis_ids, mode, intent="decompose")
     params_extra = dict(_params_extra or {})
     ensure_frame_in_session(frame, session=session, label="decompose frame")
-    if frame.meta.semantic_kind not in {"scalar", "time_series", "segmented", "panel"}:
-        raise SemanticKindMismatchError(
-            message=f"decompose does not support semantic_kind={frame.meta.semantic_kind!r}",
-        )
 
     component = _validate_attribution_semantics(frame, axes=axis_ids, session=session)
 
