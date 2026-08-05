@@ -14,10 +14,14 @@ from time import monotonic
 from typing import Any, Literal, cast
 
 import pandas as pd
-from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype, is_object_dtype
+from pandas.api.types import is_datetime64_any_dtype, is_object_dtype
 
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
-from marivo.analysis.errors import AlignmentFailedError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AlignmentFailedError,
+    AnalysisRepair,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -39,6 +43,7 @@ from marivo.analysis.lineage import LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_can_execute
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def _gen_ref(prefix: str) -> str:
@@ -159,10 +164,30 @@ def correlate(
     driver_field = ",".join(alignment_keys) or None
     if len(aligned) < 2:
         raise AlignmentFailedError(
-            message=f"alignment '{alignment.kind}' produced fewer than two rows"
+            message=f"alignment '{alignment.kind}' produced fewer than two rows",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Declare axes shared by both frames so the aligned rows overlap "
+                    "in at least two positions, or widen the observed windows."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="correlate"),
+            ),
         )
     if aligned["value_a"].nunique(dropna=True) < 2 or aligned["value_b"].nunique(dropna=True) < 2:
-        raise AlignmentFailedError(message=f"{method} correlation is undefined for constant input")
+        raise AlignmentFailedError(
+            message=f"{method} correlation is undefined for constant input",
+            context={"method": method},
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Each aligned series must vary in at least two positions to "
+                    "compute a correlation. Widen the observed windows so the "
+                    "aligned rows contain real signal."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="correlate"),
+            ),
+        )
 
     lag_results = _lag_results_by_lag(
         aligned,
@@ -394,9 +419,9 @@ def _alignment_keys(
     a_value: str,
     b_value: str,
 ) -> list[str]:
-    """Resolve shared declared axes, retaining legacy non-numeric key fallback."""
+    """Resolve shared declared axes only; never infer keys from dataframe dtypes."""
     b_axes = set(_axis_columns(b))
-    declared = [
+    return [
         column
         for column in _axis_columns(a)
         if column in b_axes
@@ -404,8 +429,6 @@ def _alignment_keys(
         and column in b_df.columns
         and column not in {a_value, b_value}
     ]
-    fallback = _common_non_numeric_columns(a_df, b_df)
-    return list(dict.fromkeys([*declared, *fallback]))
 
 
 def _lag_series_keys(
@@ -428,12 +451,28 @@ def _lag_series_keys(
                 "time_column_b": time_b,
                 "alignment_keys": alignment_keys,
             },
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Declare a shared time axis on both frames (e.g. bucket as "
+                    "role='time') so signed lag has one common time key."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="correlate"),
+            ),
         )
     series_keys = [key for key in alignment_keys if key != time_a]
     if not series_keys:
         raise AlignmentFailedError(
             message="signed lag for panel frames requires at least one shared series key",
             context={"time_column": time_a, "alignment_keys": alignment_keys},
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Declare at least one dimension axis shared by both frames so "
+                    "each panel series is identified by a stable key."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="correlate"),
+            ),
         )
     return series_keys
 
@@ -549,16 +588,6 @@ def _align(
     return pd.merge(left, right, on=keys, validate="one_to_one"), keys
 
 
-def _common_non_numeric_columns(a_df: pd.DataFrame, b_df: pd.DataFrame) -> list[str]:
-    return [
-        str(column)
-        for column in a_df.columns
-        if column in b_df.columns
-        and not is_numeric_dtype(a_df[column])
-        and not is_numeric_dtype(b_df[column])
-    ]
-
-
 def _ensure_unique_keys(df: pd.DataFrame, *, keys: list[str], label: str) -> None:
     duplicates = df.duplicated(subset=keys, keep=False)
     if not duplicates.any():
@@ -567,4 +596,12 @@ def _ensure_unique_keys(df: pd.DataFrame, *, keys: list[str], label: str) -> Non
     raise AlignmentFailedError(
         message=f"correlate {label} has duplicate key tuples",
         context={"side": label, "keys": keys, "duplicates": examples},
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                f"Declare axes that uniquely identify each row on the {label} side, "
+                "or aggregate to one row per declared key tuple before correlating."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="correlate"),
+        ),
     )

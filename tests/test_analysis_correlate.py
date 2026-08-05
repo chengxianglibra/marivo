@@ -96,15 +96,18 @@ def test_correlate_sample_alignment_same_model_cross_metric():
 
 def test_correlate_common_key_alignment():
     session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket", "grain": "day"}}
     a = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [10.0, 20.0]}),
         metric_id="sales.revenue",
+        axes=axes,
     )
     b = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [5.0, 10.0]}),
         metric_id="sales.orders",
+        axes=axes,
     )
 
     out = session.correlate(
@@ -236,8 +239,12 @@ def test_correlate_accepts_collision_safe_public_value_name():
     assert result.to_pandas().iloc[0]["value_column_a"] == "sales__revenue#2"
 
 
-def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
+def test_correlate_common_key_alignment_uses_only_declared_axes():
     session = session_attach.get_or_create(name="demo")
+    axes = {
+        "segment": {"role": "dimension", "column": "segment"},
+        "time": {"role": "time", "column": "bucket", "grain": "day"},
+    }
     a = _metric(
         session,
         pd.DataFrame(
@@ -249,6 +256,7 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
         ),
         metric_id="sales.revenue",
         semantic_kind="panel",
+        axes=axes,
     )
     b = _metric(
         session,
@@ -261,6 +269,7 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
         ),
         metric_id="sales.orders",
         semantic_kind="panel",
+        axes=axes,
     )
 
     out = session.correlate(
@@ -272,6 +281,57 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
     df = out.to_pandas()
     assert df.iloc[0]["driver_field"] == "segment,bucket"
     assert df.iloc[0]["aligned_row_count"] == 2
+    assert df.iloc[0]["correlation"] == pytest.approx(1.0)
+
+
+def test_correlate_ignores_undeclared_common_text_columns():
+    """Undeclared common text columns must never enter alignment keys.
+
+    Regression for issue #56: correlating by a declared ``bucket`` axis while
+    both sides also carry an undeclared ``source_label`` column previously
+    widened alignment keys to ``["bucket", "source_label"]``, collapsing
+    distinct labels into wrong groups or an empty intersection.
+    """
+    session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket", "grain": "day"}}
+    a = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "source_label": ["actual", "actual", "actual"],
+                "value": [10.0, 20.0, 30.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        semantic_kind="time_series",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "source_label": ["plan", "plan", "plan"],
+                "value": [5.0, 10.0, 15.0],
+            }
+        ),
+        metric_id="sales.orders",
+        semantic_kind="time_series",
+        axes=axes,
+    )
+
+    out = session.correlate(
+        a,
+        b,
+        alignment=AlignmentPolicy(kind="window_bucket"),
+    )
+
+    df = out.to_pandas()
+    # Only the declared bucket axis aligns rows; the undeclared source_label
+    # must not be inferred as an alignment key or driver field.
+    assert df.iloc[0]["driver_field"] == "bucket"
+    assert df.iloc[0]["aligned_row_count"] == 3
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
 
 
@@ -323,8 +383,58 @@ def test_correlate_panel_lag_shifts_within_each_series():
     assert result.meta.aligned_row_count == 2
 
 
+def test_correlate_panel_lag_missing_series_key_fails_closed_with_repair():
+    """Signed lag on a panel frame with a shared time axis but no dimension
+    axis must fail closed with a typed error and an executable repair."""
+    session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket", "grain": "day"}}
+    a = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "value": [1.0, 2.0, 4.0],
+            }
+        ),
+        metric_id="sales.a",
+        semantic_kind="panel",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "value": [2.0, 4.0, 8.0],
+            }
+        ),
+        metric_id="sales.b",
+        semantic_kind="panel",
+        axes=axes,
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc:
+        session.correlate(
+            a,
+            b,
+            measure_a="value",
+            measure_b="value",
+            lag_range=[1],
+        )
+
+    assert exc.value.repair is not None
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="correlate"
+    )
+    assert "series" in exc.value.repair.action
+
+
 def test_correlate_rejects_duplicate_composite_keys_without_persisting():
     session = session_attach.get_or_create(name="demo")
+    axes = {
+        "segment": {"role": "dimension", "column": "segment"},
+        "time": {"role": "time", "column": "bucket", "grain": "day"},
+    }
     a = _metric(
         session,
         pd.DataFrame(
@@ -336,6 +446,7 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
         ),
         metric_id="sales.revenue",
         semantic_kind="panel",
+        axes=axes,
     )
     b = _metric(
         session,
@@ -348,6 +459,7 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
         ),
         metric_id="sales.orders",
         semantic_kind="panel",
+        axes=axes,
     )
 
     with pytest.raises(AlignmentFailedError):
@@ -468,15 +580,18 @@ def test_correlate_writes_job_and_frame():
 
 def test_correlate_output_round_trips_through_load_frame():
     session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket", "grain": "day"}}
     a = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [1.0, 2.0]}),
         metric_id="sales.revenue",
+        axes=axes,
     )
     b = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [2.0, 4.0]}),
         metric_id="sales.orders",
+        axes=axes,
     )
 
     out = session.correlate(a, b)
@@ -506,9 +621,15 @@ def test_correlate_rejects_constant_input_without_persisting():
     a = _metric(session, pd.DataFrame({"value": [5.0, 5.0, 5.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}), metric_id="sales.orders")
 
-    with pytest.raises(AlignmentFailedError):
+    with pytest.raises(AlignmentFailedError) as excinfo:
         session.correlate(a, b)
 
+    assert "undefined for constant input" in str(excinfo.value)
+    assert excinfo.value.repair is not None
+    assert excinfo.value.repair.kind == "retry"
+    assert "at least two positions" in excinfo.value.repair.action
+    assert excinfo.value.repair.help_target is not None
+    assert excinfo.value.repair.help_target.canonical_id == "correlate"
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
 
 
