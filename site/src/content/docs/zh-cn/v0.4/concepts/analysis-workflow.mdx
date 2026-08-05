@@ -105,7 +105,7 @@ region.details().show()
 
 `get_or_create` 是幂等的：它会附着到同名的已有 session，或创建一个新 session，并设为当前
 session。
-session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(name)`。
+session 的精简 API 为 `get_or_create`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
 
 `repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
 时间戳、已注册 direct operators、namespaces 以及 catalog/job/frame 检查入口的 bounded

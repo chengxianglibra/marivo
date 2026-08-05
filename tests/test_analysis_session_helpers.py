@@ -20,13 +20,12 @@ import marivo.analysis as mv
 # ---------------------------------------------------------------------------
 
 
-def test_session_all_exports_exactly_six_names() -> None:
+def test_session_all_exports_exactly_five_names() -> None:
     assert mv.session.__all__ == [
         "current",
         "delete",
         "get_or_create",
         "inspect",
-        "list",
         "recent",
     ]
 
@@ -129,43 +128,17 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
 
 
 # ---------------------------------------------------------------------------
-# list()
-# ---------------------------------------------------------------------------
-
-
-def test_list_returns_count_fields_and_no_state_field(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="s1", use_datasources=False)
-    mv.session.get_or_create(name="s2", use_datasources=False)
-    summaries = mv.session.list()
-    assert len(summaries) == 2
-    s = summaries[0]
-    # Must have count fields
-    assert hasattr(s, "job_count")
-    assert hasattr(s, "frame_count")
-    # Must NOT have state field
-    assert not hasattr(s, "state")
-
-
-# ---------------------------------------------------------------------------
 # recent() and inspect()
 # ---------------------------------------------------------------------------
 
 
-def test_recent_is_bounded_newest_first_and_list_stays_compatible(
+def test_recent_is_bounded_newest_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     first = mv.session.get_or_create(name="first", use_datasources=False)
     second = mv.session.get_or_create(name="second", use_datasources=False)
-
-    listed = mv.session.list()
-    assert isinstance(listed, list)
-    assert [item.name for item in listed] == ["first", "second"]
 
     page = mv.session.recent(limit=1)
     assert [item.name for item in page.items] == ["second"]
@@ -248,7 +221,9 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
         ),
     )
     active = mv.session.get_or_create(name="active", use_datasources=False)
-    before = next(item for item in mv.session.list() if item.name == "historical")
+    before = next(
+        item for item in mv.session.recent(limit=100).items if item.name == "historical"
+    )
     session_meta_path = historical._layout.session_dir / "meta.json"
     meta_before = session_meta_path.read_text()
 
@@ -260,7 +235,9 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
     )
     snapshot = mv.session.inspect("historical", frame_limit=1, job_limit=1)
 
-    after = next(item for item in mv.session.list() if item.name == "historical")
+    after = next(
+        item for item in mv.session.recent(limit=100).items if item.name == "historical"
+    )
     assert mv.session.current() is not None
     assert mv.session.current().id == active.id
     assert after.updated_at == before.updated_at

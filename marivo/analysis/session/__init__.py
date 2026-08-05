@@ -7,7 +7,6 @@ The public surface is intentionally narrow:
   the new or attached session as current.
 - ``mv.session.current()`` — return the current ``Session`` or ``None``
   when there is no current session. Safe probe: check and continue work.
-- ``mv.session.list()`` — list sessions in the project.
 - ``mv.session.recent()`` — return a bounded newest-first page for reference.
 - ``mv.session.inspect(name)`` — read a bounded historical metadata snapshot
   without resuming or touching the session.
@@ -27,11 +26,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import Session
 from marivo.analysis.session.history import SessionInspection, SessionSummaryPage
 
-__all__ = ["current", "delete", "get_or_create", "inspect", "list", "recent"]
+__all__ = ["current", "delete", "get_or_create", "inspect", "recent"]
 
 _PUBLIC_NAMES = frozenset(__all__)
 
@@ -255,30 +253,12 @@ def delete(name: str) -> None:
     shutil.rmtree(layout.session_dir, ignore_errors=True)
 
 
-def list() -> builtins.list[SessionSummary]:
-    """List sessions in the current project, ordered by creation time.
-
-    When to use: enumerate sessions for selection or reporting. Returns
-    lightweight :class:`SessionSummary` rows with count fields, not live
-    ``Session`` objects.
-
-    Example:
-        >>> for s in mv.session.list():
-        ...     print(s.name, s.job_count)
-    """
-    from marivo.analysis.session._store import SessionStore as _Store
-
-    store = _Store()
-    return store.list_sessions()
-
-
 def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     """Return one bounded page of recently updated project sessions.
 
     Sessions are ordered newest first by ``updated_at`` and stable id. Pass
     ``next_cursor`` back to this method when the returned page has more rows.
-    This is the bounded discovery path for historical-reference reads;
-    :func:`list` remains the compatibility path that returns every session.
+    This is the bounded discovery path for historical-reference reads.
 
     Args:
         limit: Maximum summaries to retain, from 1 through 100.
@@ -304,7 +284,7 @@ def inspect(name: str, *, frame_limit: int = 10, job_limit: int = 5) -> SessionI
     """Read a bounded metadata snapshot of one historical session.
 
     Args:
-        name: Exact session name returned by :func:`recent` or :func:`list`.
+        name: Exact session name returned by :func:`recent`.
         frame_limit: Maximum newest frame summaries to retain, from 1 through 100.
         job_limit: Maximum recent job summaries to retain, from 1 through 100.
 
@@ -385,7 +365,6 @@ _new.current = current  # type: ignore[attr-defined]
 _new.get_or_create = get_or_create  # type: ignore[attr-defined]
 _new.inspect = inspect  # type: ignore[attr-defined]
 _new.delete = delete  # type: ignore[attr-defined]
-_new.list = list  # type: ignore[attr-defined]
 _new.recent = recent  # type: ignore[attr-defined]
 _new._reset_process_state = _reset_process_state  # type: ignore[attr-defined]
 sys.modules[__name__] = _new

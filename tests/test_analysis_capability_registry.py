@@ -37,7 +37,6 @@ from marivo.introspection.live.model import SURFACE_LIMITS, SurfaceLimits
 # ---------------------------------------------------------------------------
 
 EXPECTED_ROOT_GROUPS = (
-    "session_state",
     "semantic_inputs",
     "policies_builders",
     "artifact_production",
@@ -49,8 +48,8 @@ EXPECTED_ROOT_GROUPS = (
 )
 
 
-def test_root_group_order_has_nine_groups() -> None:
-    assert len(ROOT_GROUP_ORDER) == 9
+def test_root_group_order_has_eight_groups() -> None:
+    assert len(ROOT_GROUP_ORDER) == 8
 
 
 def test_root_group_order_matches_expected_teaching_order() -> None:
@@ -619,7 +618,6 @@ def test_session_recovery_methods_registered() -> None:
     for expected in (
         "session.get_or_create",
         "session.current",
-        "session.list",
         "session.recent",
         "session.inspect",
         "session.delete",

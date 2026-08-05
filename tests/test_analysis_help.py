@@ -93,7 +93,7 @@ def test_focused_help_documents_mv_namespace_import() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_root_help_has_nine_deterministic_groups() -> None:
+def test_root_help_has_eight_deterministic_groups() -> None:
     text = _text()
     for group in ROOT_GROUP_ORDER:
         # Each group must appear as a section header in the rendered output.
