@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from marivo.analysis.errors import (
-    AnalysisRepair,
     AttributionMaterializationError,
     JobNotFoundError,
 )
@@ -19,7 +18,6 @@ from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payloa
 from marivo.analysis.session.core import Session
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows.spec import TimeScopeInput
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import (
     DimensionKind,
     FieldKind,
@@ -330,27 +328,6 @@ def recover_alignment_policy(delta: DeltaFrame) -> AlignmentPolicy:
             message="DeltaFrame alignment metadata is not recoverable",
             context={
                 "recoverability_status": "alignment_policy_missing",
-                "delta_ref": delta.ref,
-            },
-        )
-    calendar_payload = raw_alignment.get("calendar")
-    if isinstance(calendar_payload, dict) and "id" in calendar_payload:
-        raise AttributionMaterializationError(
-            message=(
-                "DeltaFrame alignment calendar uses the legacy 'id' field; "
-                "artifact identity is the canonical 'ref' field"
-            ),
-            repair=AnalysisRepair(
-                kind="retry",
-                action=(
-                    "Re-create the DeltaFrame from its source MetricFrames so its "
-                    "alignment calendar is persisted under the canonical 'ref' field."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
-                snippet="delta = session.compare(current, baseline, alignment=alignment)",
-            ),
-            context={
-                "recoverability_status": "alignment_calendar_legacy_id",
                 "delta_ref": delta.ref,
             },
         )
