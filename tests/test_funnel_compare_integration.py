@@ -575,21 +575,21 @@ def test_funnel_delta_transform_fails_closed(funnel_session: Any) -> None:
 def test_funnel_delta_contract_hides_metric_only_affordances(
     funnel_session: Any,
 ) -> None:
-    """contract() must not advertise Metric-only continuations on a funnel
-    delta; the surviving affordances are the real runtime-capable paths."""
+    """contract() must advertise exactly the real funnel continuations.
+
+    The surviving affordance set is the closed-union contract: a new
+    _MF_OR_DF transform op or a leaked Metric-only continuation must make
+    this assertion red so its author decides explicitly whether it applies
+    to a funnel delta.
+    """
     current, baseline = two_scope_funnel_frames(funnel_session)
     delta = funnel_session.compare(current, baseline)
     assert delta.meta.semantic_kind == "funnel"
 
-    metric_only = {"DeltaFrame.components"} | {
-        f"transform.{name}"
-        for name in ("bottomk", "filter", "rank", "rollup", "slice", "topk", "window")
-    }
     advertised = {affordance.capability_id for affordance in delta.contract().affordances}
-    assert advertised & metric_only == set()
-    # The real funnel continuations must survive the filter.
-    assert {"attribute", "assess_quality"}.issubset(advertised)
-    assert advertised >= {
+    assert advertised == {
+        "attribute",
+        "assess_quality",
         "discover.driver_axes",
         "discover.interesting_slices",
         "discover.interesting_windows",
