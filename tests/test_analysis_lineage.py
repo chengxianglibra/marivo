@@ -24,6 +24,9 @@ def test_lineage_default_empty():
 
 
 def test_lineage_rejects_positional_construction():
+    # Keyword construction must succeed so the TypeError below is pinned to
+    # "positional args rejected", not "the field values are invalid".
+    Lineage(steps=[], external_inputs=[])
     with pytest.raises(TypeError):
         Lineage([], [])  # type: ignore[misc, call-arg]
 
@@ -35,6 +38,15 @@ def test_lineage_with_steps():
 
 
 def test_lineage_step_rejects_positional_construction():
+    # Keyword construction must succeed so the TypeError below is pinned to
+    # "positional args rejected", not "the field values are invalid".
+    LineageStep(
+        intent="observe",
+        job_ref="job_1",
+        inputs=[],
+        params_digest="sha256:abc",
+        params={"metric": "sales.revenue"},
+    )
     with pytest.raises(TypeError):
         LineageStep("observe", "job_1", [], "sha256:abc", {"metric": "sales.revenue"})  # type: ignore[misc, call-arg]
 
