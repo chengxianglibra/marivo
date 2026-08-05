@@ -190,6 +190,9 @@ def _frame_summary_entry() -> FrameSummaryEntry:
 
 
 def test_frame_summary_entry_rejects_positional_construction() -> None:
+    # Keyword construction must succeed so the TypeError below is pinned to
+    # "positional args rejected", not "the field values are invalid".
+    _frame_summary_entry()
     with pytest.raises(TypeError):
         FrameSummaryEntry(
             "frame_ab12",
@@ -201,6 +204,22 @@ def test_frame_summary_entry_rejects_positional_construction() -> None:
             10,
             "sha256:abc",
         )  # type: ignore[misc, call-arg]
+
+
+def test_job_summary_rejects_positional_construction() -> None:
+    # Keyword construction must succeed so the TypeError below is pinned to
+    # "positional args rejected", not "the field values are invalid".
+    _job_summary()
+    with pytest.raises(TypeError):
+        JobSummary("job_1", "observe", "succeeded", "2026-06-13T00:00:00Z", 12, "frame_ab12")  # type: ignore[misc, call-arg]
+
+
+def test_session_summary_rejects_positional_construction() -> None:
+    # Keyword construction must succeed so the TypeError below is pinned to
+    # "positional args rejected", not "the field values are invalid".
+    _session_summary()
+    with pytest.raises(TypeError):
+        SessionSummary("sess_1", "q2", None, "2026-06-13T00:00:00Z", "2026-06-13T00:00:00Z", 1, 2)  # type: ignore[misc, call-arg]
 
 
 def _session_summary() -> SessionSummary:

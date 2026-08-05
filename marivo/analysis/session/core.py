@@ -100,7 +100,7 @@ def _track_session_operation(
     )
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, kw_only=True)
 class JobSummary(RenderableResult):
     id: str
     intent: str

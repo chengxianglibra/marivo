@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 """
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, kw_only=True)
 class SessionSummary(RenderableResult):
     """Lightweight session metadata returned by page_sessions / session_summary."""
 
