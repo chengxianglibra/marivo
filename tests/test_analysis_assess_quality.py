@@ -197,12 +197,67 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     )
     report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
-    assert {"null_ratio:value", "null_ratio:value2"}.issubset(ids)
+    # Closed-set: any new check row on this shape must be disclosed explicitly.
+    assert ids == {"null_ratio:value", "null_ratio:value2", "row_count", "time_coverage"}
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = session.assess_quality(empty)
     assert empty_report.meta.overall_status == "blocking"
     assert empty_report.meta.issues[0].kind == "sample_size_low"
+
+
+def test_observe_frame_runs_null_ratio_checks(tmp_path):
+    """A real observe() frame must execute null_ratio on its value column.
+
+    Issue #54 P2-1: converging ``_measure_columns`` onto typed
+    ``measure_bindings`` activates the null_ratio check for production observe
+    frames (the legacy ``measure`` dict carries only ``{'name': ...}``). Pin the
+    closed check_id set so the activation stays explicit.
+    """
+    import ibis
+
+    from marivo.analysis.intents.observe import observe
+    from marivo.refs import ref
+    from tests.shared_fixtures import (
+        bootstrap_multi_metric_sales_project,
+        seed_multi_metric_tables,
+    )
+
+    bootstrap_multi_metric_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    seed_multi_metric_tables(con)
+    session = session_attach.get_or_create(name="observe_q", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        session.catalog.require(ref.metric("sales.revenue")).ref,
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+        session=session,
+    )
+    report = session.assess_quality(frame)
+    ids = set(report.to_pandas()["check_id"])
+    assert ids == {"null_ratio:value", "row_count", "time_coverage"}
+
+
+def test_null_rate_high_blocking_issue_carries_repair(tmp_path):
+    """A null_ratio crossing 0.5 must produce a blocking issue with a repair."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        [
+            {"time": pd.Timestamp("2026-01-01"), "value": None},
+            {"time": pd.Timestamp("2026-01-02"), "value": None},
+            {"time": pd.Timestamp("2026-01-03"), "value": 1.0},
+        ],
+    )
+    report = session.assess_quality(frame)
+    assert report.meta.overall_status == "blocking"
+    issues = [issue for issue in report.meta.issues if issue.kind == "null_rate_high"]
+    assert len(issues) == 1
+    assert issues[0].severity == "blocking"
+    assert issues[0].check_id == "null_ratio:value"
+    assert issues[0].repair is not None
+    assert issues[0].repair.kind == "retry"
 
 
 def test_scalar_metric_single_row_does_not_emit_row_count_warning(tmp_path):

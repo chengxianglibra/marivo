@@ -113,9 +113,7 @@ class MeasureBindingV1:
     cumulative: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            self.identity, (CatalogMetricIdentity, RuntimeExpressionIdentity)
-        ):
+        if not isinstance(self.identity, (CatalogMetricIdentity, RuntimeExpressionIdentity)):
             raise TypeError("measure binding identity must be a MetricIdentity")
         if type(self.value_column) is not str or not self.value_column:
             raise ValueError("measure binding value_column must be a non-empty string")

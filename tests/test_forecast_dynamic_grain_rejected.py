@@ -9,9 +9,7 @@ from marivo.refs import ref as ref_factory
 class _Meta:
     axis_bindings = (
         AxisBindingV1(
-            ref=RefPayloadV1.from_ref(
-                ref_factory.time_dimension("sales.orders.created_at")
-            ),
+            ref=RefPayloadV1.from_ref(ref_factory.time_dimension("sales.orders.created_at")),
             column="bucket_start",
             role="time_dimension",
             grain="5minute",

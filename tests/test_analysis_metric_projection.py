@@ -296,6 +296,36 @@ def test_projected_frame_flows_into_compare(sales_session):
     assert delta.meta.kind == "delta_frame"
 
 
+def test_projected_frame_reloads_with_unit_state(sales_session):
+    """Projection product must survive a cold reload with unit_state intact.
+
+    Issue #54 P1 regression: the typed ``measures_meta()`` branch dropped the
+    ``unit_state`` key, so the projected frame's binding carried ``None`` and
+    ``load_frame`` rejected it as corrupt current-schema state.
+    """
+    from marivo.analysis.session._load import load_frame
+
+    frame = _fused(sales_session)
+    revenue = frame.metric("sales.revenue")
+    # The projected binding must carry a typed unit_state (not None).
+    assert revenue.meta.unit_state is not None
+    assert revenue.meta.measure_bindings[0].unit_state is not None
+
+    reloaded = load_frame(revenue.ref, session=sales_session)
+    assert reloaded.meta.kind == "metric_frame"
+    assert reloaded.meta.unit_state is not None
+    assert reloaded.meta.measure_bindings[0].unit_state is not None
+
+
+def test_projected_frame_measures_meta_has_unit_state(sales_session):
+    """The projected frame's render dict must still expose unit_state."""
+    frame = _fused(sales_session)
+    revenue = frame.metric("sales.revenue")
+    entry = revenue.measures_meta()[0]
+    assert "unit_state" in entry
+    assert entry["unit_state"] is not None
+
+
 # ---------------------------------------------------------------------------
 # Task 8: arity-aware _card and contract preconditions
 # ---------------------------------------------------------------------------

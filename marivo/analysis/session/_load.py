@@ -690,10 +690,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     parsed_meta.unit_state
                     if len(parsed_meta.metric_identities) == 1
                     else (
-                        tuple(
-                            binding.unit_state
-                            for binding in parsed_meta.measure_bindings
-                        )
+                        tuple(binding.unit_state for binding in parsed_meta.measure_bindings)
                         if parsed_meta.measure_bindings
                         else parsed_meta.measures
                     )
