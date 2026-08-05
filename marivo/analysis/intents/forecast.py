@@ -43,7 +43,7 @@ from marivo.analysis.intents._metric_axes import (
 from marivo.analysis.intents._validate import cumulative_issue, require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 
 _FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 _DEFAULT_SEASONALITY = {"day": 7, "week": 52, "month": 12, "quarter": 4}
@@ -61,7 +61,7 @@ def forecast(
     session: Session | None = None,
 ) -> ForecastFrame:
     session = resolve_session(session)
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     if getattr(getattr(history, "meta", None), "kind", None) != "metric_frame":
         raise ForecastShapeUnsupportedError(
             message="forecast requires MetricFrame time_series or panel input"

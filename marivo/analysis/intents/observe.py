@@ -171,7 +171,7 @@ from marivo.analysis.session._runtime import (
     persist_reused_artifact_job,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows.spec import (
     GrainInput,
@@ -783,7 +783,7 @@ def observe(
         single_metric = metrics
     if session is None:
         session = require_current_session()
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     catalog = session.catalog
     catalog._require_index()
     resolved_cohort = resolve_subject_cohort(
@@ -1721,7 +1721,7 @@ def _observe_metric_forest(
     """Materialize one arity-N catalog/runtime forest through the shared graph."""
     if session is None:
         session = require_current_session()
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     catalog = session.catalog
     catalog._require_index()
     resolved_cohort = resolve_subject_cohort(

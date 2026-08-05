@@ -47,7 +47,7 @@ from marivo.analysis.intents._window_pairs import (
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 
 
 def hypothesis_test(
@@ -64,7 +64,7 @@ def hypothesis_test(
     session: Session | None = None,
 ) -> HypothesisTestResult:
     session = resolve_session(session)
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
         raise SemanticKindMismatchError(message="hypothesis_test requires MetricFrame inputs")
     require_single_metric(a, intent="hypothesis_test")

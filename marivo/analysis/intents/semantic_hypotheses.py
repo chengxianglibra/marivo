@@ -50,7 +50,7 @@ from marivo.analysis.intents._derived import (
 )
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology.types import OntologyEndpointRef, SemanticEdgeIR, SemanticEdgeRef
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag
@@ -309,7 +309,7 @@ def semantic_hypotheses(
     session: Session,
 ) -> CandidateSet:
     """Discover unscored one-edge Metric hypotheses from a persisted source."""
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     ensure_frame_in_session(source, session=session, label="semantic_hypotheses source")
     if type(limit) is not int or not 1 <= limit <= 200:
         raise SemanticKindMismatchError(

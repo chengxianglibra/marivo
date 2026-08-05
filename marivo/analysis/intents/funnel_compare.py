@@ -36,7 +36,7 @@ from marivo.analysis.session._runtime import (
     persist_reused_artifact_job,
     register_frame_artifact,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -193,7 +193,7 @@ def compare_funnels(
     session: Session,
 ) -> DeltaFrame:
     """Compare two exact, structurally compatible Event funnels."""
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     started_at = datetime.now(UTC)
     started = monotonic()
     current_frame, baseline_frame = _require_funnel_pair(current, baseline, session=session)

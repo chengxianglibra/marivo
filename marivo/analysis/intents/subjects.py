@@ -47,7 +47,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.subject import DroppedBefore, SubjectSelection
 from marivo.refs import RefPayloadV1
 from marivo.semantic.catalog import StateModelEntry
@@ -502,7 +502,7 @@ def select_subjects(
     """Materialize one closed subject selection from a journey or replay history."""
 
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     normalized_selection: SubjectSelection
     evidence_subject: EventSubject | LifecycleSubject
     if type(artifact) is EventFrame:

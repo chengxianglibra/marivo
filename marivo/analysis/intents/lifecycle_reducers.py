@@ -59,7 +59,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
@@ -463,7 +463,7 @@ def distribution(
 ) -> LifecycleFrame:
     """Reduce committed replay history into dense point-in-time distributions."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source, source_meta, source_ref, source_fingerprint = _require_history_source(
         session=resolved_session,
         history=history,
@@ -567,7 +567,7 @@ def transitions(
 ) -> LifecycleFrame:
     """Count dense modeled state pairs from committed replay history."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source, source_meta, source_ref, source_fingerprint = _require_history_source(
         session=resolved_session,
         history=history,
@@ -645,7 +645,7 @@ def dwell(
 ) -> LifecycleFrame:
     """Summarize completed and censored dwell from committed replay history."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source, source_meta, source_ref, source_fingerprint = _require_history_source(
         session=resolved_session,
         history=history,
@@ -715,7 +715,7 @@ def violations(
 ) -> LifecycleFrame:
     """Expose a typed copy of the committed replay violation trace."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source, source_meta, source_ref, source_fingerprint = _require_history_source(
         session=resolved_session,
         history=history,

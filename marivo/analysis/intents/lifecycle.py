@@ -60,7 +60,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.windows.spec import TimeScope
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind, StateModelKind
@@ -521,7 +521,7 @@ def replay(
 ) -> LifecycleFrame:
     """Replay one StateModel from its explicit inception seed into clipped history."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
 
     model_ref, model_ir, model_fingerprint = _resolve_model(
         session=resolved_session,
