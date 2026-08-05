@@ -287,6 +287,9 @@ def attribute(
     ensure_session_can_execute(resolved_session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="attribute requires a DeltaFrame input")
+    # This funnel gate must stay BEFORE the cumulative read below: cumulative
+    # no longer exists on FunnelDeltaFrameMeta, so narrowing the union first is
+    # required (not a cosmetic reorder).
     if not isinstance(frame.meta, DeltaFrameMeta):
         raise SemanticKindMismatchError(
             message="generic attribute requires a metric DeltaFrame; DeltaFrame[funnel] "
