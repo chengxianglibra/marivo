@@ -563,6 +563,16 @@ def _extract_findings(
             )
         return _FINDINGS_ADAPTER.validate_python(findings)
     if extractor_family == "delta_frame":
+        alignment = getattr(meta, "alignment", None)
+        cumulative_pairs = (
+            alignment.get("cumulative_pairs") if isinstance(alignment, dict) else None
+        )
+        cumulative_change = getattr(meta, "cumulative_change", None)
+        cumulative_change_payload = (
+            cumulative_change.model_dump(mode="json")
+            if isinstance(cumulative_change, BaseModel)
+            else None
+        )
         findings = extract_delta_findings(
             df=df,
             artifact_id=artifact_id,
@@ -573,6 +583,13 @@ def _extract_findings(
             dimension_columns=_dimension_columns_from_meta(meta),
             time_column=_time_column_from_meta(meta),
             unit=getattr(meta, "unit", None),
+            cumulative_pairs=(cumulative_pairs if isinstance(cumulative_pairs, dict) else None),
+            cumulative_change_schema=(
+                cumulative_change_payload.get("schema")
+                if isinstance(cumulative_change_payload, dict)
+                and isinstance(cumulative_change_payload.get("schema"), str)
+                else None
+            ),
         )
     elif extractor_family == "attribution_frame":
         refs = getattr(meta, "source_refs", [])
