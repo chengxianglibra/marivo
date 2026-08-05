@@ -179,10 +179,25 @@ def test_analysis_escape_hatch_module_is_deleted() -> None:
         importlib.import_module("marivo.analysis.escape_hatch")
 
 
-def test_ensure_session_can_execute_is_the_session_guard() -> None:
+def test_ensure_session_can_execute_blocks_read_only_sessions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The canonical guard still carries its behavior: a read-only session
+    (no backend factory) must be rejected with ``NoBackendFactoryError``."""
+    import marivo.analysis.session as session_attach
+    from marivo.analysis.errors import NoBackendFactoryError
     from marivo.analysis.session.core import ensure_session_can_execute
 
-    assert callable(ensure_session_can_execute)
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    read_only = session_attach.get_or_create(name="demo", use_datasources=False)
+    try:
+        with __import__("pytest").raises(NoBackendFactoryError):
+            ensure_session_can_execute(read_only)
+    finally:
+        read_only.close()
+        session_attach._reset_process_state()
 
 
 def test_ensure_session_writable_alias_is_removed() -> None:
