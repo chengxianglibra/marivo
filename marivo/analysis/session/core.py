@@ -118,7 +118,7 @@ class JobSummary(RenderableResult):
         )
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, kw_only=True)
 class FrameSummaryEntry(RenderableResult):
     ref: str
     kind: str

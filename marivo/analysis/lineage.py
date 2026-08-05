@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class LineageStep:
     intent: str
     job_ref: str | None
@@ -16,7 +16,7 @@ class LineageStep:
     analysis_purpose: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Lineage:
     steps: list[LineageStep] = field(default_factory=list)
     external_inputs: list[str] = field(default_factory=list)
