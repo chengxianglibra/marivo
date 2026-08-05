@@ -471,6 +471,14 @@ def test_compare_all_history_drops_one_sided_and_retains_matched_null(
     finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
     assert finding.value.presence is None
     assert finding.value.magnitude is None
+    assert finding.value.matched_rows == 1
+    assert finding.value.matched_null_rows == 1
+    assert finding.value.current_unpaired_rows == 1
+    assert finding.value.baseline_unpaired_rows == 1
+    assert finding.value.unpaired_action == "dropped"
+    assert finding.value.cumulative_change == "all-history-level-change/v1"
+    assert finding.value.source_revision == "unverified"
+    assert finding.value.interval_flow_equivalence == "not_asserted"
     rendered = delta.render()
     assert "matched_null_rows=1" in rendered
     assert "current_unpaired_rows=1" in rendered

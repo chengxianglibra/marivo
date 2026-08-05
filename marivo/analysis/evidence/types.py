@@ -590,6 +590,14 @@ class DeltaFindingValue(_FrozenModel):
     bucket: str | None = None
     current_evaluation_end: str | None = None
     baseline_evaluation_end: str | None = None
+    matched_rows: int | None = Field(default=None, ge=0)
+    matched_null_rows: int | None = Field(default=None, ge=0)
+    current_unpaired_rows: int | None = Field(default=None, ge=0)
+    baseline_unpaired_rows: int | None = Field(default=None, ge=0)
+    unpaired_action: Literal["dropped"] | None = None
+    cumulative_change: Literal["all-history-level-change/v1"] | None = None
+    source_revision: Literal["unverified"] | None = None
+    interval_flow_equivalence: Literal["not_asserted"] | None = None
 
 
 class ContributionFindingValue(_FrozenModel):

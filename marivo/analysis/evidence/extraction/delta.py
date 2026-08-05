@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, cast
 
@@ -71,6 +72,21 @@ def _row_presence(
     return _presence(current, baseline)
 
 
+def _cumulative_pair_evidence(pairs: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Project the canonical alignment counters into persisted evidence."""
+
+    if pairs is None:
+        return {}
+    fields = (
+        "matched_rows",
+        "matched_null_rows",
+        "current_unpaired_rows",
+        "baseline_unpaired_rows",
+        "unpaired_action",
+    )
+    return {field: pairs[field] for field in fields if field in pairs}
+
+
 _ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
 
 
@@ -113,6 +129,8 @@ def extract_delta_findings(
     dimension_columns: list[str] | None = None,
     time_column: str | None = None,
     unit: str | None = None,
+    cumulative_pairs: Mapping[str, Any] | None = None,
+    cumulative_change_schema: str | None = None,
 ) -> list[Finding]:
     """Extract delta findings from a comparison DataFrame.
 
@@ -121,6 +139,15 @@ def extract_delta_findings(
     if df.empty:
         return []
     delta_kind = _delta_kind(semantic_kind)
+    pair_evidence = _cumulative_pair_evidence(cumulative_pairs)
+    is_all_history_change = cumulative_change_schema == "all-history-level-change/v1"
+    cumulative_change: Literal["all-history-level-change/v1"] | None = (
+        "all-history-level-change/v1" if is_all_history_change else None
+    )
+    source_revision: Literal["unverified"] | None = "unverified" if is_all_history_change else None
+    interval_flow_equivalence: Literal["not_asserted"] | None = (
+        "not_asserted" if is_all_history_change else None
+    )
 
     if semantic_kind == "scalar":
         row = df.iloc[0]
@@ -156,6 +183,10 @@ def extract_delta_findings(
                     baseline_evaluation_end=_timestamp_text(
                         row.get(BASELINE_EVALUATION_END_COLUMN)
                     ),
+                    **pair_evidence,
+                    cumulative_change=cumulative_change,
+                    source_revision=source_revision,
+                    interval_flow_equivalence=interval_flow_equivalence,
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.delta",
@@ -222,6 +253,10 @@ def extract_delta_findings(
                         baseline_evaluation_end=_timestamp_text(
                             row.get(BASELINE_EVALUATION_END_COLUMN)
                         ),
+                        **pair_evidence,
+                        cumulative_change=cumulative_change,
+                        source_revision=source_revision,
+                        interval_flow_equivalence=interval_flow_equivalence,
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
@@ -295,6 +330,10 @@ def extract_delta_findings(
                         baseline_evaluation_end=_timestamp_text(
                             row.get(BASELINE_EVALUATION_END_COLUMN)
                         ),
+                        **pair_evidence,
+                        cumulative_change=cumulative_change,
+                        source_revision=source_revision,
+                        interval_flow_equivalence=interval_flow_equivalence,
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
