@@ -64,7 +64,7 @@ from marivo.analysis.semantic_inputs import (
     normalize_dimension_boundary as normalize_catalog_dimension_boundary,
 )
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
@@ -225,7 +225,7 @@ def _discover_dispatch(
         >>> candidates.show()
     """
     session = resolve_session(session)
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     search_space_ids = _normalize_dimension_inputs_boundary(
         session,
         search_space,

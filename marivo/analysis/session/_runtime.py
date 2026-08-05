@@ -960,21 +960,6 @@ def _build_connection_runtime(
     )
 
 
-def _compile_backend_factory(
-    backends: dict[str, Callable[[], Any]] | None,
-    backend_factory: Callable[[str], Any] | None,
-    *,
-    use_datasources: bool = True,
-) -> AnalysisConnectionRuntime:
-    """Compatibility shim for internal callers not yet moved to connection runtimes."""
-    return _build_connection_runtime(
-        SessionStore().project_root,
-        backends,
-        backend_factory,
-        use_datasources=use_datasources,
-    )
-
-
 def _build_semantic_catalog(project_root: Path) -> Any:
     """Build a SemanticCatalog from the project root, preserving not-ready state."""
     from marivo.semantic.catalog import SemanticCatalog

@@ -45,7 +45,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.refs import ref as ref_factory
 
 EventReducerHelpTarget = Literal["events.funnel", "events.time_to_event"]
@@ -253,7 +253,7 @@ def funnel(
 ) -> EventFrame:
     """Reduce canonical first-per-subject journeys into a reconciled funnel."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source_ref, source_fingerprint = _require_journey_source(
         session=resolved_session,
         journeys=journeys,
@@ -447,7 +447,7 @@ def time_to_event(
 ) -> EventFrame:
     """Project persisted journey assignments into exact time-to-event rows."""
     resolved_session = session if session is not None else require_current_session()
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     source_ref, source_fingerprint = _require_journey_source(
         session=resolved_session,
         journeys=journeys,

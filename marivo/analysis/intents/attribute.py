@@ -48,7 +48,7 @@ from marivo.analysis.intents.decompose import (
     _validate_attribution_semantics,
     decompose,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
@@ -283,7 +283,7 @@ def attribute(
 ) -> AttributionFrame:
     """Attribute a DeltaFrame's movement over explicit deterministic axes."""
     resolved_session = resolve_session(session)
-    ensure_session_writable(resolved_session)
+    ensure_session_can_execute(resolved_session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="attribute requires a DeltaFrame input")
     if frame.meta.cumulative is not None:

@@ -1516,12 +1516,6 @@ def ensure_session_can_execute(session: Session) -> None:
         )
 
 
-# Deprecated: kept for backward compatibility with intent modules that import
-# ensure_session_writable. Will be removed once those modules are migrated to
-# ensure_session_can_execute (Task 5).
-ensure_session_writable = ensure_session_can_execute
-
-
 @dataclass(frozen=True, repr=False)
 class SessionEvents(RenderableResult):
     """Session-bound Event Journey materialization and reducer operators."""

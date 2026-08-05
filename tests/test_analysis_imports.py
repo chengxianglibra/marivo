@@ -177,3 +177,43 @@ def test_analysis_escape_hatch_module_is_deleted() -> None:
 
     with __import__("pytest").raises(ModuleNotFoundError):
         importlib.import_module("marivo.analysis.escape_hatch")
+
+
+def test_ensure_session_can_execute_is_the_session_guard() -> None:
+    from marivo.analysis.session.core import ensure_session_can_execute
+
+    assert callable(ensure_session_can_execute)
+
+
+def test_ensure_session_writable_alias_is_removed() -> None:
+    with __import__("pytest").raises(ImportError):
+        from marivo.analysis.session.core import ensure_session_writable  # noqa: F401
+
+
+def test_intent_modules_use_canonical_session_guard_name() -> None:
+    """Intent modules must import the canonical name, never the old alias."""
+    import pathlib
+
+    import marivo.analysis
+
+    intents_dir = pathlib.Path(marivo.analysis.__file__).parent / "intents"
+    stale = []
+    for path in sorted(intents_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "ensure_session_writable" in line:
+                stale.append(f"{path.name}: {line.strip()}")
+    assert not stale, "intent modules still reference ensure_session_writable:\n" + "\n".join(stale)
+
+
+def test_compile_backend_factory_shim_is_removed() -> None:
+    import marivo.analysis.session._runtime as runtime
+
+    assert not hasattr(runtime, "_compile_backend_factory")
+
+
+def test_migration_failed_error_is_removed() -> None:
+    import marivo.analysis.errors as errors
+
+    assert not hasattr(errors, "MigrationFailedError")

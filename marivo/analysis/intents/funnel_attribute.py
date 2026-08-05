@@ -65,7 +65,7 @@ from marivo.analysis.session._runtime import (
     persist_reused_artifact_job,
     register_frame_artifact,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import ref as ref_factory
 
@@ -356,7 +356,7 @@ def attribute_funnel(
     session: Session,
 ) -> AttributionFrame:
     """Attribute one persisted funnel loss-rate delta over governed subject axes."""
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     started_at = datetime.now(UTC)
     started = monotonic()
     meta = _require_ungrouped_delta(delta)

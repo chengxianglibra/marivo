@@ -57,7 +57,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import (
     AbsoluteWindow,
@@ -169,7 +169,7 @@ def _prepare_transform[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
 ) -> tuple[Session, TTransformFrame]:
     session = require_current_session()
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     if isinstance(frame, MetricFrame):
         require_single_metric(frame, intent="transform")
     if frame.meta.session_id != session.id:

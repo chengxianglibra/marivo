@@ -61,7 +61,7 @@ from marivo.analysis.session._runtime import (
     persist_job_record,
     register_frame_artifact,
 )
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 
 
 def assess_quality(
@@ -71,7 +71,7 @@ def assess_quality(
     session: Session | None = None,
 ) -> QualityReport:
     session = resolve_session(session)
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     if not isinstance(
         frame,
         (MetricFrame, EventFrame, LifecycleFrame, DeltaFrame, AttributionFrame),

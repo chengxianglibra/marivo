@@ -49,7 +49,7 @@ from marivo.analysis.intents._validate import (
 )
 from marivo.analysis.semantic_inputs import normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
@@ -1458,7 +1458,7 @@ def decompose(
     _params_extra: dict[str, object] | None = None,
 ) -> AttributionFrame:
     session = resolve_session(session)
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
     if frame.meta.cumulative is not None:
