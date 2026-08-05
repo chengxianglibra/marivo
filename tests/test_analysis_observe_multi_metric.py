@@ -412,3 +412,43 @@ def test_multi_metric_observe_accepts_cumulative_metric(sales_session):
 
     assert frame.value_columns == ("revenue", "cumulative_revenue")
     assert frame.meta.metric_identities is not None
+
+
+def test_multi_metric_conflicting_status_time_axes_fail_closed(
+    sales_session, monkeypatch
+) -> None:
+    """When two metric roots prefer different status time axes, multi-metric
+    observe must fail closed with a repair instead of silently picking one
+    (issue #36)."""
+    import importlib
+
+    observe_module = importlib.import_module("marivo.analysis.intents.observe")
+
+    calls = 0
+
+    def fake_preferred(catalog, metric_input):
+        nonlocal calls
+        calls += 1
+        return "sales.orders.order_date" if calls == 1 else "sales.orders.status_at"
+
+    monkeypatch.setattr(
+        observe_module, "_preferred_status_time_dimension_for_metric", fake_preferred
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(
+            [
+                make_ref("sales.revenue", SemanticKind.METRIC),
+                make_ref("sales.order_count", SemanticKind.METRIC),
+            ],
+            time_scope=WINDOW,
+            grain="day",
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.location == "observe.time_dimension"
+    assert "conflicting" in error.message
+    assert error.repair is not None
+    assert error.repair.action
+    assert "time_dimension" in error.repair.action

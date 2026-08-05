@@ -1618,8 +1618,12 @@ def test_trailing_coverage_partial_bucket_has_precise_ratio(trailing_partial_fra
 def test_cumulative_derived_multi_metric_observe_uses_status_time_axis(
     tmp_path, monkeypatch
 ) -> None:
-    """A cumulative derived metric in multi-metric observe must resolve its
-    status time axis, matching single-metric observe (issue #36)."""
+    """A cumulative derived metric in multi-metric observe keeps working.
+
+    Regression guard for issue #36: this single-candidate cumulative path
+    already worked before the fix (the folded-derived path was the gap), so it
+    pins the shared status-axis inference without claiming a new behavior.
+    """
     from marivo.analysis.intents.observe import observe
     from tests.ref_helpers import make_ref
 
