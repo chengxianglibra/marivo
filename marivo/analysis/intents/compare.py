@@ -569,7 +569,7 @@ def _align_component_role(
                     "alignment": alignment.model_dump(mode="json"),
                 },
             )
-        loaded_calendar = session._calendars.get(calendar_ref.id)
+        loaded_calendar = session._calendars.get(calendar_ref.ref)
         report_tz = session.report_tz_name
         policy = CalendarPolicy(
             mode=alignment.kind,
@@ -1239,7 +1239,7 @@ def compare(
                     "alignment": alignment.model_dump(mode="json"),
                 },
             )
-        loaded_calendar = session._calendars.get(calendar_ref.id)
+        loaded_calendar = session._calendars.get(calendar_ref.ref)
         report_tz = session.report_tz_name
         policy = CalendarPolicy(
             mode=alignment.kind,
@@ -2346,7 +2346,7 @@ def _calendar_context(
                 "alignment": alignment.model_dump(mode="json"),
             },
         )
-    loaded_calendar = session._calendars.get(calendar_ref.id)
+    loaded_calendar = session._calendars.get(calendar_ref.ref)
     report_tz = session.report_tz_name
     policy = CalendarPolicy(
         mode=alignment.kind,

@@ -254,7 +254,7 @@ def read_frame_from_disk(
         A ``(DataFrame, meta_dict)`` tuple.
     """
     if isinstance(frame_ref, ArtifactRef):
-        frame_ref = frame_ref.id
+        frame_ref = frame_ref.ref
     frame_dir = layout.frames_dir / frame_ref
     df = pd.read_parquet(frame_dir / "data.parquet", engine="pyarrow", to_pandas_kwargs={})
     meta = json.loads((frame_dir / "meta.json").read_text())

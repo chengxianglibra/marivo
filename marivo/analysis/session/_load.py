@@ -462,7 +462,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     import json
 
     if isinstance(ref, ArtifactRef):
-        ref = ref.id
+        ref = ref.ref
 
     # Check the store first — the artifacts table is the source of truth.
     artifact_row = session._store.get_artifact(session.id, ref)

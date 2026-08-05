@@ -329,7 +329,8 @@ def test_show_points_to_full_rows_when_digest_items_are_omitted():
 
 def test_repr_and_show_are_bounded_agent_reads(capsys):
     frame = BaseFrame(_df=pd.DataFrame({"value": range(200)}), meta=_meta(row_count=200))
-    assert frame.id == frame.ref
+    # Artifact identity is exposed via ``ref`` only; there is no ``id`` alias.
+    assert not hasattr(frame, "id")
     assert "call .show() to inspect" in repr(frame)
     frame.show(max_output_bytes=300)
     assert len(capsys.readouterr().out.encode()) <= 301

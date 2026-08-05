@@ -124,10 +124,10 @@ plus the parquet bytes (`compute_frame_content_hash`). After `observe()` /
 produced in one script can be reloaded in the next with
 `session.get_frame(prev_frame.ref)`.
 
-Every frame also exposes `frame.id` as a read-only alias for `frame.ref`.
-`FrameSummaryEntry.id` aliases its `ref` the same way. `ref` remains the
-canonical persistence and recovery field; the aliases never create a second
-identity or change on-disk metadata.
+`ref` is the single artifact identity vocabulary: frames expose `frame.ref`,
+`FrameSummaryEntry` exposes its `ref`, and typed `ArtifactRef` carries the
+same field. There is no `id` alias — one name end to end avoids agent
+selection and serialization burden.
 
 `frame.state` (an `ArtifactState`) carries only the baseline runtime facts:
 `materialization` (`materialized` | `recomputed` | `partial`) and `content_hash`.

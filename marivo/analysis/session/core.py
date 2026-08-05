@@ -131,11 +131,6 @@ class FrameSummaryEntry(RenderableResult):
     analysis_purpose: str | None = None
     evidence_status: str = "unavailable"
 
-    @property
-    def id(self) -> str:
-        """Alias for the persisted frame ``ref``."""
-        return self.ref
-
     def _repr_identity(self) -> str:
         parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
         if self.metric_id:

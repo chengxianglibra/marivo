@@ -66,7 +66,7 @@ def test_session_class_exposes_execution_surface():
 def test_analysis_exports_no_promotion_types():
     import marivo.analysis as mv
 
-    assert mv.ArtifactRef("frame_1").id == "frame_1"
+    assert mv.ArtifactRef("frame_1").ref == "frame_1"
     assert not hasattr(mv, "PromotionPolicy")
     assert not hasattr(mv.errors, "PromotionFailedError")
 
