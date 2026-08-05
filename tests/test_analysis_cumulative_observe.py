@@ -9,7 +9,10 @@ import pytest
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis._cumulative import EVALUATION_END_COLUMN
-from marivo.analysis.errors import CumulativeFrameUnsupportedError
+from marivo.analysis.errors import (
+    AttributeAdmissionBlockedError,
+    CumulativeFrameUnsupportedError,
+)
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
@@ -137,7 +140,7 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "aggregation": None,
         "status_time_dimension_ref": None,
     }
-    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 3
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 4
     legacy_params = dict(frame.lineage.steps[-1].params)
     legacy_params.pop("cumulative_contract_version")
     legacy_params.pop("metric_semantics")
@@ -180,6 +183,49 @@ def test_cumulative_weighted_mean_accumulates_components_before_dividing(
         "2026-07-02": pytest.approx(3520.0 / 35.0),
         "2026-07-03": pytest.approx(4537.0 / 45.0),
     }
+
+
+@pytest.mark.parametrize("grain", [None, "day"])
+def test_cumulative_weighted_business_axis_attribute_executes_supported_route(
+    tmp_path, monkeypatch, grain: str | None
+) -> None:
+    """Weighted cumulative business attribution survives scalar and keyed replay."""
+
+    session = _session(tmp_path, monkeypatch)
+    metric = make_ref("sales.cum_weighted_user", SemanticKind.METRIC)
+    current = observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        grain=grain,
+        session=session,
+    )
+    baseline = observe(
+        metric,
+        time_scope=(
+            {"start": "2026-07-01", "end": "2026-07-05"}
+            if grain is None
+            else {"start": "2026-06-29", "end": "2026-07-03"}
+        ),
+        grain=grain,
+        session=session,
+    )
+    delta = compare(current, baseline, session=session)
+    capability = delta.contract().cumulative_attribution
+    assert capability is not None
+    assert capability.business_axes.status == "supported"
+
+    region = make_ref("sales.events.region", SemanticKind.DIMENSION)
+    drivers = attribute(delta, axes=[region], session=session)
+
+    assert drivers.meta.method == "weighted_mix"
+    assert drivers.meta.scope_delta_ref == (delta.meta.artifact_id or delta.ref)
+    assert drivers.meta.source_refs[0] == (delta.meta.artifact_id or delta.ref)
+    assert drivers.meta.method_evidence is not None
+    assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
+    assert "cumulative_route" not in drivers.meta.params
+    assert "original_delta_ref" not in drivers.meta.params
+    assert drivers.meta.reconciliation is not None
+    assert drivers.meta.reconciliation.max_abs_residual <= 1e-9
 
 
 def test_weighted_mean_authored_filter_applies_to_direct_and_cumulative_observe(
@@ -517,7 +563,7 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
     assert frame.meta.cumulative["components"]["denominator"]["over"] == "sales.events.event_time"
     assert frame.meta.component_ref is not None
     assert frame.value_columns == ("cum_active_rate",)
-    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 3
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 4
     legacy_params = dict(frame.lineage.steps[-1].params)
     legacy_params.pop("cumulative_contract_version")
     legacy_params.pop("cumulative")
@@ -908,7 +954,9 @@ def test_compare_mtd_ratio_drops_baseline_tail_from_parent_and_components(
     assert parent_df["baseline"].notna().all()
 
 
-def test_derived_cumulative_delta_keeps_attribute_gated(day_project, duckdb_session) -> None:
+def test_derived_cumulative_count_distinct_component_blocks_attribute(
+    day_project, duckdb_session
+) -> None:
     current = _observe_named_cumulative_metric(
         duckdb_session,
         "mtd_gmv_per_active",
@@ -927,15 +975,16 @@ def test_derived_cumulative_delta_keeps_attribute_gated(day_project, duckdb_sess
         item for item in delta.contract().affordances if item.capability_id == "attribute"
     )
     assert any(
-        item.check == "cumulative_attribution_unsupported" and item.status == "fail"
+        item.check == "cumulative_attribution_available" and item.status == "fail"
         for item in attribute_affordance.preconditions
     )
-    with pytest.raises(CumulativeFrameUnsupportedError):
+    with pytest.raises(AttributeAdmissionBlockedError) as exc_info:
         attribute(
             delta,
             axes=[make_ref("sales.events.region", SemanticKind.DIMENSION)],
             session=duckdb_session,
         )
+    assert exc_info.value._context["blocker"] == "base_non_additive"
 
 
 def test_compare_trailing_ratio_over_cumulative_components(day_project, duckdb_session) -> None:

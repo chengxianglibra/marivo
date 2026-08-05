@@ -572,8 +572,13 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
   `all_history`）时，才复用上述 compare 路径。混合锚点、累计与非累计混合、非法 metadata，
   以及 current/baseline 锚点不一致都会 fail closed。all-history component sidecar 使用 parent
   的精确配对业务坐标集合。
-- `attribute`、`decompose` 和 `forecast` 无论锚点如何都拒绝累计 frame；即使 compare 已接受
-  derived cumulative DeltaFrame 也不例外。请为这些意图重新 observe base 流量 metric。
+- `attribute` 只接受由 `compare` 产生的当前累计 DeltaFrame。业务维度会重放相同的累计观测并
+  解释端点 level 变化；只请求累计 `over` 轴时，direct `sum`/`count` 结构使用 additive base-flow
+  bridge。共享同一锚点的 ratio 与 weighted cumulative delta 支持业务轴 component mix，但不支持
+  time bridge。时间与业务轴混合、累计 `count_distinct` 会 fail closed；请读取
+  `delta.contract().cumulative_attribution` 中的类型化 route 状态。
+- `decompose` 和 `forecast` 仍拒绝累计 frame。当类型化 route 支持时应对当前累计 delta 使用
+  `attribute`；其他分析则重新 observe base 流量 metric。
 - `transform.rollup(...)` 通过 `rollup_fold="last"` 重新聚合累计 frame：时间轴被重新分桶到目标
   `grain`，每个周期贡献完整的最后一行（包括 `evaluation_end`）。既不可重新聚合、又未携带
   `rollup_fold` 的 frame 会被拒绝——请在目标粒度重新 observe。

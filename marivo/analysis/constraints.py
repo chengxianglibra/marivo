@@ -58,7 +58,7 @@ class ConstraintId(StrEnum):
     ATTRIBUTION_AXIS_COLUMN_COMPATIBLE = "attribution_axis_column_compatible"
     ATTRIBUTION_RECONCILIATION = "attribution_reconciliation"
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
-    CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
+    CUMULATIVE_ATTRIBUTION_ROUTE_COMPATIBLE = "cumulative_attribution_route_compatible"
     RUNTIME_METRIC_CLOSED_ALGEBRA = "runtime_metric_closed_algebra"
     RUNTIME_WEIGHTED_MEAN_VALID = "runtime_weighted_mean_valid"
 
@@ -528,15 +528,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "frames with at least one shared business coordinate.",
         help_target="compare",
     ),
-    ConstraintId.CUMULATIVE_ATTRIBUTION_UNSUPPORTED: _constraint(
-        ConstraintId.CUMULATIVE_ATTRIBUTION_UNSUPPORTED,
-        "CumulativeFrameUnsupported",
+    ConstraintId.CUMULATIVE_ATTRIBUTION_ROUTE_COMPATIBLE: _constraint(
+        ConstraintId.CUMULATIVE_ATTRIBUTION_ROUTE_COMPATIBLE,
+        "AttributeAdmissionBlocked",
         "runtime",
-        ("attribute", "decompose", "DeltaFrame"),
-        "Cumulative deltas cannot be attributed or decomposed; use underlying flow metrics.",
-        "The hard gate applies to direct cumulative metrics and derived cumulative "
-        "wrappers even when compare was allowed.",
-        "Attribute or decompose the underlying flow metrics separately.",
+        ("attribute", "DeltaFrame"),
+        "Cumulative attribution selects one exact business-axis or accumulation-time route.",
+        "Business dimensions replay cumulative endpoint levels; exactly the cumulative over "
+        "axis replays additive base flow; mixed routes and unsupported base structures block.",
+        "Inspect DeltaFrame.contract().cumulative_attribution and request one supported route.",
         help_target="attribute",
     ),
     ConstraintId.RUNTIME_METRIC_CLOSED_ALGEBRA: _constraint(

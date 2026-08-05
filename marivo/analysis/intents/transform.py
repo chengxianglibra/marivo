@@ -45,7 +45,11 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import Subject
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.delta import (
+    CumulativeDeltaFrameMetaV1,
+    DeltaFrame,
+    DeltaFrameMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -2443,7 +2447,12 @@ def _persist_transform_frame(
         )
         register_frame_artifact(session, frame)
     else:
-        delta_meta = DeltaFrameMeta(**meta_payload)
+        delta_meta_cls = (
+            CumulativeDeltaFrameMetaV1
+            if isinstance(parent.meta, CumulativeDeltaFrameMetaV1)
+            else DeltaFrameMeta
+        )
+        delta_meta = delta_meta_cls(**meta_payload)
         frame = DeltaFrame(_df=df.copy(), meta=delta_meta)
         frame = cast(
             "DeltaFrame",

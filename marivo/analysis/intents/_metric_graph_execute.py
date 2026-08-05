@@ -86,6 +86,7 @@ class GraphNodeExecutionV1:
     coverage_df: Any | None
     quality: MetricEvaluationQualityV1
     aggregate_component_df: Any | None = None
+    aggregate_component_contract: dict[str, Any] | None = None
 
 
 def _record_physical_execution(
@@ -364,14 +365,13 @@ def execute_metric_graph_observe(
 
         leaf = group[0]
         if isinstance(leaf.plan, CumulativePhysicalLeafPlanV1):
-            result, axes, semantic_kind, coverage_df = _execute_cumulative(
+            result, axes, semantic_kind, coverage_df, mean_component_df = _execute_cumulative(
                 leaf.plan,
                 catalog=catalog,
                 resolver=resolver,
                 session=session,
                 resolved_window=resolved_window,
             )
-            mean_component_df = None
         else:
             result, axes, semantic_kind, coverage_df, mean_component_df = _execute_base(
                 leaf.plan,
@@ -386,6 +386,8 @@ def execute_metric_graph_observe(
         aggregate = AggregateEvaluationV1().evaluate(result.df)
         quality = aggregate.quality
         component_contract = _aggregate_component_contract(leaf.metric_ir)
+        if isinstance(leaf.plan, CumulativePhysicalLeafPlanV1):
+            component_contract = _aggregate_component_contract(leaf.plan.base_metric_ir)
         if component_contract is not None and mean_component_df is not None:
             component_columns = component_contract["components"]
             assert isinstance(component_columns, dict)
@@ -415,6 +417,7 @@ def execute_metric_graph_observe(
             coverage_df=coverage_df,
             quality=quality,
             aggregate_component_df=mean_component_df,
+            aggregate_component_contract=component_contract,
         )
         _record_physical_execution(evaluated, leaf, result)
 
@@ -458,6 +461,7 @@ def execute_metric_graph_observe(
                 coverage_df=child.coverage_df,
                 quality=child.quality,
                 aggregate_component_df=child.aggregate_component_df,
+                aggregate_component_contract=child.aggregate_component_contract,
             )
         elif isinstance(node, RatioNodeV1):
             numerator = visit(node.numerator_id)

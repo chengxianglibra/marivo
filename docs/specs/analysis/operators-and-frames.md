@@ -259,8 +259,10 @@ keeps `sample_interval=None`, and does not fabricate expected-slot coverage.
 **Cumulative frames.** Cumulative `MetricFrame`s store running totals whose
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,
 `trailing`). `transform.window(...)` clips display rows for every anchor;
-`attribute`, `decompose`, and `forecast` reject cumulative frames (re-observe the base flow
-metric). `compare` is anchor-dispatched: `all_history` is allowed when both
+`decompose` and `forecast` reject cumulative frames. `attribute` accepts only a
+current `cumulative-delta/v1` produced by `compare` and selects a persisted
+business-axis or accumulation-time route; it does not accept legacy cumulative
+delta metadata. `compare` is anchor-dispatched: `all_history` is allowed when both
 frames carry the same valid anchor and paired business coordinates with exact
 `evaluation_end` cutoffs; its result is current minus baseline observed level,
 not an asserted interval flow, and source revision is unverified. `trailing` is
@@ -286,7 +288,7 @@ incomplete, and malformed wrappers fail closed. A complete homogeneous
 `all_history` wrapper is comparable by derived observed level, with component
 sidecars restricted to the parent's paired key set. Both sides must carry the
 same marker kind and effective anchor. This is a breaking artifact contract:
-cumulative observes include contract version 3 and the reserved
+cumulative observes include contract version 4 and the reserved
 `evaluation_end` coordinate in artifact identity; persisted legacy rows are
 neither expanded nor migrated.
 
@@ -341,6 +343,21 @@ that same state. A rollup-safe multi-axis call explicitly chooses
 their descendants' totals, so only the deepest level is additive. Candidate
 axes, coverage warnings, and budget stops go to metadata/blocking
 issues/lineage, never a next-step recommendation or narrative.
+
+For a cumulative delta, inspect
+`DeltaFrame.contract().cumulative_attribution`. Business dimensions replay the
+same cumulative observations with the missing dimensions and explain endpoint
+level changes; direct sum/count paths retain new and churned coordinates as
+zero-valued absent sides. Requesting exactly the cumulative `over_ref` invokes
+the additive base-flow bridge. Its
+`cumulative-flow-attribution-rows/v1` rows carry the comparison coordinate,
+bridge bucket, exact half-open interval, source side, anchor-specific effect
+kind, observed side values, contribution, ranks, and shares. All-history uses
+flow between cutoffs; grain-to-date contrasts the two elapsed reset scopes;
+trailing splits entering, leaving, and retained/revision flow. Reconciliation
+is independent for every parent comparison row. Mixed time/business axes,
+count-distinct bases, bridge mismatch, and derived component time bridges fail
+closed with the exact route blocker.
 
 There is no default for a multi-axis call; a single-axis call omits `mode`, and
 supplying one there has no effect. A single-axis result preserves the resolved

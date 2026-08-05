@@ -631,12 +631,12 @@ def test_compare_help_explains_cumulative_component_compatibility() -> None:
     assert "Requires from prerequisites or the preceding example: AnalysisError" not in text
 
 
-def test_attribute_help_explains_cumulative_hard_gate() -> None:
+def test_attribute_help_explains_cumulative_route_gate() -> None:
     text = _text("attribute")
 
-    assert "cumulative_attribution_unsupported" in text
+    assert "cumulative_attribution_route_compatible" in text
     assert "cumulative" in text
-    assert "underlying flow" in text
+    assert "base-flow" in text
 
 
 def test_focused_help_includes_producer_consumer_edges() -> None:

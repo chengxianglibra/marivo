@@ -1109,8 +1109,10 @@ def _build_registry() -> CapabilityRegistry:
                 "Attribute a DeltaFrame's movement over explicit axes with "
                 "reconciled contributions and explicit share denominators. The installed "
                 "automatic methods are additive/component allocation, exact distinct "
-                "membership, exact value-frequency quantiles, and Trino mergeable qdigest; "
-                "non-mergeable reservoir quantiles remain blocked by the delta contract."
+                "membership, exact value-frequency quantiles, Trino mergeable qdigest, and "
+                "typed cumulative endpoint/base-flow routes; non-mergeable reservoir quantiles "
+                "and unsupported cumulative route combinations remain blocked by the delta "
+                "contract."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -1118,7 +1120,7 @@ def _build_registry() -> CapabilityRegistry:
                 "frame_kind_compatible",
                 "attribution_additivity_compatible",
                 "attribution_reconciliation",
-                "cumulative_attribution_unsupported",
+                "cumulative_attribution_route_compatible",
                 "funnel_attribution_target_valid",
                 "funnel_attribution_reconciliation",
             ),

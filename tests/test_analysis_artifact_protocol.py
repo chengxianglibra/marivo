@@ -593,7 +593,7 @@ def test_delta_contract_surfaces_semi_additive_axis_condition() -> None:
     assert precondition.repair.snippet is None
 
 
-def test_delta_cumulative_attribution_is_inspect_not_placeholder_retry() -> None:
+def test_delta_contract_rejects_legacy_cumulative_metadata() -> None:
     frame = _delta_contract_frame(additivity="additive")
     frame.meta = frame.meta.model_copy(
         update={
@@ -606,14 +606,8 @@ def test_delta_cumulative_attribution_is_inspect_not_placeholder_retry() -> None
         }
     )
 
-    precondition = next(
-        item
-        for item in _attribute_affordance(frame).preconditions
-        if item.check == "cumulative_attribution_unsupported"
-    )
-    assert precondition.repair is not None
-    assert precondition.repair.kind == "inspect"
-    assert precondition.repair.snippet is None
+    with pytest.raises(ValueError, match="cumulative delta metadata requires cumulative-delta/v1"):
+        frame.contract()
 
 
 @pytest.mark.parametrize("composition_kind", ["ratio", "weighted_mean"])

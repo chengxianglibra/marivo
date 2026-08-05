@@ -598,8 +598,11 @@ Derived metrics may compose cumulative components. Compare is supported only whe
 outer component is cumulative and all components use the same anchor. This includes
 `all_history`, whose result is an observed level difference with exact evaluation cutoffs,
 not asserted interval flow; source revision is unverified. Mixed anchors and
-cumulative/non-cumulative mixes are rejected; `attribute`, `decompose`, and `forecast`
-remain unsupported.
+cumulative/non-cumulative mixes are rejected. After `compare`, `attribute` accepts the
+current cumulative delta: business dimensions explain endpoint level changes, while the
+exact cumulative `over` axis explains base flow for direct `sum`/`count` structures.
+Mixed time/business axes, cumulative `count_distinct`, and component time bridges fail
+closed. `decompose` and `forecast` remain unsupported on cumulative frames.
 
 ## Use and check the model
 

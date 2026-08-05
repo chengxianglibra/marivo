@@ -27,14 +27,16 @@ from marivo.analysis.frames._attribution_columns import (
 )
 from marivo.analysis.frames.attribution import (
     AttributionFrame,
+    AttributionMethodEvidenceV1,
     AttributionReconciliation,
 )
+from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.component import (
     ComponentFrame,
     resolve_role_column_name,
     resolve_role_columns,
 )
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.delta import CumulativeDeltaFrameMetaV1, DeltaFrame, DeltaFrameMeta
 from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
@@ -384,6 +386,10 @@ def _validate_attribution_additivity(
     axes: list[str],
     component: ComponentFrame | None,
 ) -> None:
+    if isinstance(frame.meta, CumulativeDeltaFrameMetaV1):
+        # Public decompose remains gated. Internal cumulative business-axis
+        # execution is admitted by the compact structure before reaching here.
+        return
     assert isinstance(frame.meta, DeltaFrameMeta)
     if _component_allows_non_linear_fold(component):
         return
@@ -1450,7 +1456,7 @@ def _multi_axis_hierarchy_output(
     return output[columns]
 
 
-def decompose(
+def _decompose(
     frame: DeltaFrame,
     *,
     axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
@@ -1460,6 +1466,9 @@ def decompose(
     _intent: str = "decompose",
     _analysis_purpose: str | None = None,
     _params_extra: dict[str, object] | None = None,
+    _method_evidence: AttributionMethodEvidenceV1 | None = None,
+    _scope_frame: DeltaFrame | None = None,
+    _materialization_sources: tuple[BaseFrame, ...] = (),
 ) -> AttributionFrame:
     session = resolve_session(session)
     ensure_session_can_execute(session)
@@ -1471,7 +1480,9 @@ def decompose(
             "component or additivity contract to decompose",
             context={"semantic_kind": frame.meta.semantic_kind},
         )
-    if frame.meta.cumulative is not None:
+    if frame.meta.cumulative is not None and not (
+        _intent == "attribute" and isinstance(frame.meta, CumulativeDeltaFrameMetaV1)
+    ):
         raise CumulativeFrameUnsupportedError(
             intent=_intent,
             frame_ref=frame.ref,
@@ -1482,6 +1493,22 @@ def decompose(
     validated_mode = validate_attribution_mode(axis_ids, mode, intent="decompose")
     params_extra = dict(_params_extra or {})
     ensure_frame_in_session(frame, session=session, label="decompose frame")
+    persistence_sources: list[BaseFrame] = []
+    seen_source_refs: set[str] = set()
+    for source in (
+        *(() if _scope_frame is None else (_scope_frame,)),
+        frame,
+        *_materialization_sources,
+    ):
+        source_ref = source.meta.artifact_id or source.ref
+        if source_ref not in seen_source_refs:
+            ensure_frame_in_session(source, session=session, label="decompose source")
+            persistence_sources.append(source)
+            seen_source_refs.add(source_ref)
+    if frame.meta.semantic_kind not in {"scalar", "time_series", "segmented", "panel"}:
+        raise SemanticKindMismatchError(
+            message=f"decompose does not support semantic_kind={frame.meta.semantic_kind!r}",
+        )
 
     component = _validate_attribution_semantics(frame, axes=axis_ids, session=session)
 
@@ -1602,7 +1629,7 @@ def decompose(
             df=output,
             intent=_intent,
             params=params,
-            sources=[frame],
+            sources=persistence_sources,
             metric_ids=[frame.meta.metric_id],
             attribution_kind="decomposition",
             driver_field=driver_field,
@@ -1620,6 +1647,7 @@ def decompose(
             axis_columns=component_axis_columns,
             mode=validated_mode,
             bucket_column=bucket_column,
+            method_evidence=_method_evidence,
         )
 
     if validated_mode is not None:
@@ -1678,7 +1706,7 @@ def decompose(
             df=output,
             intent=_intent,
             params=params,
-            sources=[frame],
+            sources=persistence_sources,
             metric_ids=[frame.meta.metric_id],
             attribution_kind="decomposition",
             driver_field=driver_field,
@@ -1696,6 +1724,7 @@ def decompose(
             axis_columns=axis_columns,
             mode=validated_mode,
             bucket_column=bucket_column,
+            method_evidence=_method_evidence,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1728,7 +1757,7 @@ def decompose(
             df=output,
             intent=_intent,
             params=params,
-            sources=[frame],
+            sources=persistence_sources,
             metric_ids=[frame.meta.metric_id],
             attribution_kind="decomposition",
             driver_field=axis_column,
@@ -1746,6 +1775,7 @@ def decompose(
             axis_columns=axis_columns,
             mode=None,
             bucket_column=bucket_column,
+            method_evidence=_method_evidence,
         )
 
     axis_column = axis_columns[0]
@@ -1771,7 +1801,7 @@ def decompose(
         df=output,
         intent=_intent,
         params=params,
-        sources=[frame],
+        sources=persistence_sources,
         metric_ids=[frame.meta.metric_id],
         attribution_kind="decomposition",
         driver_field=axis_column,
@@ -1789,4 +1819,30 @@ def decompose(
         axis_columns=axis_columns,
         mode=None,
         bucket_column=None,
+        method_evidence=_method_evidence,
+    )
+
+
+def decompose(
+    frame: DeltaFrame,
+    *,
+    axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
+    axis: _SemanticInput[DimensionKind | TimeDimensionKind] | None = None,
+    mode: AttributionMode | None = None,
+    session: Session | None = None,
+    _intent: str = "decompose",
+    _analysis_purpose: str | None = None,
+    _params_extra: dict[str, object] | None = None,
+) -> AttributionFrame:
+    """Decompose one delta without accepting hidden method-evidence injection."""
+
+    return _decompose(
+        frame,
+        axes=axes,
+        axis=axis,
+        mode=mode,
+        session=session,
+        _intent=_intent,
+        _analysis_purpose=_analysis_purpose,
+        _params_extra=_params_extra,
     )

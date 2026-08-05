@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -31,6 +31,11 @@ from marivo.analysis.frames.attribution import (
     AttributionFrameMeta,
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
+    CumulativeBusinessAxisEvidenceV1,
+    cumulative_reconciliation_from_partitions,
+    reconcile_cumulative_business_evidence,
+    validate_cumulative_flow_attribution_rows,
+    validate_generic_attribution_rows,
 )
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -203,8 +208,23 @@ def persist_attribution_frame(
     mode: AttributionMode | None,
     bucket_column: str | None = None,
     method_evidence: AttributionMethodEvidenceV1 | None = None,
+    row_contract_version: Literal[
+        "generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"
+    ] = "generic-attribution-rows/v2",
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
+    if isinstance(method_evidence, CumulativeBusinessAxisEvidenceV1):
+        method_evidence = reconcile_cumulative_business_evidence(
+            method_evidence,
+            df,
+            hierarchy=mode == "hierarchy",
+        )
+        reconciliation = cumulative_reconciliation_from_partitions(
+            method_evidence.partitions,
+            one_sided_contribution_sum=(
+                reconciliation.one_sided_contribution_sum if reconciliation is not None else None
+            ),
+        )
     if reconciliation is not None:
         params = {
             **params,
@@ -248,7 +268,7 @@ def persist_attribution_frame(
         semantic_model=semantic_model,
         issues=tuple(extra_issues or ()),
         reconciliation=reconciliation,
-        row_contract_version="generic-attribution-rows/v2",
+        row_contract_version=row_contract_version,
         causal_claim="none",
         axis_bindings=tuple(
             AttributionAxisBindingV1(
@@ -267,6 +287,9 @@ def persist_attribution_frame(
         bucket_column=bucket_column,
         method_evidence=method_evidence,
     )
+    if isinstance(method_evidence, CumulativeBusinessAxisEvidenceV1):
+        validate_generic_attribution_rows(meta, df)
+    validate_cumulative_flow_attribution_rows(meta, df)
     frame = AttributionFrame(_df=df.copy(), meta=meta)
     source_ref_values = [source.meta.artifact_id or source.ref for source in sources]
     frame = cast(

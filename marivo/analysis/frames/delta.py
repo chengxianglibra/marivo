@@ -26,8 +26,15 @@ from marivo.analysis.attribution_contract import (
     AttributionBasisV1,
     AttributionShape,
     BlockedAttributeAdmissionV1,
+    CumulativeAttributionRouteAdmissionV1,
     SupportedAttributeAdmissionV1,
     attribute_method_is_installed,
+)
+from marivo.analysis.cumulative_attribution import (
+    CumulativeAttributionContractV1,
+    cumulative_attribution_capability,
+    cumulative_attribution_method,
+    cumulative_over_ref,
 )
 from marivo.analysis.errors import AnalysisRepair, SemanticKindMismatchError
 from marivo.analysis.event import (
@@ -115,25 +122,22 @@ def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
     rollup_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "hierarchy"))
     nonadditive_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "multiresolution"))
     basis = meta.attribution_basis
-    if meta.cumulative is not None:
-        if basis is not None:
-            cumulative_shape: AttributionShape | Literal["unavailable"] = (
-                "distinct_membership" if basis.kind == "count_distinct" else "quantile_replacement"
+    if isinstance(meta, CumulativeDeltaFrameMetaV1):
+        method = cumulative_attribution_method(meta.cumulative_attribution.structure)
+        capability = cumulative_attribution_capability(meta.cumulative_attribution)
+        business = capability.business_axes
+        if business.status == "blocked":
+            return BlockedAttributeAdmissionV1(
+                attribution_shape=method,
+                blocker=business.blocker,
+                repair=business.repair,
             )
-        elif _supports_component_attribution(meta):
-            cumulative_shape = _component_attribution_shape(meta)
-        elif meta.additivity in {"additive", "semi_additive"}:
-            cumulative_shape = "sum"
-        else:
-            cumulative_shape = "unavailable"
-        return BlockedAttributeAdmissionV1(
-            attribution_shape=cumulative_shape,
-            blocker="cumulative_delta",
-            repair=_attribute_repair(
-                "Inspect the underlying flow metric frames; cumulative deltas cannot be "
-                "attributed mechanically."
-            ),
+        return SupportedAttributeAdmissionV1(
+            attribution_shape=method,
+            mode=rollup_modes,
         )
+    if meta.cumulative is not None:
+        raise ValueError("cumulative delta metadata requires cumulative-delta/v1")
     if basis is not None:
         shape: AttributionShape = (
             "distinct_membership" if basis.kind == "count_distinct" else "quantile_replacement"
@@ -247,22 +251,37 @@ def _attribute_admission_text(meta: DeltaFrameMeta, admission: AttributeAdmissio
     return f"{status} {detail}"
 
 
+def _cumulative_route_text(route: CumulativeAttributionRouteAdmissionV1) -> str:
+    if route.status == "supported":
+        return f"supported path={route.path}"
+    return f"blocked blocker={route.blocker}"
+
+
 def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondition | None:
     """Describe the persisted additivity gate without loading sidecars."""
-    if meta.cumulative is not None:
-        return ArtifactPrecondition(
-            check="cumulative_attribution_unsupported",
-            status="fail",
-            reason="attribute does not support cumulative deltas, including derived wrappers",
-            repair=AnalysisRepair(
-                kind="inspect",
-                action=(
-                    "Inspect the underlying flow metric frames; this cumulative wrapper "
-                    "has no mechanically valid attribution retry."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
-            ),
+    if isinstance(meta, CumulativeDeltaFrameMetaV1):
+        capability = cumulative_attribution_capability(meta.cumulative_attribution)
+        supported = tuple(
+            route
+            for route in (capability.business_axes, capability.accumulation_time)
+            if route.status == "supported"
         )
+        if supported:
+            return ArtifactPrecondition(
+                check="cumulative_attribution_available",
+                status="pass",
+                reason=("cumulative attribution route is selected from exact requested axis refs"),
+            )
+        blocker = capability.business_axes
+        assert blocker.status == "blocked"
+        return ArtifactPrecondition(
+            check="cumulative_attribution_available",
+            status="fail",
+            reason=f"cumulative attribution is blocked: {blocker.blocker}",
+            repair=blocker.repair,
+        )
+    if meta.cumulative is not None:
+        raise ValueError("cumulative delta metadata requires cumulative-delta/v1")
     if meta.attribution_basis is not None:
         # The typed admission is the only mechanical support state for a
         # graph-owned non-additive basis; do not add a contradictory legacy
@@ -450,6 +469,22 @@ class DeltaFrameMeta(BaseFrameMeta):
         """Return typed trailing/grain-to-date alignment evidence when present."""
 
         return self.cumulative_alignment
+
+
+class CumulativeDeltaFrameMetaV1(DeltaFrameMeta):
+    """Current clean-break metadata contract for every cumulative delta."""
+
+    artifact_schema: Literal["cumulative-delta/v1"] = "cumulative-delta/v1"
+    cumulative: dict[str, Any]
+    cumulative_attribution: CumulativeAttributionContractV1
+
+    @model_validator(mode="after")
+    def _validate_cumulative_attribution(self) -> CumulativeDeltaFrameMetaV1:
+        if cumulative_over_ref(self.cumulative) != self.cumulative_attribution.over_ref:
+            raise ValueError(
+                "cumulative attribution over_ref does not match the cumulative metric contract"
+            )
+        return self
 
 
 FUNNEL_DELTA_COLUMNS = (
@@ -704,6 +739,20 @@ class DeltaFrame(BaseFrame):
             )
         admission = _attribute_admission(self.meta)
         precondition = _attribution_contract_precondition(self.meta)
+        if isinstance(self.meta, CumulativeDeltaFrameMetaV1):
+            capability = cumulative_attribution_capability(self.meta.cumulative_attribution)
+            card.field(
+                "attribute.business_axes",
+                _cumulative_route_text(capability.business_axes),
+            )
+            card.field(
+                "attribute.accumulation_time",
+                _cumulative_route_text(capability.accumulation_time),
+            )
+            card.field(
+                "attribute.mixed_axes",
+                _cumulative_route_text(capability.mixed_axes),
+            )
         if admission.status == "supported" and _supports_component_attribution(self.meta):
             card.field(
                 "attribute",
@@ -778,6 +827,11 @@ class DeltaFrame(BaseFrame):
             update={
                 "affordances": tuple(affordances),
                 "attribute_admission": _attribute_admission(self.meta),
+                "cumulative_attribution": (
+                    cumulative_attribution_capability(self.meta.cumulative_attribution)
+                    if isinstance(self.meta, CumulativeDeltaFrameMetaV1)
+                    else None
+                ),
             }
         )
         comparable_alignment = self.meta.comparable_period_alignment()

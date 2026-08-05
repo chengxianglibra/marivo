@@ -32,6 +32,7 @@ from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionFrameMeta,
     FunnelAttributionFrameMeta,
+    validate_cumulative_flow_attribution_rows,
     validate_generic_attribution_rows,
 )
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
@@ -42,7 +43,12 @@ from marivo.analysis.frames.candidate import (
 )
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta, FunnelDeltaFrameMeta
+from marivo.analysis.frames.delta import (
+    CumulativeDeltaFrameMetaV1,
+    DeltaFrame,
+    DeltaFrameMeta,
+    FunnelDeltaFrameMeta,
+)
 from marivo.analysis.frames.event import (
     EventFrame,
     EventFrameMeta,
@@ -584,6 +590,25 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     )
     if kind == "delta_frame" and meta.get("semantic_kind") == "funnel":
         meta_cls = FunnelDeltaFrameMeta
+    if (
+        kind == "delta_frame"
+        and meta.get("semantic_kind") != "funnel"
+        and meta.get("cumulative") is not None
+    ):
+        if meta.get("artifact_schema") != "cumulative-delta/v1" or (
+            "cumulative_attribution" not in meta
+        ):
+            raise FrameMetaInvalidError(
+                message=(f"frame '{ref}' uses an unsupported cumulative delta artifact schema"),
+                context={
+                    "ref": ref,
+                    "kind": "unsupported_artifact_schema",
+                    "expected": "cumulative-delta/v1",
+                    "received": meta.get("artifact_schema"),
+                    "repair": "Re-run observe and compare under the current environment.",
+                },
+            )
+        meta_cls = CumulativeDeltaFrameMetaV1
     if kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate":
         meta_cls = FunnelAttributionFrameMeta
     if kind == "candidate_set" and meta.get("shape") == "semantic_hypothesis":
@@ -750,9 +775,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if isinstance(parsed_meta, AttributionFrameMeta):
         try:
             validate_generic_attribution_rows(parsed_meta, df)
+            validate_cumulative_flow_attribution_rows(parsed_meta, df)
         except ValueError as exc:
+            row_family = (
+                "generic attribution rows"
+                if parsed_meta.row_contract_version == "generic-attribution-rows/v2"
+                else "cumulative flow attribution rows"
+            )
             raise FrameMetaInvalidError(
-                message=f"frame '{ref}' has corrupt generic attribution rows",
+                message=f"frame '{ref}' has corrupt {row_family}",
                 context={
                     "ref": ref,
                     "artifact_schema_version": artifact_schema_version,
