@@ -651,6 +651,10 @@ total delta、contribution 合计、one-sided contribution 合计、未归因合
 | `interval_level` | `float` | 否 | `0.95` | 预测区间的置信水平。 |
 | `measure_column` | `str` | 否 | frame measure | `history.value_columns` 返回的公开值列名。 |
 
+Panel 中每个序列必须覆盖相同且连续的训练时间桶。若某个 segment 缺少时间桶，
+forecast 会抛出 `ForecastInputQualityError`；它不会静默补零，也不会移动该
+segment 的预测起点。
+
 ```python
 history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])

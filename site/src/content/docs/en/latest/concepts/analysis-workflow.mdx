@@ -517,6 +517,10 @@ Project a time series or panel forward.
 | `interval_level` | `float` | No | `0.95` | Confidence level for the prediction interval. |
 | `measure_column` | `str` | No | frame measure | Public value name from `history.value_columns`. |
 
+Every panel series must cover the same continuous training buckets. Forecast
+raises `ForecastInputQualityError` when one segment is missing a bucket; it does
+not silently fill the bucket with zero or move that segment's forecast origin.
+
 ```python
 history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
