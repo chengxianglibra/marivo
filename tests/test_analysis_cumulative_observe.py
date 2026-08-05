@@ -1613,3 +1613,25 @@ def test_trailing_coverage_partial_bucket_has_precise_ratio(trailing_partial_fra
     assert jan8["coverage_status"] == "complete"
     assert jan8["coverage_ratio"] == pytest.approx(1.0)
     assert jan8["covered_span"] == jan8["expected_span"]
+
+
+def test_cumulative_derived_multi_metric_observe_uses_status_time_axis(
+    tmp_path, monkeypatch
+) -> None:
+    """A cumulative derived metric in multi-metric observe must resolve its
+    status time axis, matching single-metric observe (issue #36)."""
+    from marivo.analysis.intents.observe import observe
+    from tests.ref_helpers import make_ref
+
+    session = _session(tmp_path, monkeypatch)
+    frame = observe(
+        [
+            make_ref("sales.gmv", SemanticKind.METRIC),
+            make_ref("sales.cum_weighted_user", SemanticKind.METRIC),
+        ],
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        grain="day",
+        session=session,
+    )
+
+    assert frame.value_columns == ("gmv", "cum_weighted_user")

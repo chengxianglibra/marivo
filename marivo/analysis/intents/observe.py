@@ -1633,6 +1633,78 @@ def _forest_output_columns(
     return result
 
 
+def _preferred_status_time_dimension_for_metric(
+    catalog: Any,
+    metric_input: Ref[MetricKind] | RuntimeMetricExpr,
+) -> str | None:
+    """Resolve the status time axis a metric wants to observe on.
+
+    Mirrors the single-metric observe injection: a semi-additive simple metric
+    prefers its own status_time_dimension; a derived metric prefers the first
+    component whose additivity is semi-additive (issue #36).  Runtime metrics
+    carry no catalog status axis and return ``None``.
+    """
+    if isinstance(
+        metric_input,
+        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+    ):
+        return None
+    normalized = normalize_metric_ref_input(catalog, metric_input, argument="observe.metrics")
+    metric_id = _normalize_metric_boundary(catalog, normalized)
+    metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
+    assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
+    metric_ir = _planned_metric(metric_details)
+    if (
+        getattr(metric_ir, "additivity", None) == "semi_additive"
+        and getattr(metric_ir, "status_time_dimension", None) is not None
+    ):
+        return str(metric_ir.status_time_dimension)
+    if metric_ir.metric_type == "derived" and metric_ir.composition is not None:
+        for _role, component_id in metric_ir.composition.components.items():
+            component_details = _catalog_object(catalog, component_id, SemanticKind.METRIC).details()
+            assert isinstance(
+                component_details, (SimpleMetricDetails, DerivedMetricDetails)
+            )
+            component_ir = _planned_metric(component_details)
+            if (
+                getattr(component_ir, "additivity", None) == "semi_additive"
+                and getattr(component_ir, "status_time_dimension", None) is not None
+            ):
+                return str(component_ir.status_time_dimension)
+    return None
+
+
+def _resolve_forest_status_time_dimension(
+    catalog: Any,
+    metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
+) -> str | None:
+    """Resolve the shared status time axis for a multi-metric forest.
+
+    All metrics in one observe share a single time axis.  The preferred status
+    time dimension is resolved per root and must agree; a disagreement fails
+    closed with a typed error rather than silently picking one (issue #36).
+    """
+    preferred: set[str] = set()
+    for metric_input in metric_inputs:
+        axis = _preferred_status_time_dimension_for_metric(catalog, metric_input)
+        if axis is not None:
+            preferred.add(axis)
+    if not preferred:
+        return None
+    if len(preferred) > 1:
+        raise SemanticKindMismatchError(
+            message=(
+                "observe metric roots prefer conflicting status time dimensions; "
+                "pass an explicit time_dimension"
+            ),
+            expected="one shared status time dimension across the metric roots",
+            received=", ".join(sorted(preferred)),
+            location="observe.time_dimension",
+            context={"conflicting_status_time_dimensions": sorted(preferred)},
+        )
+    return next(iter(preferred))
+
+
 def _observe_metric_forest(
     metric_inputs: tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...],
     *,
@@ -1710,6 +1782,25 @@ def _observe_metric_forest(
         time_dimension=time_dimension_id,
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
+    # A multi-metric forest shares one time axis.  When the caller did not pick
+    # an explicit time_dimension, prefer the status time axis of a semi-additive
+    # simple/derived root (mirroring single-metric observe) so folded derived
+    # metrics are not rejected as temporally ambiguous (issue #36).
+    if (
+        time_dimension_id is None
+        and resolved_window is not None
+        and resolved_window.time_dimension is None
+    ):
+        forest_status_time_dimension = _resolve_forest_status_time_dimension(
+            catalog, canonical_metric_inputs
+        )
+        if forest_status_time_dimension is not None:
+            resolved_window, original_timescope = _resolve_timescope(
+                time_scope,
+                grain=grain,
+                time_dimension=forest_status_time_dimension,
+            )
+            is_time_series = resolved_window is not None and resolved_window.grain is not None
     _preflight_observe_temporal_suitability(
         catalog,
         metric_inputs=canonical_metric_inputs,

@@ -782,3 +782,24 @@ def test_hour_prefix_non_mean_folds_with_varying_values(
     # Without dimension slicing the spatial sum (beijing + shanghai) is folded;
     # shanghai contributes 0 so the fold result equals the beijing-only value.
     assert df["value"].iloc[0] == expected
+
+
+def test_folded_derived_multi_metric_observe_uses_status_time_axis(
+    sampled_bandwidth_project,
+) -> None:
+    """A folded derived metric in multi-metric observe must infer the status
+    time axis from its semi-additive component, matching single-metric observe
+    (issue #36).  Pre-fix this raised a temporal-candidates ambiguity error."""
+    frame = sampled_bandwidth_project.observe(
+        [
+            make_ref("sales.p95_utilization", SemanticKind.METRIC),
+            make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        ],
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+    )
+
+    assert frame.value_columns == ("p95_utilization", "upstream_bw")
+    # The folded derived value must match single-metric observe (0.5725).
+    df = _metric_pandas(frame)
+    assert df["p95_utilization"].iloc[0] == pytest.approx(0.5725)
