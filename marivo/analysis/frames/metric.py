@@ -625,6 +625,11 @@ class MetricFrame(BaseFrame):
                 "name": measure.get("name"),
                 "column": self.VALUE_COLUMN,
                 "unit": self.meta.unit,
+                "unit_state": (
+                    canonical_value(self.meta.unit_state)
+                    if self.meta.unit_state is not None
+                    else None
+                ),
                 "additivity": self.meta.additivity,
                 "aggregation": self.meta.aggregation,
                 "status_time_dimension": self.meta.status_time_dimension,

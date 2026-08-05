@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis._semantic_persistence import (
     MeasureBindingV1,
@@ -58,6 +58,10 @@ from marivo.semantic.metric_graph import (
 )
 from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 from marivo.semantic.metric_graph_lowering import MetricExpressionForestV1, lower_catalog_metric
+from marivo.semantic.unit_algebra import (
+    MetricUnitStateV2,
+    unit_state_from_dict,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
@@ -171,7 +175,7 @@ def _project_component_graph_payload(
     }
 
 
-def _semantic_unit(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+def _semantic_unit(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> str | None:
     """Return the authoritative unit for one measure.
 
     Issue #54: ``measure_bindings`` is the typed authority; the compact
@@ -181,15 +185,31 @@ def _semantic_unit(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> A
     return binding.unit if binding is not None else entry.get("unit")
 
 
-def _semantic_unit_state(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
-    return binding.unit_state if binding is not None else entry.get("unit_state")
+def _semantic_unit_state(
+    binding: MeasureBindingV1 | None,
+    entry: dict[str, Any],
+) -> MetricUnitStateV2 | None:
+    """Return the authoritative typed unit state for one measure.
+
+    The legacy ``measures`` dict persists ``unit_state`` as its canonical dict
+    form (``canonical_value``), so the fallback must rebuild the typed
+    dataclass — otherwise the projected binding's ``unit_state`` would be a raw
+    dict on the compute path but a typed object after a disk-backed reload
+    (cold/hot divergence on the same ref).
+    """
+    if binding is not None:
+        return binding.unit_state
+    return unit_state_from_dict(entry.get("unit_state"))
 
 
-def _semantic_additivity(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+def _semantic_additivity(
+    binding: MeasureBindingV1 | None,
+    entry: dict[str, Any],
+) -> Literal["additive", "semi_additive", "non_additive"] | None:
     return binding.additivity if binding is not None else entry.get("additivity")
 
 
-def _semantic_aggregation(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+def _semantic_aggregation(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> str | None:
     return binding.aggregation if binding is not None else entry.get("aggregation")
 
 
@@ -199,7 +219,10 @@ def _semantic_reaggregatable(binding: MeasureBindingV1 | None, entry: dict[str, 
     )
 
 
-def _semantic_status_time_dimension(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> Any:
+def _semantic_status_time_dimension(
+    binding: MeasureBindingV1 | None,
+    entry: dict[str, Any],
+) -> str | None:
     if binding is not None:
         return (
             binding.status_time_dimension_ref.path

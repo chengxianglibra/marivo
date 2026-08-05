@@ -112,6 +112,7 @@ def test_single_frame_measures_meta_derived_from_scalars():
             "name": "revenue",
             "column": "value",
             "unit": "usd",
+            "unit_state": None,
             "additivity": None,
             "aggregation": None,
             "status_time_dimension": None,
@@ -324,6 +325,68 @@ def test_projected_frame_measures_meta_has_unit_state(sales_session):
     entry = revenue.measures_meta()[0]
     assert "unit_state" in entry
     assert entry["unit_state"] is not None
+
+
+def test_legacy_projection_unit_state_is_typed_not_dict(sales_session):
+    """A legacy multi-metric frame must project a *typed* unit_state.
+
+    Issue #54 P2 regression: ``_semantic_unit_state``'s legacy fallback returned
+    the canonical *dict* form persisted in compact ``measures``, so the same
+    ``.metric()`` call produced a dict on the compute path but a typed object
+    after a disk-backed reload — ``binding.unit_state.schema`` raised
+    AttributeError on the cold path. The fallback must rebuild the typed
+    ``MetricUnitStateV2``.
+    """
+    from marivo.semantic.metric_graph_canonical import canonical_value
+    from marivo.semantic.unit_algebra import FactorizedUnitV2, UnknownUnitV2
+
+    # Simulate a legacy v7 multi-metric artifact: the fused observe frame with
+    # its typed bindings stripped, so projection falls back to the compact
+    # ``measures`` dicts whose ``unit_state`` is the canonical dict form.
+    fused = _fused(sales_session)
+    legacy_meta = fused.meta.model_copy(
+        update={
+            "measure_bindings": (),
+            "measures": [
+                {
+                    **dict(entry),
+                    "unit_state": canonical_value(
+                        FactorizedUnitV2(
+                            schema="metric-unit-algebra/v2",
+                            numerator=("kg",),
+                            denominator=(),
+                        )
+                        if entry["metric_id"] == "sales.order_count"
+                        else UnknownUnitV2(schema="metric-unit-unknown/v2")
+                    ),
+                }
+                for entry in fused.meta.measures
+            ],
+        }
+    )
+    legacy = MetricFrame(_df=fused._df, meta=legacy_meta)
+    assert legacy.meta.measure_bindings == ()
+
+    projected = legacy.metric("sales.revenue")
+    state = projected.meta.measure_bindings[0].unit_state
+    assert isinstance(state, (FactorizedUnitV2, UnknownUnitV2))
+    assert isinstance(state, UnknownUnitV2)
+    assert state.schema == "metric-unit-unknown/v2"
+
+    second = legacy.metric("sales.order_count")
+    factorized = second.meta.measure_bindings[0].unit_state
+    assert isinstance(factorized, FactorizedUnitV2)
+    assert factorized.numerator == ("kg",)
+    assert factorized.schema == "metric-unit-algebra/v2"
+
+    # Cold/hot consistency: the projected artifact reloaded from disk must show
+    # the same typed state, never a raw dict.
+    from marivo.analysis.session._load import load_frame
+
+    reloaded = load_frame(projected.ref, session=sales_session)
+    reloaded_state = reloaded.meta.measure_bindings[0].unit_state
+    assert isinstance(reloaded_state, (FactorizedUnitV2, UnknownUnitV2))
+    assert type(reloaded_state) is type(state)
 
 
 # ---------------------------------------------------------------------------
