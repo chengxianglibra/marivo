@@ -557,8 +557,7 @@ facts, not claims that an entry remains current in a different catalog.
 
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
-`.to_pandas()`. Frames also expose `.id` (a read-only alias of `.ref`), `.ref`,
-`.kind`, `.lineage`, `.state`,
+`.to_pandas()`. Frames expose `.ref`, `.kind`, `.lineage`, `.state`,
 `.quality_summary`, `.evidence_status`, `.evidence_digest`, `.columns`, and
 `.shape`. Every frame also exposes read-only `.row_count`, with
 `frame.row_count == frame.shape[0]` at creation and recovery boundaries. The
