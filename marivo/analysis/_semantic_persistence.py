@@ -13,6 +13,7 @@ from marivo.semantic.metric_graph import (
     RuntimeExpressionIdentity,
 )
 from marivo.semantic.metric_graph_canonical import canonical_value
+from marivo.semantic.unit_algebra import MetricUnitStateV2
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
@@ -87,6 +88,43 @@ class ComponentBindingV1:
             type(self.expression_node_id) is not str or not self.expression_node_id
         ):
             raise ValueError("component binding expression_node_id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class MeasureBindingV1:
+    """Persist one metric value column with its exact execution semantics.
+
+    Arity-aware: an arity-1 frame carries exactly one binding whose ``identity``
+    matches ``metric_identity``; an arity-N frame carries one binding per
+    ``metric_identities`` entry, ordered identically. ``value_column`` is the
+    internal canonical value column. ``display_name`` is a render-only hint and
+    is never an authority for intents, evidence, or recovery.
+    """
+
+    identity: MetricIdentity
+    value_column: str
+    display_name: str | None = None
+    unit: str | None = None
+    unit_state: MetricUnitStateV2 | None = None
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
+    aggregation: str | None = None
+    reaggregatable: bool = True
+    status_time_dimension_ref: RefPayloadV1 | None = None
+    cumulative: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.identity, (CatalogMetricIdentity, RuntimeExpressionIdentity)
+        ):
+            raise TypeError("measure binding identity must be a MetricIdentity")
+        if type(self.value_column) is not str or not self.value_column:
+            raise ValueError("measure binding value_column must be a non-empty string")
+        if self.status_time_dimension_ref is not None and (
+            type(self.status_time_dimension_ref) is not RefPayloadV1
+        ):
+            raise TypeError(
+                "measure binding status_time_dimension_ref must be an exact RefPayloadV1"
+            )
 
 
 def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
@@ -460,6 +498,7 @@ __all__ = [
     "ComponentBindingV1",
     "JsonScalar",
     "JsonValue",
+    "MeasureBindingV1",
     "SlicePredicateV1",
     "job_semantics_from_frames",
 ]
