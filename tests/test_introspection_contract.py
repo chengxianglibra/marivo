@@ -210,7 +210,11 @@ def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
     against ``constraint.error_kind``. Without a matching constraint the hint
     falls back to None and ``str(e)`` omits the ``Hint:`` line.
     """
-    from marivo.analysis.constraints import default_hint_for_error_kind
+    from marivo.analysis.constraints import (
+        CONSTRAINTS,
+        ConstraintId,
+        default_hint_for_error_kind,
+    )
     from marivo.analysis.errors import FrameMetaInvalidError
 
     err = FrameMetaInvalidError(message="bad frame metadata")
@@ -219,6 +223,26 @@ def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
     assert "Hint:" in str(err)
     assert default_hint_for_error_kind("FrameMetaInvalid") is not None
     assert err.hint == default_hint_for_error_kind("FrameMetaInvalid")
+
+    # Pin the hint's observable content: it must point at the Location line and
+    # the on-disk meta.json, and must NOT regress to the previously-flawed
+    # "frame.meta" phrasing (issue #66 review P3-1/P3-2).
+    assert "Location" in err.hint
+    assert "meta.json" in err.hint
+    assert "frame.meta" not in err.hint
+
+    # Pin applies_to as a closed set (not issubset) so drift or over-tightening
+    # on the frame families covered by this constraint fails loudly.
+    constraint = CONSTRAINTS[ConstraintId.FRAME_META_INVALID]
+    assert constraint.applies_to == (
+        "BaseFrame",
+        "MetricFrame",
+        "DeltaFrame",
+        "CandidateSet",
+        "EventFrame",
+        "LifecycleFrame",
+        "AttributionFrame",
+    )
 
 
 def test_datasource_error_requires_typed_repair() -> None:
