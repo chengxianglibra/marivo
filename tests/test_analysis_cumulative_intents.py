@@ -151,7 +151,11 @@ def _session(tmp_path, monkeypatch):
     _bootstrap_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return session_attach.get_or_create(name="cum_gates", backends={"warehouse": lambda: con})
+    return session_attach.get_or_create(
+        name="cum_gates",
+        report_timezone="UTC",
+        backends={"warehouse": lambda: con},
+    )
 
 
 def _history(session):
@@ -1757,8 +1761,8 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     assert rows["source_side"].tolist() == ["current"]
     assert rows["effect_kind"].tolist() == ["between_cutoffs"]
     assert rows["contribution"].tolist() == [pytest.approx(25.0)]
-    assert rows["flow_interval_start"].tolist() == [pd.Timestamp("2026-07-02T16:00:00Z")]
-    assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-03T16:00:00Z")]
+    assert rows["flow_interval_start"].tolist() == [pd.Timestamp("2026-07-03T00:00:00Z")]
+    assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-04T00:00:00Z")]
     reloaded = session.get_frame(flow.ref)
     assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
 
