@@ -1298,7 +1298,7 @@ The implementation cutover must update together:
 - `docs/specs/analysis/operators-and-frames.md`;
 - `mv.help(...)` registry and examples;
 - `marivo/skills/marivo-analysis/SKILL.md` only for the boundary statement;
-- `site/src/content/docs/en/latest/concepts/evidence.mdx` and the matching
+- `site/src/content/docs/docs/latest/concepts/evidence.mdx` and the matching
   Chinese page, rewritten around digest/finding rather than
   finding/proposition/assessment;
 - both `latest` analysis-workflow pages, removing `session.knowledge()`, facts,

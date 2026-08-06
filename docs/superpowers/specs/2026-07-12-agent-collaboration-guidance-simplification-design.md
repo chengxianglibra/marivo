@@ -116,8 +116,8 @@ Prompts must not duplicate static contracts from `md.help`, `ms.help`, or `mv.he
 
 In scope:
 
-- `site/src/content/docs/en/latest/guides/business-question.mdx`
-- `site/src/content/docs/zh-cn/latest/guides/business-question.mdx`
+- `site/src/content/docs/docs/latest/guides/business-question.mdx`
+- `site/src/content/docs/zh-cn/docs/latest/guides/business-question.mdx`
 - latest English and Chinese semantic-layer collaboration guidance
 - latest English and Chinese analysis-workflow collaboration guidance
 - latest English and Chinese readiness collaboration guidance

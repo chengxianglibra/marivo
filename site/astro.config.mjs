@@ -2,13 +2,14 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 function docsItems(version, releaseNotes, isLatest) {
+  const versionSlug = `docs/${version}`;
   const releaseNotesGroup = {
     label: 'Release Notes',
     translations: {
       'zh-CN': 'Release Notes',
     },
     items: releaseNotes.map((releaseNote) => ({
-      slug: `${version}/release-notes/${releaseNote}`,
+      slug: `${versionSlug}/release-notes/${releaseNote}`,
     })),
   };
   const conceptsGroup = {
@@ -17,11 +18,11 @@ function docsItems(version, releaseNotes, isLatest) {
       'zh-CN': '核心概念',
     },
     items: [
-      { slug: `${version}/concepts` },
-      { slug: `${version}/concepts/semantic-layer` },
-      { slug: `${version}/concepts/analysis-workflow` },
-      { slug: `${version}/concepts/readiness` },
-      { slug: `${version}/concepts/evidence` },
+      { slug: `${versionSlug}/concepts` },
+      { slug: `${versionSlug}/concepts/semantic-layer` },
+      { slug: `${versionSlug}/concepts/analysis-workflow` },
+      { slug: `${versionSlug}/concepts/readiness` },
+      { slug: `${versionSlug}/concepts/evidence` },
     ],
   };
 
@@ -33,10 +34,10 @@ function docsItems(version, releaseNotes, isLatest) {
           'zh-CN': '开始使用',
         },
         items: [
-          { slug: version },
-          { slug: `${version}/installation` },
-          { slug: `${version}/quick-start` },
-          { slug: `${version}/first-analysis` },
+          { slug: versionSlug },
+          { slug: `${versionSlug}/installation` },
+          { slug: `${versionSlug}/quick-start` },
+          { slug: `${versionSlug}/first-analysis` },
         ],
       },
       {
@@ -45,11 +46,11 @@ function docsItems(version, releaseNotes, isLatest) {
           'zh-CN': '与智能体协作',
         },
         items: [
-          { slug: `${version}/guides/business-question` },
-          { slug: `${version}/concepts/semantic-layer` },
-          { slug: `${version}/concepts/analysis-workflow` },
-          { slug: `${version}/concepts/readiness` },
-          { slug: `${version}/concepts/evidence` },
+          { slug: `${versionSlug}/guides/business-question` },
+          { slug: `${versionSlug}/concepts/semantic-layer` },
+          { slug: `${versionSlug}/concepts/analysis-workflow` },
+          { slug: `${versionSlug}/concepts/readiness` },
+          { slug: `${versionSlug}/concepts/evidence` },
         ],
       },
       {
@@ -58,11 +59,11 @@ function docsItems(version, releaseNotes, isLatest) {
           'zh-CN': '集成与参考',
         },
         items: [
-          { slug: `${version}/concepts` },
-          { slug: `${version}/reference/project-configuration` },
-          { slug: `${version}/reference/telemetry` },
-          { slug: `${version}/reference/deployment` },
-          { slug: `${version}/contributing` },
+          { slug: `${versionSlug}/concepts` },
+          { slug: `${versionSlug}/reference/project-configuration` },
+          { slug: `${versionSlug}/reference/telemetry` },
+          { slug: `${versionSlug}/reference/deployment` },
+          { slug: `${versionSlug}/contributing` },
         ],
       },
       releaseNotesGroup,
@@ -70,30 +71,27 @@ function docsItems(version, releaseNotes, isLatest) {
   }
 
   return [
-    { slug: version },
-    { slug: `${version}/installation` },
-    { slug: `${version}/quick-start` },
+    { slug: versionSlug },
+    { slug: `${versionSlug}/installation` },
+    { slug: `${versionSlug}/quick-start` },
     releaseNotesGroup,
     conceptsGroup,
-    { slug: `${version}/contributing` },
+    { slug: `${versionSlug}/contributing` },
   ];
 }
 
 export default defineConfig({
+  devToolbar: {
+    enabled: false,
+  },
   // The Python API reference is a single English Sphinx subtree emitted by
   // Sphinx into site/public/api/ and served at /api/. Starlight rewrites the
-  // sidebar link to the locale-prefixed /en/api and /zh-cn/api, so redirect
-  // those to the real index file. We must NOT add a redirect for the bare
+  // sidebar link to the locale-prefixed /zh-cn/api, so redirect it to the
+  // real index file. We must NOT add a redirect for the bare
   // /api itself: in a static build that would emit dist/api/index.html and
   // clobber the Sphinx index. Hosts (and `astro preview`) resolve the bare
   // directory /api/ to /api/index.html on their own.
   redirects: {
-    // The default locale is served under /en/, so Astro emits no page at the
-    // bare site root and hosts return 404 for /. Redirect / to the latest
-    // English splash page so the site has a working entry point.
-    '/': '/en/latest/',
-    '/blog': '/zh-cn/blog/',
-    '/en/api': '/api/index.html',
     '/zh-cn/api': '/api/index.html',
   },
   // Dev-only: the Vite dev server serves files in public/ but does not resolve
@@ -119,10 +117,11 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Marivo',
-      defaultLocale: 'en',
+      defaultLocale: 'root',
       locales: {
-        en: {
+        root: {
           label: 'English',
+          lang: 'en',
         },
         'zh-cn': {
           label: '简体中文',

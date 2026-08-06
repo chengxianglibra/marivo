@@ -1,0 +1,77 @@
+---
+slug: zh-cn/docs/v0.4
+title: 面向 AI 智能体的数据分析 Harness 框架
+description: 面向 AI 智能体的数据分析 Harness 框架。
+template: splash
+hero:
+  tagline: 面向 AI 智能体的数据分析 Harness 框架
+  image:
+    alt: Marivo
+    file: ../../../../../assets/marivo-mark.svg
+  actions:
+    - text: 安装 Marivo
+      link: /zh-cn/docs/v0.4/installation/
+      icon: right-arrow
+    - text: 查看 GitHub
+      link: https://github.com/chengxianglibra/marivo
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## 与智能体一起分析业务问题
+
+Marivo 是面向 AI 智能体的 Python Harness。它让你和智能体沿着一条可检查的协作路径，
+把已经确认的业务问题转化为由类型化结果和证据记录支持的结论。
+
+例如，你需要决定如何应对第四季度收入下降。你提供这次分析要支持的决策、已经确认的收入
+指标含义、需要纳入或排除的时间段与群体，以及可接受的拆分维度。智能体读取语义目录、
+解析并验证所选输入、执行类型化分析并记录证据。最后由你检查指标契约，决定接受还是拒绝结论。
+
+## 你负责什么，智能体负责什么
+
+1. **你确定业务契约。** 说明要支持的决策，确认指标含义，确定分析范围与排除项，并确认
+   哪些拆分维度具有业务意义。
+2. **智能体执行有边界的调查。** 它读取语义目录，验证所选输入，执行类型化分析，并保存
+   会影响结论的结果和证据。
+3. **你检查分析交接。** 接受结论或要求继续调查前，确认指标、范围、比较方式和拆分维度
+   仍然符合你的意图。
+
+## 分析过程中的四项保障
+
+<CardGrid>
+  <Card title="Semantic Layer" icon="seti:data">
+    Python 声明会保存数据源绑定、经过确认的业务含义、使用约束，以及指标和维度的引用。
+  </Card>
+  <Card title="Typed Analysis DSL" icon="seti:python">
+    类型化算子接收语义目录中的引用并返回明确的框架对象，不会把分析步骤隐藏在无法检查的
+    答案中。
+  </Card>
+  <Card title="Analysis Session" icon="seti:folder">
+    项目本地的会话会把一次调查的问题、框架对象、工件和调查记录保存在一起。
+  </Card>
+  <Card title="Evidence Engine" icon="seti:config">
+    类型化 findings 与有界 digest 把 operator 结果连接到输入，同时不替代 agent 判断。
+  </Card>
+</CardGrid>
+
+## 从业务问题到经过检查的结论
+
+协作路径是 `业务决策 → 已确认的指标与范围 → live catalog validation → 类型化分析 → 证据 →
+用户检查`。如果所需 semantic object 缺失或定义存在争议，或者请求超出已经确认的指标契约，
+智能体会停止，而不是悄悄重新定义问题。新建或修改的 semantic objects 会在 authoring 流程中
+完成 readiness certification。
+
+## 从这里开始
+
+<CardGrid>
+  <Card title="安装" icon="rocket">
+    [安装 Marivo](/zh-cn/docs/v0.4/installation/)，准备一个可供智能体使用的项目。
+  </Card>
+  <Card title="选择项目路径" icon="seti:data">
+    [复用现有语义层，或为新项目创建语义层](/zh-cn/docs/v0.4/quick-start/)。
+  </Card>
+  <Card title="第一次分析" icon="open-book">
+    [向智能体说明业务问题](/zh-cn/docs/latest/first-analysis/)，然后检查分析过程与证据。
+  </Card>
+</CardGrid>

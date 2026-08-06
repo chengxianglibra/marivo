@@ -63,7 +63,7 @@ class ConstraintId(StrEnum):
     RUNTIME_WEIGHTED_MEAN_VALID = "runtime_weighted_mean_valid"
 
 
-_DATASOURCE_DOC = "site/src/content/docs/en/latest/concepts/semantic-layer.mdx"
+_DATASOURCE_DOC = "site/src/content/docs/docs/latest/concepts/semantic-layer.mdx"
 
 
 def _constraint(
