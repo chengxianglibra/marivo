@@ -338,8 +338,7 @@ def test_attribute_multi_axis_rejects_reserved_axis_column(
     semantic_project_factory(
         {
             "sales/datasets.py": (
-                _reserved_axis_project(axis_name)
-                + "@ms.dimension(entity=orders)\n"
+                _reserved_axis_project(axis_name) + "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
             ),
@@ -676,15 +675,11 @@ def test_attribute_single_axis_with_level_dimension_is_not_cropped(
     """
     semantic_project_factory(
         {
-            "sales/datasets.py": (
-                _reserved_axis_project("level")
-            ),
+            "sales/datasets.py": (_reserved_axis_project("level")),
         }
     )
     session = mv.session.get_or_create(name="demo")
-    level_axis = session.catalog.require(
-        make_ref("sales.orders.level", SemanticKind.DIMENSION)
-    ).ref
+    level_axis = session.catalog.require(make_ref("sales.orders.level", SemanticKind.DIMENSION)).ref
     frame = _delta(
         session,
         pd.DataFrame(
@@ -712,17 +707,14 @@ def test_attribute_joint_level_dimension_is_not_cropped(
     semantic_project_factory(
         {
             "sales/datasets.py": (
-                _reserved_axis_project("level")
-                + "@ms.dimension(entity=orders)\n"
+                _reserved_axis_project("level") + "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
             ),
         }
     )
     session = mv.session.get_or_create(name="demo")
-    level_axis = session.catalog.require(
-        make_ref("sales.orders.level", SemanticKind.DIMENSION)
-    ).ref
+    level_axis = session.catalog.require(make_ref("sales.orders.level", SemanticKind.DIMENSION)).ref
     region_axis = session.catalog.require(
         make_ref("sales.orders.region", SemanticKind.DIMENSION)
     ).ref

@@ -1103,8 +1103,8 @@ def test_operator_accepted_input_keys_exist_in_installed_signature() -> None:
                     f"{desc.id} accepted input {parameter!r} is not a parameter "
                     f"of {desc.callable_path} (signature: {sorted(signature_names)})"
                 )
-    assert not unaccounted, "Accepted inputs advertise parameters the callable lacks:\n  " + "\n  ".join(
-        unaccounted
+    assert not unaccounted, (
+        "Accepted inputs advertise parameters the callable lacks:\n  " + "\n  ".join(unaccounted)
     )
 
 

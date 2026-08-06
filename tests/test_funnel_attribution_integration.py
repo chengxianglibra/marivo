@@ -123,9 +123,7 @@ def test_hierarchy_pool_shares_are_level_local_and_metadata_uses_deepest_pool(
             assert positive["share_of_positive_pool"].sum() == pytest.approx(1.0)
         if not negative.empty:
             assert negative["share_of_negative_pool"].sum() == pytest.approx(1.0)
-    deepest = rows.loc[
-        rows["attribution_level"] == rows["attribution_level"].max()
-    ]
+    deepest = rows.loc[rows["attribution_level"] == rows["attribution_level"].max()]
     assert deepest.loc[deepest["contribution"] > 0, "contribution"].sum() == pytest.approx(
         drivers.meta.reconciliation.positive_pool
     )
