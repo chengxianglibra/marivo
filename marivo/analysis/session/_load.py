@@ -695,7 +695,11 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             for err in errors
             if err.get("type") == "extra_forbidden" and err.get("loc")
         ]
-        if extra_fields:
+        # Only report a version mismatch when *every* validation failure is an
+        # extra-forbidden field. If a removed field coexists with a genuinely
+        # corrupt value, the corruption must win: re-running observe() masks the
+        # real data problem (issue #57 review P3-1).
+        if extra_fields and all(err.get("type") == "extra_forbidden" for err in errors):
             # The artifact carries a field removed in this schema version (e.g.
             # the pre-issue-57 component_graph_ref). This is a version mismatch,
             # not data corruption: the operator re-runs observe() to regenerate
