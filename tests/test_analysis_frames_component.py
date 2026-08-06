@@ -510,6 +510,40 @@ def test_legacy_component_graph_ref_artifact_fails_closed_on_load():
     assert "Re-run observe()" in exc_info.value.repair.action
 
 
+def test_legacy_graph_only_artifact_fails_closed_on_load():
+    """A pre-#57 graph-only artifact (component_ref absent) fails closed.
+
+    Real pre-#57 observe() writes are graph-only: component_ref is absent and
+    component_graph_ref carries the sidecar ref. That shape is the one that
+    actually hits the fail-closed path, so it must produce the same dedicated
+    version-mismatch error as the dual-write shape.
+    """
+    import json
+
+    from marivo.analysis.errors import FrameMetaInvalidError
+    from marivo.analysis.session._load import load_frame
+
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        ref="frame_legacy_graph_only",
+        component_ref=None,
+        composition=None,
+    )
+    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["component_graph_ref"] = "frame_graph_sidecar"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(parent.ref, session=session)
+
+    assert "component_graph_ref" in exc_info.value.message
+    assert "no longer in" in exc_info.value.message
+    assert exc_info.value.repair is not None
+    assert "Re-run observe()" in exc_info.value.repair.action
+
+
 def test_no_composition_scalar_frame_keeps_inspect_repair():
     """An ordinary scalar frame without composition keeps the original repair.
 
