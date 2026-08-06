@@ -563,6 +563,10 @@ def test_candidate_integrity_invalid_helper_carries_typed_repair() -> None:
     # callable; a snippet like "session.discover(...)" would TypeError. The
     # candidate repair must not ship an un-executable snippet.
     assert exc_info.value.repair.snippet is None
+    # Issue #65 review (location): without _derive_fields, location must be
+    # carried explicitly by the construction site, not fall back to bare "frame".
+    assert exc_info.value.location is not None
+    assert "CandidateSet integrity" in exc_info.value.location
     assert "Repair:" in str(exc_info.value)
 
 
@@ -586,6 +590,9 @@ def test_candidate_identity_repair_has_no_unexecutable_snippet() -> None:
     assert repair.kind == "retry"
     assert repair.help_target.canonical_id == "discover"
     assert repair.snippet is None
+    # Location carried by the construction site (no _derive_fields fallback).
+    assert exc_info.value.location is not None
+    assert "item_id identity" in exc_info.value.location
 
 
 def test_candidate_columns_repair_has_no_unexecutable_snippet() -> None:
@@ -615,3 +622,7 @@ def test_candidate_columns_repair_has_no_unexecutable_snippet() -> None:
     assert repair is not None
     assert repair.help_target.canonical_id == "discover"
     assert repair.snippet is None
+    # Location carried by the construction site (no _derive_fields fallback).
+    assert exc_info.value.location is not None
+    assert "column" in exc_info.value.location
+    assert "point_anomaly shape" in exc_info.value.location

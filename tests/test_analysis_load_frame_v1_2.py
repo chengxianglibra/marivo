@@ -547,4 +547,7 @@ def test_cumulative_delta_missing_attribution_raises_missing_state(tmp_path):
     # step (cumulative delta rebuild needs both).
     assert "observe" in err.repair.action.lower()
     assert "compare" in err.repair.action.lower()
+    # Location carried by the construction site (no _derive_fields fallback).
+    assert err.location is not None
+    assert "cumulative_attribution" in err.location
     assert "Repair:" in str(err)

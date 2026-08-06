@@ -246,6 +246,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         message=(
                             f"candidate row {index} missing required {shape!r} column {column!r}"
                         ),
+                        location=f"candidate row {index} {column!r} column ({shape} shape)",
                         repair=AnalysisRepair(
                             kind="retry",
                             action=(
@@ -280,6 +281,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         f"candidate row {index} has unexpected value in column {column!r} "
                         f"for shape {shape!r}"
                     ),
+                    location=f"candidate row {index} {column!r} column ({shape} shape)",
                     repair=AnalysisRepair(
                         kind="retry",
                         action=(

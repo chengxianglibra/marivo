@@ -963,6 +963,7 @@ def _reuse_committed_result(
                     f"artifact {artifact_id!r} uses a non-current schema; "
                     "recreate the analysis session"
                 ),
+                location=f"artifact {artifact_id!r} schema version",
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
