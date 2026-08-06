@@ -534,8 +534,6 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             ),
             context={
                 "ref": ref,
-                "got": artifact_schema_version,
-                "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
             },
         )
     if meta.get("session_id") != session.id:
@@ -561,7 +559,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 message=f"frame '{ref}' has an unsupported Event semantic shape",
                 location=f"frame '{ref}' event semantic shape",
                 repair=AnalysisRepair(
-                    kind="environment",
+                    kind="retry",
                     action=(
                         f"frame '{ref}' has unsupported semantic shape "
                         f"{semantic_kind!r}. Re-run the producing intent under "
@@ -591,7 +589,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 message=f"frame '{ref}' has an unsupported Lifecycle semantic shape",
                 location=f"frame '{ref}' lifecycle semantic shape",
                 repair=AnalysisRepair(
-                    kind="environment",
+                    kind="retry",
                     action=(
                         f"frame '{ref}' has unsupported semantic shape "
                         f"{semantic_kind!r}. Re-run the producing intent under "
@@ -634,8 +632,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             raise FrameMetaInvalidError(
                 message=(f"frame '{ref}' uses an unsupported cumulative delta artifact schema"),
                 location=f"frame '{ref}' cumulative delta artifact schema",
+                expected="cumulative-delta/v1",
+                received=meta.get("artifact_schema"),
                 repair=AnalysisRepair(
-                    kind="environment",
+                    kind="retry",
                     action=(
                         f"frame '{ref}' uses an unsupported cumulative delta artifact "
                         "schema. Re-run observe and compare under the current "
@@ -646,8 +646,6 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 context={
                     "ref": ref,
                     "kind": "unsupported_artifact_schema",
-                    "expected": "cumulative-delta/v1",
-                    "received": meta.get("artifact_schema"),
                 },
             )
         if "cumulative_attribution" not in meta:
@@ -984,7 +982,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 message=f"frame '{ref}' has a non-canonical CandidateSet column layout",
                 location=f"frame '{ref}' CandidateSet column layout",
                 repair=AnalysisRepair(
-                    kind="environment",
+                    kind="retry",
                     action=(
                         f"frame '{ref}' has a non-canonical CandidateSet column "
                         "layout. Re-run the candidate-producing intent through "

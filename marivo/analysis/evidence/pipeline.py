@@ -964,8 +964,10 @@ def _reuse_committed_result(
                     "recreate the analysis session"
                 ),
                 location=f"artifact {artifact_id!r} schema version",
+                expected=CURRENT_ARTIFACT_SCHEMA_VERSION,
+                received=persisted_payload.get("artifact_schema_version"),
                 repair=AnalysisRepair(
-                    kind="environment",
+                    kind="retry",
                     action=(
                         f"artifact {artifact_id!r} uses a non-current schema. "
                         "Re-run the analysis so the artifact is regenerated "
@@ -973,11 +975,7 @@ def _reuse_committed_result(
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 ),
-                context={
-                    "artifact_id": artifact_id,
-                    "got": persisted_payload.get("artifact_schema_version"),
-                    "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
-                },
+                context={"artifact_id": artifact_id},
             )
         persisted_meta = (
             type(frame.meta).model_validate_json(json.dumps(persisted_payload))
