@@ -112,7 +112,7 @@ def _project_component_graph_payload(
     projected_presentation: ExpressionPresentationV1,
     session: Session,
 ) -> dict[str, object]:
-    component_ref = frame.meta.component_graph_ref
+    component_ref = frame.meta.component_ref
     if component_ref is None:
         raise FrameCacheCorruptedError(
             message="multi-metric projection requires the persisted recursive component graph",
@@ -121,15 +121,15 @@ def _project_component_graph_payload(
     loaded = load_frame(component_ref, session=session)
     if not isinstance(loaded, ComponentFrame) or not isinstance(loaded.meta.component_graph, dict):
         raise FrameCacheCorruptedError(
-            message="multi-metric component_graph_ref did not resolve to a component graph",
-            context={"frame_ref": frame.ref, "component_graph_ref": component_ref},
+            message="multi-metric component_ref did not resolve to a component graph",
+            context={"frame_ref": frame.ref, "component_ref": component_ref},
         )
     payload = loaded.meta.component_graph
     raw_nodes = payload.get("nodes")
     if not isinstance(raw_nodes, list):
         raise FrameCacheCorruptedError(
             message="multi-metric component graph has no typed node records",
-            context={"frame_ref": frame.ref, "component_graph_ref": component_ref},
+            context={"frame_ref": frame.ref, "component_ref": component_ref},
         )
     root_id = projected_graph.roots[0]
     source_prefix = f"root[{entry_index}]"
