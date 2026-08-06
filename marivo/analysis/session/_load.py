@@ -140,6 +140,15 @@ def _current_metric_state_error(
 ) -> FrameMetaInvalidError:
     return FrameMetaInvalidError(
         message=(f"frame '{ref}' has invalid current-schema metric state at {path}: {reason}"),
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                f"frame '{ref}' has invalid current-schema metric state at {path}. "
+                "Re-run observe() to regenerate the frame under the current contract."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            snippet="session.observe(metric_ref, ...)",
+        ),
         context={
             "ref": ref,
             "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -547,6 +556,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if semantic_kind not in event_meta_classes:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has an unsupported Event semantic shape",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"frame '{ref}' has unsupported semantic shape "
+                        f"{semantic_kind!r}. Re-run the producing intent under "
+                        "the current schema."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -567,6 +585,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if semantic_kind not in lifecycle_meta_classes:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has an unsupported Lifecycle semantic shape",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"frame '{ref}' has unsupported semantic shape "
+                        f"{semantic_kind!r}. Re-run the producing intent under "
+                        "the current schema."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -603,12 +630,20 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         ):
             raise FrameMetaInvalidError(
                 message=(f"frame '{ref}' uses an unsupported cumulative delta artifact schema"),
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"frame '{ref}' uses an unsupported cumulative delta artifact "
+                        "schema. Re-run observe and compare under the current "
+                        "environment to regenerate it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
                 context={
                     "ref": ref,
                     "kind": "unsupported_artifact_schema",
                     "expected": "cumulative-delta/v1",
                     "received": meta.get("artifact_schema"),
-                    "repair": "Re-run observe and compare under the current environment.",
                 },
             )
         meta_cls = CumulativeDeltaFrameMetaV1
@@ -623,6 +658,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     ):
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its required delta identity",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    f"frame '{ref}' is missing its delta comparison identity. "
+                    "Re-run session.compare(current, baseline, alignment=...) to "
+                    "rebuild it from the source MetricFrames."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                snippet="delta = session.compare(current, baseline, alignment=alignment)",
+            ),
             context={
                 "ref": ref,
                 "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -654,6 +699,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     f"frame '{ref}' is missing required {artifact_schema_version} "
                     f"fields: {', '.join(missing_fields)}"
                 ),
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' is missing required schema field(s) "
+                        f"{', '.join(missing_fields)}. Re-run observe() to "
+                        "regenerate the frame under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                    snippet="session.observe(metric_ref, ...)",
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": artifact_schema_version,
@@ -668,6 +723,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     ):
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its {CURRENT_ARTIFACT_SCHEMA_VERSION} attribution basis field",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    f"frame '{ref}' is missing its attribution basis field. "
+                    "Re-run session.compare(current, baseline, alignment=...) to "
+                    "rebuild it from the source MetricFrames."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                snippet="delta = session.compare(current, baseline, alignment=alignment)",
+            ),
             context={
                 "ref": ref,
                 "artifact_schema_version": artifact_schema_version,
@@ -731,6 +796,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             ) from exc
         raise FrameMetaInvalidError(
             message=(f"frame '{ref}' metadata fails {artifact_schema_version} validation"),
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    f"frame '{ref}' metadata fails {artifact_schema_version} "
+                    "validation. Inspect the persisted artifact; if it is stale, "
+                    "re-run the producing intent to regenerate it."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+            ),
             context={
                 "ref": ref,
                 "artifact_schema_version": artifact_schema_version,
@@ -770,6 +844,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             if missing_state:
                 raise FrameMetaInvalidError(
                     message=f"frame '{ref}' has incomplete current-schema metric state",
+                    repair=AnalysisRepair(
+                        kind="retry",
+                        action=(
+                            f"frame '{ref}' has incomplete current-schema metric "
+                            f"state ({', '.join(missing_state)}). Re-run observe() "
+                            "to regenerate the frame under the current contract."
+                        ),
+                        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                        snippet="session.observe(metric_ref, ...)",
+                    ),
                     context={
                         "ref": ref,
                         "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -785,6 +869,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         ):
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has a mismatched attribution basis identity",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' has a mismatched attribution basis identity. "
+                        "Re-run session.compare(current, baseline, alignment=...) to "
+                        "rebuild it from the source MetricFrames."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                    snippet="delta = session.compare(current, baseline, alignment=alignment)",
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": artifact_schema_version,
@@ -802,6 +896,17 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if missing_state:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has incomplete current-schema delta identity",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' has incomplete current-schema delta "
+                        f"identity ({', '.join(missing_state)}). Re-run "
+                        "session.compare(current, baseline, alignment=...) to "
+                        "rebuild it from the source MetricFrames."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                    snippet="delta = session.compare(current, baseline, alignment=alignment)",
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -821,6 +926,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             )
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has corrupt {row_family}",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' has corrupt {row_family}. Re-run the "
+                        "producing intent (attribute) from its source frames to "
+                        "rebuild them."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": artifact_schema_version,
@@ -831,6 +945,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if list(df.columns) != CANDIDATE_COLUMNS:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has a non-canonical CandidateSet column layout",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"frame '{ref}' has a non-canonical CandidateSet column "
+                        "layout. Re-run the candidate-producing intent "
+                        "(session.discover) to regenerate it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    snippet="session.discover(metric_ref, ...)",
+                ),
                 context={
                     "ref": ref,
                     "got_columns": list(df.columns),
@@ -859,6 +983,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if manifest.content_hash is None:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' is missing its Lifecycle trace content hash",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' is missing its Lifecycle trace content "
+                        "hash. Re-run the producing intent to regenerate the "
+                        "frame."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,

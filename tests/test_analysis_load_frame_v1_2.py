@@ -445,7 +445,8 @@ def test_current_metric_state_error_message_carries_concrete_reason(tmp_path):
     # repair so an agent knows to re-run the producing intent.
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.kind == "retry"
-    assert "Re-run the producing intent" in exc_info.value.repair.action
+    assert exc_info.value.repair.help_target.canonical_id == "observe"
+    assert "Re-run observe" in exc_info.value.repair.action
     assert "Repair:" in str(exc_info.value)
 
 

@@ -21,7 +21,7 @@ from marivo.analysis._cumulative import (
     CumulativeAlignmentV1,
 )
 from marivo.analysis._semantic_persistence import SlicePredicateV1
-from marivo.analysis.errors import FrameMetaInvalidError
+from marivo.analysis.errors import AnalysisRepair, FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.composition import (
     DecompositionExtractionContract,
@@ -92,6 +92,7 @@ from marivo.analysis.frames.base import (
     _FrameAuxiliaryReceipt,
 )
 from marivo.analysis.frames.lifecycle import LifecycleFrameMetaVariant
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
@@ -961,6 +962,15 @@ def _reuse_committed_result(
                 message=(
                     f"artifact {artifact_id!r} uses a non-current schema; "
                     "recreate the analysis session"
+                ),
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"artifact {artifact_id!r} uses a non-current schema. "
+                        "Re-run the analysis so the artifact is regenerated "
+                        "under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 ),
                 context={
                     "artifact_id": artifact_id,
