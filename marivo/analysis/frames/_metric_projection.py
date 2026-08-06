@@ -189,6 +189,7 @@ def _semantic_unit(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> s
 def _semantic_unit_state(
     binding: MeasureBindingV1 | None,
     entry: dict[str, Any],
+    frame_ref: str,
 ) -> MetricUnitStateV2 | None:
     """Return the authoritative typed unit state for one measure.
 
@@ -208,10 +209,14 @@ def _semantic_unit_state(
         # ValueError. FrameCacheCorruptedError derives repair/kind/hint from
         # context ("delete the corrupted artifact to force re-computation"),
         # which is the correct recovery for a malformed persisted unit state.
+        # ``ref`` must be the real parent frame ref (repair derives a
+        # machine-executable rm -rf path from it); the measure name alone would
+        # point the repair at a non-existent path on disk.
         raise FrameCacheCorruptedError(
             message="persisted unit state payload is corrupted or from a future version",
             context={
-                "ref": entry.get("name", "<measure>"),
+                "ref": frame_ref,
+                "measure": entry.get("name", "<measure>"),
                 "cause": exc.message,
                 "expected": exc.expected,
                 "received": exc.received,
@@ -469,7 +474,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
                 value_column="value",
                 display_name=entry["name"],
                 unit=_semantic_unit(binding, entry),
-                unit_state=_semantic_unit_state(binding, entry),
+                unit_state=_semantic_unit_state(binding, entry, frame.ref),
                 additivity=_semantic_additivity(binding, entry),
                 aggregation=_semantic_aggregation(binding, entry),
                 reaggregatable=_semantic_reaggregatable(binding, entry),
@@ -486,7 +491,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=metric_id.split(".", 1)[0],
         unit=_semantic_unit(binding, entry),
-        unit_state=_semantic_unit_state(binding, entry),
+        unit_state=_semantic_unit_state(binding, entry, frame.ref),
         reaggregatable=_semantic_reaggregatable(binding, entry),
         additivity=_semantic_additivity(binding, entry),
         aggregation=_semantic_aggregation(binding, entry),

@@ -648,12 +648,12 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if missing_fields:
             raise FrameMetaInvalidError(
                 message=(
-                    f"frame '{ref}' declares current-schema metadata but is missing "
-                    f"required current-schema fields: {', '.join(missing_fields)}"
+                    f"frame '{ref}' is missing required {artifact_schema_version} "
+                    f"fields: {', '.join(missing_fields)}"
                 ),
                 context={
                     "ref": ref,
-                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "artifact_schema_version": artifact_schema_version,
                     "missing_fields": missing_fields,
                 },
             )

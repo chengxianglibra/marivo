@@ -427,6 +427,12 @@ def test_metric_malformed_legacy_unit_state_raises_analysis_error(sales_session)
     assert isinstance(exc_info.value, FrameCacheCorruptedError)
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.action
+    # Issue #63 review P2: the repair snippet must be built from the real
+    # parent frame ref (not the measure's display name), and the measure name
+    # must be preserved in its own context key.
+    assert exc_info.value._context["ref"] == legacy.ref
+    assert exc_info.value._context["measure"] == "revenue"
+    assert legacy.ref in exc_info.value.repair.snippet
 
 
 # ---------------------------------------------------------------------------
