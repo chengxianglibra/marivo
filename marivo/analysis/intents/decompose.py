@@ -1125,7 +1125,9 @@ def _component_multi_axis_output(
             piece.insert(
                 0,
                 ATTRIBUTION_PATH_COLUMN,
-                piece[prefix].apply(lambda row: " > ".join(_path_segment(value) for value in row)),
+                piece[prefix].apply(
+                    lambda row: " > ".join(_path_segment(value) for value in row), axis=1
+                ),
             )
             piece.insert(0, ATTRIBUTION_DRIVER_COLUMN, piece[axis_columns[level - 1]])
             piece.insert(0, ATTRIBUTION_AXIS_COLUMN, axis_columns[level - 1])
