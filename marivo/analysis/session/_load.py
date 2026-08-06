@@ -139,7 +139,10 @@ def _current_metric_state_error(
     reason: str,
 ) -> FrameMetaInvalidError:
     return FrameMetaInvalidError(
-        message=f"frame '{ref}' has corrupt current-schema metric state at {path}",
+        message=(
+            f"frame '{ref}' has invalid current-schema metric state at {path}: "
+            f"{reason}"
+        ),
         context={
             "ref": ref,
             "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,

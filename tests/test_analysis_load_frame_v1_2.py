@@ -16,7 +16,12 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._layout import write_frame_to_disk
-from tests.shared_fixtures import make_metric_frame, make_test_metric_meta_contract
+from tests.shared_fixtures import (
+    connect_sales_orders,
+    make_metric_frame,
+    make_test_metric_meta_contract,
+    sales_backends,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -355,3 +360,40 @@ def test_cross_session_frame_raises_cross_session_frame_error():
     )
     with pytest.raises(CrossSessionFrameError):
         session_b.get_frame(frame.ref)
+
+
+def test_current_metric_state_error_message_carries_concrete_reason(tmp_path):
+    """Issue #64: helper must surface the concrete reason in the public message.
+
+    Previously ``_current_metric_state_error`` hard-coded a generic "corrupt
+    current-schema metric state" message and dropped the per-call-site ``reason``
+    into ``context`` only.  Agents reading the public message could not tell a
+    genuine corruption from a concrete validation failure (replay params
+    missing, fingerprint mismatch, ...).  The message must reflect ``reason``.
+    """
+    from marivo.analysis.intents.observe import observe
+    from marivo.analysis.session._load import load_frame
+    from marivo.semantic import SemanticKind
+    from tests.conftest import bootstrap_sales_project
+    from tests.ref_helpers import make_ref
+
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=session)
+
+    # Tamper with one validated field so the current-schema metric state check
+    # raises through _current_metric_state_error.
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["expression_fingerprint"] = "mutated-wrong-fingerprint"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(frame.ref, session=session)
+
+    message = exc_info.value.message
+    # The concrete reason must be visible in the public message...
+    assert "fingerprint does not match the canonical graph roots" in message
+    # ...and it must not be papered over as generic corruption.
+    assert "corrupt" not in message.lower()
