@@ -1,0 +1,83 @@
+---
+slug: en/v0.4/release-notes/0.4.1
+title: Marivo 0.4.1
+description: Release notes for Marivo 0.4.1.
+---
+
+Marivo 0.4.1 expands typed analysis for cumulative and non-additive metrics,
+adds ontology-guided semantic discovery, and tightens the public contracts that
+make agent-facing analysis deterministic and verifiable.
+
+## Highlights
+
+- Cumulative observations now retain evaluation cutoffs and comparable-period
+  evidence. Analysis supports cumulative level comparisons, all-history level
+  changes, and cumulative attribution with explicit scope, cutoff, and
+  reconciliation validation.
+- Attribution supports count-distinct and quantile measures with independent
+  multiresolution execution, typed evidence, and fail-closed artifact checks.
+- Ontology authoring and catalog loading support one-edge semantic hypothesis
+  discovery, stable candidate selection, and candidate identity and lineage.
+- Typed measure bindings now own metric-axis resolution. Analysis aligns only
+  on declared axes, preserves the relevant unit state, and exposes a closed set
+  of funnel affordances.
+- The installer uses uv to manage Python environments across Unix and Windows
+  Bash layouts. The default installation covers DuckDB, Trino, and ClickHouse;
+  MySQL remains opt-in.
+
+## Breaking changes
+
+- Public `LineageStep`, `Lineage`, `FrameSummaryEntry`, `JobSummary`, and
+  `SessionSummary` data classes are keyword-only.
+- The unbounded `session.list` operation has been removed. Use bounded
+  `session.recent(...)` and `session.inspect(...)` operations instead.
+- Analysis artifact identity is ref-only; removed identifier aliases must be
+  replaced with the canonical `.ref` contract.
+- Legacy session aliases, compatibility shims, and dead errors have been
+  removed. Use the canonical public names and entry points.
+- All-history cumulative comparison is represented as a level change with
+  persisted evaluation-end evidence, not as interval-flow equivalence.
+
+## Changed
+
+- Analysis rejects dimensions and output columns that collide with reserved
+  result protocol columns, and validates multi-metric axis and coverage
+  contracts before execution.
+- Attribution hierarchy columns use a namespaced layout, and attribution
+  errors provide actionable repair guidance for unsupported inputs.
+- Development dependencies no longer install MySQL by default, and the type
+  checking baseline is updated to mypy 2.3.
+
+## Fixed
+
+- Cumulative comparable-period alignment now fails closed on unsupported legacy
+  calendar identifiers and validates persisted evidence on load.
+- Panel forecast axes, folded derived metrics, cross-entity grain requirements,
+  and artifact reuse purposes now receive explicit validation and metadata.
+- Live help targets, public exports, and runtime representations are kept
+  deterministic and aligned with the installed guidance.
+
+## Documentation
+
+- Added cumulative comparison, cumulative attribution, non-additive attribution,
+  ontology extension, and agent-facing public-surface specifications.
+- Updated the metric-first analysis workflow, semantic-layer guidance, and
+  cross-platform installation instructions in English and Chinese.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.1
+requires Python 3.12 or newer.
+
+## Documentation links
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Readiness](/en/latest/concepts/readiness/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)
+- [Evidence](/en/latest/concepts/evidence/)

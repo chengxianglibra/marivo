@@ -1,0 +1,74 @@
+---
+slug: zh-cn/latest/release-notes/0.4.1
+title: Marivo 0.4.1
+description: Marivo 0.4.1 发布说明。
+---
+
+Marivo 0.4.1 扩展了累计指标与非可加指标的类型化分析能力，加入 ontology-guided
+semantic discovery，并进一步收紧面向智能体的公共契约，使分析结果更确定、更可验证。
+
+## 重点
+
+- Cumulative observation 现在持久化 evaluation cutoff 与可比周期 evidence。Analysis 支持
+  cumulative level comparison、all-history level change 与 cumulative attribution，并对 scope、
+  cutoff 和 reconciliation 做显式验证。
+- Attribution 支持 count-distinct 与 quantile measure，提供独立的 multiresolution 执行、
+  类型化 evidence 和 fail-closed artifact 校验。
+- Ontology authoring 与 catalog loading 支持单边 semantic hypothesis discovery、稳定的
+  candidate selection，以及 candidate identity 和 lineage。
+- 类型化 measure binding 成为 metric axis resolution 的 authority。Analysis 只按声明的 axis
+  对齐，保留相关 unit state，并将 funnel affordance 收敛为封闭集合。
+- Installer 使用 uv 管理 Unix 与 Windows Bash 环境。默认安装覆盖 DuckDB、Trino 和 ClickHouse；
+  MySQL 仍需显式 opt-in。
+
+## 破坏性变更
+
+- Public `LineageStep`、`Lineage`、`FrameSummaryEntry`、`JobSummary` 和 `SessionSummary`
+  data class 改为仅支持 keyword 参数构造。
+- 删除无界的 `session.list`，请改用有界的 `session.recent(...)` 与 `session.inspect(...)`。
+- Analysis artifact identity 统一为 ref-only；原有 identifier alias 需要迁移到 canonical `.ref`
+  契约。
+- 删除旧的 session alias、compatibility shim 与无调用的 error；请使用 canonical public name
+  与 entry point。
+- All-history cumulative comparison 表示为带 evaluation-end evidence 的 level change，而不是
+  interval-flow equivalence。
+
+## 变更
+
+- Analysis 会在执行前拒绝与结果 protocol column 冲突的 dimension/output column，并验证
+  multi-metric axis 与 coverage 契约。
+- Attribution hierarchy column 使用 namespaced layout；不支持的 attribution input 会收到可执行
+  的修复指引。
+- Development dependency 默认不再安装 MySQL，type checking 基线升级到 mypy 2.3。
+
+## 修复
+
+- Cumulative comparable-period alignment 对不支持的 legacy calendar identifier fail closed，并在
+  load 时校验持久化 evidence。
+- Panel forecast axis、folded derived metric、cross-entity grain requirement 与 artifact reuse
+  purpose 现在都有显式校验或元数据记录。
+- Live help target、public export 与 runtime representation 保持确定性，并与已安装 guidance
+  对齐。
+
+## 文档
+
+- 新增 cumulative comparison、cumulative attribution、non-additive attribution、ontology
+  extension 与 agent-facing public surface specification。
+- 更新中英文 metric-first analysis workflow、semantic-layer 指南与跨平台安装说明。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.1 要求 Python 3.12 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/latest/installation/)
+- [快速开始](/zh-cn/latest/quick-start/)
+- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
+- [Readiness](/zh-cn/latest/concepts/readiness/)
+- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/latest/concepts/evidence/)
