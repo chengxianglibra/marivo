@@ -549,7 +549,8 @@ def test_corrupt_payload_still_reports_corruption():
 
     Issue #57 review P3-2: the corrupt branch is still reachable and must stay
     covered. A payload with a wrong-typed field (no removed fields) is real data
-    damage, not a version mismatch — it must say 'corrupt', not 'no longer in'.
+    damage, not a version mismatch — it must report a validation failure, not
+    'no longer in' with a re-run repair.
     """
     import json
 
@@ -571,7 +572,8 @@ def test_corrupt_payload_still_reports_corruption():
     with pytest.raises(FrameMetaInvalidError) as exc_info:
         load_frame(parent.ref, session=session)
 
-    assert "corrupt current-schema" in exc_info.value.message
+    assert "fails" in exc_info.value.message
+    assert "validation" in exc_info.value.message
     assert "no longer in" not in exc_info.value.message
 
 
@@ -580,8 +582,9 @@ def test_removed_field_with_corrupt_value_reports_corruption():
 
     Issue #57 review P3-1: the extra-forbidden dispatch must not mask a real
     data problem. A payload carrying component_graph_ref *and* a wrong-typed
-    field is genuinely damaged — it must report corruption, not a pure version
-    mismatch whose 're-run observe()' repair would paper over the damage.
+    field is genuinely damaged — it must report a validation failure, not a
+    pure version mismatch whose 're-run observe()' repair would paper over the
+    damage.
     """
     import json
 
@@ -604,7 +607,8 @@ def test_removed_field_with_corrupt_value_reports_corruption():
     with pytest.raises(FrameMetaInvalidError) as exc_info:
         load_frame(parent.ref, session=session)
 
-    assert "corrupt current-schema" in exc_info.value.message
+    assert "fails" in exc_info.value.message
+    assert "validation" in exc_info.value.message
     assert "no longer in" not in exc_info.value.message
 
 
