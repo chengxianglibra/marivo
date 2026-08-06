@@ -42,7 +42,7 @@ format:
 	@$(VENV_RUFF) format .
 	@$(VENV_RUFF) check --fix .
 
-check: lint typecheck test
+check: lint typecheck test docs-api
 
 release-check: check release-test
 
