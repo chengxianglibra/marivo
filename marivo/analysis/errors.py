@@ -939,7 +939,185 @@ class MetricShapeUnsupportedError(AnalysisError):
 
 
 class FrameMetaInvalidError(AnalysisError):
-    pass
+    """A persisted analysis frame's metadata is not usable as-is.
+
+    The message says what is wrong; ``_derive_fields`` turns the context into a
+    machine-readable repair so an agent knows how to make the frame usable
+    again (re-run the producing intent, inspect persisted state, or drop it).
+    """
+
+    def _derive_fields(self) -> _DerivedFields:
+        ref = self._context.get("ref")
+        ref_label = f"frame {ref!r}" if isinstance(ref, str) else "frame"
+
+        # A non-current artifact schema is a cutover, not corruption: the
+        # producing intent regenerates the frame under the current contract.
+        got = self._context.get("got")
+        expected = self._context.get("expected")
+        if isinstance(got, str) and isinstance(expected, str):
+            return _DerivedFields(
+                expected=expected,
+                received=got,
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} was written with schema {got!r} but this "
+                        f"session expects {expected!r}. Re-run the analysis so the "
+                        "frame is regenerated under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                    snippet="session.observe(metric_ref, ...)",
+                ),
+            )
+
+        # Removed schema fields (extra_forbidden on a current-schema read) are a
+        # version mismatch: re-running observe() regenerates the frame.
+        extra_fields = self._context.get("extra_fields")
+        if isinstance(extra_fields, (list, tuple)) and extra_fields:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} carries field(s) removed from the current "
+                        "schema. Re-run observe() to regenerate the frame under "
+                        "the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
+            )
+
+        # Missing required fields / state: the producing intent must re-run.
+        missing_fields = self._context.get("missing_fields")
+        missing_state = self._context.get("missing_state")
+        if isinstance(missing_fields, (list, tuple)) and missing_fields:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} is missing required schema field(s) "
+                        f"{', '.join(str(f) for f in missing_fields)}. Re-run "
+                        "observe() to regenerate the frame under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
+            )
+        if isinstance(missing_state, (list, tuple)) and missing_state:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} has incomplete persisted state "
+                        f"({', '.join(str(f) for f in missing_state)}). Re-run the "
+                        "producing intent (observe/compare/attribute) to rebuild it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+
+        # Metadata fails current-schema validation: could be a stale artifact or
+        # genuine corruption; re-running the producing intent is the recovery.
+        validation_errors = self._context.get("validation_errors")
+        if validation_errors is not None:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="inspect",
+                    action=(
+                        f"{ref_label} metadata fails current-schema validation. "
+                        "Inspect the persisted artifact; if it is stale, re-run the "
+                        "producing intent to regenerate it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+
+        # A frame was persisted with an unsupported semantic shape.
+        got_semantic_kind = self._context.get("got_semantic_kind")
+        expected_semantic_kinds = self._context.get("expected_semantic_kinds")
+        if isinstance(got_semantic_kind, str) and isinstance(
+            expected_semantic_kinds, (list, tuple)
+        ):
+            return _DerivedFields(
+                received=got_semantic_kind,
+                expected=", ".join(str(k) for k in expected_semantic_kinds),
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} has unsupported semantic shape "
+                        f"{got_semantic_kind!r}. Re-run the producing intent under "
+                        "the current schema."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                ),
+            )
+
+        # A non-canonical persisted column layout (e.g. CandidateSet).
+        got_columns = self._context.get("got_columns")
+        expected_columns = self._context.get("expected_columns")
+        if isinstance(got_columns, (list, tuple)) and isinstance(expected_columns, (list, tuple)):
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        f"{ref_label} has a non-canonical column layout. Re-run "
+                        "the producing intent to regenerate it under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+
+        # Candidate-set row/identity problems come from a stale or malformed
+        # candidate artifact.
+        kind = self._context.get("kind")
+        if isinstance(kind, str) and kind.startswith("Candidate"):
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"{ref_label} has an invalid candidate artifact. Re-run "
+                        "the candidate-producing intent to rebuild it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    snippet="session.discover(metric_ref, ...)",
+                ),
+            )
+
+        # A schema-specific frame state issue (metric replay, delta identity,
+        # attribution basis) is best recovered by re-running the producing
+        # intent; the concrete reason stays in the message.
+        if "reason" in self._context or "path" in self._context:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"{ref_label} has invalid persisted state. Re-run the "
+                        "producing intent (observe/compare/attribute) from its "
+                        "source frames to rebuild it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+
+        # Fallback: a generic re-run of the producing analysis.
+        return _DerivedFields(
+            location=ref_label,
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    f"{ref_label} is not usable as persisted. Re-run the "
+                    "producing analysis to regenerate it."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+            ),
+        )
 
 
 class MetricArityError(AnalysisError):

@@ -18,6 +18,7 @@ from marivo.analysis.errors import (
     CrossSessionFrameError,
     DimensionFieldNotFoundError,
     DuplicateSessionNameError,
+    FrameMetaInvalidError,
     FrameMutationError,
     FrameRefNotFound,
     HelpTargetError,
@@ -159,6 +160,120 @@ def test_attribution_distribution_error_derives_reason_specific_repair(
     assert error.repair.kind == repair_kind
     assert action_fragment in error.repair.action
     assert error.repair.help_target.canonical_id == "attribute"
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "artifact_schema_version": "analysis-artifact/v8",
+                "path": "lineage",
+                "reason": "typed replay params are missing",
+            },
+            id="metric-state",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "artifact_schema_version": "analysis-artifact/v8",
+                "missing_fields": ["attribution_basis"],
+            },
+            id="missing-fields",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "artifact_schema_version": "analysis-artifact/v8",
+                "missing_state": ["comparison_identity"],
+            },
+            id="missing-state",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "artifact_schema_version": "analysis-artifact/v8",
+                "validation_errors": [{"msg": "boom"}],
+            },
+            id="validation-errors",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "got_semantic_kind": "bogus",
+                "expected_semantic_kinds": ("journey", "funnel"),
+            },
+            id="semantic-shape",
+        ),
+        pytest.param(
+            {"ref": "frame_a", "got_columns": ["x"], "expected_columns": ["item_id"]},
+            id="candidate-columns",
+        ),
+        pytest.param(
+            {"kind": "CandidateIdentityInvalid", "reason": "duplicate"},
+            id="candidate-identity",
+        ),
+        pytest.param(
+            {
+                "artifact_id": "artifact_x",
+                "got": "analysis-artifact/v7",
+                "expected": "analysis-artifact/v8",
+            },
+            id="non-current-schema",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "kind": "unsupported_artifact_schema",
+                "expected": "cumulative-delta/v1",
+            },
+            id="cumulative-schema",
+        ),
+    ],
+)
+def test_frame_meta_invalid_derives_repair_from_context(context: dict[str, object]) -> None:
+    """Issue #65: context-only FrameMetaInvalidError raises must yield an
+    actionable, machine-readable repair instead of a bare message."""
+    error = FrameMetaInvalidError(message="test frame meta invalid", context=context)
+
+    assert error.repair is not None
+    assert error.repair.kind in {"retry", "inspect", "environment"}
+    assert error.repair.action
+    assert error.repair.help_target.surface == "analysis"
+    assert error.repair.help_target.canonical_id in {"observe", "compare", "artifacts", "recovery"}
+    # A repair that renders into str(e) is what the agent actually sees.
+    assert "Repair:" in str(error)
+
+
+def test_frame_meta_invalid_derives_location_from_ref() -> None:
+    error = FrameMetaInvalidError(
+        message="frame 'frame_a' is corrupt",
+        context={"ref": "frame_a", "reason": "metadata fails validation"},
+    )
+
+    assert error.location is not None
+    assert "frame_a" in error.location
+
+
+def test_frame_meta_invalid_explicit_repair_wins_over_derived() -> None:
+    """An explicitly passed repair must not be clobbered by the derived one."""
+    explicit = AnalysisRepair(
+        kind="retry",
+        action="Re-run the analysis to regenerate the frame.",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+    )
+    error = FrameMetaInvalidError(
+        message="frame 'frame_a' uses unsupported artifact schema 'v7'",
+        expected="analysis-artifact/v8",
+        received="analysis-artifact/v7",
+        repair=explicit,
+        context={"ref": "frame_a", "got": "v7", "expected": "v8"},
+    )
+
+    assert error.repair is explicit
+    assert error.repair.kind == "retry"
+    assert error.repair.action == "Re-run the analysis to regenerate the frame."
 
 
 def test_analysis_repair_candidates_is_tuple() -> None:
