@@ -203,6 +203,24 @@ def test_analysis_error_can_receive_catalog_default_hint() -> None:
     assert "show()" in err.hint.lower()
 
 
+def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
+    """FrameMetaInvalidError.hint must come from CONSTRAINTS (issue #66).
+
+    The catalog lookup matches ``AnalysisError.kind`` (``"FrameMetaInvalid"``)
+    against ``constraint.error_kind``. Without a matching constraint the hint
+    falls back to None and ``str(e)`` omits the ``Hint:`` line.
+    """
+    from marivo.analysis.constraints import default_hint_for_error_kind
+    from marivo.analysis.errors import FrameMetaInvalidError
+
+    err = FrameMetaInvalidError(message="bad frame metadata")
+
+    assert err.hint is not None
+    assert "Hint:" in str(err)
+    assert default_hint_for_error_kind("FrameMetaInvalid") is not None
+    assert err.hint == default_hint_for_error_kind("FrameMetaInvalid")
+
+
 def test_datasource_error_requires_typed_repair() -> None:
     from marivo.datasource.errors import DatasourceSecretInPlaintextError, repair
 
