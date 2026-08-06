@@ -295,7 +295,7 @@ def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
     meta["blocking_issues"] = []
     meta_path.write_text(json.dumps(meta))
 
-    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema metadata payload"):
+    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation"):
         load_frame(frame.ref, session=session)
 
 

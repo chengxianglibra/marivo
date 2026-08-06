@@ -806,7 +806,9 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
         payload.pop(field)
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema") as exc_info:
+    with pytest.raises(
+        FrameMetaInvalidError, match="is missing required current-schema fields"
+    ) as exc_info:
         runtime_session.get_frame(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
 
@@ -886,7 +888,7 @@ def test_current_component_graph_rejects_missing_child_reference(runtime_session
     root["ordered_children"][0]["node_id"] = "missing-node"
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema") as exc_info:
+    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation") as exc_info:
         runtime_session.get_frame(component.ref)
     assert "missing-node" in str(exc_info.value._context["validation_errors"])
 
