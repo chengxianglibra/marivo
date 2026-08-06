@@ -551,3 +551,61 @@ def test_cumulative_delta_missing_attribution_raises_missing_state(tmp_path):
     assert err.location is not None
     assert "cumulative_attribution" in err.location
     assert "Repair:" in str(err)
+
+
+def test_cumulative_delta_unsupported_schema_reports_expected_and_received(tmp_path):
+    """Issue #65 review P2-1: the cumulative-delta unsupported-schema raise must
+    carry ``expected``/``received`` as explicit kwargs so the diagnostic fact
+    ("written with schema X, current requires cumulative-delta/v1") reaches the
+    agent in str(e) — not as dead context keys it can never see."""
+    from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+    from marivo.analysis.session._runtime import persist_frame
+
+    session = session_attach.get_or_create(name="demo")
+    meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.cum_gmv"),
+        kind="delta_frame",
+        ref="frame_cum_delta_v0",
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job="job_cum_delta_v0",
+        created_at=datetime(2026, 7, 8, 10, 0, 0, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="compare",
+                    job_ref="job_cum_delta_v0",
+                    inputs=["frame_a", "frame_b"],
+                    params_digest="sha256:compare",
+                )
+            ],
+        ),
+        metric_id="sales.cum_gmv",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
+        alignment={"kind": "window_bucket"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        cumulative={"kind": "all_history", "over": "sales.orders.order_date"},
+    )
+    frame = DeltaFrame(_df=pd.DataFrame({"region": ["US"], "delta": [1.0]}), meta=meta)
+    frame.meta = persist_frame(session, frame)
+
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["artifact_schema"] = "cumulative-delta/v0"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        session.get_frame(frame.ref)
+
+    err = exc_info.value
+    assert "unsupported cumulative delta artifact schema" in err.message
+    assert err.expected == "cumulative-delta/v1"
+    assert err.received == "cumulative-delta/v0"
+    assert "Expected: cumulative-delta/v1" in str(err)
+    assert "Received: cumulative-delta/v0" in str(err)
+    assert err.repair is not None
+    assert "Repair:" in str(err)
