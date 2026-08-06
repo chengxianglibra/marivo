@@ -17,10 +17,16 @@ from marivo.analysis import (
     DeltaFrame,
     MetricFrame,
 )
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.errors import FrameMetaInvalidError, SemanticKindMismatchError
-from marivo.analysis.frames.attribution import AttributionFrameMeta
+from marivo.analysis.frames.attribution import (
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
@@ -191,10 +197,26 @@ def _make_attribution_frame(tmp_path) -> AttributionFrame:
             driver_field="driver",
             value_column=None,
             contribution_column="contribution",
-            method="unit-test",
+            method="sum",
             params={"source": source.ref},
             semantic_kind=source.meta.semantic_kind,
             semantic_model=source.meta.semantic_model,
+            row_contract_version="generic-attribution-rows/v2",
+            axis_bindings=(
+                AttributionAxisBindingV1(
+                    ref=RefPayloadV1.from_ref(
+                        ref_factory.dimension("sales.orders.driver")
+                    ),
+                    output_column="driver",
+                ),
+            ),
+            reconciliation=AttributionReconciliation(
+                partition_count=1,
+                total_delta=None,
+                contribution_sum=None,
+                residual=0.0,
+                max_abs_residual=0.0,
+            ),
         ),
     )
 

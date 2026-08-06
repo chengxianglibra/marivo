@@ -303,8 +303,23 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
         session.get_frame(frame.ref)
 
 
-@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v4", "analysis-artifact/v5"])
+@pytest.mark.parametrize(
+    "schema_version",
+    [
+        None,
+        "analysis-artifact/v4",
+        "analysis-artifact/v5",
+        "analysis-artifact/v6",
+        "analysis-artifact/v7",
+    ],
+)
 def test_registered_frame_rejects_every_non_current_artifact_schema(schema_version):
+    """Issue #55: the loader accepts only the current artifact schema (v8).
+
+    v6/v7 are not migrated or dual-read — they return a typed error whose
+    message names the unsupported version and whose context carries
+    expected/got, so callers can recreate the analysis session.
+    """
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
@@ -323,8 +338,29 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
         payload["artifact_schema_version"] = schema_version
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError, match="unsupported artifact schema"):
+    with pytest.raises(FrameMetaInvalidError, match="unsupported artifact schema") as exc_info:
         session.get_frame(frame.ref)
+    assert exc_info.value._context["got"] == schema_version
+    assert "analysis-artifact/v8" in exc_info.value._context["expected"]
+
+
+def test_current_artifact_schema_version_is_v8():
+    """Issue #55: producers write analysis-artifact/v8 and the loader accepts only v8."""
+    from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
+
+    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v8"
+
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session,
+    )
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v8"
 
 
 def test_cross_session_frame_raises_cross_session_frame_error():
