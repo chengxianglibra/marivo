@@ -190,6 +190,9 @@ def unit_state_from_dict(payload: object) -> MetricUnitStateV2 | None:
                 denominator=tuple(denominator),
             )
         except ValueError as error:
+            # _require_atom_list already rejected any grammar-invalid atom, so
+            # the only remaining ValueError here is a genuine reduction/sort
+            # violation from __post_init__.
             raise UnitStatePayloadError(
                 "unit state factor payload is not reduced and bytewise sorted",
                 expected="reduced, bytewise-sorted factor atoms",
@@ -226,6 +229,11 @@ def _require_atom_list(payload: dict[str, object], key: str) -> tuple[str, ...]:
     (missing key, bare ``str`` like ``"CNY"``, or a scalar) is a corrupted or
     forward payload and must not be coerced into silently wrong data — e.g.
     ``tuple("CNY")`` would otherwise become ``('C', 'N', 'Y')``.
+
+    Atom grammar is validated here (issue #57 review P3-1) with the same
+    predicate ``FactorizedUnitV2.__post_init__`` uses, so an atom that is a
+    string but invalid (empty, reserved char, literal ``1``, non-ASCII) gets its
+    own message instead of being misattributed to "not reduced and sorted".
     """
     value = payload.get(key)
     if not isinstance(value, list) or not all(isinstance(atom, str) for atom in value):
@@ -234,6 +242,13 @@ def _require_atom_list(payload: dict[str, object], key: str) -> tuple[str, ...]:
             expected="a list of non-empty atom strings",
             received=f"{key}={value!r}",
         )
+    for atom in value:
+        if _parse_product(atom) != (atom,):
+            raise UnitStatePayloadError(
+                f"invalid unit state atom in factor {key!r}: {atom!r}",
+                expected="a non-empty printable ASCII atom without reserved ./() characters or literal '1'",
+                received=f"{key}={value!r}",
+            )
     return tuple(value)
 
 
