@@ -441,6 +441,12 @@ def test_current_metric_state_error_message_carries_concrete_reason(tmp_path):
     assert "fingerprint does not match the canonical graph roots" in message
     # ...and it must not be papered over as generic corruption.
     assert "corrupt" not in message.lower()
+    # Issue #65: the context-only raise must still yield a machine-readable
+    # repair so an agent knows to re-run the producing intent.
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "retry"
+    assert "Re-run the producing intent" in exc_info.value.repair.action
+    assert "Repair:" in str(exc_info.value)
 
 
 def test_expected_ref_mismatch_reports_expected_and_received(tmp_path):
