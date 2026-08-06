@@ -952,19 +952,26 @@ class FrameMetaInvalidError(AnalysisError):
 
         # A non-current artifact schema is a cutover, not corruption: the
         # producing intent regenerates the frame under the current contract.
+        # The cumulative-delta raise passes received/expected (not got/expected)
+        # and may carry a missing received when the persisted schema is absent.
         got = self._context.get("got")
         expected = self._context.get("expected")
-        if isinstance(got, str) and isinstance(expected, str):
+        received = self._context.get("received")
+        if isinstance(expected, str) and (
+            isinstance(got, str) or isinstance(received, str) or "kind" in self._context
+        ):
+            actual = got if isinstance(got, str) else received
+            actual_label = actual if isinstance(actual, str) else "<unknown>"
             return _DerivedFields(
                 expected=expected,
-                received=got,
+                received=actual_label,
                 location=ref_label,
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
-                        f"{ref_label} was written with schema {got!r} but this "
-                        f"session expects {expected!r}. Re-run the analysis so the "
-                        "frame is regenerated under the current contract."
+                        f"{ref_label} was written with schema {actual_label!r} but "
+                        f"this session expects {expected!r}. Re-run the analysis so "
+                        "the frame is regenerated under the current contract."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet="session.observe(metric_ref, ...)",
@@ -1086,6 +1093,24 @@ class FrameMetaInvalidError(AnalysisError):
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                     snippet="session.discover(metric_ref, ...)",
+                ),
+            )
+
+        # A mismatched attribution basis identity means the delta frame's
+        # persisted basis no longer matches its current definition: re-create
+        # it from the source frames.
+        if "expected_basis_fingerprint" in self._context:
+            return _DerivedFields(
+                location=ref_label,
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"{ref_label} has a mismatched attribution basis identity. "
+                        "Re-run session.compare() from the source MetricFrames to "
+                        "rebuild it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+                    snippet="delta = session.compare(current, baseline, alignment=alignment)",
                 ),
             )
 
