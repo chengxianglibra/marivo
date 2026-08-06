@@ -333,11 +333,12 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
         "comparable_value_semantics_ref": f"{meta.ref}#comparable-value-semantics",
     }
     for field, expected in expected_refs.items():
-        if getattr(meta, field) != expected:
+        actual = getattr(meta, field)
+        if actual != expected:
             raise _current_metric_state_error(
                 ref,
                 path=field,
-                reason=f"expected {expected!r}",
+                reason=f"expected {expected!r}, found {actual!r}",
             )
     _validate_current_replay_payload(ref, meta)
 
