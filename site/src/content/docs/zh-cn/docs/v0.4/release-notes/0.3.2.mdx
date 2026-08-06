@@ -1,0 +1,212 @@
+---
+slug: zh-cn/docs/v0.4/release-notes/0.3.2
+title: Marivo 0.3.2
+description: Marivo 0.3.2 发布说明。
+---
+
+Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact 契约、错误模型、边界模型、
+打包 skill 和 CLI 路由同时变更。被移除的接面不提供别名、重定向、弃用字段、双读路径或
+兼容性标志；新增的 `frame.id == frame.ref` 身份别名不会恢复任何已移除 API。
+
+## 重点
+
+- 闭合能力内核替代了旧的基于主题的 help 接面。每个 public operator、constructor、read、
+  recovery 和 boundary crossing 都注册了稳定的 `capability_id`、`accepted_inputs` 和
+  `output_family`。CLI 路由 `marivo help analysis [target]`（或
+  `python -m marivo help analysis [target]`）打印带指纹的能力索引；`mv.help()` 和
+  `mv.help(target)` 从 Python 提供相同的接面。运行时 family gate 在任何 backend 工作开始
+  之前，根据注册表的 `accepted_inputs` 验证提交的输入。
+- `ArtifactAffordance.operator` 被 `capability_id`、`public_entrypoint`、
+  `help_target` 和 `expected_output_family` 替代。每个 affordance 是从能力注册表派生的
+  机械兼容性门，不是推荐。
+- `ArtifactContract` 现在携带 `boundary_ports`：类型化的 `ArtifactBoundaryPort` 对象，
+  描述终端出口端口（例如 `boundary.to_pandas`），附带 `preserves` 和 `does_not_preserve`
+  保证。
+- Tier-1 `mean` metric 会在 observe 时持久化精确的 `sum(measure)` 与
+  `count_non_null(measure)` components，无需修改 semantic model 即可直接执行
+  weighted-mix 归因。
+- Attribution 现在会为 new/churned component segment 计算精确的单边 contribution，
+  并要求每个最深层 partition 与独立计算的 total delta 完成对账，否则直接失败。
+  `AttributionFrame.show()` 会显示 total、one-sided、未归因和 residual 对账事实。
+- Analysis 检查接口现在更一致：live session 支持 bounded `render()` / `show()`；所有 frame
+  和 frame summary 都提供 `.id` 作为 `.ref` 的只读别名；catalog help 会把 collection 标成
+  property；`mv.help("AttributionMode")` 会区分多轴行布局与归因数学。
+- Artifact help 现在以稳定顺序引导渐进式读取：先用 `show()` 检查有界状态，再用
+  `contract()` 检查机械兼容性，仅当剩余工作明确属于自定义终端处理时才使用
+  `to_pandas()`。
+- `DeltaFrame.show()` 会暴露已持久化的归因门；分组 help topic 以
+  `mv.help("...")` 和真实成员呈现，不再展示不存在的 `session.recovery` 或
+  `session.artifacts` namespace。
+- 通用的 `AnalysisError.details` 包被稳定的类型化字段替代：`expected`、`received`、
+  `location` 和 `repair`。`repair` 字段是类型化的 `AnalysisRepair` 对象，包含 `kind`、
+  `action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选 `candidates`。
+- `BaseFrame.describe()` 和 `BaseFrame.plot()` 已移除。访问它们会抛出 `AttributeError`。
+  请使用 `frame.show()` 进行有界检查，使用 `frame.to_pandas()` 进行终端自定义分析。
+- `marivo-analysis` skill 现在是一个单文件边界内核。它拥有硬边界、交接、证据连续性和
+  收尾义务。它不重复 API 签名、算子清单、调用示例、有序流程、方法清单或报告模板。
+  `references/` 附件树已删除。
+- `session.observe(...)` 是唯一的 canonical `MetricFrame` producer。
+  `derive_metric_frame`、`escape_hatch` 和所有 promotion 路径
+  （`promote_metric_frame`、`promote_delta_frame`、`promote_attribution_frame`、
+  `from_pandas`、`explore_ibis`）已移除。任意 Ibis、pandas 或 SQL 数据不再能被升级为
+  canonical 分析 artifact。
+- `md.raw_sql(...)` 是唯一的终端 raw SQL 执行路径。它将 `authoring_timeout` 与只读
+  事务组合，检测精确行截断，并提供 `RawSqlResult.to_pandas()` 用于终端 pandas 导出。
+  终端结果无法回到类型化分析。
+- `mv.session.recent(...)` 与 `mv.session.inspect(name)` 提供有界、最新优先的历史 session
+  参考，不会恢复或触碰被检查的 session。语义缺口现在只停止受影响的 typed branch；终端
+  raw SQL 可以通过明确披露的临时推断口径继续，而正式语义 authoring 仍需 closeout 审批。
+
+## 破坏性变更
+
+- **Evidence Engine Cutover A。** 原来的
+  `finding -> proposition -> assessment` 判断 runtime 被确定性的类型化 findings 与每个
+  artifact 一个有界 `ArtifactDigest` 替代。`session.knowledge()`、
+  proposition/assessment 读取、持久化 follow-up、open items、next steps 及其 public
+  类型全部无别名移除。Marivo 不再生成通用 validation/confidence 标签或 session 级判断；
+  跨 artifact 综合与规划由 agent 负责。
+- **唯一 artifact evidence 路径。** 使用 `artifact.evidence_status`、
+  `artifact.evidence_digest` 与 `artifact.show()`。`evidence_summary`、
+  `blocking_issues`、`ConfidenceScope` 和 artifact issue 快捷属性已移除。
+  `contract().issues` 包含封闭的 `ArtifactIssue` union；`AnalysisScope` 保留既有的
+  metric-shaped scope。
+- **直接、有界的审计读取。** `session.evidence.digests(...)`、
+  `.findings(...)`、`.digest(ref)`、`.finding(id)` 与 `.trace(id)` 替代 judgment API。
+  列表读取返回不可变 keyset page。Evidence store 不可用时抛出
+  `EvidenceStoreUnavailableError`，不会伪装成空 page。
+- **类型化 candidate selection。** `CandidateSet.select(rank=1)` 返回封闭的
+  shape-specific selection。任意 `attribute=` 读取和 candidate affordance/constraint
+  payload 已移除。
+- **保留参数角色的 affordance。** 扁平 `required_inputs` 与
+  `ArtifactParamTemplate` 被准确参数 requirement、接受 family 和当前 artifact bindability
+  替代。本次 cutover 明确不加入 invocation-option 枚举。
+- **移除 help 主题。** `mv.help('workflow')` 和 `mv.help('advanced')` 不再可用。新的
+  help 系统使用 `mv.help()`（根索引）、`mv.help(target)`（focused 能力）和
+  `mv.help(ClassName)`（类型 help）。help 目标的字符串别名已移除；使用实时接口上的规范
+  注册目标。
+- **`ArtifactAffordance.operator` 移除。** 由 `capability_id`、`public_entrypoint`、
+  `help_target` 和 `expected_output_family` 替代。
+- **`AnalysisError.details` 移除。** 由稳定的类型化字段（`expected`、`received`、
+  `location`、`repair`）和类型化的 `AnalysisRepair` 对象替代。不再有通用的 details 包。
+- **`ArtifactContract.boundary_ports` 新增。** 从能力注册表派生的类型化终端出口边界端口。
+- **`pct_contribution` 移除。** Attribution 行改为输出 `share_of_total_delta`、
+  `share_of_positive_pool` 和 `share_of_negative_pool`，使带符号净占比与同号池内占比
+  不再共用隐式或不完整的分母。
+- **`BaseFrame.describe()` 和 `BaseFrame.plot()` 移除。** 故意抛出 `AttributeError`。
+  使用 `frame.show()` 和 `frame.to_pandas()`。
+- **`marivo-analysis` skill 精简为单文件。** `references/` 树已删除。skill 是边界协议，
+  不是手册。
+- **新 CLI 路由和指纹。** `marivo help analysis [target]` 打印 Marivo 版本、解析的 Python
+  可执行路径和包路径作为环境指纹。从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器
+  一致时才可信。
+- **运行时 family gate。** 提交的输入在 backend 工作之前根据注册表的 `accepted_inputs`
+  进行验证。不匹配会以结构化 `AnalysisError` 闭合失败。
+- **`derive_metric_frame` 和 promotion 路径移除。**
+  `Session.derive_metric_frame(...)`、`escape_hatch.explore_ibis(...)`、
+  `escape_hatch.from_pandas(...)`、`escape_hatch.promote_metric_frame(...)`、
+  `escape_hatch.promote_delta_frame(...)`、`escape_hatch.promote_attribution_frame(...)`、
+  `IbisQuerySpec`、`MetricColumns`、`ibis_query`、`metric_columns`、`time_column`、
+  `dimension_column`、`PromotionPolicy`、`PromotionSemanticAnchors`、`PromotionFailedError`
+  和 `ExplorationResult` 已移除。`session.observe(...)` 是唯一的 canonical `MetricFrame`
+  producer。
+- **`md.raw_sql(...)` 是唯一的终端 raw SQL 路径。** 它将 `authoring_timeout` 与只读
+  事务组合，检测精确行截断，返回 `RawSqlResult`，包含 `timeout_seconds`、`duration_ms`、
+  `truncated` 和 `to_pandas()`。终端结果无法回到类型化分析。
+
+## 无兼容性或迁移行为
+
+这是一次原子性切换。已移除符号、主题或字段不提供兼容别名、重定向、弃用字段、双读路径、
+兼容性标志或自动迁移；引用它们的代码必须更新到新接面。新增的 `frame.id == frame.ref`
+只提供统一身份访问，不改变持久化 metadata。
+
+analysis evidence store 同样遵循该规则：非当前 schema 的 `judgment.db` 以及包含已移除 evidence 字段的
+frame sidecar 会被拒绝；应重新创建 analysis session，以生成 canonical typed findings 与 digest。
+
+## 语义与 datasource 实时接口
+
+0.3.2 还将 datasource/语义实时接口切换并入同一次原子发布。已安装的包现在是 datasource 与语义
+authoring 事实、可观测状态、机械可调用动作、effects 和类型化 repair 的唯一权威。打包的
+`marivo-semantic` skill 精简为单文件边界内核，仅拥有路由纪律、硬边界、交接和收尾义务；它不再
+重复 API 签名、算子清单、调用示例或 repair 目录。
+
+### 新增
+
+- **面向 analysis 的直接 semantic readiness。**
+  `ReadinessReport.analysis_ready_refs` 列出本次请求中通过 scoped certification 的 refs。
+  Blockers 与 warnings 保留在同一份 report 上；调用方明确处理后，直接通过普通 analysis APIs
+  使用这些 refs，不需要中间传递对象。
+- **原生 datasource 与语义 CLI help。**
+  `marivo help semantic`（以及 `python -m marivo help semantic`）是默认的集成 authoring 入口；
+  `marivo help datasource` 拥有物理阶段。两者都由与 `md.help(...)` / `ms.help(...)` 相同的
+  resolver 和 renderer 支撑。`marivo --help` 指向这些入口和 `marivo help analysis`；不再教授
+  `python -c` 片段。
+- **各 track help 上的环境指纹。** track 根 help（`marivo help datasource`、
+  `marivo help semantic`、`marivo help analysis`）打印 Marivo 版本、解析的 Python 可执行路径和
+  包路径，使 agent 在信任任何 authoring 指引之前能验证 help 与执行共享同一解释器。裸
+  `marivo --help` 指向这些 track，但自身不打印解释器指纹。
+- **类型化 repair。** 机械可操作的 readiness/preview 结果以及 datasource/语义错误上的自由格式
+  恢复字符串被类型化的 `AuthoringRepair` 对象（`kind`、`help_target`、`action`、可选 `snippet`、
+  可选 `candidates`、`preserves_evidence`）替代。richness gaps 上的建议性 `suggested_action`
+  在其自身的 advisory 规则下保留，不被作为 repair 或 transition 消费。
+- **状态承载结果上的对象邻近 `.contract()`。** `.contract()` 约定适用于状态承载结果，如
+  `CatalogObject`、`VerifyResult` 和 `ReadinessReport`，暴露机械可用的后续动作（例如
+  `VerifyResult.contract()` 可暴露 preview；`ReadinessReport.contract()` 对 ready refs 暴露
+  analysis-ready refs）。contract 携带命名空间的 live help target 和完整的正交 effect 元数据（数据
+  访问、连接、变更、guards）。
+
+### 移除
+
+- **重复的顶层 verification/readiness wrapper。**
+  `ms.verify_object(...)` 和 `ms.readiness(...)` 从顶层 `ms` 接面移除；
+  `SemanticCatalog.verify_object(...)`、`SemanticCatalog.preview(...)` 和
+  `SemanticCatalog.readiness(...)` 是唯一的 public receiver。
+- **prepare 时代的 `AuthoringQuestion`。** public `AuthoringQuestion` 导出、其
+  `options` / `default_option` 契约和未使用的 question 承载 assessment 路径已移除。不添加替代的
+  question DTO；未解决的业务决策是 skill 拥有的单问题停止，不是运行时 `user_decision` repair。
+- **自由格式的机械恢复字符串。** datasource evidence/inspection 结果上的 `next_calls` 和作为
+  机械可操作 readiness/preview 字段的 `suggested_action` 已移除。它们被类型化 contract 和
+  `AuthoringRepair` 替代。（Advisory richness 保留其自身的 `suggested_action`。）
+- **打包 skill 附件/示例作为运行时文档依赖。** `references/` 附件树和 example runner 已删除。
+  没有活跃代码、约束、错误或最新文档链接到已删除的 skill 附件。已安装的运行时从其 public Python
+  和 CLI 接面自解释。
+
+### 无兼容性或迁移行为（语义切换）
+
+语义/datasource 切换是 target-only 的。不提供兼容性别名、双 help 路径、转换字符串桥接、
+skill 文档回退或迁移工作流。历史版本化文档和发布说明保持不变。引用了已移除符号、wrapper 或
+字段的代码必须更新到新的实时接口。
+
+## 文档
+
+- 更新了中英文 analysis-workflow、first-analysis 和 evidence 文档，通过项目解释器和指纹
+  路由入口，解释能力发现、对象邻近 help、静态类型代数、artifact `show`/`contract`、
+  结构化错误、终端边界出口和语义交接。
+- 更新了 `agent-guide.md` 和活跃分析 spec 的新所有权模型：环境验证的实时接口拥有能力和
+  运行时指引；skill 拥有硬边界、交接、证据连续性和收尾义务；agent 拥有规划和判断。
+- 将两份 2026-07-13 设计 spec 标记为 `approved; implementation planned`。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+安装你计划使用的 datasource 对应的 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.2 要求 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [Semantic Layer](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/docs/latest/concepts/analysis-workflow/)

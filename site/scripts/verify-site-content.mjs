@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
 
-const locales = ['en', 'zh-cn'];
+const docsRoots = ['docs', 'zh-cn/docs'];
 const commonDocs = [
   'index.mdx',
   'installation.mdx',
@@ -103,21 +103,29 @@ const requiredFiles = [
   'src/assets/marivo-mark.svg',
   'src/assets/blog/agent-analysis-flow.png',
   'src/styles/custom.css',
+  'src/styles/blog.css',
+  'src/components/HomePage.astro',
+  'src/components/BlogIndexPage.astro',
+  'src/layouts/BlogArticleLayout.astro',
+  'src/pages/index.astro',
+  'src/pages/zh-cn/index.astro',
+  'src/pages/blog/index.astro',
+  'src/pages/blog/why-data-analysis-agents-need-a-harness.mdx',
+  'src/pages/zh-cn/blog/index.astro',
+  'src/pages/zh-cn/blog/why-data-analysis-agents-need-a-harness.mdx',
   'src/pages/install.sh.ts',
   'public/favicon.svg',
   'src/content/i18n/en.json',
   'src/content/i18n/zh-cn.json',
-  'src/content/docs/en/index.mdx',
-  'src/content/docs/zh-cn/index.mdx',
-  'src/content/docs/zh-cn/blog/index.mdx',
-  'src/content/docs/zh-cn/blog/why-data-analysis-agents-need-a-harness.mdx',
+  'src/content/docs/docs/index.mdx',
+  'src/content/docs/zh-cn/docs/index.mdx',
 ];
 
-for (const locale of locales) {
+for (const docsRoot of docsRoots) {
   for (const [version, docs] of Object.entries(docsByVersion)) {
     const versionDocs = version === 'latest' ? [...docs, ...latestOnlyDocs] : docs;
     for (const doc of versionDocs) {
-      requiredFiles.push(`src/content/docs/${locale}/${version}/${doc}`);
+      requiredFiles.push(`src/content/docs/${docsRoot}/${version}/${doc}`);
     }
   }
 }

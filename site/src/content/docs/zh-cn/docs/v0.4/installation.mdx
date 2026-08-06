@@ -1,0 +1,113 @@
+---
+slug: zh-cn/docs/v0.4/installation
+title: 安装
+description: 准备一个可供智能体使用的 Marivo 项目，并选择数据源后端。
+---
+
+Marivo 需要 Python 3.12 或更高版本。
+
+## 选择安装方式
+
+下面两种方式选一种即可。安装脚本适合希望尽快开始的用户；手动安装适合需要自行管理
+Python 环境和数据源依赖的项目。
+
+### 方式一：使用安装脚本
+
+先进入要作为 Marivo 项目的目录，然后运行：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+脚本会在当前目录创建或复用 `.venv`，安装 `marivo[all]`，并运行 `marivo init`。
+完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
+
+### 方式二：手动安装
+
+如果需要自行控制虚拟环境和数据源后端，请按顺序完成以下步骤。
+
+1. 创建并激活 Python 3.12 或更高版本的虚拟环境：
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+2. 安装项目所用数据源后端对应的扩展：
+
+| 后端 | 安装命令 |
+| --- | --- |
+| DuckDB | `pip install "marivo[duckdb]"` |
+| SQLite | `pip install "marivo[sqlite]"` |
+| MySQL | `pip install "marivo[mysql]"` |
+| Postgres | `pip install "marivo[postgres]"` |
+| ClickHouse | `pip install "marivo[clickhouse]"` |
+| Trino | `pip install "marivo[trino]"` |
+| 所有已打包的后端 | `pip install "marivo[all]"` |
+
+3. 确认安装的版本：
+
+```bash
+marivo --version
+```
+
+4. 在当前项目目录中执行一次初始化：
+
+```bash
+marivo init
+```
+
+只有选择手动安装时才需要单独执行 `marivo init`。
+
+`marivo init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过，因此可以在升级后安全地
+重复运行。重复运行只会补齐缺失的内容。使用 `marivo init --force` 会删除生成的工件并从头
+重建。
+
+:::note
+当 `marivo.toml` 含有非法 TOML 时，`init` 不会静默跳过它。请修复或删除该文件，或传入
+`--force`。技能链接是尽力创建的符号链接；如果平台无法创建符号链接，`init` 会打印警告并继续。
+:::
+
+## 智能体可以使用什么
+
+| 路径 | 用途 |
+| --- | --- |
+| `marivo.toml` | 项目清单。项目名默认使用目录名；本地遥测默认 `enabled = "on"`。 |
+| `models/` | 数据源和语义声明。 |
+| `.marivo/` | 项目本地的会话、证据和缓存元数据。 |
+| `.agents/skills/` | 为兼容的智能体提供 `marivo-semantic` 和 `marivo-analysis` 技能链接。 |
+| `.claude/skills/` | 为 Claude Code 提供同一组技能链接。 |
+| `.codex/skills/` | 为 Codex 提供同一组技能链接。 |
+
+```text
+your-project/
+  marivo.toml
+  models/
+  .marivo/
+  .agents/skills/
+  .claude/skills/
+  .codex/skills/
+```
+
+## 确认安装结果
+
+初始化完成后，可以向智能体提出下面这项有明确边界的准备请求：
+
+> 检查这个 Marivo 项目是否已经正确初始化，并告诉我开始使用现有语义层或新建语义层之前
+> 还缺少什么。凭据只检查环境变量名和配置状态，不要索取、显示或提交凭据值。
+
+这样可以把项目准备、读取业务数据和决定业务含义分成不同的步骤。
+
+## 继续之前需要检查什么
+
+选择项目路径前，请确认：
+
+- `marivo.toml`、`models/` 和 `.marivo/` 已经存在；
+- `.agents/skills/`、`.claude/skills/` 和 `.codex/skills/` 下应有的技能路径已经存在；如果
+  符号链接未能创建，初始化警告已经说明原因；
+- 项目需要的数据源后端扩展已经安装；
+- 凭据通过经过批准、由环境变量提供的字段传入，而不是以明文形式提交到项目文件中。
+
+完成这些检查后，进入[快速开始](/zh-cn/docs/v0.4/quick-start/)，选择复用现有语义层，还是创建
+新语义层。所选项目路径准备就绪且业务含义得到确认后，再进行
+[第一次分析](/zh-cn/docs/latest/first-analysis/)。

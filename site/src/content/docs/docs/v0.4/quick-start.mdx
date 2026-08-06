@@ -1,0 +1,143 @@
+---
+slug: docs/v0.4/quick-start
+title: Quick Start
+description: Reuse an existing semantic-layer project, or ask an agent to draft the first semantic layer for a new project.
+---
+
+## Start with the project state
+
+If your team already maintains a project containing `marivo.toml` and `models/`,
+clone it and reuse its semantic layer. Enter authoring only for a new project or
+a confirmed gap.
+
+## Existing semantic-layer project
+
+1. Clone the project and install its dependencies.
+2. Configure datasource environment variables locally.
+3. Ask the agent to check project configuration and whether existing semantic objects fit the current analysis.
+4. If the catalog loads and there is no semantic gap, continue to the [first analysis](/docs/latest/first-analysis/).
+
+> Use this project's existing Marivo semantic layer and check whether it can
+> support completed-order revenue analysis. Tell me which configuration,
+> semantic objects, or business definitions are missing or need confirmation.
+> If nothing blocks analysis, do not rebuild existing definitions.
+
+Use `marivo-semantic` only for a missing object, a requested definition change,
+or fresh certification of an authored change.
+
+## New project
+
+Complete [Installation](/docs/v0.4/installation/), then provide the datasource,
+business goal, and rules already decided:
+
+> Use `marivo-semantic` to build the semantic layer this project needs for
+> completed-order revenue analysis. Ask me when a definition requires a
+> business decision. Show me the
+> metric definition I need to approve, and stop before analysis.
+
+## Business definitions you must confirm
+
+Review inclusions and exclusions, cancellation and refund treatment, time axis,
+currency and additivity, allowed breakdowns, limitations, and ownership. Schema
+and samples help the agent draft; they do not replace approval.
+
+## What the agent writes to the project
+
+The Python declarations below are agent-generated project files maintained by
+the team, not a tutorial that you must type line by line.
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for approved sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+```python
+# models/semantic/sales/_domain.py
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(
+    name="sales",
+    owner="Mina Zhang",
+    ai_context=ms.ai_context(
+        business_definition="Completed-order sales analysis domain.",
+        guardrails=["Use only the user-approved completed-order population."],
+    ),
+)
+
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(
+        business_definition="One row per completed sales order.",
+        guardrails=["Cancelled orders are excluded; refunds remain reflected in amount."],
+    ),
+)
+
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(
+        business_definition="Sales region assigned to the completed order.",
+        guardrails=["Do not treat missing region as a real region."],
+    ),
+)
+
+order_date = ms.time_dimension_column(
+    name="order_date",
+    entity=orders,
+    column="order_date",
+    granularity="day",
+    is_default=True,
+    ai_context=ms.ai_context(
+        business_definition="Approved reporting date for completed-order revenue.",
+        guardrails=["Use this as the default time axis for this revenue metric."],
+    ),
+)
+
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Completed-order amount in CNY, net of cancellations and refunds.",
+        guardrails=["Do not use for gross bookings or pre-refund revenue."],
+    ),
+)
+
+revenue = ms.aggregate(
+    name="revenue",
+    measure=amount,
+    agg="sum",
+    ai_context=ms.ai_context(
+        business_definition="Total completed-order revenue in CNY.",
+        guardrails=["For this example, break down only by sales region."],
+    ),
+)
+```
+
+## What to review before continuing
+
+- The definition, population, exclusions, time axis, unit, and breakdowns match the business need.
+- `ai_context` and `guardrails` state important limits clearly.
+- The accountable owner has approved the definition.
+- The agent reports no blocker in the new model's scoped authoring certification.
+
+Readiness certifies the newly authored model; it is not business approval and is
+not rerun before every analysis. After approval, continue to the
+[first agent-guided analysis](/docs/latest/first-analysis/).

@@ -53,7 +53,7 @@ curl -fsSL https://marivo.io/install.sh | bash
 ```
 
 安装脚本会使用 `uv` 准备项目本地环境并初始化当前目录。它支持 macOS、Linux、WSL，以及
-Windows 上的 Git Bash、MSYS2 或 Cygwin。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/latest/installation/)。
+Windows 上的 Git Bash、MSYS2 或 Cygwin。手动安装、数据源扩展、支持平台和故障排查请参阅[安装文档](https://marivo.io/zh-cn/docs/latest/installation/)。
 
 先验证一次选定的运行环境，再进入 Python 查询 focused help：
 
@@ -79,12 +79,12 @@ marivo.help("analysis.observe")
 
 ## 文档
 
-- [安装](https://marivo.io/zh-cn/latest/installation/)
-- [快速开始](https://marivo.io/zh-cn/latest/quick-start/)
-- [让智能体完成第一次分析](https://marivo.io/zh-cn/latest/first-analysis/)
-- [语义层](https://marivo.io/zh-cn/latest/concepts/semantic-layer/)
-- [分析流程](https://marivo.io/zh-cn/latest/concepts/analysis-workflow/)
-- [证据链](https://marivo.io/zh-cn/latest/concepts/evidence/)
+- [安装](https://marivo.io/zh-cn/docs/latest/installation/)
+- [快速开始](https://marivo.io/zh-cn/docs/latest/quick-start/)
+- [让智能体完成第一次分析](https://marivo.io/zh-cn/docs/latest/first-analysis/)
+- [语义层](https://marivo.io/zh-cn/docs/latest/concepts/semantic-layer/)
+- [分析流程](https://marivo.io/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据链](https://marivo.io/zh-cn/docs/latest/concepts/evidence/)
 
 ## 开发
 

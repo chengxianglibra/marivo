@@ -1,0 +1,77 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.0
+title: Marivo 0.4.0
+description: Marivo 0.4.0 发布说明。
+---
+
+Marivo 0.4.0 加入一等的事件与生命周期分析能力，为智能体提供统一的公共 help 入口，并强化
+semantic authoring、执行、evidence 与修复之间的契约。
+
+## 重点
+
+- Event 与 lifecycle state model 成为一等语义对象。作者可以定义类型化 participant、事件
+  时间戳、生命周期状态、transition、inception rule 与 validity constraint，并通过 semantic
+  catalog 加载和检查。
+- Analysis 新增类型化 subject 与 cohort、事件 occurrence matching、sequence、funnel、
+  time-to-event、lifecycle replay、dwell 与 transition 分析、violation 检测、funnel
+  comparison 和 funnel-loss attribution。
+- Event 与 lifecycle 结果携带显式的 completeness、subject、time 和 semantic-input
+  evidence。质量检查覆盖事件身份、participant coverage、顺序、生命周期 transition、
+  censoring 与 replay continuity。
+- `marivo.help(...)` 成为跨 datasource、semantic 与 analysis 的唯一公共 help 协调入口。
+  Focused topic、live object briefing、result contract 与类型化错误会引导智能体进入机械上有效
+  的下一步。
+- Telemetry 输出按天写入有界分段文件，并按时间与总大小清理历史文件。
+
+## 破坏性变更
+
+- 请使用 `marivo.help()` 以及 `marivo.help("semantic.event")`、
+  `marivo.help("analysis.events")` 等 qualified topic。原有 `md.help`、`ms.help`、
+  `mv.help` 和 `help_text` 不再是公共入口。
+- Event 与 lifecycle 操作要求精确的类型化语义引用、显式 subject axis；当有界观测无法证明
+  完整性时，还必须提供显式 completeness declaration。裸名称与静默推断会被拒绝。
+- Public frame 与 result contract 改用封闭的、按 kind 区分的 semantic input 和 evidence
+  形状。依赖 internal 或 generic payload field 的代码需要迁移到文档化的 frame、
+  `.show()`、`.contract()` 与 evidence API。
+
+## 变更
+
+- Semantic authoring help 现在负责 constructor constraint，并为无效或不完整声明提供基于
+  evidence 的修复指引。
+- Analysis planning 在各类 operator 之间更一致地保留 metric value column、跨 entity grain
+  requirement、subject axis、time scope 与 evidence continuity。
+- Public frame representation、summary、quality report 与 error 更加有界和确定，并提供更清晰
+  的 continuation hint。
+
+## 修复
+
+- Cross-entity observation 现在会说明所需的 grain repair，不再要求智能体猜测缺失的 join 或
+  grouping。
+- Help example、live contract、public export 与打包的 agent skill 会联动检查，减少已安装
+  runtime 与 guidance 之间的漂移。
+- 本地 telemetry 不再无限写入单个 `events.jsonl` 文件。
+
+## 文档
+
+- 新增和更新中英文统一 help 入口、event 与 lifecycle semantic authoring、analysis
+  workflow、evidence 和 readiness 指南。
+- 新增 event journey、lifecycle replay、ontology extension 与 agent-facing public surface
+  的设计和实现 specification。
+- 创建隔离的双语 `v0.4` 文档快照。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.0 要求 Python 3.12 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [Semantic Layer](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [Readiness](/zh-cn/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/latest/concepts/evidence/)

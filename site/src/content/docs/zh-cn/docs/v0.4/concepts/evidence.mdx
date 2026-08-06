@@ -1,0 +1,125 @@
+---
+slug: zh-cn/docs/v0.4/concepts/evidence
+title: 证据链
+description: 用类型化 findings 与有界 digest 保持可审计，同时不替代 agent 判断。
+---
+
+Marivo 是纯 Python 分析库。它不调用 LLM，不替 agent 判断业务含义，也不替 agent 选择下一步。
+Evidence engine 的职责，是让确定性的 operator 结果更容易读取和审计。
+
+## 证据模型
+
+每个已提交的 operator 结果只经过一条路径：
+
+```text
+artifact -> typed findings -> bounded artifact digest
+```
+
+`Finding` 是从单个 artifact 中提取出的类型化结果元素。`ArtifactDigest` 是面向当前一步读取的、
+按 operator 定义的 finding 投影。跨 artifact 综合、业务判断与下一步选择始终由 agent 负责。
+
+Digest 不会把贡献升级为因果，把相关升级为效果，把候选升级为已确认异常，把统计检验升级为
+业务重要性，也不会把预测升级为已发生事实。`boundaries` 会明确记录 operator 没有支持的推断。
+
+## 读取当前结果
+
+使用唯一的结构化路径：
+
+```python
+result = session.compare(current, baseline)
+
+print(result.evidence_status)
+digest = result.evidence_digest
+result.show()
+```
+
+`evidence_status` 取值为 `complete`、`partial` 或 `unavailable`。
+`evidence_digest` 是不可变的 commit-time `ArtifactDigest`；无法生成时为 `None`。
+`show()` 在数据预览之前渲染的就是同一个有界 digest。
+
+一个 digest 最多保留 5 个类型化 item 和 3 个推断边界。`omissions` 记录被省略的数量，
+`fallback` 说明 exact findings 与原始行是否可用。有界 digest 中没有出现，不代表 artifact 中不存在。
+
+主要 item 与 operator 语义严格对应：
+
+| Operator | Digest item | 含义 |
+| --- | --- | --- |
+| `observe` | `ObservationFact` | 观测值或分布摘要 |
+| `compare` | `ChangeFact` | 代数变化 |
+| `attribute` | `ContributionFact` | 代数贡献，不是因果 |
+| `correlate` | `AssociationFact` | 估计的相关关系，不是因果 |
+| `hypothesis_test` | `TestDecision` | 声明的统计检验下的决策 |
+| `forecast` | `ForecastOutput` | 预测，不是已观测实际值 |
+| `discover.*` | `AnomalyCandidate` | 等待复核的候选 |
+| `assess_quality` | `QualityCheckResult` | 已求值的数据质量谓词 |
+| `transform.*` / `MetricFrame.metric(...)` | 空 digest | 仅保留 lineage 的变换或投影 |
+
+## 查看边界与精确证据
+
+问题涉及被省略的 item、行级验证或 operator 推断边界之外的证据时，使用精确读取：
+
+```python
+digest = session.evidence.digest(result.ref)
+findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
+frame = session.get_frame(result.ref)
+
+for finding in findings.items:
+    print(finding.finding_type, finding.value)
+```
+
+可以把一个 finding 追溯到声明的源字段与被保留的 digest item：
+
+```python
+trace = session.evidence.trace(findings.items[0].finding_id)
+print(trace.derivation.rule_id, trace.source_fields)
+```
+
+Trace 是审计记录，不是系统生成的主张或判断。
+
+## 用有界分页恢复 session
+
+列表读取默认有界，并按最新记录优先：
+
+```python
+frames = session.frame_summaries(limit=20)
+digests = session.evidence.digests(limit=10)
+findings = session.evidence.findings(limit=50)
+
+if digests.has_more:
+    digests = session.evidence.digests(
+        limit=10,
+        cursor=digests.next_cursor,
+    )
+```
+
+Page 暴露不可变的 `items`、`limit`、`has_more` 和 `next_cursor`。它采用普通 keyset
+分页，而不是快照隔离；两次读取之间的新 commit 可能改变最新端。Cursor 只能当作不透明续页令牌。
+
+Evidence store 不可用时，列表和精确读取都会抛出 `EvidenceStoreUnavailableError`。
+空 page 只表示健康存储没有匹配记录。
+
+## Issues 与 repair
+
+`result.contract().issues` 包含封闭的类型化 issue：
+
+- `DataQualityIssue`：已求值的数据质量失败；
+- `ComparabilityIssue`：不兼容或近似的比较；
+- `EvidenceAvailabilityIssue`：extract、digest 或 store 降级。
+
+Cutover A 是破坏性切换：非 v3 evidence store，以及包含已移除 evidence 字段的 frame
+sidecar，都会被拒绝。应重新创建 analysis session；Marivo 不迁移或重新解释 judgment
+时代的状态。
+
+Issue 可以携带 `AnalysisRepair`，说明如何重试失败的能力。Repair 是局部错误恢复信息，
+不是持久化的 follow-up 计划。是否以及如何继续仍由 agent 决定。
+
+## 审阅结论
+
+重点检查三件事：
+
+1. 结果是否使用了预期的 metric、scope 与 comparison；
+2. 每个重要判断是否由 artifact 或类型化 evidence item 支撑；
+3. 结论是否遵守 omissions、质量 issue 与推断边界。
+
+如果 metric 定义有误，应停止并通过 `marivo-semantic` 修复。继续分析不能补偿错误的业务契约。
+类型化 operator 循环参见[分析流程](/zh-cn/docs/v0.4/concepts/analysis-workflow/)。

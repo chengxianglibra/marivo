@@ -1,0 +1,88 @@
+---
+import marivoMark from '../assets/marivo-mark.svg';
+import agentFlowEn from '../assets/blog/agent-analysis-flow-en.png';
+import agentFlowZh from '../assets/blog/agent-analysis-flow.png';
+import '../styles/blog.css';
+
+interface Props {
+  locale: 'en' | 'zh-cn';
+}
+
+const { locale } = Astro.props;
+const isZh = locale === 'zh-cn';
+const githubUrl = 'https://github.com/chengxianglibra/marivo';
+const homeUrl = isZh ? '/zh-cn/' : '/';
+const blogUrl = isZh ? '/zh-cn/blog/' : '/blog/';
+const articleUrl = `${blogUrl}why-data-analysis-agents-need-a-harness/`;
+const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
+const languageUrl = isZh ? '/blog/' : '/zh-cn/blog/';
+const agentFlow = isZh ? agentFlowZh : agentFlowEn;
+const copy = isZh
+  ? {
+      lang: 'zh-CN', description: 'Marivo Blog：分享产品设计、分析实践、版本演进与社区动态。', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English',
+      headline: ['记录 Marivo 的设计、', '实践与演进。'], intro: '这里收录设计思想、真实分析实践、版本变化和社区故事。我们既讨论为什么这样设计，也记录 Marivo 如何进入具体的数据项目，以及它在使用中学到了什么。',
+      meta: '最新文章 · 设计', date: '2026.08.05', articleTitle: '为什么数据分析 Agent 需要 Harness，而不只是生成 SQL', articleSummary: '如果分析不只是生成一段能执行的 SQL，那么语义、分析状态、证据和接口分别应该承担什么责任？这篇综述介绍 Marivo 试图解决的问题，以及整套设计背后的分工。', read: '阅读文章', imageAlt: 'Marivo 中 Agent 从业务问题到证据与判断的分析流程',
+      footer: '让智能自由探索，让约束守住事实。', home: '主页',
+    }
+  : {
+      lang: 'en', description: 'The Marivo Blog covers product design, analytical practice, releases, and community updates.', homeLabel: 'Marivo home', navLabel: 'Blog navigation', language: '简体中文',
+      headline: ['The design, practice,', 'and evolution of Marivo.'], intro: 'Essays on product design, field experience, release changes, and the community around Marivo. We explain the decisions behind the system and examine how they hold up in real data projects.',
+      meta: 'Latest · Design', date: '2026.08.05', articleTitle: 'Why Data Analysis Agents Need a Harness, Not Just SQL Generation', articleSummary: 'Reliable agent analysis takes more than executable SQL. This overview explains how Marivo connects governed semantics, typed operations, persistent state, and evidence—and why those boundaries matter when findings drive business decisions.', read: 'Read article', imageAlt: 'The Marivo agent analysis path from a business question to evidence and judgment',
+      footer: 'Let intelligence explore. Let constraints keep it grounded.', home: 'Home',
+    };
+---
+
+<!doctype html>
+<html lang={copy.lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={copy.description} />
+    <meta name="theme-color" content="#f6f3eb" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Marivo Blog</title>
+  </head>
+  <body class="blog-body">
+    <div class="blog-page">
+      <header class="blog-header">
+        <a class="blog-brand" href={homeUrl} aria-label={copy.homeLabel}>
+          <img src={marivoMark.src} alt="" width="32" height="32" />
+          <span>Marivo</span>
+        </a>
+        <span class="blog-divider" aria-hidden="true"></span>
+        <a class="blog-name" href={blogUrl}>Blog</a>
+        <nav aria-label={copy.navLabel}>
+          <a href={docsUrl}>Docs</a>
+          <a href={githubUrl}>GitHub</a>
+          <a href={languageUrl}>{copy.language}</a>
+        </nav>
+      </header>
+
+      <main class="blog-home">
+        <section class="blog-hero" aria-labelledby="blog-title">
+          <p class="blog-kicker">Marivo / Blog</p>
+          <h1 id="blog-title">{copy.headline[0]}<br />{copy.headline[1]}</h1>
+          <p>{copy.intro}</p>
+        </section>
+
+        <section class="featured" aria-labelledby="featured-title">
+          <div class="featured-copy">
+            <div class="featured-meta"><span>{copy.meta}</span><span>{copy.date}</span></div>
+            <h2 id="featured-title">{copy.articleTitle}</h2>
+            <p>{copy.articleSummary}</p>
+            <a href={articleUrl}>{copy.read} <span aria-hidden="true">→</span></a>
+          </div>
+          <a class="featured-visual" href={articleUrl} aria-label={copy.articleTitle}>
+            <img src={agentFlow.src} alt={copy.imageAlt} />
+          </a>
+        </section>
+
+      </main>
+
+      <footer class="blog-footer">
+        <div><img src={marivoMark.src} alt="" width="28" height="28" /><p>{copy.footer}</p></div>
+        <div class="blog-footer-links"><a href={homeUrl}>{copy.home}</a><a href={blogUrl}>Blog</a><a href={docsUrl}>Docs</a><a href={githubUrl}>GitHub</a><a href={languageUrl}>{copy.language}</a></div>
+      </footer>
+    </div>
+  </body>
+</html>

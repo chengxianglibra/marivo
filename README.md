@@ -84,7 +84,7 @@ The installer uses `uv` to prepare a project-local environment and initializes t
 current directory. It runs on macOS, Linux, WSL, and Windows through Git Bash,
 MSYS2, or Cygwin.
 For manual installation, datasource extras, supported platforms, and troubleshooting,
-see [Installation](https://marivo.io/en/latest/installation/).
+see [Installation](https://marivo.io/docs/latest/installation/).
 
 Verify the selected environment once, then use Python for focused help:
 
@@ -115,12 +115,12 @@ management, and evidence collection.
 
 ## Documentation
 
-- [Installation](https://marivo.io/en/latest/installation/)
-- [Quick Start](https://marivo.io/en/latest/quick-start/)
-- [First agent-guided analysis](https://marivo.io/en/latest/first-analysis/)
-- [Semantic Layer](https://marivo.io/en/latest/concepts/semantic-layer/)
-- [Analysis Workflow](https://marivo.io/en/latest/concepts/analysis-workflow/)
-- [Evidence](https://marivo.io/en/latest/concepts/evidence/)
+- [Installation](https://marivo.io/docs/latest/installation/)
+- [Quick Start](https://marivo.io/docs/latest/quick-start/)
+- [First agent-guided analysis](https://marivo.io/docs/latest/first-analysis/)
+- [Semantic Layer](https://marivo.io/docs/latest/concepts/semantic-layer/)
+- [Analysis Workflow](https://marivo.io/docs/latest/concepts/analysis-workflow/)
+- [Evidence](https://marivo.io/docs/latest/concepts/evidence/)
 
 ## Development
 

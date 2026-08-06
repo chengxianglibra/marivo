@@ -1,0 +1,89 @@
+---
+import marivoMark from '../assets/marivo-mark.svg';
+import '../styles/blog.css';
+
+interface BlogFrontmatter {
+  title: string;
+  description: string;
+  publishedAt: string;
+  series: string;
+  locale: 'en' | 'zh-cn';
+}
+
+interface Props {
+  frontmatter: BlogFrontmatter;
+}
+
+const { frontmatter } = Astro.props;
+const isZh = frontmatter.locale === 'zh-cn';
+const githubUrl = 'https://github.com/chengxianglibra/marivo';
+const homeUrl = isZh ? '/zh-cn/' : '/';
+const blogUrl = isZh ? '/zh-cn/blog/' : '/blog/';
+const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
+const languageUrl = isZh
+  ? `/blog${Astro.url.pathname.slice('/zh-cn/blog'.length)}`
+  : `/zh-cn/blog${Astro.url.pathname.slice('/blog'.length)}`;
+const copy = isZh
+  ? { lang: 'zh-CN', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English', back: '返回 Blog', reading: '约 15 分钟阅读', footer: '让智能自由探索，让约束守住事实。', home: '主页' }
+  : { lang: 'en', homeLabel: 'Marivo home', navLabel: 'Blog navigation', language: '简体中文', back: 'Back to Blog', reading: 'About 12 minutes', footer: 'Let intelligence explore. Let constraints keep it grounded.', home: 'Home' };
+---
+
+<!doctype html>
+<html lang={copy.lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={frontmatter.description} />
+    <meta name="theme-color" content="#f6f3eb" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{frontmatter.title} · Marivo Blog</title>
+  </head>
+  <body class="blog-body">
+    <div class="blog-page">
+      <header class="blog-header">
+        <a class="blog-brand" href={homeUrl} aria-label={copy.homeLabel}>
+          <img src={marivoMark.src} alt="" width="32" height="32" />
+          <span>Marivo</span>
+        </a>
+        <span class="blog-divider" aria-hidden="true"></span>
+        <a class="blog-name" href={blogUrl}>Blog</a>
+        <nav aria-label={copy.navLabel}>
+          <a href={docsUrl}>Docs</a>
+          <a href={githubUrl}>GitHub</a>
+          <a href={languageUrl}>{copy.language}</a>
+        </nav>
+      </header>
+
+      <main class="article-shell">
+        <a class="article-back" href={blogUrl}><span aria-hidden="true">←</span> {copy.back}</a>
+        <header class="article-header">
+          <p class="article-series">{frontmatter.series}</p>
+          <h1>{frontmatter.title}</h1>
+          <p class="article-description">{frontmatter.description}</p>
+          <div class="article-meta">
+            <span>{frontmatter.publishedAt}</span>
+            <span>{copy.reading}</span>
+          </div>
+        </header>
+
+        <article class="article-content">
+          <slot />
+        </article>
+      </main>
+
+      <footer class="blog-footer">
+        <div>
+          <img src={marivoMark.src} alt="" width="28" height="28" />
+          <p>{copy.footer}</p>
+        </div>
+        <div class="blog-footer-links">
+          <a href={homeUrl}>{copy.home}</a>
+          <a href={blogUrl}>Blog</a>
+          <a href={docsUrl}>Docs</a>
+          <a href={githubUrl}>GitHub</a>
+          <a href={languageUrl}>{copy.language}</a>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
