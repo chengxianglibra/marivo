@@ -243,7 +243,6 @@ class MetricFrameMeta(BaseFrameMeta):
     artifact_identity: MetricArtifactIdentityV1 | None = None
     key_schema: MetricKeySchemaV1 | None = None
     source_compatibility_domain: DatasourceCompatibilityDomainV1 | None = None
-    component_graph_ref: str | None = None
     quality_ref: str | None = None
     replay_graph_ref: str | None = None
     comparable_value_semantics_ref: str | None = None
@@ -920,9 +919,9 @@ class MetricFrame(BaseFrame):
             session_id=self.meta.session_id,
             project_root=self.meta.project_root,
             artifact_id=self.meta.artifact_id,
-            component_ref=self.meta.component_ref or self.meta.component_graph_ref,
+            component_ref=self.meta.component_ref,
             composition=self.meta.composition
-            or ({"kind": "metric_graph"} if self.meta.component_graph_ref is not None else None),
+            or ({"kind": "metric_graph"} if self.meta.component_ref is not None else None),
             advice="re-run observe() to regenerate it",
         )
 

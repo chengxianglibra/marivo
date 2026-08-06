@@ -119,7 +119,7 @@ _CURRENT_METRIC_FRAME_FIELDS = frozenset(
         "artifact_identity",
         "key_schema",
         "source_compatibility_domain",
-        "component_graph_ref",
+        "component_ref",
         "replay_graph_ref",
         "comparable_value_semantics_ref",
         "comparable_value_semantics",
@@ -711,7 +711,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 "artifact_identity": parsed_meta.artifact_identity,
                 "key_schema": parsed_meta.key_schema,
                 "source_compatibility_domain": parsed_meta.source_compatibility_domain,
-                "component_graph_ref": parsed_meta.component_graph_ref,
+                "component_ref": parsed_meta.component_ref,
                 "comparable_value_semantics": parsed_meta.comparable_value_semantics,
                 "execution_stats": parsed_meta.execution_stats,
                 "unit_state": (

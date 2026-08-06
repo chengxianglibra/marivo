@@ -191,7 +191,6 @@ def _attach_metric_component_ref(
     parent.meta = parent.meta.model_copy(
         update={
             "component_ref": component.ref,
-            "component_graph_ref": component.ref,
             "composition": composition or _composition_payload(metric_ir),
         }
     )
@@ -209,7 +208,7 @@ def _attach_metric_component_graph_ref(
 ) -> MetricFrame:
     """Attach only recursive graph state, without claiming decomposition support."""
 
-    parent.meta = parent.meta.model_copy(update={"component_graph_ref": component.ref})
+    parent.meta = parent.meta.model_copy(update={"component_ref": component.ref})
     if persist_parent:
         parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
     return parent

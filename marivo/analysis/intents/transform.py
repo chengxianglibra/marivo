@@ -2373,7 +2373,7 @@ def _persist_transform_frame(
         meta_payload["key_schema"] = key_schema
         meta_payload["artifact_identity"] = None
         meta_payload["comparable_value_semantics_ref"] = None
-        meta_payload["component_graph_ref"] = None
+        meta_payload["component_ref"] = None
         meta_payload["quality_ref"] = None
         meta_payload["coverage_ref"] = None
         meta_payload["coverage_summary"] = None

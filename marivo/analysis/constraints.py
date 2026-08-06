@@ -454,7 +454,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("MetricFrame", "DeltaFrame", "ComponentFrame", "components"),
         "Observed MetricFrames require a persisted recursive component graph.",
         "Every graph root retains evaluator, child-role, quality, coverage, presentation, and governed-leaf lineage state.",
-        "Re-run session.observe(...) when component_graph_ref is absent or its ComponentFrame cannot be loaded.",
+        "Re-run session.observe(...) when component_ref is absent or its ComponentFrame cannot be loaded.",
         help_target="artifacts",
     ),
     ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE: _constraint(

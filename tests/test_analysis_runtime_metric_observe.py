@@ -168,7 +168,7 @@ def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) 
     assert frame.meta.unit == "USD"
     assert frame.meta.metric_id == f"runtime:{frame.meta.expression_fingerprint}"
     assert not frame.meta.metric_id.startswith("sales.")
-    assert frame.meta.component_graph_ref is not None
+    assert frame.meta.component_ref is not None
     component_graph = frame.components().meta.component_graph
     assert component_graph is not None
     assert component_graph["root_node_ids"] == [frame.meta.expression_fingerprint]
@@ -712,8 +712,7 @@ def test_public_observe_and_projection_keep_only_selected_runtime_root(runtime_s
     assert forest.meta.execution_stats is not None
     assert forest.meta.execution_stats.root_origins == ("runtime", "runtime")
     forest_component_graph = forest.components().meta.component_graph
-    assert forest.meta.component_ref is None
-    assert forest.meta.component_graph_ref is not None
+    assert forest.meta.component_ref is not None
     assert forest_component_graph is not None
     assert len(forest_component_graph["root_node_ids"]) == 2
     ratio_record = next(
@@ -799,7 +798,7 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
         "artifact_identity",
         "key_schema",
         "source_compatibility_domain",
-        "component_graph_ref",
+        "component_ref",
         "comparable_value_semantics",
     }
     for field in removed:
