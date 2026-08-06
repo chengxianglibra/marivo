@@ -140,6 +140,7 @@ def _current_metric_state_error(
 ) -> FrameMetaInvalidError:
     return FrameMetaInvalidError(
         message=(f"frame '{ref}' has invalid current-schema metric state at {path}: {reason}"),
+        location=f"frame '{ref}' current-schema metric state ({path})",
         repair=AnalysisRepair(
             kind="retry",
             action=(
@@ -349,6 +350,7 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
 def _delta_identity_recovery_error(ref: str, *, reason: str) -> FrameMetaInvalidError:
     return FrameMetaInvalidError(
         message=f"frame '{ref}' has an invalid delta comparison identity",
+        location=f"frame '{ref}' delta comparison identity",
         repair=AnalysisRepair(
             kind="retry",
             action="Re-run session.compare(current, baseline, alignment=...) from the source MetricFrames.",
@@ -518,6 +520,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 f"frame '{ref}' uses unsupported artifact schema "
                 f"{artifact_schema_version!r}; recreate the analysis session"
             ),
+            location=f"frame '{ref}' artifact schema version",
             expected=CURRENT_ARTIFACT_SCHEMA_VERSION,
             received=artifact_schema_version or "<missing>",
             repair=AnalysisRepair(
@@ -556,6 +559,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if semantic_kind not in event_meta_classes:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has an unsupported Event semantic shape",
+                location=f"frame '{ref}' event semantic shape",
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
@@ -585,6 +589,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if semantic_kind not in lifecycle_meta_classes:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has an unsupported Lifecycle semantic shape",
+                location=f"frame '{ref}' lifecycle semantic shape",
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
@@ -628,6 +633,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if meta.get("artifact_schema") != "cumulative-delta/v1":
             raise FrameMetaInvalidError(
                 message=(f"frame '{ref}' uses an unsupported cumulative delta artifact schema"),
+                location=f"frame '{ref}' cumulative delta artifact schema",
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
@@ -650,6 +656,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     f"frame '{ref}' is missing its required cumulative-delta/v1 "
                     "cumulative_attribution field"
                 ),
+                location=f"frame '{ref}' cumulative delta cumulative_attribution",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
@@ -679,6 +686,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     ):
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its required delta identity",
+            location=f"frame '{ref}' delta comparison identity",
             repair=AnalysisRepair(
                 kind="retry",
                 action=(
@@ -720,6 +728,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     f"frame '{ref}' is missing required {artifact_schema_version} "
                     f"fields: {', '.join(missing_fields)}"
                 ),
+                location=f"frame '{ref}' required metric fields",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
@@ -744,6 +753,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     ):
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' is missing its {CURRENT_ARTIFACT_SCHEMA_VERSION} attribution basis field",
+            location=f"frame '{ref}' attribution basis field",
             repair=AnalysisRepair(
                 kind="retry",
                 action=(
@@ -799,6 +809,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     f"frame '{ref}' carries field(s) no longer in "
                     f"{artifact_schema_version}: {', '.join(extra_fields)}"
                 ),
+                location=f"frame '{ref}' extra forbidden fields",
                 context={
                     "ref": ref,
                     "artifact_schema_version": artifact_schema_version,
@@ -817,6 +828,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             ) from exc
         raise FrameMetaInvalidError(
             message=(f"frame '{ref}' metadata fails {artifact_schema_version} validation"),
+            location=f"frame '{ref}' metadata validation",
             repair=AnalysisRepair(
                 kind="inspect",
                 action=(
@@ -865,6 +877,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             if missing_state:
                 raise FrameMetaInvalidError(
                     message=f"frame '{ref}' has incomplete current-schema metric state",
+                    location=f"frame '{ref}' current-schema metric state",
                     repair=AnalysisRepair(
                         kind="retry",
                         action=(
@@ -890,6 +903,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         ):
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has a mismatched attribution basis identity",
+                location=f"frame '{ref}' attribution basis identity",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
@@ -917,6 +931,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if missing_state:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has incomplete current-schema delta identity",
+                location=f"frame '{ref}' current-schema delta identity",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
@@ -947,6 +962,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             )
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has corrupt {row_family}",
+                location=f"frame '{ref}' {row_family}",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
@@ -966,6 +982,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if list(df.columns) != CANDIDATE_COLUMNS:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' has a non-canonical CandidateSet column layout",
+                location=f"frame '{ref}' CandidateSet column layout",
                 repair=AnalysisRepair(
                     kind="environment",
                     action=(
@@ -1004,6 +1021,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if manifest.content_hash is None:
             raise FrameMetaInvalidError(
                 message=f"frame '{ref}' is missing its Lifecycle trace content hash",
+                location=f"frame '{ref}' Lifecycle trace content hash",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(

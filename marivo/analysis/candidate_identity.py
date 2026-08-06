@@ -204,6 +204,7 @@ def validate_candidate_frame_identity(
     if len(set(item_ids)) != len(item_ids):
         raise FrameMetaInvalidError(
             message="CandidateSet item_id values must be unique",
+            location="CandidateSet item_id identity",
             repair=_candidate_repair(),
             context={"kind": "CandidateIdentityInvalid", "reason": "duplicate"},
         )
@@ -212,6 +213,7 @@ def validate_candidate_frame_identity(
         if not isinstance(item_id, str) or _ITEM_ID_RE.fullmatch(item_id) is None:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} has a malformed full-digest item_id",
+                location=f"candidate row {index} item_id identity",
                 repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
@@ -240,6 +242,7 @@ def validate_candidate_frame_identity(
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} has invalid identity coordinates",
+                location=f"candidate row {index} item_id coordinates",
                 repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
@@ -250,6 +253,7 @@ def validate_candidate_frame_identity(
         if item_id != expected:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} item_id does not match its coordinates",
+                location=f"candidate row {index} item_id coordinates",
                 repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
@@ -278,6 +282,10 @@ def validate_semantic_hypothesis_frame_integrity(
             context["row_index"] = str(row_index)
         return FrameMetaInvalidError(
             message="semantic-hypothesis CandidateSet metadata does not match its rows",
+            location=(
+                "semantic-hypothesis CandidateSet integrity"
+                + (f" row {row_index}" if row_index is not None else "")
+            ),
             repair=AnalysisRepair(
                 kind="retry",
                 action=(
