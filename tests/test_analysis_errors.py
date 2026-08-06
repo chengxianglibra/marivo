@@ -227,8 +227,17 @@ def test_attribution_distribution_error_derives_reason_specific_repair(
                 "ref": "frame_a",
                 "kind": "unsupported_artifact_schema",
                 "expected": "cumulative-delta/v1",
+                "received": None,
             },
             id="cumulative-schema",
+        ),
+        pytest.param(
+            {
+                "ref": "frame_a",
+                "artifact_schema_version": "analysis-artifact/v8",
+                "expected_basis_fingerprint": "abc",
+            },
+            id="attribution-basis",
         ),
     ],
 )
