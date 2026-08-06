@@ -639,6 +639,38 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 ),
             )
     if kind == "metric_frame":
+        # Issue #57: MetricFrameMeta.component_graph_ref was removed (the sidecar
+        # is now referenced by the single component_ref field). Pre-#57 v7
+        # artifacts wrote the graph key either double-write (with component_ref,
+        # same value) or graph-only (graph key present, component_ref absent).
+        # Migrate the legacy key onto component_ref so those artifacts still
+        # load; a divergent value is a version-migration problem, not data
+        # corruption, and gets a typed migration error with repair.
+        legacy_component_graph_ref = meta.get("component_graph_ref")
+        if legacy_component_graph_ref is not None:
+            component_ref = meta.get("component_ref")
+            if component_ref is None:
+                # graph-only legacy artifact: the graph key IS the sidecar ref.
+                meta["component_ref"] = legacy_component_graph_ref
+            elif component_ref != legacy_component_graph_ref:
+                raise FrameMetaInvalidError(
+                    message=(
+                        f"frame '{ref}' carries the pre-issue-57 component_graph_ref "
+                        "field with a value that no longer matches component_ref"
+                    ),
+                    context={
+                        "ref": ref,
+                        "artifact_schema_version": artifact_schema_version,
+                        "component_ref": component_ref,
+                        "component_graph_ref": legacy_component_graph_ref,
+                        "repair": (
+                            "This is a version-migration problem, not corruption: "
+                            "re-run observe() to regenerate the metric frame under "
+                            "the single component_ref contract."
+                        ),
+                    },
+                )
+            meta.pop("component_graph_ref")
         required_metric_fields = _CURRENT_METRIC_FRAME_FIELDS | (
             {"attribution_basis"}
             if artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION
