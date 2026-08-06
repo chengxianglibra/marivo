@@ -49,6 +49,7 @@ class ConstraintId(StrEnum):
     FUNNEL_ATTRIBUTION_RECONCILIATION = "funnel_attribution_reconciliation"
     FRAME_IMMUTABLE = "frame_immutable"
     FRAME_READ_BOUNDS = "frame_read_bounds"
+    FRAME_META_INVALID = "frame_meta_invalid"
     BACKEND_FACTORY_CONFIGURED = "backend_factory_configured"
     DATASOURCE_CONFIGURED = "datasource_configured"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
@@ -401,6 +402,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Frame read helpers enforce bounded inspection arguments.",
         "Help and show APIs should stay small enough for agents and terminals.",
         "Use frame.show() for bounded inspection, or frame.to_pandas() for terminal custom analysis.",
+        help_target="artifacts",
+    ),
+    ConstraintId.FRAME_META_INVALID: _constraint(
+        ConstraintId.FRAME_META_INVALID,
+        "FrameMetaInvalid",
+        "runtime",
+        ("BaseFrame", "MetricFrame", "DeltaFrame", "CandidateSet"),
+        "Frame metadata must match the current analysis-artifact schema.",
+        "Persisted metadata records schema, semantic shape, and identity; stale or corrupt metadata cannot produce a typed frame.",
+        "Inspect the failing frame.meta against the current schema, then re-run the producing intent or delete the stale artifact so it is regenerated.",
         help_target="artifacts",
     ),
     ConstraintId.BACKEND_FACTORY_CONFIGURED: _constraint(
