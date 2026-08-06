@@ -101,6 +101,7 @@ const requiredFiles = [
   'astro.config.mjs',
   'src/content.config.ts',
   'src/assets/marivo-mark.svg',
+  'src/assets/blog/agent-analysis-flow.png',
   'src/styles/custom.css',
   'src/pages/install.sh.ts',
   'public/favicon.svg',
@@ -108,6 +109,8 @@ const requiredFiles = [
   'src/content/i18n/zh-cn.json',
   'src/content/docs/en/index.mdx',
   'src/content/docs/zh-cn/index.mdx',
+  'src/content/docs/zh-cn/blog/index.mdx',
+  'src/content/docs/zh-cn/blog/why-data-analysis-agents-need-a-harness.mdx',
 ];
 
 for (const locale of locales) {

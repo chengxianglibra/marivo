@@ -92,6 +92,7 @@ export default defineConfig({
     // bare site root and hosts return 404 for /. Redirect / to the latest
     // English splash page so the site has a working entry point.
     '/': '/en/latest/',
+    '/blog': '/zh-cn/blog/',
     '/en/api': '/api/index.html',
     '/zh-cn/api': '/api/index.html',
   },
