@@ -199,9 +199,7 @@ def test_attribute_repeated_call_records_reused_invocation_job(tmp_path) -> None
     delta = session.compare(cur, base)
 
     first = session.attribute(delta, axes=[region], analysis_purpose="explain revenue change")
-    second = session.attribute(
-        delta, axes=[region], analysis_purpose="re-attribute for reporting"
-    )
+    second = session.attribute(delta, axes=[region], analysis_purpose="re-attribute for reporting")
 
     # Artifact identity dedups; the frame keeps its original producer.
     assert second.ref == first.ref

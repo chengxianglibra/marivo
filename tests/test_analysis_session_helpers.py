@@ -132,9 +132,7 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
 # ---------------------------------------------------------------------------
 
 
-def test_recent_is_bounded_newest_first(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     first = mv.session.get_or_create(name="first", use_datasources=False)
@@ -221,9 +219,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
         ),
     )
     active = mv.session.get_or_create(name="active", use_datasources=False)
-    before = next(
-        item for item in mv.session.recent(limit=100).items if item.name == "historical"
-    )
+    before = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
     session_meta_path = historical._layout.session_dir / "meta.json"
     meta_before = session_meta_path.read_text()
 
@@ -235,9 +231,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(
     )
     snapshot = mv.session.inspect("historical", frame_limit=1, job_limit=1)
 
-    after = next(
-        item for item in mv.session.recent(limit=100).items if item.name == "historical"
-    )
+    after = next(item for item in mv.session.recent(limit=100).items if item.name == "historical")
     assert mv.session.current() is not None
     assert mv.session.current().id == active.id
     assert after.updated_at == before.updated_at

@@ -414,9 +414,7 @@ def test_multi_metric_observe_accepts_cumulative_metric(sales_session):
     assert frame.meta.metric_identities is not None
 
 
-def test_multi_metric_conflicting_status_time_axes_fail_closed(
-    sales_session, monkeypatch
-) -> None:
+def test_multi_metric_conflicting_status_time_axes_fail_closed(sales_session, monkeypatch) -> None:
     """When two metric roots prefer different status time axes, multi-metric
     observe must fail closed with a repair instead of silently picking one
     (issue #36)."""

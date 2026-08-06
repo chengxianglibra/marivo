@@ -82,7 +82,9 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
 
     rows = result.to_pandas()
     assert result.attribution_mode == "multiresolution"
-    assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx({1: 0.0, 2: 0.0})
+    assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx(
+        {1: 0.0, 2: 0.0}
+    )
     contract = result.contract()
     assert contract.row_arithmetic == "not_additive_across_resolutions"
     resolution_affordance = next(
