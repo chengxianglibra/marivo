@@ -544,6 +544,70 @@ def test_legacy_graph_only_artifact_fails_closed_on_load():
     assert "Re-run observe()" in exc_info.value.repair.action
 
 
+def test_corrupt_payload_still_reports_corruption():
+    """A genuinely corrupt value must keep reporting corruption.
+
+    Issue #57 review P3-2: the corrupt branch is still reachable and must stay
+    covered. A payload with a wrong-typed field (no removed fields) is real data
+    damage, not a version mismatch — it must say 'corrupt', not 'no longer in'.
+    """
+    import json
+
+    from marivo.analysis.errors import FrameMetaInvalidError
+    from marivo.analysis.session._load import load_frame
+
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        ref="frame_corrupt_payload",
+        component_ref="frame_sidecar",
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["row_count"] = "not-an-int"  # wrong type, not a removed field
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(parent.ref, session=session)
+
+    assert "corrupt current-schema" in exc_info.value.message
+    assert "no longer in" not in exc_info.value.message
+
+
+def test_removed_field_with_corrupt_value_reports_corruption():
+    """When a removed field coexists with a corrupt value, corruption wins.
+
+    Issue #57 review P3-1: the extra-forbidden dispatch must not mask a real
+    data problem. A payload carrying component_graph_ref *and* a wrong-typed
+    field is genuinely damaged — it must report corruption, not a pure version
+    mismatch whose 're-run observe()' repair would paper over the damage.
+    """
+    import json
+
+    from marivo.analysis.errors import FrameMetaInvalidError
+    from marivo.analysis.session._load import load_frame
+
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        ref="frame_mixed_corrupt",
+        component_ref="frame_sidecar",
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["component_graph_ref"] = "frame_sidecar"  # removed field
+    payload["row_count"] = "not-an-int"  # corrupt value
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(parent.ref, session=session)
+
+    assert "corrupt current-schema" in exc_info.value.message
+    assert "no longer in" not in exc_info.value.message
+
+
 def test_no_composition_scalar_frame_keeps_inspect_repair():
     """An ordinary scalar frame without composition keeps the original repair.
 
