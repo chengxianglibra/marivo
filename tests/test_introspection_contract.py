@@ -13,6 +13,7 @@ regression tests that do not depend on the removed ``_surface`` function.
 from __future__ import annotations
 
 import inspect
+import re
 from pathlib import Path
 
 import pytest
@@ -233,10 +234,21 @@ def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
 
     # Pin the conditional scope of the meta.json step: it must be gated on the
     # Location naming a frame ref (7/26 construction sites carry no ref/artifact),
-    # while the recovery action stays unconditional for all sites (third-round
-    # review P3-1/P3-2).
-    assert "when the Location names a frame ref" in err.hint
-    assert err.hint.index("meta.json") > err.hint.index("when the Location names a frame ref")
+    # while the recovery action stays unconditional for all sites. Split on
+    # sentence boundaries and assert each property on its own sentence -- this
+    # pins the scope, not the exact wording or capitalization (fourth-round
+    # review P3-1).
+    sentences = re.split(r"(?<=\.)\s+", err.hint)
+    recovery = next(s for s in sentences if "re-run" in s)
+    assert (
+        re.search(r"when\s+the\s+location\s+names\s+a\s+frame\s+ref", recovery, re.IGNORECASE)
+        is None
+    )
+    meta_step = next(s for s in sentences if "meta.json" in s)
+    assert (
+        re.search(r"when\s+the\s+location\s+names\s+a\s+frame\s+ref", meta_step, re.IGNORECASE)
+        is not None
+    )
 
     # Pin applies_to as a closed set (not issubset) so drift or over-tightening
     # on the frame families covered by this constraint fails loudly.
