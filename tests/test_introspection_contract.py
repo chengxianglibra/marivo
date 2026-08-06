@@ -231,6 +231,13 @@ def test_frame_meta_invalid_error_receives_catalog_default_hint() -> None:
     assert "meta.json" in err.hint
     assert "frame.meta" not in err.hint
 
+    # Pin the conditional scope of the meta.json step: it must be gated on the
+    # Location naming a frame ref (7/26 construction sites carry no ref/artifact),
+    # while the recovery action stays unconditional for all sites (third-round
+    # review P3-1/P3-2).
+    assert "when the Location names a frame ref" in err.hint
+    assert err.hint.index("meta.json") > err.hint.index("when the Location names a frame ref")
+
     # Pin applies_to as a closed set (not issubset) so drift or over-tightening
     # on the frame families covered by this constraint fails loudly.
     constraint = CONSTRAINTS[ConstraintId.FRAME_META_INVALID]

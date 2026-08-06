@@ -419,7 +419,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         "Frame metadata must match the current analysis-artifact schema.",
         "Persisted metadata records schema, semantic shape, and identity; stale or corrupt metadata cannot produce a typed frame.",
-        "Read the Location line on this error against the current schema. When the Location names a frame ref, inspect the artifact's meta.json on disk, then re-run the producing intent or delete the stale artifact so it is regenerated.",
+        "Read the Location line on this error against the current schema; when the Location names a frame ref, inspect the artifact's meta.json on disk. Then re-run the producing intent or delete the stale artifact so it is regenerated.",
         help_target="artifacts",
     ),
     ConstraintId.BACKEND_FACTORY_CONFIGURED: _constraint(
