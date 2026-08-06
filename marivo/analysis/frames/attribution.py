@@ -368,9 +368,9 @@ class AttributionFrameMeta(BaseFrameMeta):
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
     reconciliation: AttributionReconciliation | None = None
-    row_contract_version: (
-        Literal["generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"] | None
-    ) = None
+    row_contract_version: Literal[
+        "generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"
+    ]
     causal_claim: Literal["none"] = "none"
     axis_bindings: tuple[AttributionAxisBindingV1, ...] = ()
     attribution_mode: AttributionMode | None = None
@@ -380,8 +380,6 @@ class AttributionFrameMeta(BaseFrameMeta):
 
     @model_validator(mode="after")
     def _validate_generic_v2(self) -> AttributionFrameMeta:
-        if self.row_contract_version is None:
-            return self
         cumulative_evidence = (
             self.method_evidence
             if isinstance(
@@ -1159,11 +1157,6 @@ class AttributionFrame(BaseFrame):
 
     def _base_card(self) -> Card:
         card = super()._base_card()
-        if (
-            self.meta.semantic_kind != "funnel_loss_rate"
-            and self.meta.method == "ordered_hierarchy_sum"
-        ):
-            card.field("legacy_method", "ordered_hierarchy_sum")
         if self.meta.semantic_kind != "funnel_loss_rate" and self.meta.method_evidence is not None:
             evidence = self.meta.method_evidence
             if evidence.kind == "distinct_membership":
@@ -1252,18 +1245,14 @@ class AttributionFrame(BaseFrame):
     @property
     def attribution_shape(self) -> AttributionShape:
         """Return the canonical mathematical allocation shape."""
-        shape = "sum" if self.meta.method == "ordered_hierarchy_sum" else self.meta.method
-        return cast("AttributionShape", shape)
+        return cast("AttributionShape", self.meta.method)
 
     @property
     def attribution_mode(self) -> AttributionMode | None:
         """The multi-axis row layout, distinct from attribution math ``method``."""
         if self.meta.semantic_kind == "funnel_loss_rate":
             return self.meta.mode
-        if self.meta.row_contract_version == "generic-attribution-rows/v2":
-            return self.meta.attribution_mode
-        mode = self.meta.params.get("mode")
-        return mode if mode in {"joint", "hierarchy", "multiresolution"} else None
+        return self.meta.attribution_mode
 
     def as_sum(self) -> AttributionFrame:
         assert_attribution_shape(

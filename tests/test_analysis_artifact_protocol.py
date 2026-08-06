@@ -10,9 +10,14 @@ import pytest
 from pydantic import ValidationError
 
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
-from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
     ArtifactBoundaryPort,
@@ -30,6 +35,8 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_delta_contract, make_test_metric_meta_contract
 
 
@@ -131,6 +138,20 @@ def _artifact_cases():
             params={"by": "region"},
             semantic_kind="segmented",
             semantic_model="sales",
+            row_contract_version="generic-attribution-rows/v2",
+            axis_bindings=(
+                AttributionAxisBindingV1(
+                    ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+                    output_column="region",
+                ),
+            ),
+            reconciliation=AttributionReconciliation(
+                partition_count=1,
+                total_delta=1.0,
+                contribution_sum=1.0,
+                residual=0.0,
+                max_abs_residual=0.0,
+            ),
         ),
     )
     yield CandidateSet(

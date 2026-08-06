@@ -261,7 +261,7 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
             artifact_identity.artifact_schema_version != meta.artifact_schema_version
         ),
     }
-    if meta.artifact_schema_version == "analysis-artifact/v7":
+    if meta.artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION:
         artifact_mismatches["attribution_basis_fingerprint"] = (
             artifact_identity.attribution_basis_fingerprint
             != basis_fingerprint(meta.attribution_basis)
@@ -287,7 +287,7 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
         "presentation_fingerprint": artifact_identity.presentation_fingerprint,
         "artifact_schema_version": artifact_identity.artifact_schema_version,
     }
-    if meta.artifact_schema_version == "analysis-artifact/v7":
+    if meta.artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION:
         artifact_identity_payload["attribution_basis_fingerprint"] = (
             artifact_identity.attribution_basis_fingerprint
         )
@@ -506,10 +506,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
 
     artifact_schema_version = meta.get("artifact_schema_version")
-    if artifact_schema_version not in {
-        "analysis-artifact/v6",
-        CURRENT_ARTIFACT_SCHEMA_VERSION,
-    }:
+    if artifact_schema_version != CURRENT_ARTIFACT_SCHEMA_VERSION:
         raise FrameMetaInvalidError(
             message=(
                 f"frame '{ref}' uses unsupported artifact schema "
@@ -518,10 +515,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             context={
                 "ref": ref,
                 "got": artifact_schema_version,
-                "expected": (
-                    "analysis-artifact/v6",
-                    CURRENT_ARTIFACT_SCHEMA_VERSION,
-                ),
+                "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
             },
         )
     if meta.get("session_id") != session.id:
@@ -665,7 +659,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         and "attribution_basis" not in meta
     ):
         raise FrameMetaInvalidError(
-            message=f"frame '{ref}' is missing its v7 attribution basis field",
+            message=f"frame '{ref}' is missing its {CURRENT_ARTIFACT_SCHEMA_VERSION} attribution basis field",
             context={
                 "ref": ref,
                 "artifact_schema_version": artifact_schema_version,
@@ -777,23 +771,17 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             _validate_current_metric_state(ref, parsed_meta)
     if isinstance(parsed_meta, DeltaFrameMeta):
         expected_basis_fingerprint = basis_fingerprint(parsed_meta.attribution_basis)
-        if parsed_meta.artifact_schema_version == "analysis-artifact/v7":
-            if (
-                parsed_meta.comparison_identity.attribution_basis_fingerprint
-                != expected_basis_fingerprint
-            ):
-                raise FrameMetaInvalidError(
-                    message=f"frame '{ref}' has a mismatched attribution basis identity",
-                    context={
-                        "ref": ref,
-                        "artifact_schema_version": artifact_schema_version,
-                        "expected_basis_fingerprint": expected_basis_fingerprint,
-                    },
-                )
-        elif parsed_meta.attribution_basis is not None:
+        if (
+            parsed_meta.comparison_identity.attribution_basis_fingerprint
+            != expected_basis_fingerprint
+        ):
             raise FrameMetaInvalidError(
-                message=f"legacy frame '{ref}' cannot carry a v7 attribution basis",
-                context={"ref": ref, "artifact_schema_version": artifact_schema_version},
+                message=f"frame '{ref}' has a mismatched attribution basis identity",
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": artifact_schema_version,
+                    "expected_basis_fingerprint": expected_basis_fingerprint,
+                },
             )
         delta_required_state: dict[str, object | None] = {
             "metric_identity": parsed_meta.metric_identity,

@@ -34,7 +34,7 @@ from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v7"] = "analysis-artifact/v7"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v8"] = "analysis-artifact/v8"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 
 
@@ -288,9 +288,7 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v6", "analysis-artifact/v7"] = (
-        CURRENT_ARTIFACT_SCHEMA_VERSION
-    )
+    artifact_schema_version: Literal["analysis-artifact/v8"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str

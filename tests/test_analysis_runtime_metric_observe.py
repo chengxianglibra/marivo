@@ -806,20 +806,20 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(
-        FrameMetaInvalidError, match="is missing required analysis-artifact/v7 fields"
+        FrameMetaInvalidError, match="is missing required analysis-artifact/v8 fields"
     ) as exc_info:
         runtime_session.get_frame(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
-    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v7"
+    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v8"
 
 
-def test_legacy_v6_metric_frame_missing_fields_reports_v6(runtime_session) -> None:
-    """Issue #63 review P3: the missing-fields branch must report the artifact's
-    real version, not hard-coded CURRENT.
+def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_session) -> None:
+    """Issue #55: v6 artifacts are not migrated or dual-read under v8.
 
-    A v6 artifact that is genuinely missing a required field must say so in v6
-    terms — the message must not claim it "declares current-schema metadata"
-    and the context must not pin a v7 version.
+    The loader rejects a v6 artifact up front with a typed error carrying
+    got/expected and a recreate-the-session repair — it never reaches the
+    missing-fields branch (which would mislabel the failure as a v6-specific
+    missing field).
     """
     amount = _measure_ref(runtime_session)
     frame = runtime_session.observe(
@@ -828,19 +828,18 @@ def test_legacy_v6_metric_frame_missing_fields_reports_v6(runtime_session) -> No
     meta_path = runtime_session._layout.frames_dir / frame.ref / "meta.json"
     payload = json.loads(meta_path.read_text())
     payload["artifact_schema_version"] = "analysis-artifact/v6"
-    # A v6 artifact lacks the v7-only attribution_basis gate, but is still
-    # missing a field that exists in both versions.
     payload.pop("metric_identity")
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
         runtime_session.get_frame(frame.ref)
-    assert "metric_identity" in exc_info.value._context["missing_fields"]
-    # message and context must both name the on-disk v6 version, and must not
-    # claim the artifact "declares current-schema" (it doesn't).
-    assert "analysis-artifact/v6" in exc_info.value.message
-    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v6"
-    assert "current-schema" not in exc_info.value.message
+    message = exc_info.value.message
+    assert "unsupported artifact schema" in message
+    assert "analysis-artifact/v6" in message
+    assert exc_info.value._context["got"] == "analysis-artifact/v6"
+    assert exc_info.value._context["expected"] == "analysis-artifact/v8"
+    # The failure is a schema cutover, not a v6 missing field.
+    assert "missing_fields" not in exc_info.value._context
 
 
 def test_current_metric_frame_rejects_corrupt_expression_graph(runtime_session) -> None:

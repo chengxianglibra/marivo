@@ -4,11 +4,18 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.lineage import Lineage
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_component_contract
 
 
@@ -46,6 +53,20 @@ def test_attribution_frame_identity_includes_kind_and_method() -> None:
             params={"by": "region"},
             semantic_kind="segmented",
             semantic_model="sales",
+            row_contract_version="generic-attribution-rows/v2",
+            axis_bindings=(
+                AttributionAxisBindingV1(
+                    ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+                    output_column="region",
+                ),
+            ),
+            reconciliation=AttributionReconciliation(
+                partition_count=1,
+                total_delta=10.0,
+                contribution_sum=10.0,
+                residual=0.0,
+                max_abs_residual=0.0,
+            ),
         ),
     )
 

@@ -1,6 +1,5 @@
 """AttributionFrame metadata, immutability, persistence, and load dispatch."""
 
-import json
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -65,6 +64,20 @@ def _meta(session_id="sess_x", project_root="/p", row_count=1):
         params={"by": "region", "value": "delta"},
         semantic_kind="segmented",
         semantic_model="sales",
+        row_contract_version="generic-attribution-rows/v2",
+        axis_bindings=(
+            AttributionAxisBindingV1(
+                ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+                output_column="region",
+            ),
+        ),
+        reconciliation=AttributionReconciliation(
+            partition_count=1,
+            total_delta=8.0,
+            contribution_sum=8.0,
+            residual=0.0,
+            max_abs_residual=0.0,
+        ),
     )
 
 
@@ -99,7 +112,16 @@ def test_to_pandas_returns_copy():
 
 def test_load_frame_round_trips_attribution_frame(tmp_path):
     session = session_attach.get_or_create(name="demo")
-    df = pd.DataFrame({"region": ["north", "south"], "contribution": [10.0, -2.0]})
+    df = pd.DataFrame(
+        {
+            "region": ["north", "south"],
+            "contribution": [10.0, -2.0],
+            "share_of_total_delta": [1.0, 1.0],
+            "share_of_positive_pool": [1.0, 0.0],
+            "share_of_negative_pool": [None, 1.0],
+            "rank": [1, 2],
+        }
+    )
     meta = _meta(
         session_id=session.id,
         project_root=str(session.project_root),
@@ -113,33 +135,6 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     assert loaded.meta.kind == "attribution_frame"
     assert loaded.meta.byte_size > 0
     assert list(loaded.to_pandas()["region"]) == ["north", "south"]
-
-
-def test_load_v6_hierarchy_normalizes_public_shape_and_mode() -> None:
-    session = session_attach.get_or_create(name="demo")
-    df = pd.DataFrame({"region": ["north"], "contribution": [1.0]})
-    meta = _meta(
-        session_id=session.id,
-        project_root=str(session.project_root),
-    ).model_copy(
-        update={
-            "method": "ordered_hierarchy_sum",
-            "params": {"mode": "hierarchy"},
-        }
-    )
-    written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
-    meta_path = session._layout.frames_dir / written.ref / "meta.json"
-    payload = json.loads(meta_path.read_text())
-    payload["artifact_schema_version"] = "analysis-artifact/v6"
-    meta_path.write_text(json.dumps(payload))
-
-    loaded = session.get_frame(written.ref)
-
-    assert isinstance(loaded, AttributionFrame)
-    assert loaded.meta.method == "ordered_hierarchy_sum"
-    assert loaded.attribution_shape == "sum"
-    assert loaded.attribution_mode == "hierarchy"
-    assert "legacy_method" in loaded._card().render()
 
 
 def test_load_v2_attribution_rows_rejects_missing_required_column() -> None:
@@ -224,7 +219,7 @@ def test_attribution_frame_as_weighted_mix():
 
 @pytest.mark.parametrize("mode", ["joint", "hierarchy"])
 def test_attribution_mode_is_distinct_from_weighted_mix_method(mode):
-    meta = _meta().model_copy(update={"method": "weighted_mix", "params": {"mode": mode}})
+    meta = _meta().model_copy(update={"method": "weighted_mix", "attribution_mode": mode})
     frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
 
     assert frame.attribution_mode == mode
