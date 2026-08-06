@@ -19,6 +19,7 @@ from marivo.analysis.session._layout import write_frame_to_disk
 from tests.shared_fixtures import (
     connect_sales_orders,
     make_metric_frame,
+    make_test_delta_contract,
     make_test_metric_meta_contract,
     sales_backends,
 )
@@ -484,3 +485,66 @@ def test_expected_ref_mismatch_reports_expected_and_received(tmp_path):
     message = exc_info.value.message
     assert f"expected {expected!r}" in message
     assert "found 'tampered-wrong-ref'" in message
+
+
+def test_cumulative_delta_missing_attribution_raises_missing_state(tmp_path):
+    """Issue #65 review P2-2: a cumulative delta whose schema string is correct
+    but whose ``cumulative_attribution`` key is absent must raise through the
+    missing-state branch (repair names both observe and compare steps), not
+    through a self-contradictory "written with X but expects X" message."""
+    from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+    from marivo.analysis.session._runtime import persist_frame
+
+    session = session_attach.get_or_create(name="demo")
+    meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.cum_gmv"),
+        kind="delta_frame",
+        ref="frame_cum_delta",
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job="job_cum_delta",
+        created_at=datetime(2026, 7, 8, 10, 0, 0, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="compare",
+                    job_ref="job_cum_delta",
+                    inputs=["frame_a", "frame_b"],
+                    params_digest="sha256:compare",
+                )
+            ],
+        ),
+        metric_id="sales.cum_gmv",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
+        alignment={"kind": "window_bucket"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        cumulative={"kind": "all_history", "over": "sales.orders.order_date"},
+    )
+    frame = DeltaFrame(_df=pd.DataFrame({"region": ["US"], "delta": [1.0]}), meta=meta)
+    frame.meta = persist_frame(session, frame)
+
+    # Strip the cumulative_attribution key: this is the exact persisted shape a
+    # pre-1a13abf5 cumulative delta artifact has (schema string correct, key
+    # missing). The sub-schema is carried in meta["artifact_schema"].
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    assert "cumulative_attribution" not in payload
+    payload["artifact_schema"] = "cumulative-delta/v1"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        session.get_frame(frame.ref)
+
+    err = exc_info.value
+    assert "cumulative_attribution" in err.message
+    assert err.repair is not None
+    assert err.repair.kind == "retry"
+    # The repair must guide the agent through both the observe and the compare
+    # step (cumulative delta rebuild needs both).
+    assert "observe" in err.repair.action.lower()
+    assert "compare" in err.repair.action.lower()
+    assert "Repair:" in str(err)
