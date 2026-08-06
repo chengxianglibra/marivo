@@ -647,7 +647,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         missing_fields = sorted(required_metric_fields - set(meta))
         if missing_fields:
             raise FrameMetaInvalidError(
-                message=f"frame '{ref}' has a corrupt current-schema metadata payload",
+                message=(
+                    f"frame '{ref}' declares current-schema metadata but is missing "
+                    f"required current-schema fields: {', '.join(missing_fields)}"
+                ),
                 context={
                     "ref": ref,
                     "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
@@ -687,7 +690,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
     except ValidationError as exc:
         raise FrameMetaInvalidError(
-            message=f"frame '{ref}' has a corrupt current-schema metadata payload",
+            message=(
+                f"frame '{ref}' declares current-schema metadata that fails "
+                f"{artifact_schema_version} validation"
+            ),
             context={
                 "ref": ref,
                 "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,

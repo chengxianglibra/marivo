@@ -111,7 +111,7 @@ def test_candidate_set_rejects_removed_persisted_affordances(tmp_path, monkeypat
     ]
     meta_path.write_text(json.dumps(legacy_meta))
 
-    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema metadata payload"):
+    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation"):
         session.get_frame("frame_candidates")
 
 
