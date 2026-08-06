@@ -397,3 +397,39 @@ def test_current_metric_state_error_message_carries_concrete_reason(tmp_path):
     assert "fingerprint does not match the canonical graph roots" in message
     # ...and it must not be papered over as generic corruption.
     assert "corrupt" not in message.lower()
+
+
+def test_expected_ref_mismatch_reports_expected_and_received(tmp_path):
+    """Issue #64 follow-up: expected-ref mismatch must surface both values.
+
+    The four expected-ref checks share one loop in
+    ``_validate_current_metric_state``; tampering with any single field must
+    produce a message carrying both the expected ref and the received
+    (tampered) value, so an agent can tell a corrupted value from a changed
+    naming rule.
+    """
+    from marivo.analysis.intents.observe import observe
+    from marivo.analysis.session._load import load_frame
+    from marivo.semantic import SemanticKind
+    from tests.conftest import bootstrap_sales_project
+    from tests.ref_helpers import make_ref
+
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=session)
+
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    # expression_graph_ref is one of the four expected-ref fields sharing the
+    # same for-loop; tamper with it and assert both values reach the message.
+    expected = payload["expression_graph_ref"]
+    payload["expression_graph_ref"] = "tampered-wrong-ref"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(frame.ref, session=session)
+
+    message = exc_info.value.message
+    assert f"expected {expected!r}" in message
+    assert "found 'tampered-wrong-ref'" in message
