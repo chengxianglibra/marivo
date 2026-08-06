@@ -1,5 +1,82 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Marivo">
-  <rect width="128" height="128" rx="24" fill="#0d4639"/>
-  <path d="M28 90V38h16l20 30 20-30h16v52H86V60L68 86h-8L42 60v30H28Z" fill="#b9f4dd"/>
-  <circle cx="102" cy="26" r="8" fill="#2bbf95"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="marivo-mark-title">
+  <title id="marivo-mark-title">Marivo</title>
+  <defs>
+    <linearGradient id="top-color" x1="0" y1="0" x2="0" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c5f1e2" />
+      <stop offset="1" stop-color="#bbeedd" />
+    </linearGradient>
+    <linearGradient id="front-color" x1="0" y1="0" x2="0" y2="570" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#13805d" />
+      <stop offset="1" stop-color="#117755" />
+    </linearGradient>
+    <linearGradient id="right-color" x1="0" y1="0" x2="240" y2="570" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#638f80" />
+      <stop offset="1" stop-color="#558877" />
+    </linearGradient>
+    <clipPath id="front-stickers" clipPathUnits="userSpaceOnUse">
+      <rect x="168" y="8" width="164" height="174" rx="18" />
+      <rect x="348" y="8" width="164" height="174" rx="18" />
+      <rect x="528" y="8" width="164" height="174" rx="18" />
+      <rect x="168" y="198" width="164" height="174" rx="18" />
+      <rect x="348" y="198" width="164" height="174" rx="18" />
+      <rect x="528" y="198" width="164" height="174" rx="18" />
+      <rect x="168" y="388" width="164" height="174" rx="18" />
+      <rect x="348" y="388" width="164" height="174" rx="18" />
+      <rect x="528" y="388" width="164" height="174" rx="18" />
+    </clipPath>
+  </defs>
+
+  <!-- One continuous body keeps all three shared edges inside a single rounded silhouette. -->
+  <path
+    d="M160 286Q160 274 170 263L336 131Q350 120 368 121L852 144Q870 145 870 162V688Q870 705 857 716L693 844Q680 855 664 854L176 831Q160 830 160 814Z"
+    fill="#114433"
+  />
+
+  <!-- Top face: rounded stickers transformed into the top perspective plane. -->
+  <g transform="matrix(.963 .046 -.633 .5 350 120)" fill="url(#top-color)">
+    <rect x="8" y="8" width="164" height="84" rx="15" />
+    <rect x="188" y="8" width="164" height="84" rx="15" />
+    <rect x="368" y="8" width="164" height="84" rx="15" />
+    <rect x="8" y="108" width="164" height="84" rx="15" />
+    <rect x="188" y="108" width="164" height="84" rx="15" />
+    <rect x="368" y="108" width="164" height="84" rx="15" />
+    <rect x="8" y="208" width="164" height="84" rx="15" />
+    <rect x="188" y="208" width="164" height="84" rx="15" />
+    <rect x="368" y="208" width="164" height="84" rx="15" />
+  </g>
+
+  <!-- Right face: narrower rounded stickers reinforce the cube's depth. -->
+  <g transform="matrix(.792 -.625 0 .982 680 295)" fill="url(#right-color)">
+    <rect x="6" y="8" width="68" height="174" rx="13" />
+    <rect x="86" y="8" width="68" height="174" rx="13" />
+    <rect x="166" y="8" width="68" height="174" rx="13" />
+    <rect x="6" y="198" width="68" height="174" rx="13" />
+    <rect x="86" y="198" width="68" height="174" rx="13" />
+    <rect x="166" y="198" width="68" height="174" rx="13" />
+    <rect x="6" y="388" width="68" height="174" rx="13" />
+    <rect x="86" y="388" width="68" height="174" rx="13" />
+    <rect x="166" y="388" width="68" height="174" rx="13" />
+  </g>
+
+  <!-- Front face: nine large rounded stickers in a slightly skewed plane. -->
+  <g transform="matrix(.963 .046 0 .982 5.9 262.6)">
+    <g fill="url(#front-color)">
+      <rect x="168" y="8" width="164" height="174" rx="18" />
+      <rect x="348" y="8" width="164" height="174" rx="18" />
+      <rect x="528" y="8" width="164" height="174" rx="18" />
+      <rect x="168" y="198" width="164" height="174" rx="18" />
+      <rect x="348" y="198" width="164" height="174" rx="18" />
+      <rect x="528" y="198" width="164" height="174" rx="18" />
+      <rect x="168" y="388" width="164" height="174" rx="18" />
+      <rect x="348" y="388" width="164" height="174" rx="18" />
+      <rect x="528" y="388" width="164" height="174" rx="18" />
+    </g>
+
+    <!-- The printed M is clipped to the rounded sticker surfaces, leaving gaps intact. -->
+    <g clip-path="url(#front-stickers)" fill="#ffffee">
+      <path d="M235 500V100h95v400Z" />
+      <path d="M535 500V110h95v400Z" />
+      <path d="M315 100 430 275 535 110v145L430 455 315 250Z" />
+    </g>
+  </g>
 </svg>

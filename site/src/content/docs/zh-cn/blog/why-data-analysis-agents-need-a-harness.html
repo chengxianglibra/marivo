@@ -1,0 +1,1406 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Marivo 设计综述：把 Agent 的开放式推理放进可验证的语义、类型、状态和证据边界。">
+<meta name="sidebar" content="">
+<meta name="maxheadinglevel" content="3">
+<meta name="minheadinglevel" content="2">
+<meta name="hidden" content="true">
+<meta name="tableofcontents" content=""><style>@font-face {
+  font-family: "fontawesome-mini";
+  src: url(data:application/octet-stream;base64,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);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"],
+  [data-theme="dark"]
+   {
+    --color-bg: #0d1117;
+    --color-bg-subtle: #161b22;
+    --color-fg:  #e6edf3;
+    --color-link-fg: #2f81f7;
+    --color-border: #30363d;
+    --color-border-muted: #21262d;
+    --color-fg-muted: #848d97;
+    --color-note-fg: #2f81f7;
+    --color-note-emphasis: #1f6feb;
+    --color-tip-fg: #3fb950;
+    --color-tip-emphasis: #238636;
+    --color-warning-fg: #d29922;
+    --color-warning-emphasis: #9e6a03;
+    --color-attention-subtle: rgba(187,128,9,0.15);
+    --color-caution-fg: #f85149;
+    --color-caution-emphasis: #da3633;
+    --color-important-fg: #a371f7;
+    --color-important-emphasis: #8957e5;
+    --color-neutral-muted: rgba(110,118,129,0.4);
+    --color-progress-shadow:  #010101;
+    --color-progress-shadow2: rgba(0, 0, 0, .5);
+    --color-progress-bg: #363c43;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"],
+  [data-theme="light"] {
+    --color-bg:  #ffffff;
+    --color-bg-subtle: #f6f8fa;
+    --color-fg:  #333333;
+    --color-link-fg: #0969da;
+    --color-border: #d0d7de;
+    --color-border-muted: #d8dee4;
+    --color-fg-muted: #656d76;
+    --color-note-fg: #0969da;
+    --color-note-emphasis: #0969da;
+    --color-tip-fg: #1a7f37;
+    --color-tip-emphasis: #1f883d;
+    --color-warning-fg: #9a6700;
+    --color-warning-emphasis: #9a6700;
+    --color-attention-subtle: #fff8c5;
+    --color-caution-fg: #d1242f;
+    --color-caution-emphasis: #cf222e;
+    --color-important-fg: #8250df;
+    --color-important-emphasis: #8250df;
+    --color-neutral-muted: rgba(175,184,193,0.2);
+    --color-progress-shadow:  #fefefe;
+    --color-progress-shadow2: rgba(0, 0, 0, .1);
+    --color-progress-bg:  #efefef;
+  }
+}
+
+body {
+  max-width: 980px;
+  margin: 16px auto;
+  background-color: var(--color-bg);
+}
+
+body .markdown-body
+{
+  padding: 45px;
+}
+
+.markdown-body {
+  font-family: sans-serif;
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  color: var(--color-fg);
+  overflow: hidden;
+  font-family: "Helvetica Neue", Helvetica, "Segoe UI", Arial, freesans, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.markdown-body a {
+  background: transparent;
+}
+
+.markdown-body a:active,
+.markdown-body a:hover {
+  outline: 0;
+}
+
+.markdown-body b,
+.markdown-body strong {
+  font-weight: bold;
+}
+
+.markdown-body mark {
+  background: #ff0;
+  color: #000;
+  font-style: italic;
+  font-weight: bold;
+}
+
+.markdown-body sub,
+.markdown-body sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+.markdown-body sup {
+  top: -0.5em;
+}
+.markdown-body sub {
+  bottom: -0.25em;
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+  margin: 0.67em 0;
+}
+
+.markdown-body img {
+  border: 0;
+}
+
+.markdown-body hr {
+  -moz-box-sizing: content-box;
+  box-sizing: content-box;
+  height: 0;
+}
+
+.markdown-body pre {
+  overflow: auto;
+}
+
+.markdown-body code,
+.markdown-body kbd,
+.markdown-body pre,
+.markdown-body samp {
+  font-family: monospace, monospace;
+  font-size: 1em;
+}
+
+.markdown-body input {
+  color: inherit;
+  font: inherit;
+  margin: 0;
+}
+
+.markdown-body html input[disabled] {
+  cursor: default;
+}
+
+.markdown-body input {
+  line-height: normal;
+}
+
+.markdown-body input[type="checkbox"] {
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.markdown-body td,
+.markdown-body th {
+  padding: 0;
+}
+
+.markdown-body .codehilitetable,
+.markdown-body .highlighttable {
+  border: 0;
+  border-spacing: 0;
+}
+
+.markdown-body .codehilitetable tr,
+.markdown-body .highlighttable {
+  border: 0;
+}
+
+.markdown-body .codehilitetable pre,
+.markdown-body .codehilitetable div.codehilite,
+.markdown-body .highlighttable pre,
+.markdown-body .highlighttable div.highlight {
+  margin: 0;
+}
+
+.markdown-body .linenos,
+.markdown-body .code,
+.markdown-body .codehilitetable td,
+.markdown-body .highlighttable td {
+  border: 0;
+  padding: 0;
+}
+
+.markdown-body td:not(.linenos) .linenodiv {
+  padding: 0 !important;
+}
+
+.markdown-body .code {
+  width: 100%;
+}
+
+.markdown-body .linenos div pre,
+.markdown-body .linenodiv pre,
+.markdown-body .linenodiv {
+  border: 0;
+  -webkit-border-radius: 0;
+  -moz-border-radius: 0;
+  border-radius: 0;
+  -webkit-border-top-left-radius: 3px;
+  -webkit-border-bottom-left-radius: 3px;
+  -moz-border-radius-topleft: 3px;
+  -moz-border-radius-bottomleft: 3px;
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.markdown-body .code div pre,
+.markdown-body .code div {
+  border: 0;
+  -webkit-border-radius: 0;
+  -moz-border-radius: 0;
+  border-radius: 0;
+  -webkit-border-top-right-radius: 3px;
+  -webkit-border-bottom-right-radius: 3px;
+  -moz-border-radius-topright: 3px;
+  -moz-border-radius-bottomright: 3px;
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+.markdown-body * {
+  -moz-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+.markdown-body input {
+  font: 13px Helvetica, arial, freesans, clean, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  line-height: 1.4;
+}
+
+.markdown-body a {
+  color: var(--color-link-fg);
+}
+
+.markdown-body hr {
+  height: 0;
+  margin: 15px 0;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.markdown-body hr::before,
+.markdown-body hr::after {
+  display: table;
+  content: " ";
+}
+
+.markdown-body hr::after {
+  clear: both;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 15px;
+  margin-bottom: 15px;
+  line-height: 1.1;
+}
+
+.markdown-body h1 {
+  font-size: 30px;
+}
+
+.markdown-body h2 {
+  font-size: 21px;
+}
+
+.markdown-body h3 {
+  font-size: 16px;
+}
+
+.markdown-body h4 {
+  font-size: 14px;
+}
+
+.markdown-body h5 {
+  font-size: 12px;
+}
+
+.markdown-body h6 {
+  font-size: 11px;
+}
+
+.markdown-body blockquote {
+  margin: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.markdown-body ol ol,
+.markdown-body ul ol {
+  list-style-type: lower-roman;
+}
+
+.markdown-body ul ul ol,
+.markdown-body ul ol ol,
+.markdown-body ol ul ol,
+.markdown-body ol ol ol {
+  list-style-type: lower-alpha;
+}
+
+.markdown-body dd {
+  margin-left: 0;
+}
+
+.markdown-body code,
+.markdown-body pre,
+.markdown-body samp {
+  font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 12px;
+}
+
+.markdown-body pre {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.markdown-body kbd {
+  display: inline-block;
+  padding: 3px 5px;
+  color: var(--color-fg-default);
+  vertical-align: middle;
+  background-color: var(--color-bg-subtle);
+  border: solid 1px var(--color-neutral-muted);
+  border-bottom-color: var(--color-neutral-muted);
+  border-radius: 6px;
+  box-shadow: inset 0 -1px 0 var(--color-neutral-muted);
+  font: 11px Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+
+.markdown-body>*:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body>*:last-child {
+  margin-bottom: 0 !important;
+}
+
+.markdown-body .headerlink {
+  font: normal normal 16px fontawesome-mini;
+  vertical-align: middle;
+  margin-left: -20px;
+  float: left;
+  display: inline-block;
+  text-decoration: none;
+  opacity: 0;
+  color: var(--color-fg);
+}
+
+.markdown-body .headerlink:focus {
+  outline: none;
+}
+
+.markdown-body h1 .headerlink {
+  margin-top: 0.8rem;
+}
+
+.markdown-body h2 .headerlink,
+.markdown-body h3 .headerlink {
+  margin-top: 0.6rem;
+}
+
+.markdown-body h4 .headerlink {
+  margin-top: 0.2rem;
+}
+
+.markdown-body h5 .headerlink,
+.markdown-body h6 .headerlink {
+  margin-top: 0;
+}
+
+.markdown-body .headerlink:hover,
+.markdown-body h1:hover .headerlink,
+.markdown-body h2:hover .headerlink,
+.markdown-body h3:hover .headerlink,
+.markdown-body h4:hover .headerlink,
+.markdown-body h5:hover .headerlink,
+.markdown-body h6:hover .headerlink {
+  opacity: 1;
+  text-decoration: none;
+}
+
+.markdown-body h1 {
+  padding-bottom: 0.3em;
+  font-size: 2.25em;
+  line-height: 1.2;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.markdown-body h2 {
+  padding-bottom: 0.3em;
+  font-size: 1.75em;
+  line-height: 1.225;
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.markdown-body h3 {
+  font-size: 1.5em;
+  line-height: 1.43;
+}
+
+.markdown-body h4 {
+  font-size: 1.25em;
+}
+
+.markdown-body h5 {
+  font-size: 1em;
+}
+
+.markdown-body h6 {
+  font-size: 1em;
+  color: var(--color-fg-muted);
+}
+
+.markdown-body p,
+.markdown-body blockquote,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body dl,
+.markdown-body table,
+.markdown-body pre,
+.markdown-body .admonition,
+.markdown-body details {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.markdown-body hr {
+  height: 4px;
+  padding: 0;
+  margin: 16px 0;
+  background-color: var(--color-border);
+  border: 0 none;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 2em;
+}
+
+.markdown-body ul ul,
+.markdown-body ul ol,
+.markdown-body ol ol,
+.markdown-body ol ul {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.markdown-body li>p {
+  margin-top: 16px;
+}
+
+.markdown-body dl {
+  padding: 0;
+}
+
+.markdown-body dl dt {
+  padding: 0;
+  margin-top: 16px;
+  font-size: 1em;
+  font-style: italic;
+  font-weight: bold;
+}
+
+.markdown-body dl dd {
+  padding: 0 16px;
+  margin-bottom: 16px;
+}
+
+.markdown-body blockquote {
+  padding: 0 15px;
+  color: var(--color-fg-muted);
+  border-left: 4px solid var(--color-border);
+}
+
+.markdown-body blockquote>:first-child {
+  margin-top: 0;
+}
+
+.markdown-body blockquote>:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body table {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  word-break: normal;
+  word-break: keep-all;
+}
+
+.markdown-body table th {
+  font-weight: bold;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--color-border-muted);
+}
+
+.markdown-body table tr {
+  border-top: 1px solid var(--color-border-muted);
+}
+
+.markdown-body table tr:nth-child(2n) {
+  background-color: var(--color-bg-subtle);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  -moz-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+.markdown-body code,
+.markdown-body samp {
+  padding: 0;
+  padding-top: 0.2em;
+  padding-bottom: 0.2em;
+  margin: 0;
+  font-size: 85%;
+  border-radius: 3px;
+}
+
+.markdown-body :not(pre) > code:not(.highlight):not(.codehilite), .markdown-body samp {
+  background-color: var(--color-bg-subtle);
+}
+
+.markdown-body code::before,
+.markdown-body code::after {
+  letter-spacing: -0.2em;
+  content: "\00a0";
+}
+
+.markdown-body pre>code {
+  padding: 0;
+  margin: 0;
+  font-size: 100%;
+  word-break: normal;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.markdown-body .codehilite,
+.markdown-body .highlight {
+  margin-bottom: 16px;
+}
+
+.markdown-body .codehilite pre,
+.markdown-body .highlight pre,
+.markdown-body pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+}
+
+.markdown-body .codehilite,
+.markdown-body .highlight,
+.markdown-body pre {
+  border-radius: 3px;
+}
+
+.markdown-body :not(.highlight) > pre {
+  background-color: var(--color-bg-subtle);
+}
+
+.markdown-body .codehilite pre,
+.markdown-body .highlight pre {
+  margin-bottom: 0;
+  word-break: normal;
+}
+
+.markdown-body pre {
+  word-wrap: normal;
+}
+
+.markdown-body pre code {
+  display: inline;
+  max-width: initial;
+  padding: 0;
+  margin: 0;
+  overflow: initial;
+  line-height: inherit;
+  word-wrap: normal;
+  background-color: transparent;
+  border: 0;
+}
+
+.markdown-body pre code::before,
+.markdown-body pre code::after {
+  content: normal;
+}
+
+/* Admonition */
+.markdown-body .admonition,
+.markdown-body details[class] {
+  position: relative;
+  border-left: 4px solid var(--color-fg);
+  padding: 10px 10px 10px 10px;
+}
+
+.markdown-body details[class] > summary {
+  list-style: none;
+}
+
+.markdown-body .admonition p {
+  padding: 0;
+}
+
+.markdown-body .admonition > .admonition-title,
+.markdown-body details[class] > summary {
+  position: relative;
+  font-weight: bold;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.markdown-body .admonition-title::before,
+.markdown-body details[class]> summary::before {
+  font: normal normal 16px fontawesome-mini;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  line-height: 1.5;
+  color: var(--color-fg);
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.markdown-body details[class]> summary::after {
+  font: normal normal 16px fontawesome-mini;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  line-height: 1.5;
+  color: var(--color-fg);
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.markdown-body details[class] > summary::after {
+  content:  "\e803";
+}
+
+.markdown-body details[class][open] > summary::after {
+  content:  "\e802";
+}
+
+.markdown-body details[class] > summary::after {
+  color: var(--color-fg);
+}
+
+.markdown-body details.question > summary::after,
+.markdown-body details.important > summary::after,
+.markdown-body details.attention > summary::after {
+  color: var(--color-important-emphasis);
+}
+
+.markdown-body details.warning > summary::after {
+  color: var(--color-warning-emphasis);
+}
+
+.markdown-body details.tip > summary::after,
+.markdown-body details.hint > summary::after {
+  color: var(--color-tip-emphasis);
+}
+
+.markdown-body details.caution > summary::after,
+.markdown-body details.danger > summary::after {
+  color: var(--color-caution-emphasis);
+}
+
+.markdown-body details.note > summary::after {
+  color: var(--color-note-emphasis);
+}
+
+.markdown-body .admonition-title::before,
+.markdown-body details[class] summary::before {
+  content: "\e800\00a0";
+  color: var(--color-fg);
+}
+
+.markdown-body .important > :is(.admonition-title, summary)::before,
+.markdown-body .attention > :is(.admonition-title, summary)::before {
+  content: "\f0f3\00a0";
+  color: var(--color-important-emphasis);
+}
+
+.markdown-body .question > :is(.admonition-title, summary)::before {
+  content: "\e804\00a0";
+  color: var(--color-important-emphasis);
+}
+
+.markdown-body .warning > :is(.admonition-title, summary)::before {
+  content: "\e801\00a0";
+  color: var(--color-warning-emphasis);
+}
+
+.markdown-body .tip > :is(.admonition-title, summary)::before,
+.markdown-body .hint > :is(.admonition-title, summary)::before {
+  content: "\f0eb\00a0";
+  color: var(--color-tip-emphasis);
+}
+
+.markdown-body .caution > :is(.admonition-title, summary)::before,
+.markdown-body .danger > :is(.admonition-title, summary)::before {
+  content: "\e807\00a0";
+  color: var(--color-caution-emphasis);
+}
+
+.markdown-body .note > :is(.admonition-title, summary)::before {
+  content: "\e800\00a0";
+  color: var(--color-note-emphasis);
+}
+
+.markdown-body .admonition > :is(.admonition-title, summary)::after,
+.markdown-body details::after {
+  content: normal;
+}
+
+.markdown-body .question:is(.admonition, details[class]),
+.markdown-body .important:is(.admonition, details[class]),
+.markdown-body .attention:is(.admonition, details[class]) {
+  border-left-color: var(--color-important-emphasis);
+}
+
+.markdown-body .warning:is(.admonition, details[class]) {
+  border-left-color: var(--color-warning-emphasis);
+}
+
+.markdown-body .tip:is(.admonition, details[class]),
+.markdown-body .hint:is(.admonition, details[class]) {
+  border-left-color: var(--color-tip-emphasis);
+}
+
+.markdown-body .caution:is(.admonition, details[class]),
+.markdown-body .danger:is(.admonition, details[class]) {
+  border-left-color: var(--color-caution-emphasis);
+}
+
+.markdown-body .note:is(.admonition, details[class]) {
+  border-left-color: var(--color-note-emphasis);
+}
+
+.markdown-body .admonition>*:first-child,
+.markdown-body details[class]>*:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body .admonition>*:last-child,
+.markdown-body details[class]>*:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* progress bar*/
+.markdown-body .progress {
+  display: block;
+  width: 300px;
+  margin: 10px 0;
+  height: 24px;
+  -webkit-border-radius: 3px;
+  -moz-border-radius: 3px;
+  border-radius: 3px;
+  background-color: var(--color-progress-bg);
+  position: relative;
+  box-shadow: inset -1px 1px 3px var(--color-progress-shadow2);
+}
+
+.markdown-body .progress-label {
+  position: absolute;
+  text-align: center;
+  font-weight: bold;
+  width: 100%; margin: 0;
+  line-height: 24px;
+  color: var(--color-fg);
+  text-shadow: 1px 1px 0 var(--color-progress-shadow), -1px -1px 0 var(--color-progress-shadow), -1px 1px 0 var(--color-progress-shadow),
+               1px -1px 0 var(--color-progress-shadow), 0 1px 0 var(--color-progress-shadow), 0 -1px 0 var(--color-progress-shadow),
+               1px 0 0 var(--color-progress-shadow), -1px 0 0 var(--color-progress-shadow), 1px 1px 2px #000;
+  -webkit-font-smoothing: antialiased !important;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.markdown-body .progress-bar {
+  height: 24px;
+  float: left;
+  -webkit-border-radius: 3px;
+  -moz-border-radius: 3px;
+  border-radius: 3px;
+  background-color: #96c6d7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -1px 0 rgba(0, 0, 0, .1);
+  background-size: 30px 30px;
+  background-image: -webkit-linear-gradient(
+    135deg, rgba(255, 255, 255, .4) 27%,
+    transparent 27%,
+    transparent 52%, rgba(255, 255, 255, .4) 52%,
+    rgba(255, 255, 255, .4) 77%,
+    transparent 77%, transparent
+  );
+  background-image: -moz-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, .4) 27%, transparent 27%,
+    transparent 52%, rgba(255, 255, 255, .4) 52%,
+    rgba(255, 255, 255, .4) 77%, transparent 77%,
+    transparent
+  );
+  background-image: -ms-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, .4) 27%, transparent 27%,
+    transparent 52%, rgba(255, 255, 255, .4) 52%,
+    rgba(255, 255, 255, .4) 77%, transparent 77%,
+    transparent
+  );
+  background-image: -o-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, .4) 27%, transparent 27%,
+    transparent 52%, rgba(255, 255, 255, .4) 52%,
+    rgba(255, 255, 255, .4) 77%, transparent 77%,
+    transparent
+  );
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, .4) 27%, transparent 27%,
+    transparent 52%, rgba(255, 255, 255, .4) 52%,
+    rgba(255, 255, 255, .4) 77%, transparent 77%,
+    transparent
+  );
+}
+
+.markdown-body .progress-100plus .progress-bar {
+  background-color: #a6d796;
+}
+
+.markdown-body .progress-80plus .progress-bar {
+  background-color: #c6d796;
+}
+
+.markdown-body .progress-60plus .progress-bar {
+  background-color: #d7c896;
+}
+
+.markdown-body .progress-40plus .progress-bar {
+  background-color: #d7a796;
+}
+
+.markdown-body .progress-20plus .progress-bar {
+  background-color: #d796a6;
+}
+
+.markdown-body .progress-0plus .progress-bar {
+  background-color: #c25f77;
+}
+
+.markdown-body .candystripe-animate .progress-bar{
+  -webkit-animation: animate-stripes 3s linear infinite;
+  -moz-animation: animate-stripes 3s linear infinite;
+  animation: animate-stripes 3s linear infinite;
+}
+
+@-webkit-keyframes animate-stripes {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 60px 0;
+  }
+}
+
+@-moz-keyframes animate-stripes {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 60px 0;
+  }
+}
+
+@keyframes animate-stripes {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 60px 0;
+  }
+}
+
+.markdown-body .gloss .progress-bar {
+  box-shadow:
+    inset 0 4px 12px rgba(255, 255, 255, .7),
+    inset 0 -12px 0 rgba(0, 0, 0, .05);
+}
+
+/* MultiMarkdown Critic Blocks */
+.markdown-body .critic_mark {
+  background: #ff0;
+}
+
+.markdown-body .critic_delete {
+  color: var(--color-caution-emphasis);
+  text-decoration: line-through;
+}
+
+.markdown-body .critic_insert {
+  color: var(--color-tip-emphasis) ;
+  text-decoration: underline;
+}
+
+.markdown-body .critic_comment {
+  color: var(--color-fg-muted);
+  font-style: italic;
+}
+
+.markdown-body .headeranchor {
+  font: normal normal 16px fontawesome-mini;
+  line-height: 1;
+  display: inline-block;
+  text-decoration: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.markdown-body .task-list-item {
+  list-style-type: none;
+}
+
+.markdown-body .task-list-item+.task-list-item {
+  margin-top: 3px;
+}
+
+.markdown-body .task-list-item input {
+  margin: 0 4px 0.25em -20px;
+  vertical-align: middle;
+}
+
+.markdown-body diagram-div, .markdown-body div.uml-sequence-diagram, .markdown-body, div.uml-flowchart {
+  overflow: auto;
+}
+
+.markdown-body diagram-div, .markdown-body div.uml-sequence-diagram, div.uml-flowchart {
+  background-color: #ffffff;
+}
+
+/* Media */
+@media only screen and (min-width: 480px) {
+  .markdown-body {
+    font-size:14px;
+  }
+}
+
+@media only screen and (min-width: 768px) {
+  .markdown-body {
+    font-size:16px;
+  }
+}
+
+@media print {
+  .markdown-body * {
+    background: transparent !important;
+    color: black !important;
+    filter:none !important;
+    -ms-filter: none !important;
+  }
+
+  .markdown-body {
+    font-size:12pt;
+    max-width:100%;
+    outline:none;
+    border: 0;
+  }
+
+  .markdown-body .headeranchor-link {
+    display: none;
+  }
+
+  .markdown-body a[href]::after {
+    content: " (" attr(href) ")";
+  }
+
+  .markdown-body abbr[title]::after {
+    content: " (" attr(title) ")";
+  }
+
+  .markdown-body .ir a::after,
+  .markdown-body a[href^="javascript:"]::after,
+  .markdown-body a[href^="#"]::after {
+    content: "";
+  }
+
+  .markdown-body pre {
+    white-space: pre;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .markdown-body pre,
+  .markdown-body blockquote {
+    padding-right: 1em;
+    page-break-inside: avoid;
+  }
+
+  .markdown-body .progress,
+  .markdown-body .progress-bar {
+    -moz-box-shadow: none;
+    -webkit-box-shadow: none;
+    box-shadow: none;
+  }
+
+  .markdown-body .progress {
+    border: 1px solid #ddd;
+  }
+
+  .markdown-body .progress-bar {
+    height: 22px;
+    border-right: 1px solid #ddd;
+  }
+
+  .markdown-body tr,
+  .markdown-body img {
+    page-break-inside: avoid;
+  }
+
+  .markdown-body img {
+    max-width: 100% !important;
+  }
+
+  .markdown-body p,
+  .markdown-body h2,
+  .markdown-body h3 {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .markdown-body h2,
+  .markdown-body h3 {
+    page-break-after: avoid;
+  }
+}
+</style><style>/* GitHub Dark from Pygments with lighter background */
+@media (prefers-color-scheme: dark) {
+  body,
+  [data-theme="dark"] {
+    .highlight {background-color:#161b22; color:#F8F8F2;}
+		.highlight .hll { background-color: #6e7681 }
+		.highlight .c { color: #8B949E; font-style: italic }
+		.highlight .err { color: #F85149 }
+		.highlight .esc { color: #E6EDF3 }
+		.highlight .g { color: #E6EDF3 }
+		.highlight .k { color: #FF7B72 }
+		.highlight .l { color: #A5D6FF }
+		.highlight .n { color: #E6EDF3 }
+		.highlight .o { color: #FF7B72; font-weight: bold }
+		.highlight .x { color: #E6EDF3 }
+		.highlight .p { color: #E6EDF3 }
+		.highlight .ch { color: #8B949E; font-style: italic }
+		.highlight .cm { color: #8B949E; font-style: italic }
+		.highlight .cp { color: #8B949E; font-weight: bold; font-style: italic }
+		.highlight .cpf { color: #8B949E; font-style: italic }
+		.highlight .c1 { color: #8B949E; font-style: italic }
+		.highlight .cs { color: #8B949E; font-weight: bold; font-style: italic }
+		.highlight .gd { color: #FFA198; background-color: #490202 }
+		.highlight .ge { color: #E6EDF3; font-style: italic }
+		.highlight .ges { color: #E6EDF3; font-weight: bold; font-style: italic }
+		.highlight .gr { color: #FFA198 }
+		.highlight .gh { color: #79C0FF; font-weight: bold }
+		.highlight .gi { color: #56D364; background-color: #0F5323 }
+		.highlight .go { color: #8B949E }
+		.highlight .gp { color: #8B949E }
+		.highlight .gs { color: #E6EDF3; font-weight: bold }
+		.highlight .gu { color: #79C0FF }
+		.highlight .gt { color: #FF7B72 }
+		.highlight .g-Underline { color: #E6EDF3; text-decoration: underline }
+		.highlight .kc { color: #79C0FF }
+		.highlight .kd { color: #FF7B72 }
+		.highlight .kn { color: #FF7B72 }
+		.highlight .kp { color: #79C0FF }
+		.highlight .kr { color: #FF7B72 }
+		.highlight .kt { color: #FF7B72 }
+		.highlight .ld { color: #79C0FF }
+		.highlight .m { color: #A5D6FF }
+		.highlight .s { color: #A5D6FF }
+		.highlight .na { color: #E6EDF3 }
+		.highlight .nb { color: #E6EDF3 }
+		.highlight .nc { color: #F0883E; font-weight: bold }
+		.highlight .no { color: #79C0FF; font-weight: bold }
+		.highlight .nd { color: #D2A8FF; font-weight: bold }
+		.highlight .ni { color: #FFA657 }
+		.highlight .ne { color: #F0883E; font-weight: bold }
+		.highlight .nf { color: #D2A8FF; font-weight: bold }
+		.highlight .nl { color: #79C0FF; font-weight: bold }
+		.highlight .nn { color: #FF7B72 }
+		.highlight .nx { color: #E6EDF3 }
+		.highlight .py { color: #79C0FF }
+		.highlight .nt { color: #7EE787 }
+		.highlight .nv { color: #79C0FF }
+		.highlight .ow { color: #FF7B72; font-weight: bold }
+		.highlight .pm { color: #E6EDF3 }
+		.highlight .w { color: #6E7681 }
+		.highlight .mb { color: #A5D6FF }
+		.highlight .mf { color: #A5D6FF }
+		.highlight .mh { color: #A5D6FF }
+		.highlight .mi { color: #A5D6FF }
+		.highlight .mo { color: #A5D6FF }
+		.highlight .sa { color: #79C0FF }
+		.highlight .sb { color: #A5D6FF }
+		.highlight .sc { color: #A5D6FF }
+		.highlight .dl { color: #79C0FF }
+		.highlight .sd { color: #A5D6FF }
+		.highlight .s2 { color: #A5D6FF }
+		.highlight .se { color: #79C0FF }
+		.highlight .sh { color: #79C0FF }
+		.highlight .si { color: #A5D6FF }
+		.highlight .sx { color: #A5D6FF }
+		.highlight .sr { color: #79C0FF }
+		.highlight .s1 { color: #A5D6FF }
+		.highlight .ss { color: #A5D6FF }
+		.highlight .bp { color: #E6EDF3 }
+		.highlight .fm { color: #D2A8FF; font-weight: bold }
+		.highlight .vc { color: #79C0FF }
+		.highlight .vg { color: #79C0FF }
+		.highlight .vi { color: #79C0FF }
+		.highlight .vm { color: #79C0FF }
+		.highlight .il { color: #A5D6FF }
+  }
+}
+
+/* Taken from `github.css` */
+@media (prefers-color-scheme: light) {
+  body,
+  [data-theme="light"] {
+    .highlight {background-color:#f7f7f7;color:#333333;}
+		.highlight .hll {background-color:#ffffcc;}
+		.highlight .c{color:#999988;font-style:italic}
+		.highlight .err{color:#a61717;background-color:#e3d2d2}
+		.highlight .k{font-weight:bold}
+		.highlight .o{font-weight:bold}
+		.highlight .cm{color:#999988;font-style:italic}
+		.highlight .cp{color:#999999;font-weight:bold}
+		.highlight .c1{color:#999988;font-style:italic}
+		.highlight .cs{color:#999999;font-weight:bold;font-style:italic}
+		.highlight .gd{color:#000000;background-color:#ffdddd}
+		.highlight .ge{font-style:italic}
+		.highlight .gr{color:#aa0000}
+		.highlight .gh{color:#999999}
+		.highlight .gi{color:#000000;background-color:#ddffdd}
+		.highlight .go{color:#888888}
+		.highlight .gp{color:#555555}
+		.highlight .gs{font-weight:bold}
+		.highlight .gu{color:#800080;font-weight:bold}
+		.highlight .gt{color:#aa0000}
+		.highlight .kc{font-weight:bold}
+		.highlight .kd{font-weight:bold}
+		.highlight .kn{font-weight:bold}
+		.highlight .kp{font-weight:bold}
+		.highlight .kr{font-weight:bold}
+		.highlight .kt{color:#445588;font-weight:bold}
+		.highlight .m{color:#009999}
+		.highlight .s{color:#dd1144}
+		.highlight .n{color:#333333}
+		.highlight .na{color:teal}
+		.highlight .nb{color:#0086b3}
+		.highlight .nc{color:#445588;font-weight:bold}
+		.highlight .no{color:teal}
+		.highlight .ni{color:purple}
+		.highlight .ne{color:#990000;font-weight:bold}
+		.highlight .nf{color:#990000;font-weight:bold}
+		.highlight .nn{color:#555555}
+		.highlight .nt{color:navy}
+		.highlight .nv{color:teal}
+		.highlight .ow{font-weight:bold}
+		.highlight .w{color:#bbbbbb}
+		.highlight .mf{color:#009999}
+		.highlight .mh{color:#009999}
+		.highlight .mi{color:#009999}
+		.highlight .mo{color:#009999}
+		.highlight .sb{color:#dd1144}
+		.highlight .sc{color:#dd1144}
+		.highlight .sd{color:#dd1144}
+		.highlight .s2{color:#dd1144}
+		.highlight .se{color:#dd1144}
+		.highlight .sh{color:#dd1144}
+		.highlight .si{color:#dd1144}
+		.highlight .sx{color:#dd1144}
+		.highlight .sr{color:#009926}
+		.highlight .s1{color:#dd1144}
+		.highlight .ss{color:#990073}
+		.highlight .bp{color:#999999}
+		.highlight .vc{color:teal}
+		.highlight .vg{color:teal}
+		.highlight .vi{color:teal}
+		.highlight .il{color:#009999}
+		.highlight .gc{color:#999;background-color:#EAF2F5}
+  }
+}
+</style><title>为什么数据分析 Agent 需要 Harness，而不只是生成 SQL</title></head><body data-theme="auto"><article class="markdown-body"><p>2026 年 8 月 5 日 · Marivo 设计系列（一）</p>
+<p>把数据库结构交给一个语言模型，让它把问题翻译成 SQL，已经可以完成不少令人印象深刻的演示。
+用户问“上季度收入为什么下降”，Agent 找表、写查询、画图，再给出一段解释。整个过程看起来
+很完整，甚至像是分析已经结束了。</p>
+<p>但只要这段结果真的要进入一次业务决策，问题就会变得麻烦。</p>
+<p>这里的“收入”究竟指支付金额、确认收入，还是扣除退款后的净收入？“上季度”按自然日、财务日历，
+还是业务所在时区计算？订单和退款如何关联？同比比较是否对齐工作日？某个地区贡献了大部分降幅，
+能不能因此说它是下降的原因？几天后继续追问时，Agent 是否还知道当时用了哪套定义、执行过哪些
+步骤，又留下了哪些没有验证的判断？</p>
+<p>这些并不是 SQL 语法问题。SQL 可以完全正确地执行，同时回答了一个定义不清的问题。</p>
+<p>Marivo 就是从这里开始的。它不试图发明另一种让模型更容易写 SQL 的方式，而是把数据分析看作一项
+持续的调查：问题会被逐步澄清，结果会成为下一步的输入，重要选择需要显式留下来，结论必须能回到
+产生它的证据。Agent 可以决定往哪里走，但不能悄悄改变路标。</p>
+<h2 id="_1">当分析开始产生业务后果<a class="headerlink" href="#_1" title="Permanent link"></a></h2>
+<p>如果一次分析只用于个人探索，结果有偏差，代价可能只是多花一点时间。企业里的分析通常不是这样。
+它可能决定下一轮运营活动投向哪些用户，某项治理规则是否收紧，一个地区是否追加预算，或者管理层
+是否调整资源和目标。一旦分析结果进入这些流程，它就不再是一段供人参考的回答，而是后续行动的依据。</p>
+<p>这时，“听起来合理”远远不够。接收分析的人需要知道：使用了什么业务口径，数据范围是什么，经过了
+哪些分析步骤，结论由哪些结果支持，哪些部分只是 Agent 的判断，出现争议时能否回到当时的分析状态
+重新检查。否则，组织看似获得了更快的分析能力，实际上只是更快地把未经验证的假设传递给更多人和
+更多系统。</p>
+<p>可信并不意味着系统替人保证结论永远正确，可追溯也不等于多保存几份日志。真正重要的是，分析中的
+关键选择没有被隐藏，计算事实和解释判断能够区分，结果可以回到来源，限制能够被看见。只有这样，
+运营人员才能据此行动，治理人员才能检查规则，决策者也才能判断这份结论是否足以承担相应后果。</p>
+<p>这正是 Marivo 在企业场景中的必要性。当 Agent 的分析结果要从对话走向运营、治理和决策时，中间需要
+一道可信的分析交接。Marivo 要提供的不是更多答案，而是让答案以可检查、可恢复、可追溯的方式进入
+业务流程。</p>
+<h2 id="_2">分析不是一次查询<a class="headerlink" href="#_2" title="Permanent link"></a></h2>
+<p>把自然语言转换成 SQL，解决的是一个重要但局部的问题：如何让数据库执行用户表达的查询意图。
+真正的分析通常比这条链路长得多。</p>
+<p>一次可信的分析至少包含几类不同的选择：</p>
+<ul>
+<li>业务对象是什么，指标代表什么，哪些记录应当纳入；</li>
+<li>应该观察哪个时间范围，怎样与基准期对齐；</li>
+<li>当前结果适合继续比较、拆分、归因，还是只能停下来披露限制；</li>
+<li>中间结果如何保存，稍后如何恢复，哪些步骤需要重新执行；</li>
+<li>数据支持了什么事实，又有哪些判断仍然来自 Agent 或业务人员。</li>
+</ul>
+<p>如果这些选择都埋在一段临时 SQL 和随后的自然语言里，系统最多保存了“答案”，却没有保存这次分析。
+下一次追问只能依赖对话上下文，或者从头再做一遍。更棘手的是，用户往往看不出哪些内容来自数据库，
+哪些来自统计操作，哪些只是模型读数据后给出的解释。</p>
+<p>因此，Marivo 的基本单位不是查询，也不是消息，而是一个有状态的分析步骤：它从经过治理的
+语义输入开始，通过类型明确的操作产生不可变结果，结果连同来源链路和证据保存在分析会话中。
+Agent 读完结果，再决定下一步。</p>
+<p><img alt="Marivo 中 Agent 从业务问题出发，经过语义约束和分析动作形成证据，再根据判断继续调查的流程" src="/Users/lichengxiang/source/oss/marivo/site/src/assets/blog/agent-analysis-flow.png" /></p>
+<p>这不是一条只能执行一次的流水线。Agent 读取分析产物和证据后，可以回到分析动作继续调查；分析会话
+则保存已经完成的步骤，使下一轮不必依赖对话重新推测此前发生了什么。</p>
+<p>这条循环看起来比“提问—回答”多了一些结构。多出来的部分不是为了让分析显得复杂，而是为了把原本
+就存在、却经常被隐藏的选择放到可以检查的位置。</p>
+<h2 id="_3">自主性与约束并不矛盾<a class="headerlink" href="#_3" title="Permanent link"></a></h2>
+<p>设计数据分析 Agent 时，很容易在两个方向之间摇摆。</p>
+<p>一个方向是尽量开放：允许 Agent 读取所有表、自由写 SQL、自由解释结果。这种方式适应性很强，
+却把正确性寄托在每一次提示词和每一次模型判断上。同一个问题换一种问法、换一个模型，甚至只换
+一次上下文，都可能得到口径不同的答案。</p>
+<p>另一个方向是把分析做成固定工作流：预先规定先查询什么，再拆哪个维度，最后套用一份报告模板。
+这样容易控制，却很难覆盖真正开放的问题。调查之所以是调查，正是因为下一步往往要等当前结果出来
+以后才能决定。</p>
+<p>Marivo 选择在两者之间划一条更具体的边界：<strong>运行时约束事实和动作，Agent 保留规划与判断。</strong></p>
+<p>运行时负责确保指标引用存在、输入类型匹配、比较方式明确、分析产物可以追溯、证据按确定规则生成；
+Agent 负责理解用户意图、选择分析路径、综合多个结果，并判断什么时候已经足以回答问题。业务负责人
+则负责确认数据本身无法回答的事情，例如“收入”应该采用哪种业务口径，以及这个结论能否用于当前
+决策。</p>
+<p>这三种责任不能互相代替。技术验证通过，不等于业务含义已经获批；Agent 给出了合理解释，不等于
+运行时已经证明因果；用户批准了指标定义，也不保证每一种未来查询都一定能够执行。</p>
+<h2 id="_4">四块基础，以及把它们连起来的接口<a class="headerlink" href="#_4" title="Permanent link"></a></h2>
+<p>Marivo 目前把这套分工落实在四个相互衔接的部分中：语义层、类型化分析语言、分析会话和证据引擎。
+它们不是四项平行功能，而是一条分析路径上的四种责任。更准确地说，它们分别回答四个问题：我们在
+谈论什么，可以怎样推进，已经做过什么，以及当前结果究竟支持什么。</p>
+<h3 id="_5">语义层：先确定在谈论什么<a class="headerlink" href="#_5" title="Permanent link"></a></h3>
+<p>数据库表结构告诉我们列名和类型，却无法单独说明一个字段的业务含义。即使样本数据看起来很像
+订单金额，也不能由此推导它是否含税、是否包含取消订单、采用哪个业务时间，以及能否跨实体直接求和。</p>
+<p>语义层首先要解决的，不是如何让模型获得更多背景，而是如何让业务含义不再依赖某一次对话。一个
+已经确认的指标，不应该因为提示词换了写法、模型换了版本，就在下一次分析中获得另一种解释。它需要
+存在于对话之外，能够被团队共同维护，也能够在真正执行分析时接受检查。</p>
+<p>Marivo 因此把业务语义作为由代码管理的契约。这里使用代码，不是要求业务人员学习 Python，而是为了
+让定义可以被版本管理、审查和验证。Agent 可以根据数据源证据起草定义，却不能把样本中的表面规律
+自动升级成业务事实；由负责的业务人员确认含义，运行时检查这份定义在技术上是否成立。</p>
+<p>语义层的价值不是替查询增加一份注释，而是让后续分析不必在每段 SQL 中重新猜测指标、关联和使用
+约束。它把“我们正在分析什么”从上下文里的临时约定，变成一份跨模型、跨会话仍然有效的公共契约。
+它追求的不是自动理解一切，而是让真正影响结论的含义不再被悄悄改写。</p>
+<h3 id="_6">类型化分析语言：让重要动作显式出现<a class="headerlink" href="#_6" title="Permanent link"></a></h3>
+<p>有了稳定的语义，仍然需要回答“接下来做什么”。开放式业务问题没有固定解法，Agent 必须保留根据
+当前结果改变方向的自由；但这并不意味着每一步都应该退回自由编写的 SQL。比较两个时期、寻找异常、
+计算代数贡献，本身具有不同的前提，也支持不同强度的结论。</p>
+<p>类型化分析语言的目标，是把这些重要差异保留下来。一次分析动作应当清楚说明它接收什么、采用什么
+比较规则、产生哪一类结果，以及这种结果还能进入哪些后续分析。假如某种组合没有可信的含义，系统
+应当明确拒绝，而不是为了让流程继续，临时拼出一段看似合理的查询。</p>
+<p>这里的类型不是为了把分析变成固定流程。恰恰相反，Marivo 希望 Agent 能够自由规划，但每个真正执行
+的动作都有明确边界。运行时说明当前结果是什么、还能够接到哪里；Agent 决定哪一步值得做，什么时候
+应该停下来确认问题。自由存在于调查路径中，约束存在于每一步实际声称完成的事情中。</p>
+<h3 id="_7">分析会话：保存调查，而不只是保存输出<a class="headerlink" href="#_7" title="Permanent link"></a></h3>
+<p>分析很少一次完成。它可能跨越多个脚本和进程，也可能在看到结果后改变方向。只保存最后一张表，
+无法解释这张表如何产生；只保存聊天历史，又无法可靠恢复真实的计算对象。</p>
+<p>分析会话的设计目标，是把调查记忆从模型上下文中拿出来。问题、已经执行的步骤、中间结果和它们的
+来源关系，都应该成为独立于对话的运行时事实。这样，无论一次分析跨越多少轮对话，甚至换了模型或
+进程，后来者都可以从已经确认的状态继续，而不是根据聊天记录重演整段分析。</p>
+<p>因此，分析会话不是对话记忆的另一种叫法。对话保存“我们说过什么”，分析会话保存“系统实际做过
+什么”。Agent 对结果的解释可以修正，调查方向可以改变，但已经产生的分析事实不应随叙述一起变化。
+这使分析能够恢复、复查和继续，也使模型本身成为可以替换的参与者，而不是唯一的记忆载体。</p>
+<h3 id="_8">证据引擎：停在判断之前<a class="headerlink" href="#_8" title="Permanent link"></a></h3>
+<p>一个分析系统如果只保存完整结果表，Agent 每次都需要重新读取和概括；如果直接替 Agent 生成结论，
+又很容易越过计算真正支持的范围。</p>
+<p>证据引擎试图同时解决两个看似矛盾的问题。Agent 的上下文有限，需要快速读懂当前结果；审计和复核
+却要求保留精确、完整的依据。Marivo 不在两者之间二选一，而是把日常读取和精确追溯分开：平时提供
+有界的证据摘要，出现争议或需要核实时，再回到完整结果和来源链路。</p>
+<p>这里最重要的设计不是“自动总结”，而是克制。代数贡献仍然只是贡献，不能自动升级成原因；相关关系
+不是因果；异常检测得到的是等待复核的候选；统计显著也不等于业务重要。证据引擎记录运行时能够
+确定的事实，同时明确它没有支持的推断。</p>
+<p>它追求的也不是替 Agent 写一份更快的报告，而是建立一条清楚的认识边界：哪些话可以由计算直接说，
+哪些话必须由 Agent 结合多个结果判断，哪些话最终需要业务人员承担。只有先把这条边界守住，所谓
+“可审计”才不只是能够找到一张旧表。</p>
+<h3 id="agent">面向 Agent 的接口：让边界在运行时可见<a class="headerlink" href="#agent" title="Permanent link"></a></h3>
+<p>上面的设计如果只存在于文档里，对 Agent 的帮助十分有限。它需要在实际运行时知道：手里的对象是什么，
+应该怎样读取，接下来能做什么，失败后如何修复。</p>
+<p>因此，Marivo 希望公开对象能够说明自己的身份和状态，也能够指出机械上成立的后续动作；错误不只
+报告失败，还应该说明系统期待什么、实际收到了什么，以及可以怎样修复；<code>marivo.help(...)</code> 则必须
+反映当前安装版本的真实接口，而不是一份可能已经过期的说明。</p>
+<p>工作流程指引、静态接口说明、对象的当前状态和错误修复分别由不同层负责。这样做的目标不是增加更多
+帮助入口，而是让每一层只回答自己真正知道的事，避免文档、提示词和运行时逐渐分叉。至于这些接口
+如何组织，会在后面的实时帮助与接口设计文章中详细讨论。</p>
+<h2 id="harness">为什么称为 Harness<a class="headerlink" href="#harness" title="Permanent link"></a></h2>
+<p>Harness 这个词容易被翻译成“编排框架”，但 Marivo 并不编排模型，也不提供一个托管聊天界面。
+它更接近试验设备中的线束和夹具：不替操作者决定实验目的，却把电源、信号、测量点和安全边界连接到
+确定的位置。</p>
+<p>对数据分析 Agent 来说，这意味着几件事：</p>
+<ul>
+<li>它可以自由决定调查方向，但使用的是经过确认的业务对象；</li>
+<li>它可以根据结果改变计划，但每一步都产生可恢复的类型化分析产物；</li>
+<li>它可以综合证据并给出判断，但不能把运行时没有证明的内容伪装成系统事实；</li>
+<li>它可以在错误后继续工作，因为错误和对象都提供真实、有限的后续动作；</li>
+<li>模型、对话界面和 Agent 框架可以更换，语义契约与分析记录不必随之重建。</li>
+</ul>
+<p>这种基础设施不会让每个答案自动正确。它做的是一件更朴素的事：当答案可能影响决策时，让我们能够
+看见它依赖了什么、做过什么，以及在哪一步从计算事实进入了人的判断。对企业而言，Harness 的价值
+也正在这里：它让 Agent 的分析不只停留在一次对话中，而是能够作为一份有依据、有边界的分析结果，
+安全地交给后续运营、治理和决策流程。</p>
+<h2 id="marivo">Marivo 不打算替代什么<a class="headerlink" href="#marivo" title="Permanent link"></a></h2>
+<p>把边界说清楚，比罗列能力更重要。</p>
+<p>Marivo 不调用语言模型，也不规定 Agent 应该使用哪种模型或编排框架。它不替业务负责人批准指标含义，
+不把就绪检查当作审批系统，不保证一次技术检查能够覆盖所有未来查询。它不禁止 SQL；在需要临时
+探索时，直接编写 SQL 仍然有价值，只是这种结果不能假装拥有类型化语义链路。它也不自动把多个分析产物
+综合成一个业务结论，因为综合必然涉及问题背景、证据权重和判断。</p>
+<p>这些限制并不是尚未实现的功能列表，而是有意保留的责任边界。一个系统承担得越多，就越容易让本来
+应该显式确认的选择变得不可见。</p>
+<h2 id="_9">接下来<a class="headerlink" href="#_9" title="Permanent link"></a></h2>
+<p>这篇文章只画出了整体轮廓。后面的文章会分别展开其中最难的几个问题：语义为什么不能从元数据自动
+推导；类型化分析语言怎样在灵活性和约束之间取得平衡；分析会话如何保存一项调查的真实状态；
+证据为什么必须停在 Agent 判断之前；以及实时帮助、结果对象、结构化错误和工作指引如何组成一套
+不容易失真的 Agent 接口。</p>
+<p>下一篇从语义层开始。因为在分析“为什么收入下降”之前，我们首先得诚实地回答：这里所说的收入，
+究竟是什么。</p>
+<p>Marivo 的源码与最新进展可以在 <a href="https://github.com/chengxianglibra/marivo">GitHub</a> 查看；如果你想了解
+这些设计如何落到一次实际分析中，可以从<a href="/zh-cn/latest/first-analysis/">让 Agent 完成第一次分析</a>开始。</p>
+<hr />
+<p><a href="/zh-cn/blog/">返回 Marivo 设计笔记</a> · <a href="/zh-cn/latest/">阅读当前文档</a></p></article></body></html>
