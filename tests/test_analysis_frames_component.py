@@ -472,54 +472,15 @@ def test_metric_frame_components_corrupt_ref_propagates_corruption():
         parent.components()
 
 
-def _make_parent_with_legacy_graph_ref(
-    session, *, ref="frame_legacy", component_ref="frame_sidecar"
-):
-    """Persist a MetricFrame and inject the pre-issue-57 legacy graph key.
+def test_legacy_component_graph_ref_artifact_fails_closed_on_load():
+    """A pre-#57 artifact carrying component_graph_ref is not migrated.
 
-    Simulates an on-disk v7 artifact written before component_graph_ref was
-    removed: both keys point at the same sidecar.
-    """
-    import json
-
-    from marivo.analysis.session._load import load_frame
-
-    parent = _make_component_metric_parent(
-        session,
-        ref=ref,
-        component_ref=component_ref,
-        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
-    )
-    meta_path = session._layout.frames_dir / ref / "meta.json"
-    payload = json.loads(meta_path.read_text())
-    payload["component_graph_ref"] = component_ref
-    meta_path.write_text(json.dumps(payload))
-    return load_frame(ref, session=session)
-
-
-def test_legacy_component_graph_ref_key_is_stripped_on_load():
-    """A pre-#57 v7 artifact carrying component_graph_ref must still load.
-
-    Issue #57 review P1: the removed field must not make the persisted artifact
-    unreadable. load_frame strips the legacy key when it matches component_ref
-    (the historical double-write), preserving cross-revision compatibility.
-    """
-    session = session_attach.get_or_create(name="demo")
-    loaded = _make_parent_with_legacy_graph_ref(session)
-
-    assert loaded.meta.kind == "metric_frame"
-    assert loaded.meta.component_ref == "frame_sidecar"
-    # The legacy key is gone from the reloaded meta (pydantic extra=forbid would
-    # have rejected it — this proves load_frame stripped it before validation).
-    assert not hasattr(loaded.meta, "component_graph_ref")
-
-
-def test_legacy_component_graph_ref_divergent_value_raises_migration_error():
-    """A legacy component_graph_ref that diverges from component_ref is a
-    version-migration problem, not data corruption.
-
-    Issue #57 review P1: the error must say the field was removed (and carry a
-    repair) rather than calling the artifact 'corrupt'.
+    Per AGENTS.md ("remove legacy artifacts, aliases, migrations, and
+    dual-read compatibility unless explicitly required") and the issue #57
+    simplification directive, old v7 artifacts that wrote the removed
+    component_graph_ref key must fail closed with a typed error — the operator
+    re-runs observe() to regenerate the frame under the single component_ref
+    contract. There is no read-side migration.
     """
     import json
 
@@ -529,52 +490,17 @@ def test_legacy_component_graph_ref_divergent_value_raises_migration_error():
     session = session_attach.get_or_create(name="demo")
     parent = _make_component_metric_parent(
         session,
-        ref="frame_legacy_divergent",
+        ref="frame_legacy_key",
         component_ref="frame_sidecar",
         composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
     )
     meta_path = session._layout.frames_dir / parent.ref / "meta.json"
     payload = json.loads(meta_path.read_text())
-    payload["component_graph_ref"] = "frame_some_other_sidecar"
+    payload["component_graph_ref"] = "frame_sidecar"
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError) as exc_info:
+    with pytest.raises(FrameMetaInvalidError):
         load_frame(parent.ref, session=session)
-
-    assert "component_graph_ref" in str(exc_info.value)
-    assert "not corruption" in exc_info.value._context.get("repair", "")
-    assert exc_info.value._context.get("component_graph_ref") == "frame_some_other_sidecar"
-
-
-def test_legacy_graph_only_artifact_migrates_to_component_ref():
-    """A pre-#57 graph-only artifact (component_ref absent, component_graph_ref
-    set) migrates the graph key onto component_ref on load.
-
-    Issue #57 review P1: the historical _attach_metric_component_graph_ref wrote
-    only component_graph_ref; those artifacts must load with component_ref
-    populated from the graph key.
-    """
-    import json
-
-    from marivo.analysis.session._load import load_frame
-
-    session = session_attach.get_or_create(name="demo")
-    parent = _make_component_metric_parent(
-        session,
-        ref="frame_graph_only",
-        component_ref=None,
-        composition=None,
-    )
-    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
-    payload = json.loads(meta_path.read_text())
-    payload["component_graph_ref"] = "frame_graph_sidecar"
-    payload.pop("component_ref", None)
-    meta_path.write_text(json.dumps(payload))
-
-    loaded = load_frame(parent.ref, session=session)
-
-    assert loaded.meta.component_ref == "frame_graph_sidecar"
-    assert not hasattr(loaded.meta, "component_graph_ref")
 
 
 def test_no_composition_scalar_frame_keeps_inspect_repair():
