@@ -60,6 +60,7 @@ from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 from marivo.semantic.metric_graph_lowering import MetricExpressionForestV1, lower_catalog_metric
 from marivo.semantic.unit_algebra import (
     MetricUnitStateV2,
+    UnitStatePayloadError,
     unit_state_from_dict,
 )
 
@@ -199,7 +200,23 @@ def _semantic_unit_state(
     """
     if binding is not None:
         return binding.unit_state
-    return unit_state_from_dict(entry.get("unit_state"))
+    try:
+        return unit_state_from_dict(entry.get("unit_state"))
+    except UnitStatePayloadError as exc:
+        # Fail closed across the analysis public surface (issue #57/#63): the
+        # semantic-layer error must not escape MetricFrame.metric() as a bare
+        # ValueError. FrameCacheCorruptedError derives repair/kind/hint from
+        # context ("delete the corrupted artifact to force re-computation"),
+        # which is the correct recovery for a malformed persisted unit state.
+        raise FrameCacheCorruptedError(
+            message="persisted unit state payload is corrupted or from a future version",
+            context={
+                "ref": entry.get("name", "<measure>"),
+                "cause": exc.message,
+                "expected": exc.expected,
+                "received": exc.received,
+            },
+        ) from exc
 
 
 def _semantic_additivity(

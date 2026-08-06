@@ -690,13 +690,10 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
     except ValidationError as exc:
         raise FrameMetaInvalidError(
-            message=(
-                f"frame '{ref}' declares current-schema metadata that fails "
-                f"{artifact_schema_version} validation"
-            ),
+            message=(f"frame '{ref}' metadata fails {artifact_schema_version} validation"),
             context={
                 "ref": ref,
-                "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                "artifact_schema_version": artifact_schema_version,
                 "validation_errors": exc.errors(),
             },
         ) from exc

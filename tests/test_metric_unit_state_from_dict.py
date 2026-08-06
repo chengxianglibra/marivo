@@ -177,12 +177,37 @@ def test_algebra_non_string_atom_raises_typed_error() -> None:
 def test_algebra_unreduced_factors_raise_typed_error() -> None:
     """``FactorizedUnitV2.__post_init__`` requires reduced bytewise-sorted
     factors; the failure must surface as a typed error, not a bare ValueError."""
-    with pytest.raises(UnitStatePayloadError):
+    with pytest.raises(UnitStatePayloadError, match="not reduced and bytewise sorted"):
         unit_state_from_dict(
             {
                 "schema": "metric-unit-algebra/v2",
                 "numerator": ["s", "CNY"],
                 "denominator": ["s"],
+            }
+        )
+
+
+def test_algebra_reserved_char_atom_reports_grammar_not_reduction() -> None:
+    """A string atom that is grammar-invalid must not be misattributed to the
+    reduction/sort violation message (issue #57 review P3-1)."""
+    with pytest.raises(UnitStatePayloadError, match="invalid unit state atom"):
+        unit_state_from_dict(
+            {
+                "schema": "metric-unit-algebra/v2",
+                "numerator": ["CN/Y"],
+                "denominator": [],
+            }
+        )
+
+
+def test_algebra_empty_atom_reports_grammar_not_reduction() -> None:
+    """An empty string atom is grammar-invalid (docstring promises non-empty)."""
+    with pytest.raises(UnitStatePayloadError, match="invalid unit state atom"):
+        unit_state_from_dict(
+            {
+                "schema": "metric-unit-algebra/v2",
+                "numerator": ["", "CNY"],
+                "denominator": [],
             }
         )
 

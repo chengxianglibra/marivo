@@ -389,6 +389,46 @@ def test_legacy_projection_unit_state_is_typed_not_dict(sales_session):
     assert type(reloaded_state) is type(state)
 
 
+def test_metric_malformed_legacy_unit_state_raises_analysis_error(sales_session):
+    """A malformed legacy ``unit_state`` must fail closed as an AnalysisError.
+
+    Issue #57 review P2: ``unit_state_from_dict`` raises the semantic-layer
+    ``UnitStatePayloadError``; on the public ``.metric()`` surface that must be
+    wrapped into an analysis typed error (with repair/kind/hint), not escape as
+    a bare ``ValueError``.
+    """
+    from marivo.analysis.errors import AnalysisError
+
+    fused = _fused(sales_session)
+    legacy_meta = fused.meta.model_copy(
+        update={
+            "measure_bindings": (),
+            "measures": [
+                {
+                    **dict(entry),
+                    # A forward schema that unit_state_from_dict rejects.
+                    "unit_state": {
+                        "schema": "metric-unit-algebra/v3",
+                        "numerator": [],
+                        "denominator": [],
+                    },
+                }
+                for entry in fused.meta.measures
+            ],
+        }
+    )
+    legacy = MetricFrame(_df=fused._df, meta=legacy_meta)
+
+    with pytest.raises(AnalysisError, match="unit state payload") as exc_info:
+        legacy.metric("sales.revenue")
+
+    from marivo.analysis.errors import FrameCacheCorruptedError
+
+    assert isinstance(exc_info.value, FrameCacheCorruptedError)
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.action
+
+
 # ---------------------------------------------------------------------------
 # Task 8: arity-aware _card and contract preconditions
 # ---------------------------------------------------------------------------
