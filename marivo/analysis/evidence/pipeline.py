@@ -642,8 +642,7 @@ def _extract_findings(
         key_columns = [
             str(binding.output_column)
             for binding in axis_bindings
-            if isinstance(binding.output_column, str)
-            and binding.output_column in df.columns
+            if isinstance(binding.output_column, str) and binding.output_column in df.columns
         ]
         attribution_mode = getattr(meta, "attribution_mode", None)
         if attribution_mode == "hierarchy":

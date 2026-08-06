@@ -137,3 +137,48 @@ def test_hierarchy_evidence_identity_distinguishes_null_child_from_parent() -> N
     assert attribution.evidence_digest is not None
     assert len(attribution.evidence_digest.items) == 3
     assert len({item.item_id for item in attribution.evidence_digest.items}) == 3
+
+
+def test_hierarchy_finding_key_carries_level_axis_driver_path() -> None:
+    """Issue #55: hierarchy findings key on the level/axis/driver/path layout.
+
+    Under the typed row contract the attribution_mode is a real field, so the
+    extractor widens the key to the hierarchy layout columns. Without them the
+    parent row and its null-valued child collapse to the same key.
+    """
+    session = session_attach.get_or_create(name="hierarchy_key")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "country": ["US", "US"],
+                "platform": [None, "web"],
+                "delta": [3.0, 2.0],
+            }
+        ),
+    )
+
+    attribution = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+        mode="hierarchy",
+    )
+
+    with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
+        keys = conn.execute(
+            "SELECT canonical_item_key FROM findings "
+            "WHERE artifact_id=? AND finding_type='decomposition_item' "
+            "ORDER BY finding_id",
+            (attribution.meta.artifact_id,),
+        ).fetchall()
+    assert len(keys) == 3
+    # Each key must carry the hierarchy layout columns so level-1 and level-2
+    # rows stay distinct even when a child's axis value is null.
+    for (key,) in keys:
+        assert "attribution_level=" in key
+        assert "attribution_axis=" in key
+        assert "attribution_driver=" in key
+        assert "attribution_path=" in key
