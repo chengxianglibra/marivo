@@ -111,8 +111,14 @@ def test_candidate_set_rejects_removed_persisted_affordances(tmp_path, monkeypat
     ]
     meta_path.write_text(json.dumps(legacy_meta))
 
-    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation"):
+    with pytest.raises(
+        FrameMetaInvalidError, match="carries field\\(s\\) no longer in"
+    ) as exc_info:
         session.get_frame("frame_candidates")
+    # A removed field is a version mismatch, not data corruption: the repair
+    # must be visible to the agent.
+    assert exc_info.value.repair is not None
+    assert "Re-run observe()" in exc_info.value.repair.action
 
 
 def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch):
