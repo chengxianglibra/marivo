@@ -557,5 +557,61 @@ def test_candidate_integrity_invalid_helper_carries_typed_repair() -> None:
     assert isinstance(exc_info.value.repair, AnalysisRepair)
     assert exc_info.value.repair.kind == "retry"
     assert exc_info.value.repair.help_target.surface == "analysis"
+    assert exc_info.value.repair.help_target.canonical_id == "discover"
     assert "Re-run the candidate-producing intent" in exc_info.value.repair.action
+    # Issue #65 review P2-1: session.discover is a property namespace, not
+    # callable; a snippet like "session.discover(...)" would TypeError. The
+    # candidate repair must not ship an un-executable snippet.
+    assert exc_info.value.repair.snippet is None
     assert "Repair:" in str(exc_info.value)
+
+
+def test_candidate_identity_repair_has_no_unexecutable_snippet() -> None:
+    """Issue #65 review P2-1: candidate repairs must not suggest calling
+    ``session.discover(...)`` directly (it is a property namespace, not a
+    callable), and should point at the ``discover`` help target."""
+    import pandas as pd
+
+    from marivo.analysis.candidate_identity import validate_candidate_frame_identity
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        validate_candidate_frame_identity(
+            shape="point_anomaly",
+            source_artifact_ref="art_a",
+            dataframe=pd.DataFrame({"item_id": ["x", "x"]}),
+        )
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "retry"
+    assert repair.help_target.canonical_id == "discover"
+    assert repair.snippet is None
+
+
+def test_candidate_columns_repair_has_no_unexecutable_snippet() -> None:
+    """Issue #65 review P2-1: _candidate_columns repairs must not ship a
+    session.discover(...) call snippet."""
+    import pandas as pd
+
+    from marivo.analysis.intents._candidate_columns import validate_shape_columns
+
+    df = pd.DataFrame(
+        {
+            "item_id": pd.Series(["c"] * 8, dtype="string"),
+            "score": pd.Series([0.5] * 8, dtype="float64"),
+            "reason_codes_json": pd.Series(["[]"] * 8, dtype="string"),
+            "source_refs_json": pd.Series(["[]"] * 8, dtype="string"),
+            # missing required direction / observed_value / baseline_value / delta
+            "direction": pd.Series([None] * 8, dtype="string"),
+            "observed_value": pd.Series([None] * 8, dtype="float64"),
+            "baseline_value": pd.Series([None] * 8, dtype="float64"),
+            "delta": pd.Series([None] * 8, dtype="float64"),
+        }
+    )
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        validate_shape_columns("point_anomaly", df)
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.help_target.canonical_id == "discover"
+    assert repair.snippet is None

@@ -625,9 +625,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         and meta.get("semantic_kind") != "funnel"
         and meta.get("cumulative") is not None
     ):
-        if meta.get("artifact_schema") != "cumulative-delta/v1" or (
-            "cumulative_attribution" not in meta
-        ):
+        if meta.get("artifact_schema") != "cumulative-delta/v1":
             raise FrameMetaInvalidError(
                 message=(f"frame '{ref}' uses an unsupported cumulative delta artifact schema"),
                 repair=AnalysisRepair(
@@ -644,6 +642,29 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     "kind": "unsupported_artifact_schema",
                     "expected": "cumulative-delta/v1",
                     "received": meta.get("artifact_schema"),
+                },
+            )
+        if "cumulative_attribution" not in meta:
+            raise FrameMetaInvalidError(
+                message=(
+                    f"frame '{ref}' is missing its required cumulative-delta/v1 "
+                    "cumulative_attribution field"
+                ),
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"frame '{ref}' is missing its cumulative_attribution "
+                        "field. Re-run observe() and session.compare(current, "
+                        "baseline, alignment=...) under the current environment "
+                        "to regenerate it."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                    snippet="session.observe(metric_ref, ...)",
+                ),
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                    "missing_state": ["cumulative_attribution"],
                 },
             )
         meta_cls = CumulativeDeltaFrameMetaV1
@@ -949,11 +970,11 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                     kind="environment",
                     action=(
                         f"frame '{ref}' has a non-canonical CandidateSet column "
-                        "layout. Re-run the candidate-producing intent "
-                        "(session.discover) to regenerate it."
+                        "layout. Re-run the candidate-producing intent through "
+                        "the session.discover entry for this shape to regenerate "
+                        "it."
                     ),
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
-                    snippet="session.discover(metric_ref, ...)",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 ),
                 context={
                     "ref": ref,

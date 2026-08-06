@@ -250,13 +250,11 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                             kind="retry",
                             action=(
                                 "a candidate row is missing a required column. "
-                                "Re-run the candidate-producing intent "
-                                "(session.discover) to rebuild it."
+                                "Re-run the candidate-producing intent through "
+                                "the session.discover entry for this shape to "
+                                "rebuild it."
                             ),
-                            help_target=LiveHelpTarget(
-                                surface="analysis", canonical_id="artifacts"
-                            ),
-                            snippet="session.discover(metric_ref, ...)",
+                            help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                         ),
                         context={
                             "kind": "CandidateRowSchemaInvalid",
@@ -286,11 +284,11 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         kind="retry",
                         action=(
                             "a candidate row has an unexpected value in a column. "
-                            "Re-run the candidate-producing intent "
-                            "(session.discover) to rebuild it."
+                            "Re-run the candidate-producing intent through "
+                            "the session.discover entry for this shape to "
+                            "rebuild it."
                         ),
-                        help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
-                        snippet="session.discover(metric_ref, ...)",
+                        help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     ),
                     context={
                         "kind": "CandidateRowSchemaInvalid",

@@ -51,10 +51,11 @@ def _candidate_repair() -> AnalysisRepair:
         kind="retry",
         action=(
             "the CandidateSet persisted metadata does not match its rows. "
-            "Re-run the candidate-producing intent (session.discover) to rebuild it."
+            "Re-run the candidate-producing intent through the session.discover "
+            "entry for the target shape (e.g. session.discover.point_anomalies / "
+            "session.discover.semantic_hypotheses) to rebuild it."
         ),
-        help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
-        snippet="session.discover(metric_ref, ...)",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
     )
 
 
@@ -282,10 +283,9 @@ def validate_semantic_hypothesis_frame_integrity(
                 action=(
                     "the semantic-hypothesis CandidateSet persisted metadata does "
                     "not match its rows. Re-run the candidate-producing intent "
-                    "(session.discover) to rebuild it."
+                    "(session.discover.semantic_hypotheses) to rebuild it."
                 ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
-                snippet="session.discover(metric_ref, ...)",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
             ),
             context=context,
         )
