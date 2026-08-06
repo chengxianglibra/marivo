@@ -499,8 +499,15 @@ def test_legacy_component_graph_ref_artifact_fails_closed_on_load():
     payload["component_graph_ref"] = "frame_sidecar"
     meta_path.write_text(json.dumps(payload))
 
-    with pytest.raises(FrameMetaInvalidError):
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
         load_frame(parent.ref, session=session)
+
+    # The failure must name the removed field, not call the artifact 'corrupt',
+    # and the repair must be visible to the agent (issue #57 review P1/P3).
+    assert "component_graph_ref" in exc_info.value.message
+    assert "no longer in" in exc_info.value.message
+    assert exc_info.value.repair is not None
+    assert "Re-run observe()" in exc_info.value.repair.action
 
 
 def test_no_composition_scalar_frame_keeps_inspect_repair():

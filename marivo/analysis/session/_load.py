@@ -689,6 +689,39 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             else meta_cls(**meta)
         )
     except ValidationError as exc:
+        errors = exc.errors()
+        extra_fields = [
+            str(err["loc"][0])
+            for err in errors
+            if err.get("type") == "extra_forbidden" and err.get("loc")
+        ]
+        if extra_fields:
+            # The artifact carries a field removed in this schema version (e.g.
+            # the pre-issue-57 component_graph_ref). This is a version mismatch,
+            # not data corruption: the operator re-runs observe() to regenerate
+            # the frame under the current contract (per AGENTS.md, no read-side
+            # legacy migration).
+            raise FrameMetaInvalidError(
+                message=(
+                    f"frame '{ref}' carries field(s) no longer in "
+                    f"{artifact_schema_version}: {', '.join(extra_fields)}"
+                ),
+                context={
+                    "ref": ref,
+                    "artifact_schema_version": artifact_schema_version,
+                    "extra_fields": extra_fields,
+                    "validation_errors": errors,
+                },
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        "The persisted artifact was written by an older schema "
+                        "that includes removed field(s). Re-run observe() to "
+                        "regenerate the frame under the current contract."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            ) from exc
         raise FrameMetaInvalidError(
             message=(f"frame '{ref}' metadata fails {artifact_schema_version} validation"),
             context={

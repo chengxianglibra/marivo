@@ -295,8 +295,14 @@ def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
     meta["blocking_issues"] = []
     meta_path.write_text(json.dumps(meta))
 
-    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation"):
+    with pytest.raises(
+        FrameMetaInvalidError, match="carries field\\(s\\) no longer in"
+    ) as exc_info:
         load_frame(frame.ref, session=session)
+    # A removed field is a version mismatch, not data corruption: the repair
+    # must be visible to the agent.
+    assert exc_info.value.repair is not None
+    assert "Re-run observe()" in exc_info.value.repair.action
 
 
 def test_session_frame_summaries_sorted_newest_first(tmp_path):
