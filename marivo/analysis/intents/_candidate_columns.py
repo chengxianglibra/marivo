@@ -13,8 +13,9 @@ from typing import Any, cast
 
 import pandas as pd
 
-from marivo.analysis.errors import FrameMetaInvalidError
+from marivo.analysis.errors import AnalysisRepair, FrameMetaInvalidError
 from marivo.analysis.frames.candidate import CandidateShape
+from marivo.introspection.live.model import LiveHelpTarget
 
 CANDIDATE_COLUMNS: list[str] = [
     "item_id",
@@ -245,6 +246,18 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         message=(
                             f"candidate row {index} missing required {shape!r} column {column!r}"
                         ),
+                        repair=AnalysisRepair(
+                            kind="retry",
+                            action=(
+                                "a candidate row is missing a required column. "
+                                "Re-run the candidate-producing intent "
+                                "(session.discover) to rebuild it."
+                            ),
+                            help_target=LiveHelpTarget(
+                                surface="analysis", canonical_id="artifacts"
+                            ),
+                            snippet="session.discover(metric_ref, ...)",
+                        ),
                         context={
                             "kind": "CandidateRowSchemaInvalid",
                             "shape": shape,
@@ -268,6 +281,16 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                     message=(
                         f"candidate row {index} has unexpected value in column {column!r} "
                         f"for shape {shape!r}"
+                    ),
+                    repair=AnalysisRepair(
+                        kind="retry",
+                        action=(
+                            "a candidate row has an unexpected value in a column. "
+                            "Re-run the candidate-producing intent "
+                            "(session.discover) to rebuild it."
+                        ),
+                        help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                        snippet="session.discover(metric_ref, ...)",
                     ),
                     context={
                         "kind": "CandidateRowSchemaInvalid",

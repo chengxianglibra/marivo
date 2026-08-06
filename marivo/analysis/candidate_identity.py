@@ -15,8 +15,9 @@ from marivo.analysis.candidate_lineage import (
     SemanticHypothesisExclusion,
     _semantic_edge_context_relation,
 )
-from marivo.analysis.errors import FrameMetaInvalidError
+from marivo.analysis.errors import AnalysisRepair, FrameMetaInvalidError
 from marivo.analysis.evidence.identity import canonical_json
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology.types import SemanticEdgeRef, _restore_semantic_edge_ref
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 
@@ -42,6 +43,19 @@ def _coordinate(value: object) -> object:
 
 def cast_ref(value: object) -> Ref[SemanticKindTag]:
     return cast("Ref[SemanticKindTag]", value)
+
+
+def _candidate_repair() -> AnalysisRepair:
+    """Typed repair for a stale/malformed CandidateSet artifact."""
+    return AnalysisRepair(
+        kind="retry",
+        action=(
+            "the CandidateSet persisted metadata does not match its rows. "
+            "Re-run the candidate-producing intent (session.discover) to rebuild it."
+        ),
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+        snippet="session.discover(metric_ref, ...)",
+    )
 
 
 def make_candidate_item_id(tag: str, *coordinates: object) -> str:
@@ -189,6 +203,7 @@ def validate_candidate_frame_identity(
     if len(set(item_ids)) != len(item_ids):
         raise FrameMetaInvalidError(
             message="CandidateSet item_id values must be unique",
+            repair=_candidate_repair(),
             context={"kind": "CandidateIdentityInvalid", "reason": "duplicate"},
         )
     for index, row in dataframe.iterrows():
@@ -196,6 +211,7 @@ def validate_candidate_frame_identity(
         if not isinstance(item_id, str) or _ITEM_ID_RE.fullmatch(item_id) is None:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} has a malformed full-digest item_id",
+                repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
                     "reason": "malformed",
@@ -223,6 +239,7 @@ def validate_candidate_frame_identity(
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} has invalid identity coordinates",
+                repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
                     "reason": str(error),
@@ -232,6 +249,7 @@ def validate_candidate_frame_identity(
         if item_id != expected:
             raise FrameMetaInvalidError(
                 message=f"candidate row {index} item_id does not match its coordinates",
+                repair=_candidate_repair(),
                 context={
                     "kind": "CandidateIdentityInvalid",
                     "reason": "digest_mismatch",
@@ -259,6 +277,16 @@ def validate_semantic_hypothesis_frame_integrity(
             context["row_index"] = str(row_index)
         return FrameMetaInvalidError(
             message="semantic-hypothesis CandidateSet metadata does not match its rows",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "the semantic-hypothesis CandidateSet persisted metadata does "
+                    "not match its rows. Re-run the candidate-producing intent "
+                    "(session.discover) to rebuild it."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                snippet="session.discover(metric_ref, ...)",
+            ),
             context=context,
         )
 

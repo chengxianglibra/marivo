@@ -163,106 +163,38 @@ def test_attribution_distribution_error_derives_reason_specific_repair(
 
 
 @pytest.mark.parametrize(
-    "context",
+    ("kind", "help_target"),
     [
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "artifact_schema_version": "analysis-artifact/v8",
-                "path": "lineage",
-                "reason": "typed replay params are missing",
-            },
-            id="metric-state",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "artifact_schema_version": "analysis-artifact/v8",
-                "missing_fields": ["attribution_basis"],
-            },
-            id="missing-fields",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "artifact_schema_version": "analysis-artifact/v8",
-                "missing_state": ["comparison_identity"],
-            },
-            id="missing-state",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "artifact_schema_version": "analysis-artifact/v8",
-                "validation_errors": [{"msg": "boom"}],
-            },
-            id="validation-errors",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "got_semantic_kind": "bogus",
-                "expected_semantic_kinds": ("journey", "funnel"),
-            },
-            id="semantic-shape",
-        ),
-        pytest.param(
-            {"ref": "frame_a", "got_columns": ["x"], "expected_columns": ["item_id"]},
-            id="candidate-columns",
-        ),
-        pytest.param(
-            {"kind": "CandidateIdentityInvalid", "reason": "duplicate"},
-            id="candidate-identity",
-        ),
-        pytest.param(
-            {
-                "artifact_id": "artifact_x",
-                "got": "analysis-artifact/v7",
-                "expected": "analysis-artifact/v8",
-            },
-            id="non-current-schema",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "kind": "unsupported_artifact_schema",
-                "expected": "cumulative-delta/v1",
-                "received": None,
-            },
-            id="cumulative-schema",
-        ),
-        pytest.param(
-            {
-                "ref": "frame_a",
-                "artifact_schema_version": "analysis-artifact/v8",
-                "expected_basis_fingerprint": "abc",
-            },
-            id="attribution-basis",
-        ),
+        ("retry", "observe"),
+        ("retry", "compare"),
+        ("inspect", "artifacts"),
+        ("environment", "observe"),
     ],
 )
-def test_frame_meta_invalid_derives_repair_from_context(context: dict[str, object]) -> None:
-    """Issue #65: context-only FrameMetaInvalidError raises must yield an
-    actionable, machine-readable repair instead of a bare message."""
-    error = FrameMetaInvalidError(message="test frame meta invalid", context=context)
+def test_frame_meta_invalid_explicit_repair_is_forwarded(kind: str, help_target: str) -> None:
+    """Issue #65: every construction site passes a typed repair explicitly.
 
-    assert error.repair is not None
-    assert error.repair.kind in {"retry", "inspect", "environment"}
-    assert error.repair.action
-    assert error.repair.help_target.surface == "analysis"
-    assert error.repair.help_target.canonical_id in {"observe", "compare", "artifacts", "recovery"}
-    # A repair that renders into str(e) is what the agent actually sees.
-    assert "Repair:" in str(error)
-
-
-def test_frame_meta_invalid_derives_location_from_ref() -> None:
+    The class no longer derives a repair from ``context`` (issue #65 review
+    noted the 22-raise baseline was wrong and helpers are the lever). A repair
+    passed at the construction site must reach the agent unchanged through
+    ``.repair`` and ``str(e)``.
+    """
+    repair = AnalysisRepair(
+        kind=kind,  # type: ignore[arg-type]
+        action="Re-run the producing intent to regenerate the frame.",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id=help_target),  # type: ignore[arg-type]
+    )
     error = FrameMetaInvalidError(
         message="frame 'frame_a' is corrupt",
         context={"ref": "frame_a", "reason": "metadata fails validation"},
+        repair=repair,
+        location="frame 'frame_a'",
     )
 
-    assert error.location is not None
-    assert "frame_a" in error.location
+    assert error.repair is repair
+    assert error.repair.kind == kind
+    assert error.location == "frame 'frame_a'"
+    assert "Repair:" in str(error)
 
 
 def test_frame_meta_invalid_explicit_repair_wins_over_derived() -> None:
@@ -549,3 +481,81 @@ def test_cumulative_frame_unsupported_derives_fields_for_compare() -> None:
     assert err.repair is not None
     assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="compare")
     assert "compatible cumulative anchor" in err.hint
+
+
+# ---------------------------------------------------------------------------
+# Issue #65: the three _load/candidate helpers must carry typed repairs
+# ---------------------------------------------------------------------------
+# Review (note_19814717) corrected the baseline from 22 to 54 raise points:
+# three helpers construct the error and are raised 32 times. The class-level
+# _derive_fields dispatch is removed (construction sites carry the repair
+# explicitly), so the helpers must pass a typed repair themselves. These tests
+# pin the helper contracts so removing the class-level derivation does not
+# regress any of the 14 (_current_metric_state_error) / 9 (invalid) raise
+# sites.
+
+
+def test_current_metric_state_error_carries_typed_repair() -> None:
+    """_current_metric_state_error (14 raise sites) must yield a typed repair."""
+    from marivo.analysis.session._load import _current_metric_state_error
+
+    err = _current_metric_state_error(
+        "frame_a",
+        path="expression_graph",
+        reason="fingerprint does not match the canonical graph roots",
+    )
+
+    assert isinstance(err.repair, AnalysisRepair)
+    assert err.repair.kind == "retry"
+    assert err.repair.help_target.surface == "analysis"
+    assert err.repair.help_target.canonical_id == "observe"
+    assert "Re-run observe" in err.repair.action
+    # A repair that renders into str(e) is what the agent actually sees.
+    assert "Repair:" in str(err)
+
+
+def test_delta_identity_recovery_error_carries_typed_repair() -> None:
+    """_delta_identity_recovery_error (9 raise sites) already carries one."""
+    from marivo.analysis.session._load import _delta_identity_recovery_error
+
+    err = _delta_identity_recovery_error("frame_a", reason="source identity is missing")
+
+    assert isinstance(err.repair, AnalysisRepair)
+    assert err.repair.kind == "retry"
+    assert err.repair.help_target.canonical_id == "compare"
+    assert err.repair.snippet == "delta = session.compare(current, baseline, alignment=alignment)"
+    assert "Repair:" in str(err)
+
+
+def test_candidate_integrity_invalid_helper_carries_typed_repair() -> None:
+    """candidate_identity.invalid (9 raise sites) must yield a typed repair."""
+    # Reach the nested `invalid` helper through its public entry point with a
+    # row that fails coordinate restoration.
+    import pandas as pd
+
+    from marivo.analysis.candidate_identity import (
+        validate_semantic_hypothesis_frame_integrity,
+    )
+
+    df = pd.DataFrame(
+        {
+            "item_id": ["x"],
+            "semantic_edge_ref": [object()],  # not a decodeable JSON cell
+            "candidate_semantic_ref": [object()],
+            "metric_ref": [object()],
+            "edge_relation": ["influences"],
+        }
+    )
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        validate_semantic_hypothesis_frame_integrity(
+            dataframe=df,
+            edge_contexts=(),
+            readiness_fingerprints={},
+            exclusions=(),
+        )
+
+    assert isinstance(exc_info.value.repair, AnalysisRepair)
+    assert exc_info.value.repair.kind == "retry"
+    assert exc_info.value.repair.help_target.surface == "analysis"
+    assert "Re-run the candidate-producing intent" in exc_info.value.repair.action
+    assert "Repair:" in str(exc_info.value)
