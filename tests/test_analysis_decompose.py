@@ -916,7 +916,7 @@ def test_decompose_axes_empty_delta_preserves_single_dimension_schema():
 
 def test_decompose_axes_multi_axis_handles_nan_in_level_two():
     """A level-2 axis with NaN values must be included in the hierarchy output
-    (groupby dropna=False). The path for a NaN group is 'CN > nan'."""
+    (groupby dropna=False). The path for a NaN group is 'CN > <NA>'."""
     session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
@@ -946,7 +946,7 @@ def test_decompose_axes_multi_axis_handles_nan_in_level_two():
     assert out.attribution_mode == "hierarchy"
     df = out.to_pandas()
     level2 = df[df["attribution_level"] == 2]
-    nan_rows = level2[level2["attribution_path"] == "CN > nan"]
+    nan_rows = level2[level2["attribution_path"] == "CN > <NA>"]
     assert len(nan_rows) == 1
     assert nan_rows.iloc[0]["contribution"] == pytest.approx(-3.0)
     assert nan_rows.iloc[0]["attribution_axis"] == "platform"

@@ -340,8 +340,16 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
 
     with pytest.raises(FrameMetaInvalidError, match="unsupported artifact schema") as exc_info:
         session.get_frame(frame.ref)
-    assert exc_info.value._context["got"] == schema_version
-    assert "analysis-artifact/v8" in exc_info.value._context["expected"]
+    # got/expected must be visible through public fields (not only private
+    # context) so an agent can see what was read vs what is required.
+    assert exc_info.value.received == (schema_version or "<missing>")
+    assert exc_info.value.expected == "analysis-artifact/v8"
+    assert "analysis-artifact/v8" in str(exc_info.value)
+    # A cutover is expected: the repair must tell the agent to re-run analysis.
+    assert exc_info.value.repair is not None
+    assert "recreate" in exc_info.value.message
+    assert "Re-run the analysis" in exc_info.value.repair.action
+    assert "Repair:" in str(exc_info.value)
 
 
 def test_current_artifact_schema_version_is_v8():

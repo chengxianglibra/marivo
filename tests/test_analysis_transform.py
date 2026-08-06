@@ -204,9 +204,7 @@ def _make_attribution_frame(tmp_path) -> AttributionFrame:
             row_contract_version="generic-attribution-rows/v2",
             axis_bindings=(
                 AttributionAxisBindingV1(
-                    ref=RefPayloadV1.from_ref(
-                        ref_factory.dimension("sales.orders.driver")
-                    ),
+                    ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.driver")),
                     output_column="driver",
                 ),
             ),

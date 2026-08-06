@@ -490,6 +490,19 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     )
 
 
+def _path_segment(value: Any) -> str:
+    """Render one hierarchy path segment with a stable null placeholder.
+
+    ``str(float('nan'))`` / ``astype(str)`` on missing values yields the
+    language-dependent literal ``'nan'``; writing that into a persisted
+    attribution_path makes it part of the finding identity.  Render any
+    missing value as ``"<NA>"`` instead so the persisted path is stable.
+    """
+    if pd.isna(value):
+        return "<NA>"
+    return str(value)
+
+
 _ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
 _ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
 # Every decompose path keeps the dimension columns and the attribution base
@@ -1110,7 +1123,9 @@ def _component_multi_axis_output(
             for axis_column in axis_columns[level:]:
                 piece[axis_column] = pd.NA
             piece.insert(
-                0, ATTRIBUTION_PATH_COLUMN, piece[prefix].astype(str).agg(" > ".join, axis=1)
+                0,
+                ATTRIBUTION_PATH_COLUMN,
+                piece[prefix].apply(lambda row: " > ".join(_path_segment(value) for value in row)),
             )
             piece.insert(0, ATTRIBUTION_DRIVER_COLUMN, piece[axis_columns[level - 1]])
             piece.insert(0, ATTRIBUTION_AXIS_COLUMN, axis_columns[level - 1])
@@ -1416,7 +1431,9 @@ def _multi_axis_hierarchy_output(
                     ATTRIBUTION_LEVEL_COLUMN: level,
                     ATTRIBUTION_AXIS_COLUMN: axis_columns[level - 1],
                     ATTRIBUTION_DRIVER_COLUMN: row[axis_columns[level - 1]],
-                    ATTRIBUTION_PATH_COLUMN: " > ".join(str(row[column]) for column in prefix),
+                    ATTRIBUTION_PATH_COLUMN: " > ".join(
+                        _path_segment(row[column]) for column in prefix
+                    ),
                     "contribution": contribution,
                     "share_of_total_delta": row["share_of_total_delta"],
                     "share_of_positive_pool": row["share_of_positive_pool"],
@@ -1621,8 +1638,6 @@ def _decompose(
             "contribution_column": "contribution",
             "method": method,
         }
-        if validated_mode is not None:
-            params["mode"] = validated_mode
         params.update(params_extra)
         return persist_attribution_frame(
             session=session,

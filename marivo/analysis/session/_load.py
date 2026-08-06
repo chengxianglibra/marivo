@@ -261,13 +261,11 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
             artifact_identity.artifact_schema_version != meta.artifact_schema_version
         ),
     }
-    if meta.artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION:
-        artifact_mismatches["attribution_basis_fingerprint"] = (
-            artifact_identity.attribution_basis_fingerprint
-            != basis_fingerprint(meta.attribution_basis)
-        )
-    elif meta.attribution_basis is not None:
-        artifact_mismatches["attribution_basis"] = True
+    # The version gate above has already rejected any non-current schema, so
+    # attribution_basis is always the current-schema field here.
+    artifact_mismatches["attribution_basis_fingerprint"] = (
+        artifact_identity.attribution_basis_fingerprint != basis_fingerprint(meta.attribution_basis)
+    )
     failed_artifact_fields = sorted(
         field for field, mismatched in artifact_mismatches.items() if mismatched
     )
@@ -287,10 +285,9 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
         "presentation_fingerprint": artifact_identity.presentation_fingerprint,
         "artifact_schema_version": artifact_identity.artifact_schema_version,
     }
-    if meta.artifact_schema_version == CURRENT_ARTIFACT_SCHEMA_VERSION:
-        artifact_identity_payload["attribution_basis_fingerprint"] = (
-            artifact_identity.attribution_basis_fingerprint
-        )
+    artifact_identity_payload["attribution_basis_fingerprint"] = (
+        artifact_identity.attribution_basis_fingerprint
+    )
     if artifact_identity.fingerprint != fingerprint(artifact_identity_payload):
         raise _current_metric_state_error(
             ref,
@@ -511,6 +508,17 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             message=(
                 f"frame '{ref}' uses unsupported artifact schema "
                 f"{artifact_schema_version!r}; recreate the analysis session"
+            ),
+            expected=CURRENT_ARTIFACT_SCHEMA_VERSION,
+            received=artifact_schema_version or "<missing>",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Re-run the analysis (observe/compare/attribute/...) so the "
+                    f"frame is regenerated as {CURRENT_ARTIFACT_SCHEMA_VERSION}."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                snippet="session.observe(metric_ref, ...)",
             ),
             context={
                 "ref": ref,

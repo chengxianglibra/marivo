@@ -836,10 +836,17 @@ def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_sessio
     message = exc_info.value.message
     assert "unsupported artifact schema" in message
     assert "analysis-artifact/v6" in message
-    assert exc_info.value._context["got"] == "analysis-artifact/v6"
-    assert exc_info.value._context["expected"] == "analysis-artifact/v8"
+    # got/expected must be reachable through public fields and str(e).
+    assert exc_info.value.received == "analysis-artifact/v6"
+    assert exc_info.value.expected == "analysis-artifact/v8"
+    assert "analysis-artifact/v6" in str(exc_info.value)
+    assert "analysis-artifact/v8" in str(exc_info.value)
     # The failure is a schema cutover, not a v6 missing field.
     assert "missing_fields" not in exc_info.value._context
+    # The agent must get an executable repair telling it to regenerate the frame.
+    assert exc_info.value.repair is not None
+    assert "Re-run the analysis" in exc_info.value.repair.action
+    assert "Repair:" in str(exc_info.value)
 
 
 def test_current_metric_frame_rejects_corrupt_expression_graph(runtime_session) -> None:
