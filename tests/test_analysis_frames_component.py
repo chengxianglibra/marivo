@@ -284,7 +284,9 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
     assert meta.semantic_kind == "panel"
 
 
-def _make_component_metric_parent(session, *, ref="frame_metric", component_ref=None, composition=None):
+def _make_component_metric_parent(
+    session, *, ref="frame_metric", component_ref=None, composition=None
+):
     """Build a persisted parent MetricFrame with the given component sidecar."""
     parent = MetricFrame(
         _df=pd.DataFrame({"failure_rate": [0.5]}),
@@ -468,3 +470,162 @@ def test_metric_frame_components_corrupt_ref_propagates_corruption():
 
     with pytest.raises(FrameCacheCorruptedError):
         parent.components()
+
+
+def _make_parent_with_legacy_graph_ref(
+    session, *, ref="frame_legacy", component_ref="frame_sidecar"
+):
+    """Persist a MetricFrame and inject the pre-issue-57 legacy graph key.
+
+    Simulates an on-disk v7 artifact written before component_graph_ref was
+    removed: both keys point at the same sidecar.
+    """
+    import json
+
+    from marivo.analysis.session._load import load_frame
+
+    parent = _make_component_metric_parent(
+        session,
+        ref=ref,
+        component_ref=component_ref,
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+    meta_path = session._layout.frames_dir / ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["component_graph_ref"] = component_ref
+    meta_path.write_text(json.dumps(payload))
+    return load_frame(ref, session=session)
+
+
+def test_legacy_component_graph_ref_key_is_stripped_on_load():
+    """A pre-#57 v7 artifact carrying component_graph_ref must still load.
+
+    Issue #57 review P1: the removed field must not make the persisted artifact
+    unreadable. load_frame strips the legacy key when it matches component_ref
+    (the historical double-write), preserving cross-revision compatibility.
+    """
+    session = session_attach.get_or_create(name="demo")
+    loaded = _make_parent_with_legacy_graph_ref(session)
+
+    assert loaded.meta.kind == "metric_frame"
+    assert loaded.meta.component_ref == "frame_sidecar"
+    # The legacy key is gone from the reloaded meta (pydantic extra=forbid would
+    # have rejected it — this proves load_frame stripped it before validation).
+    assert not hasattr(loaded.meta, "component_graph_ref")
+
+
+def test_legacy_component_graph_ref_divergent_value_raises_migration_error():
+    """A legacy component_graph_ref that diverges from component_ref is a
+    version-migration problem, not data corruption.
+
+    Issue #57 review P1: the error must say the field was removed (and carry a
+    repair) rather than calling the artifact 'corrupt'.
+    """
+    import json
+
+    from marivo.analysis.errors import FrameMetaInvalidError
+    from marivo.analysis.session._load import load_frame
+
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        ref="frame_legacy_divergent",
+        component_ref="frame_sidecar",
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["component_graph_ref"] = "frame_some_other_sidecar"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        load_frame(parent.ref, session=session)
+
+    assert "component_graph_ref" in str(exc_info.value)
+    assert "not corruption" in exc_info.value._context.get("repair", "")
+    assert exc_info.value._context.get("component_graph_ref") == "frame_some_other_sidecar"
+
+
+def test_legacy_graph_only_artifact_migrates_to_component_ref():
+    """A pre-#57 graph-only artifact (component_ref absent, component_graph_ref
+    set) migrates the graph key onto component_ref on load.
+
+    Issue #57 review P1: the historical _attach_metric_component_graph_ref wrote
+    only component_graph_ref; those artifacts must load with component_ref
+    populated from the graph key.
+    """
+    import json
+
+    from marivo.analysis.session._load import load_frame
+
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        ref="frame_graph_only",
+        component_ref=None,
+        composition=None,
+    )
+    meta_path = session._layout.frames_dir / parent.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["component_graph_ref"] = "frame_graph_sidecar"
+    payload.pop("component_ref", None)
+    meta_path.write_text(json.dumps(payload))
+
+    loaded = load_frame(parent.ref, session=session)
+
+    assert loaded.meta.component_ref == "frame_graph_sidecar"
+    assert not hasattr(loaded.meta, "component_graph_ref")
+
+
+def test_no_composition_scalar_frame_keeps_inspect_repair():
+    """An ordinary scalar frame without composition keeps the original repair.
+
+    Issue #57 review P2-1: the no-ref, no-composition case is the pre-existing
+    'this frame type has no components' guidance — it must not be confused with
+    the 'declared decomposable but sidecar missing' case.
+    """
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(session)
+
+    with pytest.raises(ComponentFrameUnavailableError) as exc_info:
+        parent.components()
+
+    assert "only available for derived ratio" in exc_info.value.repair.action
+
+
+def test_declared_composition_missing_sidecar_gets_environment_repair():
+    """A frame that declares a composition but has no sidecar is an incomplete
+    write, distinct from a scalar frame (issue #57 review P2-1).
+
+    The repair must point at re-running observe to regenerate the sidecar, not
+    at the 'this frame type has no components' inspect guidance.
+    """
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        component_ref=None,
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+
+    with pytest.raises(ComponentFrameUnavailableError) as exc_info:
+        parent.components()
+
+    assert "no component sidecar was persisted" in exc_info.value.message
+    assert "incomplete write" in exc_info.value.repair.action
+
+
+def test_stale_ref_repair_points_at_reobserve():
+    """A stale component_ref repair must instruct re-running observe (issue #57
+    review P2-1), not the 'frame type has no components' guidance."""
+    session = session_attach.get_or_create(name="demo")
+    parent = _make_component_metric_parent(
+        session,
+        component_ref="frame_deadbeef",
+        composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+    )
+
+    with pytest.raises(ComponentFrameUnavailableError) as exc_info:
+        parent.components()
+
+    assert "no longer available on disk" in exc_info.value.message
+    assert "Re-run observe()" in exc_info.value.repair.action

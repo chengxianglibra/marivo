@@ -918,7 +918,6 @@ class MetricFrame(BaseFrame):
             parent_kind=self.meta.kind,
             session_id=self.meta.session_id,
             project_root=self.meta.project_root,
-            artifact_id=self.meta.artifact_id,
             component_ref=self.meta.component_ref,
             composition=self.meta.composition
             or ({"kind": "metric_graph"} if self.meta.component_ref is not None else None),

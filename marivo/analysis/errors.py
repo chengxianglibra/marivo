@@ -1451,6 +1451,56 @@ class CumulativeFrameUnsupportedError(AnalysisError):
 
 class ComponentFrameUnavailableError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
+        loaded_kind = self._context.get("loaded_kind")
+        component_ref = self._context.get("component_ref")
+        composition = self._context.get("composition")
+        if isinstance(loaded_kind, str):
+            # A ref that resolves to a non-ComponentFrame: the parent's saved
+            # pointer and the on-disk frame disagree — the artifact relationship
+            # is damaged.
+            return _DerivedFields(
+                location="frame.components()",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        "component_ref resolved to the wrong frame kind; the "
+                        "metric/component artifact relationship is damaged. Re-run "
+                        "observe() to regenerate the metric frame and its component "
+                        "sidecar together."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+        if component_ref is not None:
+            # A ref that no longer resolves on disk: the sidecar was not
+            # persisted or was deleted. Re-running observe() rebuilds it.
+            return _DerivedFields(
+                location="frame.components()",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        "component_ref points at a sidecar that is missing on "
+                        "disk. Re-run observe() to regenerate the metric frame "
+                        "and its component sidecar."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
+        if isinstance(composition, dict):
+            # composition declares the frame is decomposable but no sidecar was
+            # persisted — an incomplete write, not an ordinary scalar frame.
+            return _DerivedFields(
+                location="frame.components()",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        "The frame declares a component composition but no "
+                        "component sidecar was persisted — an incomplete write. "
+                        "Re-run observe() to regenerate the frame and its sidecar."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                ),
+            )
         return _DerivedFields(
             location="frame.components()",
             repair=AnalysisRepair(

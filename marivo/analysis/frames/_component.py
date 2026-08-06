@@ -14,7 +14,6 @@ def _load_component_frame(
     parent_kind: str,
     session_id: str,
     project_root: str,
-    artifact_id: str | None,
     component_ref: str | None,
     composition: dict[str, Any] | None,
     advice: str,
@@ -26,6 +25,11 @@ def _load_component_frame(
     ref, a wrong-kind target, or a corrupted sidecar surfaces as a typed error
     rather than being silently recovered by re-deriving a deterministic ref
     from the parent artifact id.
+
+    ``composition`` disambiguates the two no-sidecar cases: a frame that
+    declares itself decomposable (composition present) but whose sidecar was
+    never persisted is an incomplete write, whereas an ordinary scalar frame
+    (no composition, no ref) simply never had components.
     """
     from marivo.analysis.errors import (
         ComponentFrameUnavailableError,
@@ -41,7 +45,11 @@ def _load_component_frame(
                 "components are unavailable because no component sidecar was "
                 "persisted for this frame"
             ),
-            context={"parent_ref": parent_ref, "parent_kind": parent_kind},
+            context={
+                "parent_ref": parent_ref,
+                "parent_kind": parent_kind,
+                "composition": composition,
+            },
         )
 
     session = resolve_frame_session(session_id, project_root)
@@ -57,6 +65,7 @@ def _load_component_frame(
                 "parent_ref": parent_ref,
                 "parent_kind": parent_kind,
                 "component_ref": component_ref,
+                "composition": composition,
                 "session_id": session_id,
             },
         ) from exc
@@ -67,6 +76,7 @@ def _load_component_frame(
                 "parent_ref": parent_ref,
                 "parent_kind": parent_kind,
                 "component_ref": component_ref,
+                "composition": composition,
                 "loaded_kind": loaded.meta.kind,
                 "session_id": session_id,
             },

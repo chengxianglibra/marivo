@@ -206,7 +206,13 @@ def _attach_metric_component_graph_ref(
     component: ComponentFrame,
     persist_parent: bool = True,
 ) -> MetricFrame:
-    """Attach only recursive graph state, without claiming decomposition support."""
+    """Attach the recursive graph sidecar ref without a composition claim.
+
+    Both attach helpers persist the single ``component_ref`` (issue #57); they
+    differ only in whether a ``composition`` is written. This one writes just
+    the ref, so ``MetricFrame.components()`` synthesizes the ``metric_graph``
+    composition when a graph sidecar is present.
+    """
 
     parent.meta = parent.meta.model_copy(update={"component_ref": component.ref})
     if persist_parent:
