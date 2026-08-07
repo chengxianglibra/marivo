@@ -18,6 +18,9 @@ matches your task.
 
 For the cross-module (datasource + semantic + analysis) result and guidance
 protocol, see [`../agent-friendly-public-surface.md`](../agent-friendly-public-surface.md).
+For the proposed cross-layer period-calendar, temporal-set, work-schedule,
+time-scope, and alignment contract, see
+[`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
 
 ## Audience and intent
