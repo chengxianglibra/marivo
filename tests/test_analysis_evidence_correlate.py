@@ -79,6 +79,32 @@ def test_correlate_populates_surface1_and_correlation_finding() -> None:
     }
 
 
+def test_correlate_single_lag_evidence_writes_lag_zero() -> None:
+    """The single-lag (default) path must write an evidence lag of 0, never
+    not_computed. Without this pin a refactor could silently revert single-mode
+    selected_lag_offset to None while range-mode tests stay green."""
+    session = session_attach.get_or_create(name="correlate_evidence_single")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 2.0, 3.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [2.0, 4.0, 6.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, method="pearson")
+
+    assert result.meta.selection_rule == "single_lag"
+    assert result.meta.selected_lag_offset == 0
+    assert result.evidence_digest is not None
+    association = result.evidence_digest.items[0]
+    assert association.lag == 0.0
+    assert association.coefficient == pytest.approx(1.0)
+
+
 def test_correlate_range_evidence_matches_selected_best_lag() -> None:
     """With lag_range, the evidence coefficient/lag must match the selected best
     lag (max abs correlation, closest on tie), NOT the first row of the table."""
