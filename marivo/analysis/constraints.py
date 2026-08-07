@@ -25,6 +25,7 @@ class ConstraintId(StrEnum):
     METRIC_EXPRESSION_RESOLVABLE = "metric_expression_resolvable"
     WINDOW_ABSOLUTE_PARSEABLE = "window_absolute_parseable"
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
+    SINGLE_METRIC_INPUT = "single_metric_input"
     DISCOVER_MINIMUM_EVIDENCE = "discover_minimum_evidence"
     ALIGNMENT_POLICY_SHAPE = "alignment_policy_shape"
     CORRELATE_LAG_SEMANTICS = "correlate_lag_semantics"
@@ -137,6 +138,36 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Each intent consumes a bounded frame contract; accepting the wrong family silently would corrupt follow-up lineage.",
         "Check frame.meta.kind, frame.semantic_shape, or CandidateSet.meta.shape before narrowing or dispatching.",
         help_target="compare",
+    ),
+    ConstraintId.SINGLE_METRIC_INPUT: _constraint(
+        ConstraintId.SINGLE_METRIC_INPUT,
+        "MetricArity",
+        "runtime",
+        (
+            "compare",
+            "correlate",
+            "hypothesis_test",
+            "forecast",
+            "transform",
+            "discover",
+            "assess_quality",
+            "MetricFrame",
+            "MetricArityError",
+        ),
+        (
+            "Single-metric intents require both MetricFrame inputs to carry "
+            "arity=1; multi-metric frames are rejected fail-closed."
+        ),
+        (
+            "Each intent operates on one metric value column and its persisted "
+            "comparable semantics; a multi-metric frame has no single canonical "
+            "value series to compare, correlate, forecast, or transform."
+        ),
+        (
+            'Project the frame to one metric with frame.metric("<metric_id>") '
+            "before calling the intent; frame.metrics lists the carried ids."
+        ),
+        help_target="MetricFrame.metric",
     ),
     ConstraintId.DISCOVER_MINIMUM_EVIDENCE: _constraint(
         ConstraintId.DISCOVER_MINIMUM_EVIDENCE,

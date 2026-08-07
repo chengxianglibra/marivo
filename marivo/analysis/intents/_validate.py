@@ -59,7 +59,13 @@ def to_validation_issues(intent: str, issues: list[AnalysisError]) -> list[Valid
 
 
 def require_single_metric(frame: MetricFrame, *, intent: str) -> None:
-    """Raise MetricArityError when a multi-metric frame reaches a single-metric intent."""
+    """Raise MetricArityError when a multi-metric frame reaches a single-metric intent.
+
+    The error carries the arity precondition as structured ``expected`` /
+    ``received`` fields and a typed ``repair`` pointing at the canonical
+    ``frame.metric(...)`` projection, so an agent can read the next step
+    directly off the error object (issue #67).
+    """
     measures = getattr(frame.meta, "measures", None)
     if not measures or len(measures) <= 1:
         return
@@ -71,6 +77,19 @@ def require_single_metric(frame: MetricFrame, *, intent: str) -> None:
         hint=(
             f'call frame.metric("{metric_ids[0]}") (or another id above) to project '
             "a single-metric frame first"
+        ),
+        expected="a single-metric frame (arity=1)",
+        received=f"arity={len(metric_ids)} with metrics {metric_ids!r}",
+        location=f"session.{intent}",
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                'Project the frame to one metric with frame.metric("<metric_id>") '
+                "before calling the intent."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
+            snippet=f'frame.metric("{metric_ids[0]}")',
+            candidates=tuple(metric_ids),
         ),
         context={
             "intent": intent,
