@@ -17,6 +17,10 @@ const articleUrl = `${blogUrl}why-data-analysis-agents-need-a-harness/`;
 const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
 const languageUrl = isZh ? '/blog/' : '/zh-cn/blog/';
 const agentFlow = isZh ? agentFlowZh : agentFlowEn;
+const siteUrl = Astro.site ?? new URL('https://marivo.io');
+const englishUrl = new URL('/blog/', siteUrl);
+const chineseUrl = new URL('/zh-cn/blog/', siteUrl);
+const canonicalUrl = isZh ? chineseUrl : englishUrl;
 const copy = isZh
   ? {
       lang: 'zh-CN', description: 'Marivo Blog：分享产品设计、分析实践、版本演进与社区动态。', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English',
@@ -39,6 +43,10 @@ const copy = isZh
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={copy.description} />
     <meta name="theme-color" content="#f6f3eb" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" hreflang="en" href={englishUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />
+    <link rel="alternate" hreflang="x-default" href={englishUrl} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Marivo Blog</title>
   </head>

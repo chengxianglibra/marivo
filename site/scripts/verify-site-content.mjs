@@ -115,6 +115,7 @@ const requiredFiles = [
   'src/pages/zh-cn/blog/why-data-analysis-agents-need-a-harness.mdx',
   'src/pages/install.sh.ts',
   'public/favicon.svg',
+  'public/robots.txt',
   'src/content/i18n/en.json',
   'src/content/i18n/zh-cn.json',
   'src/content/docs/docs/index.mdx',
@@ -165,6 +166,32 @@ if (sidebarMismatches.length > 0) {
   console.error('Release-note sidebar entries are out of sync:');
   for (const mismatch of sidebarMismatches) {
     console.error(`- ${mismatch}`);
+  }
+  process.exit(1);
+}
+
+const seoRequirements = new Map([
+  ['astro.config.mjs', ["site: 'https://marivo.io'"]],
+  ['src/components/HomePage.astro', ['rel="canonical"', 'hreflang="en"', 'hreflang="zh-CN"', 'hreflang="x-default"']],
+  ['src/components/BlogIndexPage.astro', ['rel="canonical"', 'hreflang="en"', 'hreflang="zh-CN"', 'hreflang="x-default"']],
+  ['src/layouts/BlogArticleLayout.astro', ['rel="canonical"', 'hreflang="en"', 'hreflang="zh-CN"', 'hreflang="x-default"']],
+  ['public/robots.txt', ['User-agent: *', 'Allow: /', 'Sitemap: https://marivo.io/sitemap-index.xml']],
+]);
+const missingSeoSignals = [];
+
+for (const [relativePath, signals] of seoRequirements) {
+  const content = readFileSync(join(siteRoot, relativePath), 'utf8');
+  for (const signal of signals) {
+    if (!content.includes(signal)) {
+      missingSeoSignals.push(`${relativePath}: ${signal}`);
+    }
+  }
+}
+
+if (missingSeoSignals.length > 0) {
+  console.error('Required site indexing signals are missing:');
+  for (const signal of missingSeoSignals) {
+    console.error(`- ${signal}`);
   }
   process.exit(1);
 }
