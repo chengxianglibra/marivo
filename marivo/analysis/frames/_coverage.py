@@ -24,6 +24,7 @@ def _load_coverage_frame(
     corrupt on disk still raises a fail-closed ``FrameReadError``.
     """
     from marivo.analysis.errors import (
+        AnalysisRepair,
         FrameCacheCorruptedError,
         FrameReadError,
         FrameRefNotFound,
@@ -32,6 +33,7 @@ def _load_coverage_frame(
     from marivo.analysis.frames.coverage import CoverageFrame
     from marivo.analysis.session._load import load_frame
     from marivo.analysis.session._resolve import resolve_frame_session
+    from marivo.introspection.live.model import LiveHelpTarget
 
     if coverage_ref is None:
         return None
@@ -60,6 +62,21 @@ def _load_coverage_frame(
         message=(
             "coverage frame referenced by this metric frame is no longer "
             "available on disk; re-run observe() to regenerate it"
+        ),
+        location="frame.coverage()",
+        expected=(f"a loadable coverage sidecar for parent {resolved_parent!r}"),
+        received=(
+            f"coverage_ref {coverage_ref!r} and deterministic ref "
+            f"{deterministic_ref!r} both unresolvable on disk"
+        ),
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                "The coverage sidecar for this metric frame is missing or "
+                "corrupt on disk. Re-run observe() to regenerate the coverage "
+                "frame."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         ),
         context={
             "parent_ref": parent_ref,

@@ -858,8 +858,20 @@ def test_stale_coverage_ref_fails_closed(sampled_bandwidth_project) -> None:
     )
     from marivo.analysis.errors import FrameReadError
 
-    with pytest.raises(FrameReadError):
+    with pytest.raises(FrameReadError) as exc_info:
         bogus_frame.coverage()
+    # Issue #71 AC2: the fail-closed error must carry an accurate location and a
+    # repair that points at re-running observe() — not the frame.show() default.
+    assert exc_info.value.location == "frame.coverage()"
+    assert exc_info.value.expected is not None
+    assert exc_info.value.received is not None
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "retry"
+    assert exc_info.value.repair.help_target.canonical_id == "observe"
+    assert (
+        "re-run observe" in str(exc_info.value.repair.action).lower()
+        or "observe" in str(exc_info.value.repair.action).lower()
+    )
 
 
 def test_corrupt_coverage_sidecar_fails_closed(sampled_bandwidth_project) -> None:
@@ -879,5 +891,13 @@ def test_corrupt_coverage_sidecar_fails_closed(sampled_bandwidth_project) -> Non
 
     from marivo.analysis.errors import FrameReadError
 
-    with pytest.raises(FrameReadError):
+    with pytest.raises(FrameReadError) as exc_info:
         frame.coverage()
+    # Issue #71 AC2: corrupt sidecar fails closed with an accurate location and
+    # a retry repair pointing at observe(), not the frame.show() default.
+    assert exc_info.value.location == "frame.coverage()"
+    assert exc_info.value.expected is not None
+    assert exc_info.value.received is not None
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "retry"
+    assert exc_info.value.repair.help_target.canonical_id == "observe"
