@@ -912,6 +912,32 @@ def test_correlate_lag_range_persists_selection_rule_and_selected_lag():
     assert loaded.meta.selected_lag_offset == 2
 
 
+def test_correlate_range_single_candidate_stays_range_rule() -> None:
+    """lag_range=range(0, 1) is a range mode with a single candidate (lag 0): it
+    must keep the max-abs range selection semantics and write lag=0, never
+    degenerate into single_lag. A refactor that collapses single-candidate
+    ranges into the single path would silently flip selection_rule."""
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 2.0, 3.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [2.0, 4.0, 6.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(0, 1))
+
+    assert result.meta.selection_rule == "max_abs_correlation_closest_lag"
+    assert result.meta.lag_policy == {"mode": "range", "lags": [0]}
+    assert result.meta.selected_lag_offset == 0
+    assert result.meta.best_lag == 0
+    assert result.to_pandas()["lag_offset"].tolist() == [0]
+
+
 def test_correlate_single_lag_exposes_single_selection_semantics():
     """The single-lag (default) path must also declare its selection semantics:
     exactly lag 0 is selected, with no range exploration."""
