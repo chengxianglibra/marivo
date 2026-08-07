@@ -20,7 +20,11 @@ from marivo.analysis.frames._content_hash import (
     compute_file_content_hash,
     compute_frame_content_hash,
 )
-from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
+from marivo.analysis.frames._meta_defaults import (
+    GRAIN_FREQ,
+    canonicalize_coverage_timestamps,
+    normalize_coverage_buckets,
+)
 from marivo.analysis.frames.attribution import (
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
@@ -1707,8 +1711,10 @@ def _time_coverage_check(
         if time_col in df and len(df)
         else pd.Series(dtype="datetime64[ns]")
     )
-    if tz and len(observed_ts) > 0 and observed_ts.dt.tz is not None:
-        observed_ts = observed_ts.dt.tz_convert(tz).dt.tz_localize(None)
+    # Issue #70: canonicalize an aware scope window against naive (or different
+    # tz) frame bucket timestamps onto one wall-clock basis; otherwise the
+    # membership test below fails for every bucket and reports 0% coverage.
+    expected, observed_ts = canonicalize_coverage_timestamps(expected, observed_ts, tz=tz)
     observed = normalize_coverage_buckets(observed_ts, grain=grain).unique()
     observed_set = {pd.Timestamp(value) for value in observed}
     expected_buckets = normalize_coverage_buckets(pd.Series(expected), grain=grain)
