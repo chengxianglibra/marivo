@@ -29,7 +29,12 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import Subject
-from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
+from marivo.analysis.frames.association import (
+    SELECTION_RULE_MAX_ABS,
+    SELECTION_RULE_SINGLE,
+    AssociationResult,
+    AssociationResultMeta,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._derived import (
     compose_candidate_origins,
@@ -123,6 +128,7 @@ def correlate(
             context={"semantic_kind": a.meta.semantic_kind, "lags": lags},
         )
     lag_mode = "single" if lag_range is None else "range"
+    selection_rule = SELECTION_RULE_SINGLE if lag_range is None else SELECTION_RULE_MAX_ABS
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -277,6 +283,7 @@ def correlate(
         dropped_row_count=lag_results[best_lag].dropped_row_count,
         correlation=best_correlation,
         best_lag=best_lag,
+        selection_rule=selection_rule,
     )
     result = AssociationResult(_df=output, meta=meta)
     left_subject = {"metric": a.meta.metric_id}

@@ -706,6 +706,16 @@ def _extract_findings(
             prepared["coefficient"] = prepared["correlation"]
             alignment = getattr(meta, "alignment", {})
             prepared["join_basis"] = alignment.get("kind") if isinstance(alignment, dict) else None
+        # The evidence item must bind to the SAME lag the summary represents
+        # (meta.selected_lag_offset / meta.best_lag), never the first table row.
+        selected_lag = getattr(meta, "selected_lag_offset", None)
+        if selected_lag is not None and "lag_offset" in prepared.columns:
+            selected = prepared[prepared["lag_offset"] == selected_lag]
+            if not selected.empty:
+                prepared = selected
+        prepared["lag"] = selected_lag
+        if "n" not in prepared.columns and "aligned_row_count" in prepared.columns:
+            prepared["n"] = prepared["aligned_row_count"]
         findings = extract_correlation_findings(
             df=prepared,
             artifact_id=artifact_id,
