@@ -529,3 +529,151 @@ def test_panel_time_coverage_with_timezone(tmp_path):
     details = json.loads(coverage["details_json"])
     # With timezone alignment, coverage should be near 1.0, not 0.0
     assert details["coverage_ratio"] > 0.5
+
+
+def _aware_window_metric(session, rows, *, start, end, grain="hour"):
+    """Build a time_series metric whose scope window is tz-aware while the frame
+    time column holds naive local wall-clock bucket timestamps (the q08 shape)."""
+    return _metric(
+        session,
+        rows,
+        axes={"time": {"field": "time", "grain": grain}},
+        window={"start": start, "end": end, "grain": grain, "time_dimension": "time"},
+    )
+
+
+def test_hourly_coverage_aware_scope_naive_frame_matches_bucket_counts(tmp_path):
+    """Issue #70: an aware scope window (+08:00) with a naive frame time column
+    must report observed/expected as the real bucket counts (12/24 = 0.5), not a
+    silent 0.0 — and the report fields must agree."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _aware_window_metric(
+        session,
+        [
+            {"time": pd.Timestamp("2026-06-30T00:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+            for h in range(12)
+        ],
+        start="2026-06-30T00:00:00+08:00",
+        end="2026-07-01T00:00:00+08:00",
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+    report_issue = next(
+        issue for issue in report.meta.issues if issue.kind == "time_coverage_incomplete"
+    )
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 12
+    assert details["coverage_ratio"] == pytest.approx(0.5)
+    assert report_issue.observed_value == pytest.approx(0.5)
+    assert report.meta.overall_status == "blocking"
+
+
+def test_hourly_coverage_aware_scope_13_of_24_reports_approx_ratio(tmp_path):
+    """Issue #70: 13 observed hourly buckets against an aware 24-bucket scope
+    reports ~0.5417, consistent across details and issue observed_value."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _aware_window_metric(
+        session,
+        [
+            {"time": pd.Timestamp("2026-06-30T00:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+            for h in range(13)
+        ],
+        start="2026-06-30T00:00:00+08:00",
+        end="2026-07-01T00:00:00+08:00",
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+    report_issue = next(
+        issue for issue in report.meta.issues if issue.kind == "time_coverage_incomplete"
+    )
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 13
+    assert details["coverage_ratio"] == pytest.approx(13 / 24)
+    assert report_issue.observed_value == pytest.approx(13 / 24)
+    assert report.meta.overall_status == "blocking"
+
+
+def test_hourly_coverage_full_24_24_aware_scope_reports_one(tmp_path):
+    """Issue #70: a complete 24/24 frame under an aware scope reports 1.0 and is
+    not falsely zeroed by the aware-vs-naive mixing."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _aware_window_metric(
+        session,
+        [
+            {"time": pd.Timestamp("2026-06-30T00:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+            for h in range(24)
+        ],
+        start="2026-06-30T00:00:00+08:00",
+        end="2026-07-01T00:00:00+08:00",
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 24
+    assert details["coverage_ratio"] == pytest.approx(1.0)
+    assert report.meta.overall_status == "ok"
+
+
+def test_hourly_coverage_both_aware_same_timezone(tmp_path):
+    """Issue #70: a fully aware frame (same tz as the scope window) still reports
+    the correct ratio — no regression from the aware-vs-naive fix."""
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {
+            "time": pd.Timestamp("2026-06-30T00:00:00", tz="Asia/Shanghai") + pd.Timedelta(hours=h),
+            "value": 1.0,
+        }
+        for h in range(12)
+    ]
+    frame = _aware_window_metric(
+        session,
+        rows,
+        start="2026-06-30T00:00:00+08:00",
+        end="2026-07-01T00:00:00+08:00",
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 12
+    assert details["coverage_ratio"] == pytest.approx(0.5)
+
+
+def test_hourly_coverage_cross_timezone_canonicalization(tmp_path):
+    """Issue #70: an aware frame in a different tz than the aware scope window is
+    canonicalized to a common timezone (absolute instants), not falsely zeroed."""
+    session = session_attach.get_or_create(name="demo")
+    # Scope window in UTC+8; frame buckets in UTC (same absolute instants for
+    # the first 12 hours: 2026-06-29 16:00Z .. 2026-06-30 03:00Z).
+    rows = [
+        {
+            "time": pd.Timestamp("2026-06-29T16:00:00", tz="UTC") + pd.Timedelta(hours=h),
+            "value": 1.0,
+        }
+        for h in range(12)
+    ]
+    frame = _aware_window_metric(
+        session,
+        rows,
+        start="2026-06-30T00:00:00+08:00",
+        end="2026-07-01T00:00:00+08:00",
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 12
+    assert details["coverage_ratio"] == pytest.approx(0.5)

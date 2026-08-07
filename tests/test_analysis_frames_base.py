@@ -334,3 +334,40 @@ def test_repr_and_show_are_bounded_agent_reads(capsys):
     assert "call .show() to inspect" in repr(frame)
     frame.show(max_output_bytes=300)
     assert len(capsys.readouterr().out.encode()) <= 301
+
+
+def test_compute_quality_summary_coverage_canonicalizes_aware_scope(
+    tmp_path,
+    monkeypatch,
+):
+    """Issue #70: commit-time quality_summary coverage must not report 0.0 when
+    the scope window is tz-aware and the frame time column is naive wall-clock."""
+    import marivo.analysis.session as session_attach
+    from marivo.analysis.frames._meta_defaults import compute_quality_summary
+    from tests.shared_fixtures import make_metric_frame
+
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": pd.Timestamp("2026-06-30T00:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+        for h in range(12)
+    ]
+    frame = make_metric_frame(
+        pd.DataFrame(rows),
+        metric_id="sales.revenue",
+        axes={"time": {"field": "time", "grain": "hour"}},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": "2026-06-30T00:00:00+08:00",
+            "end": "2026-07-01T00:00:00+08:00",
+            "grain": "hour",
+            "time_dimension": "time",
+        },
+        session=session,
+    )
+
+    qs = compute_quality_summary(frame)
+    assert qs.coverage == pytest.approx(0.5)

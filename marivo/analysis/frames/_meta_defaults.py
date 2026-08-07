@@ -32,6 +32,47 @@ def normalize_coverage_buckets(timestamps: pd.Series, *, grain: str) -> pd.Serie
     return cast("pd.Series", timestamps.dt.normalize())
 
 
+def canonicalize_coverage_timestamps(
+    expected: pd.DatetimeIndex | pd.Series,
+    observed: pd.Series,
+    *,
+    tz: str | None = None,
+) -> tuple[pd.DatetimeIndex, pd.Series]:
+    """Bring expected/observed timestamps onto one wall-clock basis before
+    coverage comparison.
+
+    Mixing tz-aware and naive timestamps (e.g. a timezone-aware scope window
+    with a naive frame time column) makes the per-bucket membership test fail
+    and silently reports 0% coverage. Naive timestamps are interpreted as
+    wall-clock in the aware side's timezone — frame buckets are local-calendar
+    slots. ``tz`` (the session report timezone) wins as the canonical target
+    when provided. Returns ``expected`` (as a DatetimeIndex) and ``observed``
+    both stripped to naive wall-clock in the canonical timezone, so callers can
+    compare bucket values directly.
+    """
+    expected_series = expected if isinstance(expected, pd.Series) else pd.Series(expected)
+    expected_aware = expected_series.dt.tz is not None
+    observed_aware = len(observed) > 0 and observed.dt.tz is not None
+
+    # ``canonical`` is either an IANA tz name (report timezone) or a pandas tz
+    # object — both are accepted by ``tz_convert``.
+    canonical: Any
+    if tz is not None:
+        canonical = tz
+    elif expected_aware:
+        canonical = expected_series.dt.tz
+    elif observed_aware:
+        canonical = observed.dt.tz
+    else:
+        return pd.DatetimeIndex(expected_series), observed
+
+    if expected_aware:
+        expected_series = expected_series.dt.tz_convert(canonical).dt.tz_localize(None)
+    if observed_aware:
+        observed = observed.dt.tz_convert(canonical).dt.tz_localize(None)
+    return pd.DatetimeIndex(expected_series), observed
+
+
 def _coverage_summary_val(meta: BaseFrameMeta, key: str) -> float | int | None:
     """Extract a single value from the frame meta's coverage_summary dict."""
     coverage_summary = getattr(meta, "coverage_summary", None)
@@ -90,13 +131,21 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
                         inclusive="left",
                     )
                     if time_col in frame._df.columns and len(frame._df) > 0:
-                        observed_ts = normalize_coverage_buckets(
-                            pd.to_datetime(frame._df[time_col]).dropna(), grain=grain
+                        # Issue #70: canonicalize an aware scope window against
+                        # naive (or different tz) frame buckets onto one
+                        # wall-clock basis before the membership test.
+                        expected_ci, observed_ts = canonicalize_coverage_timestamps(
+                            expected,
+                            pd.to_datetime(frame._df[time_col]).dropna(),
                         )
-                        observed_set = set(observed_ts.unique())
+                        observed_set = set(
+                            normalize_coverage_buckets(observed_ts, grain=grain).unique()
+                        )
                         missing = sum(
                             1
-                            for ts in normalize_coverage_buckets(pd.Series(expected), grain=grain)
+                            for ts in normalize_coverage_buckets(
+                                pd.Series(expected_ci), grain=grain
+                            )
                             if pd.Timestamp(ts) not in observed_set
                         )
                         coverage = 1.0 - (missing / len(expected)) if len(expected) > 0 else None
