@@ -1011,12 +1011,16 @@ def _build_registry() -> CapabilityRegistry:
             help_target="compare",
             summary=(
                 "Compute a typed Metric delta, including canonical cumulative-period "
-                "pairing, or exactly align two compatible EventFrame[funnel] artifacts."
+                "pairing, or exactly align two compatible EventFrame[funnel] artifacts. "
+                "MetricFrame inputs must each carry a single metric (arity=1); a "
+                'multi-metric frame is projected with frame.metric("<metric_id>") '
+                "before comparing."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=(
                 "frame_kind_compatible",
+                "single_metric_input",
                 "alignment_policy_shape",
                 "cumulative_compare_compatible",
                 "funnel_comparison_compatible",

@@ -175,6 +175,32 @@ def test_require_single_metric_raises_teaching_error():
     assert 'frame.metric("sales.revenue")' in str(err)
 
 
+def test_require_single_metric_error_carries_structured_repair_fields():
+    """Issue #67: MetricArityError must fill expected/received and a typed
+    repair so an agent can read the arity precondition and the canonical
+    frame.metric(...) projection directly off the error object."""
+    from marivo.analysis.errors import MetricArityError
+    from marivo.analysis.intents._validate import require_single_metric
+
+    with pytest.raises(MetricArityError) as excinfo:
+        require_single_metric(make_multi_frame(), intent="compare")
+    err = excinfo.value
+
+    assert err.expected == "a single-metric frame (arity=1)"
+    assert err.received == "arity=2 with metrics ['sales.revenue', 'sales.order_count']"
+    assert err.location == "session.compare"
+    assert err.repair is not None
+    assert err.repair.kind == "retry"
+    assert err.repair.help_target.surface == "analysis"
+    assert err.repair.help_target.canonical_id == "MetricFrame.metric"
+    assert err.repair.snippet == 'frame.metric("sales.revenue")'
+    assert err.repair.candidates == ("sales.revenue", "sales.order_count")
+    # The typed repair is rendered into the error string.
+    assert "Repair:" in str(err)
+    assert 'frame.metric("sales.revenue")' in str(err)
+    assert "Help: marivo.help('analysis.MetricFrame.metric')" in str(err)
+
+
 # ---------------------------------------------------------------------------
 # Task 7: frame.metric(id) projection — committed select_metric step.
 # ---------------------------------------------------------------------------
@@ -290,8 +316,15 @@ def test_projected_frame_flows_into_compare(sales_session):
     from marivo.analysis.intents.compare import compare
 
     frame = _fused(sales_session)
-    with pytest.raises(MetricArityError):
+    with pytest.raises(MetricArityError) as excinfo:
         compare(frame, frame, session=sales_session)
+    # Issue #67: the real intent path must fail closed with structured fields
+    # the agent can execute directly (expected/received + typed repair).
+    err = excinfo.value
+    assert err.expected == "a single-metric frame (arity=1)"
+    assert err.repair is not None
+    assert err.repair.help_target.canonical_id == "MetricFrame.metric"
+    assert err.repair.snippet.startswith('frame.metric("')
     revenue = frame.metric("sales.revenue")
     delta = compare(revenue, revenue, session=sales_session)
     assert delta.meta.kind == "delta_frame"

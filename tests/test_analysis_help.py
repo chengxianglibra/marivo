@@ -631,6 +631,22 @@ def test_compare_help_explains_cumulative_component_compatibility() -> None:
     assert "Requires from prerequisites or the preceding example: AnalysisError" not in text
 
 
+def test_compare_help_declares_single_metric_precondition() -> None:
+    """Issue #67: analysis.compare help must declare the single-metric
+    precondition and point at the canonical projection path, so an agent
+    discovers the arity=1 requirement before comparing."""
+    text = _text("compare")
+
+    # The single-metric constraint is declared on the compare capability.
+    assert "single_metric_input" in text
+    # Both sides must be single-metric (summary + constraint title).
+    assert "arity=1" in text
+    assert "single metric" in text
+    # The summary teaches the canonical projection method.
+    assert 'frame.metric("<metric_id>")' in text
+    assert "multi-metric frame is projected" in text
+
+
 def test_attribute_help_explains_cumulative_route_gate() -> None:
     text = _text("attribute")
 
