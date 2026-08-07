@@ -371,3 +371,104 @@ def test_compute_quality_summary_coverage_canonicalizes_aware_scope(
 
     qs = compute_quality_summary(frame)
     assert qs.coverage == pytest.approx(0.5)
+
+
+def test_compute_quality_summary_coverage_uses_frame_report_tz(
+    tmp_path,
+    monkeypatch,
+):
+    """Issue #70 P2: commit-time summary must canonicalize on the frame's report
+    timezone (the tz observe used to bucket), not the expected window's tz.
+
+    Half-window geometry pins the basis: window is aware +08:00 but the frame
+    carries report_tz=UTC; the observed naive buckets 08:00..11:00 fall in
+    [06-30T00:00, 06-30T12:00) only when canonicalized in +08:00, and fall
+    entirely outside when canonicalized in UTC — so the two bases disagree and
+    the test is sensitive to which one summary picked.
+    """
+    import marivo.analysis.session as session_attach
+    from marivo.analysis.frames._meta_defaults import compute_quality_summary
+    from tests.shared_fixtures import make_metric_frame
+
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": pd.Timestamp("2026-06-30T08:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+        for h in range(4)
+    ]
+    frame = make_metric_frame(
+        pd.DataFrame(rows),
+        metric_id="sales.revenue",
+        axes={"time": {"field": "time", "grain": "hour"}},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": "2026-06-30T00:00:00+08:00",
+            "end": "2026-06-30T12:00:00+08:00",
+            "grain": "hour",
+            "time_dimension": "time",
+        },
+        report_tz="UTC",
+        session=session,
+    )
+
+    qs = compute_quality_summary(frame)
+    # In report_tz UTC the aware window is 06-29T16:00..06-30T04:00 (UTC
+    # wall-clock) and the naive 08:00..11:00 buckets fall outside => 0.0.
+    # If summary silently canonicalized on the expected side (+08:00) the
+    # observed buckets would cover 4/12 => 0.3333. It must use the frame's
+    # report_tz (the observe bucketing basis).
+    assert qs.coverage == pytest.approx(0.0)
+    # report_tz must survive persistence/reload so summary stays consistent
+    # with the check on later reads of the same artifact.
+    loaded = session.get_frame(frame.ref)
+    assert loaded.meta.report_tz == "UTC"
+
+
+def test_compute_quality_summary_matches_check_when_report_tz_differs_from_scope(
+    tmp_path,
+    monkeypatch,
+):
+    """Issue #70 P2: when report_tz differs from the scope window tz, the
+    commit-time summary must agree with the time_coverage check (which uses the
+    session report_tz), not silently diverge.
+
+    Probe from review: aware +08:00 full-day window, 24 naive observed buckets,
+    frame report_tz=UTC. observe buckets naive timestamps by report_tz wall-clock
+    so only 16 of the 24 buckets fall inside the UTC-canonicalized window.
+    """
+    import marivo.analysis.session as session_attach
+    from marivo.analysis.frames._meta_defaults import compute_quality_summary
+    from tests.shared_fixtures import make_metric_frame
+
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": pd.Timestamp("2026-06-30T00:00:00") + pd.Timedelta(hours=h), "value": 1.0}
+        for h in range(24)
+    ]
+    frame = make_metric_frame(
+        pd.DataFrame(rows),
+        metric_id="sales.revenue",
+        axes={"time": {"field": "time", "grain": "hour"}},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": "2026-06-30T00:00:00+08:00",
+            "end": "2026-07-01T00:00:00+08:00",
+            "grain": "hour",
+            "time_dimension": "time",
+        },
+        report_tz="UTC",
+        session=session,
+    )
+
+    qs = compute_quality_summary(frame)
+    # UTC-canonicalized window is 06-29T16:00..06-30T16:00; naive observed
+    # buckets 06-30T00:00..23:00 cover 16 of the 24 buckets => 2/3.
+    # Falling back to the expected side (+08:00) would report 1.0.
+    assert qs.coverage == pytest.approx(2.0 / 3.0)

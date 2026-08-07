@@ -258,6 +258,7 @@ class MetricFrameMeta(BaseFrameMeta):
     measure: dict[str, Any]
     measures: list[dict[str, Any]] | None = None
     window: dict[str, Any] | None
+    report_tz: str | None = None
     where: dict[str, Any] = Field(default_factory=dict, exclude=True)
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str = Field(default="", exclude=True)

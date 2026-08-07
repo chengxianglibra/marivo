@@ -473,6 +473,7 @@ def make_metric_frame(
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = "additive",
     aggregation: str | None = None,
     status_time_dimension: str | None = None,
+    report_tz: str | None = None,
     session: Any,
 ) -> Any:
     """Create a persisted MetricFrame for tests without exposing a public constructor."""
@@ -543,6 +544,7 @@ def make_metric_frame(
         ),
         window=dump_window(resolved_window),
         where=where or {},
+        report_tz=report_tz,
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
         additivity=additivity,

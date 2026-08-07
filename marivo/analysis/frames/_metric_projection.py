@@ -487,6 +487,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             ),
         ),
         window=frame.meta.window,
+        report_tz=frame.meta.report_tz,
         where=frame.meta.where,
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=metric_id.split(".", 1)[0],
