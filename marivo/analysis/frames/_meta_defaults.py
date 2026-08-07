@@ -133,10 +133,14 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
                     if time_col in frame._df.columns and len(frame._df) > 0:
                         # Issue #70: canonicalize an aware scope window against
                         # naive (or different tz) frame buckets onto one
-                        # wall-clock basis before the membership test.
+                        # wall-clock basis before the membership test. Canonicalize
+                        # on the frame's report_tz (the tz observe bucketed by) so
+                        # summary agrees with the time_coverage check even when the
+                        # scope window tz differs from the session report tz.
                         expected_ci, observed_ts = canonicalize_coverage_timestamps(
                             expected,
                             pd.to_datetime(frame._df[time_col]).dropna(),
+                            tz=getattr(meta, "report_tz", None),
                         )
                         observed_set = set(
                             normalize_coverage_buckets(observed_ts, grain=grain).unique()
