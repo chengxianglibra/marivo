@@ -81,6 +81,7 @@ function docsItems(version, releaseNotes, isLatest) {
 }
 
 export default defineConfig({
+  site: 'https://marivo.io',
   devToolbar: {
     enabled: false,
   },

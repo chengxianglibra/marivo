@@ -23,6 +23,10 @@ const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
 const languageUrl = isZh
   ? `/blog${Astro.url.pathname.slice('/zh-cn/blog'.length)}`
   : `/zh-cn/blog${Astro.url.pathname.slice('/blog'.length)}`;
+const siteUrl = Astro.site ?? new URL('https://marivo.io');
+const canonicalUrl = new URL(Astro.url.pathname, siteUrl);
+const englishUrl = new URL(isZh ? languageUrl : Astro.url.pathname, siteUrl);
+const chineseUrl = new URL(isZh ? Astro.url.pathname : languageUrl, siteUrl);
 const copy = isZh
   ? { lang: 'zh-CN', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English', back: '返回 Blog', reading: '约 15 分钟阅读', footer: '让智能自由探索，让约束守住事实。', home: '主页' }
   : { lang: 'en', homeLabel: 'Marivo home', navLabel: 'Blog navigation', language: '简体中文', back: 'Back to Blog', reading: 'About 12 minutes', footer: 'Let intelligence explore. Let constraints keep it grounded.', home: 'Home' };
@@ -35,6 +39,10 @@ const copy = isZh
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={frontmatter.description} />
     <meta name="theme-color" content="#f6f3eb" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" hreflang="en" href={englishUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />
+    <link rel="alternate" hreflang="x-default" href={englishUrl} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{frontmatter.title} · Marivo Blog</title>
   </head>
