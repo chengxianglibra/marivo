@@ -886,6 +886,101 @@ def test_correlate_lag_range_explores_lags_and_marks_best():
     assert loaded.meta.lag_policy == result.meta.lag_policy
 
 
+def test_correlate_lag_range_persists_selection_rule_and_selected_lag():
+    """lag_range must persist a single traceable selection semantics: the metadata
+    declares the selection rule and the exact lag_offset its summary represents."""
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(-3, 4))
+
+    assert result.meta.selection_rule == "max_abs_correlation_closest_lag"
+    assert result.meta.selected_lag_offset == 2
+    assert result.meta.selected_lag_offset == result.meta.best_lag
+
+    loaded = session.get_frame(result.ref)
+    assert loaded.meta.selection_rule == "max_abs_correlation_closest_lag"
+    assert loaded.meta.selected_lag_offset == 2
+
+
+def test_correlate_single_lag_exposes_single_selection_semantics():
+    """The single-lag (default) path must also declare its selection semantics:
+    exactly lag 0 is selected, with no range exploration."""
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}), metric_id="sales.a")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0, 6.0]}), metric_id="sales.b")
+
+    result = session.correlate(a, b)
+
+    assert result.meta.selection_rule == "single_lag"
+    assert result.meta.selected_lag_offset == 0
+    assert result.meta.lag_policy == {"mode": "single", "offset": 0}
+
+
+def test_correlate_repr_exposes_selected_lag():
+    """AssociationResult summary must state which lag its r represents so agents
+    cannot mistake the summary coefficient for a different lag row."""
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(-3, 4))
+
+    assert f"r={result.meta.correlation:.2f}" in repr(result)
+    assert f"lag={result.meta.selected_lag_offset}" in repr(result)
+
+    rendered = result.render(max_output_bytes=None)
+    assert f"lag={result.meta.selected_lag_offset}" in rendered
+
+
+def test_correlate_legacy_range_meta_infers_selection_rule_from_lag_policy():
+    """Artifacts written before selection_rule existed carry only lag_policy; a
+    range artifact must reload as the max-abs rule, not wrongly default to single."""
+    from marivo.analysis.frames.association import SELECTION_RULE_MAX_ABS, AssociationResultMeta
+
+    legacy = AssociationResultMeta(
+        kind="association_result",
+        ref="frame_legacy",
+        session_id="sess_1",
+        project_root="/tmp",
+        produced_by_job="job_1",
+        created_at=pd.Timestamp("2026-08-01", tz="UTC").to_pydatetime(),
+        row_count=7,
+        byte_size=0,
+        source_refs=["a", "b"],
+        metric_ids=["sales.a", "sales.b"],
+        semantic_kinds=["time_series", "time_series"],
+        semantic_models=["sales", "sales"],
+        method="pearson",
+        alignment={"kind": "window_bucket"},
+        lag_policy={"mode": "range", "lags": [-3, -2, -1, 0, 1, 2, 3]},
+        aligned_row_count=4,
+        dropped_row_count=0,
+        correlation=-0.7,
+        best_lag=2,
+    )
+
+    assert legacy.selection_rule == SELECTION_RULE_MAX_ABS
+    assert legacy.selected_lag_offset == 2
+
+
 def test_correlate_best_lag_tie_prefers_smallest_absolute_lag():
     session = session_attach.get_or_create(name="demo")
     values = pd.DataFrame({"value": [1.0, 2.0, 1.0, 2.0, 1.0, 2.0]})

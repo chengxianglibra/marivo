@@ -1239,8 +1239,13 @@ class Session(RenderableResult):
         positive lag means ``a`` leads ``b`` and negative lag means ``b`` leads
         ``a``. Non-zero lag requires time-series or panel inputs; panel shifts stay
         within each dimension series, and null pairs are dropped after shifting.
-        The result carries one row per lag and ``meta.best_lag`` marks the strongest.
-        Default is lag 0 only. Both frames must belong to the active session.
+        The result carries one row per lag and ``meta.best_lag`` (also exposed as
+        ``meta.selected_lag_offset``) marks the single lag the summary/evidence
+        represents. The selected lag is the one with the strongest absolute
+        correlation, preferring the closest lag on ties
+        (``meta.selection_rule == "max_abs_correlation_closest_lag"``). Default is
+        lag 0 only (``meta.selection_rule == "single_lag"``). Both frames must
+        belong to the active session.
 
         Alignment keys are taken exclusively from the time and dimension axes
         declared on both frames; common columns that are not declared as axes are

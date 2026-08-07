@@ -77,3 +77,54 @@ def test_correlate_populates_surface1_and_correlation_finding() -> None:
     assert "causal_effect_not_estimated" in {
         boundary.kind for boundary in result.evidence_digest.boundaries
     }
+
+
+def test_correlate_range_evidence_matches_selected_best_lag() -> None:
+    """With lag_range, the evidence coefficient/lag must match the selected best
+    lag (max abs correlation, closest on tie), NOT the first row of the table."""
+    session = session_attach.get_or_create(name="correlate_evidence_range")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0]}),
+        metric_id="sales.a",
+    )
+    # b is a shifted-by-2 copy of a; only lag 2 recovers a perfect correlation.
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(-3, 4))
+
+    assert result.meta.best_lag == 2
+    assert result.meta.correlation == pytest.approx(1.0)
+    assert result.evidence_digest is not None
+    association = result.evidence_digest.items[0]
+    assert association.kind == "association"
+    assert association.lag == 2.0
+    assert association.coefficient == pytest.approx(1.0)
+    assert association.sample_size == result.meta.aligned_row_count
+
+
+def test_correlate_range_evidence_summary_renders_selected_lag() -> None:
+    """The rendered evidence summary must state the selected lag, never
+    not_computed, and must agree with meta.best_lag."""
+    session = session_attach.get_or_create(name="correlate_evidence_summary")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(-3, 4))
+
+    assert result.evidence_digest is not None
+    rendered = result.evidence_digest.render()
+    assert f"lag={result.meta.best_lag}" in rendered
+    assert "lag=not_computed" not in rendered
