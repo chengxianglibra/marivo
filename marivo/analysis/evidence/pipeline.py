@@ -852,6 +852,8 @@ def _extract_failure_issue(
     artifact_id: str,
     frame: BaseFrame,
     exc: Exception,
+    step_type: str,
+    extractor_family: str,
 ) -> EvidenceAvailabilityIssue:
     """Build an evidence_partial issue for a finding-extraction failure.
 
@@ -860,8 +862,14 @@ def _extract_failure_issue(
     and reconciliation is verified the issue is downgraded to warning (the rows
     stay referenceable) and always carries a typed repair preserving the real
     stable error category.
+
+    The repair's operator and help_target follow the frame's own family via
+    :func:`_operator_for`; the attribution-specific reconciliation wording is
+    limited to attribution frames (commit_result is the shared commit path for
+    every frame family).
     """
     error_category = type(exc).__name__
+    operator = _operator_for(step_type, extractor_family)
     reconciled = _attribution_reconciliation_verified(frame)
     if reconciled:
         severity: IssueSeverity = "warning"
@@ -874,11 +882,17 @@ def _extract_failure_issue(
         )
     else:
         severity = "blocking"
-        action = (
-            f"findings extraction failed ({error_category}) and attribution "
-            "reconciliation is not verified; re-run attribute and reference the "
-            "attribution result only once extraction succeeds."
-        )
+        if operator == "attribute":
+            action = (
+                f"findings extraction failed ({error_category}) and attribution "
+                "reconciliation is not verified; re-run attribute and reference the "
+                "attribution result only once extraction succeeds."
+            )
+        else:
+            action = (
+                f"findings extraction failed ({error_category}); re-run {operator} "
+                "and reference the result only once extraction succeeds."
+            )
     return _issue(
         artifact_id,
         "evidence_partial",
@@ -890,7 +904,7 @@ def _extract_failure_issue(
         repair=AnalysisRepair(
             kind="inspect",
             action=action,
-            help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id=operator),
         ),
     )
 
@@ -1290,6 +1304,8 @@ def commit_result(
                     artifact_id=artifact_id,
                     frame=frame,
                     exc=exc,
+                    step_type=step_type,
+                    extractor_family=extractor_family,
                 )
             )
         else:

@@ -346,8 +346,7 @@ def test_attribution_extract_failure_non_blocking_with_typed_repair(
         issue = next(
             item
             for item in result.meta.issues
-            if isinstance(item, EvidenceAvailabilityIssue)
-            and item.kind == "evidence_partial"
+            if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_partial"
         )
         assert issue.severity == "warning"
         assert issue.failed_stage == "extract"
@@ -403,8 +402,7 @@ def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
         issue = next(
             item
             for item in result.meta.issues
-            if isinstance(item, EvidenceAvailabilityIssue)
-            and item.kind == "evidence_partial"
+            if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_partial"
         )
         assert issue.severity == "blocking"
         assert issue.stable_error_category == "ValidationError"
@@ -413,3 +411,50 @@ def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
         assert issue.repair.help_target.canonical_id == "attribute"
     finally:
         evidence_store.close()
+
+
+def test_non_attribution_extract_failure_repair_points_at_own_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-attribution frame whose findings extraction fails must get a repair
+    pointing at its own operator, not at attribute.
+
+    commit_result is the shared commit path for every frame family; the
+    attribution-specific reconciliation wording and the analysis.attribute
+    help_target only apply to attribution frames (issue #68 re-review P3-1).
+    """
+    from pydantic import ValidationError
+
+    def fail_extract(**kwargs):
+        raise ValidationError.from_exception_data(
+            "ContributionFindingValue",
+            [
+                {
+                    "type": "model_attributes_type",
+                    "loc": ("dimension_keys", "channel"),
+                    "input": {"type": "dict"},
+                }
+            ],
+        )
+
+    monkeypatch.setattr(pipeline_module, "_extract_findings", fail_extract)
+    result, store = _commit(tmp_path)  # metric_frame / step_type="observe"
+    assert store is not None
+    try:
+        assert result.evidence_status == "partial"
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_partial"
+        )
+        assert issue.severity == "blocking"
+        assert issue.stable_error_category == "ValidationError"
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        # The repair must point at observe (this frame's operator), never at
+        # attribute (P3-1: else branch hardcoded the attribution wording).
+        assert issue.repair.help_target.canonical_id == "observe"
+        assert "attribute" not in issue.repair.action
+        assert "re-run observe" in issue.repair.action
+    finally:
+        store.close()
