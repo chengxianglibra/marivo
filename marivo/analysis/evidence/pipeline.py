@@ -804,6 +804,21 @@ def _operator_for(step_type: str, extractor_family: str) -> str:
     }.get(extractor_family, step_type)
 
 
+def _help_canonical_id(operator: str) -> str:
+    """Return the resolvable help-target canonical id for an operator name.
+
+    ``_operator_for`` pass-throughs point-like step_type names (compare.funnel,
+    attribute.funnel_loss_rate) that are used verbatim in action text but are
+    not registered on the analysis help surface; their parent ids (compare,
+    attribute) are. Normalize to the parent so a repair's help_target never
+    resolves to a MarivoHelpTargetError.
+    """
+    return {
+        "compare.funnel": "compare",
+        "attribute.funnel_loss_rate": "attribute",
+    }.get(operator, operator)
+
+
 def _issue(
     artifact_id: str,
     kind: Literal["evidence_partial", "evidence_store_unavailable", "evidence_digest_unavailable"],
@@ -904,7 +919,10 @@ def _extract_failure_issue(
         repair=AnalysisRepair(
             kind="inspect",
             action=action,
-            help_target=LiveHelpTarget(surface="analysis", canonical_id=operator),
+            help_target=LiveHelpTarget(
+                surface="analysis",
+                canonical_id=_help_canonical_id(operator),
+            ),
         ),
     )
 

@@ -458,3 +458,63 @@ def test_non_attribution_extract_failure_repair_points_at_own_operator(
         assert "re-run observe" in issue.repair.action
     finally:
         store.close()
+
+
+def test_funnel_step_extract_failure_repair_help_target_is_resolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A funnel compare step's extraction-failure repair must carry a
+    resolvable help_target.
+
+    _operator_for pass-throughs compare.funnel verbatim into the repair's
+    operator; that dotted name is not registered on the analysis help surface
+    (marivo.help("analysis.compare.funnel") raises MarivoHelpTargetError), so
+    the help_target must be normalized to the parent id "compare" (re-review
+    P3-2). The action text keeps the exact dotted operator.
+    """
+    from pydantic import ValidationError
+
+    def fail_extract(**kwargs):
+        raise ValidationError.from_exception_data(
+            "ContributionFindingValue",
+            [
+                {
+                    "type": "model_attributes_type",
+                    "loc": ("dimension_keys", "channel"),
+                    "input": {"type": "dict"},
+                }
+            ],
+        )
+
+    monkeypatch.setattr(pipeline_module, "_extract_findings", fail_extract)
+    evidence_store = open_evidence_store(tmp_path / "judgment.db")
+    frame = _frame(tmp_path)
+    try:
+        result = commit_result(
+            store=evidence_store,
+            frames_dir=tmp_path / "frames",
+            frame=frame,
+            step_type="compare.funnel",
+            inputs=CommitInputs(input_refs=["a", "b"]),
+            params=CommitParams(values={"metric": "sales.revenue"}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="decomposition"),
+            extractor_family="delta_frame",
+        )
+        assert result.evidence_status == "partial"
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_partial"
+        )
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        # Action text keeps the exact dotted operator...
+        assert "re-run compare.funnel" in issue.repair.action
+        # ...but the help_target normalizes to the resolvable parent id.
+        assert issue.repair.help_target.canonical_id == "compare"
+        import marivo
+
+        marivo.help(issue.repair.help_target.display)
+    finally:
+        evidence_store.close()
