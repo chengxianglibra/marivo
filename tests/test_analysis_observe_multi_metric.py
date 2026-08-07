@@ -104,6 +104,12 @@ def test_public_session_observe_uses_plural_metrics_keyword(sales_session):
 
     assert scalar.meta.metric_id == "sales.revenue"
     assert forest.metrics == ("sales.revenue", "sales.order_count")
+    # The forest (multi-metric) observe path must persist the session report
+    # timezone into frame meta just like the scalar path (issue #70 direction
+    # ②). Without this pin a refactor that drops report_tz= from
+    # _observe_metric_forest would silently re-split summary vs check for every
+    # multi-metric frame with no suite signal.
+    assert forest.meta.report_tz == sales_session.report_tz_name
 
     with pytest.raises(TypeError, match="unexpected keyword argument 'metric'"):
         sales_session.observe(metric=revenue)  # type: ignore[call-arg]
