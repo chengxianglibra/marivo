@@ -15,8 +15,14 @@ def _load_coverage_frame(
     project_root: str,
     artifact_id: str | None,
     coverage_ref: str | None,
-) -> CoverageFrame:
-    """Two-phase CoverageFrame lookup for sampled metrics."""
+) -> CoverageFrame | None:
+    """Two-phase CoverageFrame lookup for sampled metrics.
+
+    Returns ``None`` when the parent frame has no coverage sidecar
+    (``coverage_ref`` is ``None``) — this is the ordinary "no coverage"
+    state, not an error. A set ``coverage_ref`` whose sidecar is missing or
+    corrupt on disk still raises a fail-closed ``FrameReadError``.
+    """
     from marivo.analysis.errors import (
         FrameCacheCorruptedError,
         FrameReadError,
@@ -28,10 +34,7 @@ def _load_coverage_frame(
     from marivo.analysis.session._resolve import resolve_frame_session
 
     if coverage_ref is None:
-        raise FrameReadError(
-            message="metric frame has no coverage sidecar",
-            context={"frame_ref": parent_ref},
-        )
+        return None
 
     session = resolve_frame_session(session_id, project_root)
 

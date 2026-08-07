@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import ibis
 import pytest
 
@@ -10,6 +12,7 @@ import marivo.semantic as ms
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_test_metric_meta_contract
 
 
 def _metric_pandas(frame):
@@ -803,3 +806,78 @@ def test_folded_derived_multi_metric_observe_uses_status_time_axis(
     # The folded derived value must match single-metric observe (0.5725).
     df = _metric_pandas(frame)
     assert df["p95_utilization"].iloc[0] == pytest.approx(0.5725)
+
+
+def test_no_coverage_sidecar_returns_none_sampled(sampled_bandwidth_project) -> None:
+    """Issue #71: observe without a coverage sidecar returns None, not an error."""
+    frame = sampled_bandwidth_project.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+    )
+    # The sampled fold path emits a coverage sidecar; drop it to simulate the
+    # ordinary no-coverage state (e.g. all_history / grain_to_date cumulatives).
+    frame.meta = frame.meta.model_copy(update={"coverage_ref": None})
+    assert frame.coverage() is None
+
+
+def test_stale_coverage_ref_fails_closed(sampled_bandwidth_project) -> None:
+    """Issue #71: a set coverage_ref whose sidecar is missing on disk stays
+    fail-closed with an accurate FrameReadError — not masked as None."""
+    from datetime import datetime
+
+    import pandas as pd
+
+    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+    from marivo.analysis.lineage import Lineage
+
+    session = sampled_bandwidth_project
+    bogus_frame = MetricFrame(
+        _df=pd.DataFrame({"value": [1.0]}),
+        meta=MetricFrameMeta(
+            kind="metric_frame",
+            ref="frame_bogus_parent",
+            artifact_id="frame_bogus_parent",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_bogus",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.upstream_bw",
+            **make_test_metric_meta_contract("sales.upstream_bw"),
+            axes={"time": {"column": "bucket", "grain": "hour"}},
+            measure={"name": "value"},
+            window=None,
+            where={},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            coverage_ref="cov_missing_sidecar",
+        ),
+    )
+    from marivo.analysis.errors import FrameReadError
+
+    with pytest.raises(FrameReadError):
+        bogus_frame.coverage()
+
+
+def test_corrupt_coverage_sidecar_fails_closed(sampled_bandwidth_project) -> None:
+    """Issue #71: a coverage sidecar that is corrupt on disk stays fail-closed
+    with a FrameReadError (never silently None)."""
+    frame = sampled_bandwidth_project.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+    )
+    coverage = frame.coverage()
+    assert coverage is not None
+    # Corrupt the on-disk sidecar data so load_frame raises FrameCacheCorruptedError.
+    sidecar_dir = sampled_bandwidth_project._layout.frames_dir / coverage.ref
+    data_path = sidecar_dir / "data.parquet"
+    data_path.write_bytes(b"not a parquet file")
+
+    from marivo.analysis.errors import FrameReadError
+
+    with pytest.raises(FrameReadError):
+        frame.coverage()

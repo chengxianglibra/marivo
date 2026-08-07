@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import FrameReadError, NoBackendFactoryError
+from marivo.analysis.errors import NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from tests.shared_fixtures import make_metric_frame, make_test_metric_meta_contract
@@ -352,7 +352,7 @@ def test_metric_frame_meta_accepts_coverage_summary():
     assert meta.coverage_summary == {"min": 0.5, "avg": 0.75, "partial_buckets": 3}
 
 
-def test_metric_frame_coverage_raises_when_no_sidecar():
+def test_metric_frame_coverage_returns_none_when_no_sidecar():
     df = pd.DataFrame({"bucket": ["2026-07-01"], "value": [10.0]})
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -374,5 +374,7 @@ def test_metric_frame_coverage_raises_when_no_sidecar():
         semantic_model="sales",
     )
     mf = MetricFrame(_df=df, meta=meta)
-    with pytest.raises(FrameReadError, match="no coverage sidecar"):
-        mf.coverage()
+    # Issue #71: absence of a coverage sidecar is the ordinary "no coverage"
+    # state, matching the help/docstring Optional contract — returns None
+    # rather than raising FrameReadError.
+    assert mf.coverage() is None
