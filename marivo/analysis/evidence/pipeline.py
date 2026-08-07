@@ -65,6 +65,7 @@ from marivo.analysis.evidence.types import (
     EvidenceScope,
     EvidenceSubject,
     Finding,
+    IssueSeverity,
     LifecycleSubject,
     OperatorSemantics,
     QualitySummary,
@@ -809,21 +810,88 @@ def _issue(
     failed_stage: Literal["extract", "digest", "store"],
     findings_available: bool,
     stable_error_category: str,
+    *,
+    severity: IssueSeverity = "blocking",
+    rows_available: bool = True,
+    repair: AnalysisRepair | None = None,
 ) -> EvidenceAvailabilityIssue:
     return EvidenceAvailabilityIssue(
         issue_id=make_issue_id(artifact_id=artifact_id, kind=kind, source_refs=(artifact_id,)),
         kind=kind,
-        severity="blocking",
+        severity=severity,
         source_refs=(artifact_id,),
         failed_stage=failed_stage,
         findings_available=findings_available,
         fallback=RawFallback(
             artifact_ref=artifact_id,
             findings_available=findings_available,
-            rows_available=True,
+            rows_available=rows_available,
             recommended_when=("partial_evidence",),
         ),
         stable_error_category=stable_error_category,
+        repair=repair,
+    )
+
+
+def _attribution_reconciliation_verified(frame: BaseFrame) -> bool:
+    """Return whether an attribution frame carries verified reconciliation.
+
+    The raw rows are always materialized before extraction (parquet written at
+    the top of :func:`commit_result`), so reconciliation presence is the signal
+    that the rows are safe to reference even when findings extraction fails.
+    """
+    meta = frame.meta
+    if getattr(meta, "kind", None) != "attribution_frame":
+        return False
+    reconciliation = getattr(meta, "reconciliation", None)
+    return reconciliation is not None and getattr(reconciliation, "status", None) == "reconciled"
+
+
+def _extract_failure_issue(
+    *,
+    artifact_id: str,
+    frame: BaseFrame,
+    exc: Exception,
+) -> EvidenceAvailabilityIssue:
+    """Build an evidence_partial issue for a finding-extraction failure.
+
+    Issue #68: readable/reconciled attribution rows must not surface as a
+    blocking evidence_partial with repair=None. When the rows are materialized
+    and reconciliation is verified the issue is downgraded to warning (the rows
+    stay referenceable) and always carries a typed repair preserving the real
+    stable error category.
+    """
+    error_category = type(exc).__name__
+    reconciled = _attribution_reconciliation_verified(frame)
+    if reconciled:
+        severity: IssueSeverity = "warning"
+        action = (
+            "Attribution rows are materialized and reconciliation verified, so "
+            f"the raw rows remain safely referenceable; findings extraction "
+            f"failed ({error_category}). Use frame.to_pandas() to read the "
+            "attribution rows, frame.show() to inspect, or re-run attribute to "
+            "retry extraction."
+        )
+    else:
+        severity = "blocking"
+        action = (
+            f"findings extraction failed ({error_category}) and attribution "
+            "reconciliation is not verified; re-run attribute and reference the "
+            "attribution result only once extraction succeeds."
+        )
+    return _issue(
+        artifact_id,
+        "evidence_partial",
+        failed_stage="extract",
+        findings_available=False,
+        stable_error_category=error_category,
+        severity=severity,
+        rows_available=True,
+        repair=AnalysisRepair(
+            kind="inspect",
+            action=action,
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+        ),
     )
 
 
@@ -1218,12 +1286,10 @@ def commit_result(
         except Exception as exc:
             status = "partial"
             issues.append(
-                _issue(
-                    artifact_id,
-                    "evidence_partial",
-                    failed_stage="extract",
-                    findings_available=False,
-                    stable_error_category=type(exc).__name__,
+                _extract_failure_issue(
+                    artifact_id=artifact_id,
+                    frame=frame,
+                    exc=exc,
                 )
             )
         else:

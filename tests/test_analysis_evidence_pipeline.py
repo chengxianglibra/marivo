@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 import marivo.analysis.evidence.pipeline as pipeline_module
+from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -17,9 +19,16 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.store import open_evidence_store
-from marivo.analysis.evidence.types import Subject
+from marivo.analysis.evidence.types import EvidenceAvailabilityIssue, Subject
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.refs import RefPayloadV1
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_metric_contract
 
 
@@ -55,6 +64,53 @@ def _frame(tmp_path: Path, *, ordinal: int = 0) -> MetricFrame:
     )
 
 
+def _attribution_frame(tmp_path: Path) -> AttributionFrame:
+    df = pd.DataFrame(
+        {
+            "region": ["US", "CA"],
+            "contribution": [2.0, 1.0],
+            "share_of_total_delta": [2.0 / 3.0, 1.0 / 3.0],
+        }
+    )
+    meta = AttributionFrameMeta(
+        kind="attribution_frame",
+        ref="placeholder",
+        session_id="sess_1",
+        project_root=str(tmp_path),
+        produced_by_job="job_attribute",
+        created_at=datetime(2026, 7, 18, tzinfo=UTC),
+        row_count=2,
+        byte_size=0,
+        lineage=Lineage(),
+        metric_ids=["sales.revenue"],
+        source_refs=["frame_delta"],
+        scope_delta_ref="frame_delta",
+        attribution_kind="decomposition",
+        driver_field="region",
+        value_column="delta",
+        contribution_column="contribution",
+        method="sum",
+        params={"axes": ["region"]},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        row_contract_version="generic-attribution-rows/v2",
+        axis_bindings=(
+            AttributionAxisBindingV1(
+                ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
+                output_column="region",
+            ),
+        ),
+        reconciliation=AttributionReconciliation(
+            partition_count=2,
+            total_delta=3.0,
+            contribution_sum=3.0,
+            residual=0.0,
+            max_abs_residual=0.0,
+        ),
+    )
+    return AttributionFrame(_df=df, meta=meta)
+
+
 def _commit(tmp_path: Path, *, emit_evidence: bool = True, store=True, ordinal: int = 0):
     evidence_store = open_evidence_store(tmp_path / "judgment.db") if store else None
     frame = _frame(tmp_path, ordinal=ordinal)
@@ -75,6 +131,27 @@ def _commit(tmp_path: Path, *, emit_evidence: bool = True, store=True, ordinal: 
     except BaseException:
         if evidence_store is not None:
             evidence_store.close()
+        raise
+
+
+def _commit_attribution(tmp_path: Path):
+    evidence_store = open_evidence_store(tmp_path / "judgment.db")
+    frame = _attribution_frame(tmp_path)
+    try:
+        result = commit_result(
+            store=evidence_store,
+            frames_dir=tmp_path / "frames",
+            frame=frame,
+            step_type="attribute",
+            inputs=CommitInputs(input_refs=["frame_delta"]),
+            params=CommitParams(values={"axes": ["region"], "metric": "sales.revenue"}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="decomposition"),
+            extractor_family="attribution_frame",
+        )
+        return result, evidence_store
+    except BaseException:
+        evidence_store.close()
         raise
 
 
@@ -235,3 +312,104 @@ def test_repeated_commit_reuses_existing_projection_without_rewriting_meta(
         assert after == before
     finally:
         repeated_store.close()
+
+
+def test_attribution_extract_failure_non_blocking_with_typed_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #68: readable/reconciled attribution rows must not surface a blocking
+    evidence_partial with repair=None.
+
+    When finding extraction raises but the attribution rows are already
+    materialized and reconciliation verified, the evidence_partial issue must be
+    downgraded to warning (not blocking) and carry a typed repair preserving the
+    real stable error category.
+    """
+
+    def fail_extract(**kwargs):
+        raise ValidationError.from_exception_data(
+            "ContributionFindingValue",
+            [
+                {
+                    "type": "model_attributes_type",
+                    "loc": ("dimension_keys", "channel"),
+                    "input": {"type": "dict"},
+                }
+            ],
+        )
+
+    monkeypatch.setattr(pipeline_module, "_extract_findings", fail_extract)
+    result, store = _commit_attribution(tmp_path)
+    assert store is not None
+    try:
+        assert result.evidence_status == "partial"
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_partial"
+        )
+        assert issue.severity == "warning"
+        assert issue.failed_stage == "extract"
+        assert issue.stable_error_category == "ValidationError"
+        assert issue.findings_available is False
+        assert issue.fallback.rows_available is True
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        assert issue.repair.action
+        assert issue.repair.help_target.surface == "analysis"
+        assert issue.repair.help_target.canonical_id == "attribute"
+        # Rows remain readable even though findings extraction failed.
+        assert len(result.to_pandas()) == 2
+    finally:
+        store.close()
+
+
+def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #68: without verified reconciliation the evidence_partial stays
+    blocking, but still carries a typed repair and real error category."""
+
+    def fail_extract(**kwargs):
+        raise ValidationError.from_exception_data(
+            "ContributionFindingValue",
+            [
+                {
+                    "type": "model_attributes_type",
+                    "loc": ("dimension_keys", "channel"),
+                    "input": {"type": "dict"},
+                }
+            ],
+        )
+
+    monkeypatch.setattr(pipeline_module, "_extract_findings", fail_extract)
+    frame = _attribution_frame(tmp_path)
+    frame.meta = frame.meta.model_copy(update={"reconciliation": None})
+    evidence_store = open_evidence_store(tmp_path / "judgment.db")
+    try:
+        result = commit_result(
+            store=evidence_store,
+            frames_dir=tmp_path / "frames",
+            frame=frame,
+            step_type="attribute",
+            inputs=CommitInputs(input_refs=["frame_delta"]),
+            params=CommitParams(values={"axes": ["region"], "metric": "sales.revenue"}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="decomposition"),
+            extractor_family="attribution_frame",
+        )
+        assert result.evidence_status == "partial"
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_partial"
+        )
+        assert issue.severity == "blocking"
+        assert issue.stable_error_category == "ValidationError"
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        assert issue.repair.help_target.canonical_id == "attribute"
+    finally:
+        evidence_store.close()
