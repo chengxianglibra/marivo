@@ -102,6 +102,13 @@ def test_e2e_observe_populates_quality_and_analysis_scope(tmp_path) -> None:
     assert cur.meta.analysis_scope.metric_ids == ("sales.revenue",)
     assert cur.meta.analysis_scope.window is not None
 
+    # observe must persist the session report timezone into frame meta so the
+    # commit-time quality summary canonicalizes timestamps on the same basis as
+    # the time_coverage check (issue #70 direction ②). This pins the observe
+    # write point -- without it a refactor that drops report_tz= would silently
+    # re-split summary vs check for every newly observed frame.
+    assert cur.meta.report_tz == session.report_tz_name
+
 
 def test_e2e_compare_populates_quality_and_analysis_scope(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
