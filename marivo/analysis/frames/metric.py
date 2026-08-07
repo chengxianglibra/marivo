@@ -924,7 +924,7 @@ class MetricFrame(BaseFrame):
             advice="re-run observe() to regenerate it",
         )
 
-    def coverage(self) -> CoverageFrame:
+    def coverage(self) -> CoverageFrame | None:
         """Load the linked CoverageFrame for this metric frame.
 
         The sidecar's ``coverage_kind`` is kind-dispatched and the two kinds
@@ -940,8 +940,14 @@ class MetricFrame(BaseFrame):
           seconds and ``covered_span`` is clipped by the data start;
           ``meta.sample_interval`` is ``None``.
 
-        Returns ``None`` coverage (no sidecar) when the parent frame has no
-        ``coverage_ref`` (e.g. all_history and grain_to_date cumulatives).
+        Returns:
+            The linked :class:`CoverageFrame`, or ``None`` when the parent
+            frame has no ``coverage_ref`` (e.g. all_history and grain_to_date
+            cumulatives, or any observe result that did not emit a coverage
+            sidecar). ``None`` is the ordinary "no coverage" state — use
+            :meth:`assess_quality` for independent coverage-ratio checks. A set
+            ``coverage_ref`` whose sidecar is missing or corrupt on disk still
+            raises a fail-closed ``FrameReadError``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._coverage import _load_coverage_frame
