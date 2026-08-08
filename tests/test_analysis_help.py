@@ -688,6 +688,32 @@ def test_compare_help_declares_single_metric_precondition() -> None:
     assert "multi-metric frame is projected" in text
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "assess_quality",
+        "correlate",
+        "forecast",
+        "hypothesis_test",
+        "discover.point_anomalies",
+        "discover.interesting_slices",
+        "discover.interesting_windows",
+        "discover.cross_sectional_outliers",
+        "transform.filter",
+        "transform.normalize",
+    ],
+)
+def test_single_metric_gated_intent_help_declares_arity_precondition(target: str) -> None:
+    """Issue #74: every single-metric gated intent must declare the arity=1
+    precondition in help, so an agent learns it before tripping MetricArityError."""
+    text = _text(target)
+
+    # The single-metric constraint is registered on the capability.
+    assert "single_metric_input" in text
+    # The constraint title states the arity=1 precondition.
+    assert "arity=1" in text
+
+
 def test_attribute_help_explains_cumulative_route_gate() -> None:
     text = _text("attribute")
 
