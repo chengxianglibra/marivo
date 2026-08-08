@@ -1193,6 +1193,7 @@ def _build_registry() -> CapabilityRegistry:
                 "frame_kind_compatible",
                 "alignment_policy_shape",
                 "correlate_lag_semantics",
+                "single_metric_input",
             ),
             callable_path="marivo.analysis.session.core.Session.correlate",
             receiver="Session",
@@ -1228,7 +1229,11 @@ def _build_registry() -> CapabilityRegistry:
             summary="Run a paired hypothesis test over two MetricFrames.",
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("frame_kind_compatible", "alignment_policy_shape"),
+            constraint_ids=(
+                "frame_kind_compatible",
+                "alignment_policy_shape",
+                "single_metric_input",
+            ),
             callable_path="marivo.analysis.session.core.Session.hypothesis_test",
             receiver="Session",
             accepted_inputs={
@@ -1252,7 +1257,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("forecast_input_shape",),
+            constraint_ids=("forecast_input_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.forecast",
             receiver="Session",
             accepted_inputs={
@@ -1273,7 +1278,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("quality_target_shape",),
+            constraint_ids=("quality_target_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={
@@ -1327,6 +1332,11 @@ def _build_registry() -> CapabilityRegistry:
 
     for obj_id, summary, source_families, extra_inputs in _discover_specs:
         objective = obj_id.split(".", 1)[1]
+        # Objectives that accept a MetricFrame source gate on single-metric
+        # arity via require_single_metric; declare the precondition in help.
+        discover_constraints = ("discover_minimum_evidence", "frame_kind_compatible")
+        if "MetricFrame" in source_families:
+            discover_constraints = discover_constraints + ("single_metric_input",)
         descriptors.append(
             OperatorCapability(
                 id=obj_id,
@@ -1335,7 +1345,7 @@ def _build_registry() -> CapabilityRegistry:
                 summary=summary,
                 root_group="typed_analysis",
                 root_visibility="grouped",
-                constraint_ids=("discover_minimum_evidence", "frame_kind_compatible"),
+                constraint_ids=discover_constraints,
                 callable_path=f"marivo.analysis.session.core.SessionDiscoverNamespace.{objective}",
                 receiver="SessionDiscoverNamespace",
                 accepted_inputs={
@@ -1419,6 +1429,7 @@ def _build_registry() -> CapabilityRegistry:
                     "transform_arguments",
                     "transform_frame_shape",
                     "transform_operator_supported",
+                    "single_metric_input",
                 ),
                 callable_path=f"marivo.analysis.frames.transforms._FrameTransforms.{op_name}",
                 receiver="MetricFrameTransforms|DeltaFrameTransforms",
@@ -1443,6 +1454,7 @@ def _build_registry() -> CapabilityRegistry:
                 "transform_arguments",
                 "transform_frame_shape",
                 "transform_operator_supported",
+                "single_metric_input",
             ),
             callable_path="marivo.analysis.frames.transforms.MetricFrameTransforms.normalize",
             receiver="MetricFrameTransforms",
