@@ -714,6 +714,14 @@ def test_single_metric_gated_intent_help_declares_arity_precondition(target: str
     assert "arity=1" in text
 
 
+@pytest.mark.parametrize("target", ["discover.period_shifts", "discover.driver_axes"])
+def test_delta_frame_only_discover_objectives_do_not_declare_single_metric(target: str) -> None:
+    """Issue #74: DeltaFrame-only discover objectives are rejected by family
+    before any arity gate, so their help must NOT advertise single_metric_input
+    (declaring it would mislead an agent about a precondition that never fires)."""
+    assert "single_metric_input" not in _text(target)
+
+
 def test_attribute_help_explains_cumulative_route_gate() -> None:
     text = _text("attribute")
 
