@@ -961,6 +961,74 @@ def _extract_failure_issue(
     )
 
 
+def _digest_failure_issue(
+    *,
+    artifact_id: str,
+    exc: Exception,
+    operator: str,
+) -> EvidenceAvailabilityIssue:
+    """Build an evidence_digest_unavailable issue carrying a typed repair.
+
+    Issue #73: the digest stage of the shared commit path failed after
+    findings extraction succeeded, so the issue carries the real stable error
+    category and an executable repair pointing at the frame's own operator.
+    """
+    error_category = type(exc).__name__
+    return _issue(
+        artifact_id,
+        "evidence_digest_unavailable",
+        failed_stage="digest",
+        findings_available=True,
+        stable_error_category=error_category,
+        repair=AnalysisRepair(
+            kind="inspect",
+            action=(
+                f"digest construction failed ({error_category}) after findings "
+                f"extraction; re-run {operator} so the typed digest is rebuilt "
+                "and reference the result only once the digest is available."
+            ),
+            help_target=LiveHelpTarget(
+                surface="analysis",
+                canonical_id=_help_canonical_id(operator),
+            ),
+        ),
+    )
+
+
+def _store_failure_issue(
+    *,
+    artifact_id: str,
+    operator: str,
+    stable_error_category: str,
+) -> EvidenceAvailabilityIssue:
+    """Build an evidence_store_unavailable issue carrying a typed repair.
+
+    Issue #73: the store stage of the shared commit path is unavailable (either
+    the evidence store was never configured or its projection write failed), so
+    the blocking issue carries an environment repair telling the agent what to
+    restore before retrying.
+    """
+    return _issue(
+        artifact_id,
+        "evidence_store_unavailable",
+        failed_stage="store",
+        findings_available=False,
+        stable_error_category=stable_error_category,
+        repair=AnalysisRepair(
+            kind="environment",
+            action=(
+                f"evidence store is unavailable ({stable_error_category}); ensure "
+                "the evidence store is configured and writable, then re-run "
+                f"{operator} so the artifact projection and findings are persisted."
+            ),
+            help_target=LiveHelpTarget(
+                surface="analysis",
+                canonical_id=_help_canonical_id(operator),
+            ),
+        ),
+    )
+
+
 def _insert_projection(
     store: EvidenceStore,
     *,
@@ -1380,21 +1448,17 @@ def commit_result(
             except Exception as exc:
                 status = "partial"
                 issues.append(
-                    _issue(
-                        artifact_id,
-                        "evidence_digest_unavailable",
-                        failed_stage="digest",
-                        findings_available=True,
-                        stable_error_category=type(exc).__name__,
+                    _digest_failure_issue(
+                        artifact_id=artifact_id,
+                        exc=exc,
+                        operator=operator_name,
                     )
                 )
     elif emit_evidence and store is None:
         issues.append(
-            _issue(
-                artifact_id,
-                "evidence_store_unavailable",
-                failed_stage="store",
-                findings_available=False,
+            _store_failure_issue(
+                artifact_id=artifact_id,
+                operator=_operator_for(step_type, extractor_family),
                 stable_error_category="store_unavailable",
             )
         )
@@ -1426,11 +1490,9 @@ def commit_result(
             findings = []
             digest = None
             issues.append(
-                _issue(
-                    artifact_id,
-                    "evidence_store_unavailable",
-                    failed_stage="store",
-                    findings_available=False,
+                _store_failure_issue(
+                    artifact_id=artifact_id,
+                    operator=_operator_for(step_type, extractor_family),
                     stable_error_category=type(exc).__name__,
                 )
             )

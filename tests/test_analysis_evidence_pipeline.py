@@ -244,6 +244,93 @@ def test_digest_failure_retains_typed_findings_and_marks_partial(
         store.close()
 
 
+def test_digest_failure_issue_carries_typed_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #73: a digest-stage blocking issue must carry a typed repair
+    pointing at the frame's own operator, so an agent reads the next step off
+    the issue instead of getting repair=None."""
+
+    def fail_digest(**_kwargs):
+        raise RuntimeError("digest failure")
+
+    monkeypatch.setattr("marivo.analysis.evidence.pipeline.build_artifact_digest", fail_digest)
+    result, store = _commit(tmp_path)
+    assert store is not None
+    try:
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_digest_unavailable"
+        )
+        assert issue.failed_stage == "digest"
+        assert issue.stable_error_category == "RuntimeError"
+        assert issue.findings_available is True
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        assert issue.repair.action
+        assert "re-run observe" in issue.repair.action
+        assert issue.repair.help_target.surface == "analysis"
+        assert issue.repair.help_target.canonical_id == "observe"
+    finally:
+        store.close()
+
+
+def test_missing_store_issue_carries_typed_repair(tmp_path: Path) -> None:
+    """Issue #73: a store-unavailable blocking issue from a missing store must
+    carry an environment repair naming what to restore before retry."""
+    result, _ = _commit(tmp_path, store=False)
+    issue = next(
+        item
+        for item in result.meta.issues
+        if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_store_unavailable"
+    )
+    assert issue.failed_stage == "store"
+    assert issue.stable_error_category == "store_unavailable"
+    assert issue.findings_available is False
+    assert issue.repair is not None
+    assert issue.repair.kind == "environment"
+    assert issue.repair.action
+    assert "evidence store is unavailable" in issue.repair.action
+    assert "re-run observe" in issue.repair.action
+    assert issue.repair.help_target.surface == "analysis"
+    assert issue.repair.help_target.canonical_id == "observe"
+
+
+def test_projection_failure_issue_carries_typed_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #73: a store-unavailable blocking issue from a projection write
+    failure must carry an environment repair preserving the real error
+    category."""
+
+    def fail_projection(*_args, **_kwargs):
+        raise OSError("projection write failed")
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", fail_projection)
+    result, store = _commit(tmp_path)
+    assert store is not None
+    try:
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_store_unavailable"
+        )
+        assert issue.failed_stage == "store"
+        assert issue.stable_error_category == "OSError"
+        assert issue.findings_available is False
+        assert issue.repair is not None
+        assert issue.repair.kind == "environment"
+        assert issue.repair.action
+        assert "re-run observe" in issue.repair.action
+        assert issue.repair.help_target.surface == "analysis"
+        assert issue.repair.help_target.canonical_id == "observe"
+    finally:
+        store.close()
+
+
 def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
