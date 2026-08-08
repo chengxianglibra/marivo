@@ -143,8 +143,8 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
     replay = recover_observe_replay(frame, session=session)
 
     assert replay.metric == ref_factory.metric("sales.revenue")
-    assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
-    assert replay.grain == "day"
+    assert replay.time_scope == mv.time_scope(start="2026-07-01", end="2026-08-01")
+    assert replay.grain == mv.grain("day")
     assert replay.time_dimension == ref_factory.time_dimension("sales.orders.created_at")
     assert replay.dimensions == (ref_factory.dimension("sales.orders.region"),)
     assert replay.slice_by == {ref_factory.dimension("sales.orders.region"): "US"}
@@ -286,8 +286,8 @@ def test_recover_observe_replay_falls_back_to_job_record() -> None:
     replay = recover_observe_replay(frame, session=session)
 
     assert replay.metric == ref_factory.metric("sales.revenue")
-    assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
-    assert replay.grain == "day"
+    assert replay.time_scope == mv.time_scope(start="2026-07-01", end="2026-08-01")
+    assert replay.grain == mv.grain("day")
     assert replay.time_dimension == ref_factory.time_dimension("sales.orders.created_at")
     assert replay.dimensions == (ref_factory.dimension("sales.orders.region"),)
     assert replay.slice_by == {ref_factory.dimension("sales.orders.region"): "US"}

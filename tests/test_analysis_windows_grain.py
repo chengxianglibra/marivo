@@ -1,6 +1,7 @@
 import pytest
 
 from marivo._fixed_duration import fixed_duration_seconds
+from marivo.analysis import grain
 from marivo.analysis.errors import GrainUnsupportedError
 from marivo.analysis.windows.grain import (
     Grain,
@@ -71,10 +72,14 @@ def test_subday_width_must_divide_a_day():
 
 def test_normalize_grain_forms():
     assert normalize_grain(None) is None
-    assert normalize_grain("day") == Grain(count=1, unit="day")
-    assert normalize_grain("5minute") == Grain(count=5, unit="minute")
-    assert normalize_grain((10, "minute")) == Grain(count=10, unit="minute")
-    assert normalize_grain(Grain(count=1, unit="hour")) == Grain(count=1, unit="hour")
+    assert normalize_grain(grain("day")) == Grain(count=1, unit="day")
+    assert normalize_grain(grain("minute", count=5)) == Grain(count=5, unit="minute")
+    with pytest.raises(TypeError):
+        normalize_grain("5minute")  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        normalize_grain((10, "minute"))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        normalize_grain(Grain(count=1, unit="hour"))  # type: ignore[arg-type]
 
 
 def test_parse_grain_token_aliases():

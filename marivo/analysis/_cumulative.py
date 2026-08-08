@@ -284,10 +284,11 @@ def normalize_cumulative_anchor(value: object) -> CumulativeAnchor | None:
         candidate = value[1]
         if isinstance(candidate, str) and candidate:
             return ("grain_to_date", candidate)
-        if isinstance(candidate, TemporalGrain) and (
-            candidate.kind == "semantic" or bool(candidate.unit)
-        ):
-            return ("grain_to_date", candidate)
+        if isinstance(candidate, TemporalGrain):
+            if candidate.kind == "builtin":
+                return ("grain_to_date", candidate.to_token())
+            if candidate.kind == "semantic":
+                return ("grain_to_date", candidate)
         # Persisted metadata uses the canonical JSON representation of a
         # semantic Grain. Rehydrate it to the same dependency-neutral value
         # before execution or contract checks inspect the anchor.
@@ -342,6 +343,10 @@ def authored_comparable_period_anchor(
         )
     if isinstance(anchor, tuple) and anchor[0] == "grain_to_date":
         reset_grain = anchor[1]
+        if isinstance(reset_grain, TemporalGrain):
+            if reset_grain.kind != "builtin" or reset_grain.unit is None or reset_grain.count != 1:
+                raise ValueError(f"unsupported grain-to-date reset grain: {reset_grain!r}")
+            reset_grain = reset_grain.to_token()
         if reset_grain not in {"week", "month", "quarter", "year"}:
             raise ValueError(f"unsupported grain-to-date reset grain: {reset_grain!r}")
         return AuthoredGrainToDateAnchorV1(

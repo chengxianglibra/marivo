@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import (
@@ -575,7 +576,7 @@ def test_observe_applies_window(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
@@ -589,7 +590,7 @@ def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path)
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2024-10-11", end="2025-08-01"),
         session=s,
     )
 
@@ -607,7 +608,7 @@ def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        time_scope=mv.time_scope(start="2024-10-11T03:00:00", end="2025-07-31T14:00:00"),
         session=s,
     )
 
@@ -625,7 +626,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        time_scope=mv.time_scope(start="2024-10-11T03:00:00", end="2025-07-31T14:00:00"),
         time_dimension=make_ref("sales.orders.log_hour", SemanticKind.TIME_DIMENSION),
         session=s,
     )
@@ -646,7 +647,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
             session=s,
         )
 
@@ -669,7 +670,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         time_dimension=make_ref("sales.orders.create_date", SemanticKind.TIME_DIMENSION),
         session=s,
     )
@@ -685,7 +686,7 @@ def test_observe_uses_default_time_field_when_not_specified(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
 
@@ -701,7 +702,7 @@ def test_observe_multiple_time_fields_no_default_error_mentions_is_default(tmp_p
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
             session=s,
         )
 
@@ -734,8 +735,8 @@ def test_observe_slice_by_empty_result_raises_teaching_error(tmp_path):
     with pytest.raises(SliceEmptyResultError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-            grain="day",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
+            grain=mv.grain("day"),
             slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): "NOPE"},
             session=s,
         )
@@ -753,8 +754,8 @@ def test_observe_slice_by_empty_result_in_list_raises(tmp_path):
     with pytest.raises(SliceEmptyResultError):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-            grain="day",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
+            grain=mv.grain("day"),
             slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): ["NOPE1", "NOPE2"]},
             session=s,
         )
@@ -831,8 +832,8 @@ def test_temporal_preflight_no_candidate_blocks_scalar_and_forest_before_runtime
         with pytest.raises(TemporalSuitabilityError) as exc_info:
             observe(
                 metric,
-                time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-                grain="day",
+                time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+                grain=mv.grain("day"),
                 session=sales_session,
             )
         error = exc_info.value
@@ -858,7 +859,7 @@ def test_temporal_preflight_does_not_reinterpret_ordinary_dimension(
     with pytest.raises(TemporalSuitabilityError) as exc_info:
         observe(
             catalog.metrics.get("sales.revenue"),
-            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
             time_dimension=catalog.dimensions.get("sales.orders.country"),  # type: ignore[arg-type]
             session=sales_session,
         )
@@ -888,8 +889,8 @@ def test_temporal_preflight_incompatible_grain_has_exact_retry_without_runtime(
     with pytest.raises(GrainUnsupportedError) as exc_info:
         observe(
             catalog.metrics.get("sales.revenue"),
-            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-            grain="hour",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            grain=mv.grain("hour"),
             session=session,
         )
 
@@ -900,7 +901,7 @@ def test_temporal_preflight_incompatible_grain_has_exact_retry_without_runtime(
     assert 'session.catalog.time_dimensions.get("sales.orders.order_date")' in (
         error.repair.snippet
     )
-    assert 'grain="day"' in error.repair.snippet
+    assert 'grain=mv.grain("day")' in error.repair.snippet
     assert "<" not in error.repair.snippet
     assert calls == []
 
@@ -916,8 +917,8 @@ def test_temporal_grain_retry_snippet_executes_with_session_bound(tmp_path) -> N
     with pytest.raises(GrainUnsupportedError) as exc_info:
         observe(
             session.catalog.metrics.get("sales.revenue"),
-            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-            grain="hour",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            grain=mv.grain("hour"),
             session=session,
         )
 
@@ -1219,8 +1220,8 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -1329,8 +1330,8 @@ def test_observe_derived_ratio_zero_denominator_yields_null_with_quality_count(t
 
     frame = observe(
         make_ref("sales.failed_per_succeeded", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-05"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -1367,8 +1368,8 @@ def test_transform_clears_zero_denominator_rows_from_parent(tmp_path):
 
     frame = observe(
         make_ref("sales.failed_per_succeeded", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-05"),
+        grain=mv.grain("day"),
         session=session,
     )
     assert frame.meta.zero_denominator_rows == 2
@@ -1376,7 +1377,7 @@ def test_transform_clears_zero_denominator_rows_from_parent(tmp_path):
     # Clip to the one bucket without a zero denominator: the parent's count no
     # longer describes the surviving rows, so the transformed frame must not
     # carry it into its meta, quality summary, or persisted evidence.
-    windowed = frame.transform.window(window={"start": "2026-07-01", "end": "2026-07-02"})
+    windowed = frame.transform.window(window=mv.time_scope(start="2026-07-01", end="2026-07-02"))
     assert windowed.meta.zero_denominator_rows is None
     assert windowed.meta.quality_summary is not None
     assert windowed.meta.quality_summary.zero_denominator_rows is None
@@ -1389,8 +1390,8 @@ def test_observe_time_series_with_empty_dimensions_list(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-10-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+        grain=mv.grain("day"),
         dimensions=[],
         session=s,
     )
@@ -1444,7 +1445,7 @@ def test_observe_strptime_day_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2024-10-11", end="2025-08-01"),
         session=s,
     )
     df = frame.to_pandas()
@@ -1459,8 +1460,8 @@ def test_observe_strptime_day_format_time_series(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-10", "end": "2025-08-02"},
-        grain="day",
+        time_scope=mv.time_scope(start="2024-10-10", end="2025-08-02"),
+        grain=mv.grain("day"),
         session=s,
     )
     assert frame.meta.semantic_kind == "time_series"
@@ -1515,8 +1516,8 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-02"},
-        grain=(30, "minute"),
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-02"),
+        grain=mv.grain("minute", count=30),
         time_dimension=make_ref("sales.orders.create_time", SemanticKind.TIME_DIMENSION),
         session=s,
     )
@@ -1577,7 +1578,7 @@ def test_observe_strptime_integer_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2024-10-11", end="2025-08-01"),
         session=s,
     )
     df = frame.to_pandas()

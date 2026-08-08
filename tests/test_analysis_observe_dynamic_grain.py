@@ -3,6 +3,7 @@
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import GrainUnsupportedError
 from marivo.analysis.intents.observe import observe
@@ -60,8 +61,8 @@ def test_observe_five_minute_grain(tmp_path):
 
     frame = observe(
         make_ref("ops.hits", SemanticKind.METRIC),
-        time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
-        grain=(5, "minute"),
+        time_scope=mv.time_scope(start="2026-06-03 00:00:00", end="2026-06-03 01:00:00"),
+        grain=mv.grain("minute", count=5),
         session=s,
     )
 
@@ -83,8 +84,8 @@ def test_observe_grain_finer_than_base_rejected(tmp_path):
     with pytest.raises(GrainUnsupportedError):
         observe(
             make_ref("ops.hits", SemanticKind.METRIC),
-            time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
-            grain=(30, "second"),
+            time_scope=mv.time_scope(start="2026-06-03 00:00:00", end="2026-06-03 01:00:00"),
+            grain=mv.grain("second", count=30),
             session=s,
         )
 
@@ -99,8 +100,8 @@ def test_resolved_window_and_promotion_store_grain_token(tmp_path):
 
     observe(
         make_ref("ops.hits", SemanticKind.METRIC),
-        time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
-        grain=(5, "minute"),
+        time_scope=mv.time_scope(start="2026-06-03 00:00:00", end="2026-06-03 01:00:00"),
+        grain=mv.grain("minute", count=5),
         session=s,
     )
 

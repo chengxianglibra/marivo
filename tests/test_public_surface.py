@@ -193,6 +193,7 @@ ANALYSIS_PUBLIC = {
     "AbsoluteWindow",
     "Grain",
     "grain",
+    "time_scope",
 }
 
 DATASOURCE_PUBLIC = {

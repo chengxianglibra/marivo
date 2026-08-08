@@ -1,5 +1,6 @@
 """session.compare against two MetricFrames."""
 
+import importlib
 import json
 from datetime import date, timedelta
 
@@ -8,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
@@ -26,7 +28,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.intents.compare import compare
+from marivo.analysis.intents.compare import _align_component_role, compare
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import (
     day_of_week,
@@ -41,6 +43,8 @@ from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame
+
+compare_intent = importlib.import_module("marivo.analysis.intents.compare")
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +112,71 @@ def _slice3_snapshot():
     return snapshot
 
 
+def test_temporal_component_attribution_projects_parent_pairs_without_rematching(
+    tmp_path, monkeypatch
+):
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket",
+            "grain": "day",
+            "time_dimension": "bucket",
+            "ref": "sales.orders.bucket",
+        },
+        "region": {
+            "role": "dimension",
+            "column": "region",
+            "ref": "sales.orders.region",
+        },
+    }
+    current = make_metric_frame(
+        pd.DataFrame({"bucket": ["2026-07-01"], "region": ["north"], "numerator": [10.0]}),
+        metric_id="sales.numerator",
+        axes=axes,
+        measure={"name": "numerator"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame({"bucket": ["2025-07-02"], "region": ["north"], "numerator": [8.0]}),
+        metric_id="sales.numerator_baseline",
+        axes=axes,
+        measure={"name": "numerator"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+    parent_pairs = pd.DataFrame(
+        {
+            "region": ["north"],
+            "bucket_start_a": ["2026-07-01"],
+            "bucket_start_b": ["2025-07-02"],
+            "align_key": ['["north", [1, 0]]'],
+            "align_quality": ["exact"],
+            "presence_status": ["matched"],
+        }
+    )
+
+    def fail_if_rematched(*_args, **_kwargs):
+        raise AssertionError("component attribution must not rerun temporal alignment")
+
+    monkeypatch.setattr(compare_intent, "align_temporal_policy", fail_if_rematched)
+    aligned = _align_component_role(
+        current,
+        baseline,
+        alignment=day_of_week(),
+        parent_pairs=parent_pairs,
+        session=session,
+    )
+
+    assert aligned.loc[0, "current"] == pytest.approx(10.0)
+    assert aligned.loc[0, "baseline"] == pytest.approx(8.0)
+    assert aligned.loc[0, "delta"] == pytest.approx(2.0)
+    assert aligned.loc[0, "bucket_start_b"] == "2025-07-02"
+
+
 def test_compare_returns_delta_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -115,12 +184,12 @@ def test_compare_returns_delta_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
         session=s,
     )
     d = compare(q3, q2, alignment=window_bucket(), session=s)
@@ -175,12 +244,12 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
         session=s,
     )
     d = compare(q3, q2, session=s)
@@ -488,12 +557,12 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
         session=s,
     )
     delta = compare(q3, q2, session=s)
@@ -520,8 +589,8 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     b = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
+        grain=mv.grain("day"),
         session=s,
     )
     with pytest.raises(SemanticKindMismatchError):
@@ -550,12 +619,12 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
         session=s,
     )
 
@@ -570,14 +639,14 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-03"),
+        grain=mv.grain("day"),
         session=s,
     )
 
@@ -631,14 +700,14 @@ def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_u
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-02"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-02"),
+        grain=mv.grain("day"),
         session=s,
     )
 
@@ -665,14 +734,14 @@ def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-02"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-02"),
+        grain=mv.grain("day"),
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-03"),
+        grain=mv.grain("day"),
         session=s,
     )
 
@@ -1187,13 +1256,13 @@ def test_compare_propagates_metric_unit_to_delta_meta(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
         session=s,
     )
     assert q3.meta.unit == "CNY"
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
         session=s,
     )
     d = compare(q3, q2, session=s)
@@ -1254,13 +1323,13 @@ def test_compare_key_schema_is_stable_across_observed_null_distribution(tmp_path
     region = make_ref("sales.orders.region", SemanticKind.DIMENSION)
     july = observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         dimensions=[region],
         session=session,
     )
     august = observe(
         metric,
-        time_scope={"start": "2026-08-01", "end": "2026-09-01"},
+        time_scope=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         dimensions=[region],
         session=session,
     )
@@ -1275,18 +1344,18 @@ def test_compare_key_schema_is_stable_across_observed_null_distribution(tmp_path
 def test_compare_rejects_different_explicit_time_dimension_identities(tmp_path):
     session = _compare_axis_session(tmp_path)
     metric = make_ref("sales.revenue", SemanticKind.METRIC)
-    time_scope = {"start": "2026-07-01", "end": "2026-09-01"}
+    time_scope = mv.time_scope(start="2026-07-01", end="2026-09-01")
     ordered = observe(
         metric,
         time_scope=time_scope,
-        grain="day",
+        grain=mv.grain("day"),
         time_dimension=make_ref("sales.orders.order_date", SemanticKind.TIME_DIMENSION),
         session=session,
     )
     shipped = observe(
         metric,
         time_scope=time_scope,
-        grain="day",
+        grain=mv.grain("day"),
         time_dimension=make_ref("sales.orders.shipped_date", SemanticKind.TIME_DIMENSION),
         session=session,
     )

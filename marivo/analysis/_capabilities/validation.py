@@ -173,10 +173,6 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "SubjectSelection"
     if isinstance(value, FunnelLossRate):
         return "FunnelLossRate"
-    # A plain dict is acceptable as a TimeScopeInput (normalized later by
-    # the capability-specific validator, which may reject relative windows).
-    if isinstance(value, dict):
-        return "TimeScopeInput"
     return None
 
 

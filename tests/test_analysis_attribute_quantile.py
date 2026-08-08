@@ -39,8 +39,12 @@ def test_median_replacement_shapley_reconciles_independent_endpoint(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
     result = session.attribute(session.compare(current, baseline), axes=[region])
 
     rows = result.to_pandas().set_index("region")
@@ -79,8 +83,12 @@ def test_median_and_percentile_p50_have_the_same_replacement_game(
     results = []
     for metric_id in ("sales.median_amount", "sales.p50_amount"):
         metric = session.catalog.require(make_ref(metric_id, SemanticKind.METRIC)).ref
-        current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-        baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+        current = session.observe(
+            metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+        )
+        baseline = session.observe(
+            metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+        )
         results.append(
             session.attribute(session.compare(current, baseline), axes=[region])
             .to_pandas()
@@ -109,8 +117,12 @@ def test_quantile_partition_limit_precedes_frequency_materialization(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
 
     def _frequency_must_not_run(*args, **kwargs):
         raise AssertionError("frequency evidence materialized before partition admission")
@@ -143,8 +155,12 @@ def test_permutation_uncertainty_is_separate_from_source_error(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
 
     result = session.attribute(session.compare(current, baseline), axes=[region])
     evidence = result.meta.method_evidence
@@ -178,8 +194,12 @@ def test_multiresolution_quantile_preserves_each_scope_execution_method(
     metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     channel = session.catalog.require(make_ref("sales.orders.channel", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
 
     result = session.attribute(
         session.compare(current, baseline),
@@ -224,8 +244,12 @@ def test_quantile_blocks_an_empty_intermediate_coalition(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
 
     with pytest.raises(mv.errors.AttributionDistributionError) as exc_info:
         session.attribute(session.compare(current, baseline), axes=[region])

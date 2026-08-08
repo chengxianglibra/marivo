@@ -75,11 +75,14 @@ from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import (
     AbsoluteWindow,
-    TimeScopeInput,
+    TimeScope,
     dump_window,
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.analysis.windows.grain import Grain as InternalGrain
+from marivo.analysis.windows.grain import normalize_grain
+from marivo.analysis.windows.spec import normalize_legacy_timescope_input
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import (
     DimensionKind,
@@ -99,7 +102,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.metric_graph_canonical import fingerprint
 
 TransformFrame = MetricFrame | DeltaFrame
-RollupGrain = str | TemporalGrain
+RollupGrain = str | TemporalGrain | InternalGrain
 RankMethod = Literal["ordinal", "dense", "min", "max"]
 NormalizeKind = Literal["index", "share", "pct_change", "per_unit", "z_score"]
 NormalizeBaseline = dict[str, str | int | float | bool | None]
@@ -421,13 +424,13 @@ def transform_rollup[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
     drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
-    grain: RollupGrain | None = None,
+    grain: TemporalGrain | None = None,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     if drop_axes is None and grain is None:
         raise TransformArgError(
             message="transform(op='rollup') requires at least one of drop_axes= or grain=",
-            hint="Pass drop_axes=[...] to drop dimensions, or grain='month' to re-bucket the time axis.",
+            hint="Pass drop_axes=[...] to drop dimensions, or grain=mv.grain('month') to re-bucket the time axis.",
             context={"op": "rollup", "argument": "drop_axes_or_grain"},
         )
     session, prepared = _prepare_transform(frame)
@@ -439,7 +442,7 @@ def transform_rollup[TTransformFrame: TransformFrame](
     new_df, meta_overrides, op_params = _op_rollup(
         prepared,
         drop_axes=drop_axis_ids,
-        grain=grain,
+        grain=cast("RollupGrain | None", normalize_grain(grain)),
         catalog=session.catalog,
     )
     return _finish_transform(
@@ -532,7 +535,7 @@ def transform_rank[TTransformFrame: TransformFrame](
 def transform_window[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    window: TimeScopeInput,
+    window: TimeScope,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     session, prepared = _prepare_transform(frame)
@@ -1223,7 +1226,13 @@ def _pct_change_series(frame: TransformFrame, df: pd.DataFrame, column: str) -> 
 
 
 def _resolve_transform_window(raw_window: Any, *, session: Session) -> AbsoluteWindow:
-    timescope = normalize_timescope_input(raw_window)
+    # Candidate selection feeds the transform with its persisted
+    # ``AbsoluteWindow`` artifact. Keep that internal hand-off working while
+    # the public transform boundary accepts only the unified ``TimeScope``.
+    if isinstance(raw_window, AbsoluteWindow):
+        timescope = normalize_legacy_timescope_input(raw_window)
+    else:
+        timescope = normalize_timescope_input(raw_window)
     if timescope is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
@@ -1304,7 +1313,7 @@ def _align_window_bound_to_series(
 def _op_window(
     frame: TransformFrame,
     *,
-    window: TimeScopeInput,
+    window: TimeScope,
     session: Session,
 ) -> _TransformHandlerResult:
     resolved_window = _resolve_transform_window(window, session=session)
@@ -1825,6 +1834,8 @@ def _op_rollup(
     grain: RollupGrain | None,
     catalog: Any | None = None,
 ) -> _TransformHandlerResult:
+    if isinstance(grain, InternalGrain):
+        grain = grain.to_token()
     reaggregatable = getattr(frame.meta, "reaggregatable", True)
     rollup_fold = getattr(frame.meta, "rollup_fold", None)
     if reaggregatable is False and rollup_fold is None:
@@ -1837,12 +1848,15 @@ def _op_rollup(
 
     if grain is not None:
         if isinstance(grain, TemporalGrain):
-            return _op_rollup_semantic_grain(
-                frame,
-                grain=grain,
-                rollup_fold=rollup_fold,
-                catalog=catalog,
-            )
+            if grain.kind == "semantic":
+                return _op_rollup_semantic_grain(
+                    frame,
+                    grain=grain,
+                    rollup_fold=rollup_fold,
+                    catalog=catalog,
+                )
+            grain = grain.to_token()
+        assert isinstance(grain, str)
         return _op_rollup_grain(frame, grain=grain, rollup_fold=rollup_fold)
 
     if not drop_axes:
@@ -1986,7 +2000,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
                             f"incompatible with grain_to_date(reset={reset_grain!r}): "
                             f"week buckets straddle {reset_grain} boundaries."
                         ),
-                        hint="Use day or hour target grain, or grain_to_date(grain='week') for a week reset.",
+                        hint="Use day or hour target grain, or ms.grain_to_date(grain=mv.grain('week')) for a week reset.",
                         context={
                             "op": "rollup",
                             "reason": "grain_incompatible",

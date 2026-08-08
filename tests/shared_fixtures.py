@@ -1296,7 +1296,7 @@ def two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
     for start, end in (("2026-07-08", "2026-07-15"), ("2026-07-01", "2026-07-08")):
         journeys = session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start=f"{start}T00:00:00Z",
                 end=f"{end}T00:00:00Z",
             ),

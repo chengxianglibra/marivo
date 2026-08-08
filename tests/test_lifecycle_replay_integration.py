@@ -39,7 +39,7 @@ from tests.shared_fixtures import (
 )
 
 _MODEL_REF = LIFECYCLE_MODEL_REF
-_WINDOW = TimeScope(start="2026-07-01T00:00:00Z", end="2026-08-01T00:00:00Z")
+_WINDOW = mv.time_scope(start="2026-07-01T00:00:00Z", end="2026-08-01T00:00:00Z")
 _BASE_EVENTS = LIFECYCLE_BASE_EVENTS
 _BASE_ORDERS = LIFECYCLE_BASE_ORDERS
 _LIFECYCLE_CAPABILITY_IDS = {
@@ -266,7 +266,7 @@ def test_replay_accepts_a_current_catalog_entry_and_an_exact_ref(
     ("case", "expected_error", "location"),
     [
         ("model", SemanticKindMismatchError, "session.lifecycle.replay.model"),
-        ("window_type", WindowInvalidError, "session.lifecycle.replay.window"),
+        ("window_type", AnalysisError, "lifecycle.replay.window"),
         ("window_naive", WindowInvalidError, "session.lifecycle.replay.window.start"),
         ("window_empty", WindowInvalidError, "session.lifecycle.replay.window"),
         ("seed", InvalidLifecycleSeedError, "session.lifecycle.replay.seed"),
@@ -318,9 +318,15 @@ def test_replay_rejects_invalid_inputs_before_any_datasource_query(
         elif case == "window_type":
             kwargs["window"] = {"start": "2026-07-01T00:00:00Z", "end": "2026-08-01T00:00:00Z"}
         elif case == "window_naive":
-            kwargs["window"] = TimeScope(start="2026-07-01T00:00:00", end="2026-08-01T00:00:00Z")
+            kwargs["window"] = TimeScope.model_construct(
+                start="2026-07-01T00:00:00",
+                end="2026-08-01T00:00:00Z",
+            )
         elif case == "window_empty":
-            kwargs["window"] = TimeScope(start="2026-08-01T00:00:00Z", end="2026-08-01T00:00:00Z")
+            kwargs["window"] = TimeScope.model_construct(
+                start="2026-08-01T00:00:00Z",
+                end="2026-08-01T00:00:00Z",
+            )
         elif case == "seed":
             kwargs["seed"] = "from_inception"
         elif case == "completeness_type":

@@ -35,6 +35,7 @@ def _normalize_unset[T](value: T | _Unset) -> T | None:
 
 
 if TYPE_CHECKING:
+    from marivo._temporal import Grain as TemporalGrain
     from marivo.analysis.event import (
         CompletenessDeclaration,
         EventMatchingPolicy,
@@ -74,7 +75,7 @@ if TYPE_CHECKING:
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.subject import SubjectSelection
-    from marivo.analysis.windows.spec import GrainInput, TimeScope, TimeScopeInput
+    from marivo.analysis.windows.spec import TimeScope
     from marivo.ontology.catalog import OntologyCatalog
     from marivo.refs import DimensionKind, MetricKind, StateModelKind, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
@@ -656,8 +657,8 @@ class Session(RenderableResult):
             | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
         ),
         *,
-        time_scope: TimeScopeInput = None,
-        grain: GrainInput = None,
+        time_scope: TimeScope | None = None,
+        grain: TemporalGrain | None = None,
         dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
         slice_by: Mapping[
             _SemanticInput[DimensionKind | TimeDimensionKind],
@@ -680,8 +681,8 @@ class Session(RenderableResult):
             | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
         ),
         *,
-        time_scope: TimeScopeInput | _Unset = _UNSET,
-        grain: GrainInput | _Unset = _UNSET,
+        time_scope: TimeScope | None | _Unset = _UNSET,
+        grain: TemporalGrain | None | _Unset = _UNSET,
         dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]]
         | _Unset
         | None = _UNSET,
@@ -716,11 +717,10 @@ class Session(RenderableResult):
                 recursively composed, including nested catalog-derived metrics.
                 Temporal roots in one sequence must resolve to the same exact
                 time-dimension ref.
-            time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
-                inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
-                means data from August 1 is **not** included.
-            grain: Optional time bucket grain. When present, observe returns a time
-                series or panel depending on ``dimensions``.
+            time_scope: One ``mv.time_scope(...)`` value (or exact catalog period scope).
+                The interval is half-open: start is inclusive and end is exclusive.
+            grain: Optional unified ``mv.grain(...)`` or certified semantic grain. When
+                present, observe returns a time series or panel depending on ``dimensions``.
             dimensions: Exact current-catalog dimension/time-dimension entries
                 or refs used as segment axes. Omit, pass ``None``, or pass
                 ``[]`` for no segment axes.
@@ -755,8 +755,8 @@ class Session(RenderableResult):
             >>> channel = catalog.dimensions.get("sales.orders.channel")
             >>> frame = session.observe(
             ...     revenue,
-            ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
-            ...     grain="day",
+            ...     time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+            ...     grain=mv.grain("day"),
             ...     dimensions=[country],
             ...     analysis_purpose="确认三季度按国家收入走势",
             ... )
@@ -767,8 +767,8 @@ class Session(RenderableResult):
             >>> # Filter to a subset before aggregation with slice_by:
             >>> us_online_frame = session.observe(
             ...     revenue,
-            ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
-            ...     grain="day",
+            ...     time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+            ...     grain=mv.grain("day"),
             ...     slice_by={country: "US", channel: "online"},
             ... )
             >>> us_online_frame.show()
@@ -973,8 +973,14 @@ class Session(RenderableResult):
 
         Example:
             >>> revenue = session.catalog.require(ms.ref.metric("sales.revenue")).ref
-            >>> cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
-            >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
+            >>> cur = session.observe(
+            ...     revenue,
+            ...     time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+            ... )
+            >>> base = session.observe(
+            ...     revenue,
+            ...     time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
+            ... )
             >>> delta = session.compare(
             ...     cur,
             ...     base,
@@ -1340,7 +1346,8 @@ class Session(RenderableResult):
         Example:
             >>> history = session.observe(
             ...     session.catalog.require(ms.ref.metric("sales.revenue")),
-            ...     time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
+            ...     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+            ...     grain=mv.grain("day"),
             ... )
             >>> forecast = session.forecast(
             ...     history,
@@ -1600,7 +1607,7 @@ class SessionEvents(RenderableResult):
             ... )
             >>> journeys = session.events.match(
             ...     pattern=pattern,
-            ...     cohort_window=mv.TimeScope(
+            ...     cohort_window=mv.time_scope(
             ...         start="2026-07-01T00:00:00Z",
             ...         end="2026-07-08T00:00:00Z",
             ...     ),
@@ -1834,7 +1841,7 @@ class SessionLifecycle(RenderableResult):
             ... )
             >>> history = session.lifecycle.replay(
             ...     order_lifecycle,
-            ...     window=mv.TimeScope(
+            ...     window=mv.time_scope(
             ...         start="2026-07-01T00:00:00Z",
             ...         end="2026-08-01T00:00:00Z",
             ...     ),

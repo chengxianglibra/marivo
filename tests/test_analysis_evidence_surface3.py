@@ -5,6 +5,7 @@ from pathlib import Path
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import FindingNotFoundError
 from marivo.analysis.evidence.types import (
@@ -51,11 +52,11 @@ def _compare(session):
 
     current = session.observe(
         metrics=make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
     )
     baseline = session.observe(
         metrics=make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-24", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-24", end="2026-04-30"),
     )
     return session.compare(current, baseline)
 

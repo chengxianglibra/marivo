@@ -265,7 +265,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A derived metric over cumulative components can compare only when every outer component uses the "
         "same trailing or grain_to_date anchor; all_history, mixed anchors, attribute, and decompose remain unsupported.",
         "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
-        "Pass anchor=ms.grain_to_date(grain='month'|'quarter'|'year'|'week'), "
+        "Pass anchor=ms.grain_to_date(grain=mv.grain('month'|'quarter'|'year'|'week')), "
         "anchor=ms.trailing(count=N, unit='day'|'hour'|...), or omit anchor for all-history.",
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(

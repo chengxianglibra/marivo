@@ -551,10 +551,14 @@ def _grain_retry_repair(
     include_time_dimension: bool,
 ) -> AnalysisRepair:
     metric_expression = _metric_expression(metric_ids)
+    grain_expression = (
+        f'mv.grain("{grain.unit}"' + (f", count={grain.count}" if grain.count != 1 else "") + ")"
+    )
     snippet_lines = [
+        "import marivo.analysis as mv",
         f"frame = session.observe({metric_expression},\n"
-        f'    time_scope={{"start": "{window.start}", "end": "{window.end}"}},\n'
-        f'    grain="{grain.to_token()}",'
+        f'    time_scope=mv.time_scope(start="{window.start}", end="{window.end}"),\n'
+        f"    grain={grain_expression},",
     ]
     if include_time_dimension:
         snippet_lines.append(f'    time_dimension=session.catalog.time_dimensions.get("{axis}"))')

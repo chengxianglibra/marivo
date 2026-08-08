@@ -40,7 +40,6 @@ from marivo.analysis.intents._lifecycle_violations import (
 from marivo.analysis.lifecycle import from_inception
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
-from marivo.analysis.windows.spec import TimeScope
 from marivo.refs import RefPayloadV1
 
 _DOMAIN = """\
@@ -237,7 +236,7 @@ def _committed_history(session: mv.Session) -> LifecycleFrame:
             subject_identity=subject_identity,
             states=states,
             seed=from_inception(),
-            window=TimeScope(
+            window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-10T00:00:00Z",
             ),

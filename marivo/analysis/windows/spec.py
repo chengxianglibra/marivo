@@ -14,12 +14,18 @@ from pydantic import (
 )
 
 from marivo._temporal import Grain as TemporalGrain
-from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
+from marivo._temporal import (
+    PeriodCalendarSnapshotV1,
+    TimeScope,
+    _new_time_scope,
+    _validate_time_scope_data,
+)
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.windows.grain import (
     Grain,
     GrainInput,
     normalize_grain,
+    normalize_legacy_grain,
 )
 
 __all__ = [
@@ -76,7 +82,7 @@ class AbsoluteWindow(BaseModel):
     @field_validator("grain", mode="before")
     @classmethod
     def _normalize_grain(cls, value: Any) -> Grain | None:
-        return cast("Grain | None", normalize_grain(value))
+        return cast("Grain | None", normalize_legacy_grain(value))
 
     @field_serializer("grain")
     def _serialize_grain(self, value: Grain | TemporalGrain | None) -> object:
@@ -92,7 +98,8 @@ class AbsoluteWindow(BaseModel):
         return value.to_token()
 
 
-TimeScopeInput = TimeScope | dict[str, Any] | None
+TimeScopeInput = TimeScope | None
+LegacyTimeScopeInput = TimeScope | AbsoluteWindow | dict[str, Any] | None
 
 
 def _raise_timescope_model_invalid(
@@ -123,15 +130,24 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
         return None
     if isinstance(raw, TimeScope):
         return raw
+    raise WindowInvalidError(
+        message=f"unsupported time_scope input type {type(raw).__name__}",
+        context={"kind": "TimeScopeTypeInvalid", "time_scope": repr(raw)},
+    )
+
+
+def normalize_legacy_timescope_input(raw: LegacyTimeScopeInput) -> TimeScope | None:
+    """Normalize persisted/internal window values, not public API inputs."""
+
+    if raw is None:
+        return None
+    if isinstance(raw, TimeScope):
+        return raw
     if isinstance(raw, AbsoluteWindow):
-        # Internal callers (e.g. discover window candidates fed to
-        # transform.window) still pass a resolved AbsoluteWindow; reduce it to
-        # its period. AbsoluteWindow is intentionally absent from the public
-        # TimeScopeInput type so observe callers use time_scope + grain/time_dimension.
-        return TimeScope(start=raw.start, end=raw.end)
+        return _new_time_scope(start=raw.start, end=raw.end)
     if isinstance(raw, dict):
         try:
-            return TimeScope.model_validate(raw)
+            return _validate_time_scope_data(raw)
         except ValidationError as exc:
             _raise_timescope_model_invalid(raw=raw, error=exc)
     raise WindowInvalidError(
@@ -179,7 +195,7 @@ def make_absolute_window(
             return None
         raise WindowInvalidError(
             message="time_scope is required when grain or time_dimension is provided",
-            hint='Pass time_scope={"start": "2026-07-01", "end": "2026-08-01"}.',
+            hint='Pass time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01").',
             context={"kind": "TimeScopeRequired"},
         )
     resolved_grain = normalize_grain(grain)

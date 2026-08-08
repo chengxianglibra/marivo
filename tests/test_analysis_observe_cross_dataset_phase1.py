@@ -5,6 +5,7 @@ from __future__ import annotations
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
@@ -138,8 +139,8 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
     _seed(con)
     frame = observe(
         make_ref("sales.revenue_by_user", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-05"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
@@ -309,7 +310,7 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     _seed_snapshot(con)
     frame = observe(
         make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
         dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )

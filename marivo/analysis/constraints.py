@@ -113,8 +113,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("observe", "forecast", "transform", "TimeScope", "AbsoluteWindow"),
         "Time scopes are half-open [start, end): start is inclusive and end is exclusive.",
         "Analysis persistence records concrete half-open ranges and cannot infer an ambiguous natural-language window or silently include the end bound.",
-        'Pass time_scope={"start": "2026-07-01", "end": "2026-08-01"} to include all of July and exclude August 1.',
-        example='time_scope={"start": "2026-07-01", "end": "2026-08-01"}',
+        'Pass time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01") to include all of July and exclude August 1.',
+        example='time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")',
         help_target="observe",
     ),
     ConstraintId.FRAME_KIND_COMPATIBLE: _constraint(
@@ -327,7 +327,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("lifecycle.replay", "TimeScope"),
         "Lifecycle replay windows are explicit timezone-aware half-open intervals.",
         "Replay reconstructs earlier state before clipping intervals to the requested window.",
-        "Pass mv.TimeScope(start=<aware instant>, end=<later aware instant>).",
+        "Pass mv.time_scope(start=<aware instant>, end=<later aware instant>).",
         help_target="lifecycle.replay",
     ),
     ConstraintId.LIFECYCLE_SEED_VALID: _constraint(
@@ -402,7 +402,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("events.match", "TimeScope"),
         "Event Journey cohort and follow-up bounds are explicit.",
         "The first occurrence is anchored in a half-open cohort window while completion follow-up includes completion_through.",
-        "Pass mv.TimeScope(start=..., end=...) and completion_through greater than or equal to its end.",
+        "Pass mv.time_scope(start=..., end=...) and completion_through greater than or equal to its end.",
         help_target="events.match",
     ),
     ConstraintId.EVENT_COMPLETENESS_VALID: _constraint(

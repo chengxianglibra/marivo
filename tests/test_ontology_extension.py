@@ -224,8 +224,8 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     session = _session_with_orders(tmp_path)
     source = session.observe(
         ms.ref.metric("sales.revenue"),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
     )
 
     contract = source.contract()

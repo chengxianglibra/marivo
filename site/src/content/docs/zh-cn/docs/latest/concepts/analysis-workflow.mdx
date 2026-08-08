@@ -148,8 +148,8 @@ Operators 接受精确的当前 entry/ref、封闭 expression 和若干共享值
 | --- | --- | --- |
 | metric 输入 | `catalog.metrics.get("sales.revenue")` | 精确 current `MetricEntry` 或 `Ref[metric]`，也可传 observe 使用的封闭 `RuntimeMetricExpr`；拒绝 stale/cross-catalog entry、generic ref 与字符串。 |
 | dimension 输入 | `catalog.dimensions.get("sales.orders.region")` | 精确 current dimension/time-dimension entry 或匹配的 ref（见 [Semantic refs](/zh-cn/docs/latest/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`slice_by` key 与 axes。 |
-| `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | 半开时间区间 —— `start` 含、`end` 不含。 |
-| `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
+| `time_scope` | `mv.time_scope(start="2026-10-01", end="2027-01-01")` | 半开时间区间 —— `start` 含、`end` 不含。 |
+| `grain` | `mv.grain("day")` 或 `ms.calendar_grain(...)` | 统一的时间桶值。存在 ⇒ time series 或 panel。 |
 | `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
 | `slice_by` | `{region: "US"}` 或 `{amount: {"op": ">", "value": 100}}` | 聚合前的行过滤（见下方运算符）。 |
 | `AlignmentPolicy` | `mv.window_bucket()` | `compare` / `correlate` 时两个窗口如何配对。 |
@@ -183,8 +183,8 @@ key 是 catalog dimension；value 为标量（`==`）、列表（`in`），或�
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `metric` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`，或非空序列 | 是 | — | 精确 current metric entry/ref 或封闭 runtime expression；拒绝 stale/cross-catalog entry、generic ref 与裸字符串。 |
-| `time_scope` | dict | 否 | `None` | 半开 `{"start", "end"}` 窗口。 |
-| `grain` | grain | 否 | `None` | 时间桶；存在 ⇒ time series 或 panel。 |
+| `time_scope` | `TimeScope` | 否 | `None` | `mv.time_scope(...)` 返回的 scope，或精确 catalog period lookup 返回的 scope。 |
+| `grain` | `Grain` | 否 | `None` | `mv.grain(...)` 或 `ms.calendar_grain(...)` 返回的统一值。 |
 | `dimensions` | entry/ref 序列 | 否 | `None` | 精确 current dimension/time-dimension entry 或 ref。 |
 | `slice_by` | 以 entry/ref 为 key 的 mapping | 否 | `None` | 全局聚合前行过滤。 |
 | `time_dimension` | time-dimension entry/ref | 否 | entity 默认 | 当 entity 声明多个时间轴时选择其一。 |
@@ -199,8 +199,8 @@ planning、持久化、evidence 或 replay 前把 entry 归一化为 canonical r
 ```python
 current = session.observe(
     revenue,
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 ```
@@ -238,8 +238,8 @@ typed transform 内部仍使用 canonical `value` 列。例如
 ```python
 report = session.observe(
     [revenue, catalog.metrics.get("sales.total_orders")],
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
 )
 revenue_only = report.metric("sales.revenue")
 ```
@@ -268,7 +268,7 @@ failure_rate = mv.runtime_metric.ratio(
     zero_division="null",
     label="Runtime failure rate",
 )
-frame = session.observe(failure_rate, time_scope=window, grain="day")
+frame = session.observe(failure_rate, time_scope=window, grain=mv.grain("day"))
 ```
 
 runtime expression 可以递归包含 runtime expression 与 catalog `Ref[metric]`。
@@ -306,8 +306,8 @@ kind 与持久化 comparable value semantics；catalog/runtime identity 可以�
 ```python
 baseline = session.observe(
     revenue,
-    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
@@ -452,7 +452,11 @@ forecast 会抛出 `ForecastInputQualityError`；它不会静默补零，也不�
 segment 的预测起点。
 
 ```python
-history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+history = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
@@ -503,7 +507,11 @@ objectives 使用确定性 score order；ontology hypothesis 不打分，按确�
 | `semantic_hypotheses` | 单一 catalog Metric 的 `MetricFrame` 或同 Metric `DeltaFrame` | ready 的可选 ontology | `limit=50`（`1..200`） |
 
 ```python
-series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+series = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 item_id = str(candidates.to_pandas().iloc[0]["item_id"])
@@ -596,13 +604,13 @@ trailing 与 grain-to-date delta 通过 `delta.meta.cumulative_alignment` 暴露
 ```python
 cum_frame = session.observe(
     cumulative_active_users,
-    time_scope={"start": "2026-01-01", "end": "2026-04-01"},
-    grain="day",
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
 )
 cum_frame.contract()  # 显示锚点特定的注意事项
 windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # 将累计 frame rollup 到更粗的粒度（周期末语义）：
-monthly = cum_frame.transform.rollup(grain="month")
+monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
 # 对于 attribute/forecast，请改为 observe base metric：
 base_frame = session.observe(active_users, ...)
 ```
@@ -738,14 +746,14 @@ region = catalog.dimensions.get("sales.orders.region")
 
 current = session.observe(
     revenue,
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 baseline = session.observe(
     revenue,
-    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
@@ -783,7 +791,7 @@ payment_step = mv.step(participant=payment_user, key="payment")
 pattern = mv.sequence(cart_step, checkout_step, payment_step)
 journeys = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
 )
@@ -801,13 +809,13 @@ policy。`exclusive` 最多把一个 completion 分配给一个 open attempt；`
 ```python
 exclusive_attempts = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.every_start(completion_assignment="exclusive"),
 )
 shared_attempts = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.every_start(completion_assignment="shared"),
 )
@@ -830,7 +838,7 @@ coverage = mv.declared_complete_through(
 )
 journeys = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
     completeness=(coverage,),
@@ -876,7 +884,7 @@ dropout_revenue = session.observe(revenue, cohort=dropouts)
 return_journeys = session.events.match(
     pattern=return_pattern,
     cohort=dropouts,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
 )
@@ -933,7 +941,7 @@ order_model = catalog.state_models.get("sales.order_lifecycle")
 
 history = session.lifecycle.replay(
     order_model,
-    window=mv.TimeScope(start=start, end=end),
+    window=mv.time_scope(start=start, end=end),
     seed=mv.from_inception(),
     analysis_purpose="Reconstruct governed order state history.",
 )

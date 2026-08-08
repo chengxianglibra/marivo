@@ -32,8 +32,12 @@ def test_count_distinct_overlap_reconciles_independent_endpoint(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
     result = session.attribute(session.compare(current, baseline), axes=[region])
 
     rows = result.to_pandas().set_index("region")
@@ -72,8 +76,12 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
     metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     channel = session.catalog.require(make_ref("sales.orders.channel", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
     result = session.attribute(
         session.compare(current, baseline),
         axes=[region, channel],
@@ -154,8 +162,12 @@ def test_count_distinct_excludes_null_keys_and_keeps_null_and_one_sided_axes(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
 
     rows = session.attribute(session.compare(current, baseline), axes=[region]).to_pandas()
 
@@ -185,8 +197,12 @@ def test_count_distinct_raw_keys_do_not_cross_the_artifact_boundary(
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
     result = session.attribute(session.compare(current, baseline), axes=[region])
 
     assert "private-key" not in result.meta.model_dump_json()
@@ -224,14 +240,14 @@ def test_count_distinct_panel_source_reconciles_each_comparison_bucket(
     channel = session.catalog.require(make_ref("sales.orders.channel", SemanticKind.DIMENSION)).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
-        grain="month",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=mv.grain("month"),
         dimensions=[channel],
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2025-01-01", "end": "2025-03-01"},
-        grain="month",
+        time_scope=mv.time_scope(start="2025-01-01", end="2025-03-01"),
+        grain=mv.grain("month"),
         dimensions=[channel],
     )
 

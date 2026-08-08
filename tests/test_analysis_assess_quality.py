@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -230,8 +231,8 @@ def test_observe_frame_runs_null_ratio_checks(tmp_path):
 
     frame = observe(
         session.catalog.require(ref.metric("sales.revenue")).ref,
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         session=session,
     )
     report = session.assess_quality(frame)

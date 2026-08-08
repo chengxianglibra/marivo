@@ -5,6 +5,7 @@ from typing import get_type_hints
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import TemporalSuitabilityError
 from marivo.analysis.intents.observe import observe
@@ -147,7 +148,7 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-25"),
         session=s,
     )
 
@@ -177,8 +178,8 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-25"),
+        grain=mv.grain("day"),
         session=s,
     )
 
@@ -207,8 +208,8 @@ def test_windowed_time_series_requires_explicit_axis_for_multi_dataset_metric(tm
     with pytest.raises(TemporalSuitabilityError) as exc_info:
         observe(
             make_ref("sales.net", SemanticKind.METRIC),
-            time_scope={"start": "2026-05-01", "end": "2026-05-24"},
-            grain="day",
+            time_scope=mv.time_scope(start="2026-05-01", end="2026-05-24"),
+            grain=mv.grain("day"),
             session=s,
         )
 
@@ -236,8 +237,8 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-25"),
+        grain=mv.grain("day"),
         session=s,
     )
 
@@ -266,8 +267,8 @@ def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-02"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-02"),
+        grain=mv.grain("day"),
         session=s,
     )
 

@@ -38,7 +38,7 @@ def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path)
 
     frame = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         analysis_purpose=purpose,
     )
 
@@ -69,12 +69,12 @@ def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) ->
     region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
     cur = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         dimensions=[region],
     )
     base = session.observe(
         revenue,
-        time_scope={"start": "2026-08-01", "end": "2026-09-01"},
+        time_scope=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         dimensions=[region],
     )
 
@@ -155,12 +155,12 @@ def test_observe_repeated_call_records_each_invocation_purpose(tmp_path) -> None
 
     first = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         analysis_purpose="confirm September revenue exceeds August",
     )
     second = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         analysis_purpose="audit the same window for reporting",
     )
 
@@ -188,12 +188,12 @@ def test_attribute_repeated_call_records_reused_invocation_job(tmp_path) -> None
     region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
     cur = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         dimensions=[region],
     )
     base = session.observe(
         revenue,
-        time_scope={"start": "2026-08-01", "end": "2026-09-01"},
+        time_scope=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         dimensions=[region],
     )
     delta = session.compare(cur, base)
@@ -233,12 +233,12 @@ def test_compare_repeated_call_records_reused_invocation_job(tmp_path) -> None:
     region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
     cur = session.observe(
         revenue,
-        time_scope={"start": "2026-09-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         dimensions=[region],
     )
     base = session.observe(
         revenue,
-        time_scope={"start": "2026-08-01", "end": "2026-09-01"},
+        time_scope=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         dimensions=[region],
     )
 
@@ -287,14 +287,14 @@ def test_observe_multi_metric_repeated_call_records_each_purpose(tmp_path) -> No
 
     first = session.observe(
         [revenue, order_count],
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         analysis_purpose="compare revenue and orders",
     )
     second = session.observe(
         [revenue, order_count],
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         analysis_purpose="re-audit multi-metric report",
     )
 

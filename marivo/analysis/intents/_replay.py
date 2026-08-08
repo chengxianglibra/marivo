@@ -6,6 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
+from marivo._temporal import (
+    _validate_time_scope_data,
+)
+from marivo._temporal import (
+    time_scope as make_time_scope,
+)
 from marivo.analysis.errors import (
     AttributionMaterializationError,
     JobNotFoundError,
@@ -17,6 +23,7 @@ from marivo.analysis.policies import AlignmentPolicy, decode_alignment_policy
 from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payload
 from marivo.analysis.session.core import Session
 from marivo.analysis.slice_types import SliceValue
+from marivo.analysis.windows.grain import to_temporal_grain
 from marivo.analysis.windows.spec import TimeScopeInput
 from marivo.refs import (
     DimensionKind,
@@ -49,7 +56,7 @@ type ReplayMetricInput = (
 class ObserveReplay:
     metric: ReplayMetricInput
     time_scope: TimeScopeInput
-    grain: str | None
+    grain: Any
     dimensions: tuple[Ref[FieldKind], ...]
     slice_by: dict[Ref[FieldKind], Any]
     time_dimension: Ref[TimeDimensionKind] | None
@@ -235,7 +242,26 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
     if isinstance(timescope, dict):
         original = timescope.get("original")
         if isinstance(original, dict):
-            original_timescope = original
+            if (
+                "start" in original
+                and "end" in original
+                and original.get("kind") != "calendar_period"
+            ):
+                original_timescope = make_time_scope(
+                    start=original["start"],
+                    end=original["end"],
+                )
+            else:
+                try:
+                    original_timescope = _validate_time_scope_data(original)
+                except (TypeError, ValueError) as exc:
+                    raise AttributionMaterializationError(
+                        message="MetricFrame replay contains an invalid persisted time scope",
+                        context={
+                            "recoverability_status": "observe_timescope_invalid",
+                            "source_ref": frame.ref,
+                        },
+                    ) from exc
         resolved = timescope.get("resolved")
         if isinstance(resolved, dict):
             resolved_timescope = resolved
@@ -300,7 +326,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
     return ObserveReplay(
         metric=metric,
         time_scope=original_timescope,
-        grain=str(grain) if isinstance(grain, str) and grain else None,
+        grain=to_temporal_grain(grain),
         dimensions=dimension_refs,
         slice_by=slice_by,
         time_dimension=(

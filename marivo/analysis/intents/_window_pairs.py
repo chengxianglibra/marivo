@@ -24,7 +24,7 @@ from marivo._temporal import GregorianIsoResolver
 from marivo.analysis.errors import AlignmentFailedError
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.windows.grain import Grain as _Grain
-from marivo.analysis.windows.grain import normalize_grain as _normalize_grain
+from marivo.analysis.windows.grain import normalize_legacy_grain as _normalize_grain
 from marivo.analysis.windows.spec import is_date_only
 
 

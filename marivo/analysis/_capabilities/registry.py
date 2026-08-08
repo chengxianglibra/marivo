@@ -613,7 +613,7 @@ def _build_registry() -> CapabilityRegistry:
     """Build the complete immutable capability registry."""
 
     # Late imports to avoid circular dependencies at module load time.
-    from marivo.analysis import grain
+    from marivo.analysis import grain, time_scope
     from marivo.analysis.event import (
         declared_complete_through,
         every_start,
@@ -636,7 +636,7 @@ def _build_registry() -> CapabilityRegistry:
     )
     from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
     from marivo.analysis.subject import dropped_before
-    from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
+    from marivo.analysis.windows.spec import AbsoluteWindow
 
     all_artifact_families: frozenset[InputFamily] = frozenset(ARTIFACT_FAMILIES)
 
@@ -680,10 +680,11 @@ def _build_registry() -> CapabilityRegistry:
                 HelpExample(
                     label="Direct Ref segmented time series",
                     code=(
+                        "import marivo.analysis as mv\n"
                         "frame = session.observe(\n"
                         '    ms.ref.metric("sales.revenue"),\n'
-                        '    time_scope={"start": "2026-07-01", "end": "2026-07-04"},\n'
-                        '    grain="day",\n'
+                        '    time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),\n'
+                        '    grain=mv.grain("day"),\n'
                         '    dimensions=[ms.ref.dimension("sales.orders.region")],\n'
                         ")"
                     ),
@@ -742,7 +743,7 @@ def _build_registry() -> CapabilityRegistry:
                         '        mv.step(participant=cart_user, key="cart"),\n'
                         '        mv.step(participant=payment_buyer, key="payment"),\n'
                         "    ),\n"
-                        "    cohort_window=mv.TimeScope(\n"
+                        "    cohort_window=mv.time_scope(\n"
                         '        start="2026-07-01T00:00:00Z",\n'
                         '        end="2026-07-08T00:00:00Z",\n'
                         "    ),\n"
@@ -760,7 +761,7 @@ def _build_registry() -> CapabilityRegistry:
                         '        mv.step(participant=cart_user, key="cart"),\n'
                         '        mv.step(participant=payment_buyer, key="payment"),\n'
                         "    ),\n"
-                        "    cohort_window=mv.TimeScope(\n"
+                        "    cohort_window=mv.time_scope(\n"
                         '        start="2026-07-01T00:00:00Z",\n'
                         '        end="2026-07-08T00:00:00Z",\n'
                         "    ),\n"
@@ -776,7 +777,7 @@ def _build_registry() -> CapabilityRegistry:
                         "scoped_journeys = session.events.match(\n"
                         "    pattern=pattern,\n"
                         "    cohort=subjects,\n"
-                        "    cohort_window=mv.TimeScope(\n"
+                        "    cohort_window=mv.time_scope(\n"
                         '        start="2026-07-01T00:00:00Z",\n'
                         '        end="2026-07-02T00:00:00Z",\n'
                         "    ),\n"
@@ -861,7 +862,7 @@ def _build_registry() -> CapabilityRegistry:
                     code=(
                         "history = session.lifecycle.replay(\n"
                         '    ms.ref.state_model("commerce.order_lifecycle"),\n'
-                        "    window=mv.TimeScope(\n"
+                        "    window=mv.time_scope(\n"
                         '        start="2026-07-01T00:00:00Z",\n'
                         '        end="2026-08-01T00:00:00Z",\n'
                         "    ),\n"
@@ -874,7 +875,7 @@ def _build_registry() -> CapabilityRegistry:
                     code=(
                         "scoped_history = session.lifecycle.replay(\n"
                         '    ms.ref.state_model("commerce.order_lifecycle"),\n'
-                        "    window=mv.TimeScope(\n"
+                        "    window=mv.time_scope(\n"
                         '        start="2026-08-01T00:00:00Z",\n'
                         '        end="2026-09-01T00:00:00Z",\n'
                         "    ),\n"
@@ -1055,13 +1056,13 @@ def _build_registry() -> CapabilityRegistry:
                     code=(
                         "current = session.observe(\n"
                         "    cumulative_metric,\n"
-                        '    time_scope={"start": "2026-07-01", "end": "2026-07-08"},\n'
-                        '    grain="day",\n'
+                        '    time_scope=mv.time_scope(start="2026-07-01", end="2026-07-08"),\n'
+                        '    grain=mv.grain("day"),\n'
                         ")\n"
                         "baseline = session.observe(\n"
                         "    cumulative_metric,\n"
-                        '    time_scope={"start": "2026-06-01", "end": "2026-06-08"},\n'
-                        '    grain="day",\n'
+                        '    time_scope=mv.time_scope(start="2026-06-01", end="2026-06-08"),\n'
+                        '    grain=mv.grain("day"),\n'
                         ")\n"
                         "delta = session.compare(current, baseline)\n"
                         "delta.show()\n"
@@ -1817,18 +1818,18 @@ def _build_registry() -> CapabilityRegistry:
         ),
         (
             "TimeScope",
-            "mv.TimeScope(...)",
+            "mv.time_scope(...)",
             "TimeScope",
             "Half-open time interval [start, end) for observe time_scope; "
             'start is inclusive and end is exclusive (for example, end="2026-08-01" '
             "includes all of July and excludes August 1).",
-            TimeScope,
+            time_scope,
             "TimeScope",
             "TimeScopeInput",
         ),
         (
             "AbsoluteWindow",
-            "mv.AbsoluteWindow(...)",
+            "mv.time_scope(...)",
             "AbsoluteWindow",
             "Half-open time interval [start, end) with optional grain.",
             AbsoluteWindow,

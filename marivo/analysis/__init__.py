@@ -1,8 +1,11 @@
 """Marivo's typed analysis runtime."""
 
+from datetime import date as _date
+from datetime import datetime as _datetime
 from typing import Any as _Any
 
 from marivo._temporal import Grain
+from marivo._temporal import time_scope as _time_scope
 from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
@@ -137,6 +140,21 @@ def grain(
     return builtin_grain(unit, count=count)
 
 
+def time_scope(
+    *,
+    start: _date | _datetime | str,
+    end: _date | _datetime | str,
+) -> TimeScope:
+    """Construct one validated absolute analysis scope.
+
+    Calendar-period scopes come from certified catalog lookups; absolute
+    callers should use this helper rather than constructing ``TimeScope``
+    directly.
+    """
+
+    return _time_scope(start=start, end=end)
+
+
 def __getattr__(name: str) -> _Any:
     if name == "evidence":
         from importlib import import_module
@@ -227,6 +245,7 @@ __all__ = [
     "sequence",
     "session",
     "step",
+    "time_scope",
     "window_bucket",
 ]
 

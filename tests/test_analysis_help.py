@@ -1038,7 +1038,7 @@ def test_live_help_preserves_leading_keyword_only_separator() -> None:
     ),
 )
 def test_type_resolves_same_as_string(type_name: str) -> None:
-    type_obj = getattr(mv, type_name)
+    type_obj = mv.time_scope if type_name == "TimeScope" else getattr(mv, type_name)
     text_type = _text(type_obj)
     text_string = _text(type_name)
     assert text_type == text_string
@@ -1207,6 +1207,7 @@ def test_analysis_all_is_pinned() -> None:
         "OntologyMetricCandidate",
         "SubjectSet",
         "TimeScope",
+        "time_scope",
         "day_of_week",
         "period_progress",
         "period_correspondence",

@@ -519,7 +519,7 @@ def test_by_callable_resolves_constructors() -> None:
 def test_by_callable_resolves_types() -> None:
     import marivo.analysis as mv
 
-    descriptor = REGISTRY.by_callable(mv.TimeScope)
+    descriptor = REGISTRY.by_callable(mv.time_scope)
     assert descriptor.id == "TimeScope"
 
     descriptor = REGISTRY.by_callable(mv.SamplingPolicy)

@@ -50,7 +50,7 @@ def _clone_event_frame(
 def _single_step_funnel(session: Any) -> EventFrame:
     journeys = session.events.match(
         pattern=mv.sequence(pattern_step_for_tests("cart")),
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-08T00:00:00Z",
             end="2026-07-15T00:00:00Z",
         ),
@@ -107,7 +107,7 @@ def test_compare_persists_declared_completeness(funnel_session: Any) -> None:
     for start, end in (("2026-07-08", "2026-07-15"), ("2026-07-01", "2026-07-08")):
         journeys = funnel_session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start=f"{start}T00:00:00Z",
                 end=f"{end}T00:00:00Z",
             ),
@@ -548,11 +548,11 @@ def test_metric_delta_retains_metric_semantics(funnel_session: Any) -> None:
     metric = funnel_session.catalog.require(ms.ref.metric("commerce.order_count"))
     current = funnel_session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-15"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-15"),
     )
     baseline = funnel_session.observe(
         metric,
-        time_scope={"start": "2026-06-01", "end": "2026-06-15"},
+        time_scope=mv.time_scope(start="2026-06-01", end="2026-06-15"),
     )
     delta = funnel_session.compare(current, baseline)
     assert delta.meta.semantic_kind in {"scalar", "time_series", "segmented", "panel"}

@@ -14,7 +14,7 @@ from marivo.analysis.intents.transform import NormalizeBaseline, NormalizeKind, 
 from marivo.analysis.session._runtime import require_current_session
 from marivo.analysis.session.core import _track_session_operation
 from marivo.analysis.slice_types import SliceValue
-from marivo.analysis.windows import TimeScopeInput
+from marivo.analysis.windows import TimeScope
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
@@ -108,7 +108,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         self,
         *,
         drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
-        grain: str | TemporalGrain | None = None,
+        grain: TemporalGrain | None = None,
         analysis_purpose: str | None = None,
     ) -> TFrame:
         """Aggregate a frame by dropping axes or re-bucketing the time axis.
@@ -117,7 +117,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
             drop_axes: Exact current-catalog dimension/time-dimension entries
                 or refs to remove before grouping.
             grain: Target time grain coarser than the current time axis
-                (e.g. ``"month"`` or a certified ``ms.calendar_grain(...)``).
+                (e.g. ``mv.grain("month")`` or a certified ``ms.calendar_grain(...)``).
                 Semantic grains require a certified containment edge and complete
                 source periods. Cumulative frames take the last bucket per period
                 (``rollup_fold="last"``).
@@ -129,7 +129,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
 
         Example:
             >>> daily = frame.transform.rollup(drop_axes=[country])
-            >>> monthly = frame.transform.rollup(grain="month")
+            >>> monthly = frame.transform.rollup(grain=mv.grain("month"))
 
         Constraints:
             At least one of ``drop_axes`` or ``grain`` is required.
@@ -273,7 +273,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
                 analysis_purpose=analysis_purpose,
             )
 
-    def window(self, *, window: TimeScopeInput, analysis_purpose: str | None = None) -> TFrame:
+    def window(self, *, window: TimeScope, analysis_purpose: str | None = None) -> TFrame:
         """Restrict a time-series or panel frame to a half-open time window.
 
         Args:
@@ -285,7 +285,9 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
             A transformed frame of the same family as the receiver.
 
         Example:
-            >>> recent = frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
+            >>> recent = frame.transform.window(
+            ...     window=mv.time_scope(start="2026-02-01", end="2026-03-01")
+            ... )
 
         Constraints:
             Requires a persisted time axis.

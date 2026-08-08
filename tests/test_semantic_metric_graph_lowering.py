@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
+import marivo.analysis as mv
 from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -31,6 +32,7 @@ from marivo.semantic.validator import Registry
 _CATALOG_SOURCE = """\
 import marivo.datasource as md
 import marivo.semantic as ms
+import marivo.analysis as mv
 
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
@@ -65,7 +67,7 @@ mtd_revenue = ms.cumulative(
     name="mtd_revenue",
     base=revenue,
     over=event_time,
-    anchor=ms.grain_to_date(grain="month"),
+    anchor=ms.grain_to_date(grain=mv.grain("month")),
 )
 """
 
@@ -171,7 +173,7 @@ def test_cumulative_anchor_and_axis_dependency_are_canonical(
     assert isinstance(root, CumulativeNodeV1)
     assert root.time_dimension_ref is not None
     assert root.time_dimension_ref.path == "test.orders.event_time"
-    assert root.anchor == ("grain_to_date", "month")
+    assert root.anchor == ("grain_to_date", mv.grain("month"))
     assert len(root.dependency_fingerprint) == 64
 
 

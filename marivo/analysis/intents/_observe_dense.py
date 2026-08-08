@@ -55,14 +55,18 @@ def _align_to_grain_start(
     """
     import pandas as pd
 
-    if isinstance(unit, TemporalGrain) and unit.kind == "semantic":
-        if snapshot is None or unit.level is None:
-            raise ValueError("semantic grain alignment requires a certified snapshot")
-        timestamp = pd.Timestamp(ts)
-        if timestamp.tzinfo is not None:
-            timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
-        period = TemporalResolver(snapshot).period_on(unit.level, timestamp.date())
-        return pd.Timestamp(period.start_date)
+    if isinstance(unit, TemporalGrain):
+        if unit.kind == "semantic":
+            if snapshot is None or unit.level is None:
+                raise ValueError("semantic grain alignment requires a certified snapshot")
+            timestamp = pd.Timestamp(ts)
+            if timestamp.tzinfo is not None:
+                timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
+            period = TemporalResolver(snapshot).period_on(unit.level, timestamp.date())
+            return pd.Timestamp(period.start_date)
+        assert unit.unit is not None and unit.count is not None
+        count = unit.count
+        unit = unit.unit
 
     if unit in _FIXED_GRAINS:
         if count > 1 and unit in ("second", "minute", "hour"):
@@ -198,47 +202,61 @@ def _require_grain_to_date_compat(
     are always legal; week-under-week is legal.
     """
     if isinstance(reset_grain, TemporalGrain):
-        if reset_grain.kind != "semantic":
-            return
-        if snapshot is None or reset_grain.calendar is None or reset_grain.level is None:
-            raise AnalysisError(
-                message="semantic grain_to_date reset requires a certified period snapshot",
-                hint="Preview the referenced period calendar before observing the metric.",
-                context={"reset_grain": reset_grain.to_token(), "query_grain": query_grain_token},
-            )
-        semantic_prefix = f"{reset_grain.calendar.path}::"
-        if query_grain_token.startswith(semantic_prefix):
-            query_level = query_grain_token.removeprefix(semantic_prefix)
-            if query_level == reset_grain.level or TemporalResolver(snapshot).rolls_up_to(
-                query_level, reset_grain.level
-            ):
+        if reset_grain.kind == "builtin":
+            if reset_grain.unit is None or reset_grain.count != 1:
+                raise AnalysisError(
+                    message="builtin grain_to_date reset must be a unit grain",
+                    context={
+                        "reset_grain": reset_grain.to_token(),
+                        "query_grain": query_grain_token,
+                    },
+                )
+            reset_grain = reset_grain.to_token()
+        else:
+            if reset_grain.kind != "semantic":
+                return
+            if snapshot is None or reset_grain.calendar is None or reset_grain.level is None:
+                raise AnalysisError(
+                    message="semantic grain_to_date reset requires a certified period snapshot",
+                    hint="Preview the referenced period calendar before observing the metric.",
+                    context={
+                        "reset_grain": reset_grain.to_token(),
+                        "query_grain": query_grain_token,
+                    },
+                )
+            semantic_prefix = f"{reset_grain.calendar.path}::"
+            if query_grain_token.startswith(semantic_prefix):
+                query_level = query_grain_token.removeprefix(semantic_prefix)
+                if query_level == reset_grain.level or TemporalResolver(snapshot).rolls_up_to(
+                    query_level, reset_grain.level
+                ):
+                    return
+                raise AnalysisError(
+                    message=(
+                        f"semantic grain_to_date reset {reset_grain.to_token()!r} is not a "
+                        f"certified containment target for query grain {query_grain_token!r}"
+                    ),
+                    hint="Choose a query calendar level with a certified containment edge.",
+                    context={
+                        "reset_grain": reset_grain.to_token(),
+                        "query_grain": query_grain_token,
+                        "reason": "rollup_not_certified",
+                    },
+                )
+            if query_grain_token in {"hour", "day"}:
                 return
             raise AnalysisError(
                 message=(
-                    f"semantic grain_to_date reset {reset_grain.to_token()!r} is not a "
-                    f"certified containment target for query grain {query_grain_token!r}"
+                    f"builtin query grain {query_grain_token!r} cannot be certified against "
+                    f"semantic reset grain {reset_grain.to_token()!r}"
                 ),
-                hint="Choose a query calendar level with a certified containment edge.",
+                hint="Use hour/day or the same certified semantic calendar for the query grain.",
                 context={
                     "reset_grain": reset_grain.to_token(),
                     "query_grain": query_grain_token,
-                    "reason": "rollup_not_certified",
+                    "reason": "cross_authority_grain_to_date",
                 },
             )
-        if query_grain_token in {"hour", "day"}:
-            return
-        raise AnalysisError(
-            message=(
-                f"builtin query grain {query_grain_token!r} cannot be certified against "
-                f"semantic reset grain {reset_grain.to_token()!r}"
-            ),
-            hint="Use hour/day or the same certified semantic calendar for the query grain.",
-            context={
-                "reset_grain": reset_grain.to_token(),
-                "query_grain": query_grain_token,
-                "reason": "cross_authority_grain_to_date",
-            },
-        )
     if "::" in query_grain_token:
         raise AnalysisError(
             message=(
@@ -258,7 +276,9 @@ def _require_grain_to_date_compat(
                 f"grain_to_date(grain={reset_grain!r}) is incompatible with query grain "
                 f"{query_grain_token!r}: week buckets straddle {reset_grain} boundaries."
             ),
-            hint=("Use day or hour query grain, or grain_to_date(grain='week') for a week reset."),
+            hint=(
+                "Use day or hour query grain, or ms.grain_to_date(grain=mv.grain('week')) for a week reset."
+            ),
             context={"reset_grain": reset_grain, "query_grain": query_grain_token},
         )
 
@@ -278,19 +298,22 @@ def _trunc_series_to_grain(
     import pandas as pd
 
     ts = pd.to_datetime(pd.Series(values))
-    if isinstance(grain, TemporalGrain) and grain.kind == "semantic":
-        if snapshot is None or grain.level is None:
-            raise ValueError("semantic reset grain requires a certified snapshot")
-        resolver = TemporalResolver(snapshot)
-        starts = []
-        for value in ts:
-            timestamp = pd.Timestamp(value)
-            if timestamp.tzinfo is not None:
-                timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
-            starts.append(
-                pd.Timestamp(resolver.period_on(grain.level, timestamp.date()).start_date)
-            )
-        return pd.Series(starts, index=ts.index, name=ts.name)
+    if isinstance(grain, TemporalGrain):
+        if grain.kind == "semantic":
+            if snapshot is None or grain.level is None:
+                raise ValueError("semantic reset grain requires a certified snapshot")
+            resolver = TemporalResolver(snapshot)
+            starts = []
+            for value in ts:
+                timestamp = pd.Timestamp(value)
+                if timestamp.tzinfo is not None:
+                    timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
+                starts.append(
+                    pd.Timestamp(resolver.period_on(grain.level, timestamp.date()).start_date)
+                )
+            return pd.Series(starts, index=ts.index, name=ts.name)
+        assert grain.unit is not None and grain.count == 1
+        grain = grain.unit
     if grain == "week":
         return ts.dt.to_period("W").dt.start_time
     if grain == "month":

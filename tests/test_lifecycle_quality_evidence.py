@@ -49,7 +49,6 @@ from marivo.analysis.intents._lifecycle_violations import (
 from marivo.analysis.intents._quality_checks import run_lifecycle_checks
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
-from marivo.analysis.windows.spec import TimeScope
 from marivo.refs import RefPayloadV1, ref
 
 
@@ -168,7 +167,7 @@ def _history_frame(session: mv.Session) -> LifecycleFrame:
             subject_identity=("commerce.orders.order_id",),
             states=(created, paid),
             seed=mv.from_inception(),
-            window=TimeScope(
+            window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-08-01T00:00:00Z",
             ),

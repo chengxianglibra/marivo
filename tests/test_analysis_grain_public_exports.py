@@ -1,3 +1,5 @@
+import pytest
+
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.windows.spec import normalize_grain
@@ -15,6 +17,8 @@ def test_public_grain_is_distinct_from_legacy_window_normalization_surface():
     assert hasattr(ma, "Grain")
     assert not hasattr(ma, "GrainInput")
     assert ma.grain("month").kind == "builtin"
+    with pytest.raises(TypeError, match="direct construction is not supported"):
+        ma.Grain(unit="day")
     g = Grain(count=5, unit="minute")
     assert g.to_token() == "5minute"
     assert GrainInput is not None

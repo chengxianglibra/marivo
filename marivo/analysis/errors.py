@@ -262,7 +262,7 @@ class MetricNotFoundError(AnalysisError):
                         "catalog = ms.load()\n"
                         "catalog.metrics.show()  # confirm the exact id\n"
                         'session.observe(catalog.require(ms.ref.metric("<registered_metric_id>")).ref, '
-                        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+                        'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
                     ),
                     candidates=candidates,
                 ),
@@ -304,7 +304,7 @@ class WindowInvalidError(AnalysisError):
                     if isinstance(fix_snippet, str) and fix_snippet
                     else (
                         'session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
-                        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+                        'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
                     )
                 ),
                 candidates=candidates,
@@ -667,7 +667,7 @@ class SemanticKindMismatchError(AnalysisError):
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=(
                         'session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
-                        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+                        'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
                     ),
                 ),
             )
@@ -691,8 +691,8 @@ class SemanticKindMismatchError(AnalysisError):
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 snippet=(
                     'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))\n'
-                    'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
-                    'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})\n'
+                    'cur  = session.observe(revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))\n'
+                    'base = session.observe(revenue, time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"))\n'
                     "delta = session.compare(cur, base, alignment=mv.window_bucket())"
                 ),
             ),
@@ -764,7 +764,7 @@ class DiscoverAxisNotMaterializedError(AnalysisError):
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 snippet=(
-                    "frame = session.observe(metric, grain='day', dimensions=[region, page])\n"
+                    "frame = session.observe(metric, grain=mv.grain('day'), dimensions=[region, page])\n"
                     "session.discover.driver_axes(delta, search_space=[region, page])"
                 ),
             ),
@@ -815,8 +815,8 @@ class TestShapeNotTestableError(AnalysisError):
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="hypothesis_test"),
                 snippet=(
                     'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))\n'
-                    'cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-08-01"}, grain="day")\n'
-                    'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-08-01"}, grain="day")\n'
+                    'cur = session.observe(revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"), grain=mv.grain("day"))\n'
+                    'base = session.observe(revenue, time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"), grain=mv.grain("day"))\n'
                     "session.hypothesis_test(cur, base)"
                 ),
             ),
@@ -858,7 +858,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
                 action="forecast v1 accepts only MetricFrame time_series or panel shapes.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
-                    'history = session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\n'
+                    'history = session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"), grain=mv.grain("day"))\n'
                     "session.forecast(history, horizon=30)"
                 ),
             ),
@@ -888,7 +888,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
                     'history = session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
-                    'time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")'
+                    'time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"), grain=mv.grain("day"))'
                 ),
             ),
         )

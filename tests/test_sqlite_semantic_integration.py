@@ -116,7 +116,7 @@ def test_sqlite_verify_preview_readiness_and_observe(
     )
     frame = session.observe(
         revenue,
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
     result = frame.to_pandas()
 

@@ -4,6 +4,7 @@ import ibis
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -85,8 +86,8 @@ def _session(tmp_path):
 def _panel(session, *, start: str, end: str, grain: str = "day"):
     return observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": start, "end": end},
-        grain=grain,
+        time_scope=mv.time_scope(start=start, end=end),
+        grain=mv.grain(grain),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
@@ -129,8 +130,8 @@ def test_window_bucket_panel_different_expected_counts_uses_outer_ordinal_union(
 
 def test_window_bucket_panel_strict_lengths_rejects_different_expected_counts(tmp_path):
     s = _session(tmp_path)
-    cur = _panel(s, start="2026-07-01", end="2026-07-02")
-    prev = _panel(s, start="2026-06-24", end="2026-06-24")
+    cur = _panel(s, start="2026-07-01", end="2026-07-03")
+    prev = _panel(s, start="2026-06-24", end="2026-06-25")
 
     with pytest.raises(AlignmentFailedError) as exc_info:
         compare(

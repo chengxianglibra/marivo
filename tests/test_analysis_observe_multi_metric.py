@@ -5,6 +5,7 @@ import inspect
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.errors import SemanticKindMismatchError, TemporalSuitabilityError
@@ -35,12 +36,12 @@ def sales_session(tmp_path):
     return session_attach.get_or_create(name="multi_metric", backends={"warehouse": lambda: con})
 
 
-WINDOW = {"start": "2026-07-01", "end": "2026-07-04"}
+WINDOW = mv.time_scope(start="2026-07-01", end="2026-07-04")
 
 
 def test_boundary_empty_sequence_rejected(sales_session):
     with pytest.raises(SemanticKindMismatchError) as excinfo:
-        observe([], time_scope=WINDOW, grain="day", session=sales_session)
+        observe([], time_scope=WINDOW, grain=mv.grain("day"), session=sales_session)
     assert "at least one metric" in str(excinfo.value)
 
 
@@ -51,7 +52,7 @@ def test_duplicate_entry_and_ref_roots_are_rejected_after_normalization(sales_se
         observe(
             [revenue, revenue.ref],
             time_scope=WINDOW,
-            grain="day",
+            grain=mv.grain("day"),
             session=sales_session,
         )
     assert exc_info.value._context["duplicate_metric_refs"] == ["metric:sales.revenue"]
@@ -62,13 +63,13 @@ def test_boundary_single_element_sequence_equals_scalar_observe(sales_session):
     via_list = observe(
         [catalog.require(ms.ref.metric("sales.revenue")).ref],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     via_scalar = observe(
         catalog.require(ms.ref.metric("sales.revenue")).ref,
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     assert via_list.meta.metric_id == "sales.revenue"
@@ -83,7 +84,7 @@ def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session)
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ),
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
     )
 
     assert frame.metrics == ("sales.revenue", "sales.order_count")
@@ -158,7 +159,7 @@ def test_same_entity_metrics_fuse_into_one_query(sales_session, monkeypatch):
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     assert len(calls) == 1
@@ -175,7 +176,7 @@ def test_value_columns_exposes_metric_value_columns_regardless_of_arity(sales_se
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     assert multi.value_columns == ("revenue", "order_count")
@@ -192,19 +193,19 @@ def test_fused_values_match_single_observes(sales_session):
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     revenue = observe(
         catalog.require(ms.ref.metric("sales.revenue")).ref,
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     count = observe(
         catalog.require(ms.ref.metric("sales.order_count")).ref,
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     fused_df = fused.to_pandas().set_index("bucket_start")
@@ -242,7 +243,7 @@ def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
                 catalog.metrics.get("sales.user_count"),
             ],
             time_scope=WINDOW,
-            grain="day",
+            grain=mv.grain("day"),
             session=sales_session,
         )
 
@@ -287,7 +288,7 @@ def test_cross_entity_subday_grain_reports_axis_conflict_without_partial_retry(
                 catalog.metrics.get("sales.user_count"),
             ],
             time_scope=WINDOW,
-            grain="hour",
+            grain=mv.grain("hour"),
             session=sales_session,
         )
 
@@ -342,7 +343,7 @@ def _fused_frame(sales_session):
             catalog.require(ms.ref.metric("sales.order_count")).ref,
         ],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
 
@@ -412,7 +413,7 @@ def test_multi_metric_observe_accepts_cumulative_metric(sales_session):
             make_ref("sales.cumulative_revenue", SemanticKind.METRIC),
         ],
         time_scope=WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
 
@@ -446,7 +447,7 @@ def test_multi_metric_conflicting_status_time_axes_fail_closed(sales_session, mo
                 make_ref("sales.order_count", SemanticKind.METRIC),
             ],
             time_scope=WINDOW,
-            grain="day",
+            grain=mv.grain("day"),
             session=sales_session,
         )
 

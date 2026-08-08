@@ -203,8 +203,8 @@ def _resolve_pattern(
         )
     if not isinstance(cohort_window, TimeScope):
         raise InvalidEventPatternError(
-            message="events.match cohort_window must be mv.TimeScope",
-            expected="mv.TimeScope(start=<inclusive>, end=<exclusive>)",
+            message="events.match cohort_window must be a TimeScope from mv.time_scope(...) or an exact catalog lookup",
+            expected="mv.time_scope(start=<inclusive>, end=<exclusive>)",
             received=type(cohort_window).__name__,
             location="session.events.match.cohort_window",
             repair=_repair(

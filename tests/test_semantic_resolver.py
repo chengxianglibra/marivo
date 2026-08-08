@@ -10,10 +10,10 @@ import marivo.semantic as ms
 from marivo._temporal import (
     GregorianIsoResolver,
     TemporalResolver,
-    TimeScope,
     TimeScopeContractV1,
     certify_period_calendar,
     certify_period_calendar_rows,
+    time_scope,
 )
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
@@ -268,7 +268,7 @@ def test_period_snapshot_distinguishes_json_scalar_key_types() -> None:
 
 
 def test_time_scope_contract_preserves_normalized_bounds_and_provenance() -> None:
-    absolute = TimeScope(start="2026-01-01", end="2026-02-01")
+    absolute = time_scope(start="2026-01-01", end="2026-02-01")
     assert isinstance(absolute.contract(), TimeScopeContractV1)
     assert absolute.contract().model_dump() == {
         "schema": "time-scope/v1",

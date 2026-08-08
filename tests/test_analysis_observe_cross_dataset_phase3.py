@@ -7,6 +7,7 @@ from pathlib import Path
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
@@ -185,8 +186,8 @@ def test_panel_observe_aggregate_then_join(tmp_path):
 
     frame = observe(
         make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-05"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
         session=_session(con),
     )

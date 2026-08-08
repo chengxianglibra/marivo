@@ -56,8 +56,12 @@ def test_observe_compare_persist_graph_owned_distinct_basis(
     backend.raw_sql("INSERT INTO orders VALUES (DATE '2026-01-01', 'US', 'web', 1, 10)")
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
     metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
-    current = session.observe(metric, time_scope={"start": "2026-01-01", "end": "2026-02-01"})
-    baseline = session.observe(metric, time_scope={"start": "2025-01-01", "end": "2025-02-01"})
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
 
     assert current.meta.attribution_basis is not None
     assert current.meta.attribution_basis.kind == "count_distinct"

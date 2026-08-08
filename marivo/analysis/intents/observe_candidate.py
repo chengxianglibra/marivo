@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import (
@@ -23,7 +23,7 @@ from marivo.analysis.intents.semantic_hypotheses import (
 )
 from marivo.analysis.session.core import Session
 from marivo.analysis.slice_types import SliceValue
-from marivo.analysis.windows.spec import TimeScopeInput
+from marivo.analysis.windows.grain import to_temporal_grain
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, MetricKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
@@ -204,11 +204,20 @@ def observe_candidate(
         window.pop("kind", None)
         window.pop("grain", None)
         window.pop("time_dimension", None)
-    time_scope = cast("TimeScopeInput", cast("dict[str, Any] | None", window))
+    if window is None:
+        time_scope = None
+    else:
+        from marivo.analysis import time_scope as make_time_scope
+
+        start = window.get("start")
+        end = window.get("end")
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise TypeError("candidate scope window must contain ISO start/end strings")
+        time_scope = make_time_scope(start=start, end=end)
     return observe(
         metric_ref,
         time_scope=time_scope,
-        grain=scope.grain,
+        grain=to_temporal_grain(scope.grain),
         dimensions=dimensions,
         slice_by=slice_by,
         time_dimension=time_dimension,

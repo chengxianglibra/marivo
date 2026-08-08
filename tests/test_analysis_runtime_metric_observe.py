@@ -196,8 +196,8 @@ def test_runtime_metric_temporal_preflight_fails_before_query_capture(
     with pytest.raises(GrainUnsupportedError) as exc_info:
         runtime_session.observe(
             expression,
-            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-            grain="hour",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            grain=mv.grain("hour"),
         )
 
     assert captures == []
@@ -225,8 +225,8 @@ def test_runtime_metric_temporal_preflight_does_not_mask_unknown_measure(
     with pytest.raises(ValueError, match=r"runtime metric measure .* is not loaded"):
         runtime_session.observe(
             expression,
-            time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-            grain="day",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            grain=mv.grain("day"),
         )
 
     assert captures == []
@@ -1016,8 +1016,8 @@ def test_observe_multi_metric_label_colliding_with_time_column_fails_closed(
                 mv.runtime_metric.aggregate(amount, agg="sum", label="bucket_start"),
                 mv.runtime_metric.aggregate(amount, agg="count", label="row_count"),
             ],
-            time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-            grain="day",
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+            grain=mv.grain("day"),
         )
 
     error = exc_info.value

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from marivo._fixed_duration import fixed_duration_seconds
 from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import builtin_grain
 from marivo.analysis.errors import GrainUnsupportedError
 
 GrainUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -154,7 +155,11 @@ class Grain(BaseModel):
         return not self.__lt__(other)
 
 
-GrainInput = Grain | TemporalGrain | tuple[int, str] | str | None
+# Public analysis callers submit the one unified temporal value returned by
+# ``mv.grain(...)`` or ``ms.calendar_grain(...)``.  The Pydantic ``Grain``
+# below remains an internal execution representation after normalization.
+GrainInput = TemporalGrain | None
+LegacyGrainInput = Grain | TemporalGrain | tuple[int, str] | str | None
 
 
 def parse_grain_token(text: str) -> Grain:
@@ -170,6 +175,21 @@ def parse_grain_token(text: str) -> Grain:
 
 
 def normalize_grain(value: GrainInput) -> Grain | TemporalGrain | None:
+    """Normalize one unified public grain value for execution."""
+
+    if value is None:
+        return None
+    if not isinstance(value, TemporalGrain):
+        raise TypeError(f"unsupported grain input type {type(value).__name__}")
+    if value.kind == "semantic":
+        return value
+    assert value.unit is not None and value.count is not None
+    return Grain(count=value.count, unit=value.unit)  # type: ignore[arg-type]
+
+
+def normalize_legacy_grain(value: LegacyGrainInput) -> Grain | TemporalGrain | None:
+    """Normalize persisted/internal window values, not public API inputs."""
+
     if value is None:
         return None
     if isinstance(value, Grain):
@@ -187,6 +207,18 @@ def normalize_grain(value: GrainInput) -> Grain | TemporalGrain | None:
         count, unit = value
         return Grain(count=int(count), unit=unit)  # type: ignore[arg-type]
     raise TypeError(f"unsupported grain input type {type(value).__name__}")
+
+
+def to_temporal_grain(value: LegacyGrainInput) -> TemporalGrain | None:
+    """Convert persisted/internal grain values to the unified public value."""
+
+    normalized = normalize_legacy_grain(value)
+    if normalized is None:
+        return None
+    if isinstance(normalized, TemporalGrain):
+        return normalized
+    assert normalized.unit is not None and normalized.count is not None
+    return builtin_grain(normalized.unit, count=normalized.count)
 
 
 def ensure_grain_supported(grain: Grain | TemporalGrain, base_granularity: str) -> None:

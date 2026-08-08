@@ -18,7 +18,6 @@ from marivo.analysis.errors import (
     WindowInvalidError,
 )
 from marivo.analysis.frames.subject import SubjectSet
-from marivo.analysis.windows.spec import TimeScope
 from tests.shared_fixtures import (
     LIFECYCLE_METRIC_REF,
     LIFECYCLE_MODEL_REF,
@@ -26,7 +25,7 @@ from tests.shared_fixtures import (
     seed_lifecycle_backend,
 )
 
-_WINDOW = TimeScope(start="2026-07-01T00:00:00Z", end="2026-08-01T00:00:00Z")
+_WINDOW = mv.time_scope(start="2026-07-01T00:00:00Z", end="2026-08-01T00:00:00Z")
 _EVENT_PATHS = (
     "commerce.order_created",
     "commerce.payment_captured",
@@ -369,7 +368,7 @@ def test_in_state_journey_pairs_stay_closed_across_artifact_families(
                     key="paid",
                 ),
             ),
-            cohort_window=TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-08-01T00:00:00Z",
             ),
@@ -467,8 +466,8 @@ def test_ready_lifecycle_subject_set_is_reusable_by_typed_consumers(
 
         metrics = session.observe(
             ms.ref.metric(LIFECYCLE_METRIC_REF),
-            time_scope=TimeScope(start="2026-06-01", end="2026-08-01"),
-            grain="month",
+            time_scope=mv.time_scope(start="2026-06-01", end="2026-08-01"),
+            grain=mv.grain("month"),
             cohort=subjects,
         )
         assert metrics.meta.cohort == binding
@@ -484,7 +483,7 @@ def test_ready_lifecycle_subject_set_is_reusable_by_typed_consumers(
                     key="closed",
                 ),
             ),
-            cohort_window=TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-08-01T00:00:00Z",
             ),

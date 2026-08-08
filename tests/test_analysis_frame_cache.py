@@ -4,6 +4,7 @@ and session.get_frame() recovers frames across script boundaries."""
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     FrameCacheCorruptedError,
@@ -110,7 +111,7 @@ def test_observe_different_inputs_cache_miss(tmp_path):
     first = s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
     second = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     assert first.ref != second.ref
 
@@ -125,11 +126,11 @@ def test_compare_idempotent_cache_hit(tmp_path):
 
     cur = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-10-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
     )
     base = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2025-07-01", "end": "2025-10-01"},
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
     )
     first = s.compare(cur, base)
     assert isinstance(first, DeltaFrame)
@@ -354,13 +355,13 @@ def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):
 
     cur = s.observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
     )
     base = s.observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
     )
 
     delta = s.compare(cur, base)

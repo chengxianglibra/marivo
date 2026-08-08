@@ -148,7 +148,7 @@ def _resolve_model(
 
 def _parse_instant(value: object, *, label: str, location: str) -> pd.Timestamp:
     action = (
-        "Pass mv.TimeScope(start=<aware instant>, end=<later aware instant>) "
+        "Pass mv.time_scope(start=<aware instant>, end=<later aware instant>) "
         "with explicit timezone offsets."
     )
     if type(value) is not str or not value.strip():
@@ -185,13 +185,13 @@ def _parse_instant(value: object, *, label: str, location: str) -> pd.Timestamp:
 def _resolve_window(window: TimeScope) -> tuple[pd.Timestamp, pd.Timestamp]:
     if type(window) is not TimeScope:
         raise WindowInvalidError(
-            message="lifecycle.replay window must be an exact mv.TimeScope",
-            expected="mv.TimeScope(start=<inclusive>, end=<exclusive>)",
+            message="lifecycle.replay window must be an exact TimeScope from mv.time_scope(...)",
+            expected="mv.time_scope(start=<inclusive>, end=<exclusive>)",
             received=type(window).__name__,
             location="session.lifecycle.replay.window",
             repair=_repair(
                 kind="user_choice",
-                action="Construct the replay window with mv.TimeScope(start=..., end=...).",
+                action="Construct the replay window with mv.time_scope(start=..., end=...).",
             ),
         )
     start = _parse_instant(

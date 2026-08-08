@@ -355,6 +355,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "funnel_loss_rate",
         "from_inception",
         "grain",
+        "time_scope",
         "in_state",
         "Session",
         "OntologyMetricCandidate",
