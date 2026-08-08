@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, cast, overload, runtime_checkable
+from typing import Annotated, Any, Literal, Protocol, cast, overload, runtime_checkable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -50,6 +50,20 @@ def canonical_key(value: object) -> _JSON_SCALAR:
 
 def _key_token(value: _JSON_SCALAR) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+
+def _local_civil_datetime(
+    value: date | datetime,
+    *,
+    boundary_timezone: str,
+) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(ZoneInfo(boundary_timezone)).replace(tzinfo=None)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    raise TypeError(f"expected date or datetime, got {type(value).__name__}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,6 +463,112 @@ class FrameTemporalContractV1(BaseModel):
         return self
 
 
+class AlignmentEvidenceV1(BaseModel):
+    """Bounded evidence for one comparison pairing decision."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        strict=True,
+        serialize_by_alias=True,
+    )
+
+    schema_: Literal["alignment-evidence/v1"] = Field(
+        default="alignment-evidence/v1",
+        alias="schema",
+        serialization_alias="schema",
+    )
+    candidate_current_points: int = Field(ge=0)
+    candidate_baseline_points: int = Field(ge=0)
+    paired_points: int = Field(ge=0)
+    current_only_points: int = Field(ge=0)
+    baseline_only_points: int = Field(ge=0)
+    unmatched_points: int = Field(ge=0)
+    dropped_points: int = Field(ge=0)
+    dropped_reason: str | None = None
+    execution_path: Literal["backend", "local"]
+    backend_optimized: bool = False
+
+    @model_validator(mode="after")
+    def _validate_counts(self) -> AlignmentEvidenceV1:
+        if self.paired_points + self.current_only_points > self.candidate_current_points:
+            raise ValueError("current pairing counts exceed candidate current points")
+        if self.paired_points + self.baseline_only_points > self.candidate_baseline_points:
+            raise ValueError("baseline pairing counts exceed candidate baseline points")
+        if self.unmatched_points != self.current_only_points + self.baseline_only_points:
+            raise ValueError(
+                "unmatched_points must equal current_only_points plus baseline_only_points"
+            )
+        if self.dropped_points > self.unmatched_points:
+            raise ValueError("dropped_points cannot exceed unmatched_points")
+        if self.dropped_points == 0 and self.dropped_reason is not None:
+            raise ValueError("dropped_reason requires dropped_points")
+        return self
+
+
+class _WindowBucketAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["window_bucket"] = "window_bucket"
+    mode: Literal["ordinal_bucket", "calendar_bucket"] = "ordinal_bucket"
+    strict_lengths: bool = False
+
+
+class _DayOfWeekAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["day_of_week"] = "day_of_week"
+    within: Grain = Field(default_factory=lambda: Grain(kind="builtin", unit="month", count=1))
+    unmatched: Literal["fail", "drop"] = "fail"
+
+
+class _PeriodProgressAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["period_progress"] = "period_progress"
+    unmatched: Literal["fail", "drop"] = "fail"
+
+
+class _PeriodCorrespondenceAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["period_correspondence"] = "period_correspondence"
+    correspondence: str
+    unmatched: Literal["fail", "drop"] = "fail"
+
+    @model_validator(mode="after")
+    def _validate_correspondence(self) -> _PeriodCorrespondenceAlignmentPayloadV1:
+        if not self.correspondence.strip():
+            raise ValueError("correspondence must be a non-empty name")
+        return self
+
+
+_AlignmentPolicyPayloadV1 = Annotated[
+    _WindowBucketAlignmentPayloadV1
+    | _DayOfWeekAlignmentPayloadV1
+    | _PeriodProgressAlignmentPayloadV1
+    | _PeriodCorrespondenceAlignmentPayloadV1,
+    Field(discriminator="kind"),
+]
+
+
+class ComparisonTemporalContractV1(BaseModel):
+    """Closed temporal authority and pairing evidence for a comparison artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
+
+    schema_: Literal["comparison-temporal/v1"] = Field(
+        default="comparison-temporal/v1",
+        alias="schema",
+    )
+    current: FrameTemporalContractV1
+    baseline: FrameTemporalContractV1
+    alignment_policy: _AlignmentPolicyPayloadV1 | None = None
+    resolved_target_period: PeriodBindingV1 | None = None
+    work_schedule: dict[str, object] | None = None
+    alignment_evidence: AlignmentEvidenceV1
+
+
 def period_binding_for_grain(
     grain: Grain | Any,
     *,
@@ -529,6 +649,24 @@ class PeriodRecord:
         canonical_key(self.key)
 
 
+def _builtin_periods_between(
+    level: str,
+    start: date,
+    end: date,
+) -> tuple[PeriodRecord, ...]:
+    """Enumerate built-in periods wholly inside a target civil interval."""
+    resolver = GregorianIsoResolver()
+    periods: list[PeriodRecord] = []
+    cursor = start
+    while cursor < end:
+        period = resolver.period_on(level, cursor)
+        if period.start_date < start or period.end_date > end:
+            raise KeyError(f"built-in {level}:{period.key!r} crosses target bounds")
+        periods.append(period)
+        cursor = period.end_date
+    return tuple(periods)
+
+
 @dataclass(frozen=True, slots=True)
 class ContainmentRecord:
     source_level: str
@@ -558,6 +696,18 @@ class CorrespondenceRecord:
         canonical_key(self.current_key)
         if self.baseline_key is not None:
             canonical_key(self.baseline_key)
+
+
+@dataclass(frozen=True, slots=True)
+class PeriodProgressCoordinate:
+    """Local progress inside one certified period, independent of UTC duration."""
+
+    day_ordinal: int
+    microseconds_of_day: int = 0
+
+    def __post_init__(self) -> None:
+        if self.day_ordinal < 0 or not 0 <= self.microseconds_of_day < 86_400_000_000:
+            raise ValueError("period progress coordinate is outside one civil day")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1004,6 +1154,16 @@ class TemporalResolverAdapter(Protocol):
 
     def period_before(self, level: str, exclusive_end: date) -> PeriodRecord: ...
 
+    def period_progress(
+        self, level: str, instant_or_date: date | datetime
+    ) -> PeriodProgressCoordinate: ...
+
+    def containing_period(
+        self, from_level: str, key: _JSON_SCALAR, to_level: str
+    ) -> PeriodRecord: ...
+
+    def ordinal_within(self, from_level: str, key: _JSON_SCALAR, to_level: str) -> int: ...
+
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope: ...
 
     def correspondence(self, name: str, level: str, key: _JSON_SCALAR) -> _JSON_SCALAR | None: ...
@@ -1082,6 +1242,55 @@ class TemporalResolver:
             )
         return values[-1]
 
+    def period_progress(
+        self, level: str, instant_or_date: date | datetime
+    ) -> PeriodProgressCoordinate:
+        local = _local_civil_datetime(
+            instant_or_date,
+            boundary_timezone=self._snapshot.boundary_timezone,
+        )
+        period = self.period_on(level, local.date())
+        return PeriodProgressCoordinate(
+            day_ordinal=(local.date() - period.start_date).days,
+            microseconds_of_day=(
+                (local.hour * 3600 + local.minute * 60 + local.second) * 1_000_000
+                + local.microsecond
+            ),
+        )
+
+    def containing_period(self, from_level: str, key: _JSON_SCALAR, to_level: str) -> PeriodRecord:
+        if from_level == to_level:
+            return self.period(from_level, key)
+        token = _key_token(canonical_key(key))
+        matches = [
+            record
+            for record in self._snapshot.containments
+            if record.source_level == from_level
+            and record.target_level == to_level
+            and _key_token(record.source_key) == token
+        ]
+        if len(matches) != 1:
+            raise KeyError(
+                f"{from_level}:{key!r} has no unique certified containing {to_level!r} period"
+            )
+        return self.period(to_level, matches[0].target_key)
+
+    def ordinal_within(self, from_level: str, key: _JSON_SCALAR, to_level: str) -> int:
+        if from_level == to_level:
+            self.period(from_level, key)
+            return 0
+        token = _key_token(canonical_key(key))
+        matches = [
+            record
+            for record in self._snapshot.containments
+            if record.source_level == from_level
+            and record.target_level == to_level
+            and _key_token(record.source_key) == token
+        ]
+        if len(matches) != 1:
+            raise KeyError(f"{from_level}:{key!r} has no unique certified ordinal in {to_level!r}")
+        return matches[0].ordinal_in_target
+
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope:
         return self._snapshot.period_scope(level, key)
 
@@ -1102,7 +1311,11 @@ class TemporalResolver:
 class GregorianIsoResolver:
     """Built-in Gregorian/ISO adapter implementing the resolver contract."""
 
-    __slots__ = ()
+    __slots__ = ("_boundary_timezone",)
+
+    def __init__(self, boundary_timezone: str = "UTC") -> None:
+        _require_timezone(boundary_timezone)
+        self._boundary_timezone = boundary_timezone
 
     def period(self, level: str, key: _JSON_SCALAR) -> PeriodRecord:
         key = canonical_key(key)
@@ -1173,6 +1386,42 @@ class GregorianIsoResolver:
         while candidate.end_date > exclusive_end:
             candidate = self.period_on(level, candidate.start_date - timedelta(days=1))
         return candidate
+
+    def period_progress(
+        self, level: str, instant_or_date: date | datetime
+    ) -> PeriodProgressCoordinate:
+        local = _local_civil_datetime(
+            instant_or_date,
+            boundary_timezone=self._boundary_timezone,
+        )
+        period = self.period_on(level, local.date())
+        return PeriodProgressCoordinate(
+            day_ordinal=(local.date() - period.start_date).days,
+            microseconds_of_day=(
+                (local.hour * 3600 + local.minute * 60 + local.second) * 1_000_000
+                + local.microsecond
+            ),
+        )
+
+    def containing_period(self, from_level: str, key: _JSON_SCALAR, to_level: str) -> PeriodRecord:
+        source = self.period(from_level, key)
+        if from_level == to_level:
+            return source
+        target = self.period_on(to_level, source.start_date)
+        if target.start_date > source.start_date or source.end_date > target.end_date:
+            raise KeyError(f"{from_level}:{key!r} has no unique containing {to_level!r} period")
+        return target
+
+    def ordinal_within(self, from_level: str, key: _JSON_SCALAR, to_level: str) -> int:
+        source = self.period(from_level, key)
+        target = self.containing_period(from_level, key, to_level)
+        if from_level == to_level:
+            return 0
+        periods = _builtin_periods_between(from_level, target.start_date, target.end_date)
+        for ordinal, period in enumerate(periods):
+            if period.key == source.key:
+                return ordinal
+        raise KeyError(f"{from_level}:{key!r} is not contained in {to_level}:{target.key!r}")
 
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope:
         period = self.period(level, key)
@@ -1246,6 +1495,27 @@ class TemporalSnapshotStore:
             definition_digest=definition_digest,
         )
         return snapshot if status == "current" else None
+
+    def load_exact(
+        self,
+        calendar_ref: Ref[PeriodCalendarKind],
+        *,
+        snapshot_digest: str,
+    ) -> PeriodCalendarSnapshotV1:
+        """Load one immutable snapshot by its persisted authority identity."""
+        if type(snapshot_digest) is not str or not snapshot_digest:
+            raise ValueError("snapshot_digest must be a non-empty string")
+        snapshot_path = self._directory(calendar_ref) / f"{snapshot_digest}.json"
+        if not snapshot_path.is_file():
+            raise KeyError(
+                f"certified snapshot {snapshot_digest!r} for {calendar_ref.path!r} is unavailable"
+            )
+        snapshot = _snapshot_from_json(_read_json(snapshot_path))
+        if snapshot.calendar_ref != calendar_ref or snapshot.snapshot_digest != snapshot_digest:
+            raise ValueError(
+                "persisted temporal snapshot identity does not match requested binding"
+            )
+        return snapshot
 
     def inspect_current(
         self,

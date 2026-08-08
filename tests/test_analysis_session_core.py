@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.calendar.loader import CalendarCache
 from marivo.analysis.errors import (
     FrameMetaInvalidError,
     JobNotFoundError,
@@ -40,14 +39,13 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
     # Insert a session row with the known ID so foreign key constraints pass.
     with store._connect() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 "sess_t01",
                 "demo",
                 "q",
                 str(tmp_path),
-                None,
                 "2026-05-24T10:00:00+00:00",
                 "2026-05-24T10:00:00+00:00",
             ),
@@ -339,11 +337,6 @@ def test_session_close_closes_runtime_connections(tmp_path):
     assert s._connection_runtime.service._session_backends
     s.close()
     assert s._connection_runtime.service._session_backends == {}
-
-
-def test_session_initializes_calendar_cache(tmp_path):
-    s = _session(tmp_path)
-    assert isinstance(s._calendars, CalendarCache)
 
 
 def test_session_public_fields_are_read_only(tmp_path):

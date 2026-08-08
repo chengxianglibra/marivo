@@ -72,7 +72,7 @@ from marivo.analysis.intents._candidate_columns import (
     CANDIDATE_COLUMNS,
     validate_shape_columns,
 )
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import decode_alignment_policy
 from marivo.analysis.refs import ArtifactRef
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.metric_graph import (
@@ -415,12 +415,12 @@ def _validate_delta_comparison_state(
 
     policy_fields = {
         key: meta.alignment[key]
-        for key in ("kind", "calendar", "period", "fallback", "mode", "strict_lengths")
+        for key in ("kind", "mode", "strict_lengths", "within", "unmatched", "correspondence")
         if key in meta.alignment
     }
     try:
-        policy = AlignmentPolicy.model_validate(policy_fields)
-    except ValidationError as exc:
+        policy = decode_alignment_policy(cast("Any", policy_fields))
+    except Exception as exc:
         raise _delta_identity_recovery_error(
             ref,
             reason=f"persisted alignment policy is invalid: {exc}",

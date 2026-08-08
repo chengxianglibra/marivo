@@ -60,6 +60,12 @@ def test_connection_enables_foreign_keys(store: SessionStore) -> None:
     assert fk == 1
 
 
+def test_session_schema_has_no_legacy_default_calendar_column(store: SessionStore) -> None:
+    with store._connect() as conn:
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    assert "default_calendar" not in columns
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle: get_or_insert_session
 # ---------------------------------------------------------------------------
@@ -70,7 +76,6 @@ def test_get_or_insert_creates_one_row(store: SessionStore, project_root: Path) 
         name="s",
         question="q",
         cwd=project_root,
-        default_calendar="calendar",
     )
     assert row is not None
     assert row["name"] == "s"
@@ -79,63 +84,34 @@ def test_get_or_insert_creates_one_row(store: SessionStore, project_root: Path) 
 
 
 def test_same_name_returns_same_id(store: SessionStore, project_root: Path) -> None:
-    first = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar="cal"
-    )
-    second = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar="cal"
-    )
+    first = store.get_or_insert_session(name="s", question="q", cwd=project_root)
+    second = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     assert first["id"] == second["id"]
 
 
 def test_different_question_keeps_original(store: SessionStore, project_root: Path) -> None:
-    store.get_or_insert_session(name="s", question="q1", cwd=project_root, default_calendar="cal")
-    row = store.get_or_insert_session(
-        name="s", question="q2", cwd=project_root, default_calendar="cal"
-    )
+    store.get_or_insert_session(name="s", question="q1", cwd=project_root)
+    row = store.get_or_insert_session(name="s", question="q2", cwd=project_root)
     assert row["question"] == "q1"
-
-
-def test_explicit_default_calendar_updates_persisted(
-    store: SessionStore, project_root: Path
-) -> None:
-    store.get_or_insert_session(name="s", question="q", cwd=project_root, default_calendar="cal_a")
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar="cal_b"
-    )
-    assert row["default_calendar"] == "cal_b"
-    # updated_at must have advanced
-    assert row["updated_at"] >= row["created_at"]
-
-
-def test_no_default_calendar_restores_persisted(store: SessionStore, project_root: Path) -> None:
-    store.get_or_insert_session(name="s", question="q", cwd=project_root, default_calendar="cal_a")
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    assert row["default_calendar"] == "cal_a"
 
 
 def test_duplicate_create_race_handled_gracefully(store: SessionStore, project_root: Path) -> None:
     # Simulate a race: insert directly, then call get_or_insert_session
     with store._connect() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, name, question, cwd, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 "sess_raced",
                 "raced",
                 "q",
                 str(project_root),
-                None,
                 "2026-01-01T00:00:00+00:00",
                 "2026-01-01T00:00:00+00:00",
             ),
         )
     # This should not raise; it should return the existing row
-    row = store.get_or_insert_session(
-        name="raced", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="raced", question="q", cwd=project_root)
     assert row["id"] == "sess_raced"
 
 
@@ -145,9 +121,7 @@ def test_duplicate_create_race_handled_gracefully(store: SessionStore, project_r
 
 
 def test_page_sessions_includes_counts(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_job(
         session_id=sid,
@@ -182,9 +156,7 @@ def test_page_sessions_uses_stable_newest_updated_order(
     store: SessionStore, project_root: Path
 ) -> None:
     rows = [
-        store.get_or_insert_session(
-            name=name, question=name, cwd=project_root, default_calendar=None
-        )
+        store.get_or_insert_session(name=name, question=name, cwd=project_root)
         for name in ("old", "same-a", "same-b", "new")
     ]
     timestamps = (
@@ -214,9 +186,7 @@ def test_page_sessions_uses_stable_newest_updated_order(
 def test_session_summary_returns_exact_counts_without_touching_updated_at(
     store: SessionStore, project_root: Path
 ) -> None:
-    row = store.get_or_insert_session(
-        name="history", question="why", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="history", question="why", cwd=project_root)
     before = row["updated_at"]
 
     summary = store.session_summary("history")
@@ -259,9 +229,7 @@ def test_clear_current_session_id_when_none_is_noop(store: SessionStore) -> None
 def test_delete_session_rows_removes_session_and_related(
     store: SessionStore, project_root: Path
 ) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_artifact(
         session_id=sid,
@@ -300,7 +268,7 @@ def test_delete_does_not_remove_files(store: SessionStore, project_root: Path) -
     dummy = project_root / ".marivo" / "analysis" / "dummy.txt"
     dummy.parent.mkdir(parents=True, exist_ok=True)
     dummy.write_text("keep me")
-    store.get_or_insert_session(name="s", question="q", cwd=project_root, default_calendar=None)
+    store.get_or_insert_session(name="s", question="q", cwd=project_root)
     store.delete_session_rows(name="s")
     assert dummy.exists()
     assert dummy.read_text() == "keep me"
@@ -312,9 +280,7 @@ def test_delete_does_not_remove_files(store: SessionStore, project_root: Path) -
 
 
 def test_get_session_by_name(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     found = store.get_session_by_name("s")
     assert found is not None
     assert found["id"] == row["id"]
@@ -325,9 +291,7 @@ def test_get_session_by_name_missing(store: SessionStore) -> None:
 
 
 def test_get_session_by_id(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     found = store.get_session_by_id(row["id"])
     assert found is not None
     assert found["name"] == "s"
@@ -343,32 +307,10 @@ def test_get_session_by_id_missing(store: SessionStore) -> None:
 
 
 def test_touch_session_updates_updated_at(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     old_updated = row["updated_at"]
     new_updated = store.touch_session(row["id"])
     assert new_updated >= old_updated
-
-
-def test_update_default_calendar(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar="cal_a"
-    )
-    store.update_default_calendar(row["id"], "cal_b")
-    updated = store.get_session_by_id(row["id"])
-    assert updated is not None
-    assert updated["default_calendar"] == "cal_b"
-
-
-def test_update_default_calendar_to_none(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar="cal_a"
-    )
-    store.update_default_calendar(row["id"], None)
-    updated = store.get_session_by_id(row["id"])
-    assert updated is not None
-    assert updated["default_calendar"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +319,7 @@ def test_update_default_calendar_to_none(store: SessionStore, project_root: Path
 
 
 def test_record_and_get_artifact(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_artifact(
         session_id=sid,
@@ -398,16 +338,12 @@ def test_record_and_get_artifact(store: SessionStore, project_root: Path) -> Non
 
 
 def test_get_artifact_missing(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     assert store.get_artifact(row["id"], "nope") is None
 
 
 def test_list_artifacts(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_artifact(
         session_id=sid,
@@ -439,9 +375,7 @@ def test_list_artifacts(store: SessionStore, project_root: Path) -> None:
 
 
 def test_record_and_get_job(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_job(
         session_id=sid,
@@ -461,16 +395,12 @@ def test_record_and_get_job(store: SessionStore, project_root: Path) -> None:
 
 
 def test_get_job_missing(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     assert store.get_job(row["id"], "nope") is None
 
 
 def test_list_jobs(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_job(
         session_id=sid,
@@ -512,9 +442,7 @@ def test_store_does_not_create_report_table_or_helpers(
 
 
 def test_record_artifact_preserves_content_hash(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
+    row = store.get_or_insert_session(name="s", question="q", cwd=project_root)
     sid = row["id"]
     store.record_artifact(
         session_id=sid,

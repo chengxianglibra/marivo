@@ -774,45 +774,34 @@ class DiscoverAxisNotMaterializedError(AnalysisError):
 class AlignmentPolicyValidationError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         case = self._context.get("case")
-        kind = self._context.get("kind")
-        if case == "missing_calendar":
-            kind_str = kind if isinstance(kind, str) and kind else "dow_aligned"
+        if case == "direct_constructor":
             return _DerivedFields(
                 location="mv.AlignmentPolicy(...)",
                 repair=AnalysisRepair(
                     kind="retry",
-                    action=f"alignment kind {kind_str!r} requires a calendar.",
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
-                    snippet=(
-                        f"mv.{kind_str}(\n"
-                        '    calendar=mv.CalendarRef("cn_holidays"),\n'
-                        '    period="month",\n'
-                        ")"
+                    action=(
+                        "Construct an alignment with one closed helper: "
+                        "mv.window_bucket(), mv.day_of_week(), mv.period_progress(), "
+                        "or mv.period_correspondence()."
                     ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
+                    snippet="alignment = mv.window_bucket()",
                 ),
             )
-        if case == "legacy_calendar_bucket":
+        if case == "invalid_helper_arguments":
+            helper = self._context.get("helper")
+            helper_name = helper if isinstance(helper, str) else "mv.<alignment_helper>"
             return _DerivedFields(
-                location="mv.AlignmentPolicy(...)",
+                location=helper_name,
                 repair=AnalysisRepair(
                     kind="retry",
-                    action="Use 'window_bucket' for request-window bucket spine alignment.",
+                    action=f"Retry {helper_name} with only its documented arguments.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
-                    snippet="mv.window_bucket()",
-                ),
-            )
-        if case == "unexpected_calendar":
-            return _DerivedFields(
-                location="mv.AlignmentPolicy(...)",
-                repair=AnalysisRepair(
-                    kind="retry",
-                    action="window_bucket alignment does not accept a calendar argument.",
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
-                    snippet="mv.window_bucket()  # no calendar argument",
+                    snippet="marivo.help('analysis.alignment')",
                 ),
             )
         return _DerivedFields(
-            location="mv.AlignmentPolicy(...)",
+            location="mv.alignment helper",
         )
 
 
@@ -962,14 +951,6 @@ class TransformArgError(AnalysisError):
 
 class TransformDimensionNotFoundError(AnalysisError):
     """Raised when a where / drop_axes target is not present in frame axes."""
-
-
-class CalendarNotFoundError(AnalysisError):
-    pass
-
-
-class CalendarPolicyError(AnalysisError):
-    pass
 
 
 class CrossBackendMetricError(AnalysisError): ...

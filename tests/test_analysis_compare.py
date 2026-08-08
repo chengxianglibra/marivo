@@ -1,6 +1,7 @@
 """session.compare against two MetricFrames."""
 
 import json
+from datetime import date, timedelta
 
 import ibis
 import numpy as np
@@ -8,9 +9,17 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._temporal import (
+    BuiltinPeriodBindingV1,
+    FrameTemporalContractV1,
+    SemanticPeriodBindingV1,
+    TemporalSnapshotStore,
+    TimeScopeContractV1,
+    certify_period_calendar,
+)
 from marivo.analysis.errors import (
     AlignmentFailedError,
-    AlignmentPolicyValidationError,
+    AlignmentPolicyNotApplicableError,
     AttributeAdmissionBlockedError,
     ComponentFrameUnavailableError,
     SemanticKindMismatchError,
@@ -19,8 +28,14 @@ from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import (
+    day_of_week,
+    period_correspondence,
+    period_progress,
+    window_bucket,
+)
 from marivo.analysis.session._layout import read_frame_from_disk
+from marivo.refs import ref
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
@@ -46,6 +61,53 @@ def _seed(con):
     )
 
 
+def _attach_temporal_contract(
+    frame: MetricFrame,
+    *,
+    start: date,
+    end: date,
+    observation_period,
+    scope: TimeScopeContractV1 | None = None,
+) -> MetricFrame:
+    frame.meta = frame.meta.model_copy(
+        update={
+            "temporal_contract": FrameTemporalContractV1(
+                time_scope=scope or TimeScopeContractV1(kind="absolute", start=start, end=end),
+                observation_period=observation_period,
+                actual_start=start,
+                actual_end=end,
+                display_timezone="UTC",
+            )
+        }
+    )
+    return frame
+
+
+def _slice3_snapshot():
+    start = date(2026, 1, 1)
+    end = start + timedelta(days=56)
+    rows = []
+    for offset in range((end - start).days):
+        week_number = offset // 7 + 1
+        rows.append(
+            {
+                "date": start + timedelta(days=offset),
+                "fiscal_month": "M1" if week_number <= 4 else "M2",
+                "fiscal_week": f"W{week_number}",
+                "prior_key": f"W{week_number - 4}" if week_number > 4 else f"W{week_number + 4}",
+            }
+        )
+    snapshot = certify_period_calendar(
+        calendar_ref=ref.period_calendar("sales.retail"),
+        boundary_timezone="UTC",
+        coverage=(start, end),
+        rows=rows,
+        levels={"fiscal_month": "fiscal_month", "fiscal_week": "fiscal_week"},
+        correspondences={"prior_year": ("fiscal_week", "prior_key")},
+    )
+    return snapshot
+
+
 def test_compare_returns_delta_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -61,7 +123,7 @@ def test_compare_returns_delta_frame(tmp_path):
         time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
-    d = compare(q3, q2, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    d = compare(q3, q2, alignment=window_bucket(), session=s)
     assert isinstance(d, DeltaFrame)
     assert d.meta.alignment["kind"] == "window_bucket"
     assert d.meta.source_current_ref == q3.ref
@@ -82,7 +144,7 @@ def test_compare_returns_delta_frame(tmp_path):
     reversed_delta = compare(
         q2,
         q3,
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=window_bucket(),
         session=s,
     )
     assert reversed_delta.ref != d.ref
@@ -123,6 +185,238 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     )
     d = compare(q3, q2, session=s)
     assert d.to_pandas().iloc[0]["delta"] == pytest.approx(10.0)
+
+
+def test_compare_day_of_week_executes_and_persists_pairing_evidence(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "sales.orders.created_at",
+        }
+    }
+    current = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2026-05-01", periods=7, freq="D"),
+                "value": range(1, 8),
+            }
+        ),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-05-01", "end": "2026-05-08"},
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2026-04-01", periods=7, freq="D"),
+                "value": range(11, 18),
+            }
+        ),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-04-01", "end": "2026-04-08"},
+        session=session,
+    )
+    _attach_temporal_contract(
+        current,
+        start=date(2026, 5, 1),
+        end=date(2026, 5, 8),
+        observation_period=BuiltinPeriodBindingV1(level_name="day", boundary_timezone="UTC"),
+    )
+    _attach_temporal_contract(
+        baseline,
+        start=date(2026, 4, 1),
+        end=date(2026, 4, 8),
+        observation_period=BuiltinPeriodBindingV1(level_name="day", boundary_timezone="UTC"),
+    )
+
+    delta = compare(current, baseline, alignment=day_of_week(), session=session)
+
+    assert len(delta.to_pandas()) == 7
+    assert delta.meta.temporal_contract is not None
+    assert delta.meta.temporal_contract.alignment_evidence.paired_points == 7
+    assert "paired=7" in delta.render(max_output_bytes=None)
+
+
+def test_compare_period_progress_and_correspondence_use_certified_snapshot(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    snapshot = _slice3_snapshot()
+    TemporalSnapshotStore(session.project_root).publish(
+        snapshot,
+        definition_digest="sha256:test-definition",
+    )
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "fiscal_week",
+            "time_dimension": "sales.orders.created_at",
+        }
+    }
+    observation = SemanticPeriodBindingV1(
+        calendar_ref="sales.retail",
+        snapshot_digest=snapshot.snapshot_digest,
+        level_name="fiscal_week",
+    )
+
+    def frame(data: pd.DataFrame, *, start: date, end: date, scope: TimeScopeContractV1):
+        result = make_metric_frame(
+            data,
+            metric_id="sales.revenue",
+            axes=axes,
+            measure={"name": "value"},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            window={"start": start.isoformat(), "end": end.isoformat()},
+            session=session,
+        )
+        return _attach_temporal_contract(
+            result,
+            start=start,
+            end=end,
+            observation_period=observation,
+            scope=scope,
+        )
+
+    progress_current = frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
+                ),
+                "period_key": ["W1", "W2", "W3", "W4"],
+                "is_complete": [True] * 4,
+                "value": [1.0, 2.0, 3.0, 4.0],
+            }
+        ),
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 29),
+        scope=TimeScopeContractV1(
+            kind="calendar_period",
+            start=date(2026, 1, 1),
+            end=date(2026, 1, 29),
+            calendar_ref="sales.retail",
+            snapshot_digest=snapshot.snapshot_digest,
+            boundary_timezone="UTC",
+            level="fiscal_month",
+            key="M1",
+        ),
+    )
+    progress_baseline = frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-01-29", "2026-02-05", "2026-02-12", "2026-02-19"]
+                ),
+                "period_key": ["W5", "W6", "W7", "W8"],
+                "is_complete": [True] * 4,
+                "value": [11.0, 12.0, 13.0, 14.0],
+            }
+        ),
+        start=date(2026, 1, 29),
+        end=date(2026, 2, 26),
+        scope=TimeScopeContractV1(
+            kind="calendar_period",
+            start=date(2026, 1, 29),
+            end=date(2026, 2, 26),
+            calendar_ref="sales.retail",
+            snapshot_digest=snapshot.snapshot_digest,
+            boundary_timezone="UTC",
+            level="fiscal_month",
+            key="M2",
+        ),
+    )
+
+    progress_delta = compare(
+        progress_current,
+        progress_baseline,
+        alignment=period_progress(),
+        session=session,
+    )
+    correspondence_delta = compare(
+        progress_baseline,
+        progress_current,
+        alignment=period_correspondence(correspondence="prior_year"),
+        session=session,
+    )
+
+    assert len(progress_delta.to_pandas()) == 4
+    assert len(correspondence_delta.to_pandas()) == 4
+    assert progress_delta.meta.temporal_contract is not None
+    assert correspondence_delta.meta.temporal_contract is not None
+    assert progress_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
+    assert correspondence_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
+
+
+def test_period_progress_rejects_builtin_coarse_source_against_semantic_target(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    snapshot = _slice3_snapshot()
+    TemporalSnapshotStore(session.project_root).publish(
+        snapshot,
+        definition_digest="sha256:test-definition",
+    )
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "week",
+            "time_dimension": "sales.orders.created_at",
+        }
+    }
+    binding = BuiltinPeriodBindingV1(level_name="week", boundary_timezone="UTC")
+    scope = TimeScopeContractV1(
+        kind="calendar_period",
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 29),
+        calendar_ref="sales.retail",
+        snapshot_digest=snapshot.snapshot_digest,
+        boundary_timezone="UTC",
+        level="fiscal_month",
+        key="M1",
+    )
+    frames = []
+    for values, start, end in (
+        ([1.0, 2.0], date(2026, 1, 1), date(2026, 1, 15)),
+        ([11.0, 12.0], date(2026, 1, 29), date(2026, 2, 12)),
+    ):
+        frame = make_metric_frame(
+            pd.DataFrame(
+                {
+                    "bucket_start": pd.to_datetime([start, start + timedelta(days=7)]),
+                    "value": values,
+                }
+            ),
+            metric_id="sales.revenue",
+            axes=axes,
+            measure={"name": "value"},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            window={"start": start.isoformat(), "end": end.isoformat()},
+            session=session,
+        )
+        frames.append(
+            _attach_temporal_contract(
+                frame, start=start, end=end, observation_period=binding, scope=scope
+            )
+        )
+
+    with pytest.raises(
+        AlignmentPolicyNotApplicableError, match="source and target period authority"
+    ):
+        compare(frames[0], frames[1], alignment=period_progress(), session=session)
 
 
 @pytest.mark.parametrize(
@@ -287,7 +581,7 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert len(df) == 2
@@ -323,7 +617,7 @@ def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     )
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(cur, base, alignment=window_bucket(), session=s)
 
     assert exc_info.value._context["kind"] == "WindowBucketGrainMismatch"
     assert exc_info.value._context["current_grain"] == "day"
@@ -348,7 +642,7 @@ def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_u
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert len(df) == 2
@@ -386,7 +680,7 @@ def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path
         compare(
             cur,
             base,
-            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            alignment=window_bucket(strict_lengths=True),
             session=s,
         )
 
@@ -420,7 +714,7 @@ def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path)
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
@@ -458,7 +752,7 @@ def test_window_bucket_calendar_mode_outer_joins_bucket_keys(tmp_path):
     delta = compare(
         cur,
         base,
-        alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        alignment=window_bucket(mode="calendar_bucket"),
         session=s,
     )
 
@@ -507,7 +801,7 @@ def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert len(df) == 31
@@ -559,7 +853,7 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
         update={"window": {"start": "2025-02-01", "end": "2025-03-01", "grain": "day"}}
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert len(df) == 29
@@ -568,38 +862,13 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
 
 
 def test_alignment_policy_window_bucket_defaults_dump_explicit_mode():
-    policy = AlignmentPolicy(kind="window_bucket")
+    policy = window_bucket()
 
     assert policy.model_dump(mode="json") == {
         "kind": "window_bucket",
-        "calendar": None,
-        "period": "month",
-        "fallback": "drop",
         "mode": "ordinal_bucket",
         "strict_lengths": False,
     }
-
-
-def test_alignment_policy_calendar_backed_rejects_window_bucket_mode():
-    with pytest.raises(AlignmentPolicyValidationError) as exc_info:
-        AlignmentPolicy(
-            kind="dow_aligned",
-            calendar=None,
-            mode="calendar_bucket",
-        )
-
-    assert exc_info.value._context["case"] == "window_bucket_mode_not_applicable"
-
-
-def test_alignment_policy_calendar_backed_rejects_strict_lengths():
-    with pytest.raises(AlignmentPolicyValidationError) as exc_info:
-        AlignmentPolicy(
-            kind="dow_aligned",
-            calendar=None,
-            strict_lengths=True,
-        )
-
-    assert exc_info.value._context["case"] == "window_bucket_strict_lengths_not_applicable"
 
 
 def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_path):
@@ -628,7 +897,7 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
@@ -753,7 +1022,7 @@ def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, base, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert list(df["bucket_start"].astype(str)) == ["2026-04-01", "2026-07-01"]
@@ -768,7 +1037,7 @@ def test_compare_persists_job_and_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
-    d = compare(a, b, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    d = compare(a, b, alignment=window_bucket(), session=s)
     compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
     assert len(compare_jobs) == 1
     assert compare_jobs[0].output_frame_ref == d.ref
@@ -785,9 +1054,12 @@ def test_compare_persists_job_and_frame(tmp_path):
         "sales.revenue"
     )
     assert persisted_meta["catalog_definition_fingerprint"]
+    assert persisted_meta["temporal_contract"]["alignment_policy"]["kind"] == "window_bucket"
+    assert persisted_meta["temporal_contract"]["alignment_evidence"]["execution_path"] == "local"
     loaded = s.get_frame(d.ref)
     assert loaded.meta.metric_id == "sales.revenue"
     assert loaded.meta.semantic_model == "sales"
+    assert loaded.meta.temporal_contract == d.meta.temporal_contract
 
 
 def test_compare_works_in_read_only_session(tmp_path):
@@ -806,7 +1078,7 @@ def test_compare_works_in_read_only_session(tmp_path):
     d = compare(
         MetricFrame(_df=df_a, meta=MetricFrameMeta(**meta_a)),
         MetricFrame(_df=df_b, meta=MetricFrameMeta(**meta_b)),
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=window_bucket(),
         session=s_read,
     )
     assert isinstance(d, DeltaFrame)
@@ -1055,7 +1327,7 @@ def test_compare_time_series_rejects_time_column_colliding_with_protocol(
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(cur, base, alignment=window_bucket(), session=s)
 
     error = exc_info.value
     assert error._context["reason"] == "protocol_column_collision"

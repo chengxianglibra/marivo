@@ -9,7 +9,7 @@ from marivo.analysis.errors import AxisNotInPanelDimensionsError
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import window_bucket
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
@@ -72,7 +72,7 @@ def _panel_delta(tmp_path):
     delta = compare(
         current,
         baseline,
-        alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        alignment=window_bucket(mode="calendar_bucket"),
         session=session,
     )
     return session, delta

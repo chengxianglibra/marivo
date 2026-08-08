@@ -183,13 +183,13 @@ def _cumulative_compare_pair_contract(anchor: object) -> ArtifactPrecondition | 
         reason = (
             "baseline must have the same canonical trailing span "
             f"({canonical.span_seconds} seconds); equivalent fixed units are accepted, and "
-            "only paired DOW/holiday positions enter the delta"
+            "only paired day-of-week/progress/correspondence positions enter the delta"
         )
     else:
         reason = (
             f"baseline must use the same {canonical.reset_grain} reset and query grain; "
-            "calendar alignment is allowed only at that reset period, and only paired "
-            "DOW/holiday positions enter the delta"
+            "temporal alignment is allowed only at that reset period, and only paired "
+            "day-of-week/progress/correspondence positions enter the delta"
         )
     return ArtifactPrecondition(
         check="cumulative_comparable_period_pair",

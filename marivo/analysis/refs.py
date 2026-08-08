@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-__all__ = ["ArtifactRef", "CalendarRef"]
+__all__ = ["ArtifactRef"]
 
 
 class _RefBase(BaseModel):
@@ -29,10 +29,6 @@ class _RefBase(BaseModel):
 
     def __str__(self) -> str:
         return self.ref
-
-
-class CalendarRef(_RefBase):
-    """Calendar provider ref."""
 
 
 class ArtifactRef(_RefBase):

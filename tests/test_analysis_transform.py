@@ -12,7 +12,6 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis import (
-    AlignmentPolicy,
     AttributionFrame,
     DeltaFrame,
     MetricFrame,
@@ -24,6 +23,7 @@ from marivo.analysis.frames.attribution import (
     AttributionReconciliation,
 )
 from marivo.analysis.frames.delta import DeltaFrameMeta
+from marivo.analysis.policies import window_bucket
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
@@ -167,7 +167,7 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
         time_scope={"start": "2025-07-01", "end": "2025-07-03"},
         grain="day",
     )
-    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+    return session.compare(current, baseline, alignment=window_bucket())
 
 
 def _make_attribution_frame(tmp_path) -> AttributionFrame:
@@ -279,7 +279,7 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
         grain="day",
         dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
-    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+    return session.compare(current, baseline, alignment=window_bucket())
 
 
 def test_frame_transform_exposes_typed_method_signatures(tmp_path):

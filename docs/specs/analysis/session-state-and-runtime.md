@@ -14,7 +14,7 @@ The analysis alias is `mv` (`import marivo.analysis as mv`).
 ## The Session object
 
 A `Session` is the one stateful handle in analysis. It owns the semantic catalog
-consumed by operators, the report timezone/calendars, and the persistence layout;
+consumed by operators, the report timezone, and the persistence layout;
 every operator is a method on it. Sessions are created and resumed through the
 narrow `mv.session` module facade, never constructed directly.
 
@@ -22,7 +22,7 @@ Read-only identity properties: `session.id` (a `sess_<hex>` id), `session.name`,
 `session.question`, `session.cwd`, `session.project_root`, `session.catalog`,
 `session.created_at`, `session.updated_at`, `session.tz` / `session.report_tz`
 (plus `report_tz_name` / `report_tz_resolution` / `report_tz_warning`),
-`session.default_calendar`, and `session.is_read_only`.
+and `session.is_read_only`.
 
 `repr(session)` is a bounded one-line identity that points to `session.show()`.
 `session.show()` prints, and `session.render()` returns, the same bounded state
@@ -40,7 +40,7 @@ The public session surface is intentionally small (`mv.session.__all__` is exact
 `current`, `delete`, `get_or_create`, `inspect`, `list`, `recent`; the removed
 names `archive`, `attach`, `create`, `switch`, `active` are gone):
 
-- `mv.session.get_or_create(name, question=None, *, default_calendar=None, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
+- `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — the default entry. Idempotent: the first call with a name creates the session,
   later calls attach to it, and either way it becomes the current session. This is
   what makes a script safe to re-run across loop turns.
@@ -85,7 +85,7 @@ and live outside analysis). The layout, owned by `PersistenceLayout`:
 <project_root>/.marivo/analysis/
   session_store.db                 # SQLite (WAL): the authoritative session index
   sessions/<sess_id>/
-    meta.json                      # report timezone, default/known calendars, known datasources
+    meta.json                      # report timezone and known datasources
     jobs/<job_id>.json             # full job records (intent, params, status, timing, output ref)
     frames/<ref>/data.parquet      # frame data (snappy parquet via pyarrow)
     frames/<ref>/meta.json         # BaseFrameMeta sidecar, content-hashed
@@ -105,7 +105,7 @@ for sessions, the current-session pointer, artifacts, and jobs:
 
 | Table | Columns | Role |
 | --- | --- | --- |
-| `sessions` | `id` PK, `name` UNIQUE, `question`, `cwd`, `default_calendar`, `created_at`, `updated_at` | Session index |
+| `sessions` | `id` PK, `name` UNIQUE, `question`, `cwd`, `created_at`, `updated_at` | Session index |
 | `runtime_state` | `key` PK, `value` | Small runtime pointers (e.g. `current_session_id`) |
 | `artifacts` | (`session_id`,`artifact_id`) PK, `kind`, `path`, `meta_path`, `content_hash`, `created_at`, `produced_by_job` | Frame index, FK→`sessions` `ON DELETE CASCADE` |
 | `jobs` | (`session_id`,`job_id`) PK, `intent`, `status`, `started_at`, `finished_at`, `output_artifact_id`, `record_path` | Job index, FK→`sessions` `ON DELETE CASCADE` |

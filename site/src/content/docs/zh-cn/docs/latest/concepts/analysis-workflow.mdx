@@ -313,9 +313,10 @@ baseline = session.observe(
 delta = session.compare(current, baseline)
 ```
 
-`compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 可覆盖 ——
-`mv.dow_aligned()`、`mv.holiday_aligned()` 或 `mv.holiday_and_dow_aligned()`；calendar
-支持的几种还接受 `calendar=mv.CalendarRef(...)`。
+`compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 时只能选择一个
+封闭 helper：`mv.window_bucket()`、`mv.day_of_week()`、`mv.period_progress()` 或
+`mv.period_correspondence()`。后三者要求 source frame 携带完全匹配的已认证周期
+authority；不再使用 analysis 本地 holiday-calendar 参数。
 
 只有两侧 source frame 的 additivity、aggregation 与 status-time 三项语义完全一致，
 且 additivity 已知时，delta 才会携带这些语义。任一项缺失或不一致时，语义门保持

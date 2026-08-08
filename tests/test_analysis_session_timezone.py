@@ -28,19 +28,19 @@ def _chdir(tmp_path, monkeypatch):
 def test_create_persists_system_report_timezone(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
 
-    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
+    s = session_attach.get_or_create(name="demo")
 
     assert s.report_tz == ZoneInfo("Asia/Shanghai")
     assert s.tz == ZoneInfo("Asia/Shanghai")
     assert s.report_tz_name == "Asia/Shanghai"
-    assert s.default_calendar == "cn_holidays"
+    assert not hasattr(s, "default_calendar")
     meta = _read_session_meta(s)
     assert meta["report_tz"] == "Asia/Shanghai"
     assert meta["report_tz_resolution"] == "iana"
     assert meta["report_tz_warning"] is None
     assert "tz" not in meta
     assert "previous_tz" not in meta
-    assert meta["default_calendar"] == "cn_holidays"
+    assert "default_calendar" not in meta
 
 
 def test_create_accepts_explicit_report_timezone(monkeypatch):
@@ -95,11 +95,11 @@ def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
     assert "delete and recreate" in str(exc_info.value)
 
 
-def test_create_initializes_project_calendar_directory(monkeypatch):
+def test_create_does_not_initialize_legacy_calendar_directory(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
+    s = session_attach.get_or_create(name="demo")
 
-    assert (s.project_root / ".marivo" / "calendar").is_dir()
+    assert not (s.project_root / ".marivo" / "calendar").exists()
 
 
 def test_system_timezone_prefers_tz_environment(monkeypatch):

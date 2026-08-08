@@ -183,10 +183,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.ALIGNMENT_POLICY_SHAPE,
         "AlignmentPolicyValidation",
         "runtime",
-        ("compare", "hypothesis_test", "AlignmentPolicy", "alignment", "calendar"),
+        ("compare", "correlate", "hypothesis_test", "AlignmentPolicy", "alignment"),
         "AlignmentPolicy arguments must match the selected alignment kind.",
-        "Calendar-backed variants require a calendar, while window_bucket uses request-window buckets without one.",
-        "Use kind='window_bucket' without calendar, or pass calendar=mv.CalendarRef(...) for calendar-backed kinds.",
+        "The closed helpers admit only window_bucket, day_of_week, period_progress, and period_correspondence with their exact fields.",
+        "Construct one policy with mv.window_bucket(), mv.day_of_week(), mv.period_progress(), or mv.period_correspondence().",
         help_target="alignment",
     ),
     ConstraintId.CORRELATE_LAG_SEMANTICS: _constraint(
@@ -572,8 +572,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "evaluation_end coordinates.",
         "A derived cumulative frame is comparable only when every outer component is "
         "cumulative and all components share the same anchor; mixed or unresolved component "
-        "anchors are rejected. Comparable-period deltas keep paired ordinal, DOW, or holiday "
-        "positions only; all-history source revision remains unverified.",
+        "anchors are rejected. Comparable-period deltas keep paired ordinal, day-of-week, "
+        "progress, or correspondence coordinates only; all-history source revision remains "
+        "unverified.",
         "Re-observe both sides under the current cumulative contract, then compare compatible "
         "frames with at least one shared business coordinate.",
         help_target="compare",

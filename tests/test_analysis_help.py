@@ -148,6 +148,15 @@ def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
         assert f"session.lifecycle.{member}(...)" in lifecycle
 
 
+def test_alignment_help_exposes_closed_admission_matrix() -> None:
+    text = _text("alignment")
+    for member in ("window_bucket", "day_of_week", "period_progress", "period_correspondence"):
+        assert f"mv.{member}" in text
+    assert "MetricFrame.compare day-grain time-series or panel" in text
+    assert "EventFrame.compare     alignment=None" in text
+    assert "holiday_aligned" not in text
+
+
 def test_grouping_members_use_registered_prefix_without_renderer_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1025,7 +1034,6 @@ def test_live_help_preserves_leading_keyword_only_separator() -> None:
         "SamplingPolicy",
         "AlignmentPolicy",
         "ArtifactRef",
-        "CalendarRef",
         "FunnelLossRate",
     ),
 )
@@ -1036,7 +1044,7 @@ def test_type_resolves_same_as_string(type_name: str) -> None:
     assert text_type == text_string
 
     if type_name == "AlignmentPolicy":
-        assert "Immutable policy governing how two observation windows are aligned" in text_type
+        assert "Closed public alignment protocol" in text_type
         assert "Call marivo.help(AlignmentPolicy)" not in text_type
 
 
@@ -1188,7 +1196,6 @@ def test_analysis_all_is_pinned() -> None:
         "ArtifactRef",
         "AssociationResult",
         "AttributionFrame",
-        "CalendarRef",
         "CandidateSet",
         "DeltaFrame",
         "ForecastFrame",
@@ -1200,9 +1207,9 @@ def test_analysis_all_is_pinned() -> None:
         "OntologyMetricCandidate",
         "SubjectSet",
         "TimeScope",
-        "dow_aligned",
-        "holiday_aligned",
-        "holiday_and_dow_aligned",
+        "day_of_week",
+        "period_progress",
+        "period_correspondence",
         "session",
         "window_bucket",
         "runtime_metric",

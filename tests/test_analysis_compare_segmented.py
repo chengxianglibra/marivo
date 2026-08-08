@@ -11,8 +11,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
-from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef
+from marivo.analysis.policies import day_of_week, window_bucket
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -53,7 +52,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         ],
     )
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(current, baseline, alignment=window_bucket(), session=s)
 
     assert out.meta.semantic_kind == "segmented"
     assert out.meta.alignment["segment_info"] == {
@@ -105,7 +104,7 @@ def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments
     current = _segmented_metric(s, [{"region": "NORTH", "value": None}])
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(current, baseline, alignment=window_bucket(), session=s)
 
     assert out.meta.alignment["segment_info"] == {
         "segment_count": 1,
@@ -130,11 +129,7 @@ def test_compare_segmented_rejects_non_window_bucket_alignment():
         compare(
             current,
             baseline,
-            alignment=AlignmentPolicy(
-                kind="dow_aligned",
-                calendar=CalendarRef("cn_holidays"),
-                period="month",
-            ),
+            alignment=day_of_week(),
             session=s,
         )
 
@@ -184,7 +179,7 @@ def test_compare_segmented_rejects_dimension_colliding_with_protocol_column(
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(current, baseline, alignment=window_bucket(), session=s)
 
     error = exc_info.value
     assert error._context["reason"] == "protocol_column_collision"

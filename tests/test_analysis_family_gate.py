@@ -28,7 +28,7 @@ from marivo.analysis._capabilities.validation import (
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
+from marivo.analysis.policies import SamplingPolicy, window_bucket
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
@@ -113,7 +113,7 @@ def test_classify_delta_frame():
 
 
 def test_classify_alignment_policy():
-    assert classify_input_family(AlignmentPolicy(kind="window_bucket")) == "AlignmentPolicy"
+    assert classify_input_family(window_bucket()) == "AlignmentPolicy"
 
 
 def test_classify_sampling_policy():
@@ -148,7 +148,7 @@ def test_gate_compare_accepts_metric_frames():
         "compare",
         current=current,
         baseline=baseline,
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=window_bucket(),
     )
 
 
@@ -161,7 +161,7 @@ def test_gate_compare_rejects_delta_frame_for_current():
             "compare",
             current=df,
             baseline=mf,
-            alignment=AlignmentPolicy(kind="window_bucket"),
+            alignment=window_bucket(),
         )
     assert exc.value.location == "compare.current"
     assert exc.value.repair is not None
@@ -179,7 +179,7 @@ def test_gate_compare_rejects_delta_frame_for_baseline():
             "compare",
             current=mf,
             baseline=df,
-            alignment=AlignmentPolicy(kind="window_bucket"),
+            alignment=window_bucket(),
         )
     assert exc.value.location == "compare.baseline"
 
@@ -253,9 +253,7 @@ def test_gate_correlate_rejects_delta_frame():
     mf = _metric_frame(session)
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
-        validate_capability_inputs(
-            "correlate", a=df, b=mf, alignment=AlignmentPolicy(kind="window_bucket")
-        )
+        validate_capability_inputs("correlate", a=df, b=mf, alignment=window_bucket())
     assert exc.value.location == "correlate.a"
 
 
@@ -264,9 +262,7 @@ def test_gate_hypothesis_test_rejects_delta_frame():
     mf = _metric_frame(session)
     df = _delta_frame(session)
     with pytest.raises(AnalysisError) as exc:
-        validate_capability_inputs(
-            "hypothesis_test", a=mf, b=df, alignment=AlignmentPolicy(kind="window_bucket")
-        )
+        validate_capability_inputs("hypothesis_test", a=mf, b=df, alignment=window_bucket())
     assert exc.value.location == "hypothesis_test.b"
 
 

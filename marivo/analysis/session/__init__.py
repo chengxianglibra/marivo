@@ -73,7 +73,6 @@ def get_or_create(
     name: str,
     question: str | None = None,
     *,
-    default_calendar: str | None = None,
     report_timezone: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -89,8 +88,6 @@ def get_or_create(
         name: Session name. Creates if absent, attaches if present.
         question: Guiding question (only used when creating a new session;
             preserved on resume).
-        default_calendar: Default calendar name for time-based analysis.
-            When provided on resume, updates the persisted value.
         report_timezone: IANA timezone name for the report axis. Persisted on
             first create; conflicting values on reopen raise
             ``SessionTimezoneConflict``. Defaults to the system timezone.
@@ -133,7 +130,6 @@ def get_or_create(
         name=name,
         question=question,
         cwd=Path.cwd(),
-        default_calendar=default_calendar,
     )
 
     # Always touch updated_at on resume
@@ -162,8 +158,6 @@ def get_or_create(
             "updated_at": row["updated_at"],
             "project_root": str(store.project_root),
             **_report_tz_fields(resolved_report_tz),
-            "default_calendar": row["default_calendar"],
-            "known_calendars": [],
             "known_datasources": [],
         }
         meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
@@ -189,10 +183,8 @@ def get_or_create(
         meta.pop("tz_resolution", None)
         meta.pop("tz_warning", None)
         meta.pop("previous_tz", None)
-        if "default_calendar" not in meta:
-            meta["default_calendar"] = row["default_calendar"]
-        if "known_calendars" not in meta:
-            meta["known_calendars"] = []
+        meta.pop("default_calendar", None)
+        meta.pop("known_calendars", None)
         if "known_datasources" not in meta:
             meta["known_datasources"] = []
         meta["updated_at"] = row["updated_at"]

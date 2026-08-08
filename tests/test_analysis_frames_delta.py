@@ -4,8 +4,14 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
+from marivo._temporal import (
+    AlignmentEvidenceV1,
+    ComparisonTemporalContractV1,
+    FrameTemporalContractV1,
+)
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.analysis.policies import window_bucket
 from tests.shared_fixtures import make_test_delta_contract
 
 
@@ -113,3 +119,54 @@ def test_delta_frame_meta_component_links_default_to_none():
     )
     assert meta.component_ref is None
     assert meta.composition is None
+
+
+def test_delta_render_surfaces_temporal_alignment_evidence():
+    meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
+        ref="frame_temporal_delta",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=_now(),
+        row_count=1,
+        byte_size=0,
+        metric_id="sales.revenue",
+        source_current_ref="frame_current",
+        source_baseline_ref="frame_baseline",
+        alignment=window_bucket().model_dump(mode="json"),
+        semantic_kind="time_series",
+        semantic_model="sales",
+        temporal_contract=ComparisonTemporalContractV1(
+            current=FrameTemporalContractV1(display_timezone="UTC"),
+            baseline=FrameTemporalContractV1(display_timezone="UTC"),
+            alignment_policy=window_bucket().model_dump(mode="json"),
+            alignment_evidence=AlignmentEvidenceV1(
+                candidate_current_points=1,
+                candidate_baseline_points=1,
+                paired_points=1,
+                current_only_points=0,
+                baseline_only_points=0,
+                unmatched_points=0,
+                dropped_points=0,
+                execution_path="local",
+            ),
+        ),
+    )
+    frame = DeltaFrame(
+        _df=pd.DataFrame(
+            {
+                "bucket_start": ["2026-07-01"],
+                "current": [10.0],
+                "baseline": [8.0],
+                "delta": [2.0],
+            }
+        ),
+        meta=meta,
+    )
+
+    rendered = frame.render(max_output_bytes=None)
+
+    assert "temporal_alignment" in rendered
+    assert "paired=1" in rendered
+    assert "path=local" in rendered

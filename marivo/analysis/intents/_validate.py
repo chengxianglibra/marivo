@@ -9,7 +9,7 @@ both fail-fast raising and structured ValidationIssue conversion.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
@@ -123,6 +123,7 @@ def cumulative_compare_issue(
     baseline: MetricFrame,
     *,
     report_tz: str | None = None,
+    validate_period_shape: bool = True,
 ) -> AnalysisError | None:
     """Anchor-dispatched compare gate for arity-1 cumulative frames.
 
@@ -222,6 +223,8 @@ def cumulative_compare_issue(
     if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
         return None
     if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        if not validate_period_shape:
+            return None
         return _grain_to_date_compare_validations(
             current,
             baseline,
@@ -434,30 +437,36 @@ def validate_compare(
     # Compare uses the effective anchor-dispatched gate. Compatible derived
     # cumulative wrappers reuse the trailing / grain_to_date validations;
     # all_history and blocked wrappers stay gated.
-    issue = cumulative_compare_issue(current, baseline, report_tz=report_tz)
+    issue = cumulative_compare_issue(
+        current,
+        baseline,
+        report_tz=report_tz,
+        validate_period_shape=alignment.kind == "window_bucket",
+    )
     if issue is not None:
         return [issue]
     anchor = cumulative_compare_anchor(current.meta.cumulative)
+    alignment_any = cast("Any", alignment)
     if (
         isinstance(anchor, tuple)
         and anchor[0] in {"trailing", "grain_to_date"}
         and alignment.kind == "window_bucket"
-        and alignment.mode != "ordinal_bucket"
+        and alignment_any.mode != "ordinal_bucket"
     ):
         return [
             AnalysisError(
                 message=(
                     "comparable-period cumulative compare requires ordinal window-bucket "
-                    f"alignment; got mode={alignment.mode!r}."
+                    f"alignment; got mode={alignment_any.mode!r}."
                 ),
-                expected="window_bucket mode='ordinal_bucket' or a DOW/holiday policy",
-                received=f"window_bucket mode={alignment.mode!r}",
+                expected="window_bucket mode='ordinal_bucket' or a closed temporal alignment helper",
+                received=f"window_bucket mode={alignment_any.mode!r}",
                 location="session.compare.alignment",
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(
                         "Use mv.window_bucket(mode='ordinal_bucket') or choose an explicit "
-                        "DOW/holiday alignment policy."
+                        "day_of_week, period_progress, or period_correspondence policy."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 ),
@@ -465,39 +474,10 @@ def validate_compare(
                     "kind": "CumulativeComparablePeriodAlignmentUnsupported",
                     "anchor_kind": anchor[0],
                     "alignment_kind": alignment.kind,
-                    "alignment_mode": alignment.mode,
+                    "alignment_mode": alignment_any.mode,
                 },
             )
         ]
-    if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
-        reset_grain = anchor[1]
-        unsupported = False
-        if alignment.kind == "window_bucket":
-            unsupported = alignment.mode != "ordinal_bucket"
-        else:
-            unsupported = alignment.period != reset_grain
-        if unsupported:
-            return [
-                AnalysisError(
-                    message=(
-                        "compare(grain_to_date) requires ordinal window-bucket alignment "
-                        f"or calendar alignment with period={reset_grain!r}; got "
-                        f"kind={alignment.kind!r}, mode={alignment.mode!r}, "
-                        f"period={alignment.period!r}."
-                    ),
-                    hint=(
-                        "Use mv.window_bucket(mode='ordinal_bucket') or a DOW/holiday "
-                        f"alignment policy with period={reset_grain!r}."
-                    ),
-                    context={
-                        "kind": "GrainToDateAlignmentPolicyUnsupported",
-                        "alignment_kind": alignment.kind,
-                        "alignment_mode": alignment.mode,
-                        "alignment_period": alignment.period,
-                        "reset_grain": reset_grain,
-                    },
-                )
-            ]
     if current.meta.semantic_kind != baseline.meta.semantic_kind:
         return [
             SemanticKindMismatchError(
@@ -590,12 +570,12 @@ def validate_compare(
                 },
             )
         ]
-    if kind == "scalar" and alignment.kind != "window_bucket":
+    if kind == "scalar" and alignment.kind not in {"window_bucket", "period_progress"}:
         return [
             SemanticKindMismatchError(
-                message="calendar-backed compare alignment requires time_series MetricFrames",
+                message="the selected alignment requires time-series MetricFrames",
                 context={
-                    "kind": "CalendarAlignRequiresTimeSeries",
+                    "kind": "AlignmentPolicyNotApplicable",
                     "expected_kind": "time_series",
                     "got_kind": {
                         "current": current.meta.semantic_kind,

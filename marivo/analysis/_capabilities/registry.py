@@ -629,9 +629,9 @@ def _build_registry() -> CapabilityRegistry:
     from marivo.analysis.lifecycle import from_inception, in_state
     from marivo.analysis.policies import (
         SamplingPolicy,
-        dow_aligned,
-        holiday_aligned,
-        holiday_and_dow_aligned,
+        day_of_week,
+        period_correspondence,
+        period_progress,
         window_bucket,
     )
     from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
@@ -1076,9 +1076,8 @@ def _build_registry() -> CapabilityRegistry:
                 HelpExample(
                     label="Compare month-to-date by day-of-week position",
                     code=(
-                        "alignment = mv.dow_aligned(\n"
-                        '    calendar=mv.CalendarRef("cn_holidays"),\n'
-                        '    period="month",\n'
+                        "alignment = mv.day_of_week(\n"
+                        '    within=mv.grain("month"),\n'
                         ")\n"
                         "delta = session.compare(current_mtd, baseline_mtd, alignment=alignment)\n"
                         "print(delta.meta.cumulative_alignment.pairs)"
@@ -1790,29 +1789,29 @@ def _build_registry() -> CapabilityRegistry:
             "AlignmentPolicy",
         ),
         (
-            "dow_aligned",
-            "mv.dow_aligned(...)",
-            "dow_aligned",
-            "Construct a day-of-week calendar alignment policy.",
-            dow_aligned,
+            "day_of_week",
+            "mv.day_of_week(...)",
+            "day_of_week",
+            "Construct a day-of-week containing-period alignment policy.",
+            day_of_week,
             "AlignmentPolicy",
             "AlignmentPolicy",
         ),
         (
-            "holiday_aligned",
-            "mv.holiday_aligned(...)",
-            "holiday_aligned",
-            "Construct a holiday calendar alignment policy.",
-            holiday_aligned,
+            "period_progress",
+            "mv.period_progress(...)",
+            "period_progress",
+            "Construct same-progress alignment inside one certified target period.",
+            period_progress,
             "AlignmentPolicy",
             "AlignmentPolicy",
         ),
         (
-            "holiday_and_dow_aligned",
-            "mv.holiday_and_dow_aligned(...)",
-            "holiday_and_dow_aligned",
-            "Construct a holiday-then-day-of-week alignment policy.",
-            holiday_and_dow_aligned,
+            "period_correspondence",
+            "mv.period_correspondence(...)",
+            "period_correspondence",
+            "Construct named certified period correspondence alignment.",
+            period_correspondence,
             "AlignmentPolicy",
             "AlignmentPolicy",
         ),
@@ -1870,9 +1869,9 @@ def _build_registry() -> CapabilityRegistry:
                         "dropped_before",
                         "from_inception",
                         "in_state",
-                        "dow_aligned",
-                        "holiday_aligned",
-                        "holiday_and_dow_aligned",
+                        "day_of_week",
+                        "period_progress",
+                        "period_correspondence",
                         "AbsoluteWindow",
                         "SamplingPolicy",
                     }
@@ -2202,6 +2201,14 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "runtime_metric",
             "Closed recursive runtime metric expression constructors.",
+            "policies_builders",
+        )
+    )
+
+    descriptors.append(
+        _make_grouping_descriptor(
+            "alignment",
+            "Closed temporal alignment policy family and its operator admission matrix.",
             "policies_builders",
         )
     )
