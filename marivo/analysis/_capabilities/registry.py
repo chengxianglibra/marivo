@@ -1334,9 +1334,12 @@ def _build_registry() -> CapabilityRegistry:
         objective = obj_id.split(".", 1)[1]
         # Objectives that accept a MetricFrame source gate on single-metric
         # arity via require_single_metric; declare the precondition in help.
-        discover_constraints = ("discover_minimum_evidence", "frame_kind_compatible")
+        discover_constraints: tuple[str, ...] = (
+            "discover_minimum_evidence",
+            "frame_kind_compatible",
+        )
         if "MetricFrame" in source_families:
-            discover_constraints = discover_constraints + ("single_metric_input",)
+            discover_constraints = (*discover_constraints, "single_metric_input")
         descriptors.append(
             OperatorCapability(
                 id=obj_id,
