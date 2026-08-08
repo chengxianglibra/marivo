@@ -17,6 +17,7 @@ from marivo.analysis.errors import (
     AttributeAdmissionBlockedError,
     CumulativeFrameUnsupportedError,
     TransformShapeUnsupportedError,
+    WindowInvalidError,
 )
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.attribute import attribute
@@ -50,8 +51,10 @@ def _fiscal_analysis_project_files() -> dict[str, str]:
             "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
             "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
             "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
+            "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
             "fiscal_mtd = ms.cumulative(name='fiscal_mtd', base=gmv, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
             "fiscal_active_users = ms.cumulative(name='fiscal_active_users', base=active_users, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+            "fiscal_weighted_user = ms.cumulative(name='fiscal_weighted_user', base=weighted_user, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
         ),
     }
 
@@ -245,6 +248,25 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert frame.meta.temporal_contract.observation_period.kind == "semantic_period"
     assert frame.contract().temporal_contract == frame.meta.temporal_contract
 
+    base_metric = session.catalog.require(ms.ref.metric("sales.gmv")).ref
+    base_frame = session.observe(
+        base_metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=semantic_week,
+    )
+    base_result = base_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert base_result["period_key"].tolist() == ["M1-W1", "M1-W2", "M2-W1", "M2-W2"]
+    assert base_result["gmv"].tolist() == pytest.approx([10, 20, 30, 40])
+
+    with pytest.raises(WindowInvalidError, match="outside the certified"):
+        session.observe(
+            base_metric,
+            time_scope={"start": "2025-12-01", "end": "2026-01-01"},
+            grain=semantic_week,
+        )
+    with pytest.raises(WindowInvalidError, match="requires an explicit time_scope"):
+        session.observe(metric)
+
     distinct_metric = session.catalog.require(ms.ref.metric("sales.fiscal_active_users")).ref
     distinct_frame = session.observe(
         distinct_metric,
@@ -254,6 +276,17 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     distinct_result = distinct_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     assert distinct_result["fiscal_active_users"].tolist() == pytest.approx(
         [1, 1, 1, 1, 1, 1, 2, 2, 2]
+    )
+
+    weighted_metric = session.catalog.require(ms.ref.metric("sales.fiscal_weighted_user")).ref
+    weighted_frame = session.observe(
+        weighted_metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=semantic_week,
+    )
+    weighted_result = weighted_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert weighted_result["fiscal_weighted_user"].tolist() == pytest.approx(
+        [1, 1, 1, 1, 1, 1, 1.57142857, 1.57142857, 1.57142857]
     )
 
     month_scope = session.catalog.period_calendars.get("sales.fiscal").period("fiscal_month", "M1")
@@ -286,8 +319,25 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert rolled.meta.temporal_contract.observation_period.level_name == "fiscal_month"
     recovered = session.get_frame(rolled.ref)
     assert recovered.meta.temporal_contract == rolled.meta.temporal_contract
+
     with pytest.raises(TransformShapeUnsupportedError, match="supported grain"):
         frame.transform.rollup(grain="month")
+
+    shanghai = mv.session.get_or_create(
+        name="fiscal-analysis-shanghai",
+        backends={"warehouse": lambda: backend},
+        report_timezone="Asia/Shanghai",
+    )
+    builtin_frame = shanghai.observe(
+        metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=mv.grain("day"),
+    )
+    assert builtin_frame.meta.temporal_contract is not None
+    assert builtin_frame.meta.temporal_contract.observation_period.boundary_timezone == (
+        "Asia/Shanghai"
+    )
+    assert builtin_frame.meta.temporal_contract.cumulative_reset_period.kind == "semantic_period"
 
 
 def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
