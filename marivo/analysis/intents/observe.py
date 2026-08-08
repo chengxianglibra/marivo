@@ -131,6 +131,7 @@ from marivo.analysis.intents._observe_derived import _build_fold_meta
 from marivo.analysis.intents._observe_inputs import (  # noqa: F401
     _analysis_axis_for_kind,
     _backend_for_datasource,
+    _bind_metric_forest_temporal_context,
     _dump_dimensions,
     _entity_adapter_maps,
     _gen_ref,
@@ -534,10 +535,11 @@ def _cumulative_graph_marker(
     graph_plan: Any,
     *,
     catalog: Any,
+    root_index: int = 0,
 ) -> dict[str, Any] | None:
     """Project recursive cumulative state into the stable frame-level summary."""
 
-    identity = graph_plan.forest.identities[0]
+    identity = graph_plan.forest.identities[root_index]
     if isinstance(identity, CatalogMetricIdentity):
         return _catalog_cumulative_marker(catalog, identity.metric_ref.path)
 
@@ -549,7 +551,7 @@ def _cumulative_graph_marker(
     if not cumulative_leaves:
         return None
     physical_leaf_ids = {leaf.node_id for leaf in graph_plan.leaves}
-    root_id = graph_plan.graph.roots[0]
+    root_id = graph_plan.graph.roots[root_index]
     if root_id in cumulative_leaves:
         return _cumulative_leaf_marker(cumulative_leaves[root_id])
 
@@ -608,6 +610,76 @@ def _cumulative_graph_marker(
     }
 
 
+def _forest_cumulative_marker(
+    graph_plan: Any,
+    *,
+    catalog: Any,
+) -> dict[str, Any] | None:
+    """Project one cumulative contract across all ordered forest roots."""
+
+    markers = tuple(
+        marker
+        for index in range(len(graph_plan.forest.identities))
+        if (marker := _cumulative_graph_marker(graph_plan, catalog=catalog, root_index=index))
+        is not None
+    )
+    if not markers:
+        return None
+
+    components: dict[str, dict[str, Any]] = {}
+    blockers: list[str] = []
+    for root_index in range(len(graph_plan.forest.identities)):
+        marker = _cumulative_graph_marker(graph_plan, catalog=catalog, root_index=root_index)
+        if marker is None:
+            blockers.append("non_cumulative_component")
+            continue
+        kind = marker.get("kind")
+        if kind == "cumulative":
+            components[f"root{root_index}"] = marker
+        elif kind == "derived_contains_cumulative":
+            nested = marker.get("components")
+            if isinstance(nested, Mapping):
+                for role, payload in nested.items():
+                    if (
+                        isinstance(role, str)
+                        and isinstance(payload, Mapping)
+                        and payload.get("kind") == "cumulative"
+                    ):
+                        components[f"root{root_index}.{role}"] = dict(payload)
+            blocker = marker.get("compare_blocker")
+            if isinstance(blocker, str) and blocker:
+                blockers.append(blocker)
+        else:
+            blockers.append("unresolved_component_anchor")
+    anchors = [
+        normalize_cumulative_anchor(payload.get("anchor")) for payload in components.values()
+    ]
+    if blockers:
+        blocker = (
+            "mixed_component_anchors"
+            if "mixed_component_anchors" in blockers
+            else "non_cumulative_component"
+            if "non_cumulative_component" in blockers
+            else blockers[0]
+        )
+        common_anchor = None
+    elif any(anchor is None for anchor in anchors):
+        blocker = "unresolved_component_anchor"
+        common_anchor = None
+    elif anchors and any(anchor != anchors[0] for anchor in anchors[1:]):
+        blocker = "mixed_component_anchors"
+        common_anchor = None
+    else:
+        blocker = None
+        common_anchor = anchors[0] if anchors else None
+    return {
+        "kind": "derived_contains_cumulative",
+        "anchor": common_anchor,
+        "compare_blocker": blocker,
+        "components": components,
+    }
+
+
 def _evaluation_timestamp_utc(value: object, *, report_tz: str) -> pd.Timestamp:
     """Interpret a cumulative cutoff in report time and serialize it in UTC."""
 
@@ -627,13 +699,16 @@ def _bucket_evaluation_end_utc(
     """Return one represented bucket's exclusive end in canonical UTC."""
 
     timestamp = pd.Timestamp(cast("Any", value))
+    boundary_timezone = report_tz
+    if isinstance(grain, TemporalGrain) and grain.kind == "semantic" and snapshot is not None:
+        boundary_timezone = snapshot.boundary_timezone
     if timestamp.tzinfo is not None:
-        timestamp = timestamp.tz_convert(ZoneInfo(report_tz)).tz_localize(None)
+        timestamp = timestamp.tz_convert(ZoneInfo(boundary_timezone)).tz_localize(None)
     if isinstance(grain, TemporalGrain) and grain.kind == "semantic":
         if snapshot is None or grain.level is None:
             raise ValueError("semantic cumulative evaluation requires a certified snapshot")
         period = TemporalResolver(snapshot).period_on(grain.level, timestamp.date())
-        return _evaluation_timestamp_utc(pd.Timestamp(period.end_date), report_tz=report_tz)
+        return _evaluation_timestamp_utc(pd.Timestamp(period.end_date), report_tz=boundary_timezone)
     unit = grain.unit
     count = grain.count
     if unit == "second":
@@ -699,7 +774,26 @@ def _materialize_cumulative_evaluation_end(
             ),
             context={"kind": "CumulativeEvaluationWindowMissing"},
         )
-    window_end = _evaluation_timestamp_utc(resolved_window.end, report_tz=report_tz)
+    evaluation_timezone = report_tz
+    anchor = normalize_cumulative_anchor(cumulative.get("anchor")) if cumulative else None
+    if (
+        isinstance(resolved_window.temporal_snapshot, PeriodCalendarSnapshotV1)
+        and isinstance(anchor, tuple)
+        and anchor[0] == "grain_to_date"
+        and isinstance(anchor[1], TemporalGrain)
+        and anchor[1].kind == "semantic"
+    ):
+        evaluation_timezone = resolved_window.temporal_snapshot.boundary_timezone
+    if (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+        and resolved_window.temporal_snapshot is not None
+    ):
+        evaluation_timezone = resolved_window.temporal_snapshot.boundary_timezone
+    window_end = _evaluation_timestamp_utc(
+        resolved_window.end,
+        report_tz=evaluation_timezone,
+    )
     output = df.copy()
     if semantic_kind in {"scalar", "segmented"}:
         output[EVALUATION_END_COLUMN] = pd.Series(
@@ -1943,6 +2037,11 @@ def _observe_metric_forest(
         time_dimension=time_dimension_id,
         catalog=catalog,
     )
+    resolved_window = _bind_metric_forest_temporal_context(
+        catalog,
+        resolved_window,
+        canonical_metric_inputs,
+    )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
     # A multi-metric forest shares one time axis.  When the caller did not pick
     # an explicit time_dimension, prefer the status time axis of a semi-additive
@@ -1962,6 +2061,11 @@ def _observe_metric_forest(
                 grain=grain,
                 time_dimension=forest_status_time_dimension,
                 catalog=catalog,
+            )
+            resolved_window = _bind_metric_forest_temporal_context(
+                catalog,
+                resolved_window,
+                canonical_metric_inputs,
             )
             is_time_series = resolved_window is not None and resolved_window.grain is not None
     _preflight_observe_temporal_suitability(
@@ -2025,6 +2129,18 @@ def _observe_metric_forest(
                 context={"models": sorted(models)},
             )
         model_name = next(iter(models))
+        cumulative_meta = _forest_cumulative_marker(graph_plan, catalog=catalog)
+        cumulative_payload = (
+            canonical_cumulative_metadata(cumulative_meta) if cumulative_meta is not None else None
+        )
+        root_cumulative_meta = tuple(
+            _cumulative_graph_marker(graph_plan, catalog=catalog, root_index=index)
+            for index in range(len(graph_plan.forest.identities))
+        )
+        root_cumulative_payloads = tuple(
+            canonical_cumulative_metadata(marker) if marker is not None else None
+            for marker in root_cumulative_meta
+        )
         params_timescope = (
             {
                 "original": original_timescope,
@@ -2052,6 +2168,20 @@ def _observe_metric_forest(
                 else None
             ),
         }
+        if resolved_window is not None:
+            temporal_contract = _build_frame_temporal_contract(
+                resolved_window=resolved_window,
+                cumulative=cumulative_meta,
+                frame=pd.DataFrame(),
+                report_timezone=session.report_tz_name,
+            )
+            if temporal_contract is not None:
+                params["temporal_contract"] = temporal_contract.model_dump(mode="json")
+        if cumulative_meta is not None:
+            params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
+            params["cumulative"] = cumulative_payload
+            if cumulative_has_evaluation_contract(cumulative_meta):
+                params["evaluation_end_column"] = EVALUATION_END_COLUMN
         anchor_time_path = (
             resolved_window.time_dimension if resolved_window is not None else time_dimension_id
         )
@@ -2171,6 +2301,14 @@ def _observe_metric_forest(
     merged = aligned[list(key_columns)].copy() if key_columns else aligned.iloc[:, 0:0].copy()
     for index, output_column in enumerate(output_columns):
         merged[output_column] = aligned[f"__marivo_value_root{index}"]
+    merged = _materialize_cumulative_evaluation_end(
+        merged,
+        cumulative=cumulative_meta,
+        axes=execution.roots[0].axes,
+        semantic_kind=execution.roots[0].semantic_kind,
+        resolved_window=resolved_window,
+        report_tz=session.report_tz_name,
+    )
     finished_at = datetime.now(UTC)
     # Bind sidecars to the final evidence identity, not a disposable build ref.
     frame_ref = prospective_id
@@ -2259,13 +2397,16 @@ def _observe_metric_forest(
             unit_state=root.unit_state,
             additivity=_meta_additivity(root.additivity),
             aggregation=None,
-            reaggregatable=root.fold is None,
+            reaggregatable=root.fold is None and root_cumulative_meta[index] is None,
+            cumulative=root_cumulative_payloads[index],
         )
-        for identity, output_column, root in zip(
-            graph_plan.forest.identities,
-            output_columns,
-            execution.roots,
-            strict=True,
+        for index, (identity, output_column, root) in enumerate(
+            zip(
+                graph_plan.forest.identities,
+                output_columns,
+                execution.roots,
+                strict=True,
+            )
         )
     )
     measures = [
@@ -2289,6 +2430,7 @@ def _observe_metric_forest(
                 else None
             ),
             "reaggregatable": binding.reaggregatable,
+            "cumulative": binding.cumulative,
         }
         for binding in measure_bindings
     ]
@@ -2349,6 +2491,14 @@ def _observe_metric_forest(
         additivity=None,
         zero_denominator_rows=None,
         cohort=resolved_cohort.binding if resolved_cohort is not None else None,
+        cumulative=cumulative_payload,
+        temporal_contract=_build_frame_temporal_contract(
+            resolved_window=resolved_window,
+            cumulative=cumulative_meta,
+            frame=merged,
+            report_timezone=session.report_tz_name,
+        ),
+        rollup_fold=("last" if cumulative_has_evaluation_contract(cumulative_meta) else None),
     )
     frame = MetricFrame(_df=merged, meta=meta)
     frame.meta = frame.meta.model_copy(

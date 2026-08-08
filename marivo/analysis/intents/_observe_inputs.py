@@ -57,8 +57,20 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
     _SemanticInput,
 )
-from marivo.semantic.ir import SemiAdditive
-from marivo.semantic.runtime_metric import RuntimeMetricExpr, runtime_metric_leaf_refs
+from marivo.semantic.ir import (
+    CumulativeComposition,
+    LinearComposition,
+    RatioComposition,
+    SemiAdditive,
+)
+from marivo.semantic.runtime_metric import (
+    RuntimeAggregateExpr,
+    RuntimeMetricExpr,
+    RuntimeRatioExpr,
+    RuntimeSliceExpr,
+    RuntimeWeightedMeanExpr,
+    runtime_metric_leaf_refs,
+)
 
 
 def _gen_ref(prefix: str) -> str:
@@ -171,50 +183,145 @@ def _bind_metric_temporal_context(
     window: AbsoluteWindow | None,
     metric_ir: Any,
 ) -> AbsoluteWindow | None:
-    """Bind a cumulative semantic reset grain to the same snapshot as observe."""
-    composition = getattr(metric_ir, "composition", None)
-    anchor = getattr(composition, "anchor", None)
-    # The first observe boundary receives a catalog ``MetricDetails`` adapter,
-    # whose cumulative composition intentionally omits the resolved anchor.
-    # Recover the authoritative MetricIR from the current catalog so semantic
-    # reset bindings are established before planning/execution even when the
-    # query grain itself is builtin.
-    metric_id = getattr(metric_ir, "semantic_id", None)
-    if isinstance(metric_id, str):
-        try:
-            catalog_metric = catalog._require_index().registry.metrics.get(metric_id)
-        except (AttributeError, KeyError):
-            catalog_metric = None
-        if catalog_metric is not None:
-            catalog_composition = getattr(catalog_metric, "composition", None)
-            catalog_anchor = getattr(catalog_composition, "anchor", None)
-            if catalog_anchor is not None:
-                anchor = catalog_anchor
-    if not isinstance(anchor, tuple) or len(anchor) != 2 or anchor[0] != "grain_to_date":
+    """Bind every semantic cumulative reset in one metric graph to one snapshot."""
+    reset_grains = _semantic_reset_grains_for_metric(catalog, metric_ir)
+    if not reset_grains:
         return window
-    reset_grain = anchor[1]
-    if not isinstance(reset_grain, TemporalGrain) or reset_grain.kind != "semantic":
-        return window
-    assert reset_grain.calendar is not None and reset_grain.level is not None
     if window is None:
         raise WindowInvalidError(
             message="semantic grain_to_date requires an explicit time_scope",
             hint="Pass a certified absolute or calendar-period time_scope before observing.",
             context={
                 "kind": "SemanticResetTimeScopeMissing",
-                "reset_grain": reset_grain.to_token(),
+                "reset_grains": tuple(grain.to_token() for grain in reset_grains),
+                "reset_grain": reset_grains[0].to_token(),
             },
         )
-    calendar = catalog.period_calendars.get(reset_grain.calendar.path)
-    snapshot = calendar._snapshot()
-    if reset_grain.level not in snapshot.levels:
-        raise ValueError(
-            f"calendar level {reset_grain.level!r} is not certified by {reset_grain.calendar.path!r}"
-        )
+
+    snapshots = []
+    for reset_grain in reset_grains:
+        assert reset_grain.calendar is not None and reset_grain.level is not None
+        calendar = catalog.period_calendars.get(reset_grain.calendar.path)
+        snapshot = calendar._snapshot()
+        if reset_grain.level not in snapshot.levels:
+            raise ValueError(
+                f"calendar level {reset_grain.level!r} is not certified by "
+                f"{reset_grain.calendar.path!r}"
+            )
+        _validate_semantic_window_coverage(window, snapshot=snapshot)
+        snapshots.append(snapshot)
+
+    snapshot = snapshots[0]
+    if any(candidate != snapshot for candidate in snapshots[1:]):
+        raise ValueError("metric graph semantic resets use different period snapshots")
     if window.temporal_snapshot is not None and window.temporal_snapshot != snapshot:
         raise ValueError("observation and cumulative reset use different period snapshots")
-    _validate_semantic_window_coverage(window, snapshot=snapshot)
     return bind_temporal_window(window, snapshot=snapshot)
+
+
+def _semantic_reset_grains_for_metric(
+    catalog: Any,
+    metric_ir: Any,
+) -> tuple[TemporalGrain, ...]:
+    """Collect semantic grain-to-date resets across an authoritative metric graph."""
+    try:
+        registry_metrics = catalog._require_index().registry.metrics
+    except AttributeError:
+        registry_metrics = {}
+
+    grains: list[TemporalGrain] = []
+    seen: set[str] = set()
+
+    def resolve_metric(value: Any) -> Any | None:
+        if isinstance(value, str):
+            return registry_metrics.get(value)
+        return value
+
+    def visit(value: Any) -> None:
+        resolved = resolve_metric(value)
+        metric_id = getattr(resolved, "semantic_id", None)
+        if isinstance(metric_id, str):
+            if metric_id in seen:
+                return
+            seen.add(metric_id)
+            resolved = registry_metrics.get(metric_id, resolved)
+        composition = getattr(resolved, "composition", None)
+        if isinstance(composition, CumulativeComposition):
+            anchor = composition.anchor
+            if (
+                isinstance(anchor, tuple)
+                and len(anchor) == 2
+                and anchor[0] == "grain_to_date"
+                and isinstance(anchor[1], TemporalGrain)
+                and anchor[1].kind == "semantic"
+            ):
+                grains.append(anchor[1])
+            visit(composition.base)
+            return
+        if isinstance(composition, RatioComposition):
+            visit(composition.numerator)
+            visit(composition.denominator)
+            return
+        if isinstance(composition, LinearComposition):
+            for term in composition.terms:
+                visit(term.metric)
+            return
+
+        # Runtime/planner adapters may expose the same graph as a small
+        # namespace instead of the authoritative IR classes.
+        kind = getattr(composition, "kind", None)
+        if kind == "cumulative":
+            anchor_value: Any = getattr(composition, "anchor", None)
+            if (
+                isinstance(anchor_value, tuple)
+                and len(anchor_value) == 2
+                and anchor_value[0] == "grain_to_date"
+                and isinstance(anchor_value[1], TemporalGrain)
+                and anchor_value[1].kind == "semantic"
+            ):
+                grains.append(anchor_value[1])
+            visit(getattr(composition, "base", None))
+        elif kind == "ratio":
+            components = getattr(composition, "components", {}) or {}
+            visit(components.get("numerator"))
+            visit(components.get("denominator"))
+        elif kind == "linear":
+            components = getattr(composition, "components", {}) or {}
+            for component in components.values():
+                visit(component)
+
+    visit(metric_ir)
+    return tuple(grains)
+
+
+def _bind_metric_forest_temporal_context(
+    catalog: Any,
+    window: AbsoluteWindow | None,
+    metric_inputs: tuple[Any, ...],
+) -> AbsoluteWindow | None:
+    """Bind semantic resets from every catalog root in a metric forest."""
+    bound = window
+    for metric_input in metric_inputs:
+        refs: tuple[Any, ...]
+        if type(metric_input) is Ref:
+            refs = (metric_input,)
+        elif isinstance(
+            metric_input,
+            RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+        ):
+            refs = tuple(
+                ref
+                for ref in runtime_metric_leaf_refs(metric_input)
+                if getattr(ref, "kind", None) is SemanticKind.METRIC
+            )
+        else:
+            refs = ()
+        for metric_ref in refs:
+            metric_id = metric_ref.path
+            details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
+            metric_ir = _planned_metric(details)
+            bound = _bind_metric_temporal_context(catalog, bound, metric_ir)
+    return bound
 
 
 def _validate_dimension_ids(dimensions: list[str] | None) -> list[str]:
