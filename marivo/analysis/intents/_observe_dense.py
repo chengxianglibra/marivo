@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from marivo._fixed_duration import fixed_duration_seconds
+from marivo._temporal import GregorianIsoResolver
 from marivo.analysis.errors import AnalysisError
 
 _GRAIN_PANDAS_FREQ: dict[str, str] = {
@@ -49,16 +50,12 @@ def _align_to_grain_start(ts: Any, unit: str, count: int = 1) -> Any:
             offset = (elapsed // width) * width
             return day_start + pd.Timedelta(seconds=offset)
         return ts.floor(_GRAIN_PANDAS_FREQ[unit])
-    if unit == "week":
-        days_since_monday = ts.weekday()  # 0=Monday
-        return (ts - pd.Timedelta(days=days_since_monday)).normalize()
-    if unit == "month":
-        return pd.Timestamp(year=ts.year, month=ts.month, day=1)
-    if unit == "quarter":
-        quarter_start_month = ((ts.month - 1) // 3) * 3 + 1
-        return pd.Timestamp(year=ts.year, month=quarter_start_month, day=1)
-    if unit == "year":
-        return pd.Timestamp(year=ts.year, month=1, day=1)
+    if unit in {"week", "month", "quarter", "year"}:
+        period = GregorianIsoResolver().period_on(unit, ts.date())
+        result = pd.Timestamp(period.start_date)
+        if getattr(ts, "tzinfo", None) is not None:
+            result = result.tz_localize(ts.tz)
+        return result
     # Should not reach here for valid Grain units.
     raise ValueError(f"unsupported grain unit for alignment: {unit!r}")
 

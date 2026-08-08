@@ -25,14 +25,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.refs import Ref, SemanticKind, ref
+from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
+    PeriodCorrespondence,
     aggregate,
     ai_context,
     all_rows,
     bind,
+    calendar_grain,
     count,
     cumulative,
     datetime,
@@ -54,6 +56,8 @@ from marivo.semantic.authoring import (
     model_state,
     participant,
     participant_role,
+    period_calendar,
+    period_correspondence,
     ratio,
     relationship,
     semi_additive,
@@ -70,6 +74,8 @@ from marivo.semantic.authoring import (
     where,
 )
 from marivo.semantic.catalog import (
+    CalendarLevelDetails,
+    CalendarPeriodPage,
     CatalogCollection,
     CatalogEntry,
     DatasourceDetails,
@@ -87,6 +93,8 @@ from marivo.semantic.catalog import (
     MeasureEntry,
     MetricDetails,
     MetricEntry,
+    PeriodCalendarDetails,
+    PeriodCalendarEntry,
     RelationshipDetails,
     RelationshipEntry,
     SemanticCatalog,
@@ -195,6 +203,8 @@ __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
     "AiContextValue",
+    "CalendarLevelDetails",
+    "CalendarPeriodPage",
     "CatalogCollection",
     "CatalogEntry",
     "DatasourceDetails",
@@ -219,6 +229,10 @@ __all__ = [
     "ParityResult",
     "Participant",
     "ParticipantRoleHandle",
+    "PeriodCalendarDetails",
+    "PeriodCalendarEntry",
+    "PeriodCalendarKind",
+    "PeriodCorrespondence",
     "PreviewBatchResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
@@ -241,6 +255,7 @@ __all__ = [
     "ai_context",
     "all_rows",
     "bind",
+    "calendar_grain",
     "count",
     "cumulative",
     "datetime",
@@ -265,6 +280,8 @@ __all__ = [
     "parity_check",
     "participant",
     "participant_role",
+    "period_calendar",
+    "period_correspondence",
     "ratio",
     "ref",
     "relationship",

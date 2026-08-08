@@ -29,6 +29,7 @@ from marivo.semantic.ir import (
     EventIR,
     MeasureIR,
     MetricIR,
+    PeriodCalendarIR,
     RelationshipIR,
     SourceLocation,
     StateModelDeclarationIR,
@@ -44,6 +45,7 @@ type DefinitionIR = (
     | RelationshipIR
     | EventIR
     | StateModelDeclarationIR
+    | PeriodCalendarIR
 )
 
 
@@ -122,6 +124,8 @@ def _ir_kind(ir: Any) -> str:
         return "event"
     if isinstance(ir, StateModelDeclarationIR):
         return "state model"
+    if isinstance(ir, PeriodCalendarIR):
+        return "period calendar"
     return type(ir).__name__
 
 
@@ -136,6 +140,7 @@ def _check_duplicate(
         | RelationshipIR
         | EventIR
         | StateModelDeclarationIR
+        | PeriodCalendarIR
     ],
 ) -> None:
     """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
@@ -156,6 +161,7 @@ def _check_duplicate(
                 RelationshipIR,
                 EventIR,
                 StateModelDeclarationIR,
+                PeriodCalendarIR,
             ),
         ):
             continue

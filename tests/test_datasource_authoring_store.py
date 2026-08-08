@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import ibis
@@ -15,8 +15,14 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._temporal import (
+    TemporalSnapshotStore,
+    certify_period_calendar,
+    certify_period_calendar_rows,
+)
 from marivo.cli import init_project
 from marivo.datasource.inspection import SourceInspection
+from marivo.refs import ref
 
 
 class _QuerySpy:
@@ -138,6 +144,44 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
     assert path.parent.stat().st_mode & 0o777 == 0o700
     assert path.parent.parent.stat().st_mode & 0o777 == 0o700
     assert path.parent.parent.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_persisted_date_columns_use_civil_date_values(project_root: Path) -> None:
+    path = project_root / "calendar.duckdb"
+    backend = ibis.duckdb.connect(str(path))
+    backend.raw_sql("CREATE TABLE calendar (calendar_date DATE, week VARCHAR)")
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES (DATE '2026-01-01', 'W1'), (DATE '2026-01-02', 'W1')"
+    )
+    backend.disconnect()
+    md.register(
+        md.duckdb(name="calendar_warehouse", path=str(path)),
+        project_root=project_root,
+    )
+
+    snapshot = md.inspect(
+        ms.ref.datasource("calendar_warehouse"),
+        md.table("calendar"),
+    ).sample(
+        scope=md.unpruned(max_rows=10, timeout_seconds=30),
+        columns=("calendar_date", "week"),
+        persist_values=True,
+    )
+
+    assert snapshot.retained_values == (
+        ("2026-01-01", "W1"),
+        ("2026-01-02", "W1"),
+    )
+    certified = certify_period_calendar_rows(
+        calendar_ref=ref.period_calendar("sales.fiscal"),
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 1, 3)),
+        columns=snapshot.columns,
+        retained_values=snapshot.retained_values,
+        date_column="calendar_date",
+        levels={"week": "week"},
+    )
+    assert certified.period_scope("week", "W1").start == date(2026, 1, 1)
 
 
 def test_value_policy_changes_identity_and_persists_only_bounded_values(
@@ -617,3 +661,47 @@ def test_repository_and_scaffold_cover_the_whole_state_root(tmp_path: Path) -> N
 
     assert ".marivo/" in ignored
     assert (tmp_path / ".marivo").is_dir()
+
+
+def _period_rows() -> list[dict[str, object]]:
+    return [
+        {"date": date(2026, 1, 1), "week": "FY26-W01", "month": "FY26-P01"},
+        {"date": date(2026, 1, 2), "week": "FY26-W01", "month": "FY26-P01"},
+        {"date": date(2026, 1, 3), "week": "FY26-W02", "month": "FY26-P01"},
+        {"date": date(2026, 1, 4), "week": "FY26-W02", "month": "FY26-P01"},
+    ]
+
+
+def test_period_snapshot_store_is_atomic_and_definition_bound(tmp_path: Path) -> None:
+    calendar = ref.period_calendar("sales.fiscal")
+    snapshot = certify_period_calendar(
+        calendar_ref=calendar,
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 1, 5)),
+        levels={"week": "week"},
+        rows=_period_rows(),
+    )
+    store = TemporalSnapshotStore(tmp_path)
+    store.publish(snapshot, definition_digest="definition-v1")
+
+    restored = store.load_current(calendar, definition_digest="definition-v1")
+    assert restored == snapshot
+    assert store.inspect_current(calendar, definition_digest="definition-v1")[0] == "current"
+    assert store.inspect_current(calendar, definition_digest="definition-v2")[0] == "stale"
+    assert store.load_current(calendar, definition_digest="definition-v2") is None
+
+    invalid_rows = _period_rows()
+    invalid_rows.pop()
+    with pytest.raises(ValueError, match="first missing date"):
+        certify_period_calendar(
+            calendar_ref=calendar,
+            boundary_timezone="UTC",
+            coverage=(date(2026, 1, 1), date(2026, 1, 5)),
+            levels={"week": "week"},
+            rows=invalid_rows,
+        )
+    assert store.load_current(calendar, definition_digest="definition-v1") == snapshot
+
+    manifest_path = store._directory(calendar) / "current.json"
+    manifest_path.write_text("{not-json", encoding="utf-8")
+    assert store.inspect_current(calendar, definition_digest="definition-v1")[0] == "invalid"

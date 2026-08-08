@@ -56,6 +56,11 @@ type CoverageBasis = Literal[
     "mixed",
     "unknown",
 ]
+type WindowBound = str | date | datetime
+
+
+def _bound_text(value: WindowBound) -> str:
+    return value if isinstance(value, str) else value.isoformat()
 
 
 @dataclass(frozen=True)
@@ -271,8 +276,8 @@ def materialize_event_occurrences(
     *,
     session: Session,
     inputs: tuple[EventOccurrenceInput, ...],
-    start: str | None,
-    end: str,
+    start: WindowBound | None,
+    end: WindowBound,
     normalized_end: pd.Timestamp,
     end_inclusive: bool,
     cohort: ResolvedSubjectCohort | None,
@@ -300,6 +305,8 @@ def materialize_event_occurrences(
         if occurred_at_location is not None
         else f"session.{help_target}.Event.occurred_at"
     )
+    start_text = None if start is None else _bound_text(start)
+    end_text = _bound_text(end)
     session._connection_runtime.begin_query_capture()
     try:
         for item in inputs:
@@ -330,12 +337,12 @@ def materialize_event_occurrences(
             try:
                 exclusive_end = (
                     inclusive_successor(
-                        end,
+                        end_text,
                         report_tz=report_tz,
                         granularity=occurred_adapter.time_meta.granularity,
                     )
                     if end_inclusive
-                    else end
+                    else end_text
                 )
             except ValueError as exc:
                 raise InvalidEventPatternError(
@@ -363,7 +370,7 @@ def materialize_event_occurrences(
                     ),
                 ) from exc
             predicate_window = AbsoluteWindow(
-                start=start if start is not None else end,
+                start=start_text if start_text is not None else end_text,
                 end=exclusive_end,
             )
             lower, upper = _window_bound_predicates(
@@ -640,13 +647,14 @@ def resolve_event_coverage(
     *,
     session: Session,
     inputs: tuple[EventCoverageInput, ...],
-    required_through: str,
+    required_through: WindowBound,
     required_instant: pd.Timestamp,
     declaration_by_event: dict[Ref[EventKind], CompletenessDeclaration],
 ) -> tuple[tuple[EventInputCoverage, ...], CoverageBasis]:
     """Resolve authoritative Event coverage once for any typed Event consumer."""
 
     report_tz = cast("ZoneInfo", session.report_tz)
+    required_through_text = _bound_text(required_through)
     items: list[EventInputCoverage] = []
     for item in inputs:
         request = EventWatermarkRequest(
@@ -654,7 +662,7 @@ def resolve_event_coverage(
             event_fingerprint=item.event_fingerprint,
             source_entity_ref=item.source_entity_ref,
             occurred_at_ref=item.occurred_at_ref,
-            required_through=required_through,
+            required_through=required_through_text,
         )
         raw_receipt = session._connection_runtime.event_watermark(
             item.datasource_name,

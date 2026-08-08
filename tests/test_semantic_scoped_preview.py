@@ -7,7 +7,7 @@ import textwrap
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import ibis
@@ -15,7 +15,9 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.preview import PreviewLimitError
+from marivo.refs import ref
 from marivo.semantic.catalog import MetricEntry, SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 
@@ -1082,3 +1084,140 @@ def test_batch_group_failure_does_not_persist_group_checks(
 
     assert exc_info.value.semantic_refs == tuple(ref.path for ref in refs)
     assert list((tmp_path / ".marivo" / "authoring" / "checks").glob("*.json")) == []
+
+
+def test_public_preview_certifies_persisted_rows_then_catalog_navigation(
+    semantic_project_factory, tmp_path: Path
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/calendar.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.table("calendar"))
+calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date", granularity="day")
+week = ms.dimension_column(name="week", entity=calendar, column="week")
+fiscal = ms.period_calendar(
+    name="fiscal", date=calendar_date, boundary_timezone="UTC",
+    coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)),
+    levels={"week": week},
+)
+""",
+        }
+    )
+    catalog = SemanticCatalog(project)
+    snapshot = DiscoverySnapshot(
+        id="calendar-evidence",
+        datasource=ref.datasource("warehouse"),
+        source=md.table("calendar"),
+        scope=md.unpruned(max_rows=4, timeout_seconds=30),
+        columns=("calendar_date", "week"),
+        schema_fingerprint="calendar-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=4,
+            retained_row_count=4,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=tmp_path,
+        retained_values=(
+            ("2026-01-01", "W1"),
+            ("2026-01-02", "W1"),
+            ("2026-01-03", "W2"),
+            ("2026-01-04", "W2"),
+        ),
+    )
+
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    before = catalog.readiness(refs=[calendar_ref])
+    assert any(issue.kind == "period_calendar_snapshot_missing" for issue in before.blockers)
+
+    verified = catalog.verify(calendar_ref)
+    assert verified.status == "passed"
+    assert verified.kind == "period_calendar"
+
+    preview = catalog.preview(calendar_ref, using=snapshot)
+    calendar = catalog.period_calendars.get("sales.fiscal")
+    assert preview.rows[0]["level"] == "week"
+    assert calendar.details().snapshot_status == "current"
+    details = calendar.details()
+    assert details.coverage == (date(2026, 1, 1), date(2026, 1, 5))
+    assert details.source_date == ref.time_dimension("sales.calendar.calendar_date")
+    level_details = {item.name: item for item in details.levels}
+    assert level_details["week"].period_count == 2
+    assert level_details["week"].direct_finer_levels == ("day",)
+    assert level_details["week"].direct_coarser_levels == ()
+    assert level_details["week"].rollup_targets == ()
+    assert calendar.period("week", "W2").start == date(2026, 1, 3)
+    assert tuple(scope.key for scope in calendar.periods("week", limit=1).items) == ("W1",)
+    day_page = calendar.periods("day", limit=2)
+    assert tuple(scope.key for scope in day_page.items) == ("2026-01-01", "2026-01-02")
+    assert day_page.next_cursor is not None
+    assert catalog.domains.get("sales").period_calendars.get("sales.fiscal") == calendar
+    after = catalog.readiness(refs=[calendar_ref])
+    assert not any(issue.kind == "period_calendar_snapshot_missing" for issue in after.blockers)
+
+    with pytest.raises(SemanticRuntimeError) as missing_period:
+        calendar.period("week", "missing")
+    assert missing_period.value.kind == "not_found"
+    assert missing_period.value.details["operation"] == "period"
+    assert missing_period.value.repair is not None
+
+    with pytest.raises(SemanticRuntimeError) as bad_cursor:
+        calendar.periods("week", cursor="not-a-cursor")
+    assert bad_cursor.value.kind == "not_found"
+    assert bad_cursor.value.details["operation"] == "periods"
+
+    malformed = replace(snapshot, retained_values=snapshot.retained_values[:-1])
+    with pytest.raises(SemanticRuntimeError) as malformed_preview:
+        catalog.preview(calendar_ref, using=malformed)
+    assert malformed_preview.value.kind == "materialize_failed"
+    assert malformed_preview.value.details["certification_error"] == "ValueError"
+    assert malformed_preview.value.repair is not None
+
+    changed_rows = replace(
+        snapshot,
+        retained_values=(
+            ("2026-01-01", "W3"),
+            ("2026-01-02", "W3"),
+            ("2026-01-03", "W2"),
+            ("2026-01-04", "W2"),
+        ),
+    )
+    with pytest.raises(PreviewLimitError):
+        catalog.preview(calendar_ref, using=changed_rows, limit=0)
+    assert calendar.period("week", "W1").start == date(2026, 1, 1)
+
+    for invalid_snapshot in (
+        replace(snapshot, _project_root=tmp_path / "foreign-project"),
+        replace(snapshot, cache_status="stale"),
+        replace(snapshot, expires_at=datetime.now(UTC) - timedelta(seconds=1)),
+    ):
+        with pytest.raises(SemanticRuntimeError) as invalid_preview:
+            catalog.preview(calendar_ref, using=invalid_snapshot)
+        assert invalid_preview.value.kind == "materialize_failed"
+        assert invalid_preview.value.details["query_executed"] is False
+        assert invalid_preview.value.repair is not None
+
+    calendar_path = tmp_path / "models" / "semantic" / "sales" / "calendar.py"
+    calendar_path.write_text(
+        calendar_path.read_text(encoding="utf-8").replace(
+            'column="week"',
+            'column="week_label"',
+        ),
+        encoding="utf-8",
+    )
+    project.load()
+    changed_catalog = SemanticCatalog(project)
+    changed_calendar = changed_catalog.period_calendars.get("sales.fiscal")
+    assert changed_calendar.details().snapshot_status == "stale"

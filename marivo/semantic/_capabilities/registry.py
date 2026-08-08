@@ -48,6 +48,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[event]",
         "Ref[event] | ParticipantRoleHandle",
         "Ref[state_model]",
+        "Ref[period_calendar]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
@@ -109,6 +110,9 @@ INPUT_FAMILIES = frozenset(
         "ModelStateHandle",
         "StateModelName",
         "LifecycleStateName",
+        "PeriodCorrespondence",
+        "Grain",
+        "Text",
     }
 )
 
@@ -133,6 +137,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[relationship]",
         "Ref[event]",
         "Ref[state_model]",
+        "Ref[period_calendar]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
@@ -156,6 +161,12 @@ OUTPUT_FAMILIES = frozenset(
         "Inception",
         "StateTransition",
         "ModelStateHandle",
+        "PeriodCorrespondence",
+        "Grain",
+        "CalendarPeriodPage",
+        "CalendarLevelDetails",
+        "PeriodCalendarDetails",
+        "PeriodCalendarEntry",
     }
 )
 
@@ -367,6 +378,11 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
             ),
             judgment_requirements=("normative_states", "legal_transitions", "inception"),
         ),
+        SemanticKind.PERIOD_CALENDAR: _authoring_source_contract(
+            SemanticKind.PERIOD_CALENDAR,
+            prerequisite_targets=(_target("time_dimension"), _target("dimension")),
+            judgment_requirements=("period_boundaries", "coverage", "boundary_timezone"),
+        ),
     }
     ids_by_kind = {
         SemanticKind.DOMAIN: ("domain",),
@@ -386,6 +402,7 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
         SemanticKind.RELATIONSHIP: ("relationship",),
         SemanticKind.EVENT: ("event",),
         SemanticKind.STATE_MODEL: ("state_model",),
+        SemanticKind.PERIOD_CALENDAR: ("period_calendar",),
     }
     return MappingProxyType(
         {
@@ -633,6 +650,59 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example=(
                 "log_date = ms.time_dimension_column(name='log_date', entity=orders, "
                 "column='log_date', granularity='day', parse=ms.strptime('%Y%m%d'))"
+            ),
+        ),
+        _capability(
+            "period_correspondence",
+            "marivo.semantic._authoring_temporal.period_correspondence",
+            "Declare one named same-level baseline-key correspondence for a period calendar.",
+            output="PeriodCorrespondence",
+            inputs=_inputs(
+                ("mapping_key", "Text"),
+                ("dependency", "Ref[dimension]"),
+            ),
+            effects=_NONE,
+            constraints=("ref_shape",),
+            example=(
+                "ms.period_correspondence(level='week', "
+                "baseline_key=ms.ref.dimension('sales.calendar.prior_week'))"
+            ),
+        ),
+        _capability(
+            "period_calendar",
+            "marivo.semantic._authoring_temporal.period_calendar",
+            "Declare a finite governed period calendar over an exhaustive civil-date spine.",
+            output="Ref[period_calendar]",
+            inputs=(
+                AuthoringInputRequirement(role="mapping_key", family="Text"),
+                AuthoringInputRequirement(role="subject", family="Ref[time_dimension]"),
+                AuthoringInputRequirement(role="dependency", family="Ref[dimension]"),
+                _optional_input("dependency", "PeriodCorrespondence"),
+            ),
+            effects=_AUTHOR,
+            constraints=("active_loader_context", "ref_shape"),
+            example=(
+                "ms.period_calendar(name='fiscal', "
+                "date=ms.ref.time_dimension('sales.calendar.calendar_date'), "
+                "boundary_timezone='UTC', "
+                "coverage=(__import__('datetime').date(2026, 1, 1), "
+                "__import__('datetime').date(2027, 1, 1)), "
+                "levels={'week': ms.ref.dimension('sales.calendar.fiscal_week')})"
+            ),
+        ),
+        _capability(
+            "calendar_grain",
+            "marivo.semantic._authoring_temporal.calendar_grain",
+            "Construct the unified semantic Grain for one governed calendar level.",
+            output="Grain",
+            inputs=_inputs(
+                ("subject", "Ref[period_calendar]"),
+                ("dependency", "Granularity"),
+            ),
+            effects=_NONE,
+            constraints=("ref_shape",),
+            example=(
+                "ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='week')"
             ),
         ),
         _capability(
@@ -1264,6 +1334,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "dimension_column",
                 "time_dimension",
                 "time_dimension_column",
+                "period_correspondence",
+                "period_calendar",
+                "calendar_grain",
                 "measure",
                 "measure_column",
                 "aggregate",
@@ -1320,9 +1393,12 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
-    from marivo.refs import Ref, SemanticKind
+    from marivo.refs import PeriodCalendarKind, Ref, SemanticKind
     from marivo.refs import ref as ref_factory
+    from marivo.semantic._authoring_temporal import PeriodCorrespondence
     from marivo.semantic.catalog import (
+        CalendarLevelDetails,
+        CalendarPeriodPage,
         CatalogCollection,
         CatalogEntry,
         DatasourceDetails,
@@ -1339,6 +1415,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MeasureDetails,
         MeasureEntry,
         MetricEntry,
+        PeriodCalendarDetails,
+        PeriodCalendarEntry,
         RelationshipDetails,
         RelationshipEntry,
         SemanticCatalog,
@@ -1537,6 +1615,62 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
+        PeriodCalendarEntry,
+        "PeriodCalendarEntry",
+        (),
+        properties=("ref",),
+        methods=(
+            "grain",
+            "period",
+            "period_on",
+            "periods",
+            "details",
+            "show",
+            "contract",
+            "render",
+        ),
+        state_bearing=True,
+    )
+    add(
+        PeriodCalendarDetails,
+        "PeriodCalendarDetails",
+        (),
+        properties=(
+            "ref",
+            "boundary_timezone",
+            "coverage",
+            "source_date",
+            "levels",
+            "correspondences",
+            "snapshot_status",
+            "parents",
+            "children",
+            "dependents",
+        ),
+        methods=show_render,
+    )
+    add(
+        CalendarPeriodPage,
+        "CalendarPeriodPage",
+        (),
+        properties=("items", "next_cursor"),
+        methods=show_render,
+    )
+    add(
+        CalendarLevelDetails,
+        "CalendarLevelDetails",
+        (),
+        properties=(
+            "name",
+            "key_ref",
+            "period_count",
+            "direct_finer_levels",
+            "direct_coarser_levels",
+            "rollup_targets",
+        ),
+        methods=show_render,
+    )
+    add(
         DatasourceEntry,
         "DatasourceEntry",
         (),
@@ -1617,6 +1751,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "relationship",
             "event",
             "state_model",
+            "period_calendar",
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
@@ -1642,7 +1777,13 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "relationship",
             "event",
             "state_model",
+            "period_calendar",
         ),
+    )
+    add(
+        PeriodCalendarKind,
+        "PeriodCalendarKind",
+        ("period_calendar",),
     )
     from marivo.semantic.event import Participant, ParticipantRoleHandle
     from marivo.semantic.state_model import (
@@ -1691,6 +1832,13 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ModelStateHandle",
         ("model_state",),
         properties=("model", "name", "key"),
+    )
+    add(
+        PeriodCorrespondence,
+        "PeriodCorrespondence",
+        ("period_correspondence",),
+        properties=("level", "baseline_key"),
+        consumers=("period_calendar",),
     )
     # IR types
     add(

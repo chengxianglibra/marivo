@@ -5,20 +5,26 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
+import base64
 import inspect
+import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, cast, overload
 
+from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TemporalResolver, TimeScope
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
+    PreviewCoverage,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
@@ -35,6 +41,7 @@ from marivo.refs import (
     FieldKind,
     MeasureKind,
     MetricKind,
+    PeriodCalendarKind,
     Ref,
     RelationshipKind,
     SemanticKind,
@@ -74,6 +81,7 @@ from marivo.semantic.ir import (
     MeasureIR,
     MetricIR,
     ParityStatus,
+    PeriodCalendarIR,
     RatioComposition,
     RelationshipIR,
     SampleIntervalIR,
@@ -108,6 +116,8 @@ from marivo.semantic.runtime_metric import (
 )
 from marivo.semantic.state_model import _state_model_fingerprint
 
+CalendarDate = date
+
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract, AuthoringRepair
     from marivo.semantic._compiled_state import CompiledSemanticState
@@ -119,6 +129,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AiContextView",
+    "CalendarLevelDetails",
+    "CalendarPeriodPage",
     "CatalogCollection",
     "CatalogEntry",
     "DatasourceDetails",
@@ -137,6 +149,8 @@ __all__ = [
     "MeasureEntry",
     "MetricDetails",
     "MetricEntry",
+    "PeriodCalendarDetails",
+    "PeriodCalendarEntry",
     "RelationshipDetails",
     "RelationshipEntry",
     "SemanticCatalog",
@@ -263,6 +277,12 @@ def _make_ref(path: str, kind: Literal[SemanticKind.STATE_MODEL]) -> Ref[StateMo
 
 
 @overload
+def _make_ref(
+    path: str, kind: Literal[SemanticKind.PERIOD_CALENDAR]
+) -> Ref[PeriodCalendarKind]: ...
+
+
+@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -278,6 +298,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
     }[kind]
     return factory(path)
 
@@ -1005,6 +1026,98 @@ class StateModelDetails(_DetailsBase):
         return sections
 
 
+@dataclass(frozen=True, repr=False)
+class CalendarLevelDetails(RenderableResult):
+    """Certification-derived facts for one owned period-calendar level."""
+
+    name: str
+    key_ref: Ref[DimensionKind] | Ref[TimeDimensionKind]
+    period_count: int | None
+    direct_finer_levels: tuple[str, ...] | None
+    direct_coarser_levels: tuple[str, ...] | None
+    rollup_targets: tuple[str, ...] | None
+
+    def _repr_identity(self) -> str:
+        return f"CalendarLevelDetails name={self.name}"
+
+    def _card(self) -> Card:
+        return (
+            Card(identity=self._repr_identity(), available=(".show()",))
+            .field("key_ref", self.key_ref.key)
+            .field("period_count", str(self.period_count))
+            .field("direct_finer_levels", repr(self.direct_finer_levels))
+            .field("direct_coarser_levels", repr(self.direct_coarser_levels))
+            .field("rollup_targets", repr(self.rollup_targets))
+        )
+
+
+@dataclass(frozen=True, repr=False)
+class PeriodCalendarDetails(_DetailsBase):
+    """Static source contract for one governed period calendar."""
+
+    date: Ref[TimeDimensionKind]
+    boundary_timezone: str
+    coverage: tuple[CalendarDate, CalendarDate]
+    levels: tuple[CalendarLevelDetails, ...]
+    correspondences: Mapping[str, str]
+    _correspondence_fields: tuple[tuple[str, str, str], ...]
+    _level_bindings: tuple[tuple[str, Ref[DimensionKind]], ...]
+    snapshot_status: Literal["missing", "current", "stale", "invalid"]
+
+    @property
+    def source_date(self) -> Ref[TimeDimensionKind]:
+        """The calendar's civil-date source field (target public spelling)."""
+        return self.date
+
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        sections.extend(
+            (
+                FieldSection(label="source_date", value=self.date.key),
+                FieldSection(label="boundary_timezone", value=self.boundary_timezone),
+                FieldSection(
+                    label="coverage",
+                    value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
+                ),
+                FieldSection(label="levels", value=", ".join(item.name for item in self.levels)),
+                FieldSection(
+                    label="correspondences",
+                    value=", ".join(self.correspondences) or "(none)",
+                ),
+                FieldSection(label="snapshot_status", value=self.snapshot_status),
+            )
+        )
+        return sections
+
+
+@dataclass(frozen=True, repr=False)
+class CalendarPeriodPage(RenderableResult):
+    """Bounded snapshot-bound page of exact period scopes."""
+
+    items: tuple[TimeScope, ...]
+    next_cursor: str | None
+
+    def _repr_identity(self) -> str:
+        return f"CalendarPeriodPage items={len(self.items)}"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(".items", ".next_cursor", ".show()"),
+        ).table(
+            columns=("scope",),
+            rows=((repr(item),) for item in self.items),
+            row_count=len(self.items),
+        )
+
+
 _CatalogObjectDetails = (
     DatasourceDetails
     | DomainDetails
@@ -1016,6 +1129,7 @@ _CatalogObjectDetails = (
     | RelationshipDetails
     | EventDetails
     | StateModelDetails
+    | PeriodCalendarDetails
 )
 
 
@@ -1124,6 +1238,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "relationships",
         "events",
         "state_models",
+        "period_calendars",
     )
 
     def details(self) -> DomainDetails:
@@ -1174,6 +1289,14 @@ class DomainEntry(CatalogEntry[DomainKind]):
         return self._catalog._collection(
             StateModelEntry,
             SemanticKind.STATE_MODEL,
+            scope_ref=self.ref,
+        )
+
+    @property
+    def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
+        return self._catalog._collection(
+            PeriodCalendarEntry,
+            SemanticKind.PERIOD_CALENDAR,
             scope_ref=self.ref,
         )
 
@@ -1463,6 +1586,306 @@ class StateModelEntry(CatalogEntry[StateModelKind]):
         return card
 
 
+class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
+    """Loaded period-calendar declaration with direct semantic-grain lookup."""
+
+    ref: Ref[PeriodCalendarKind]
+
+    def details(self) -> PeriodCalendarDetails:
+        details = cast("PeriodCalendarDetails", self._details)
+        status, snapshot = self._snapshot_with_status()
+        if status != "current" or snapshot is None:
+            return replace(
+                details,
+                snapshot_status=status,
+                levels=_calendar_level_details(
+                    details,
+                    snapshot=None,
+                ),
+            )
+        return replace(
+            details,
+            snapshot_status="current",
+            levels=_calendar_level_details(details, snapshot=snapshot),
+        )
+
+    def grain(self, level: str, /) -> Grain:
+        """Return the common semantic Grain for one declared calendar level."""
+        details = self.details()
+        if level not in {item.name for item in details.levels}:
+            _raise_period_lookup(
+                self.ref,
+                "grain",
+                f"Calendar level {level!r} is not declared by {self.ref.key}.",
+                details={"level": level},
+            )
+        from marivo._temporal import semantic_grain
+
+        return semantic_grain(calendar=self.ref, level=level)
+
+    def period(self, level: str, key: str | int | float | bool, /) -> TimeScope:
+        """Return the exact certified scope for one named period."""
+        try:
+            return self._snapshot().period_scope(level, key)
+        except (KeyError, TypeError, ValueError):
+            _raise_period_lookup(
+                self.ref,
+                "period",
+                f"No certified {level!r} period matches key {key!r}.",
+                details={"level": level, "key": key},
+            )
+
+    def period_on(self, level: str, value: date, /) -> TimeScope:
+        """Return the exact certified scope containing one civil date."""
+        try:
+            snapshot = self._snapshot()
+            period = TemporalResolver(snapshot).period_on(level, value)
+            return snapshot.period_scope(level, period.key)
+        except (KeyError, TypeError, ValueError):
+            _raise_period_lookup(
+                self.ref,
+                "period_on",
+                f"No certified {level!r} period contains date {value!r}.",
+                details={"level": level, "date": str(value)},
+            )
+
+    def periods(
+        self,
+        level: str,
+        /,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> CalendarPeriodPage:
+        """Return a bounded ordinal page of certified periods for one level."""
+        if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
+            _raise_period_lookup(
+                self.ref,
+                "periods",
+                "period page limit must be an integer in [1, 100].",
+                details={"limit": limit},
+            )
+        snapshot = self._snapshot()
+        try:
+            offset = _decode_period_cursor(
+                cursor, snapshot_digest=snapshot.snapshot_digest, level=level
+            )
+        except (TypeError, ValueError):
+            _raise_period_lookup(
+                self.ref,
+                "periods",
+                "The cursor is invalid or belongs to a different certified snapshot/level.",
+                details={"level": level, "cursor": "provided"},
+            )
+        if level not in snapshot.levels:
+            _raise_period_lookup(
+                self.ref,
+                "periods",
+                f"Calendar level {level!r} is not certified.",
+                details={"level": level},
+            )
+        if level == "day":
+            start, end = snapshot.coverage
+            total = (end - start).days
+            if offset >= total and total:
+                _raise_period_lookup(
+                    self.ref,
+                    "periods",
+                    "The cursor points beyond the current certified period page.",
+                    details={"level": level, "cursor": "provided", "offset": offset},
+                )
+            page_items = tuple(
+                snapshot.period_scope(
+                    level,
+                    (start + timedelta(days=index)).isoformat(),
+                )
+                for index in range(offset, min(offset + limit, total))
+            )
+            next_offset = offset + len(page_items)
+            next_cursor = (
+                _encode_period_cursor(snapshot.snapshot_digest, level, next_offset)
+                if next_offset < total
+                else None
+            )
+            return CalendarPeriodPage(items=page_items, next_cursor=next_cursor)
+
+        values = tuple(period for period in snapshot.periods if period.level_name == level)
+        if offset >= len(values) and values:
+            _raise_period_lookup(
+                self.ref,
+                "periods",
+                "The cursor points beyond the current certified period page.",
+                details={"level": level, "cursor": "provided", "offset": offset},
+            )
+        page_values = values[offset : offset + limit]
+        next_offset = offset + len(page_values)
+        next_cursor = (
+            _encode_period_cursor(snapshot.snapshot_digest, level, next_offset)
+            if next_offset < len(values)
+            else None
+        )
+        return CalendarPeriodPage(
+            items=tuple(snapshot.period_scope(level, value.key) for value in page_values),
+            next_cursor=next_cursor,
+        )
+
+    def _snapshot(self) -> PeriodCalendarSnapshotV1:
+        status, snapshot = self._snapshot_with_status()
+        if status != "current" or snapshot is None:
+            _raise_period_lookup(
+                self.ref,
+                "snapshot",
+                f"{self.ref.key} has no current certified period-calendar snapshot ({status}).",
+                details={"snapshot_status": status},
+            )
+        return snapshot
+
+    def _snapshot_with_status(
+        self,
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV1 | None]:
+        from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
+        from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+        details = cast("PeriodCalendarDetails", self._details)
+        definition_digest = period_calendar_definition_digest(
+            calendar_ref=self.ref,
+            boundary_timezone=details.boundary_timezone,
+            coverage=(details.coverage[0], details.coverage[1]),
+            levels=tuple((name, value.path) for name, value in details._level_bindings),
+            correspondences=details._correspondence_fields,
+            dependency_digest=scoped_definition_fingerprint(
+                root=self.ref,
+                definitions=self._catalog._state.definitions,
+                dependencies=self._catalog._state.dependencies,
+                sidecar=self._catalog._state.sidecar,
+            ),
+        )
+        return TemporalSnapshotStore(self._catalog.workspace_dir).inspect_current(
+            self.ref,
+            definition_digest=definition_digest,
+        )
+
+
+def _calendar_level_details(
+    details: PeriodCalendarDetails,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None,
+) -> tuple[CalendarLevelDetails, ...]:
+    """Project static level bindings plus certified graph facts."""
+    bindings: tuple[tuple[str, Ref[DimensionKind] | Ref[TimeDimensionKind]], ...] = (
+        ("day", details.date),
+        *details._level_bindings,
+    )
+    if snapshot is None:
+        return tuple(
+            CalendarLevelDetails(
+                name=name,
+                key_ref=key_ref,
+                period_count=None,
+                direct_finer_levels=None,
+                direct_coarser_levels=None,
+                rollup_targets=None,
+            )
+            for name, key_ref in bindings
+        )
+
+    all_edges = {(item.source_level, item.target_level) for item in snapshot.containments}
+    # Certification stores the full containment closure.  Details expose the
+    # mechanically derived transitive reduction as direct edges and retain all
+    # reachable targets for rollup admission.
+    direct_edges = {
+        edge
+        for edge in all_edges
+        if not any(
+            edge != (edge[0], middle)
+            and (edge[0], middle) in all_edges
+            and (middle, edge[1]) in all_edges
+            for middle in snapshot.levels
+        )
+    }
+    finer_by_target: dict[str, tuple[str, ...]] = {
+        name: tuple(sorted(source for source, target in direct_edges if target == name))
+        for name, _ in bindings
+    }
+    coarser_by_source: dict[str, tuple[str, ...]] = {
+        name: tuple(sorted(target for source, target in direct_edges if source == name))
+        for name, _ in bindings
+    }
+    targets_by_source: dict[str, tuple[str, ...]] = {
+        name: tuple(sorted(target for source, target in all_edges if source == name))
+        for name, _ in bindings
+    }
+    counts = {
+        name: (
+            (details.coverage[1] - details.coverage[0]).days
+            if name == "day"
+            else sum(1 for item in snapshot.periods if item.level_name == name)
+        )
+        for name, _ in bindings
+    }
+    return tuple(
+        CalendarLevelDetails(
+            name=name,
+            key_ref=key_ref,
+            period_count=counts.get(name, 0),
+            direct_finer_levels=finer_by_target.get(name, ()),
+            direct_coarser_levels=coarser_by_source.get(name, ()),
+            rollup_targets=targets_by_source.get(name, ()),
+        )
+        for name, key_ref in bindings
+    )
+
+
+def _raise_period_lookup(
+    calendar_ref: Ref[PeriodCalendarKind],
+    operation: str,
+    message: str,
+    *,
+    details: Mapping[str, object],
+) -> NoReturn:
+    """Raise one structured, bounded-retry catalog error for temporal lookup."""
+    _raise(
+        ErrorKind.NOT_FOUND,
+        message,
+        cls=SemanticRuntimeError,
+        refs=(calendar_ref.key,),
+        details={"operation": operation, **dict(details)},
+        repair_value=repair(
+            kind="retry",
+            canonical_id="period_calendar",
+            action=(
+                "Inspect the calendar card for a certified level/key and retry the lookup "
+                "with the exact current period snapshot."
+            ),
+        ),
+    )
+
+
+def _encode_period_cursor(snapshot_digest: str, level: str, offset: int) -> str:
+    payload = json.dumps([snapshot_digest, level, offset], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_period_cursor(cursor: str | None, *, snapshot_digest: str, level: str) -> int:
+    if cursor is None:
+        return 0
+    if type(cursor) is not str or not cursor:
+        raise ValueError("period cursor must be an opaque non-empty string or None")
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw_digest, raw_level, raw_offset = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("period cursor is invalid") from exc
+    if (
+        raw_digest != snapshot_digest
+        or raw_level != level
+        or type(raw_offset) is not int
+        or raw_offset < 0
+    ):
+        raise ValueError("period cursor does not match the current certified snapshot and level")
+    return raw_offset
+
+
 def _object_from_details[CatalogObjectT](
     object_type: type[CatalogObjectT],
     details: _CatalogObjectDetails,
@@ -1564,6 +1987,12 @@ class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
         self: CatalogCollection[StateModelKind],
         key: str | Ref[StateModelKind],
     ) -> StateModelEntry: ...
+
+    @overload
+    def get(
+        self: CatalogCollection[PeriodCalendarKind],
+        key: str | Ref[PeriodCalendarKind],
+    ) -> PeriodCalendarEntry: ...
 
     # Overloads encode the closed KindT-to-entry mapping that Python's generic
     # syntax cannot otherwise express while the runtime signature stays CatalogEntry[K].
@@ -1970,7 +2399,12 @@ def _build_domain_object(
         for model in reg.state_models.values()
         if model.domain == model_ir.name
     )
-    children = datasets_refs + metrics_refs + event_refs + state_model_refs
+    period_calendar_refs = tuple(
+        _make_ref(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
+        for calendar in reg.period_calendars.values()
+        if calendar.domain == model_ir.name
+    )
+    children = datasets_refs + metrics_refs + event_refs + state_model_refs + period_calendar_refs
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -2688,6 +3122,280 @@ def _build_state_model_object(
     return _object_from_details(StateModelEntry, details, catalog)
 
 
+def _build_period_calendar_object(
+    calendar_ir: PeriodCalendarIR,
+    reg: Registry,
+    catalog: SemanticCatalog,
+) -> PeriodCalendarEntry:
+    ref = ref_factory.period_calendar(calendar_ir.semantic_id)
+    date_ref = ref_factory.time_dimension(calendar_ir.date)
+    levels = tuple((name, ref_factory.dimension(path)) for name, path in calendar_ir.levels)
+    correspondences = {name: level for name, level, _baseline in calendar_ir.correspondences}
+    correspondence_refs = tuple(
+        ref_factory.dimension(baseline) for _name, _level, baseline in calendar_ir.correspondences
+    )
+    parents = (date_ref, *(value for _name, value in levels), *correspondence_refs)
+    # Slice 1 has no metric IR edge that can reference a semantic calendar.
+    # Do not turn unrelated cumulative anchors into fabricated dependents;
+    # reverse edges will be added when Slice 2 persists calendar Grain refs.
+    dependents: tuple[Ref[SemanticKindTag], ...] = ()
+    declared_levels = tuple((name, value) for name, value in levels)
+    details = PeriodCalendarDetails(
+        ref=ref,
+        kind=SemanticKind.PERIOD_CALENDAR,
+        name=calendar_ir.name,
+        domain=calendar_ir.domain,
+        context=calendar_ir.ai_context,
+        source_location=calendar_ir.location,
+        parents=parents,
+        children=(),
+        dependents=dependents,
+        python_symbol=calendar_ir.python_symbol,
+        date=date_ref,
+        boundary_timezone=calendar_ir.boundary_timezone,
+        coverage=(
+            date.fromisoformat(calendar_ir.coverage[0]),
+            date.fromisoformat(calendar_ir.coverage[1]),
+        ),
+        levels=tuple(
+            CalendarLevelDetails(
+                name=name,
+                key_ref=cast("Ref[DimensionKind] | Ref[TimeDimensionKind]", value),
+                period_count=None,
+                direct_finer_levels=None,
+                direct_coarser_levels=None,
+                rollup_targets=None,
+            )
+            for name, value in (("day", date_ref), *declared_levels)
+        ),
+        correspondences=MappingProxyType(correspondences),
+        _correspondence_fields=calendar_ir.correspondences,
+        _level_bindings=declared_levels,
+        snapshot_status="missing",
+    )
+    return _object_from_details(PeriodCalendarEntry, details, catalog)
+
+
+def _preview_period_calendar(
+    *,
+    calendar_ref: Ref[PeriodCalendarKind],
+    registry: Registry,
+    project_root: Path,
+    using: PreviewUsing,
+    limit: int,
+    dependency_digest: str,
+) -> PreviewResult:
+    """Certify a calendar locally from one exhaustive persisted datasource snapshot."""
+    preview_limit = validate_preview_limit(limit)
+    if not isinstance(using, DiscoverySnapshot):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar preview requires exactly one DiscoverySnapshot in using=.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={"query_executed": False},
+        )
+    if using._project_root.resolve() != project_root.resolve():
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar snapshot belongs to a different semantic project.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={
+                "query_executed": False,
+                "expected_project_root": str(project_root.resolve()),
+                "received_project_root": str(using._project_root.resolve()),
+            },
+            repair_value=repair(
+                kind="reacquire",
+                canonical_id="SourceInspection.sample",
+                action=(
+                    "Acquire the exhaustive calendar snapshot from this project and pass "
+                    "that exact immutable value to catalog.preview(..., using=...)."
+                ),
+                preserves_evidence=False,
+            ),
+        )
+    if using.cache_status in {"stale", "mismatched"} or using.expires_at <= datetime.now(UTC):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar preview cannot certify stale or expired datasource evidence.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={
+                "query_executed": False,
+                "cache_status": using.cache_status,
+                "expires_at": using.expires_at.isoformat(),
+            },
+            repair_value=repair(
+                kind="reacquire",
+                canonical_id="SourceInspection.sample",
+                action=(
+                    "Reacquire a fresh exhaustive snapshot with persist_values=True, then "
+                    "retry the calendar preview."
+                ),
+                preserves_evidence=False,
+            ),
+        )
+    if using.value_evidence_state != "available" or not using.retained_values:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar preview requires retained persisted value evidence.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={
+                "query_executed": False,
+                "value_evidence_state": using.value_evidence_state,
+                "retained_row_count": len(using.retained_values),
+            },
+            repair_value=repair(
+                kind="reacquire",
+                canonical_id="SourceInspection.sample",
+                action="Acquire the same calendar columns with persist_values=True and retry.",
+                preserves_evidence=False,
+            ),
+        )
+    calendar = registry.period_calendars.get(calendar_ref.path)
+    if calendar is None:
+        raise RuntimeError(f"missing compiled period calendar {calendar_ref.path!r}")
+    date_dimension = registry.dimensions.get(calendar.date)
+    if date_dimension is None or date_dimension.source_column is None:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar date must be declared with ms.time_dimension_column(...).",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key, calendar.date),
+            details={"query_executed": False},
+        )
+    source_entity = registry.entities.get(date_dimension.entity)
+    if (
+        source_entity is None
+        or using.datasource.path != source_entity.datasource
+        or using.source != source_entity.source
+    ):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar snapshot must belong to the calendar date entity's datasource and source.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={"query_executed": False},
+        )
+    if using.coverage.scope_exhaustion != "exhaustive" or not using.persist_values:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Period-calendar preview requires an exhaustive snapshot acquired with persist_values=True.",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={
+                "query_executed": False,
+                "scope_exhaustion": using.coverage.scope_exhaustion,
+                "persist_values": using.persist_values,
+            },
+        )
+    level_columns: dict[str, str] = {}
+    for level, field_ref in calendar.levels:
+        field = registry.dimensions.get(field_ref)
+        if field is None or field.source_column is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Period-calendar level {level!r} must be declared with ms.dimension_column(...).",
+                cls=SemanticRuntimeError,
+                refs=(calendar_ref.key, field_ref),
+                details={"query_executed": False},
+            )
+        level_columns[level] = field.source_column
+    correspondence_columns: dict[str, tuple[str, str]] = {}
+    for name, level, field_ref in calendar.correspondences:
+        field = registry.dimensions.get(field_ref)
+        if field is None or field.source_column is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Period-calendar correspondence {name!r} must use ms.dimension_column(...).",
+                cls=SemanticRuntimeError,
+                refs=(calendar_ref.key, field_ref),
+                details={"query_executed": False},
+            )
+        correspondence_columns[name] = (level, field.source_column)
+    from marivo._temporal import (
+        TemporalSnapshotStore,
+        certify_period_calendar_rows,
+        period_calendar_definition_digest,
+    )
+
+    try:
+        snapshot = certify_period_calendar_rows(
+            calendar_ref=calendar_ref,
+            boundary_timezone=calendar.boundary_timezone,
+            coverage=(
+                date.fromisoformat(calendar.coverage[0]),
+                date.fromisoformat(calendar.coverage[1]),
+            ),
+            columns=using.columns,
+            retained_values=using.retained_values,
+            date_column=date_dimension.source_column,
+            levels=level_columns,
+            correspondences=correspondence_columns,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"Period-calendar certification failed: {exc}",
+            cls=SemanticRuntimeError,
+            refs=(calendar_ref.key,),
+            details={
+                "query_executed": False,
+                "certification_error": type(exc).__name__,
+            },
+            repair_value=repair(
+                kind="reacquire",
+                canonical_id="SourceInspection.sample",
+                action=(
+                    "Correct the calendar source values or coverage, reacquire the same "
+                    "exhaustive columns with persist_values=True, and retry preview."
+                ),
+                preserves_evidence=False,
+            ),
+        )
+    definition_digest = period_calendar_definition_digest(
+        calendar_ref=calendar_ref,
+        boundary_timezone=calendar.boundary_timezone,
+        coverage=calendar.coverage,
+        levels=calendar.levels,
+        correspondences=calendar.correspondences,
+        dependency_digest=dependency_digest,
+    )
+    TemporalSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
+    rows: tuple[dict[str, object], ...] = tuple(
+        {
+            "level": period.level_name,
+            "key": period.key,
+            "start": period.start_date.isoformat(),
+            "end": period.end_date.isoformat(),
+        }
+        for period in snapshot.periods[:preview_limit]
+    )
+    return PreviewResult(
+        kind="semantic_dataset",
+        ref=calendar_ref.path,
+        columns=("level", "key", "start", "end"),
+        types={"level": "string", "key": "json_scalar", "start": "date", "end": "date"},
+        rows=rows,
+        requested_limit=preview_limit,
+        returned_row_count=len(rows),
+        is_truncated=len(snapshot.periods) > preview_limit,
+        status="passed",
+        coverage=PreviewCoverage(
+            scopes=((date_dimension.entity, using.scope),),
+            rows_observed=using.coverage.observed_row_count,
+            scope_exhaustion=using.coverage.scope_exhaustion,
+            scope_exactness=using.coverage.scope_exactness,
+            snapshot_ids=(using.id,),
+            cache_status="fresh" if using.cache_status == "mismatched" else using.cache_status,
+        ),
+        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+    )
+
+
 # ---------------------------------------------------------------------------
 # _CatalogIndex — private query layer for typed catalog objects
 # ---------------------------------------------------------------------------
@@ -2744,6 +3452,10 @@ class _CatalogIndex:
         result.extend(_build_event_object(item, reg, self.catalog) for item in reg.events.values())
         result.extend(
             _build_state_model_object(item, reg, self.catalog) for item in reg.state_models.values()
+        )
+        result.extend(
+            _build_period_calendar_object(item, reg, self.catalog)
+            for item in reg.period_calendars.values()
         )
         return tuple(sorted(result, key=lambda obj: obj.key))
 
@@ -3217,6 +3929,10 @@ class SemanticCatalog(RenderableResult):
     def state_models(self) -> CatalogCollection[StateModelKind]:
         return self._collection(StateModelEntry, SemanticKind.STATE_MODEL)
 
+    @property
+    def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
+        return self._collection(PeriodCalendarEntry, SemanticKind.PERIOD_CALENDAR)
+
     def require[KindT: SemanticKindTag](self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
         exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
@@ -3632,6 +4348,22 @@ class SemanticCatalog(RenderableResult):
                 "Semantic catalog expression sidecar is unavailable. Construct a fresh catalog with ms.load().",
                 cls=SemanticRuntimeError,
                 refs=(ref_str,),
+            )
+        if kind is SemanticKind.PERIOD_CALENDAR:
+            from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+            return _preview_period_calendar(
+                calendar_ref=cast("Ref[PeriodCalendarKind]", ref_obj),
+                registry=reg,
+                project_root=self.workspace_dir,
+                using=using,
+                limit=limit,
+                dependency_digest=scoped_definition_fingerprint(
+                    root=ref_obj,
+                    definitions=self._state.definitions,
+                    dependencies=self._state.dependencies,
+                    sidecar=self._state.sidecar,
+                ),
             )
         bindings = normalize_preview_bindings(
             ref=ref_str,

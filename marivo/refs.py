@@ -33,6 +33,7 @@ class SemanticKind(StrEnum):
     RELATIONSHIP = "relationship"
     EVENT = "event"
     STATE_MODEL = "state_model"
+    PERIOD_CALENDAR = "period_calendar"
 
 
 class SemanticKindTag:
@@ -81,6 +82,10 @@ class StateModelKind(SemanticKindTag):
     __slots__ = ()
 
 
+class PeriodCalendarKind(SemanticKindTag):
+    __slots__ = ()
+
+
 type FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
 
 
@@ -95,6 +100,7 @@ _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
     RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
     EventKind: frozenset({SemanticKind.EVENT}),
     StateModelKind: frozenset({SemanticKind.STATE_MODEL}),
+    PeriodCalendarKind: frozenset({SemanticKind.PERIOD_CALENDAR}),
 }
 
 _SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -109,6 +115,7 @@ _SEGMENT_COUNT = {
     SemanticKind.RELATIONSHIP: 2,
     SemanticKind.EVENT: 2,
     SemanticKind.STATE_MODEL: 2,
+    SemanticKind.PERIOD_CALENDAR: 2,
 }
 
 
@@ -324,6 +331,9 @@ class _RefFactory:
     def state_model(self, path: str) -> Ref[StateModelKind]:
         return cast("Ref[StateModelKind]", _create_ref(SemanticKind.STATE_MODEL, path))
 
+    def period_calendar(self, path: str) -> Ref[PeriodCalendarKind]:
+        return cast("Ref[PeriodCalendarKind]", _create_ref(SemanticKind.PERIOD_CALENDAR, path))
+
 
 ref = _RefFactory()
 
@@ -408,6 +418,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.STATE_MODEL: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
         ref.state_model,
+    ),
+    SemanticKind.PERIOD_CALENDAR: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        ref.period_calendar,
     ),
 }
 

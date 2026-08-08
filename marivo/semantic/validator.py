@@ -43,6 +43,7 @@ from marivo.semantic.ir import (
     LinearComposition,
     MeasureIR,
     MetricIR,
+    PeriodCalendarIR,
     RelationshipIR,
     SnapshotVersioningIR,
     StateInceptionIR,
@@ -88,6 +89,7 @@ class Registry:
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     events: dict[str, EventIR] = field(default_factory=dict)
     state_models: dict[str, StateModelIR] = field(default_factory=dict)
+    period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -104,6 +106,7 @@ class Registry:
             "relationships",
             "events",
             "state_models",
+            "period_calendars",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))
@@ -1533,6 +1536,68 @@ def assembly_validate(
                                 f_ir.entity, sorted(registry.entities.keys())
                             ),
                         },
+                    )
+                )
+
+    # -- Validate measure entity refs -----------------------------------------
+    # -- Validate period-calendar source-field ownership --------------------
+    for calendar_id, calendar in registry.period_calendars.items():
+        date_field = registry.dimensions.get(calendar.date)
+        if (
+            date_field is None
+            or not date_field.is_time_dimension
+            or date_field.granularity != "day"
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=(
+                        f"Period calendar {calendar_id!r} date ref {calendar.date!r} must "
+                        "resolve to a day-grain time dimension."
+                    ),
+                    refs=(calendar_id, calendar.date),
+                )
+            )
+            continue
+        for level, level_ref in calendar.levels:
+            field = registry.dimensions.get(level_ref)
+            if field is None or field.is_time_dimension or field.entity != date_field.entity:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=(
+                            f"Period calendar {calendar_id!r} level {level!r} must reference "
+                            "a categorical dimension on the calendar date entity."
+                        ),
+                        refs=(calendar_id, level_ref),
+                    )
+                )
+        for correspondence_name, level, baseline_ref in calendar.correspondences:
+            baseline = registry.dimensions.get(baseline_ref)
+            if level not in {name for name, _field in calendar.levels}:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=(
+                            f"Period calendar {calendar_id!r} correspondence {correspondence_name!r} "
+                            f"names undeclared level {level!r}."
+                        ),
+                        refs=(calendar_id, baseline_ref),
+                    )
+                )
+            elif (
+                baseline is None
+                or baseline.is_time_dimension
+                or baseline.entity != date_field.entity
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=(
+                            f"Period calendar {calendar_id!r} correspondence {correspondence_name!r} "
+                            "must reference a categorical dimension on the calendar date entity."
+                        ),
+                        refs=(calendar_id, baseline_ref),
                     )
                 )
 

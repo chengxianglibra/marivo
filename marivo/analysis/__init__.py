@@ -2,6 +2,7 @@
 
 from typing import Any as _Any
 
+from marivo._temporal import Grain
 from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
@@ -111,6 +112,32 @@ from marivo.analysis.windows.spec import (
 )
 
 
+def grain(
+    unit: str,
+    *,
+    count: int = 1,
+) -> Grain:
+    """Construct one builtin aggregation grain.
+
+    Args:
+        unit: One builtin unit from second through year.
+        count: Positive sub-day width; calendar-variable units require one.
+
+    Returns:
+        The immutable public Grain value.
+
+    Example:
+        >>> import marivo.analysis as mv
+        >>> mv.grain("month")
+
+    Constraints:
+        Semantic calendar levels are constructed by ``ms.calendar_grain(...)``.
+    """
+    from marivo._temporal import builtin_grain
+
+    return builtin_grain(unit, count=count)
+
+
 def __getattr__(name: str) -> _Any:
     if name == "evidence":
         from importlib import import_module
@@ -169,6 +196,7 @@ __all__ = [
     "FrameSummaryPage",
     "FromInception",
     "FunnelLossRate",
+    "Grain",
     "HypothesisTestResult",
     "InState",
     "LifecycleFrame",
@@ -193,6 +221,7 @@ __all__ = [
     "first_per_subject",
     "from_inception",
     "funnel_loss_rate",
+    "grain",
     "holiday_aligned",
     "holiday_and_dow_aligned",
     "in_state",

@@ -56,6 +56,7 @@ _SNAPSHOT_PAYLOAD_FIELDS = frozenset(
         "expires_at",
         "profiles",
         "coverage",
+        "retained_values",
         "payload_digest",
     }
 )
@@ -495,6 +496,34 @@ def _validate_snapshot_consistency(
             raise ValueError("profile display samples exceed retained coverage")
 
 
+def _retained_values(
+    value: object,
+    *,
+    columns: tuple[str, ...],
+    retained_row_count: int,
+    persist_values: bool,
+) -> tuple[tuple[JsonScalar, ...], ...]:
+    """Decode the exact row values retained by an explicit persisted snapshot."""
+    rows = _sequence(value, field="retained_values")
+    if not persist_values:
+        if rows:
+            raise ValueError("non-persisted snapshots cannot retain row values")
+        return ()
+    if len(rows) != retained_row_count:
+        raise ValueError("retained row values do not match snapshot coverage")
+    normalized: list[tuple[JsonScalar, ...]] = []
+    for row in rows:
+        values = _sequence(row, field="retained_values row")
+        if len(values) != len(columns):
+            raise ValueError("retained row values do not match selected columns")
+        if any(
+            not isinstance(item, (str, int, float, bool)) and item is not None for item in values
+        ):
+            raise ValueError("retained row values must be JSON scalars")
+        normalized.append(tuple(cast("JsonScalar", item) for item in values))
+    return tuple(normalized)
+
+
 def authoring_scope_from_payload(value: object) -> AuthoringScope:
     """Decode and strictly validate one persisted authoring scope."""
     payload = _mapping(value, field="scope")
@@ -666,6 +695,12 @@ class AuthoringStore:
                 profiles=profiles,
                 coverage=coverage,
             )
+            retained_values = _retained_values(
+                payload.get("retained_values"),
+                columns=columns,
+                retained_row_count=coverage.retained_row_count,
+                persist_values=persist_values,
+            )
             if not persist_values:
                 profiles = tuple(
                     replace(
@@ -694,6 +729,7 @@ class AuthoringStore:
                 created_at=created_at,
                 expires_at=expires_at,
                 _project_root=self.project_root,
+                retained_values=retained_values,
             )
         except (TypeError, ValueError):
             return None
@@ -857,6 +893,7 @@ class AuthoringStore:
             "expires_at": snapshot.expires_at,
             "profiles": persisted_profiles,
             "coverage": snapshot.coverage,
+            "retained_values": snapshot.retained_values if snapshot.persist_values else (),
         }
         payload["payload_digest"] = _payload_digest(payload)
         self._write_json(self._snapshot_path(snapshot.id), payload)

@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from marivo._fixed_duration import fixed_duration_seconds
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.errors import GrainUnsupportedError
 
 GrainUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -153,7 +154,7 @@ class Grain(BaseModel):
         return not self.__lt__(other)
 
 
-GrainInput = Grain | tuple[int, str] | str | None
+GrainInput = Grain | TemporalGrain | tuple[int, str] | str | None
 
 
 def parse_grain_token(text: str) -> Grain:
@@ -173,6 +174,13 @@ def normalize_grain(value: GrainInput) -> Grain | None:
         return None
     if isinstance(value, Grain):
         return value
+    if isinstance(value, TemporalGrain):
+        if value.kind != "builtin":
+            raise TypeError(
+                "semantic calendar Grain is not admitted to analysis execution until temporal Slice 2"
+            )
+        assert value.unit is not None and value.count is not None
+        return Grain(count=value.count, unit=value.unit)  # type: ignore[arg-type]
     if isinstance(value, str):
         return parse_grain_token(value)
     if isinstance(value, tuple):

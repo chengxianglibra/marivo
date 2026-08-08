@@ -17,6 +17,7 @@ from marivo.semantic.ir import (
     EventIR,
     MeasureIR,
     MetricIR,
+    PeriodCalendarIR,
     RelationshipIR,
     SemiAdditive,
     StateModelIR,
@@ -97,6 +98,10 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.state_model(key)), value)
         for key, value in registry.state_models.items()
     )
+    rows.update(
+        (cast("Ref[SemanticKindTag]", ref_factory.period_calendar(key)), value)
+        for key, value in registry.period_calendars.items()
+    )
     return rows
 
 
@@ -123,6 +128,8 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.event(path))
     if path in registry.state_models:
         return cast("Ref[SemanticKindTag]", ref_factory.state_model(path))
+    if path in registry.period_calendars:
+        return cast("Ref[SemanticKindTag]", ref_factory.period_calendar(path))
     if path in registry.domains:
         return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
@@ -167,6 +174,10 @@ def _dependencies_for(
         paths.append(definition.subject)
         paths.extend(item.trigger.event_ref for item in definition.inceptions)
         paths.extend(item.trigger.event_ref for item in definition.transitions)
+    elif isinstance(definition, PeriodCalendarIR):
+        paths.append(definition.date)
+        paths.extend(ref for _level, ref in definition.levels)
+        paths.extend(ref for _name, _level, ref in definition.correspondences)
     body = sidecar.bodies.get(ref)
     if body is not None:
         paths.extend(binding.field_ref.path for binding in body.bindings)
