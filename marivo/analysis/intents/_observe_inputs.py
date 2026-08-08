@@ -9,7 +9,9 @@ import hashlib
 import json
 import secrets
 from collections.abc import Mapping
+from datetime import date, datetime, time
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.errors import (
@@ -17,6 +19,7 @@ from marivo.analysis.errors import (
     GrainUnsupportedError,
     SemanticKindMismatchError,
     TemporalSuitabilityError,
+    WindowInvalidError,
 )
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
@@ -108,6 +111,7 @@ def _resolve_timescope(
                 raise ValueError(
                     "time_scope belongs to a stale period-calendar snapshot; reacquire the exact current scope"
                 )
+            _validate_semantic_window_coverage(resolved, snapshot=snapshot)
             resolved = bind_temporal_window(resolved, snapshot=snapshot)
     original = (
         timescope_in.contract().model_dump(mode="json")
@@ -119,22 +123,88 @@ def _resolve_timescope(
     return resolved, original
 
 
+def _parse_calendar_bound(value: object, *, boundary_timezone: str) -> datetime:
+    """Normalize one execution bound to the calendar's civil timeline."""
+    raw = value.isoformat() if isinstance(value, (date, datetime)) else str(value)
+    try:
+        if len(raw) == 10 and "T" not in raw and " " not in raw:
+            parsed = datetime.combine(date.fromisoformat(raw), time.min)
+        else:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise WindowInvalidError(
+            message=f"invalid semantic time_scope bound {value!r}",
+            context={"kind": "SemanticTimeScopeBoundInvalid", "bound": repr(value)},
+        ) from exc
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(ZoneInfo(boundary_timezone)).replace(tzinfo=None)
+    return parsed
+
+
+def _validate_semantic_window_coverage(
+    window: AbsoluteWindow,
+    *,
+    snapshot: Any,
+) -> None:
+    """Reject semantic execution windows that exceed certified civil coverage."""
+    start = _parse_calendar_bound(window.start, boundary_timezone=snapshot.boundary_timezone)
+    end = _parse_calendar_bound(window.end, boundary_timezone=snapshot.boundary_timezone)
+    coverage_start = datetime.combine(snapshot.coverage[0], time.min)
+    coverage_end = datetime.combine(snapshot.coverage[1], time.min)
+    if start < coverage_start or end > coverage_end or end <= start:
+        raise WindowInvalidError(
+            message="semantic time_scope is outside the certified period-calendar coverage",
+            hint="Choose a scope fully contained by the certified calendar coverage.",
+            context={
+                "kind": "SemanticTimeScopeOutOfCoverage",
+                "scope_start": window.start,
+                "scope_end": window.end,
+                "coverage_start": snapshot.coverage[0].isoformat(),
+                "coverage_end": snapshot.coverage[1].isoformat(),
+                "calendar": snapshot.calendar_ref.path,
+            },
+        )
+
+
 def _bind_metric_temporal_context(
     catalog: Any,
     window: AbsoluteWindow | None,
     metric_ir: Any,
 ) -> AbsoluteWindow | None:
     """Bind a cumulative semantic reset grain to the same snapshot as observe."""
-    if window is None:
-        return None
     composition = getattr(metric_ir, "composition", None)
     anchor = getattr(composition, "anchor", None)
+    # The first observe boundary receives a catalog ``MetricDetails`` adapter,
+    # whose cumulative composition intentionally omits the resolved anchor.
+    # Recover the authoritative MetricIR from the current catalog so semantic
+    # reset bindings are established before planning/execution even when the
+    # query grain itself is builtin.
+    metric_id = getattr(metric_ir, "semantic_id", None)
+    if isinstance(metric_id, str):
+        try:
+            catalog_metric = catalog._require_index().registry.metrics.get(metric_id)
+        except (AttributeError, KeyError):
+            catalog_metric = None
+        if catalog_metric is not None:
+            catalog_composition = getattr(catalog_metric, "composition", None)
+            catalog_anchor = getattr(catalog_composition, "anchor", None)
+            if catalog_anchor is not None:
+                anchor = catalog_anchor
     if not isinstance(anchor, tuple) or len(anchor) != 2 or anchor[0] != "grain_to_date":
         return window
     reset_grain = anchor[1]
     if not isinstance(reset_grain, TemporalGrain) or reset_grain.kind != "semantic":
         return window
     assert reset_grain.calendar is not None and reset_grain.level is not None
+    if window is None:
+        raise WindowInvalidError(
+            message="semantic grain_to_date requires an explicit time_scope",
+            hint="Pass a certified absolute or calendar-period time_scope before observing.",
+            context={
+                "kind": "SemanticResetTimeScopeMissing",
+                "reset_grain": reset_grain.to_token(),
+            },
+        )
     calendar = catalog.period_calendars.get(reset_grain.calendar.path)
     snapshot = calendar._snapshot()
     if reset_grain.level not in snapshot.levels:
@@ -143,6 +213,7 @@ def _bind_metric_temporal_context(
         )
     if window.temporal_snapshot is not None and window.temporal_snapshot != snapshot:
         raise ValueError("observation and cumulative reset use different period snapshots")
+    _validate_semantic_window_coverage(window, snapshot=snapshot)
     return bind_temporal_window(window, snapshot=snapshot)
 
 

@@ -795,14 +795,18 @@ def _build_frame_temporal_contract(
             scope_contract = scope.contract()
     observation_period = None
     if resolved_window.grain is not None:
+        observation_boundary_timezone = report_timezone
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
+            if resolved_window.temporal_snapshot is None:
+                raise ValueError("semantic observation grain requires a certified snapshot")
+            observation_boundary_timezone = resolved_window.temporal_snapshot.boundary_timezone
         observation_period = period_binding_for_grain(
             resolved_window.grain,
             snapshot=resolved_window.temporal_snapshot,
-            boundary_timezone=(
-                resolved_window.temporal_snapshot.boundary_timezone
-                if resolved_window.temporal_snapshot is not None
-                else report_timezone
-            ),
+            boundary_timezone=observation_boundary_timezone,
         )
     reset_period = None
     anchor = normalize_cumulative_anchor(cumulative.get("anchor")) if cumulative else None
@@ -811,14 +815,15 @@ def _build_frame_temporal_contract(
         if isinstance(reset_grain, str):
             reset_grain = builtin_grain(reset_grain)
         if isinstance(reset_grain, TemporalGrain):
+            reset_boundary_timezone = report_timezone
+            if reset_grain.kind == "semantic":
+                if resolved_window.temporal_snapshot is None:
+                    raise ValueError("semantic reset grain requires a certified snapshot")
+                reset_boundary_timezone = resolved_window.temporal_snapshot.boundary_timezone
             reset_period = period_binding_for_grain(
                 reset_grain,
                 snapshot=resolved_window.temporal_snapshot,
-                boundary_timezone=(
-                    resolved_window.temporal_snapshot.boundary_timezone
-                    if resolved_window.temporal_snapshot is not None
-                    else report_timezone
-                ),
+                boundary_timezone=reset_boundary_timezone,
             )
     output_keys: tuple[Any, ...] = ()
     if "period_key" in frame.columns:
