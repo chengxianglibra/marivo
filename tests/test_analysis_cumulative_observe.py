@@ -296,6 +296,14 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert scoped.meta.temporal_contract.time_scope.kind == "calendar_period"
     assert scoped.meta.temporal_contract.time_scope.calendar_ref == "sales.fiscal"
 
+    scalar_full = session.observe(metric, time_scope=month_scope)
+    assert scalar_full.to_pandas()["fiscal_mtd"].tolist() == pytest.approx([30])
+    scalar_partial = session.observe(
+        metric,
+        time_scope={"start": "2026-01-02", "end": "2026-02-01"},
+    )
+    assert scalar_partial.to_pandas()["fiscal_mtd"].tolist() == pytest.approx([30])
+
     semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
     partial = session.observe(
         metric,

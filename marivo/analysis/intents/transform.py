@@ -2231,8 +2231,20 @@ def _semantic_rollup_period_rows(
                 },
             )
         records.append(record)
-    df["_target_period_key"] = [record.key for record in records]
-    target_by_key = {record.key: record for record in records}
+
+    # Keep the JSON scalar type in the grouping identity.  Python's ordinary
+    # dict/groupby keys conflate values such as ``1`` and ``True`` even though
+    # the certified calendar treats them as distinct canonical keys.
+    def target_token(record: Any) -> str:
+        return json.dumps(
+            record.key,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+
+    df["_target_period_token"] = [target_token(record) for record in records]
+    target_by_token = {target_token(record): record for record in records}
 
     dims = [
         axis["column"]
@@ -2261,12 +2273,13 @@ def _semantic_rollup_period_rows(
             context={"op": "rollup", "reason": "measure_columns_missing"},
         )
 
-    group_keys = [*dims, "_target_period_key"]
+    group_keys = [*dims, "_target_period_token"]
     # Complete coverage is a prerequisite for both additive and last-value
     # roll-ups.  A sorted interval walk rejects gaps and overlaps instead of
     # inferring completeness from min/max bounds alone.
     for key, group in df.groupby(group_keys, dropna=False, sort=False):
-        record = target_by_key[cast("Any", key[-1] if isinstance(key, tuple) else key)]
+        token = cast("Any", key[-1] if isinstance(key, tuple) else key)
+        record = target_by_token[token]
         intervals = sorted(
             zip(
                 source_starts.loc[group.index],
@@ -2302,22 +2315,23 @@ def _semantic_rollup_period_rows(
     if rollup_fold == "last":
         selected = (
             df.assign(_source_end=source_ends)
-            .sort_values([*dims, "_target_period_key", "_source_end"])
+            .sort_values([*dims, "_target_period_token", "_source_end"])
             .groupby(group_keys, dropna=False, sort=False)
             .tail(1)
             .reset_index(drop=True)
         )
-        selected[time_col] = selected["_target_period_key"].map(
-            lambda key: target_by_key[key].start_date
+        selected[time_col] = selected["_target_period_token"].map(
+            lambda token: target_by_token[token].start_date
         )
-        new_df = selected.drop(columns=["_target_period_key", "_source_end"], errors="ignore")
+        new_df = selected.drop(columns=["_target_period_token", "_source_end"], errors="ignore")
     else:
-        new_df = (
-            df.groupby(group_keys, as_index=False, dropna=False)[measure_columns]
-            .sum(min_count=1)
-            .rename(columns={"_target_period_key": "period_key"})
+        new_df = df.groupby(group_keys, as_index=False, dropna=False)[measure_columns].sum(
+            min_count=1
         )
-        new_df[time_col] = new_df["period_key"].map(lambda key: target_by_key[key].start_date)
+        new_df[time_col] = new_df["_target_period_token"].map(
+            lambda token: target_by_token[token].start_date
+        )
+        new_df = new_df.drop(columns=["_target_period_token"])
 
     key_values = new_df[time_col].map(
         lambda value: resolver.period_on(grain.level or "", pd.Timestamp(value).date())
