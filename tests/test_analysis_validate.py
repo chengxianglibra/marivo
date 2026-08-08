@@ -20,8 +20,7 @@ from marivo.analysis.intents._validate import (
     validate_decompose_columns,
 )
 from marivo.analysis.lineage import Lineage
-from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef
+from marivo.analysis.policies import day_of_week, window_bucket
 from marivo.analysis.validation import ValidationIssue
 from tests.shared_fixtures import make_test_delta_contract, make_test_metric_contract
 
@@ -122,7 +121,7 @@ def _mf(
     return MetricFrame(_df=df, meta=meta)
 
 
-_WB = AlignmentPolicy(kind="window_bucket")
+_WB = window_bucket()
 
 
 def test_validate_compare_ok_returns_empty():
@@ -202,10 +201,10 @@ def test_validate_compare_segmented_requires_window_bucket():
     issues = validate_compare(
         cur,
         base,
-        alignment=AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("cn_holidays")),
+        alignment=day_of_week(),
     )
     assert isinstance(issues[0], AlignmentPolicyNotApplicableError)
-    assert issues[0]._context["alignment_kind"] == "dow_aligned"
+    assert issues[0]._context["alignment_kind"] == "day_of_week"
 
 
 def test_validate_compare_scalar_rejects_non_window_bucket():
@@ -214,10 +213,10 @@ def test_validate_compare_scalar_rejects_non_window_bucket():
     issues = validate_compare(
         _mf(semantic_kind="scalar"),
         _mf(semantic_kind="scalar"),
-        alignment=AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("cn_holidays")),
+        alignment=day_of_week(),
     )
     assert isinstance(issues[0], SemanticKindMismatchError)
-    assert issues[0]._context["kind"] == "CalendarAlignRequiresTimeSeries"
+    assert issues[0]._context["kind"] == "AlignmentPolicyNotApplicable"
 
 
 # ---------------------------------------------------------------------------

@@ -253,12 +253,10 @@ class Session(RenderableResult):
     """Call marivo.help(Session) for its public consumption contract."""
 
     __slots__ = (
-        "_calendars",
         "_catalog",
         "_connection_runtime",
         "_created_at",
         "_cwd",
-        "_default_calendar",
         "_id",
         "_judgment_store",
         "_judgment_store_unavailable",
@@ -294,8 +292,6 @@ class Session(RenderableResult):
         report_tz_name: str | None = None,
         report_tz_resolution: str | None = None,
         report_tz_warning: str | None = None,
-        default_calendar: str | None = None,
-        calendars: Any = None,
         judgment_store: EvidenceStore | None = None,
         judgment_store_unavailable: bool = False,
         ontology_state: Literal["absent", "ready", "unavailable"] = "absent",
@@ -334,17 +330,11 @@ class Session(RenderableResult):
             self._report_tz_warning = (
                 report_tz_warning if report_tz_warning is not None else resolved_report_tz.warning
             )
-        self._default_calendar = default_calendar
-        self._calendars = calendars
         self._judgment_store = judgment_store
         self._judgment_store_unavailable = judgment_store_unavailable
         self._ontology_state = ontology_state
         self._ontology_catalog = ontology_catalog
         self._ontology_issues = ontology_issues
-        if self._calendars is None:
-            from marivo.analysis.calendar.loader import CalendarCache
-
-            self._calendars = CalendarCache(self._project_root)
 
     def _repr_identity(self) -> str:
         return f"Session id={self._id} name={self._name}"
@@ -429,10 +419,6 @@ class Session(RenderableResult):
     @property
     def report_tz_warning(self) -> str | None:
         return self._report_tz_warning
-
-    @property
-    def default_calendar(self) -> str | None:
-        return self._default_calendar
 
     @property
     def is_read_only(self) -> bool:

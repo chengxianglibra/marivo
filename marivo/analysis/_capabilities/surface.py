@@ -76,7 +76,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.funnel import FunnelLossRate
     from marivo.analysis.lifecycle import FromInception, InState
     from marivo.analysis.policies import AlignmentPolicy
-    from marivo.analysis.refs import ArtifactRef, CalendarRef
+    from marivo.analysis.refs import ArtifactRef
     from marivo.analysis.session.core import (
         FrameSummaryEntry,
         FrameSummaryPage,
@@ -144,7 +144,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             InState: "InState",
             AlignmentPolicy: "AlignmentPolicy",
             ArtifactRef: "ArtifactRef",
-            CalendarRef: "CalendarRef",
             FunnelLossRate: "FunnelLossRate",
             ModelStateHandle: "ModelStateHandle",
             EventWatermarkRequest: "EventWatermarkRequest",

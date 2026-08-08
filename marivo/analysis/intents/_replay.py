@@ -13,7 +13,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.subject import SubjectSet
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import AlignmentPolicy, decode_alignment_policy
 from marivo.analysis.runtime_metric import RuntimeMetricExpr, from_replay_payload
 from marivo.analysis.session.core import Session
 from marivo.analysis.slice_types import SliceValue
@@ -33,11 +33,11 @@ from marivo.semantic.catalog import _SemanticInput
 
 _ALIGNMENT_POLICY_FIELDS = {
     "kind",
-    "calendar",
-    "period",
-    "fallback",
     "mode",
     "strict_lengths",
+    "within",
+    "unmatched",
+    "correspondence",
 }
 
 type ReplayMetricInput = (
@@ -335,7 +335,7 @@ def recover_alignment_policy(delta: DeltaFrame) -> AlignmentPolicy:
         key: value for key, value in raw_alignment.items() if key in _ALIGNMENT_POLICY_FIELDS
     }
     try:
-        return AlignmentPolicy(**policy_payload)
+        return decode_alignment_policy(policy_payload)
     except Exception as exc:
         raise AttributionMaterializationError(
             message="DeltaFrame alignment policy is not replayable",

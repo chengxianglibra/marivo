@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     name TEXT NOT NULL UNIQUE,
     question TEXT,
     cwd TEXT NOT NULL,
-    default_calendar TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -113,7 +112,7 @@ class SessionStore:
         >>> store = SessionStore(project_root=Path("/my/project"))
         >>> row = store.get_or_insert_session(
         ...     name="exploration", question="Why did revenue drop?",
-        ...     cwd=Path.cwd(), default_calendar="fiscal",
+        ...     cwd=Path.cwd(),
         ... )
     """
 
@@ -184,16 +183,11 @@ class SessionStore:
         name: str,
         question: str | None,
         cwd: Path,
-        default_calendar: str | None,
     ) -> sqlite3.Row:
         """Return the existing session row for *name*, or insert a new one.
 
-        If a session with *name* already exists:
-        - The original *question* is preserved.
-        - If *default_calendar* is not ``None``, it updates the persisted
-          calendar and bumps ``updated_at``.
-        - If *default_calendar* is ``None``, the persisted calendar is
-          restored (left unchanged).
+        If a session with *name* already exists, the original question and
+        project identity are preserved.
 
         Race handling: when a concurrent insert wins on the UNIQUE name
         constraint, the method catches the error and loads the existing row.
@@ -202,7 +196,6 @@ class SessionStore:
             name: Unique session name.
             question: The analysis question. Preserved on re-insert.
             cwd: Working directory at session creation time.
-            default_calendar: Calendar to persist for the session.
 
         Returns:
             The session row (as :class:`sqlite3.Row`).
@@ -210,20 +203,6 @@ class SessionStore:
         with self._connect() as conn:
             existing = self._fetchone(conn, "SELECT * FROM sessions WHERE name = ?", (name,))
             if existing is not None:
-                if (
-                    default_calendar is not None
-                    and default_calendar != existing["default_calendar"]
-                ):
-                    now = _now_iso()
-                    conn.execute(
-                        "UPDATE sessions SET default_calendar = ?, updated_at = ? WHERE id = ?",
-                        (default_calendar, now, existing["id"]),
-                    )
-                    updated = self._fetchone(
-                        conn, "SELECT * FROM sessions WHERE id = ?", (existing["id"],)
-                    )
-                    assert updated is not None  # just updated the row, must exist
-                    return updated
                 return existing
 
             sid = _gen_session_id()
@@ -231,9 +210,9 @@ class SessionStore:
             cwd_str = str(cwd)
             try:
                 conn.execute(
-                    "INSERT INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (sid, name, question, cwd_str, default_calendar, now, now),
+                    "INSERT INTO sessions (id, name, question, cwd, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (sid, name, question, cwd_str, now, now),
                 )
             except sqlite3.IntegrityError:
                 # Race: another process inserted the same name
@@ -348,24 +327,6 @@ class SessionStore:
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 (now, session_id),
-            )
-        return now
-
-    def update_default_calendar(self, session_id: str, default_calendar: str | None) -> str:
-        """Update the default calendar for a session.
-
-        Args:
-            session_id: The session id.
-            default_calendar: New calendar value, or ``None`` to clear it.
-
-        Returns:
-            The new ``updated_at`` timestamp string.
-        """
-        now = _now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE sessions SET default_calendar = ?, updated_at = ? WHERE id = ?",
-                (default_calendar, now, session_id),
             )
         return now
 

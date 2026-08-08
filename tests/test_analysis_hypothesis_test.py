@@ -336,15 +336,13 @@ def test_test_operator_errors_and_persistence(tmp_path):
         session.hypothesis_test(
             ts,
             ts,
-            alignment=mv.AlignmentPolicy(
-                kind="dow_aligned", calendar=mv.CalendarRef("sales.retail")
-            ),
+            alignment=mv.day_of_week(),
         )
     with pytest.raises(TestPolicyError) as calendar_bucket_exc:
         session.hypothesis_test(
             ts,
             ts,
-            alignment=mv.AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            alignment=mv.window_bucket(mode="calendar_bucket"),
         )
     assert "only supports default window_bucket alignment" in str(calendar_bucket_exc.value)
 
@@ -352,7 +350,7 @@ def test_test_operator_errors_and_persistence(tmp_path):
         session.hypothesis_test(
             ts,
             ts,
-            alignment=mv.AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            alignment=mv.window_bucket(strict_lengths=True),
         )
 
     other = session_attach.get_or_create(name="other")

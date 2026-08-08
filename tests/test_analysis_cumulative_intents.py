@@ -37,8 +37,7 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef
+from marivo.analysis.policies import window_bucket
 from marivo.analysis.session._runtime import persist_frame
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
@@ -82,23 +81,6 @@ def _bootstrap_project(tmp_path) -> None:
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
-        encoding="utf-8",
-    )
-    calendar_dir = tmp_path / ".marivo" / "calendar"
-    calendar_dir.mkdir(parents=True)
-    (calendar_dir / "cn_holidays.json").write_text(
-        json.dumps(
-            {
-                "name": "cn_holidays",
-                "holidays": [
-                    {"date": "2025-05-01", "holiday_id": "labor-day"},
-                    {"date": "2026-05-01", "holiday_id": "labor-day"},
-                    {"date": "2026-04-30", "holiday_id": "labor-day"},
-                    {"date": "2026-05-02", "holiday_id": "other-day"},
-                ],
-                "adjusted_workdays": [],
-            }
-        ),
         encoding="utf-8",
     )
     (semantic_dir / "datasets.py").write_text(
@@ -1000,7 +982,7 @@ def test_compare_trailing_rejects_calendar_bucket_mode(tmp_path, monkeypatch) ->
         compare(
             current,
             baseline,
-            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            alignment=window_bucket(mode="calendar_bucket"),
             session=session,
         )
 
@@ -1228,178 +1210,6 @@ def test_compare_grain_to_date_single_period_aligned(tmp_path, monkeypatch) -> N
     assert delta.meta.cumulative_alignment.pairs.baseline_unpaired_rows == 0
 
 
-@pytest.mark.parametrize("kind", ["dow_aligned", "holiday_and_dow_aligned"])
-def test_compare_grain_to_date_supports_calendar_position_alignment(
-    tmp_path,
-    monkeypatch,
-    kind: str,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    anchor = ("grain_to_date", "month")
-    if kind == "holiday_and_dow_aligned":
-        current_days = ["2026-05-01", "2026-05-02"]
-        baseline_days = ["2025-05-01", "2025-05-02"]
-    else:
-        current_days = ["2026-07-01", "2026-07-02", "2026-07-03"]
-        baseline_days = ["2026-06-01", "2026-06-02", "2026-06-03"]
-    current = _ts_frame(
-        session,
-        bucket_starts=current_days,
-        values=[10.0] * len(current_days),
-        window_start=current_days[0],
-        window_end=str(pd.Timestamp(current_days[-1]) + pd.Timedelta(days=1))[:10],
-        anchor=anchor,
-    )
-    baseline = _ts_frame(
-        session,
-        bucket_starts=baseline_days,
-        values=[5.0] * len(baseline_days),
-        window_start=baseline_days[0],
-        window_end=str(pd.Timestamp(baseline_days[-1]) + pd.Timedelta(days=1))[:10],
-        anchor=anchor,
-    )
-
-    delta = compare(
-        current,
-        baseline,
-        alignment=AlignmentPolicy(
-            kind=kind,
-            calendar=CalendarRef("cn_holidays"),
-            period="month",
-        ),
-        session=session,
-    )
-
-    assert delta.meta.cumulative_alignment is not None
-    assert delta.meta.cumulative_alignment.pairs.matched_rows == len(delta.to_pandas())
-    assert set(delta.to_pandas()["presence_status"]) == {"matched"}
-
-
-def test_compare_grain_to_date_calendar_period_must_match_reset(tmp_path, monkeypatch) -> None:
-    session = _session(tmp_path, monkeypatch)
-    anchor = ("grain_to_date", "month")
-    current = _ts_frame(
-        session,
-        bucket_starts=["2026-07-01"],
-        values=[10.0],
-        window_start="2026-07-01",
-        window_end="2026-07-02",
-        anchor=anchor,
-    )
-    baseline = _ts_frame(
-        session,
-        bucket_starts=["2026-06-01"],
-        values=[5.0],
-        window_start="2026-06-01",
-        window_end="2026-06-02",
-        anchor=anchor,
-    )
-
-    with pytest.raises(Exception, match="period='month'"):
-        compare(
-            current,
-            baseline,
-            alignment=AlignmentPolicy(
-                kind="dow_aligned",
-                calendar=CalendarRef("cn_holidays"),
-                period="quarter",
-            ),
-            session=session,
-        )
-
-
-def test_compare_trailing_calendar_panel_drops_and_counts_one_sided_coordinates(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    anchor = ("trailing", 7, "day")
-    current = _ts_frame(
-        session,
-        bucket_starts=["2026-07-01", "2026-07-01"],
-        values=[10.0, 20.0],
-        regions=["US", "CA"],
-        window_start="2026-07-01",
-        window_end="2026-07-02",
-        anchor=anchor,
-    )
-    baseline = _ts_frame(
-        session,
-        bucket_starts=["2026-06-03"],
-        values=[5.0],
-        regions=["US"],
-        window_start="2026-06-01",
-        window_end="2026-06-02",
-        anchor=anchor,
-    )
-
-    delta = compare(
-        current,
-        baseline,
-        alignment=AlignmentPolicy(
-            kind="dow_aligned",
-            calendar=CalendarRef("cn_holidays"),
-            period="month",
-        ),
-        session=session,
-    )
-
-    result = delta.to_pandas()
-    assert list(result["region"]) == ["US"]
-    assert delta.meta.cumulative_alignment is not None
-    pairs = delta.meta.cumulative_alignment.pairs
-    assert pairs.matched_rows == 1
-    assert pairs.current_unpaired_rows == 1
-    assert pairs.baseline_unpaired_rows == 0
-    assert pairs.unpaired_action == "dropped"
-
-
-def test_compare_trailing_holiday_fallback_is_typed_and_counted(tmp_path, monkeypatch) -> None:
-    session = _session(tmp_path, monkeypatch)
-    anchor = ("trailing", 7, "day")
-    current = _ts_frame(
-        session,
-        bucket_starts=["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"],
-        values=[100.0, 70.0, 30.0, 40.0],
-        window_start="2026-05-01",
-        window_end="2026-05-05",
-        anchor=anchor,
-    )
-    baseline = _ts_frame(
-        session,
-        bucket_starts=["2026-04-30", "2026-04-03", "2026-04-02", "2026-04-04"],
-        values=[80.0, 10.0, 0.0, 50.0],
-        window_start="2026-04-01",
-        window_end="2026-04-05",
-        anchor=anchor,
-    )
-
-    delta = compare(
-        current,
-        baseline,
-        alignment=AlignmentPolicy(
-            kind="holiday_aligned",
-            calendar=CalendarRef("cn_holidays"),
-            period="month",
-            fallback="nearest_prior_workday",
-        ),
-        session=session,
-    )
-
-    assert delta.meta.cumulative_alignment is not None
-    pairs = delta.meta.cumulative_alignment.pairs
-    assert pairs.matched_rows == 4
-    assert pairs.fallback_rows == 3
-    assert pairs.current_unpaired_rows == 0
-    assert pairs.baseline_unpaired_rows == 1
-    assert (delta.to_pandas()["align_quality"] == "fallback").sum() == 3
-
-    top = delta.transform.topk(by="delta", limit=1)
-    assert top.meta.cumulative_alignment is not None
-    assert top.meta.cumulative_alignment.pairs.matched_rows == 1
-    assert top.meta.cumulative_alignment.pairs.fallback_rows == 1
-
-
 def test_compare_grain_to_date_boundary_required(tmp_path, monkeypatch) -> None:
     """Validation 2: window must start on a reset boundary."""
     session = _session(tmp_path, monkeypatch)
@@ -1480,7 +1290,7 @@ def test_validate_grain_to_date_boundary_in_report_timezone(tmp_path, monkeypatc
         validate_compare(
             current,
             baseline,
-            alignment=AlignmentPolicy(kind="window_bucket"),
+            alignment=window_bucket(),
             report_tz="Asia/Shanghai",
         )
         == []
@@ -1671,7 +1481,7 @@ def test_compare_grain_to_date_rejects_calendar_bucket_mode(tmp_path, monkeypatc
         compare(
             current,
             baseline,
-            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            alignment=window_bucket(mode="calendar_bucket"),
             session=session,
         )
 
@@ -2128,7 +1938,7 @@ def test_contract_grain_to_date_defers_pair_checks_to_compare(tmp_path, monkeypa
         p for p in cmp.preconditions if p.check == "cumulative_comparable_period_pair"
     )
     assert "same month reset" in (pair_contract.reason or "")
-    assert "DOW/holiday positions" in (pair_contract.reason or "")
+    assert "day-of-week/progress/correspondence positions" in (pair_contract.reason or "")
 
 
 def test_contract_trailing_autocorrelation_caveat(tmp_path, monkeypatch) -> None:

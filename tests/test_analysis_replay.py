@@ -185,7 +185,7 @@ def test_recover_alignment_policy_filters_enriched_compare_metadata() -> None:
 
 def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
     session = mv.session.get_or_create(name="demo")
-    delta = _delta_frame(session, alignment={"kind": "dow_aligned"})
+    delta = _delta_frame(session, alignment={"kind": "removed_kind"})
 
     with pytest.raises(AttributionMaterializationError) as exc_info:
         recover_alignment_policy(delta)

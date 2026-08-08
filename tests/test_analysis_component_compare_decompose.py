@@ -17,7 +17,7 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import window_bucket
 from marivo.analysis.session._runtime import persist_frame
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
@@ -218,7 +218,7 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
         ],
     )
 
-    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+    delta = session.compare(current, baseline, alignment=window_bucket())
 
     assert delta.meta.additivity == "non_additive"
     assert delta.meta.component_ref is not None
@@ -680,7 +680,7 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
         ],
     )
 
-    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+    delta = session.compare(current, baseline, alignment=window_bucket())
 
     assert delta.meta.component_ref is not None
     component_df = delta.components().to_pandas()
@@ -770,7 +770,7 @@ def test_compare_panel_ratio_window_bucket_persists_component_delta():
         ],
     )
 
-    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+    delta = session.compare(current, baseline, alignment=window_bucket())
 
     component_df = delta.components().to_pandas()
     assert {"bucket_start", "bucket_start_b", "region"}.issubset(component_df.columns)
@@ -1246,7 +1246,11 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             metric_id="sales.failure_rate",
             source_current_ref="frame_current",
             source_baseline_ref="frame_baseline",
-            alignment={"kind": "dow_aligned", "axes": axes},
+            alignment={
+                "kind": "day_of_week",
+                "within": {"kind": "builtin", "unit": "month", "count": 1},
+                "unmatched": "fail",
+            },
             semantic_kind="time_series",
             semantic_model="sales",
             composition={

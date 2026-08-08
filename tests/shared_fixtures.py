@@ -620,14 +620,13 @@ def build_session_over_catalog(catalog: Any, tmp_path: Path) -> Any:
     store = SessionStore(project_root=tmp_path)
     with store._connect() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 "sess_h01",
                 "handoff",
                 "q",
                 str(tmp_path),
-                None,
                 "2026-05-24T10:00:00+00:00",
                 "2026-05-24T10:00:00+00:00",
             ),

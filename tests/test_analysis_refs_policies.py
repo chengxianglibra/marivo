@@ -3,16 +3,21 @@ from pydantic import ValidationError
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._temporal import (
+    AlignmentEvidenceV1,
+    ComparisonTemporalContractV1,
+    FrameTemporalContractV1,
+)
 from marivo.analysis.errors import AlignmentPolicyValidationError
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
-    dow_aligned,
-    holiday_aligned,
-    holiday_and_dow_aligned,
+    day_of_week,
+    period_correspondence,
+    period_progress,
     window_bucket,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef
+from marivo.analysis.refs import ArtifactRef
 
 
 def test_semantic_refs_stay_on_the_semantic_surface():
@@ -23,8 +28,7 @@ def test_semantic_refs_stay_on_the_semantic_surface():
     assert not hasattr(mv, "Ref")
     assert not hasattr(mv, "SemanticKind")
     assert not hasattr(mv, "CatalogObject")
-    assert mv.CalendarRef("cn_holidays").ref == "cn_holidays"
-    assert CalendarRef("cn_holidays").ref == "cn_holidays"
+    assert not hasattr(mv, "CalendarRef")
 
 
 def test_artifact_ref_is_exported_and_preserves_ref():
@@ -34,90 +38,87 @@ def test_artifact_ref_is_exported_and_preserves_ref():
 
 
 def test_refs_reject_empty_refs():
-    for ref_cls in (CalendarRef, ArtifactRef):
-        with pytest.raises(ValidationError):
-            ref_cls(" ")
-
-
-def test_refs_reject_extra_fields_with_validation_error():
     with pytest.raises(ValidationError):
-        CalendarRef(ref="cn", extra=1)
+        ArtifactRef(" ")
 
 
-def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
-    assert AlignmentPolicy(kind="window_bucket").calendar is None
-
-    with pytest.raises(AlignmentPolicyValidationError):
-        AlignmentPolicy(kind="window_bucket", calendar=CalendarRef("cn"))
-
-    with pytest.raises(AlignmentPolicyValidationError) as legacy:
-        AlignmentPolicy(kind="calendar_bucket")  # type: ignore[arg-type]
-    assert "window_bucket" in str(legacy.value)
-
-    with pytest.raises(AlignmentPolicyValidationError):
-        AlignmentPolicy(kind="dow_aligned")
-
-    with pytest.raises(ValidationError):
-        AlignmentPolicy(kind="dow_aligned", calendar={"ref": "cn", "extra": 1})
-
-    policy = AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=CalendarRef("cn"))
-    assert policy.kind == "holiday_and_dow_aligned"
-    assert policy.calendar == CalendarRef("cn")
-    assert policy.period == "month"
-    assert policy.fallback == "drop"
+def test_alignment_policy_is_closed_and_direct_constructor_is_rejected():
+    with pytest.raises(AlignmentPolicyValidationError) as exc_info:
+        AlignmentPolicy(kind="window_bucket")
+    assert exc_info.value._context["case"] == "direct_constructor"
+    assert "mv.window_bucket()" in str(exc_info.value)
 
 
-def test_alignment_policy_helpers_match_explicit_constructors():
-    calendar = CalendarRef("cn_holidays")
-
-    cases = [
-        (
-            window_bucket(),
-            AlignmentPolicy(kind="window_bucket"),
-        ),
-        (
-            window_bucket(mode="calendar_bucket", strict_lengths=True),
-            AlignmentPolicy(kind="window_bucket", mode="calendar_bucket", strict_lengths=True),
-        ),
-        (
-            dow_aligned(calendar=calendar, period="week", fallback="nearest_prior_workday"),
-            AlignmentPolicy(
-                kind="dow_aligned",
-                calendar=calendar,
-                period="week",
-                fallback="nearest_prior_workday",
-            ),
-        ),
-        (
-            holiday_aligned(calendar=calendar),
-            AlignmentPolicy(kind="holiday_aligned", calendar=calendar),
-        ),
-        (
-            holiday_and_dow_aligned(calendar=calendar, period="quarter"),
-            AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=calendar, period="quarter"),
-        ),
+def test_alignment_helpers_have_exact_closed_payloads():
+    policies = [
+        window_bucket(),
+        window_bucket(mode="calendar_bucket", strict_lengths=True),
+        day_of_week(),
+        period_progress(unmatched="drop"),
+        period_correspondence(correspondence="prior_year_shifted"),
     ]
+    assert [policy.kind for policy in policies] == [
+        "window_bucket",
+        "window_bucket",
+        "day_of_week",
+        "period_progress",
+        "period_correspondence",
+    ]
+    assert policies[0].model_dump(mode="json") == {
+        "kind": "window_bucket",
+        "mode": "ordinal_bucket",
+        "strict_lengths": False,
+    }
+    assert policies[2].model_dump(mode="json")["within"]["unit"] == "month"
+    assert policies[3].model_dump(mode="json")["unmatched"] == "drop"
+    assert policies[4].model_dump(mode="json")["correspondence"] == "prior_year_shifted"
 
-    for helper_policy, explicit_policy in cases:
-        assert helper_policy.model_dump(mode="json") == explicit_policy.model_dump(mode="json")
+
+@pytest.mark.parametrize(
+    "factory, kwargs",
+    [
+        (window_bucket, {"mode": "bad"}),
+        (day_of_week, {"unmatched": "bad"}),
+        (period_progress, {"unmatched": "bad"}),
+        (period_correspondence, {"correspondence": "", "unmatched": "fail"}),
+    ],
+)
+def test_alignment_helpers_reject_invalid_arguments(factory, kwargs):
+    with pytest.raises(AlignmentPolicyValidationError):
+        factory(**kwargs)
 
 
-def test_calendar_alignment_helpers_reject_bare_string_calendar():
+def test_comparison_temporal_contract_rejects_unknown_policy_and_inconsistent_evidence():
+    current = FrameTemporalContractV1(display_timezone="UTC")
+    baseline = FrameTemporalContractV1(display_timezone="UTC")
+    valid_evidence = AlignmentEvidenceV1(
+        candidate_current_points=1,
+        candidate_baseline_points=1,
+        paired_points=1,
+        current_only_points=0,
+        baseline_only_points=0,
+        unmatched_points=0,
+        dropped_points=0,
+        execution_path="local",
+    )
     with pytest.raises(ValidationError):
-        dow_aligned(calendar="cn_holidays")  # type: ignore[arg-type]
-
-
-def test_alignment_policy_validation_error_renders_fix_snippet():
-    with pytest.raises(AlignmentPolicyValidationError) as missing_cal:
-        AlignmentPolicy(kind="dow_aligned")
-    rendered = str(missing_cal.value)
-    assert "mv.dow_aligned(" in rendered
-    assert 'mv.CalendarRef("cn_holidays")' in rendered
-
-    with pytest.raises(AlignmentPolicyValidationError) as unexpected_cal:
-        AlignmentPolicy(kind="window_bucket", calendar=CalendarRef("cn"))
-    rendered_unexpected = str(unexpected_cal.value)
-    assert "mv.window_bucket()" in rendered_unexpected
+        ComparisonTemporalContractV1(
+            current=current,
+            baseline=baseline,
+            alignment_policy={"kind": "unsupported"},
+            alignment_evidence=valid_evidence,
+        )
+    with pytest.raises(ValidationError):
+        AlignmentEvidenceV1(
+            candidate_current_points=1,
+            candidate_baseline_points=1,
+            paired_points=2,
+            current_only_points=0,
+            baseline_only_points=0,
+            unmatched_points=0,
+            dropped_points=0,
+            execution_path="local",
+        )
 
 
 def test_lag_policy_is_not_public_policy():

@@ -20,9 +20,9 @@ def test_analysis_keeps_frame_and_policy_exports():
     from marivo.analysis.frames.quality import QualityReportMeta
 
     assert mv.window_bucket().kind == "window_bucket"
-    assert callable(mv.dow_aligned)
-    assert callable(mv.holiday_aligned)
-    assert callable(mv.holiday_and_dow_aligned)
+    assert callable(mv.day_of_week)
+    assert callable(mv.period_progress)
+    assert callable(mv.period_correspondence)
     assert mv.SamplingPolicy().pairing == "window_bucket"
     assert HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
     assert ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"
@@ -87,12 +87,11 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "ForecastFrame",
         "QualityReport",
         "window_bucket",
-        "dow_aligned",
-        "holiday_aligned",
-        "holiday_and_dow_aligned",
+        "day_of_week",
+        "period_progress",
+        "period_correspondence",
         "AlignmentPolicy",
         "ArtifactRef",
-        "CalendarRef",
         "TimeScope",
         "AbsoluteWindow",
         "runtime_metric",

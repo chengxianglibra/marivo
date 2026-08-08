@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
-
 import ibis
 import pandas as pd
 import pytest
@@ -13,16 +10,12 @@ from marivo.analysis.errors import (
     PanelGrainMismatchError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.lineage import Lineage
-from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef
-from marivo.analysis.session._runtime import persist_frame
+from marivo.analysis.policies import window_bucket
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
-from tests.shared_fixtures import make_metric_frame, make_test_component_contract
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +97,7 @@ def test_window_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     cur = _panel(s, start="2026-07-01", end="2026-07-03")
     prev = _panel(s, start="2026-06-24", end="2026-06-26")
 
-    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, prev, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     assert {"bucket_start", "bucket_start_b", "region", "current", "baseline"} <= set(df.columns)
@@ -120,7 +113,7 @@ def test_window_bucket_panel_different_expected_counts_uses_outer_ordinal_union(
     cur = _panel(s, start="2026-07-01", end="2026-07-03")
     prev = _panel(s, start="2026-06-24", end="2026-06-25")
 
-    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    delta = compare(cur, prev, alignment=window_bucket(), session=s)
 
     df = delta.to_pandas()
     north = df[df["region"] == "NORTH"].sort_values("bucket_start").reset_index(drop=True)
@@ -143,7 +136,7 @@ def test_window_bucket_panel_strict_lengths_rejects_different_expected_counts(tm
         compare(
             cur,
             prev,
-            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            alignment=window_bucket(strict_lengths=True),
             session=s,
         )
 
@@ -177,75 +170,6 @@ def _panel_metric(
         window=window,
         session=session,
     )
-
-
-def _now():
-    return datetime(2026, 5, 29, 10, 0, 0, tzinfo=UTC)
-
-
-def _component_panel_metric(session, *, ref, rows, component_rows):
-    axes = {
-        "time": {
-            "role": "time",
-            "column": "bucket_start",
-            "grain": "day",
-            "time_dimension": "order_date",
-        },
-        "region": {"role": "dimension", "column": "region"},
-    }
-    metric = make_metric_frame(
-        pd.DataFrame(rows),
-        metric_id="sales.failure_rate",
-        axes=axes,
-        measure={"name": "failure_rate"},
-        semantic_kind="panel",
-        semantic_model="sales",
-        session=session,
-    )
-    metric.meta = metric.meta.model_copy(
-        update={
-            "ref": ref,
-            "composition": {
-                "kind": "ratio",
-                "components": {
-                    "numerator": "sales.failed_count",
-                    "denominator": "sales.total_count",
-                },
-            },
-        }
-    )
-    metric.meta = persist_frame(session, metric)
-    component = ComponentFrame(
-        _df=pd.DataFrame(component_rows),
-        meta=ComponentFrameMeta(
-            ref=f"{ref}_components",
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job="job_observe",
-            created_at=_now(),
-            row_count=len(component_rows),
-            byte_size=0,
-            lineage=Lineage(),
-            parent_ref=metric.ref,
-            parent_kind="metric_frame",
-            metric_id="sales.failure_rate",
-            **make_test_component_contract(
-                metric_id="sales.failure_rate",
-                components={
-                    "numerator": "sales.failed_count",
-                    "denominator": "sales.total_count",
-                },
-                axes=axes,
-            ),
-            composition_kind="ratio",
-            semantic_kind="panel",
-            semantic_model="sales",
-        ),
-    )
-    component.meta = persist_frame(session, component)
-    metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = persist_frame(session, metric)
-    return metric
 
 
 def test_window_bucket_panel_sparse_segment_uses_window_spine():
@@ -283,7 +207,7 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
         window={"start": "2026-05-05", "end": "2026-05-06", "grain": "hour"},
     )
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(current, baseline, alignment=window_bucket(), session=s)
 
     df = out.to_pandas()
     assert len(df) == 24
@@ -324,7 +248,7 @@ def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():
         window={"start": "2026-06-24", "end": "2026-06-26", "grain": "day"},
     )
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(current, baseline, alignment=window_bucket(), session=s)
 
     df = out.to_pandas()
     row = df[df["bucket_start"].astype(str) == "2026-07-02"].iloc[0]
@@ -336,27 +260,12 @@ def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():
     assert row["pct_change_status"] == "not_computable"
 
 
-def _write_calendar(tmp_path):
-    calendar_dir = tmp_path / ".marivo" / "calendar"
-    calendar_dir.mkdir(parents=True)
-    (calendar_dir / "cn_holidays.json").write_text(
-        json.dumps(
-            {
-                "name": "cn_holidays",
-                "holidays": [],
-                "adjusted_workdays": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def test_compare_panel_window_bucket(tmp_path):
     s = _session(tmp_path)
     current = _panel(s, start="2026-07-01", end="2026-07-04")
     baseline = _panel(s, start="2026-07-01", end="2026-07-04")
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(current, baseline, alignment=window_bucket(), session=s)
 
     assert out.meta.semantic_kind == "panel"
     assert out.meta.alignment["segment_info"]["segment_count"] == 2
@@ -402,7 +311,7 @@ def test_compare_panel_window_bucket_calendar_mode_outer_joins_bucket_keys():
     out = compare(
         current,
         baseline,
-        alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        alignment=window_bucket(mode="calendar_bucket"),
         session=s,
     )
 
@@ -436,75 +345,13 @@ def test_compare_panel_window_bucket_calendar_mode_outer_joins_bucket_keys():
     assert out.meta.alignment["mode"] == "calendar_bucket"
 
 
-def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
-    _write_calendar(tmp_path)
-    s = session_attach.get_or_create(name="demo")
-    current = _panel_metric(
-        s,
-        [
-            {"bucket_start": "2026-05-05", "region": "APP", "value": 10.0},
-            {"bucket_start": "2026-05-05", "region": "WEB", "value": 100.0},
-        ],
-    )
-    baseline = _panel_metric(
-        s,
-        [
-            {"bucket_start": "2026-04-07", "region": "API", "value": 60.0},
-            {"bucket_start": "2026-04-07", "region": "WEB", "value": 80.0},
-        ],
-    )
-
-    out = compare(
-        current,
-        baseline,
-        alignment=AlignmentPolicy(
-            kind="dow_aligned",
-            calendar=CalendarRef("cn_holidays"),
-            period="month",
-        ),
-        session=s,
-    )
-
-    df = out.to_pandas()
-    assert list(df.columns) == [
-        "region",
-        "presence_status",
-        "align_key",
-        "align_quality",
-        "bucket_start_a",
-        "bucket_start_b",
-        "current",
-        "baseline",
-        "delta",
-        "pct_change",
-        "pct_change_status",
-    ]
-    by_region = {row.region: row for row in df.itertuples()}
-    assert by_region["APP"].presence_status == "new"
-    assert by_region["APP"].align_quality == "unmatched"
-    assert by_region["APP"].bucket_start_a == "2026-05-05"
-    assert pd.isna(by_region["APP"].bucket_start_b)
-    assert by_region["APP"].baseline == pytest.approx(0.0)
-    assert by_region["APP"].delta == pytest.approx(10.0)
-    assert by_region["API"].presence_status == "churned"
-    assert by_region["API"].align_quality == "unmatched"
-    assert pd.isna(by_region["API"].bucket_start_a)
-    assert by_region["API"].bucket_start_b == "2026-04-07"
-    assert by_region["API"].current == pytest.approx(0.0)
-    assert by_region["API"].delta == pytest.approx(-60.0)
-    assert by_region["WEB"].align_quality == "exact"
-    assert by_region["WEB"].presence_status == "matched"
-    assert by_region["WEB"].bucket_start_a == "2026-05-05"
-    assert by_region["WEB"].bucket_start_b == "2026-04-07"
-
-
 def test_compare_panel_grain_mismatch(tmp_path):
     s = _session(tmp_path)
     current = _panel(s, start="2026-07-01", end="2026-07-03", grain="day")
     baseline = _panel(s, start="2026-06-01", end="2026-08-01", grain="month")
 
     with pytest.raises(PanelGrainMismatchError):
-        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(current, baseline, alignment=window_bucket(), session=s)
 
 
 def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
@@ -527,86 +374,7 @@ def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
     )
 
     with pytest.raises(PanelGrainMismatchError):
-        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
-
-
-def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
-    calendar_dir = tmp_path / ".marivo" / "calendar"
-    calendar_dir.mkdir(parents=True)
-    (calendar_dir / "cn_holidays.json").write_text(
-        json.dumps(
-            {
-                "name": "cn_holidays",
-                "holidays": [],
-                "adjusted_workdays": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    s = session_attach.get_or_create(name="demo")
-    current = _component_panel_metric(
-        s,
-        ref="frame_current_panel_ratio",
-        rows=[
-            {"bucket_start": "2026-05-05", "region": "WEB", "failure_rate": 0.25},
-            {"bucket_start": "2026-05-05", "region": "APP", "failure_rate": 0.50},
-        ],
-        component_rows=[
-            {
-                "bucket_start": "2026-05-05",
-                "region": "WEB",
-                "failed_count": 25.0,
-                "total_count": 100.0,
-                "failure_rate": 0.25,
-            },
-            {
-                "bucket_start": "2026-05-05",
-                "region": "APP",
-                "failed_count": 50.0,
-                "total_count": 100.0,
-                "failure_rate": 0.50,
-            },
-        ],
-    )
-    baseline = _component_panel_metric(
-        s,
-        ref="frame_baseline_panel_ratio",
-        rows=[
-            {"bucket_start": "2026-04-07", "region": "WEB", "failure_rate": 0.10},
-        ],
-        component_rows=[
-            {
-                "bucket_start": "2026-04-07",
-                "region": "WEB",
-                "failed_count": 10.0,
-                "total_count": 100.0,
-                "failure_rate": 0.10,
-            },
-        ],
-    )
-
-    out = compare(
-        current,
-        baseline,
-        alignment=AlignmentPolicy(
-            kind="dow_aligned",
-            calendar=CalendarRef("cn_holidays"),
-            period="month",
-        ),
-        session=s,
-    )
-
-    component_df = out.components().to_pandas()
-    assert {"region", "align_key", "align_quality", "bucket_start_a", "bucket_start_b"}.issubset(
-        component_df.columns
-    )
-    by_region = component_df.set_index("region")
-    assert by_region.loc["WEB", "align_quality"] == "exact"
-    assert by_region.loc["WEB", "current_failed_count"] == pytest.approx(25.0)
-    assert by_region.loc["WEB", "baseline_failed_count"] == pytest.approx(10.0)
-    assert by_region.loc["APP", "align_quality"] == "unmatched"
-    assert by_region.loc["APP", "baseline_failed_count"] == pytest.approx(0.0)
-    assert by_region.loc["APP", "delta_failed_count"] == pytest.approx(50.0)
+        compare(current, baseline, alignment=window_bucket(), session=s)
 
 
 @pytest.mark.parametrize(
@@ -668,7 +436,7 @@ def test_compare_panel_rejects_dimension_colliding_with_protocol_column(
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(current, baseline, alignment=window_bucket(), session=s)
 
     error = exc_info.value
     assert error._context["reason"] == "protocol_column_collision"
@@ -727,7 +495,7 @@ def test_compare_panel_rejects_time_column_colliding_with_protocol(
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(cur, base, alignment=window_bucket(), session=s)
 
     error = exc_info.value
     assert error._context["reason"] == "protocol_column_collision"

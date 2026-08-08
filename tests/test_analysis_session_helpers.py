@@ -91,26 +91,15 @@ def test_question_only_written_on_first_create(
     assert s2.question == "why?"
 
 
-def test_default_calendar_restored_on_resume(
+def test_session_has_no_default_calendar_surface(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s1 = mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
-    assert s1.default_calendar == "fiscal"
-    # Resume without explicit default_calendar -> should keep persisted value
-    s2 = mv.session.get_or_create(name="s", use_datasources=False)
-    assert s2.default_calendar == "fiscal"
-
-
-def test_default_calendar_updated_when_explicitly_passed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
-    s = mv.session.get_or_create(name="s", default_calendar="standard", use_datasources=False)
-    assert s.default_calendar == "standard"
+    session = mv.session.get_or_create(name="s", use_datasources=False)
+    assert not hasattr(session, "default_calendar")
+    with pytest.raises(TypeError):
+        mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
 
 
 def test_backends_and_backend_factory_both_raises_session_state_error(

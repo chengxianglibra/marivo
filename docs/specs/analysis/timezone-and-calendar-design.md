@@ -115,24 +115,17 @@ silent behavior. Timezone conversion for instant columns is pushed down to backe
 SQL where possible; a backend without tz functions surfaces a structured
 capability error, distinct from an ordinary compile failure.
 
-## Calendar alignment
+## Semantic period alignment
 
-Calendar holiday times are treated like civil dates in the report tz:
-
-- A holiday ISO date is interpreted as a report-tz local calendar day.
-- To align, the data time column is first reduced to a report-tz local date
-  (instant columns via report-tz conversion, civil-date columns directly), then
-  matched against holidays.
-- The `Calendar` model carries no `timezone` field: `.marivo/calendar/*.json` with
-  a `timezone` key is rejected as an unknown field (`extra="forbid"`), and
-  `CalendarInfo` carries no `calendar_timezone`. With no "calendar tz vs report tz"
-  pair, the silent off-by-one-day conflict cannot arise — a holiday has exactly one
-  interpretation.
-
-Calendar-based alignment policies (`mv.holiday_aligned()`,
-`mv.holiday_and_dow_aligned()`, etc.) are specified in
-[`operators-and-frames.md`](operators-and-frames.md#typed-policies); this document
-governs only how their holiday dates are interpreted.
+Fiscal, retail, and other governed partitions are semantic period calendars,
+not analysis-local files. Their certified snapshot owns the civil boundary
+timezone and is persisted in the frame temporal contract. Built-in Gregorian/ISO
+periods use the session report timezone. Alignment policies and their closed
+admission matrix are defined in
+[`temporal-semantics.md`](../temporal-semantics.md#alignment-policies); this
+document governs only the timezone conversion used before a temporal boundary is
+resolved. No `.marivo/calendar/*.json` directory or session-global calendar is
+consulted.
 
 ## Failure semantics
 

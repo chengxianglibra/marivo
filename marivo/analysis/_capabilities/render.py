@@ -575,6 +575,18 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     """Return the real registered members taught by a non-invokable topic."""
     if desc.callable_path is not None:
         return []
+    if desc.id == "alignment":
+        member_targets = frozenset(
+            {"window_bucket", "day_of_week", "period_progress", "period_correspondence"}
+        )
+        return sorted(
+            (
+                candidate
+                for candidate in REGISTRY.descriptors
+                if candidate.callable_path is not None and candidate.help_target in member_targets
+            ),
+            key=lambda item: item.help_target,
+        )
     members: list[CapabilityDescriptor] = []
     for candidate in REGISTRY.descriptors:
         if candidate is desc or candidate.callable_path is None:
@@ -619,6 +631,20 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     lines.append(f"  {label}: {desc.public_entrypoint}")
     lines.append(f"  {desc.summary}")
     lines.append("")
+
+    if desc.id == "alignment":
+        lines.extend(
+            (
+                "  Admission matrix:",
+                "    window_bucket          compare / correlate / hypothesis_test",
+                "    day_of_week            MetricFrame.compare day-grain time-series or panel",
+                "    period_progress        MetricFrame.compare cumulative or one target period",
+                "    period_correspondence  MetricFrame.compare complete exact semantic grain",
+                "    EventFrame.compare     alignment=None (mechanical step/axis pairing)",
+                "    segmented frames      window_bucket only",
+            )
+        )
+        lines.append("")
 
     if is_property:
         return_type = _property_return_type(callable_obj)

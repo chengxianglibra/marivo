@@ -1001,7 +1001,7 @@ def _session_from_row(
     """Build a live ``Session`` from a store row and a runtime connection runtime.
 
     Only persisted metadata is used: id, name, question, cwd, created_at,
-    updated_at, default_calendar, and report timezone from session meta.
+    updated_at and report timezone from session meta.
     """
     # sqlite3.Row is not importable at type-check time; accept a duck-typed row.
     session_id = row["id"]
@@ -1041,7 +1041,6 @@ def _session_from_row(
         report_tz_name=resolved_report_tz.name,
         report_tz_resolution=resolved_report_tz.resolution,
         report_tz_warning=resolved_report_tz.warning,
-        default_calendar=row["default_calendar"],
         ontology_state=ontology_state,
         ontology_catalog=ontology_catalog,
         ontology_issues=ontology_issues,

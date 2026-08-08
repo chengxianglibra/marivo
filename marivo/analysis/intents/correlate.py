@@ -45,7 +45,7 @@ from marivo.analysis.intents._derived import (
 )
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.policies import AlignmentPolicy, window_bucket
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
@@ -92,21 +92,22 @@ def correlate(
     ensure_frame_in_session(a, session=session, label="correlate a")
     ensure_frame_in_session(b, session=session, label="correlate b")
     if alignment is None:
-        alignment = AlignmentPolicy(kind="window_bucket")
+        alignment = window_bucket()
     if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
-            message="correlate requires alignment=AlignmentPolicy(...)",
+            message="correlate requires alignment=mv.window_bucket() or another closed alignment helper",
             context={
                 "expected_kind": "AlignmentPolicy",
                 "got_kind": type(alignment).__name__,
             },
         )
+    alignment_any = cast("Any", alignment)
     if alignment.kind != "window_bucket":
         raise SemanticKindMismatchError(
-            message="correlate only supports AlignmentPolicy(kind='window_bucket')",
+            message="correlate only supports mv.window_bucket()",
             context={"alignment": alignment.model_dump(mode="json")},
         )
-    if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
+    if alignment_any.mode != "ordinal_bucket" or alignment_any.strict_lengths:
         raise SemanticKindMismatchError(
             message="correlate only supports default window_bucket alignment",
             context={"alignment": alignment.model_dump(mode="json")},

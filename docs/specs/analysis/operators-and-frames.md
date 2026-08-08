@@ -74,27 +74,25 @@ strings:
 
 | Policy | Used by | Key fields |
 | --- | --- | --- |
-| `AlignmentPolicy` | `compare`, `correlate`, `hypothesis_test`, and single-frame `transform.align_time` | `kind`, `mode`, `strict_lengths`, `calendar`, `timezone` |
+| `AlignmentPolicy` | `compare`, `correlate`, `hypothesis_test` | closed helper-specific fields |
 | `SamplingPolicy` | `hypothesis_test` sampling/pairing/null handling | `unit`, `method`, `pairing`, `null_handling`, `min_n` |
 
 `AlignmentPolicy.kind` is a closed enum with constructor helpers exported at top
-level: `mv.window_bucket()`, `mv.dow_aligned()`, `mv.holiday_aligned()`,
-`mv.holiday_and_dow_aligned()`, plus fiscal/campaign/forecast kinds reserved for
-future runtimes. `mv.window_bucket()` defaults to `mode="ordinal_bucket"`
+level: `mv.window_bucket()`, `mv.day_of_week()`, `mv.period_progress()`, and
+`mv.period_correspondence()`. `mv.window_bucket()` defaults to `mode="ordinal_bucket"`
 (pairs buckets by ordinal position within each window); use
 `mode="calendar_bucket"` to pair by normalized bucket key, and
 `strict_lengths=True` only when equal-length same-period windows are required.
-Calendar and holiday alignment are specified in
-[`timezone-and-calendar-design.md`](timezone-and-calendar-design.md).
+Calendar authority comes from semantic period bindings and exact snapshots; no
+analysis holiday calendar or session-global calendar is consulted.
 
 ### Semantic refs
 
 Every qualifying catalog-bound runtime input accepts an exact current
 `CatalogEntry[K]` or its exact `Ref[K]`, never a guessed string. The boundary
 validates catalog ownership, exact kind, and current membership, then normalizes
-immediately to the ref. Calendars and artifacts continue to use `CalendarRef` /
-`ArtifactRef`. An agent holding only a semantic string resolves it through the
-owning typed catalog collection before submitting a step.
+immediately to the ref. Period calendars use semantic refs and artifacts use
+`ArtifactRef`.
 
 ## Agent-facing core operator surface
 
@@ -271,8 +269,8 @@ are equivalent);
 `grain_to_date` is allowed for a single reset-boundary-anchored period that spans
 at most one reset period and equal elapsed length. Comparable-period deltas use
 paired coordinates only. Ordinal window alignment is supported for both anchors;
-DOW, holiday, and holiday-then-DOW position alignment are also supported, and a
-grain-to-date calendar policy must use the reset grain as its alignment period.
+day-of-week, period-progress, and named period-correspondence alignment are
+admitted only through their closed helper contracts.
 `transform.rollup`
 re-aggregates with `rollup_fold="last"`, selecting the complete last row so its
 `evaluation_end` is retained. The anchor-specific caveat is surfaced by

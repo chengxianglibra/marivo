@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from math import sqrt
 from time import monotonic
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 from scipy import stats
@@ -45,7 +45,7 @@ from marivo.analysis.intents._window_pairs import (
     _walk_ordinal_pairs,
 )
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
+from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy, window_bucket
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 
@@ -79,14 +79,15 @@ def hypothesis_test(
         raise TestPolicyError(message=f"unsupported hypothesis {hypothesis!r}")
     if not 0 < alpha <= 0.5:
         raise TestPolicyError(message="alpha must be in (0, 0.5]", context={"alpha": alpha})
-    alignment = alignment or AlignmentPolicy(kind="window_bucket")
+    alignment = alignment or window_bucket()
     sampling = sampling or SamplingPolicy()
+    alignment_any = cast("Any", alignment)
     if alignment.kind != "window_bucket":
         raise TestPolicyError(
             message="hypothesis_test v1 only supports window_bucket alignment",
             context={"alignment": alignment.model_dump(mode="json")},
         )
-    if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
+    if alignment_any.mode != "ordinal_bucket" or alignment_any.strict_lengths:
         raise TestPolicyError(
             message="hypothesis_test v1 only supports default window_bucket alignment",
             context={"alignment": alignment.model_dump(mode="json")},

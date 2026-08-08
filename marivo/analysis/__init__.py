@@ -6,7 +6,6 @@ from marivo._temporal import Grain
 from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
-from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
 from marivo.analysis.event import (
     CompletenessDeclaration,
@@ -85,12 +84,12 @@ from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
     SamplingPolicy,
-    dow_aligned,
-    holiday_aligned,
-    holiday_and_dow_aligned,
+    day_of_week,
+    period_correspondence,
+    period_progress,
     window_bucket,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef
+from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import (
     FrameSummaryEntry,
@@ -166,7 +165,6 @@ __all__ = [
     "AssociationFact",
     "AssociationResult",
     "AttributionFrame",
-    "CalendarRef",
     "CandidateOrigin",
     "CandidateResolutionIssue",
     "CandidateSelection",
@@ -214,17 +212,17 @@ __all__ = [
     "TestDecision",
     "TimeScope",
     "WindowSelection",
+    "day_of_week",
     "declared_complete_through",
-    "dow_aligned",
     "dropped_before",
     "every_start",
     "first_per_subject",
     "from_inception",
     "funnel_loss_rate",
     "grain",
-    "holiday_aligned",
-    "holiday_and_dow_aligned",
     "in_state",
+    "period_correspondence",
+    "period_progress",
     "runtime_metric",
     "sequence",
     "session",

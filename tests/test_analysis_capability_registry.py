@@ -576,9 +576,9 @@ EXPECTED_OPERATOR_IDS = {
 
 EXPECTED_CONSTRUCTOR_IDS = {
     "window_bucket",
-    "dow_aligned",
-    "holiday_aligned",
-    "holiday_and_dow_aligned",
+    "day_of_week",
+    "period_progress",
+    "period_correspondence",
     "TimeScope",
     "AbsoluteWindow",
     "SamplingPolicy",

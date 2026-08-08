@@ -27,8 +27,6 @@ from marivo.analysis._cumulative import (
 )
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.attribution_contract import basis_fingerprint
-from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
-from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.cumulative_attribution import (
     CumulativeAttributionContractV1,
@@ -43,7 +41,6 @@ from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
     AttributionBasisMismatchError,
-    CalendarPolicyError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
     CrossSessionFrameError,
@@ -82,9 +79,14 @@ from marivo.analysis.intents._window_pairs import (
     _walk_ordinal_pairs,
     _window_bucket_values,
 )
+from marivo.analysis.intents.temporal_alignment import (
+    TemporalAlignmentResult,
+    _local_civil_dates,
+    align_temporal_policy,
+    comparison_temporal_contract,
+)
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef
+from marivo.analysis.policies import AlignmentPolicy, window_bucket
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import (
     persist_frame,
@@ -561,6 +563,13 @@ def _align_component_role(
     alignment: AlignmentPolicy,
     session: Session,
 ) -> pd.DataFrame:
+    if alignment.kind != "window_bucket":
+        return align_temporal_policy(
+            current_role,
+            baseline_role,
+            policy=alignment,
+            session=session,
+        ).frame
     if current_role.meta.semantic_kind == "segmented":
         aligned, _segment_info = _align_segmented(current_role, baseline_role)
         return aligned
@@ -573,51 +582,13 @@ def _align_component_role(
         )
         return aligned
     if current_role.meta.semantic_kind == "time_series":
-        if alignment.kind == "window_bucket":
-            aligned, _window_info = _align_time_series_window_bucket(
-                current_role,
-                baseline_role,
-                alignment=alignment,
-                track_presence_status=(
-                    isinstance(cumulative_compare_anchor(current_role.meta.cumulative), tuple)
-                ),
-            )
-            return aligned
-        calendar_ref = alignment.calendar
-        if not isinstance(calendar_ref, CalendarRef):
-            raise CalendarPolicyError(
-                message="calendar-backed alignment requires CalendarRef",
-                context={
-                    "kind": "CalendarRefMissing",
-                    "alignment": alignment.model_dump(mode="json"),
-                },
-            )
-        loaded_calendar = session._calendars.get(calendar_ref.ref)
-        report_tz = session.report_tz_name
-        policy = CalendarPolicy(
-            mode=alignment.kind,
-            align_period=alignment.period,
-            fallback=alignment.fallback,
-        )
-        current_df = current_role._dataframe_copy()
-        baseline_df = baseline_role._dataframe_copy()
-        time_column = _time_axis_column(current_role)
-        value_column = _value_column(current_role, current_df, time_column=time_column)
-        baseline_value_column = _value_column(
+        aligned, _window_info = _align_time_series_window_bucket(
+            current_role,
             baseline_role,
-            baseline_df,
-            time_column=time_column,
-        )
-        aligned, _info = align_calendar_frames(
-            current_df[[time_column, value_column]],
-            baseline_df[[time_column, baseline_value_column]].rename(
-                columns={baseline_value_column: value_column}
+            alignment=alignment,
+            track_presence_status=(
+                isinstance(cumulative_compare_anchor(current_role.meta.cumulative), tuple)
             ),
-            time_column=time_column,
-            value_column=value_column,
-            calendar=loaded_calendar,
-            policy=policy,
-            report_tz=report_tz,
         )
         return aligned
     return _align_and_compute(current_role._dataframe_copy(), baseline_role._dataframe_copy())
@@ -1029,7 +1000,7 @@ def _attach_endpoint_side(
         output = result.copy()
         temporary_time_key = f"__{endpoint_column}_time_key"
         if calendar_aligned:
-            source[temporary_time_key] = _local_dates(
+            source[temporary_time_key] = _local_civil_dates(
                 source[source_time_column], report_tz=report_tz
             ).map(lambda value: value.isoformat())
             output[temporary_time_key] = output[result_time_column].map(
@@ -1160,10 +1131,10 @@ def compare(
         session = require_current_session()
     # compare does not require a backend factory; it computes deltas from existing frames
     if alignment is None:
-        alignment = AlignmentPolicy(kind="window_bucket")
+        alignment = window_bucket()
     if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
-            message="compare requires alignment=AlignmentPolicy(...)",
+            message="compare requires alignment=mv.window_bucket() or another closed alignment helper",
             context={
                 "expected_kind": "AlignmentPolicy",
                 "got_kind": type(alignment).__name__,
@@ -1212,12 +1183,22 @@ def compare(
     window_info: dict[str, Any] | None = None
     cumulative_pairs: AllHistoryPairAlignmentV1 | None = None
     cumulative_pair_summary: CumulativePairSummaryV1 | None = None
+    temporal_result: TemporalAlignmentResult | None = None
     cur_cumulative_anchor = cumulative_compare_anchor(current.meta.cumulative)
     comparable_period = isinstance(cur_cumulative_anchor, tuple) and cur_cumulative_anchor[0] in {
         "trailing",
         "grain_to_date",
     }
-    if current.meta.semantic_kind == "segmented":
+    if alignment.kind != "window_bucket":
+        temporal_result = align_temporal_policy(
+            current,
+            baseline,
+            policy=alignment,
+            session=session,
+        )
+        df = temporal_result.frame
+        calendar_info = temporal_result.cumulative_info
+    elif current.meta.semantic_kind == "segmented":
         df, segment_info = _align_segmented(current, baseline)
     elif current.meta.semantic_kind == "panel":
         df, segment_info, calendar_info, window_info = _align_panel(
@@ -1252,53 +1233,6 @@ def compare(
                 current_df = current_df[[current_value]]
                 baseline_df = baseline_df[[baseline_value]]
             df = _align_and_compute(current_df, baseline_df)
-    else:
-        calendar_ref = alignment.calendar
-        if not isinstance(calendar_ref, CalendarRef):
-            raise CalendarPolicyError(
-                message="calendar-backed alignment requires CalendarRef",
-                context={
-                    "kind": "CalendarRefMissing",
-                    "alignment": alignment.model_dump(mode="json"),
-                },
-            )
-        loaded_calendar = session._calendars.get(calendar_ref.ref)
-        report_tz = session.report_tz_name
-        policy = CalendarPolicy(
-            mode=alignment.kind,
-            align_period=alignment.period,
-            fallback=alignment.fallback,
-        )
-        current_df = current._dataframe_copy()
-        baseline_df = baseline._dataframe_copy()
-        time_column = _time_axis_column(current)
-        baseline_time_column = _time_axis_column(baseline)
-        if baseline_time_column != time_column:
-            raise AlignmentFailedError(
-                message="calendar-backed compare alignment requires matching time axis columns",
-                context={
-                    "kind": "CalendarAlignTimeAxisMismatch",
-                    "source_time_column": time_column,
-                    "baseline_time_column": baseline_time_column,
-                },
-            )
-        value_column = _value_column(current, current_df, time_column=time_column)
-        _require_calendar_columns(
-            current_df, frame_label="current", columns=(time_column, value_column)
-        )
-        _require_calendar_columns(
-            baseline_df, frame_label="baseline", columns=(time_column, value_column)
-        )
-        df, info = align_calendar_frames(
-            current_df,
-            baseline_df,
-            time_column=time_column,
-            value_column=value_column,
-            calendar=loaded_calendar,
-            policy=policy,
-            report_tz=report_tz,
-        )
-        calendar_info = info.model_dump(mode="json")
     df, cumulative_pair_summary = _finalize_comparable_period_pairs(
         df,
         current,
@@ -1444,6 +1378,48 @@ def compare(
             else None
         ),
     }
+    if temporal_result is None:
+        if PRESENCE_STATUS_COLUMN in df.columns:
+            status = df[PRESENCE_STATUS_COLUMN]
+            paired_points = int((status == "matched").sum())
+            current_only_points = int((status == "new").sum())
+            baseline_only_points = int((status == "churned").sum())
+        elif "current" in df.columns and "baseline" in df.columns:
+            has_current = df["current"].notna()
+            has_baseline = df["baseline"].notna()
+            paired_points = int((has_current & has_baseline).sum())
+            current_only_points = int((has_current & ~has_baseline).sum())
+            baseline_only_points = int((~has_current & has_baseline).sum())
+        else:
+            paired_points = len(df)
+            current_only_points = 0
+            baseline_only_points = 0
+        evidence: dict[str, object] = {
+            "candidate_current_points": len(current._dataframe_copy()),
+            "candidate_baseline_points": len(baseline._dataframe_copy()),
+            "paired_points": paired_points,
+            "current_only_points": current_only_points,
+            "baseline_only_points": baseline_only_points,
+            "unmatched_points": current_only_points + baseline_only_points,
+            "dropped_points": 0,
+            "dropped_reason": None,
+            "execution_path": "local",
+            "backend_optimized": False,
+        }
+        temporal_result = TemporalAlignmentResult(
+            frame=df,
+            target_binding=None,
+            evidence=evidence,
+            cumulative_info=calendar_info or {},
+        )
+    temporal_contract = comparison_temporal_contract(
+        current,
+        baseline,
+        policy=alignment,
+        result=temporal_result,
+        report_timezone=session.report_tz_name,
+    )
+    params["temporal_contract"] = temporal_contract.model_dump(mode="json")
     assert current.meta.metric_id is not None
     assert baseline.meta.metric_id is not None
     current_identity = current.meta.metric_identity or CatalogMetricIdentity(
@@ -1613,6 +1589,7 @@ def compare(
         cumulative_alignment=cumulative_alignment,
         component_ref=delta_component.ref if delta_component is not None else None,
         attribution_basis=attribution_basis,
+        temporal_contract=temporal_contract,
     )
     if cumulative_attribution is not None:
         meta = CumulativeDeltaFrameMetaV1(
@@ -1763,7 +1740,7 @@ def _time_axis_column(frame: MetricFrame) -> str:
         if isinstance(column, str) and column:
             return column
     raise AlignmentFailedError(
-        message="time axis column is required for calendar-backed alignment",
+        message="time axis column is required for window_bucket alignment",
         context={"kind": "NoTimeAxis"},
     )
 
@@ -1971,7 +1948,8 @@ def _align_prepared_window_bucket(
         value_column=b_value_column,
         grain=grain,
     )
-    if alignment.mode == "calendar_bucket":
+    alignment_any = cast("Any", alignment)
+    if alignment_any.mode == "calendar_bucket":
         return (
             _align_calendar_window_bucket(
                 a_values,
@@ -1989,7 +1967,7 @@ def _align_prepared_window_bucket(
         current_frame=current_frame,
         baseline_frame=baseline_frame,
         track_presence_status=track_presence_status,
-        strict_lengths=alignment.strict_lengths,
+        strict_lengths=alignment_any.strict_lengths,
     )
 
 
@@ -2028,11 +2006,11 @@ def _value_column(frame: MetricFrame, df: pd.DataFrame, *, time_column: str) -> 
         return non_time_columns[0]
     if not non_time_columns:
         raise AlignmentFailedError(
-            message="calendar-backed compare alignment requires at least one value column",
+            message="window_bucket compare alignment requires at least one value column",
             context={"kind": "CalendarAlignValueColumnMissing", "time_column": time_column},
         )
     raise AlignmentFailedError(
-        message="calendar-backed compare alignment requires exactly one value column",
+        message="window_bucket compare alignment requires exactly one value column",
         context={
             "kind": "CalendarAlignValueColumnAmbiguous",
             "time_column": time_column,
@@ -2148,6 +2126,11 @@ def _align_panel(
     alignment: AlignmentPolicy,
     session: Session,
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+    if alignment.kind != "window_bucket":
+        raise AlignmentPolicyNotApplicableError(
+            message="panel alignment is dispatched through the closed temporal policy helpers",
+            context={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": alignment.kind},
+        )
     dim_columns = _dimension_columns(a)
     if not dim_columns:
         raise AlignmentFailedError(
@@ -2175,12 +2158,6 @@ def _align_panel(
     b_df = b._dataframe_copy()
     a_value = _value_column_segmented(a, a_df, dim_columns=[*dim_columns, time_column])
     b_value = _value_column_segmented(b, b_df, dim_columns=[*dim_columns, time_column])
-    _require_calendar_columns(
-        a_df, frame_label="current", columns=(*dim_columns, time_column, a_value)
-    )
-    _require_calendar_columns(
-        b_df, frame_label="baseline", columns=(*dim_columns, time_column, b_value)
-    )
 
     a_groups = _panel_groups(a_df, dim_columns=dim_columns)
     b_groups = _panel_groups(b_df, dim_columns=dim_columns)
@@ -2189,11 +2166,7 @@ def _align_panel(
         key=lambda key: tuple("" if item is None else str(item) for item in key),
     )
     pieces: list[pd.DataFrame] = []
-    calendar_infos: list[dict[str, Any]] = []
     window_infos: list[dict[str, Any]] = []
-    calendar_context = (
-        _calendar_context(alignment, session=session) if alignment.kind != "window_bucket" else None
-    )
 
     for key in segment_keys:
         a_part = a_groups.get(key)
@@ -2202,52 +2175,32 @@ def _align_panel(
             continue
         if a_part is None:
             assert b_part is not None
-            if alignment.kind == "window_bucket":
-                delta, window_info_piece = _align_panel_window_bucket(
-                    pd.DataFrame(columns=[time_column, a_value]),
-                    b_part,
-                    time_column=time_column,
-                    a_value_column=a_value,
-                    b_value_column=b_value,
-                    current_frame=a,
-                    baseline_frame=b,
-                    alignment=alignment,
-                )
-                if window_info_piece is not None:
-                    window_infos.append(window_info_piece)
-            else:
-                assert calendar_context is not None
-                delta = _one_sided_panel_calendar_delta(
-                    b_part,
-                    time_column=time_column,
-                    value_column=b_value,
-                    side="baseline",
-                    report_tz=calendar_context[2],
-                )
+            delta, window_info_piece = _align_panel_window_bucket(
+                pd.DataFrame(columns=[time_column, a_value]),
+                b_part,
+                time_column=time_column,
+                a_value_column=a_value,
+                b_value_column=b_value,
+                current_frame=a,
+                baseline_frame=b,
+                alignment=alignment,
+            )
+            if window_info_piece is not None:
+                window_infos.append(window_info_piece)
         elif b_part is None:
-            if alignment.kind == "window_bucket":
-                delta, window_info_piece = _align_panel_window_bucket(
-                    a_part,
-                    pd.DataFrame(columns=[time_column, b_value]),
-                    time_column=time_column,
-                    a_value_column=a_value,
-                    b_value_column=b_value,
-                    current_frame=a,
-                    baseline_frame=b,
-                    alignment=alignment,
-                )
-                if window_info_piece is not None:
-                    window_infos.append(window_info_piece)
-            else:
-                assert calendar_context is not None
-                delta = _one_sided_panel_calendar_delta(
-                    a_part,
-                    time_column=time_column,
-                    value_column=a_value,
-                    side="current",
-                    report_tz=calendar_context[2],
-                )
-        elif alignment.kind == "window_bucket":
+            delta, window_info_piece = _align_panel_window_bucket(
+                a_part,
+                pd.DataFrame(columns=[time_column, b_value]),
+                time_column=time_column,
+                a_value_column=a_value,
+                b_value_column=b_value,
+                current_frame=a,
+                baseline_frame=b,
+                alignment=alignment,
+            )
+            if window_info_piece is not None:
+                window_infos.append(window_info_piece)
+        else:
             delta, window_info_piece = _align_panel_window_bucket(
                 a_part,
                 b_part,
@@ -2260,19 +2213,6 @@ def _align_panel(
             )
             if window_info_piece is not None:
                 window_infos.append(window_info_piece)
-        else:
-            assert calendar_context is not None
-            loaded_calendar, policy, report_tz = calendar_context
-            delta, calendar_alignment_info = align_calendar_frames(
-                a_part[[time_column, a_value]],
-                b_part[[time_column, b_value]].rename(columns={b_value: a_value}),
-                time_column=time_column,
-                value_column=a_value,
-                calendar=loaded_calendar,
-                policy=policy,
-                report_tz=report_tz,
-            )
-            calendar_infos.append(calendar_alignment_info.model_dump(mode="json"))
 
         for column, value in zip(dim_columns, key, strict=True):
             delta[column] = cast("Any", value)
@@ -2294,32 +2234,23 @@ def _align_panel(
             ]
         )
 
-    if alignment.kind == "window_bucket":
-        time_columns = [time_column]
-        baseline_time_column = f"{time_column}_b"
-        if baseline_time_column in result.columns:
-            time_columns.append(baseline_time_column)
-        result = result[
-            [
-                *time_columns,
-                *dim_columns,
-                PRESENCE_STATUS_COLUMN,
-                "current",
-                "baseline",
-                "delta",
-                "pct_change",
-                PCT_CHANGE_STATUS_COLUMN,
-            ]
+    time_columns = [time_column]
+    baseline_time_column = f"{time_column}_b"
+    if baseline_time_column in result.columns:
+        time_columns.append(baseline_time_column)
+    result = result[
+        [
+            *time_columns,
+            *dim_columns,
+            PRESENCE_STATUS_COLUMN,
+            "current",
+            "baseline",
+            "delta",
+            "pct_change",
+            PCT_CHANGE_STATUS_COLUMN,
         ]
-        sort_columns = [*dim_columns, time_column]
-    else:
-        leading_columns = [*dim_columns]
-        result = result[
-            [*leading_columns, *[c for c in result.columns if c not in leading_columns]]
-        ]
-        sort_columns = [*dim_columns]
-        if "bucket_start_a" in result.columns:
-            sort_columns.append("bucket_start_a")
+    ]
+    sort_columns = [*dim_columns, time_column]
     result = result.sort_values(sort_columns, na_position="last").reset_index(drop=True)
 
     segment_info: dict[str, Any] = {
@@ -2334,7 +2265,7 @@ def _align_panel(
     window_info = _aggregate_window_info(window_infos)
     if window_info is not None:
         segment_info["coverage"] = window_info
-    return result, segment_info, _aggregate_calendar_info(calendar_infos), window_info
+    return result, segment_info, None, window_info
 
 
 def _panel_groups(
@@ -2348,37 +2279,6 @@ def _panel_groups(
         key = raw_key if isinstance(raw_key, tuple) else (raw_key,)
         groups[tuple(None if not _not_nan(value) else value for value in key)] = group.copy()
     return groups
-
-
-def _one_sided_panel_calendar_delta(
-    df: pd.DataFrame,
-    *,
-    time_column: str,
-    value_column: str,
-    side: str,
-    report_tz: str,
-) -> pd.DataFrame:
-    prepared = df[[time_column, value_column]].sort_values(time_column).reset_index(drop=True)
-    bucket_starts = _local_dates(prepared[time_column], report_tz=report_tz).map(
-        lambda value: value.isoformat()
-    )
-    values = pd.to_numeric(prepared[value_column], errors="coerce")
-    result = pd.DataFrame(
-        {
-            PRESENCE_STATUS_COLUMN: "new" if side == "current" else "churned",
-            "align_key": np.nan,
-            "align_quality": "unmatched",
-            "bucket_start_a": bucket_starts if side == "current" else np.nan,
-            "bucket_start_b": bucket_starts if side == "baseline" else np.nan,
-        }
-    )
-    if side == "current":
-        result["current"] = values
-        result["baseline"] = 0.0
-    else:
-        result["current"] = 0.0
-        result["baseline"] = values
-    return _compute_delta_columns(result)
 
 
 def _align_panel_window_bucket(
@@ -2414,61 +2314,6 @@ def _align_panel_window_bucket(
         baseline_frame=baseline_frame,
         alignment=alignment,
         track_presence_status=True,
-    )
-
-
-def _calendar_context(
-    alignment: AlignmentPolicy, *, session: Session
-) -> tuple[Any, CalendarPolicy, str]:
-    if alignment.kind == "window_bucket":
-        raise AlignmentPolicyNotApplicableError(
-            message="window_bucket alignment does not require calendar context",
-            context={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": alignment.kind},
-        )
-    calendar_ref = alignment.calendar
-    if not isinstance(calendar_ref, CalendarRef):
-        raise CalendarPolicyError(
-            message="calendar-backed alignment requires CalendarRef",
-            context={
-                "kind": "CalendarRefMissing",
-                "alignment": alignment.model_dump(mode="json"),
-            },
-        )
-    loaded_calendar = session._calendars.get(calendar_ref.ref)
-    report_tz = session.report_tz_name
-    policy = CalendarPolicy(
-        mode=alignment.kind,
-        align_period=alignment.period,
-        fallback=alignment.fallback,
-    )
-    return loaded_calendar, policy, report_tz
-
-
-def _aggregate_calendar_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not infos:
-        return None
-    aggregated = dict(infos[0])
-    for field in ("matched_rows", "fallback_rows", "dropped_rows_a", "dropped_rows_b"):
-        aggregated[field] = sum(int(info.get(field, 0)) for info in infos)
-    return aggregated
-
-
-def _require_calendar_columns(
-    df: pd.DataFrame, *, frame_label: str, columns: tuple[str, ...]
-) -> None:
-    missing_columns = [column for column in columns if column not in df.columns]
-    if not missing_columns:
-        return
-    raise AlignmentFailedError(
-        message=(
-            f"calendar-backed compare alignment frame '{frame_label}' is missing required columns"
-        ),
-        context={
-            "kind": "CalendarAlignColumnMissing",
-            "frame": frame_label,
-            "missing_columns": missing_columns,
-            "available_columns": [str(column) for column in df.columns],
-        },
     )
 
 

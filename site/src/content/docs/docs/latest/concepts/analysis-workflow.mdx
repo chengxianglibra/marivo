@@ -365,9 +365,10 @@ delta = session.compare(current, baseline)
 ```
 
 `compare` pairs buckets with `window_bucket` by default. Pass `alignment=` to
-override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
-`mv.holiday_and_dow_aligned()`; the calendar-backed kinds also take
-`calendar=mv.CalendarRef(...)`.
+choose one closed helper: `mv.window_bucket()`, `mv.day_of_week()`,
+`mv.period_progress()`, or `mv.period_correspondence()`. The latter three
+require the exact certified period authority carried by the source frames;
+there is no analysis-local holiday-calendar parameter.
 
 The delta carries additivity, aggregation, and status-time semantics only when
 both source frames have the same three values and additivity is known. Missing

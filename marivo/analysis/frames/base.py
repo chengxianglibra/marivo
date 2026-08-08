@@ -13,7 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from marivo._temporal import FrameTemporalContractV1
+from marivo._temporal import ComparisonTemporalContractV1, FrameTemporalContractV1
 from marivo.analysis.attribution_contract import (
     AttributeAdmissionV1,
     CumulativeAttributionCapabilityV1,
@@ -250,7 +250,7 @@ class ArtifactContract(BaseModel):
         ]
         | None
     ) = None
-    temporal_contract: FrameTemporalContractV1 | None = None
+    temporal_contract: FrameTemporalContractV1 | ComparisonTemporalContractV1 | None = None
 
     @computed_field  # type: ignore[prop-decorator]  # Pydantic wraps this property.
     @property

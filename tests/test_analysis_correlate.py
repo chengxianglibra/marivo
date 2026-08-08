@@ -13,7 +13,6 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.association import AssociationResult
-from marivo.analysis.policies import AlignmentPolicy
 from marivo.introspection.live.model import LiveHelpTarget
 from tests.shared_fixtures import (
     bootstrap_multi_metric_sales_project,
@@ -72,9 +71,6 @@ def test_correlate_sample_alignment_same_model_cross_metric():
     assert out.meta.correlation == pytest.approx(1.0)
     assert out.meta.alignment == {
         "kind": "window_bucket",
-        "calendar": None,
-        "period": "month",
-        "fallback": "drop",
         "mode": "ordinal_bucket",
         "strict_lengths": False,
     }
@@ -113,7 +109,7 @@ def test_correlate_common_key_alignment():
     out = session.correlate(
         a,
         b,
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=mv.window_bucket(),
     )
 
     df = out.to_pandas()
@@ -275,7 +271,7 @@ def test_correlate_common_key_alignment_uses_only_declared_axes():
     out = session.correlate(
         a,
         b,
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=mv.window_bucket(),
     )
 
     df = out.to_pandas()
@@ -324,7 +320,7 @@ def test_correlate_ignores_undeclared_common_text_columns():
     out = session.correlate(
         a,
         b,
-        alignment=AlignmentPolicy(kind="window_bucket"),
+        alignment=mv.window_bucket(),
     )
 
     df = out.to_pandas()
@@ -466,7 +462,7 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
         session.correlate(
             a,
             b,
-            alignment=AlignmentPolicy(kind="window_bucket"),
+            alignment=mv.window_bucket(),
         )
 
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
@@ -481,7 +477,7 @@ def test_correlate_rejects_unsupported_window_bucket_sub_modes():
         session.correlate(
             a,
             b,
-            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+            alignment=mv.window_bucket(mode="calendar_bucket"),
         )
 
     assert "only supports default window_bucket alignment" in str(exc_info.value)
@@ -491,7 +487,7 @@ def test_correlate_rejects_unsupported_window_bucket_sub_modes():
         session.correlate(
             a,
             b,
-            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            alignment=mv.window_bucket(strict_lengths=True),
         )
 
 
@@ -568,9 +564,6 @@ def test_correlate_writes_job_and_frame():
     assert params["measure_b"] == "orders"
     assert params["alignment"] == {
         "kind": "window_bucket",
-        "calendar": None,
-        "period": "month",
-        "fallback": "drop",
         "mode": "ordinal_bucket",
         "strict_lengths": False,
     }
@@ -738,11 +731,11 @@ def test_correlate_rejects_non_alignment_policy():
     )
 
 
-def test_correlate_rejects_calendar_backed_alignment_for_now():
+def test_correlate_rejects_non_window_alignment():
     session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
-    alignment = AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
+    alignment = mv.day_of_week()
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         session.correlate(a, b, alignment=alignment)

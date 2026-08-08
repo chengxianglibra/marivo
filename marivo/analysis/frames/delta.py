@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 import pandas as pd
 from pydantic import ConfigDict, Field, model_validator
 
+from marivo._temporal import ComparisonTemporalContractV1
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
@@ -372,6 +373,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     cumulative_alignment: CumulativeAlignmentV1 | None = None
     rollup_fold: Literal["last"] | None = None
     attribution_basis: AttributionBasisV1 | None = None
+    temporal_contract: ComparisonTemporalContractV1 | None = None
 
     @model_validator(mode="after")
     def _derive_semantic_displays(self) -> DeltaFrameMeta:
@@ -672,6 +674,27 @@ class DeltaFrame(BaseFrame):
                 )
             )
         card = self._base_card()
+        temporal_contract = getattr(self.meta, "temporal_contract", None)
+        if temporal_contract is not None:
+            evidence = temporal_contract.alignment_evidence
+            policy = temporal_contract.alignment_policy
+            policy_kind = policy.kind if policy is not None else "none"
+            dropped = (
+                f" dropped_reason={evidence.dropped_reason}" if evidence.dropped_reason else ""
+            )
+            card.field(
+                "temporal_alignment",
+                (
+                    f"policy={policy_kind} paired={evidence.paired_points} "
+                    f"current_only={evidence.current_only_points} "
+                    f"baseline_only={evidence.baseline_only_points} "
+                    f"unmatched={evidence.unmatched_points} "
+                    f"dropped={evidence.dropped_points} "
+                    f"path={evidence.execution_path} "
+                    f"backend_optimized={str(evidence.backend_optimized).lower()}"
+                    f"{dropped}"
+                ),
+            )
         if self.meta.cumulative_change is not None:
             pair_info = self.meta.all_history_pair_alignment()
             assert pair_info is not None

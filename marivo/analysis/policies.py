@@ -2,141 +2,88 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from marivo.analysis.calendar.model import AlignPeriod, CalendarFallback
-from marivo.analysis.errors import (
-    AlignmentPolicyValidationError,
-    SemanticKindMismatchError,
-)
-from marivo.analysis.refs import CalendarRef
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo._temporal import Grain
+from marivo.analysis.errors import AlignmentPolicyValidationError
 
 AlignmentKind = Literal[
     "window_bucket",
-    "dow_aligned",
-    "holiday_aligned",
-    "holiday_and_dow_aligned",
+    "period_progress",
+    "period_correspondence",
+    "day_of_week",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
-_DIMENSION_ANCHOR_FIELDS = {"subject", "time_axis", "axis"}
+UnmatchedMode = Literal["fail", "drop"]
+_DEFAULT_WITHIN = Grain(kind="builtin", unit="month", count=1)
 
 
-def _reject_anchor_kind(*, field_name: str, value: object, actual_kind: object) -> None:
-    expected = (
-        "metric"
-        if field_name == "metric"
-        else "dimension or time_dimension"
-        if field_name in _DIMENSION_ANCHOR_FIELDS
-        else "semantic"
-    )
-    raise ValueError(
-        f"{field_name} expected {expected} ref, got {type(value).__name__} kind={actual_kind}"
-    )
-
-
-def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind | None) -> None:
-    if field_name == "metric":
-        if kind == SemanticKind.MEASURE:
-            raise SemanticKindMismatchError(
-                message=(
-                    f"{field_name} cannot be a measure; measures are aggregated values, "
-                    "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
-                ),
-                context={"field": field_name, "actual_kind": "measure"},
-            )
-        if kind != SemanticKind.METRIC:
-            _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
-        return
-    if field_name in _DIMENSION_ANCHOR_FIELDS:
-        if kind == SemanticKind.MEASURE:
-            raise SemanticKindMismatchError(
-                message=(
-                    f"{field_name} cannot be a measure; measures are aggregated values, "
-                    "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
-                ),
-                context={"field": field_name, "actual_kind": "measure"},
-            )
-        if kind not in {
-            SemanticKind.DIMENSION,
-            SemanticKind.TIME_DIMENSION,
-        }:
-            _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
-
-
-def _semantic_anchor_id(
-    value: Ref[SemanticKindTag] | None,
+def _invalid_policy(
     *,
-    field_name: str,
-) -> str | None:
-    if value is None:
-        return None
-    if type(value) is Ref:
-        _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
-        return value.path
-    raise ValueError(
-        f"expected exact Ref; got {type(value).__name__}. Pass entry.ref or ms.ref.<kind>(path)."
+    helper: str,
+    received: object,
+    reason: str,
+    fields: tuple[str, ...] = (),
+) -> AlignmentPolicyValidationError:
+    return AlignmentPolicyValidationError(
+        message=f"{helper} received an invalid alignment policy: {reason}",
+        context={
+            "case": "invalid_helper_arguments",
+            "helper": helper,
+            "received": repr(received),
+            "accepted_fields": fields,
+        },
     )
 
 
 class AlignmentPolicy(BaseModel):
-    """Call marivo.help(AlignmentPolicy) for its public consumption contract.
-
-    Immutable policy governing how two observation windows are aligned
-    before comparison, correlation, or hypothesis testing.
-    """
+    """Closed public alignment protocol; construct values with one helper."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: AlignmentKind = "window_bucket"
-    calendar: CalendarRef | None = None
-    period: AlignPeriod = "month"
-    fallback: CalendarFallback = "drop"
+    kind: AlignmentKind
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> AlignmentPolicy:
+        if cls is AlignmentPolicy:
+            raise AlignmentPolicyValidationError(
+                message="AlignmentPolicy is a protocol and cannot be constructed directly",
+                context={
+                    "case": "direct_constructor",
+                    "received": sorted(str(key) for key in kwargs),
+                },
+            )
+        return super().__new__(cls)
+
+    def __repr__(self) -> str:
+        fields = self.model_dump(mode="json")
+        values = ", ".join(f"{key}={value!r}" for key, value in fields.items())
+        return f"AlignmentPolicy({values})"
+
+
+class _WindowBucketPolicy(AlignmentPolicy):
+    kind: Literal["window_bucket"] = "window_bucket"
     mode: WindowBucketMode = "ordinal_bucket"
     strict_lengths: bool = False
 
-    @model_validator(mode="before")
-    @classmethod
-    def reject_legacy_calendar_bucket(cls, data: object) -> object:
-        if isinstance(data, dict) and data.get("kind") == "calendar_bucket":
-            raise AlignmentPolicyValidationError(
-                message="alignment kind 'calendar_bucket' was renamed to 'window_bucket'",
-                context={"case": "legacy_calendar_bucket", "kind": "calendar_bucket"},
-            )
-        return data
 
-    @model_validator(mode="after")
-    def validate_calendar_ref(self) -> AlignmentPolicy:
-        if self.kind != "window_bucket" and self.mode != "ordinal_bucket":
-            raise AlignmentPolicyValidationError(
-                message="calendar-backed alignment does not accept window_bucket mode",
-                context={
-                    "case": "window_bucket_mode_not_applicable",
-                    "kind": self.kind,
-                    "mode": self.mode,
-                },
-            )
-        if self.kind != "window_bucket" and self.strict_lengths:
-            raise AlignmentPolicyValidationError(
-                message="calendar-backed alignment does not accept strict_lengths",
-                context={
-                    "case": "window_bucket_strict_lengths_not_applicable",
-                    "kind": self.kind,
-                },
-            )
-        if self.kind != "window_bucket" and self.calendar is None:
-            raise AlignmentPolicyValidationError(
-                message=f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)",
-                context={"case": "missing_calendar", "kind": self.kind},
-            )
-        if self.kind == "window_bucket" and self.calendar is not None:
-            raise AlignmentPolicyValidationError(
-                message="window_bucket does not accept calendar",
-                context={"case": "unexpected_calendar", "kind": self.kind},
-            )
-        return self
+class _DayOfWeekPolicy(AlignmentPolicy):
+    kind: Literal["day_of_week"] = "day_of_week"
+    within: Grain = _DEFAULT_WITHIN
+    unmatched: UnmatchedMode = "fail"
+
+
+class _PeriodProgressPolicy(AlignmentPolicy):
+    kind: Literal["period_progress"] = "period_progress"
+    unmatched: UnmatchedMode = "fail"
+
+
+class _PeriodCorrespondencePolicy(AlignmentPolicy):
+    kind: Literal["period_correspondence"] = "period_correspondence"
+    correspondence: str
+    unmatched: UnmatchedMode = "fail"
 
 
 def window_bucket(
@@ -144,123 +91,171 @@ def window_bucket(
     mode: WindowBucketMode = "ordinal_bucket",
     strict_lengths: bool = False,
 ) -> AlignmentPolicy:
-    """Construct a window-bucket alignment policy.
+    """Construct a request-window bucket alignment policy.
 
     Args:
-        mode: Bucket pairing mode. ``"ordinal_bucket"`` pairs buckets by
-            position within each input window; ``"calendar_bucket"`` joins by
-            absolute bucket key.
-        strict_lengths: When ``True``, ordinal window-bucket alignment rejects
-            unequal expected bucket counts.
+        mode: ``ordinal_bucket`` pairs positions within each selected window;
+            ``calendar_bucket`` pairs identical resolved bucket keys.
+        strict_lengths: Reject ordinal windows whose expected bucket counts differ.
 
     Returns:
-        An ``AlignmentPolicy`` with ``kind="window_bucket"``.
+        A frozen ``AlignmentPolicy`` tagged ``window_bucket``.
 
     Example:
-        ``session.compare(cur, base, alignment=mv.window_bucket())``.
+        ``session.compare(current, baseline, alignment=mv.window_bucket())``.
 
     Constraints:
-        ``window_bucket`` alignment does not accept a calendar argument.
+        This helper accepts no calendar or period authority.
     """
-    return AlignmentPolicy(
-        kind="window_bucket",
-        mode=mode,
-        strict_lengths=strict_lengths,
-    )
+    if mode not in {"ordinal_bucket", "calendar_bucket"}:
+        raise _invalid_policy(
+            helper="mv.window_bucket",
+            received=mode,
+            reason="mode must be 'ordinal_bucket' or 'calendar_bucket'",
+            fields=("mode", "strict_lengths"),
+        )
+    if type(strict_lengths) is not bool:
+        raise _invalid_policy(
+            helper="mv.window_bucket",
+            received=strict_lengths,
+            reason="strict_lengths must be a bool",
+            fields=("mode", "strict_lengths"),
+        )
+    return _WindowBucketPolicy(mode=mode, strict_lengths=strict_lengths)
 
 
-def dow_aligned(
+def day_of_week(
     *,
-    calendar: CalendarRef,
-    period: AlignPeriod = "month",
-    fallback: CalendarFallback = "drop",
+    within: Grain = _DEFAULT_WITHIN,
+    unmatched: UnmatchedMode = "fail",
 ) -> AlignmentPolicy:
-    """Construct a day-of-week calendar alignment policy.
+    """Construct same-weekday-occurrence alignment inside one target period.
 
     Args:
-        calendar: Calendar provider ref used to derive aligned periods.
-        period: Calendar period used when deriving alignment keys.
-        fallback: Fallback behavior for unmatched calendar rows.
+        within: Built-in or certified semantic containing-period grain.
+        unmatched: Whether absent coordinates fail or are dropped and counted.
 
     Returns:
-        An ``AlignmentPolicy`` with ``kind="dow_aligned"``.
+        A frozen ``AlignmentPolicy`` tagged ``day_of_week``.
 
     Example:
-        ``mv.dow_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
+        ``session.compare(current, baseline, alignment=mv.day_of_week())``.
 
     Constraints:
-        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
-        provider ids.
+        Inputs must be one row per local day in exactly one containing period.
     """
-    return AlignmentPolicy(
-        kind="dow_aligned",
-        calendar=calendar,
-        period=period,
-        fallback=fallback,
-    )
+    if type(within) is not Grain:
+        raise _invalid_policy(
+            helper="mv.day_of_week",
+            received=within,
+            reason="within must be a built-in or semantic Grain",
+            fields=("within", "unmatched"),
+        )
+    if unmatched not in {"fail", "drop"}:
+        raise _invalid_policy(
+            helper="mv.day_of_week",
+            received=unmatched,
+            reason="unmatched must be 'fail' or 'drop'",
+            fields=("within", "unmatched"),
+        )
+    return _DayOfWeekPolicy(within=within, unmatched=unmatched)
 
 
-def holiday_aligned(
+def period_progress(*, unmatched: UnmatchedMode = "fail") -> AlignmentPolicy:
+    """Construct same-progress alignment inside one certified target period.
+
+    Args:
+        unmatched: Whether absent progress coordinates fail or are dropped.
+
+    Returns:
+        A frozen ``AlignmentPolicy`` tagged ``period_progress``.
+
+    Example:
+        ``session.compare(current, baseline, alignment=mv.period_progress())``.
+
+    Constraints:
+        Each side must resolve to exactly one target period under the same authority.
+    """
+    if unmatched not in {"fail", "drop"}:
+        raise _invalid_policy(
+            helper="mv.period_progress",
+            received=unmatched,
+            reason="unmatched must be 'fail' or 'drop'",
+            fields=("unmatched",),
+        )
+    return _PeriodProgressPolicy(unmatched=unmatched)
+
+
+def period_correspondence(
     *,
-    calendar: CalendarRef,
-    period: AlignPeriod = "month",
-    fallback: CalendarFallback = "drop",
+    correspondence: str,
+    unmatched: UnmatchedMode = "fail",
 ) -> AlignmentPolicy:
-    """Construct a holiday calendar alignment policy.
+    """Construct alignment through one certified named period correspondence.
 
     Args:
-        calendar: Calendar provider ref used to derive holiday alignment keys.
-        period: Calendar period used when deriving alignment keys.
-        fallback: Fallback behavior for unmatched calendar rows.
+        correspondence: Authored mapping name in the current semantic calendar.
+        unmatched: Whether absent mapped periods fail or are dropped.
 
     Returns:
-        An ``AlignmentPolicy`` with ``kind="holiday_aligned"``.
+        A frozen ``AlignmentPolicy`` tagged ``period_correspondence``.
 
     Example:
-        ``mv.holiday_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
+        ``session.compare(current, baseline, alignment=mv.period_correspondence(correspondence='prior_year_shifted'))``.
 
     Constraints:
-        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
-        provider ids.
+        Both frames must be complete at the exact correspondence level.
     """
-    return AlignmentPolicy(
-        kind="holiday_aligned",
-        calendar=calendar,
-        period=period,
-        fallback=fallback,
+    if type(correspondence) is not str or not correspondence.strip():
+        raise _invalid_policy(
+            helper="mv.period_correspondence",
+            received=correspondence,
+            reason="correspondence must be a non-empty name",
+            fields=("correspondence", "unmatched"),
+        )
+    if unmatched not in {"fail", "drop"}:
+        raise _invalid_policy(
+            helper="mv.period_correspondence",
+            received=unmatched,
+            reason="unmatched must be 'fail' or 'drop'",
+            fields=("correspondence", "unmatched"),
+        )
+    return _PeriodCorrespondencePolicy(
+        correspondence=correspondence.strip(),
+        unmatched=unmatched,
     )
 
 
-def holiday_and_dow_aligned(
-    *,
-    calendar: CalendarRef,
-    period: AlignPeriod = "month",
-    fallback: CalendarFallback = "drop",
-) -> AlignmentPolicy:
-    """Construct a holiday-then-day-of-week calendar alignment policy.
-
-    Args:
-        calendar: Calendar provider ref used to derive holiday and day-of-week
-            alignment keys.
-        period: Calendar period used when deriving alignment keys.
-        fallback: Fallback behavior for unmatched calendar rows.
-
-    Returns:
-        An ``AlignmentPolicy`` with ``kind="holiday_and_dow_aligned"``.
-
-    Example:
-        ``mv.holiday_and_dow_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
-
-    Constraints:
-        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
-        provider ids.
-    """
-    return AlignmentPolicy(
-        kind="holiday_and_dow_aligned",
-        calendar=calendar,
-        period=period,
-        fallback=fallback,
-    )
+def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
+    """Decode a persisted policy; this is intentionally not a public input path."""
+    if type(payload) is not dict:
+        raise _invalid_policy(
+            helper="alignment recovery",
+            received=payload,
+            reason="persisted policy must be an object",
+        )
+    kind = payload.get("kind")
+    variants: dict[str, type[AlignmentPolicy]] = {
+        "window_bucket": _WindowBucketPolicy,
+        "day_of_week": _DayOfWeekPolicy,
+        "period_progress": _PeriodProgressPolicy,
+        "period_correspondence": _PeriodCorrespondencePolicy,
+    }
+    variant = variants.get(cast("str", kind))
+    if variant is None:
+        raise _invalid_policy(
+            helper="alignment recovery",
+            received=kind,
+            reason="unknown alignment kind",
+        )
+    try:
+        return variant.model_validate(payload)
+    except Exception as exc:
+        raise _invalid_policy(
+            helper="alignment recovery",
+            received=payload,
+            reason=str(exc),
+        ) from exc
 
 
 class SamplingPolicy(BaseModel):

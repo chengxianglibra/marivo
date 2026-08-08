@@ -206,7 +206,6 @@ Policies
 
    AlignmentPolicy
    AlignmentKind
-   CalendarPolicy
    SamplingPolicy
 
 Refs and lineage
@@ -217,7 +216,6 @@ Refs and lineage
    :nosignatures:
 
    ArtifactRef
-   CalendarRef
    Lineage
    LineageStep
 
@@ -239,10 +237,10 @@ Alignment and window helpers
    :toctree: api/
    :nosignatures:
 
-   dow_aligned
-   holiday_aligned
-   holiday_and_dow_aligned
    window_bucket
+   day_of_week
+   period_progress
+   period_correspondence
 
 Slices
 ------
