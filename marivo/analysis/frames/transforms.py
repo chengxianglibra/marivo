@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.transform import NormalizeBaseline, NormalizeKind, RankMethod
@@ -107,7 +108,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         self,
         *,
         drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
-        grain: str | None = None,
+        grain: str | TemporalGrain | None = None,
         analysis_purpose: str | None = None,
     ) -> TFrame:
         """Aggregate a frame by dropping axes or re-bucketing the time axis.
@@ -116,8 +117,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
             drop_axes: Exact current-catalog dimension/time-dimension entries
                 or refs to remove before grouping.
             grain: Target time grain coarser than the current time axis
-                (e.g. ``"month"``). Cumulative frames take the last bucket per
-                period (``rollup_fold="last"``).
+                (e.g. ``"month"`` or a certified ``ms.calendar_grain(...)``).
+                Semantic grains require a certified containment edge and complete
+                source periods. Cumulative frames take the last bucket per period
+                (``rollup_fold="last"``).
             analysis_purpose: Optional durable label explaining why this
                 transform exists.
 

@@ -74,6 +74,7 @@ INPUT_FAMILIES = frozenset(
         "Additivity",
         "Unit",
         "Granularity",
+        "Granularity | Grain",
         "ParseVariant",
         "PositiveInt",
         "TimeFold",
@@ -1166,12 +1167,19 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "grain_to_date",
             "marivo.semantic._authoring_metrics.grain_to_date",
-            "Build a grain-to-date cumulative anchor specification.",
+            (
+                "Build a grain-to-date cumulative anchor specification from a builtin reset "
+                "granularity or a certified semantic Grain."
+            ),
             output="GrainToDateSpec",
-            inputs=_inputs(("dependency", "Granularity")),
+            inputs=_inputs(("dependency", "Granularity | Grain")),
             effects=_AUTHOR,
             constraints=("cumulative_anchor",),
-            example="ms.grain_to_date(grain='month')",
+            example=(
+                "ms.grain_to_date("
+                "grain=ms.calendar_grain("
+                "calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month'))"
+            ),
         ),
         _capability(
             "trailing",

@@ -13,6 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from marivo._temporal import FrameTemporalContractV1
 from marivo.analysis.attribution_contract import (
     AttributeAdmissionV1,
     CumulativeAttributionCapabilityV1,
@@ -249,6 +250,7 @@ class ArtifactContract(BaseModel):
         ]
         | None
     ) = None
+    temporal_contract: FrameTemporalContractV1 | None = None
 
     @computed_field  # type: ignore[prop-decorator]  # Pydantic wraps this property.
     @property
@@ -479,6 +481,11 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             card.field(f"attribute.{route_name}", route_text)
     if contract.row_arithmetic is not None:
         card.field("row_arithmetic", contract.row_arithmetic)
+    if contract.temporal_contract is not None:
+        card.field(
+            "temporal_contract",
+            str(contract.temporal_contract.model_dump(mode="json")),
+        )
 
     affordances = tuple(
         affordance for affordance in contract.affordances if _affordance_visible(affordance)
@@ -779,6 +786,7 @@ class BaseFrame(RenderableResult):
             issues=self.meta.issues,
             affordances=tuple(affordances),
             boundary_ports=tuple(_build_boundary_ports(registry)),
+            temporal_contract=getattr(self.meta, "temporal_contract", None),
         )
 
     def _dataframe_copy(self) -> pd.DataFrame:

@@ -1,5 +1,3 @@
-import pytest
-
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.windows.spec import normalize_grain
@@ -31,5 +29,4 @@ def test_public_grain_constructors_share_one_value_type():
     assert builtin.kind == "builtin"
     assert semantic.kind == "semantic"
     assert normalize_grain(builtin).to_token() == "5minute"
-    with pytest.raises(TypeError, match="Slice 2"):
-        normalize_grain(semantic)
+    assert normalize_grain(semantic) is semantic

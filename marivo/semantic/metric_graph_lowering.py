@@ -7,6 +7,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from typing import NoReturn, cast
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -81,6 +82,17 @@ def _fail(*, kind: str, metric_id: str, path: str, message: str) -> NoReturn:
 def _freeze(value: object) -> CanonicalValue:
     if type(value) is RefPayloadV1:
         return value
+    if isinstance(value, Ref):
+        return RefPayloadV1.from_ref(value)
+    if isinstance(value, TemporalGrain):
+        if value.kind == "builtin":
+            return value.to_token()
+        assert value.calendar is not None and value.level is not None
+        return (
+            "semantic_grain",
+            RefPayloadV1.from_ref(value.calendar),
+            value.level,
+        )
     if value is None or isinstance(value, str | bool | int):
         return value
     if isinstance(value, float):

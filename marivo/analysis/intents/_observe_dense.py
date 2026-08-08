@@ -10,7 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 from marivo._fixed_duration import fixed_duration_seconds
-from marivo._temporal import GregorianIsoResolver
+from marivo._temporal import (
+    Grain as TemporalGrain,
+)
+from marivo._temporal import (
+    GregorianIsoResolver,
+    PeriodCalendarSnapshotV1,
+    TemporalResolver,
+)
 from marivo.analysis.errors import AnalysisError
 
 _GRAIN_PANDAS_FREQ: dict[str, str] = {
@@ -28,7 +35,13 @@ _GRAIN_PANDAS_FREQ: dict[str, str] = {
 _FIXED_GRAINS: frozenset[str] = frozenset({"second", "minute", "hour", "day"})
 
 
-def _align_to_grain_start(ts: Any, unit: str, count: int = 1) -> Any:
+def _align_to_grain_start(
+    ts: Any,
+    unit: str | TemporalGrain,
+    count: int = 1,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
+) -> Any:
     """Truncate a timestamp to the start of its grain-period.
 
     For fixed grains (second/minute/hour/day) with ``count == 1`` this uses
@@ -41,6 +54,15 @@ def _align_to_grain_start(ts: Any, unit: str, count: int = 1) -> Any:
     explicitly because ``floor`` does not support non-fixed frequencies.
     """
     import pandas as pd
+
+    if isinstance(unit, TemporalGrain) and unit.kind == "semantic":
+        if snapshot is None or unit.level is None:
+            raise ValueError("semantic grain alignment requires a certified snapshot")
+        timestamp = pd.Timestamp(ts)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
+        period = TemporalResolver(snapshot).period_on(unit.level, timestamp.date())
+        return pd.Timestamp(period.start_date)
 
     if unit in _FIXED_GRAINS:
         if count > 1 and unit in ("second", "minute", "hour"):
@@ -76,6 +98,17 @@ def _bucket_date_range(window: Any) -> list[Any]:
     grain = window.grain
     if grain is None:
         return [start]
+    if isinstance(grain, TemporalGrain) and grain.kind == "semantic":
+        snapshot = getattr(window, "temporal_snapshot", None)
+        if snapshot is None or grain.level is None:
+            raise ValueError("semantic grain dense coverage requires a certified snapshot")
+        return [
+            pd.Timestamp(period.start_date)
+            for period in snapshot.periods
+            if period.level_name == grain.level
+            and period.end_date > start.date()
+            and period.start_date < end.date()
+        ]
     unit = grain.unit
     count = grain.count
     freq = f"{count}{_GRAIN_PANDAS_FREQ[unit]}" if count > 1 else _GRAIN_PANDAS_FREQ[unit]
@@ -146,10 +179,17 @@ def _dense_cumulative_frame(
     out = out.drop(columns=["_baseline"])
     if "__single__" in out.columns:
         out = out.drop(columns=["__single__"])
-    return out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+    out = out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+    out["bucket_start"] = pd.to_datetime(out["bucket_start"])
+    return out
 
 
-def _require_grain_to_date_compat(query_grain_token: str, reset_grain: str) -> None:
+def _require_grain_to_date_compat(
+    query_grain_token: str,
+    reset_grain: str | TemporalGrain,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
+) -> None:
     """Reject grain_to_date resets whose reset period straddles query buckets.
 
     Week buckets straddle month/quarter/year boundaries, so a week query grain
@@ -157,6 +197,61 @@ def _require_grain_to_date_compat(query_grain_token: str, reset_grain: str) -> N
     reset periods and the period-to-date value is undefined. Day and hour grains
     are always legal; week-under-week is legal.
     """
+    if isinstance(reset_grain, TemporalGrain):
+        if reset_grain.kind != "semantic":
+            return
+        if snapshot is None or reset_grain.calendar is None or reset_grain.level is None:
+            raise AnalysisError(
+                message="semantic grain_to_date reset requires a certified period snapshot",
+                hint="Preview the referenced period calendar before observing the metric.",
+                context={"reset_grain": reset_grain.to_token(), "query_grain": query_grain_token},
+            )
+        semantic_prefix = f"{reset_grain.calendar.path}::"
+        if query_grain_token.startswith(semantic_prefix):
+            query_level = query_grain_token.removeprefix(semantic_prefix)
+            if query_level == reset_grain.level or TemporalResolver(snapshot).rolls_up_to(
+                query_level, reset_grain.level
+            ):
+                return
+            raise AnalysisError(
+                message=(
+                    f"semantic grain_to_date reset {reset_grain.to_token()!r} is not a "
+                    f"certified containment target for query grain {query_grain_token!r}"
+                ),
+                hint="Choose a query calendar level with a certified containment edge.",
+                context={
+                    "reset_grain": reset_grain.to_token(),
+                    "query_grain": query_grain_token,
+                    "reason": "rollup_not_certified",
+                },
+            )
+        if query_grain_token in {"hour", "day"}:
+            return
+        raise AnalysisError(
+            message=(
+                f"builtin query grain {query_grain_token!r} cannot be certified against "
+                f"semantic reset grain {reset_grain.to_token()!r}"
+            ),
+            hint="Use hour/day or the same certified semantic calendar for the query grain.",
+            context={
+                "reset_grain": reset_grain.to_token(),
+                "query_grain": query_grain_token,
+                "reason": "cross_authority_grain_to_date",
+            },
+        )
+    if "::" in query_grain_token:
+        raise AnalysisError(
+            message=(
+                f"semantic query grain {query_grain_token!r} cannot be certified against "
+                f"builtin reset grain {reset_grain!r}"
+            ),
+            hint="Use the same certified semantic calendar for the query and reset grains.",
+            context={
+                "reset_grain": reset_grain,
+                "query_grain": query_grain_token,
+                "reason": "cross_authority_grain_to_date",
+            },
+        )
     if query_grain_token == "week" and reset_grain in ("month", "quarter", "year"):
         raise AnalysisError(
             message=(
@@ -168,7 +263,12 @@ def _require_grain_to_date_compat(query_grain_token: str, reset_grain: str) -> N
         )
 
 
-def _trunc_series_to_grain(values: Any, grain: str) -> Any:
+def _trunc_series_to_grain(
+    values: Any,
+    grain: str | TemporalGrain,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
+) -> Any:
     """Truncate a pandas Series of timestamps to the start of the reset period.
 
     Mirrors :func:`_align_to_grain_start` but vectorized over a Series, for
@@ -178,6 +278,19 @@ def _trunc_series_to_grain(values: Any, grain: str) -> Any:
     import pandas as pd
 
     ts = pd.to_datetime(pd.Series(values))
+    if isinstance(grain, TemporalGrain) and grain.kind == "semantic":
+        if snapshot is None or grain.level is None:
+            raise ValueError("semantic reset grain requires a certified snapshot")
+        resolver = TemporalResolver(snapshot)
+        starts = []
+        for value in ts:
+            timestamp = pd.Timestamp(value)
+            if timestamp.tzinfo is not None:
+                timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
+            starts.append(
+                pd.Timestamp(resolver.period_on(grain.level, timestamp.date()).start_date)
+            )
+        return pd.Series(starts, index=ts.index, name=ts.name)
     if grain == "week":
         return ts.dt.to_period("W").dt.start_time
     if grain == "month":
@@ -205,7 +318,8 @@ def _grain_to_date_dense_frame(
     flow_df: Any,
     bucket_values: list[Any],
     dimension_columns: list[str],
-    reset_grain: str,
+    reset_grain: str | TemporalGrain,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
     value_column: str = "value",
 ) -> Any:
     """Densify + fill 0 + cumsum partitioned by (dims x reset period) + seed.
@@ -234,16 +348,26 @@ def _grain_to_date_dense_frame(
         ).drop_duplicates()
     else:
         combos = pd.DataFrame({"__single__": [0]})
-    bucket_df = pd.DataFrame({"bucket_start": bucket_values})
+    # Semantic period materialization can produce date-like objects while
+    # the backend flow frame may carry strings. Normalize both sides to one
+    # stable ISO date key before the merge, then restore the public timestamp
+    # shape at the end of the function.
+    bucket_df = pd.DataFrame(
+        {"bucket_start": [pd.Timestamp(value).date().isoformat() for value in bucket_values]}
+    )
     spine = bucket_df.merge(combos, how="cross") if key_columns else bucket_df.assign(__single__=0)
 
     flow = flow_df.copy()
+    if "bucket_start" in flow.columns:
+        flow["bucket_start"] = pd.to_datetime(flow["bucket_start"]).dt.strftime("%Y-%m-%d")
     if not key_columns:
         flow["__single__"] = 0
     merge_keys = key_columns or ["__single__"]
 
     # Reset-period key per bucket.
-    spine["_reset_key"] = _trunc_series_to_grain(spine["bucket_start"], reset_grain)
+    spine["_reset_key"] = _trunc_series_to_grain(
+        spine["bucket_start"], reset_grain, snapshot=snapshot
+    )
     out = spine.merge(
         flow[["bucket_start", *merge_keys, value_column]],
         on=["bucket_start", *merge_keys],
@@ -267,9 +391,9 @@ def _grain_to_date_dense_frame(
         )
         out = out.merge(seed_map, on=merge_keys, how="left")
         out["_seed"] = out["_seed"].fillna(0)
-        first_period_key = _trunc_series_to_grain(pd.Series([bucket_values[0]]), reset_grain).iloc[
-            0
-        ]
+        first_period_key = _trunc_series_to_grain(
+            pd.Series([bucket_values[0]]), reset_grain, snapshot=snapshot
+        ).iloc[0]
         mask = out["_reset_key"] == first_period_key
         out.loc[mask, value_column] = out.loc[mask, value_column] + out.loc[mask, "_seed"]
         out = out.drop(columns=["_seed"])
@@ -277,7 +401,9 @@ def _grain_to_date_dense_frame(
     out = out.drop(columns=["_reset_key"])
     if "__single__" in out.columns:
         out = out.drop(columns=["__single__"])
-    return out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+    out = out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+    out["bucket_start"] = pd.to_datetime(out["bucket_start"])
+    return out
 
 
 def _trailing_rolling_frame(

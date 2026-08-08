@@ -10,7 +10,10 @@ from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from typing import Literal, NoReturn, cast
 
+from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import semantic_grain
 from marivo.refs import RefPayloadV1, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic.ir import AggKind, AggregateFoldInput
 from marivo.semantic.metric_graph import (
     MAX_EXPRESSION_DEPTH,
@@ -78,6 +81,15 @@ def canonical_value(value: object) -> object:
     """Convert supported typed payloads to deterministic JSON values."""
     if isinstance(value, Enum):
         return canonical_value(value.value)
+    if isinstance(value, TemporalGrain):
+        if value.kind == "builtin":
+            return value.to_token()
+        assert value.calendar is not None and value.level is not None
+        return {
+            "kind": "semantic",
+            "calendar_ref": value.calendar.path,
+            "level": value.level,
+        }
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -281,6 +293,25 @@ def _cumulative_anchor(value: object, *, context: str) -> CumulativeAnchorV1:
     if value == "all_history":
         return "all_history"
     parts = _sequence(value, context=context)
+    if (
+        len(parts) == 2
+        and parts[0] == "grain_to_date"
+        and isinstance(parts[1], Mapping)
+        and parts[1].get("kind") == "semantic"
+    ):
+        calendar_ref = parts[1].get("calendar_ref")
+        level = parts[1].get("level")
+        if isinstance(calendar_ref, str) and calendar_ref and isinstance(level, str) and level:
+            try:
+                grain = semantic_grain(
+                    calendar=ref_factory.period_calendar(
+                        calendar_ref.removeprefix("period_calendar:")
+                    ),
+                    level=level,
+                )
+            except (TypeError, ValueError) as exc:
+                _invalid(f"{context} contains an invalid semantic grain: {exc}")
+            return ("grain_to_date", grain)
     if (
         len(parts) == 2
         and parts[0] == "grain_to_date"

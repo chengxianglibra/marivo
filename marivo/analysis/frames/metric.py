@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from marivo._temporal import FrameTemporalContractV1
 from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
     cumulative_compare_anchor,
@@ -160,6 +161,23 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
 def _cumulative_compare_pair_contract(anchor: object) -> ArtifactPrecondition | None:
     if not isinstance(anchor, tuple) or anchor[0] not in {"trailing", "grain_to_date"}:
         return None
+    if anchor[0] == "grain_to_date" and getattr(anchor[1], "kind", None) == "semantic":
+        return ArtifactPrecondition(
+            check="cumulative_comparable_period_pair",
+            status="fail",
+            reason=(
+                "semantic grain-to-date comparison requires the same certified calendar "
+                "snapshot and is not inferred from a display label"
+            ),
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Use the persisted temporal authority contract to verify both frames "
+                    "share one certified semantic calendar snapshot before comparing."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+        )
     canonical = canonical_comparable_period_anchor(anchor)
     if canonical.kind == "trailing":
         reason = (
@@ -280,6 +298,7 @@ class MetricFrameMeta(BaseFrameMeta):
     coverage_ref: str | None = None
     coverage_summary: dict[str, Any] | None = None
     cumulative: dict[str, Any] | None = None
+    temporal_contract: FrameTemporalContractV1 | None = None
     rollup_fold: Literal["last"] | None = None
     cohort: SubjectCohortBinding | None = None
 
@@ -482,6 +501,11 @@ def _append_metric_execution_semantics(card: Card, meta: MetricFrameMeta) -> Non
             )
         ),
     )
+    if meta.temporal_contract is not None:
+        card.field(
+            "temporal_authority",
+            str(meta.temporal_contract.model_dump(mode="json")),
+        )
     axes = _axis_lines(meta)
     if axes:
         card.listing("axes", axes)

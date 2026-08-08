@@ -12,11 +12,13 @@ from zoneinfo import ZoneInfo
 import ibis
 from ibis.expr.operations.relations import Field
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
 from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
     bucket_start_expr,
     ensure_bucket_start_timestamp,
+    materialize_semantic_period_columns,
 )
 from marivo.analysis.executor.runner import execute
 from marivo.analysis.executor.windowing import (
@@ -229,8 +231,22 @@ def _execute_sampled_base(
             candidates={"status_time_dimension": metric_ir.status_time_dimension},
             repair=[],
         )
+    if (
+        resolved_window is not None
+        and isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+    ):
+        raise_observe_planning_error(
+            code="sampled-grain-floor-unsupported-unit",
+            message="semantic observation grains are not supported for sampled status folds",
+            candidates={"grain": resolved_window.grain.to_token()},
+            repair=[],
+        )
     ensure_sampled_grain_supported(
-        requested_grain=resolved_window.grain if resolved_window is not None else None,
+        requested_grain=cast(
+            "Grain | None",
+            resolved_window.grain if resolved_window is not None else None,
+        ),
         time_meta=root_time_adapter.time_meta,
         sample_interval=sample_interval,
     )
@@ -263,7 +279,9 @@ def _execute_sampled_base(
     if is_time_series and resolved_window is not None:
         assert resolved_window.grain is not None
         phase_b_source = phase_a.mutate(
-            bucket_start=bucket_start_expr(phase_a.sample_point, resolved_window.grain)
+            bucket_start=bucket_start_expr(
+                phase_a.sample_point, cast("Grain", resolved_window.grain)
+            )
         )
         group_names = ["bucket_start", *dimension_names]
     else:
@@ -302,16 +320,20 @@ def _execute_sampled_base(
         )
         coverage_df = coverage_result.df
         # Ensure bucket_start is normalized the same way as the main frame
-        if "bucket_start" in coverage_df.columns:
+        if "bucket_start" in coverage_df.columns and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
             coverage_df["bucket_start"] = ensure_bucket_start_timestamp(
                 coverage_df["bucket_start"],
                 time_meta=root_time_adapter.time_meta,
                 dataset_ir=root_adapter,
-                grain=resolved_window.grain,
+                grain=cast("Grain", resolved_window.grain),
                 report_tz=cast("ZoneInfo", session.report_tz),
                 backend_datetime_decode_policy=coverage_result.backend_datetime_decode_policy,
             )
         # Compute expected_samples from bucket duration and sample interval
+        assert isinstance(resolved_window.grain, Grain)
         bucket_seconds = _fixed_grain_seconds_for_coverage(
             resolved_window.grain.count, resolved_window.grain.unit
         )
@@ -324,13 +346,20 @@ def _execute_sampled_base(
         coverage_df["coverage_status"] = coverage_df["coverage_ratio"].apply(
             lambda r: "complete" if r == 1.0 else "partial"
         )
-    if "bucket_start" in result.df and resolved_window is not None:
+    if (
+        "bucket_start" in result.df
+        and resolved_window is not None
+        and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        )
+    ):
         assert resolved_window.grain is not None
         result.df["bucket_start"] = ensure_bucket_start_timestamp(
             result.df["bucket_start"],
             time_meta=root_time_adapter.time_meta,
             dataset_ir=root_adapter,
-            grain=resolved_window.grain,
+            grain=cast("Grain", resolved_window.grain),
             report_tz=cast("ZoneInfo", session.report_tz),
             backend_datetime_decode_policy=result.backend_datetime_decode_policy,
         )
@@ -695,12 +724,29 @@ def _execute_base(
             cache=session._connection_runtime,
             session_id=session.id,
         )
-        if "bucket_start" in result.df:
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+            and resolved_window.temporal_snapshot is not None
+        ):
+            result = replace(
+                result,
+                df=materialize_semantic_period_columns(
+                    result.df,
+                    snapshot=resolved_window.temporal_snapshot,
+                    grain=resolved_window.grain,
+                    window=resolved_window,
+                ),
+            )
+        if "bucket_start" in result.df and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
             result.df["bucket_start"] = ensure_bucket_start_timestamp(
                 result.df["bucket_start"],
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
-                grain=resolved_window.grain,
+                grain=cast("Grain", resolved_window.grain),
                 report_tz=cast("ZoneInfo", session.report_tz),
                 backend_datetime_decode_policy=result.backend_datetime_decode_policy,
             )
@@ -765,12 +811,29 @@ def _execute_base(
             cache=session._connection_runtime,
             session_id=session.id,
         )
-        if "bucket_start" in result.df:
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+            and resolved_window.temporal_snapshot is not None
+        ):
+            result = replace(
+                result,
+                df=materialize_semantic_period_columns(
+                    result.df,
+                    snapshot=resolved_window.temporal_snapshot,
+                    grain=resolved_window.grain,
+                    window=resolved_window,
+                ),
+            )
+        if "bucket_start" in result.df and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
             result.df["bucket_start"] = ensure_bucket_start_timestamp(
                 result.df["bucket_start"],
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
-                grain=resolved_window.grain,
+                grain=cast("Grain", resolved_window.grain),
                 report_tz=cast("ZoneInfo", session.report_tz),
                 backend_datetime_decode_policy=result.backend_datetime_decode_policy,
             )

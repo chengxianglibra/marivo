@@ -7,10 +7,12 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis._cumulative import CUMULATIVE_CONTRACT_VERSION
 from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
     ensure_bucket_start_timestamp,
+    materialize_semantic_period_columns,
 )
 from marivo.analysis.executor.runner import execute
 from marivo.analysis.executor.windowing import (
@@ -247,7 +249,31 @@ def _execute_fused_base_group(
         cache=session._connection_runtime,
         session_id=session.id,
     )
-    if is_time_series and "bucket_start" in result.df:
+    if (
+        resolved_window is not None
+        and is_time_series
+        and isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+        and resolved_window.temporal_snapshot is not None
+    ):
+        result = replace(
+            result,
+            df=materialize_semantic_period_columns(
+                result.df,
+                snapshot=resolved_window.temporal_snapshot,
+                grain=resolved_window.grain,
+                window=resolved_window,
+            ),
+        )
+    if (
+        resolved_window is not None
+        and is_time_series
+        and "bucket_start" in result.df
+        and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        )
+    ):
         assert resolved_window is not None
         assert resolved_window.grain is not None
         assert time_dimension_ir is not None

@@ -10,6 +10,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import (
     DomainKind,
     MetricKind,
@@ -53,20 +54,34 @@ from marivo.semantic.typing import AiContextValue
 class GrainToDate:
     """Value object selecting a grain-to-date cumulative anchor (MTD/QTD/YTD)."""
 
-    grain: str
+    grain: TemporalGrain | str
     kind: Literal["grain_to_date"] = "grain_to_date"
 
     def __post_init__(self) -> None:
-        if self.grain not in _GRAIN_TO_DATE_RESETS:
+        if isinstance(self.grain, str):
+            if self.grain not in _GRAIN_TO_DATE_RESETS:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"ms.grain_to_date(grain={self.grain!r}) is not a reset grain; "
+                    "expected one of: week, month, quarter, year.",
+                    cls=SemanticDecoratorError,
+                    constraint_id=ConstraintId.CUMULATIVE_ANCHOR,
+                )
+            return
+        if not isinstance(self.grain, TemporalGrain):
+            raise TypeError("GrainToDate.grain must be a Grain value")
+        if self.grain.kind == "builtin" and self.grain.unit not in _GRAIN_TO_DATE_RESETS:
             _raise(
                 ErrorKind.INVALID_REF,
-                f"ms.grain_to_date(grain={self.grain!r}) is not a reset grain; "
+                f"ms.grain_to_date(grain={self.grain.to_token()!r}) is not a reset grain; "
                 "expected one of: week, month, quarter, year. Use a plain "
                 "ms.cumulative(...) for all-history, or ms.trailing(count=..., unit='day') "
                 "for a fixed-size rolling window.",
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.CUMULATIVE_ANCHOR,
             )
+        if self.grain.kind == "semantic" and not self.grain.level:
+            raise ValueError("semantic GrainToDate requires a non-empty calendar level")
 
 
 @dataclass(frozen=True)
@@ -97,7 +112,7 @@ class Trailing:
             )
 
 
-def grain_to_date(*, grain: str) -> GrainToDate:
+def grain_to_date(*, grain: TemporalGrain | str) -> GrainToDate:
     """Select a grain-to-date cumulative anchor (MTD / QTD / YTD resets).
 
     The running total resets at each reset-grain boundary (start of the
@@ -122,6 +137,8 @@ def grain_to_date(*, grain: str) -> GrainToDate:
         display bucket must lie within one reset period (week grain under a
         month/quarter/year reset is illegal). ``day`` and ``hour`` are legal.
     """
+    # Keep the legacy builtin spelling lossless for existing authored IR while
+    # preserving semantic ``Grain`` identity for custom calendars.
     return GrainToDate(grain=grain)
 
 

@@ -9,7 +9,7 @@ both fail-fast raising and structured ValidationIssue conversion.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
@@ -225,7 +225,7 @@ def cumulative_compare_issue(
         return _grain_to_date_compare_validations(
             current,
             baseline,
-            anchor[1],
+            cast("str", anchor[1]),
             report_tz=report_tz,
         )
     return CumulativeFrameUnsupportedError(

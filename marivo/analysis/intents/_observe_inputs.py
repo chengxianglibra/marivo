@@ -11,6 +11,7 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.errors import (
     AnalysisRepair,
     GrainUnsupportedError,
@@ -37,6 +38,7 @@ from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     GrainInput,
     TimeScopeInput,
+    bind_temporal_window,
     make_absolute_window,
     normalize_timescope_input,
 )
@@ -70,11 +72,78 @@ def _resolve_timescope(
     *,
     grain: GrainInput,
     time_dimension: str | None,
+    catalog: Any | None = None,
 ) -> tuple[AbsoluteWindow | None, dict[str, Any] | None]:
     timescope_in = normalize_timescope_input(timescope)
     resolved = make_absolute_window(timescope_in, grain=grain, time_dimension=time_dimension)
-    original = timescope_in.model_dump(mode="json") if timescope_in is not None else None
+    if catalog is not None and resolved is not None:
+        semantic_grain = resolved.grain
+        semantic_scope = resolved.semantic_scope
+        calendar_ref = (
+            semantic_grain.calendar
+            if isinstance(semantic_grain, TemporalGrain) and semantic_grain.kind == "semantic"
+            else semantic_scope.calendar
+            if semantic_scope is not None
+            else None
+        )
+        if calendar_ref is not None:
+            from marivo.refs import SemanticKind
+
+            if calendar_ref.kind is not SemanticKind.PERIOD_CALENDAR:
+                raise TypeError("temporal analysis requires Ref[period_calendar]")
+            calendar = catalog.period_calendars.get(calendar_ref.path)
+            snapshot = calendar._snapshot()
+            if (
+                isinstance(semantic_grain, TemporalGrain)
+                and semantic_grain.kind == "semantic"
+                and semantic_grain.level not in snapshot.levels
+            ):
+                raise ValueError(
+                    f"calendar level {semantic_grain.level!r} is not certified by {calendar_ref.path!r}"
+                )
+            if (
+                semantic_scope is not None
+                and semantic_scope.snapshot_digest != snapshot.snapshot_digest
+            ):
+                raise ValueError(
+                    "time_scope belongs to a stale period-calendar snapshot; reacquire the exact current scope"
+                )
+            resolved = bind_temporal_window(resolved, snapshot=snapshot)
+    original = (
+        timescope_in.contract().model_dump(mode="json")
+        if timescope_in is not None and timescope_in.kind == "calendar_period"
+        else timescope_in.model_dump(mode="json")
+        if timescope_in is not None
+        else None
+    )
     return resolved, original
+
+
+def _bind_metric_temporal_context(
+    catalog: Any,
+    window: AbsoluteWindow | None,
+    metric_ir: Any,
+) -> AbsoluteWindow | None:
+    """Bind a cumulative semantic reset grain to the same snapshot as observe."""
+    if window is None:
+        return None
+    composition = getattr(metric_ir, "composition", None)
+    anchor = getattr(composition, "anchor", None)
+    if not isinstance(anchor, tuple) or len(anchor) != 2 or anchor[0] != "grain_to_date":
+        return window
+    reset_grain = anchor[1]
+    if not isinstance(reset_grain, TemporalGrain) or reset_grain.kind != "semantic":
+        return window
+    assert reset_grain.calendar is not None and reset_grain.level is not None
+    calendar = catalog.period_calendars.get(reset_grain.calendar.path)
+    snapshot = calendar._snapshot()
+    if reset_grain.level not in snapshot.levels:
+        raise ValueError(
+            f"calendar level {reset_grain.level!r} is not certified by {reset_grain.calendar.path!r}"
+        )
+    if window.temporal_snapshot is not None and window.temporal_snapshot != snapshot:
+        raise ValueError("observation and cumulative reset use different period snapshots")
+    return bind_temporal_window(window, snapshot=snapshot)
 
 
 def _validate_dimension_ids(dimensions: list[str] | None) -> list[str]:

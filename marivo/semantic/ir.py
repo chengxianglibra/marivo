@@ -13,6 +13,7 @@ from enum import StrEnum
 from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,
@@ -682,7 +683,7 @@ class WeightedMeanAggregation:
 # the new kinds carry their parameters as a tuple.
 CumulativeAnchor = (
     Literal["all_history"]
-    | tuple[Literal["grain_to_date"], str]
+    | tuple[Literal["grain_to_date"], str | TemporalGrain]
     | tuple[Literal["trailing"], int, str]
 )
 
@@ -700,8 +701,13 @@ def _validate_cumulative_anchor(anchor: object) -> None:
         if (
             len(anchor) == 2
             and anchor[0] == "grain_to_date"
-            and isinstance(anchor[1], str)
-            and anchor[1] in _GRAIN_TO_DATE_RESETS
+            and (
+                (isinstance(anchor[1], str) and anchor[1] in _GRAIN_TO_DATE_RESETS)
+                or (
+                    isinstance(anchor[1], TemporalGrain)
+                    and (anchor[1].kind == "semantic" or anchor[1].unit in _GRAIN_TO_DATE_RESETS)
+                )
+            )
         ):
             return
         if (

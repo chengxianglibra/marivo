@@ -11,9 +11,21 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from marivo._temporal import (
+    FrameTemporalContractV1,
+    PeriodCalendarSnapshotV1,
+    TemporalResolver,
+    TimeScope,
+    builtin_grain,
+    period_binding_for_grain,
+)
+from marivo._temporal import (
+    Grain as TemporalGrain,
+)
 from marivo.analysis._cumulative import (
     CUMULATIVE_CONTRACT_VERSION,
     EVALUATION_END_COLUMN,
+    canonical_cumulative_metadata,
     cumulative_has_evaluation_contract,
     normalize_cumulative_anchor,
 )
@@ -610,12 +622,18 @@ def _bucket_evaluation_end_utc(
     *,
     grain: Any,
     report_tz: str,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
 ) -> pd.Timestamp:
     """Return one represented bucket's exclusive end in canonical UTC."""
 
     timestamp = pd.Timestamp(cast("Any", value))
     if timestamp.tzinfo is not None:
         timestamp = timestamp.tz_convert(ZoneInfo(report_tz)).tz_localize(None)
+    if isinstance(grain, TemporalGrain) and grain.kind == "semantic":
+        if snapshot is None or grain.level is None:
+            raise ValueError("semantic cumulative evaluation requires a certified snapshot")
+        period = TemporalResolver(snapshot).period_on(grain.level, timestamp.date())
+        return _evaluation_timestamp_utc(pd.Timestamp(period.end_date), report_tz=report_tz)
     unit = grain.unit
     count = grain.count
     if unit == "second":
@@ -715,7 +733,12 @@ def _materialize_cumulative_evaluation_end(
         )
     evaluation_ends = [
         min(
-            _bucket_evaluation_end_utc(value, grain=grain, report_tz=report_tz),
+            _bucket_evaluation_end_utc(
+                value,
+                grain=grain,
+                report_tz=report_tz,
+                snapshot=resolved_window.temporal_snapshot,
+            ),
             window_end,
         )
         for value in output[time_column]
@@ -726,6 +749,89 @@ def _materialize_cumulative_evaluation_end(
         dtype="datetime64[ns, UTC]",
     )
     return output
+
+
+def _build_frame_temporal_contract(
+    *,
+    resolved_window: Any | None,
+    cumulative: dict[str, Any] | None,
+    frame: pd.DataFrame,
+    report_timezone: str,
+) -> FrameTemporalContractV1 | None:
+    """Persist one closed temporal authority beside every time-shaped frame."""
+    if resolved_window is None:
+        return None
+    semantic_scope = getattr(resolved_window, "semantic_scope", None)
+    if isinstance(semantic_scope, TimeScope):
+        scope = semantic_scope
+        scope_contract = scope.contract()
+    else:
+        scope = TimeScope(start=resolved_window.start, end=resolved_window.end)
+        try:
+            scope_contract = scope.contract()
+        except ValueError as exc:
+            if "non-empty" in str(exc):
+                # Existing analysis callers may intentionally observe an empty
+                # date window to exercise alignment/coverage behavior.  That
+                # interval cannot be represented by the strict temporal
+                # contract, so leave the optional contract absent.
+                return None
+            # The public observe boundary accepts a date-only start with a
+            # datetime end for partial buckets. Promote both bounds to
+            # datetimes for the persisted contract without changing the
+            # requested interval.
+            if "mix date and datetime" not in str(exc):
+                raise
+            start = pd.Timestamp(resolved_window.start)
+            end = pd.Timestamp(resolved_window.end)
+            if start.tzinfo is None and end.tzinfo is not None:
+                start = start.tz_localize(end.tzinfo)
+            elif start.tzinfo is not None and end.tzinfo is None:
+                end = end.tz_localize(start.tzinfo)
+            scope = TimeScope(
+                start=start.to_pydatetime(),
+                end=end.to_pydatetime(),
+            )
+            scope_contract = scope.contract()
+    observation_period = None
+    if resolved_window.grain is not None:
+        observation_period = period_binding_for_grain(
+            resolved_window.grain,
+            snapshot=resolved_window.temporal_snapshot,
+            boundary_timezone=(
+                resolved_window.temporal_snapshot.boundary_timezone
+                if resolved_window.temporal_snapshot is not None
+                else report_timezone
+            ),
+        )
+    reset_period = None
+    anchor = normalize_cumulative_anchor(cumulative.get("anchor")) if cumulative else None
+    if isinstance(anchor, tuple) and anchor[0] == "grain_to_date":
+        reset_grain = anchor[1]
+        if isinstance(reset_grain, str):
+            reset_grain = builtin_grain(reset_grain)
+        if isinstance(reset_grain, TemporalGrain):
+            reset_period = period_binding_for_grain(
+                reset_grain,
+                snapshot=resolved_window.temporal_snapshot,
+                boundary_timezone=(
+                    resolved_window.temporal_snapshot.boundary_timezone
+                    if resolved_window.temporal_snapshot is not None
+                    else report_timezone
+                ),
+            )
+    output_keys: tuple[Any, ...] = ()
+    if "period_key" in frame.columns:
+        output_keys = tuple(frame["period_key"].tolist())
+    return FrameTemporalContractV1(
+        time_scope=scope_contract,
+        observation_period=observation_period,
+        cumulative_reset_period=reset_period,
+        actual_start=scope_contract.start,
+        actual_end=scope_contract.end,
+        output_period_keys=output_keys,
+        display_timezone=report_timezone,
+    )
 
 
 def observe(
@@ -850,7 +956,11 @@ def observe(
         time_scope,
         grain=grain,
         time_dimension=time_dimension_id,
+        catalog=catalog,
     )
+    from marivo.analysis.intents._observe_inputs import _bind_metric_temporal_context
+
+    resolved_window = _bind_metric_temporal_context(catalog, resolved_window, metric_ir)
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
     # For semi-additive simple/derived metrics, inject the preferred status time
@@ -870,7 +980,9 @@ def observe(
                 time_scope,
                 grain=grain,
                 time_dimension=status_time_dimension,
+                catalog=catalog,
             )
+            resolved_window = _bind_metric_temporal_context(catalog, resolved_window, metric_ir)
 
     planner_time_dimension_id = (
         resolved_window.time_dimension if resolved_window is not None else time_dimension_id
@@ -1005,6 +1117,11 @@ def observe(
                     ),
                 )
             cumulative_meta = _cumulative_graph_marker(graph_plan, catalog=catalog)
+            cumulative_payload = (
+                canonical_cumulative_metadata(cumulative_meta)
+                if cumulative_meta is not None
+                else None
+            )
             params_timescope = None
             if resolved_window is not None:
                 params_timescope = {
@@ -1042,6 +1159,15 @@ def observe(
                     else None
                 ),
             }
+            if resolved_window is not None:
+                temporal_contract = _build_frame_temporal_contract(
+                    resolved_window=resolved_window,
+                    cumulative=cumulative_meta,
+                    frame=pd.DataFrame(),
+                    report_timezone=session.report_tz_name,
+                )
+                if temporal_contract is not None:
+                    params["temporal_contract"] = temporal_contract.model_dump(mode="json")
             if _candidate_origins:
                 params["candidate_origins"] = [
                     origin.model_dump(mode="json") for origin in _candidate_origins
@@ -1063,7 +1189,7 @@ def observe(
                 params["component_lowering"] = aggregate_component_contract
             if cumulative_meta is not None:
                 params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
-                params["cumulative"] = cumulative_meta
+                params["cumulative"] = cumulative_payload
                 if cumulative_has_evaluation_contract(cumulative_meta):
                     params["evaluation_end_column"] = EVALUATION_END_COLUMN
             if any(isinstance(node, RatioNodeV1) for node in graph_nodes.values()):
@@ -1379,7 +1505,7 @@ def observe(
                     status_time_dimension_ref=_status_time_dimension_payload(
                         metric_ir.status_time_dimension
                     ),
-                    cumulative=cumulative_meta,
+                    cumulative=cumulative_payload,
                 ),
             ),
             window=dump_window(resolved_window),
@@ -1394,7 +1520,13 @@ def observe(
             additivity=_meta_additivity(root_execution.additivity),
             aggregation=_meta_aggregation(metric_ir.aggregation),
             status_time_dimension=metric_ir.status_time_dimension,
-            cumulative=cumulative_meta,
+            cumulative=cumulative_payload,
+            temporal_contract=_build_frame_temporal_contract(
+                resolved_window=resolved_window,
+                cumulative=cumulative_meta,
+                frame=materialized_frame,
+                report_timezone=session.report_tz_name,
+            ),
             zero_denominator_rows=root_execution.quality.zero_division_rows,
             cohort=resolved_cohort.binding if resolved_cohort is not None else None,
             rollup_fold=("last" if cumulative_has_evaluation_contract(cumulative_meta) else None),
@@ -1804,6 +1936,7 @@ def _observe_metric_forest(
         time_scope,
         grain=grain,
         time_dimension=time_dimension_id,
+        catalog=catalog,
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
     # A multi-metric forest shares one time axis.  When the caller did not pick
@@ -1823,6 +1956,7 @@ def _observe_metric_forest(
                 time_scope,
                 grain=grain,
                 time_dimension=forest_status_time_dimension,
+                catalog=catalog,
             )
             is_time_series = resolved_window is not None and resolved_window.grain is not None
     _preflight_observe_temporal_suitability(

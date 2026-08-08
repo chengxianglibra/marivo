@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_serializer,
+    field_validator,
+)
 
-from marivo._temporal import TimeScope
+from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.windows.grain import (
     Grain,
@@ -20,6 +28,7 @@ __all__ = [
     "GrainInput",
     "TimeScope",
     "TimeScopeInput",
+    "bind_temporal_window",
     "dump_window",
     "is_date_only",
     "make_absolute_window",
@@ -51,22 +60,36 @@ class AbsoluteWindow(BaseModel):
     July, use ``end="2026-08-01"``.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     kind: Literal["absolute"] = "absolute"
     start: str
     end: str
-    grain: Grain | None = None
+    grain: Grain | TemporalGrain | None = None
     time_dimension: str | None = None
+    # These fields are execution-only bindings. They are excluded from the
+    # public window payload and are populated after the catalog has resolved a
+    # semantic grain/scope to its immutable certified snapshot.
+    semantic_scope: TimeScope | None = Field(default=None, exclude=True)
+    temporal_snapshot: PeriodCalendarSnapshotV1 | None = Field(default=None, exclude=True)
 
     @field_validator("grain", mode="before")
     @classmethod
     def _normalize_grain(cls, value: Any) -> Grain | None:
-        return normalize_grain(value)
+        return cast("Grain | None", normalize_grain(value))
 
     @field_serializer("grain")
-    def _serialize_grain(self, value: Grain | None) -> str | None:
-        return value.to_token() if value is not None else None
+    def _serialize_grain(self, value: Grain | TemporalGrain | None) -> object:
+        if value is None:
+            return None
+        if isinstance(value, TemporalGrain) and value.kind == "semantic":
+            assert value.calendar is not None and value.level is not None
+            return {
+                "kind": "semantic",
+                "calendar_ref": value.calendar.path,
+                "level": value.level,
+            }
+        return value.to_token()
 
 
 TimeScopeInput = TimeScope | dict[str, Any] | None
@@ -169,7 +192,29 @@ def make_absolute_window(
         end=_as_absolute_bound(timescope.end),
         grain=resolved_grain,
         time_dimension=time_dimension,
+        semantic_scope=timescope if timescope.kind == "calendar_period" else None,
     )
+
+
+def bind_temporal_window(
+    window: AbsoluteWindow | None,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None,
+) -> AbsoluteWindow | None:
+    """Attach one immutable calendar snapshot to an execution window."""
+    if window is None:
+        return None
+    if (
+        snapshot is None
+        and isinstance(window.grain, TemporalGrain)
+        and window.grain.kind == "semantic"
+    ):
+        raise WindowInvalidError(
+            message="semantic grain has no current certified period snapshot",
+            hint="Preview the period calendar with one exhaustive persisted snapshot, then retry.",
+            context={"kind": "SemanticGrainSnapshotMissing", "grain": window.grain.to_token()},
+        )
+    return window.model_copy(update={"temporal_snapshot": snapshot})
 
 
 def dump_window(window: AbsoluteWindow | None) -> dict[str, Any] | None:

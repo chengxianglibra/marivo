@@ -10,11 +10,14 @@ from zoneinfo import ZoneInfo
 
 import ibis
 
+from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import TemporalResolver
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
     bucket_start_expr,
     ensure_bucket_start_timestamp,
+    materialize_semantic_period_columns,
 )
 from marivo.analysis.executor.runner import apply_slice_to_dataset, execute
 from marivo.analysis.executor.windowing import (
@@ -48,6 +51,36 @@ from marivo.semantic.catalog import SemanticKind
 
 _WEIGHTED_MEAN_NUMERATOR = "__weighted_mean_numerator"
 _WEIGHTED_MEAN_WEIGHT = "__weighted_mean_weight"
+
+
+def _materialize_semantic_cumulative_result(
+    result: tuple[Any, dict[str, Any], Any, Any | None, Any | None],
+    *,
+    window: AbsoluteWindow | None,
+) -> tuple[Any, dict[str, Any], Any, Any | None, Any | None]:
+    """Attach certified period keys to every dense cumulative output path."""
+    if (
+        window is None
+        or not isinstance(window.grain, TemporalGrain)
+        or window.grain.kind != "semantic"
+        or window.temporal_snapshot is None
+    ):
+        return result
+    output, axes, semantic_kind, coverage_df, component_df = result
+    output.df = materialize_semantic_period_columns(
+        output.df,
+        snapshot=window.temporal_snapshot,
+        grain=window.grain,
+        window=window,
+    )
+    if component_df is not None and "bucket_start" in component_df.columns:
+        component_df = materialize_semantic_period_columns(
+            component_df,
+            snapshot=window.temporal_snapshot,
+            grain=window.grain,
+            window=window,
+        )
+    return output, axes, semantic_kind, coverage_df, component_df
 
 
 def _base_aggregation_name(metric_ir: Any) -> str:
@@ -337,12 +370,26 @@ def _execute_trailing_distinct(
         session_id=session.id,
     )
     agg_df = result.df
-    if "bucket_start" in agg_df:
+    if (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+        and resolved_window.temporal_snapshot is not None
+    ):
+        agg_df = materialize_semantic_period_columns(
+            agg_df,
+            snapshot=resolved_window.temporal_snapshot,
+            grain=resolved_window.grain,
+            window=resolved_window,
+        )
+    if "bucket_start" in agg_df and not (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+    ):
         agg_df["bucket_start"] = ensure_bucket_start_timestamp(
             agg_df["bucket_start"],
             time_meta=time_dimension_ir.time_meta,
             dataset_ir=root_adapter,
-            grain=resolved_window.grain,
+            grain=cast("Grain", resolved_window.grain),
             report_tz=cast("ZoneInfo", session.report_tz),
             backend_datetime_decode_policy=result.backend_datetime_decode_policy,
         )
@@ -572,12 +619,26 @@ def _execute_trailing_additive(
         session_id=session.id,
     )
     flow_df = flow_result.df
-    if "bucket_start" in flow_df:
+    if (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+        and resolved_window.temporal_snapshot is not None
+    ):
+        flow_df = materialize_semantic_period_columns(
+            flow_df,
+            snapshot=resolved_window.temporal_snapshot,
+            grain=resolved_window.grain,
+            window=resolved_window,
+        )
+    if "bucket_start" in flow_df and not (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+    ):
         flow_df["bucket_start"] = ensure_bucket_start_timestamp(
             flow_df["bucket_start"],
             time_meta=time_dimension_ir.time_meta,
             dataset_ir=root_adapter,
-            grain=resolved_window.grain,
+            grain=cast("Grain", resolved_window.grain),
             report_tz=cast("ZoneInfo", session.report_tz),
             backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
         )
@@ -766,7 +827,11 @@ def _execute_cumulative(
 
                 end_ts = pd.Timestamp(resolved_window.end)
                 included_end = end_ts - pd.Timedelta(microseconds=1)
-                period_start = _align_to_grain_start(included_end, reset_grain)
+                period_start = _align_to_grain_start(
+                    included_end,
+                    reset_grain,
+                    snapshot=cast("Any", resolved_window.temporal_snapshot),
+                )
                 raw_table = raw_table.filter(
                     (time_expr >= ibis.literal(period_start).cast(time_expr.type()))
                     & (time_expr < ibis.literal(resolved_window.end).cast(time_expr.type()))
@@ -883,22 +948,46 @@ def _execute_cumulative(
     # grain under month/quarter/year reset is illegal because week buckets
     # straddle reset boundaries. Applies to sum/count and count_distinct.
     if is_grain_to_date and reset_grain is not None:
-        _require_grain_to_date_compat(resolved_window.grain.unit, reset_grain)
+        query_grain_token = (
+            resolved_window.grain.to_token()
+            if isinstance(resolved_window.grain, TemporalGrain)
+            else resolved_window.grain.unit
+        )
+        _require_grain_to_date_compat(
+            query_grain_token,
+            reset_grain,
+            snapshot=resolved_window.temporal_snapshot,
+        )
 
     if is_trailing:
-        return _execute_trailing_additive(
-            plan=plan,
-            catalog=catalog,
-            resolver=resolver,
-            session=session,
-            resolved_window=resolved_window,
-            time_dimension_ir=time_dimension_ir,
-            root_adapter=root_adapter,
-            read_tz=read_tz,
-            profile=profile,
-            dimension_names=dimension_names,
-            resolved_dimensions=resolved_dimensions,
-            agg=agg,
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
+            raise AnalysisError(
+                message="trailing cumulative does not support variable-duration semantic grains",
+                hint="Use grain_to_date with the certified calendar Grain or a builtin fixed grain.",
+                context={
+                    "kind": "SemanticTrailingGrainUnsupported",
+                    "grain": resolved_window.grain.to_token(),
+                },
+            )
+        return _materialize_semantic_cumulative_result(
+            _execute_trailing_additive(
+                plan=plan,
+                catalog=catalog,
+                resolver=resolver,
+                session=session,
+                resolved_window=resolved_window,
+                time_dimension_ir=time_dimension_ir,
+                root_adapter=root_adapter,
+                read_tz=read_tz,
+                profile=profile,
+                dimension_names=dimension_names,
+                resolved_dimensions=resolved_dimensions,
+                agg=agg,
+            ),
+            window=resolved_window,
         )
 
     # Build the bucketed table from the window-filtered table (base_plan.table)
@@ -989,22 +1078,31 @@ def _execute_cumulative(
 
         # Find first-seen per distinct key (+ dimensions). For grain_to_date a
         # period_key column is added so an entity re-counts once per reset
-        # period. NOTE: this period_key is derived through the SQL/ibis path
-        # (combined_time_expr.truncate(_TRUNCATE_CODE[reset_grain])), while the
-        # cumsum reset partition in _grain_to_date_dense_frame is derived
-        # through the pandas path (_trunc_series_to_grain on bucket_start).
-        # These are two INDEPENDENT truncation implementations that must agree
-        # per reset grain (week/month/quarter/year). The alignment is
-        # semantic-by-convention, NOT code-shared: a future change to either
-        # path must keep them in sync, or the dedup period will silently
-        # misalign with the reset partition. Cross-grain alignment tests
-        # (e.g. quarter reset) guard against such divergence.
+        # period. Semantic reset grains use the same certified CASE bucket
+        # expression as the observation path; builtin resets retain their
+        # existing backend truncation.
         combined_key_expr = _count_distinct_key_expr(resolver, base_metric_ir, combined_raw)
         combined_key_name = combined_key_expr.get_name()
         if is_grain_to_date and reset_grain is not None:
-            period_key_expr = combined_time_expr.truncate(_TRUNCATE_CODE[reset_grain]).name(
-                "period_key"
-            )
+            if isinstance(reset_grain, TemporalGrain) and reset_grain.kind == "semantic":
+                from marivo.analysis.executor.bucketing import semantic_period_bucket_expr
+
+                assert resolved_window.temporal_snapshot is not None
+                period_key_expr = semantic_period_bucket_expr(
+                    combined_raw,
+                    raw=combined_time_expr,
+                    field_ir=time_dimension_ir,
+                    window=resolved_window,
+                    snapshot=resolved_window.temporal_snapshot,
+                    grain=reset_grain,
+                    datasource_read_tz=read_tz,
+                    dataset_ir=root_adapter,
+                    profile=profile,
+                ).name("period_key")
+            else:
+                period_key_expr = combined_time_expr.truncate(_TRUNCATE_CODE[reset_grain]).name(
+                    "period_key"
+                )
             first_seen = combined_raw.group_by(
                 [combined_key_name, *dimension_names, period_key_expr]
             ).aggregate(first_seen_ts=combined_time_expr.min())
@@ -1023,12 +1121,26 @@ def _execute_cumulative(
             import pandas as pd  # local: seed period derivation
 
             window_start_ts = pd.Timestamp(resolved_window.start)
-            first_period_start = _align_to_grain_start(window_start_ts, reset_grain)
+            first_period_start = _align_to_grain_start(
+                window_start_ts,
+                reset_grain,
+                snapshot=resolved_window.temporal_snapshot,
+            )
+            first_period_key: Any = first_period_start
+            if isinstance(reset_grain, TemporalGrain) and reset_grain.kind == "semantic":
+                assert (
+                    reset_grain.level is not None and resolved_window.temporal_snapshot is not None
+                )
+                first_period_key = (
+                    TemporalResolver(resolved_window.temporal_snapshot)
+                    .period_on(reset_grain.level, first_period_start.date())
+                    .global_ordinal
+                )
             if first_period_start < window_start_ts:
                 baseline_first_seen = first_seen.filter(
                     (
                         first_seen["period_key"]
-                        == ibis.literal(first_period_start).cast(first_seen["period_key"].type())
+                        == ibis.literal(first_period_key).cast(first_seen["period_key"].type())
                     )
                     & (
                         first_seen["first_seen_ts"]
@@ -1096,9 +1208,33 @@ def _execute_cumulative(
             )
         )
         # Bucket the first-seen timestamp
-        flow_bucketed = flow_first_seen.mutate(
-            bucket_start=bucket_start_expr(flow_first_seen["first_seen_ts"], resolved_window.grain)
-        )
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
+            from marivo.analysis.executor.bucketing import semantic_period_bucket_expr
+
+            assert resolved_window.temporal_snapshot is not None
+            flow_bucketed = flow_first_seen.mutate(
+                bucket_start=semantic_period_bucket_expr(
+                    flow_first_seen,
+                    raw=flow_first_seen["first_seen_ts"],
+                    field_ir=time_dimension_ir,
+                    window=resolved_window,
+                    snapshot=resolved_window.temporal_snapshot,
+                    grain=resolved_window.grain,
+                    datasource_read_tz=read_tz,
+                    dataset_ir=root_adapter,
+                    profile=profile,
+                )
+            )
+        else:
+            assert isinstance(resolved_window.grain, Grain)
+            flow_bucketed = flow_first_seen.mutate(
+                bucket_start=bucket_start_expr(
+                    flow_first_seen["first_seen_ts"], resolved_window.grain
+                )
+            )
         group_keys_flow = ["bucket_start", *dimension_names]
         flow_grouped = (
             flow_bucketed.group_by(group_keys_flow)
@@ -1113,12 +1249,26 @@ def _execute_cumulative(
             session_id=session.id,
         )
         flow_df = flow_result.df
-        if "bucket_start" in flow_df:
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+            and resolved_window.temporal_snapshot is not None
+        ):
+            flow_df = materialize_semantic_period_columns(
+                flow_df,
+                snapshot=resolved_window.temporal_snapshot,
+                grain=resolved_window.grain,
+                window=resolved_window,
+            )
+        if "bucket_start" in flow_df and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
             flow_df["bucket_start"] = ensure_bucket_start_timestamp(
                 flow_df["bucket_start"],
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
-                grain=resolved_window.grain,
+                grain=cast("Grain", resolved_window.grain),
                 report_tz=cast("ZoneInfo", session.report_tz),
                 backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
             )
@@ -1146,12 +1296,26 @@ def _execute_cumulative(
             session_id=session.id,
         )
         flow_df = flow_result.df
-        if "bucket_start" in flow_df:
+        if (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+            and resolved_window.temporal_snapshot is not None
+        ):
+            flow_df = materialize_semantic_period_columns(
+                flow_df,
+                snapshot=resolved_window.temporal_snapshot,
+                grain=resolved_window.grain,
+                window=resolved_window,
+            )
+        if "bucket_start" in flow_df and not (
+            isinstance(resolved_window.grain, TemporalGrain)
+            and resolved_window.grain.kind == "semantic"
+        ):
             flow_df["bucket_start"] = ensure_bucket_start_timestamp(
                 flow_df["bucket_start"],
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
-                grain=resolved_window.grain,
+                grain=cast("Grain", resolved_window.grain),
                 report_tz=cast("ZoneInfo", session.report_tz),
                 backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
             )
@@ -1164,7 +1328,11 @@ def _execute_cumulative(
             import pandas as pd  # local: seed period derivation
 
             window_start_ts = pd.Timestamp(resolved_window.start)
-            period_start = _align_to_grain_start(window_start_ts, reset_grain)
+            period_start = _align_to_grain_start(
+                window_start_ts,
+                reset_grain,
+                snapshot=resolved_window.temporal_snapshot,
+            )
             baseline_df = pd.DataFrame(columns=[*dimension_names, *flow_aggregations])
             if period_start < window_start_ts:
                 seed_table = raw_table.filter(
@@ -1245,6 +1413,7 @@ def _execute_cumulative(
                 bucket_values=bucket_values,
                 dimension_columns=dimension_names,
                 reset_grain=reset_grain,
+                snapshot=resolved_window.temporal_snapshot,
                 value_column=_WEIGHTED_MEAN_NUMERATOR,
             )
             weight_df = _grain_to_date_dense_frame(
@@ -1253,6 +1422,7 @@ def _execute_cumulative(
                 bucket_values=bucket_values,
                 dimension_columns=dimension_names,
                 reset_grain=reset_grain,
+                snapshot=resolved_window.temporal_snapshot,
                 value_column=_WEIGHTED_MEAN_WEIGHT,
             )
         else:
@@ -1283,6 +1453,7 @@ def _execute_cumulative(
             bucket_values=bucket_values,
             dimension_columns=dimension_names,
             reset_grain=reset_grain,
+            snapshot=resolved_window.temporal_snapshot,
         )
     else:
         component_df = None
@@ -1313,7 +1484,10 @@ def _execute_cumulative(
     }
     semantic_kind = "panel" if dimension_names else "time_series"
 
-    return _Result(dense_df), axes, semantic_kind, None, component_df
+    return _materialize_semantic_cumulative_result(
+        (_Result(dense_df), axes, semantic_kind, None, component_df),
+        window=resolved_window,
+    )
 
 
 # ``_FIXED_UNIT_SECONDS`` is imported from ``marivo.analysis.windows.grain``
