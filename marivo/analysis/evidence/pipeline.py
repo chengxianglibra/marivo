@@ -842,14 +842,15 @@ def _help_canonical_id(operator: str) -> str:
     """Return the resolvable help-target canonical id for an operator name.
 
     ``_operator_for`` pass-throughs point-like step_type names (compare.funnel,
-    attribute.funnel_loss_rate) that are used verbatim in action text but are
-    not registered on the analysis help surface; their parent ids (compare,
-    attribute) are. Normalize to the parent so a repair's help_target never
-    resolves to a MarivoHelpTargetError.
+    attribute.funnel_loss_rate, select_metric) that are used verbatim in action
+    text but are not registered on the analysis help surface; their parent ids
+    (compare, attribute, MetricFrame.metric) are. Normalize to the parent so a
+    repair's help_target never resolves to a MarivoHelpTargetError.
     """
     return {
         "compare.funnel": "compare",
         "attribute.funnel_loss_rate": "attribute",
+        "select_metric": "MetricFrame.metric",
     }.get(operator, operator)
 
 

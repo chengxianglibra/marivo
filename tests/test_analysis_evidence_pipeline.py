@@ -605,3 +605,54 @@ def test_funnel_step_extract_failure_repair_help_target_is_resolvable(
         marivo.help(issue.repair.help_target.display)
     finally:
         evidence_store.close()
+
+
+def test_select_metric_digest_failure_repair_help_target_is_resolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A select_metric step's digest-failure repair must carry a resolvable
+    help_target.
+
+    _operator_for pass-throughs select_metric verbatim into the repair's
+    operator; that dotted name is not registered on the analysis help surface
+    (marivo.help("analysis.select_metric") raises MarivoHelpTargetError), so
+    the help_target must be normalized to the parent id "MetricFrame.metric"
+    (re-review P3, MR !71). The action text keeps the exact dotted operator.
+    """
+
+    def fail_digest(**_kwargs):
+        raise RuntimeError("digest failure")
+
+    monkeypatch.setattr("marivo.analysis.evidence.pipeline.build_artifact_digest", fail_digest)
+    evidence_store = open_evidence_store(tmp_path / "judgment.db")
+    frame = _frame(tmp_path)
+    try:
+        result = commit_result(
+            store=evidence_store,
+            frames_dir=tmp_path / "frames",
+            frame=frame,
+            step_type="select_metric",
+            inputs=CommitInputs(input_refs=["a", "b"]),
+            params=CommitParams(values={"metric": "sales.revenue"}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="scalar"),
+            extractor_family="projection",
+        )
+        assert result.evidence_status == "partial"
+        issue = next(
+            item
+            for item in result.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_digest_unavailable"
+        )
+        assert issue.repair is not None
+        assert issue.repair.kind == "inspect"
+        # Action text keeps the exact dotted operator...
+        assert "re-run select_metric" in issue.repair.action
+        # ...but the help_target normalizes to the resolvable parent id.
+        assert issue.repair.help_target.canonical_id == "MetricFrame.metric"
+        import marivo
+
+        marivo.help(issue.repair.help_target.display)
+    finally:
+        evidence_store.close()
