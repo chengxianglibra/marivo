@@ -63,6 +63,7 @@ __all__ = [
     "MetricIR",
     "ParityStatus",
     "ParquetSourceIR",
+    "PeriodCalendarIR",
     "RatioComposition",
     "RelationshipIR",
     "SampleIntervalIR",
@@ -282,6 +283,23 @@ class EntityIR:
     python_symbol: str
     location: SourceLocation
     versioning: EntityVersioningIR | None = None
+
+
+@dataclass(frozen=True)
+class PeriodCalendarIR:
+    """Authored identity and source-field contract for one period authority."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    date: str
+    boundary_timezone: str
+    coverage: tuple[str, str]
+    levels: tuple[tuple[str, str], ...]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+    correspondences: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -605,6 +623,7 @@ class DimensionIR:
     parse: SemanticParse | None = None
     is_default: bool = False
     body_ast_hash: str = ""
+    source_column: str | None = None
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):

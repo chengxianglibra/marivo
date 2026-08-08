@@ -64,6 +64,9 @@ Column helpers
    dimension_column
    measure_column
    time_dimension_column
+   period_calendar
+   period_correspondence
+   calendar_grain
 
 Time parsing
 ------------
@@ -147,6 +150,8 @@ Details types
    DatasourceDetails
    DerivedMetricDetails
    SimpleMetricDetails
+   PeriodCalendarDetails
+   CalendarLevelDetails
 
 Catalog & objects
 -----------------
@@ -171,6 +176,8 @@ ref-based.
    CatalogCollection
    CatalogEntry
    SemanticKind
+   PeriodCalendarEntry
+   CalendarPeriodPage
 
 Sources & provenance
 --------------------

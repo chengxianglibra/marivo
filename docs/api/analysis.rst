@@ -145,6 +145,9 @@ Scopes and windows
 
    TimeScope
    AbsoluteWindow
+   Grain
+
+.. autofunction:: grain
 
 Event Journey, Lifecycle replay, and typed cohorts
 ---------------------------------------------------

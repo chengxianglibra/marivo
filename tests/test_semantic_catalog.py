@@ -2517,6 +2517,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
             "kind",
             "semantic_id",
             "parse",
+            "source_column",
         },
         MeasureIR: {"location", "ai_context", "semantic_id", "kind", "body_ast_hash"},
         MetricIR: {

@@ -121,6 +121,7 @@ class DiscoverySnapshot(RenderableResult):
     created_at: datetime
     expires_at: datetime
     _project_root: Path
+    retained_values: tuple[tuple[JsonScalar, ...], ...] = ()
 
     def _repr_identity(self) -> str:
         return (
@@ -732,6 +733,25 @@ def acquire_snapshot(
         for column in selected_schema
     )
     created_at = lookup.now
+    selected_data_types = {column.name: column.type.lower() for column in selected_schema}
+
+    def persisted_value(value: object, column: str) -> JsonScalar:
+        normalized = normalize_preview_cell(value)
+        if selected_data_types.get(column) == "date":
+            if isinstance(value, pd.Timestamp):
+                if (
+                    value.hour
+                    == value.minute
+                    == value.second
+                    == value.microsecond
+                    == value.nanosecond
+                    == 0
+                ):
+                    return value.date().isoformat()
+            elif type(value) is date:
+                return value.isoformat()
+        return cast("JsonScalar", normalized)
+
     snapshot = DiscoverySnapshot(
         id=snapshot_id,
         datasource=inspection.datasource,
@@ -754,6 +774,14 @@ def acquire_snapshot(
         created_at=created_at,
         expires_at=created_at + SNAPSHOT_TTL,
         _project_root=inspection._project_root,
+        retained_values=tuple(
+            tuple(
+                persisted_value(value, column) for column, value in zip(columns, row, strict=True)
+            )
+            for row in retained.itertuples(index=False, name=None)
+        )
+        if persist_values
+        else (),
     )
     store.write_snapshot(snapshot, datasource_fingerprint=datasource_fingerprint)
     return snapshot

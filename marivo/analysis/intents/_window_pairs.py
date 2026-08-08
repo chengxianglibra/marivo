@@ -12,7 +12,6 @@ Names keep a leading underscore to signal that the API is internal to
 
 from __future__ import annotations
 
-import calendar as calendar_lib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -21,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from marivo._temporal import GregorianIsoResolver
 from marivo.analysis.errors import AlignmentFailedError
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.windows.grain import Grain as _Grain
@@ -49,6 +49,7 @@ class _OrdinalPair:
 
 
 _WINDOW_BUCKET_CAP = 100_000
+_GREGORIAN_RESOLVER = GregorianIsoResolver()
 
 
 def _panel_grain(frame: MetricFrame) -> str | None:
@@ -92,47 +93,24 @@ def _parse_window_datetime(
         ) from exc
 
 
-def _add_months(value: date, months: int) -> date:
-    index = value.year * 12 + (value.month - 1) + months
-    year = index // 12
-    month = index % 12 + 1
-    day = min(value.day, calendar_lib.monthrange(year, month)[1])
-    return date(year, month, day)
-
-
 def _truncate_bucket_date(value: date, *, grain: str) -> date:
-    if grain == "day":
-        return value
-    if grain == "week":
-        return value - timedelta(days=value.weekday())
-    if grain == "month":
-        return value.replace(day=1)
-    if grain == "quarter":
-        month = ((value.month - 1) // 3) * 3 + 1
-        return value.replace(month=month, day=1)
-    if grain == "year":
-        return value.replace(month=1, day=1)
-    raise AlignmentFailedError(
-        message=f"window_bucket alignment does not support grain {grain!r}",
-        context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
-    )
+    try:
+        return _GREGORIAN_RESOLVER.period_on(grain, value).start_date
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AlignmentFailedError(
+            message=f"window_bucket alignment does not support grain {grain!r}",
+            context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
+        ) from exc
 
 
 def _advance_bucket_date(value: date, *, grain: str) -> date:
-    if grain == "day":
-        return value + timedelta(days=1)
-    if grain == "week":
-        return value + timedelta(weeks=1)
-    if grain == "month":
-        return _add_months(value, 1)
-    if grain == "quarter":
-        return _add_months(value, 3)
-    if grain == "year":
-        return value.replace(year=value.year + 1)
-    raise AlignmentFailedError(
-        message=f"window_bucket alignment does not support grain {grain!r}",
-        context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
-    )
+    try:
+        return _GREGORIAN_RESOLVER.period_on(grain, value).end_date
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AlignmentFailedError(
+            message=f"window_bucket alignment does not support grain {grain!r}",
+            context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
+        ) from exc
 
 
 def _grain_is_subday_token(grain: str) -> bool:

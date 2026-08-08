@@ -486,9 +486,9 @@ def _is_utc_instant(value: object) -> bool:
     return timestamp.tzinfo is not None and offset is not None and offset.total_seconds() == 0
 
 
-def _utc_timestamp(value: str, *, field: str) -> pd.Timestamp:
+def _utc_timestamp(value: object, *, field: str) -> pd.Timestamp:
     try:
-        timestamp = pd.Timestamp(value)
+        timestamp = pd.Timestamp(cast("Any", value))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} must be a valid ISO-8601 instant") from exc
     if timestamp.tzinfo is None:

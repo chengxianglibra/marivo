@@ -114,6 +114,41 @@ frame = session.observe(revenue_entry, time_scope={...}, grain="month")
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
 
+## 认证业务周期日历
+
+当业务周期不能安全地由 Gregorian grain 推导时（例如财务周期或 4-4-5 日历），使用
+`PeriodCalendar`。通过 `ms.period_calendar(...)` 声明民用日期主轴和命名层级，然后用
+`persist_values=True` 一次获取数据，并把不可变的 `DiscoverySnapshot` 传给
+`catalog.preview(calendar_ref, using=snapshot)`。认证要求覆盖完整范围，并发布绑定快照的
+权威；之后 catalog 导航不会再次读取数据源。
+
+```python
+calendar_ref = ms.period_calendar(
+    name="fiscal",
+    date=ms.ref.time_dimension("sales.calendar.calendar_date"),
+    boundary_timezone="UTC",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
+)
+snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("calendar")).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("calendar_date", "fiscal_week"),
+    persist_values=True,
+)
+catalog.verify(calendar_ref)
+catalog.preview(calendar_ref, using=snapshot)
+
+calendar = catalog.period_calendars.get("sales.fiscal")
+grain = calendar.grain("week")
+week_scope = calendar.period("week", "FY2026-W01")
+assert week_scope.kind == "calendar_period"
+week_scope.contract()  # 精确边界和认证快照身份
+```
+
+保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。
+`calendar.periods(level, limit=..., cursor=...)` 返回有界的精确 scope；覆盖缺失、定义过期或
+证据损坏都会以结构化 semantic error fail closed。
+
 ## 建模步骤
 
 ### 1. 连接数据源

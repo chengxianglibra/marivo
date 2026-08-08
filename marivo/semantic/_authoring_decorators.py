@@ -365,6 +365,7 @@ def dimension_column(
         python_symbol=obj_name,
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
+        source_column=column_name,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
@@ -698,6 +699,7 @@ def time_dimension_column(
         python_symbol=obj_name,
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
+        source_column=column_name,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref

@@ -34,6 +34,9 @@ ReadinessIssueKind = Literal[
     "undeclared_naive_time_axis",
     "metric_graph_invalid",
     "state_model_seed_missing",
+    "period_calendar_snapshot_missing",
+    "period_calendar_snapshot_stale",
+    "period_calendar_snapshot_invalid",
 ]
 
 
@@ -201,6 +204,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
     }[kind]
     return factory(path)
 
@@ -314,6 +318,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(state_model.semantic_id, SemanticKind.STATE_MODEL)
         kinds[key] = SemanticKind.STATE_MODEL
         objects[key] = state_model
+    for calendar in reg.period_calendars.values():
+        key = _exact_key(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
+        kinds[key] = SemanticKind.PERIOD_CALENDAR
+        objects[key] = calendar
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -446,6 +454,20 @@ def _dependencies_for_ref(
     if kind == SemanticKind.MEASURE:
         entity = getattr(obj, "entity", None)
         return (_exact_key(entity, SemanticKind.ENTITY),) if isinstance(entity, str) else ()
+    if kind == SemanticKind.PERIOD_CALENDAR:
+        date_field = getattr(obj, "date", None)
+        levels = tuple(field for _level, field in getattr(obj, "levels", ()))
+        correspondence_fields = tuple(
+            field for _name, _level, field in getattr(obj, "correspondences", ())
+        )
+        return tuple(
+            _exact_key(
+                field,
+                SemanticKind.TIME_DIMENSION if field == date_field else SemanticKind.DIMENSION,
+            )
+            for field in (date_field, *levels, *correspondence_fields)
+            if isinstance(field, str)
+        )
     if kind == SemanticKind.METRIC:
         deps: list[str] = []
         deps.extend(
@@ -766,6 +788,70 @@ def build_readiness_report(
         )
 
     blockers.extend(_undeclared_naive_time_axis_issues(checked_refs, kinds, objects))
+
+    # Period calendars are executable semantic dependencies. Unlike ordinary
+    # preview evidence, a missing/stale certified snapshot is a hard blocker
+    # and is checked entirely from project-local state.
+    if reg is not None:
+        from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
+        from marivo.refs import ref as ref_factory
+        from marivo.semantic._definition_identity import scoped_definition_fingerprint
+        from marivo.semantic.ir import PeriodCalendarIR
+
+        snapshot_store = TemporalSnapshotStore(project._workspace_dir)
+        for ref in checked_refs:
+            if kinds.get(ref) is not SemanticKind.PERIOD_CALENDAR:
+                continue
+            calendar = objects.get(ref)
+            if not isinstance(calendar, PeriodCalendarIR):
+                continue
+            calendar_ref = ref_factory.period_calendar(_display_path(ref))
+            definition_digest = period_calendar_definition_digest(
+                calendar_ref=calendar_ref,
+                boundary_timezone=calendar.boundary_timezone,
+                coverage=calendar.coverage,
+                levels=calendar.levels,
+                correspondences=calendar.correspondences,
+                dependency_digest=scoped_definition_fingerprint(
+                    root=calendar_ref,
+                    definitions=compiled_state.definitions,
+                    dependencies=compiled_state.dependencies,
+                    sidecar=compiled_state.sidecar,
+                ),
+            )
+            status, _snapshot = snapshot_store.inspect_current(
+                calendar_ref,
+                definition_digest=definition_digest,
+            )
+            if status != "current":
+                path = _display_path(ref)
+                issue_kind = cast(
+                    "ReadinessIssueKind",
+                    f"period_calendar_snapshot_{status}",
+                )
+                if status == "missing":
+                    issue_kind = "period_calendar_snapshot_missing"
+                blockers.append(
+                    _issue(
+                        issue_kind,
+                        "blocker",
+                        (path,),
+                        (
+                            f"{path} has no current certified period-calendar snapshot for its "
+                            f"declaration (state={status})."
+                        ),
+                        repair(
+                            kind="reverify",
+                            canonical_id="preview",
+                            action=(
+                                "Acquire one fresh exhaustive DiscoverySnapshot with "
+                                "persist_values=True, then preview this period calendar using "
+                                "that exact snapshot."
+                            ),
+                        ),
+                        details={"snapshot_status": status},
+                    )
+                )
 
     for ref in direct_refs:
         if kinds.get(ref) is not SemanticKind.STATE_MODEL:

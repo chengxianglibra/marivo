@@ -97,3 +97,40 @@ def definition_fingerprint(
         sort_keys=True,
     ).encode("utf-8")
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def scoped_definition_fingerprint(
+    *,
+    root: Ref[SemanticKindTag],
+    definitions: Mapping[Ref[SemanticKindTag], object],
+    dependencies: Mapping[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]],
+    sidecar: CompiledExpressionSidecar,
+) -> str:
+    """Hash one definition and its transitive semantic dependencies.
+
+    A persisted executable semantic snapshot must become stale when any field,
+    entity, datasource, or expression that supplies its meaning changes.  The
+    whole-project fingerprint is intentionally not used here: unrelated
+    objects should not force recertification of an otherwise unchanged
+    temporal authority.
+    """
+    selected: set[Ref[SemanticKindTag]] = set()
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        if current in selected or current not in definitions:
+            continue
+        selected.add(current)
+        pending.extend(dependencies.get(current, ()))
+    selected_definitions = {ref: definitions[ref] for ref in selected}
+    selected_dependencies = {
+        ref: tuple(dependency for dependency in dependencies.get(ref, ()) if dependency in selected)
+        for ref in selected
+    }
+    return definition_fingerprint(
+        selected_root_roles=(),
+        filtered_domains=(),
+        definitions=selected_definitions,
+        dependencies=selected_dependencies,
+        sidecar=sidecar,
+    )

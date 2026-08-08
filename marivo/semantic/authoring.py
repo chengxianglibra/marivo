@@ -45,6 +45,12 @@ from marivo.semantic._authoring_metrics import (  # noqa: F401
     ratio,
     trailing,
 )
+from marivo.semantic._authoring_temporal import (
+    PeriodCorrespondence,
+    calendar_grain,
+    period_calendar,
+    period_correspondence,
+)
 from marivo.semantic._authoring_values import (
     ai_context,
     datetime,
@@ -71,10 +77,12 @@ from marivo.semantic.state_model import (
 __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
+    "PeriodCorrespondence",
     "aggregate",
     "ai_context",
     "all_rows",
     "bind",
+    "calendar_grain",
     "count",
     "cumulative",
     "datetime",
@@ -96,6 +104,8 @@ __all__ = [
     "model_state",
     "participant",
     "participant_role",
+    "period_calendar",
+    "period_correspondence",
     "ratio",
     "relationship",
     "semi_additive",

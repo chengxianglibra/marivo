@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_serializer, field_validator
 
+from marivo._temporal import TimeScope
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.windows.grain import (
     Grain,
@@ -68,24 +69,6 @@ class AbsoluteWindow(BaseModel):
         return value.to_token() if value is not None else None
 
 
-class TimeScope(BaseModel):
-    """Call marivo.help(TimeScope) for its public consumption contract.
-
-    Half-open time interval ``[start, end)`` for ``observe(time_scope=...)``:
-    ``start`` is inclusive and ``end`` is exclusive. For date-only strings,
-    ``end="2026-08-01"`` includes all of July and excludes August 1.
-
-    Example:
-        >>> # [start, end): includes all of July and excludes August 1.
-        >>> july = mv.TimeScope(start="2026-07-01", end="2026-08-01")
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    start: str
-    end: str
-
-
 TimeScopeInput = TimeScope | dict[str, Any] | None
 
 
@@ -140,7 +123,10 @@ def normalize_absolute_window_input(raw: object) -> AbsoluteWindow | None:
     if isinstance(raw, AbsoluteWindow):
         return raw
     if isinstance(raw, TimeScope):
-        return AbsoluteWindow(start=raw.start, end=raw.end)
+        return AbsoluteWindow(
+            start=raw.start.isoformat() if not isinstance(raw.start, str) else raw.start,
+            end=raw.end.isoformat() if not isinstance(raw.end, str) else raw.end,
+        )
     if isinstance(raw, dict):
         try:
             return AbsoluteWindow.model_validate(raw)
@@ -174,9 +160,13 @@ def make_absolute_window(
             context={"kind": "TimeScopeRequired"},
         )
     resolved_grain = normalize_grain(grain)
+
+    def _as_absolute_bound(value: object) -> str:
+        return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
     return AbsoluteWindow(
-        start=timescope.start,
-        end=timescope.end,
+        start=_as_absolute_bound(timescope.start),
+        end=_as_absolute_bound(timescope.end),
         grain=resolved_grain,
         time_dimension=time_dimension,
     )

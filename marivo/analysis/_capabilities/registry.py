@@ -613,6 +613,7 @@ def _build_registry() -> CapabilityRegistry:
     """Build the complete immutable capability registry."""
 
     # Late imports to avoid circular dependencies at module load time.
+    from marivo.analysis import grain
     from marivo.analysis.event import (
         declared_complete_through,
         every_start,
@@ -1687,6 +1688,15 @@ def _build_registry() -> CapabilityRegistry:
         ...,
     ] = (
         (
+            "grain",
+            "mv.grain(...)",
+            "grain",
+            "Construct one builtin aggregation Grain.",
+            grain,
+            "Grain",
+            None,
+        ),
+        (
             "funnel_loss_rate",
             "mv.funnel_loss_rate(...)",
             "funnel_loss_rate",
@@ -1807,7 +1817,9 @@ def _build_registry() -> CapabilityRegistry:
             "TimeScope",
             "mv.TimeScope(...)",
             "TimeScope",
-            "Half-open time interval [start, end) for observe time_scope.",
+            "Half-open time interval [start, end) for observe time_scope; "
+            'start is inclusive and end is exclusive (for example, end="2026-08-01" '
+            "includes all of July and excludes August 1).",
             TimeScope,
             "TimeScope",
             "TimeScopeInput",

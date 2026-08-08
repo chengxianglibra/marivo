@@ -16,6 +16,7 @@ Tests cover:
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from typing import get_type_hints
 
 import pytest
@@ -23,6 +24,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.refs import ref as ref_factory
+from marivo.semantic._authoring_context import PendingDefinition
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import (
@@ -31,8 +33,9 @@ from marivo.semantic.ir import (
     DimensionKind,
     MeasureIR,
     MetricIR,
+    PeriodCalendarIR,
 )
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.loader import _LOADER_CTX, LoaderContext, loader_context
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -2726,3 +2729,28 @@ def test_cumulative_rejects_string_refs() -> None:
         assert "base= accepts Ref[metric]" in str(exc_info.value)
     finally:
         _exit_ctx()
+
+
+def test_period_calendar_authoring_pushes_typed_declaration() -> None:
+    ctx = LoaderContext(default_domain="sales")
+    with loader_context(ctx):
+        calendar = ms.period_calendar(
+            name="fiscal",
+            date=ref_factory.time_dimension("sales.calendar.calendar_date"),
+            boundary_timezone="UTC",
+            coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+            levels={"week": ref_factory.dimension("sales.calendar.fiscal_week")},
+            correspondences={
+                "prior": ms.period_correspondence(
+                    level="week",
+                    baseline_key=ref_factory.dimension("sales.calendar.prior_week"),
+                )
+            },
+        )
+
+    assert calendar == ref_factory.period_calendar("sales.fiscal")
+    pending = ctx.pending_definitions[-1]
+    assert isinstance(pending, PendingDefinition)
+    assert isinstance(pending.definition, PeriodCalendarIR)
+    assert pending.definition.levels == (("week", "sales.calendar.fiscal_week"),)
+    assert pending.definition.correspondences == (("prior", "week", "sales.calendar.prior_week"),)

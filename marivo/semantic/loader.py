@@ -624,6 +624,7 @@ def _build_registry(
         EntityIR,
         EventIR,
         MetricIR,
+        PeriodCalendarIR,
         RelationshipIR,
         StateModelDeclarationIR,
     )
@@ -660,6 +661,8 @@ def _build_registry(
                 field_owners[cast("Ref[FieldKind]", ref)] = ref_factory.entity(ir.entity)
             elif isinstance(ir, MetricIR):
                 registry.metrics[sid] = ir
+            elif isinstance(ir, PeriodCalendarIR):
+                registry.period_calendars[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
             elif isinstance(ir, EventIR):

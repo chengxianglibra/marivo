@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
@@ -297,10 +297,14 @@ def _state_error(
     )
 
 
-def _parse_as_of(value: str) -> pd.Timestamp:
+def _bound_text(value: str | date) -> str:
+    return value if isinstance(value, str) else value.isoformat()
+
+
+def _parse_as_of(value: str | date) -> pd.Timestamp:
     location = "session.select_subjects.selection.as_of"
     action = "Pass as_of as a timezone-aware ISO-8601 instant inside the replay window."
-    raw = value.strip()
+    raw = value.strip() if isinstance(value, str) else value.isoformat()
     normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
     try:
         parsed = datetime.fromisoformat(normalized)
@@ -396,19 +400,19 @@ def _require_lifecycle_source(
         )
 
     as_of = _parse_as_of(selection.as_of)
-    window_start = _parse_as_of(meta.window.start)
-    window_end = _parse_as_of(meta.window.end)
+    window_start = _parse_as_of(_bound_text(meta.window.start))
+    window_end = _parse_as_of(_bound_text(meta.window.end))
     if not window_start <= as_of <= window_end:
         raise WindowInvalidError(
             message="in_state as_of is outside the source replay window.",
-            expected=f"{meta.window.start!r} <= as_of <= {meta.window.end!r}",
+            expected=f"{_bound_text(meta.window.start)!r} <= as_of <= {_bound_text(meta.window.end)!r}",
             received=selection.as_of,
             location="session.select_subjects.selection.as_of",
             repair=_event_repair(
                 kind="user_choice",
                 action="Choose an instant inside the closed source replay window.",
                 help_target="select_subjects",
-                candidates=(meta.window.start, meta.window.end),
+                candidates=(_bound_text(meta.window.start), _bound_text(meta.window.end)),
             ),
         )
     _require_registered_source(session=session, artifact=artifact, label="replay history")
@@ -423,7 +427,7 @@ def _select_state_rows(
 ) -> tuple[pd.DataFrame, int]:
     """Select subjects whose proven replayed state covers ``as_of``."""
     meta = cast("LifecycleHistoryFrameMeta", artifact.meta)
-    window_end = _parse_as_of(meta.window.end)
+    window_end = _parse_as_of(_bound_text(meta.window.end))
     rows = artifact._dataframe_copy()
     selected: set[tuple[object, ...]] = set()
     censored: set[tuple[object, ...]] = set()

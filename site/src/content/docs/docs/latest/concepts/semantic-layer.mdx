@@ -136,6 +136,44 @@ frame = session.observe(revenue_entry, time_scope={...}, grain="month")
 If the metric was just authored or changed, finish the scoped authoring closeout
 described below before this routine analysis sequence.
 
+## Certified period calendars
+
+Use a `PeriodCalendar` when business periods cannot be derived safely from a
+Gregorian grain (for example, a fiscal or 4-4-5 calendar). Declare the civil-date
+spine and named levels with `ms.period_calendar(...)`, then acquire that source
+once with `persist_values=True` and pass the immutable `DiscoverySnapshot` to
+`catalog.preview(calendar_ref, using=snapshot)`. Certification requires exhaustive
+coverage and publishes a snapshot-bound authority; it does not query the source
+again during catalog navigation.
+
+```python
+calendar_ref = ms.period_calendar(
+    name="fiscal",
+    date=ms.ref.time_dimension("sales.calendar.calendar_date"),
+    boundary_timezone="UTC",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
+)
+snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("calendar")).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("calendar_date", "fiscal_week"),
+    persist_values=True,
+)
+catalog.verify(calendar_ref)
+catalog.preview(calendar_ref, using=snapshot)
+
+calendar = catalog.period_calendars.get("sales.fiscal")
+grain = calendar.grain("week")
+week_scope = calendar.period("week", "FY2026-W01")
+assert week_scope.kind == "calendar_period"
+week_scope.contract()  # exact bounds and certified snapshot identity
+```
+
+The reserved `day` level is derived from the certified coverage and is not
+persisted as one record per day. `calendar.periods(level, limit=..., cursor=...)`
+returns bounded exact scopes for declared levels; missing coverage, stale
+definitions, and malformed evidence fail closed with structured semantic errors.
+
 ## Build the model
 
 ### 1. Connect a datasource

@@ -144,6 +144,7 @@ _AUTHORING_KIND_BY_SYMBOL: dict[SemanticKind, AuthoringObjectKind] = {
     SemanticKind.RELATIONSHIP: "relationship",
     SemanticKind.EVENT: "event",
     SemanticKind.STATE_MODEL: "state_model",
+    SemanticKind.PERIOD_CALENDAR: "period_calendar",
 }
 
 
@@ -629,6 +630,8 @@ class SemanticProject:
             return "event"
         if ref.kind is SemanticKind.STATE_MODEL and path in self._registry.state_models:
             return "state_model"
+        if ref.kind is SemanticKind.PERIOD_CALENDAR and path in self._registry.period_calendars:
+            return "period_calendar"
         return "unknown"
 
     def _failed_verify(
