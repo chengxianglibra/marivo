@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.refs import ref as ref_factory
@@ -233,7 +234,7 @@ def sales_session(tmp_path):
     return session_attach.get_or_create(name="multi_metric", backends={"warehouse": lambda: con})
 
 
-_PROJECTION_WINDOW = {"start": "2026-07-01", "end": "2026-07-04"}
+_PROJECTION_WINDOW = mv.time_scope(start="2026-07-01", end="2026-07-04")
 
 
 def _fused(sales_session):
@@ -244,7 +245,7 @@ def _fused(sales_session):
             catalog.require(ref_factory.metric("sales.order_count")).ref,
         ],
         time_scope=_PROJECTION_WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
 
@@ -280,7 +281,7 @@ def test_projection_on_arity_1_returns_self(sales_session):
     single = observe(
         catalog.require(ref_factory.metric("sales.revenue")).ref,
         time_scope=_PROJECTION_WINDOW,
-        grain="day",
+        grain=mv.grain("day"),
         session=sales_session,
     )
     assert single.metric("sales.revenue") is single

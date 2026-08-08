@@ -20,7 +20,7 @@ from marivo.analysis.attribution_contract import (
     SupportedCumulativeAttributionRouteV1,
 )
 from marivo.analysis.errors import AnalysisRepair
-from marivo.analysis.windows.grain import Grain, normalize_grain
+from marivo.analysis.windows.grain import Grain, normalize_legacy_grain
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
@@ -278,7 +278,7 @@ def _bridge_grain_for_source(
             raise ValueError(
                 "time-series and panel cumulative bridges require the observed over-axis grain"
             )
-        grain = normalize_grain(binding.grain)
+        grain = normalize_legacy_grain(binding.grain)
         if grain is None:
             raise ValueError("cumulative observation query grain is missing")
         return CumulativeBridgeGrainV1(
@@ -287,7 +287,7 @@ def _bridge_grain_for_source(
             origin="observation_query_grain",
         )
     if declared_over_grain is not None:
-        grain = normalize_grain(declared_over_grain)
+        grain = normalize_legacy_grain(declared_over_grain)
         if grain is None:
             raise ValueError("cumulative over-axis granularity is missing")
         return CumulativeBridgeGrainV1(

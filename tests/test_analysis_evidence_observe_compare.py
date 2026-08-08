@@ -49,7 +49,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
         session=session,
     )
     assert frame.meta.artifact_id is not None
@@ -70,7 +70,7 @@ def test_observe_emits_persisted_observation_digest(tmp_path) -> None:
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
         session=session,
         analysis_purpose="check current revenue level",
     )
@@ -100,7 +100,7 @@ def test_observe_segmented_emits_bounded_digest(tmp_path) -> None:
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
@@ -134,12 +134,12 @@ def test_compare_emits_change_without_judgment_tables(tmp_path) -> None:
 
     current = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
         session=session,
     )
     baseline = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-24", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-24", end="2026-04-30"),
         session=session,
     )
     delta = compare(current, baseline, session=session)
@@ -163,12 +163,12 @@ def test_session_direct_digest_returns_computed_change_without_status(tmp_path) 
     session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-07"),
         session=session,
     )
     baseline = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-04-24", "end": "2026-04-30"},
+        time_scope=mv.time_scope(start="2026-04-24", end="2026-04-30"),
         session=session,
     )
     delta = compare(current, baseline, session=session)

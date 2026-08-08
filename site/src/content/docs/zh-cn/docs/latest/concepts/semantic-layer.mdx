@@ -109,7 +109,11 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-frame = session.observe(revenue_entry, time_scope={...}, grain="month")
+frame = session.observe(
+    revenue_entry,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("month"),
+)
 ```
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
@@ -161,6 +165,7 @@ datasource。
 # models/datasources/warehouse.py
 import marivo.datasource as md
 import marivo.semantic as ms
+import marivo.analysis as mv
 
 md.duckdb(
     name="warehouse",
@@ -549,7 +554,7 @@ mtd_revenue = ms.cumulative(
     name="mtd_revenue",
     base=revenue,
     over=event_time,
-    anchor=ms.grain_to_date(grain="month"),
+    anchor=ms.grain_to_date(grain=mv.grain("month")),
 )
 ```
 
@@ -572,7 +577,7 @@ fiscal_mtd = ms.cumulative(
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
 frame = session.observe(
     fiscal_mtd,
-    time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
     grain=fiscal_week,
 )
 ```
@@ -630,7 +635,11 @@ revenue_entry = catalog.metrics.get("sales.revenue")
 region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-current = session.observe(revenue_entry, grain="month", dimensions=[region_entry])
+current = session.observe(
+    revenue_entry,
+    grain=mv.grain("month"),
+    dimensions=[region_entry],
+)
 ~~~
 
 `details().show()` 展示人类编写的定义、guardrails、composition、effective entities、候选
@@ -789,10 +798,16 @@ Authoring ref 可以直接传给分析。如果从字面身份开始，先做一
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-frame = session.observe(revenue, time_scope={...})
+frame = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+)
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-frame = session.observe(revenue_entry, time_scope={...})
+frame = session.observe(
+    revenue_entry,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+)
 ```
 
 `catalog.require(ref)` 是精确的全局查找；catalog collections 负责浏览和本地名称查找，

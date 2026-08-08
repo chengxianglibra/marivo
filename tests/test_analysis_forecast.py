@@ -4,6 +4,7 @@ import ibis
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     ForecastInputQualityError,
@@ -206,8 +207,8 @@ def test_forecast_observe_panel_uses_canonical_dimension_axes(tmp_path, semantic
     )
     history = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 

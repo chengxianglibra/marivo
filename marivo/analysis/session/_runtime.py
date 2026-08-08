@@ -298,9 +298,9 @@ def _validate_event_reducer_payload(value: object) -> None:
 def _validate_funnel_comparison_payload(value: object) -> None:
     from pydantic import TypeAdapter
 
+    from marivo._temporal import _validate_time_scope_data
     from marivo.analysis.event import CompletenessDeclaration, EventMatchingPolicy
     from marivo.analysis.frames.event import SubjectAxisBinding
-    from marivo.analysis.windows.spec import TimeScope
 
     role = "funnel_comparison"
     payload = _require_exact_object(
@@ -363,8 +363,8 @@ def _validate_funnel_comparison_payload(value: object) -> None:
         or payload["zero_filled_tuple_count"] < 0
     ):
         raise ValueError(f"analysis job {role}.zero_filled_tuple_count must be non-negative")
-    TypeAdapter(TimeScope).validate_python(payload["current_cohort_window"])
-    TypeAdapter(TimeScope).validate_python(payload["baseline_cohort_window"])
+    _validate_time_scope_data(payload["current_cohort_window"])
+    _validate_time_scope_data(payload["baseline_cohort_window"])
     valid_coverage = {
         "observed_watermark",
         "declared_complete",
@@ -468,6 +468,7 @@ def _validate_lifecycle_common(
 def _validate_lifecycle_history_payload(value: object) -> None:
     from pydantic import TypeAdapter
 
+    from marivo._temporal import _validate_time_scope_data
     from marivo.analysis.event import CompletenessDeclaration
     from marivo.analysis.frames.event import EventInputCoverage
     from marivo.analysis.frames.lifecycle import (
@@ -475,7 +476,6 @@ def _validate_lifecycle_history_payload(value: object) -> None:
         LifecycleTriggerBinding,
     )
     from marivo.analysis.lifecycle import FromInception
-    from marivo.analysis.windows.spec import TimeScope
 
     fields = {
         "state_model_ref",
@@ -502,7 +502,7 @@ def _validate_lifecycle_history_payload(value: object) -> None:
     payload = _require_exact_object(value, fields=fields, role="lifecycle_history")
     _validate_lifecycle_common(payload, role="lifecycle_history")
     FromInception.model_validate(payload["seed"])
-    TimeScope.model_validate(payload["window"])
+    _validate_time_scope_data(payload["window"])
     if payload["violation_behavior_id"] != "record_and_continue/v1":
         raise ValueError("analysis job lifecycle_history.violation_behavior_id is invalid")
     triggers = TypeAdapter(list[LifecycleTriggerBinding]).validate_python(payload["triggers"])
@@ -707,13 +707,13 @@ def _validate_event_journey_payload(value: object) -> None:
     )
     from pydantic import TypeAdapter
 
+    from marivo._temporal import _validate_time_scope_data
     from marivo.analysis.event import (
         CompletenessDeclaration,
         EventMatchingPolicy,
         EventPattern,
     )
     from marivo.analysis.frames.event import EventInputCoverage
-    from marivo.analysis.windows.spec import TimeScope
 
     pattern_payload = payload["pattern"]
     if type(pattern_payload) is not dict or not isinstance(pattern_payload.get("steps"), list):
@@ -730,7 +730,7 @@ def _validate_event_journey_payload(value: object) -> None:
         decoded_steps.append({**raw_step, "participant": participant})
     pattern = EventPattern.model_validate({**pattern_payload, "steps": decoded_steps})
     TypeAdapter(EventMatchingPolicy).validate_python(payload["matching"])
-    TimeScope.model_validate(payload["cohort_window"])
+    _validate_time_scope_data(payload["cohort_window"])
     completeness_payload = payload["completeness"]
     if not isinstance(completeness_payload, list):
         raise ValueError("analysis job event_journey.completeness must be a list")

@@ -3,6 +3,7 @@
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
@@ -216,7 +217,7 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     )
     windowed = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-02", "end": "2026-08-02"},
+        time_scope=mv.time_scope(start="2026-07-02", end="2026-08-02"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )

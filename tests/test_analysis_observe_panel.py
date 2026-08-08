@@ -4,6 +4,7 @@ import ibis
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
@@ -78,8 +79,8 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=s,
     )
@@ -103,8 +104,8 @@ def test_observe_panel_multi_dimension(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
+        grain=mv.grain("day"),
         dimensions=[
             make_ref("sales.orders.region", SemanticKind.DIMENSION),
             make_ref("sales.orders.channel", SemanticKind.DIMENSION),
@@ -202,8 +203,8 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
@@ -238,8 +239,8 @@ def test_observe_panel_weighted_mean_uses_exact_components(tmp_path):
 
     frame = observe(
         make_ref("sales.weighted_failure_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )

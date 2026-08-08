@@ -33,11 +33,11 @@ def _metric_delta(session: Any) -> DeltaFrame:
     metric = session.catalog.require(ms.ref.metric("commerce.order_count")).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-08", "end": "2026-07-15"},
+        time_scope=mv.time_scope(start="2026-07-08", end="2026-07-15"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-08"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-08"),
     )
     return session.compare(current, baseline, alignment=mv.window_bucket())
 

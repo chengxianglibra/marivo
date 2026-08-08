@@ -123,6 +123,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
+        "import marivo.analysis as mv\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
@@ -226,7 +227,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
     frame = session.observe(
         metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=semantic_week,
     )
 
@@ -251,7 +252,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     base_metric = session.catalog.require(ms.ref.metric("sales.gmv")).ref
     base_frame = session.observe(
         base_metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=semantic_week,
     )
     base_result = base_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
@@ -261,7 +262,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     with pytest.raises(WindowInvalidError, match="outside the certified"):
         session.observe(
             base_metric,
-            time_scope={"start": "2025-12-01", "end": "2026-01-01"},
+            time_scope=mv.time_scope(start="2025-12-01", end="2026-01-01"),
             grain=semantic_week,
         )
     with pytest.raises(WindowInvalidError, match="requires an explicit time_scope"):
@@ -270,7 +271,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     distinct_metric = session.catalog.require(ms.ref.metric("sales.fiscal_active_users")).ref
     distinct_frame = session.observe(
         distinct_metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=semantic_week,
     )
     distinct_result = distinct_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
@@ -281,7 +282,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     weighted_metric = session.catalog.require(ms.ref.metric("sales.fiscal_weighted_user")).ref
     weighted_frame = session.observe(
         weighted_metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=semantic_week,
     )
     weighted_result = weighted_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
@@ -300,14 +301,14 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert scalar_full.to_pandas()["fiscal_mtd"].tolist() == pytest.approx([30])
     scalar_partial = session.observe(
         metric,
-        time_scope={"start": "2026-01-02", "end": "2026-02-01"},
+        time_scope=mv.time_scope(start="2026-01-02", end="2026-02-01"),
     )
     assert scalar_partial.to_pandas()["fiscal_mtd"].tolist() == pytest.approx([30])
 
     semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
     partial = session.observe(
         metric,
-        time_scope={"start": "2026-01-02", "end": "2026-02-01"},
+        time_scope=mv.time_scope(start="2026-01-02", end="2026-02-01"),
         grain=semantic_week,
     )
     partial_df = partial.to_pandas().sort_values("bucket_start").reset_index(drop=True)
@@ -329,7 +330,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     assert recovered.meta.temporal_contract == rolled.meta.temporal_contract
 
     with pytest.raises(TransformShapeUnsupportedError, match="supported grain"):
-        frame.transform.rollup(grain="month")
+        frame.transform.rollup(grain=mv.grain("month"))
 
     shanghai = mv.session.get_or_create(
         name="fiscal-analysis-shanghai",
@@ -338,7 +339,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     )
     builtin_frame = shanghai.observe(
         metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=mv.grain("day"),
     )
     assert builtin_frame.meta.temporal_contract is not None
@@ -349,7 +350,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
 
     semantic_shanghai = shanghai.observe(
         metric,
-        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
         grain=semantic_week,
     )
     semantic_shanghai_df = semantic_shanghai.to_pandas().sort_values("bucket_start")
@@ -399,7 +400,7 @@ def test_semantic_reset_binds_derived_forest_and_recovers(
         report_timezone="Asia/Shanghai",
     )
     semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-    scope = {"start": "2026-01-01", "end": "2026-03-01"}
+    scope = mv.time_scope(start="2026-01-01", end="2026-03-01")
 
     derived = session.observe(
         session.catalog.require(ms.ref.metric("sales.fiscal_ratio")).ref,
@@ -410,7 +411,7 @@ def test_semantic_reset_binds_derived_forest_and_recovers(
     derived_builtin = session.observe(
         session.catalog.require(ms.ref.metric("sales.fiscal_ratio")).ref,
         time_scope=scope,
-        grain="day",
+        grain=mv.grain("day"),
     )
     assert derived_builtin.meta.temporal_contract is not None
 
@@ -465,7 +466,7 @@ def test_semantic_membership_uses_calendar_boundary_timezone(
     catalog.verify(calendar_ref)
     catalog.preview(calendar_ref, using=_fiscal_calendar_evidence(project.workspace_dir))
     metric = catalog.require(ms.ref.metric("sales.gmv")).ref
-    scope = {"start": "2026-01-01", "end": "2026-02-01"}
+    scope = mv.time_scope(start="2026-01-01", end="2026-02-01")
     week = catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
     utc = mv.session.get_or_create(
         name="fiscal-membership-utc",
@@ -496,8 +497,8 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
 
     frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -548,8 +549,8 @@ def test_cumulative_weighted_mean_accumulates_components_before_dividing(
 
     frame = observe(
         make_ref("sales.cum_weighted_user", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -561,9 +562,9 @@ def test_cumulative_weighted_mean_accumulates_components_before_dividing(
     }
 
 
-@pytest.mark.parametrize("grain", [None, "day"])
+@pytest.mark.parametrize("grain", [None, mv.grain("day")])
 def test_cumulative_weighted_business_axis_attribute_executes_supported_route(
-    tmp_path, monkeypatch, grain: str | None
+    tmp_path, monkeypatch, grain
 ) -> None:
     """Weighted cumulative business attribution survives scalar and keyed replay."""
 
@@ -571,16 +572,16 @@ def test_cumulative_weighted_business_axis_attribute_executes_supported_route(
     metric = make_ref("sales.cum_weighted_user", SemanticKind.METRIC)
     current = observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
         grain=grain,
         session=session,
     )
     baseline = observe(
         metric,
         time_scope=(
-            {"start": "2026-07-01", "end": "2026-07-05"}
+            mv.time_scope(start="2026-07-01", end="2026-07-05")
             if grain is None
-            else {"start": "2026-06-29", "end": "2026-07-03"}
+            else mv.time_scope(start="2026-06-29", end="2026-07-03")
         ),
         grain=grain,
         session=session,
@@ -615,8 +616,8 @@ def test_weighted_mean_authored_filter_applies_to_direct_and_cumulative_observe(
     )
     cumulative = observe(
         make_ref("sales.cum_us_weighted_user", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -636,8 +637,8 @@ def test_cumulative_count_distinct_uses_first_seen_not_bucket_sum(tmp_path, monk
 
     frame = observe(
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -657,12 +658,12 @@ def test_all_history_count_distinct_compare_is_labeled_as_level_change(
     session = _session(tmp_path, monkeypatch)
     current = observe(
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
         session=session,
     )
     baseline = observe(
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
         session=session,
     )
 
@@ -680,8 +681,8 @@ def test_cumulative_panel_counts_once_per_slice(tmp_path, monkeypatch) -> None:
 
     frame = observe(
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.events.region", SemanticKind.DIMENSION)],
         session=session,
     )
@@ -701,7 +702,7 @@ def test_cumulative_scalar_as_of_window_end(tmp_path, monkeypatch) -> None:
 
     frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
         session=session,
     )
 
@@ -718,8 +719,8 @@ def test_cumulative_month_grain_does_not_hang(tmp_path, monkeypatch) -> None:
 
     frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-06-01", "end": "2026-08-01"},
-        grain="month",
+        time_scope=mv.time_scope(start="2026-06-01", end="2026-08-01"),
+        grain=mv.grain("month"),
         session=session,
     )
 
@@ -742,7 +743,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
     # US-only: 5.0 + 10.0 + 7.0 = 22.0
     scalar_frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
         slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
@@ -755,8 +756,8 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
     # Cumulative: 5+10=15, 15, 15+7=22, 22, 22
     ts_frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
@@ -781,8 +782,8 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
     #   07-05: 2
     cd_frame = observe(
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
@@ -892,8 +893,8 @@ def test_cumulative_subday_multi_count_grain_day_anchored(tmp_path, monkeypatch)
 
     frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01 03:30", "end": "2026-07-01 07:15"},
-        grain="2h",
+        time_scope=mv.time_scope(start="2026-07-01 03:30", end="2026-07-01 07:15"),
+        grain=mv.grain("hour", count=2),
         session=session,
     )
 
@@ -923,8 +924,8 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
 
     frame = observe(
         make_ref("sales.cum_active_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -967,8 +968,8 @@ def test_derived_cumulative_partial_bucket_uses_exact_window_end(tmp_path, monke
     session = _session(tmp_path, monkeypatch)
     frame = observe(
         make_ref("sales.cum_active_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-05 12:00"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01 00:00", end="2026-07-05 12:00"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -983,14 +984,14 @@ def test_all_history_derived_compare_restricts_components_to_parent_pairs(
     session = _session(tmp_path, monkeypatch)
     current = observe(
         make_ref("sales.cum_active_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         session=session,
     )
     baseline = observe(
         make_ref("sales.cum_active_rate", SemanticKind.METRIC),
-        time_scope={"start": "2026-06-29", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-06-29", end="2026-07-03"),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -1031,6 +1032,7 @@ def _bootstrap_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
+        "import marivo.analysis as mv\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
@@ -1043,14 +1045,14 @@ def _bootstrap_day_project(tmp_path) -> None:
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "mtd_gmv = ms.cumulative("
         "name='mtd_gmv', base=gmv, over=event_time,"
-        " anchor=ms.grain_to_date(grain='month'))\n"
+        " anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
         "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
         "mtd_active_users = ms.cumulative("
         "name='mtd_active_users', base=active_users, over=event_time,"
-        " anchor=ms.grain_to_date(grain='month'))\n"
+        " anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
         "qtd_active_users = ms.cumulative("
         "name='qtd_active_users', base=active_users, over=event_time,"
-        " anchor=ms.grain_to_date(grain='quarter'))\n"
+        " anchor=ms.grain_to_date(grain=mv.grain('quarter')))\n"
         "trailing7_gmv = ms.cumulative("
         "name='trailing7_gmv', base=gmv, over=event_time,"
         " anchor=ms.trailing(count=7, unit='day'))\n"
@@ -1212,9 +1214,11 @@ def _observe_cumulative(
     month-reset (grain_to_date) metric.
     """
     metric_ref = make_ref(f"sales.{_metric_for_base(base, anchor)}", SemanticKind.METRIC)
+    if isinstance(grain, str):
+        grain = mv.grain(grain)
     return observe(
         metric_ref,
-        time_scope={"start": start, "end": end},
+        time_scope=mv.time_scope(start=start, end=end),
         grain=grain,
         session=session,
     )
@@ -1255,8 +1259,8 @@ def _recorded_executions(frame, session) -> list[object]:
 def _observe_named_cumulative_metric(session, name: str, *, start: str, end: str):
     return observe(
         make_ref(f"sales.{name}", SemanticKind.METRIC),
-        time_scope={"start": start, "end": end},
-        grain="day",
+        time_scope=mv.time_scope(start=start, end=end),
+        grain=mv.grain("day"),
         session=session,
     )
 
@@ -1641,8 +1645,8 @@ def test_grain_to_date_count_distinct_filters_before_dedup(day_project, duckdb_s
     metric_ref = make_ref("sales.mtd_active_users", SemanticKind.METRIC)
     us_frame = observe(
         metric_ref,
-        time_scope={"start": "2026-01-01", "end": "2026-02-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+        grain=mv.grain("day"),
         slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
@@ -1915,8 +1919,8 @@ def test_trailing_distinct_expansion_join_correctness(day_project, duckdb_sessio
     metric_ref = make_ref("sales.trailing7_active_users", SemanticKind.METRIC)
     cum = observe(
         metric_ref,
-        time_scope={"start": "2026-01-01", "end": "2026-02-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+        grain=mv.grain("day"),
         slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
@@ -2063,8 +2067,8 @@ def test_cumulative_derived_multi_metric_observe_uses_status_time_axis(
             make_ref("sales.gmv", SemanticKind.METRIC),
             make_ref("sales.cum_weighted_user", SemanticKind.METRIC),
         ],
-        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-06"),
+        grain=mv.grain("day"),
         session=session,
     )
 

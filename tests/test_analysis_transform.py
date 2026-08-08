@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis import (
     AttributionFrame,
@@ -25,6 +26,7 @@ from marivo.analysis.frames.attribution import (
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.policies import window_bucket
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
+from marivo.analysis.windows.spec import normalize_timescope_input
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticKind
@@ -34,6 +36,12 @@ from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 def _active_transform(frame: MetricFrame | DeltaFrame, **kwargs):
     op = kwargs.pop("op")
+    if op == "window" and isinstance(kwargs.get("window"), dict):
+        raw_window = kwargs["window"]
+        if set(raw_window) == {"start", "end"}:
+            kwargs["window"] = mv.time_scope(start=raw_window["start"], end=raw_window["end"])
+        else:
+            normalize_timescope_input(raw_window)
     return getattr(frame.transform, op)(**kwargs)
 
 
@@ -123,8 +131,8 @@ def _make_time_series(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
     )
 
 
@@ -135,8 +143,8 @@ def _make_panel(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
 
@@ -159,13 +167,13 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
     )
     baseline = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2025-07-01", "end": "2025-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-07-03"),
+        grain=mv.grain("day"),
     )
     return session.compare(current, baseline, alignment=window_bucket())
 
@@ -269,14 +277,14 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
     baseline = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2025-07-01", "end": "2025-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-07-04"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
     return session.compare(current, baseline, alignment=window_bucket())
@@ -341,8 +349,8 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     series = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
     )
     filtered = series.transform.filter(predicate=lambda d: d["value"] > 10)
     assert filtered.to_pandas()[filtered.value_columns[0]].tolist() == [40.0, 60.0]
@@ -354,7 +362,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     assert filtered["revenue"].tolist() == [40.0, 60.0]
     assert "revenue" in filtered.render(max_output_bytes=None)
 
-    windowed = series.transform.window(window={"start": "2026-07-02", "end": "2026-07-03"})
+    windowed = series.transform.window(window=mv.time_scope(start="2026-07-02", end="2026-07-03"))
     assert windowed.to_pandas()[windowed.value_columns[0]].tolist() == [60.0]
 
     top = series.transform.topk(by="value", limit=1)
@@ -646,7 +654,7 @@ def test_transform_window_rejects_relative_window(tmp_path):
             window={"expr": "today", "as_of": "2026-07-02T12:00:00"},
         )
 
-    assert excinfo.value._context["kind"] == "TimeScopeModelInvalid"
+    assert excinfo.value._context["kind"] == "TimeScopeTypeInvalid"
 
 
 def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
@@ -684,7 +692,7 @@ def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
             window={"expr": "last 2 days", "as_of": "2026-07-03T01:00:00+00:00"},
         )
 
-    assert excinfo.value._context["kind"] == "TimeScopeModelInvalid"
+    assert excinfo.value._context["kind"] == "TimeScopeTypeInvalid"
 
 
 def test_transform_window_absolute_rejects_tz_field(tmp_path):
@@ -699,7 +707,7 @@ def test_transform_window_absolute_rejects_tz_field(tmp_path):
             window={"start": "2026-07-01", "end": "2026-07-02", "tz": "UTC"},
         )
 
-    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
@@ -1890,8 +1898,8 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
 
     frame = sampled_bandwidth_for_rollup.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
-        grain="hour",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-01-02"),
+        grain=mv.grain("hour"),
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
 
@@ -1930,6 +1938,7 @@ def _bootstrap_cumulative_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
+        "import marivo.analysis as mv\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
@@ -1939,10 +1948,10 @@ def _bootstrap_cumulative_day_project(tmp_path) -> None:
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "mtd_gmv = ms.cumulative("
         "name='mtd_gmv', base=gmv, over=event_time,"
-        " anchor=ms.grain_to_date(grain='month'))\n"
+        " anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
         "qtd_gmv = ms.cumulative("
         "name='qtd_gmv', base=gmv, over=event_time,"
-        " anchor=ms.grain_to_date(grain='quarter'))\n",
+        " anchor=ms.grain_to_date(grain=mv.grain('quarter')))\n",
         encoding="utf-8",
     )
 
@@ -1996,8 +2005,8 @@ def _observe_cumulative_day(session, *, end: str = "2026-02-16") -> MetricFrame:
     """
     return session.observe(
         make_ref("sales.mtd_gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-01-01", "end": end},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-01-01", end=end),
+        grain=mv.grain("day"),
     )
 
 
@@ -2005,8 +2014,8 @@ def _observe_additive_day(session) -> MetricFrame:
     """Observe the additive gmv at day grain (reaggregatable)."""
     return session.observe(
         make_ref("sales.gmv", SemanticKind.METRIC),
-        time_scope={"start": "2026-01-01", "end": "2026-02-16"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-16"),
+        grain=mv.grain("day"),
     )
 
 
@@ -2021,7 +2030,7 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     )
     assert feb_last_day_value == sum(_DAY_AMOUNTS_T9["2026-02"].values())
 
-    rolled = frame.transform.rollup(grain="month")
+    rolled = frame.transform.rollup(grain=mv.grain("month"))
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
     assert (
@@ -2046,7 +2055,7 @@ def test_rollup_grain_sums_reaggregatable_frame(cumulative_day_session):
     frame = _observe_additive_day(session)
     feb_total = sum(_DAY_AMOUNTS_T9["2026-02"].values())
 
-    rolled = frame.transform.rollup(grain="month")
+    rolled = frame.transform.rollup(grain=mv.grain("month"))
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
     assert (
@@ -2074,12 +2083,12 @@ def test_rollup_rejects_non_reaggregatable_without_fold(sampled_bandwidth_for_ro
 
     frame = sampled_bandwidth_for_rollup.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
-        grain="hour",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-01-02"),
+        grain=mv.grain("hour"),
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        frame.transform.rollup(grain="day")
+        frame.transform.rollup(grain=mv.grain("day"))
     assert exc_info.value._context["reason"] == "non_reaggregatable"
     assert exc_info.value._context["op"] == "rollup"
 
@@ -2091,7 +2100,7 @@ def test_rollup_grain_target_must_be_coarser(cumulative_day_session):
     session = cumulative_day_session
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformArgError) as exc_info:
-        frame.transform.rollup(grain="hour")  # finer than day
+        frame.transform.rollup(grain=mv.grain("hour"))  # finer than day
     assert exc_info.value._context["op"] == "rollup"
     assert exc_info.value._context["argument"] == "grain"
     assert exc_info.value._context["target_grain"] == "hour"
@@ -2106,7 +2115,7 @@ def test_rollup_grain_compat_rule(cumulative_day_session):
     session = cumulative_day_session
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        frame.transform.rollup(grain="week")
+        frame.transform.rollup(grain=mv.grain("week"))
     assert exc_info.value._context["op"] == "rollup"
     assert exc_info.value._context["reason"] == "grain_incompatible"
     assert exc_info.value._context["target_grain"] == "week"
@@ -2118,8 +2127,8 @@ def test_rollup_chains_day_month_quarter(cumulative_day_session):
     quarter (period ends chain)."""
     session = cumulative_day_session
     frame = _observe_cumulative_day(session, end="2026-03-16")
-    day_to_month = frame.transform.rollup(grain="month")
-    month_to_quarter = day_to_month.transform.rollup(grain="quarter")
+    day_to_month = frame.transform.rollup(grain=mv.grain("month"))
+    month_to_quarter = day_to_month.transform.rollup(grain=mv.grain("quarter"))
 
     month_df = day_to_month.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     mar_value = float(
@@ -2152,7 +2161,7 @@ def test_rollup_partial_tail_coverage(cumulative_day_session):
     period's rollup row partial in coverage — asserted unconditionally."""
     session = cumulative_day_session
     frame = _observe_cumulative_day(session, end="2026-02-15")
-    rolled = frame.transform.rollup(grain="month")
+    rolled = frame.transform.rollup(grain=mv.grain("month"))
     cov = rolled.coverage()
     assert cov is not None
     cov_df = cov.to_pandas().sort_values("bucket_start").reset_index(drop=True)

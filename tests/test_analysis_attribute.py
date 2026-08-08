@@ -485,11 +485,11 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     cur = session.observe(
         revenue,
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     base = session.observe(
         revenue,
-        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"),
     )
     delta = session.compare(cur, base)
 
@@ -551,11 +551,11 @@ def test_attribute_validates_original_delta_before_axis_materialization(
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     current = session.observe(
         revenue,
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     baseline = session.observe(
         revenue,
-        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"),
     )
     delta = session.compare(current, baseline)
     delta.meta = delta.meta.model_copy(update={"additivity": None})
@@ -617,11 +617,11 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
     region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
     cur = session.observe(
         avg_amount,
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     base = session.observe(
         avg_amount,
-        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+        time_scope=mv.time_scope(start="2025-07-01", end="2025-08-01"),
     )
     delta = session.compare(cur, base)
 

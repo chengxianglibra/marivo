@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.refs import Ref, TimeDimensionKind
@@ -63,22 +64,23 @@ def _measure(name: str, entity: str, *, additivity: str = "additive"):
 
 
 def test_grain_to_date_returns_frozen_value_object():
-    obj = ms.grain_to_date(grain="month")
+    obj = ms.grain_to_date(grain=mv.grain("month"))
     assert isinstance(obj, GrainToDate)
-    assert obj.grain == "month"
+    assert obj.grain == mv.grain("month")
     with pytest.raises(Exception):
         obj.grain = "quarter"  # type: ignore[misc]
 
 
 def test_grain_to_date_rejects_unknown_grain():
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.grain_to_date(grain="day")
+        ms.grain_to_date(grain=mv.grain("day"))
     assert "grain_to_date" in str(exc_info.value).lower()
 
 
-@pytest.mark.parametrize("grain", ["week", "month", "quarter", "year"])
-def test_grain_to_date_accepts_reset_grains(grain):
-    assert ms.grain_to_date(grain=grain).grain == grain
+@pytest.mark.parametrize("unit", ["week", "month", "quarter", "year"])
+def test_grain_to_date_accepts_reset_grains(unit):
+    value = mv.grain(unit)
+    assert ms.grain_to_date(grain=value).grain == value
 
 
 def test_grain_to_date_preserves_semantic_grain_identity():
@@ -158,7 +160,10 @@ def test_cumulative_accepts_grain_to_date_anchor():
         amt = _measure("amt", "sales.events")
         gmv = ms.aggregate(name="gmv", measure=amt, agg="sum")
         cum = ms.cumulative(
-            name="mtd_gmv", base=gmv, over=event_time, anchor=ms.grain_to_date(grain="month")
+            name="mtd_gmv",
+            base=gmv,
+            over=event_time,
+            anchor=ms.grain_to_date(grain=mv.grain("month")),
         )
         assert cum is not None
 
@@ -307,12 +312,13 @@ def test_validator_rejects_cumulative_over_derived_base() -> None:
 
     anchors = [
         None,  # all_history
-        "ms.grain_to_date(grain='month')",
+        "ms.grain_to_date(grain=mv.grain('month'))",
         "ms.trailing(count=7, unit='day')",
     ]
     for anchor_expr in anchors:
         anchor_arg = "" if anchor_expr is None else f", anchor={anchor_expr}"
         source = _CUMULATIVE_PROJECT + (
+            "import marivo.analysis as mv\n"
             "order_count = ms.count(name='order_count', entity=orders)\n"
             "aov = ms.ratio(name='aov', numerator=revenue, denominator=order_count)\n"
             f"bad = ms.cumulative(name='bad', base=aov, over=event_time{anchor_arg})\n"
@@ -353,13 +359,14 @@ def test_loader_resolves_grain_to_date_anchor_over_from_single_time_entity() -> 
 
     cases = [
         (None, "all_history"),
-        ("ms.grain_to_date(grain='month')", ("grain_to_date", "month")),
+        ("ms.grain_to_date(grain=mv.grain('month'))", ("grain_to_date", mv.grain("month"))),
         ("ms.trailing(count=7, unit='day')", ("trailing", 7, "day")),
     ]
     for anchor_expr, expected_anchor in cases:
         anchor_arg = "" if anchor_expr is None else f", anchor={anchor_expr}"
         metric_name = f"cum_{abs(hash(expected_anchor)) % 100000}"
         source = _CUMULATIVE_PROJECT + (
+            "import marivo.analysis as mv\n"
             f"cum = ms.cumulative(name='{metric_name}', base=revenue{anchor_arg})\n"
         )
         with load_inline_semantic(source) as result:
@@ -386,8 +393,9 @@ def test_loader_smoke_accepts_week_grain_under_month_reset_at_load_time() -> Non
     from tests.shared_fixtures import load_inline_semantic
 
     source = _CUMULATIVE_PROJECT + (
+        "import marivo.analysis as mv\n"
         "mtd = ms.cumulative(name='mtd_revenue', base=revenue, over=event_time, "
-        "anchor=ms.grain_to_date(grain='month'))\n"
+        "anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
     )
     with load_inline_semantic(source) as result:
         assert result.status == "ready", (
@@ -397,4 +405,4 @@ def test_loader_smoke_accepts_week_grain_under_month_reset_at_load_time() -> Non
         assert reg is not None
         comp = reg.metrics["test.mtd_revenue"].composition
         assert isinstance(comp, CumulativeComposition)
-        assert comp.anchor == ("grain_to_date", "month")
+        assert comp.anchor == ("grain_to_date", mv.grain("month"))

@@ -250,7 +250,7 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
     )
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job_id = frame.meta.produced_by_job
     assert job_id is not None
@@ -288,7 +288,7 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     )
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-08-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-31"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     delta = s.compare(
@@ -328,8 +328,8 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
     )
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
+        grain=mv.grain("day"),
     )
     job_id = frame.meta.produced_by_job
     job = s.job(job_id)
@@ -368,7 +368,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     # Scalar
     scalar = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job = s.job(scalar.meta.produced_by_job)
     assert len(job["queries"]) >= 1
@@ -381,8 +381,8 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     # Time series
     ts = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
-        grain="month",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
+        grain=mv.grain("month"),
     )
     job = s.job(ts.meta.produced_by_job)
     assert len(job["queries"]) >= 1
@@ -391,7 +391,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     # Segmented
     seg = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     job = s.job(seg.meta.produced_by_job)
@@ -400,8 +400,8 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     # Panel
     panel = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
-        grain="month",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
+        grain=mv.grain("month"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
     job = s.job(panel.meta.produced_by_job)
@@ -432,11 +432,11 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
     )
     f1 = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-31"),
     )
     f2 = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-08-01", "end": "2026-08-31"},
+        time_scope=mv.time_scope(start="2026-08-01", end="2026-08-31"),
     )
     j1 = s.job(f1.meta.produced_by_job)
     j2 = s.job(f2.meta.produced_by_job)
@@ -467,7 +467,7 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
     )
     frame = s.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-09-30"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
     )
     job_id = frame.meta.produced_by_job
     job = s.job(job_id)
@@ -517,7 +517,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
     ):
         s.observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            time_scope={"start": "2026-07-01", "end": "2026-09-30"},
+            time_scope=mv.time_scope(start="2026-07-01", end="2026-09-30"),
         )
 
     # No succeeded job should exist for the failed observe

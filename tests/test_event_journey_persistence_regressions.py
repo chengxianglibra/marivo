@@ -121,7 +121,7 @@ def _event_match_case(
     through = "2026-07-02T00:00:00Z"
     return session, {
         "pattern": pattern,
-        "cohort_window": mv.TimeScope(
+        "cohort_window": mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end=through,
         ),

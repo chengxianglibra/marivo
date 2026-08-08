@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from collections.abc import Iterable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -19,11 +20,14 @@ from typing import Annotated, Any, Literal, Protocol, cast, overload, runtime_ch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import core_schema
 
 from marivo.refs import PeriodCalendarKind, Ref
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _JSON_SCALAR = str | int | float | bool
+_GRAIN_INTERNAL = ContextVar("marivo_grain_internal", default=False)
+_TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
 
 
 def _require_timezone(value: object) -> str:
@@ -66,7 +70,7 @@ def _local_civil_datetime(
     raise TypeError(f"expected date or datetime, got {type(value).__name__}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class Grain:
     """One closed aggregation grain, created through public helpers only."""
 
@@ -79,6 +83,43 @@ class Grain:
     count: int | None = 1
     calendar: Ref[PeriodCalendarKind] | None = None
     level: str | None = None
+
+    def __init__(
+        self,
+        kind: Literal["builtin", "semantic"] = "builtin",
+        unit: str | None = None,
+        count: int | None = 1,
+        calendar: Ref[PeriodCalendarKind] | None = None,
+        level: str | None = None,
+    ) -> None:
+        if not _GRAIN_INTERNAL.get():
+            raise TypeError(
+                "Grain values are returned by marivo.analysis.grain(...), "
+                "ms.calendar_grain(...), or an exact catalog lookup; direct "
+                "construction is not supported"
+            )
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "unit", unit)
+        object.__setattr__(self, "count", count)
+        object.__setattr__(self, "calendar", calendar)
+        object.__setattr__(self, "level", level)
+        self.__post_init__()
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        schema = handler(source)
+
+        def _allow_trusted_validation(value: Any, validator: Any, _info: Any) -> Any:
+            token = _GRAIN_INTERNAL.set(True)
+            try:
+                return validator(value)
+            finally:
+                _GRAIN_INTERNAL.reset(token)
+
+        return core_schema.with_info_wrap_validator_function(
+            _allow_trusted_validation,
+            schema,
+        )
 
     def __post_init__(self) -> None:
         if self.kind == "builtin":
@@ -187,12 +228,20 @@ class Grain:
 
 def builtin_grain(unit: str, *, count: int = 1) -> Grain:
     """Create the builtin Grain variant behind ``mv.grain``."""
-    return Grain(kind="builtin", unit=unit, count=count)
+    token = _GRAIN_INTERNAL.set(True)
+    try:
+        return Grain(kind="builtin", unit=unit, count=count)
+    finally:
+        _GRAIN_INTERNAL.reset(token)
 
 
 def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     """Create the semantic Grain variant behind ``ms.calendar_grain``."""
-    return Grain(kind="semantic", unit=None, count=None, calendar=calendar, level=level)
+    token = _GRAIN_INTERNAL.set(True)
+    try:
+        return Grain(kind="semantic", unit=None, count=None, calendar=calendar, level=level)
+    finally:
+        _GRAIN_INTERNAL.reset(token)
 
 
 def period_calendar_definition_digest(
@@ -297,6 +346,30 @@ class TimeScope(BaseModel):
     key: _JSON_SCALAR | None = None
     ordinal: int | None = None
 
+    def __init__(self, **data: Any) -> None:
+        if not _TIME_SCOPE_INTERNAL.get():
+            raise TypeError(
+                "TimeScope values are returned by marivo.analysis.time_scope(...) "
+                "or an exact catalog lookup; direct construction is not supported"
+            )
+        super().__init__(**data)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        schema = handler(source)
+
+        def _allow_trusted_validation(value: Any, validator: Any, _info: Any) -> Any:
+            token = _TIME_SCOPE_INTERNAL.set(True)
+            try:
+                return validator(value)
+            finally:
+                _TIME_SCOPE_INTERNAL.reset(token)
+
+        return core_schema.with_info_wrap_validator_function(
+            _allow_trusted_validation,
+            schema,
+        )
+
     @property
     def kind(self) -> Literal["absolute", "calendar_period"]:
         """Return the closed variant tag used by the current runtime."""
@@ -327,6 +400,7 @@ class TimeScope(BaseModel):
             if self.key is None or type(self.ordinal) is not int or self.ordinal < 0:
                 raise ValueError("period TimeScope requires key and non-negative ordinal")
             canonical_key(self.key)
+        _validate_time_scope_bounds(self.start, self.end)
         return self
 
     def __repr__(self) -> str:
@@ -394,6 +468,26 @@ class TimeScope(BaseModel):
         # semantic provenance whenever it is present.
         kwargs.setdefault("exclude_none", True)
         return cast("dict[str, object]", super().model_dump(*args, **kwargs))
+
+
+def _new_time_scope(**data: Any) -> TimeScope:
+    """Build a validated scope for trusted runtime/catalog paths."""
+
+    token = _TIME_SCOPE_INTERNAL.set(True)
+    try:
+        return TimeScope(**data)
+    finally:
+        _TIME_SCOPE_INTERNAL.reset(token)
+
+
+def _validate_time_scope_data(data: Mapping[str, Any]) -> TimeScope:
+    """Decode one persisted scope without exposing model construction publicly."""
+
+    token = _TIME_SCOPE_INTERNAL.set(True)
+    try:
+        return TimeScope.model_validate(dict(data))
+    finally:
+        _TIME_SCOPE_INTERNAL.reset(token)
 
 
 class BuiltinPeriodBindingV1(BaseModel):
@@ -518,7 +612,7 @@ class _DayOfWeekAlignmentPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["day_of_week"] = "day_of_week"
-    within: Grain = Field(default_factory=lambda: Grain(kind="builtin", unit="month", count=1))
+    within: Grain = Field(default_factory=lambda: builtin_grain("month"))
     unmatched: Literal["fail", "drop"] = "fail"
 
 
@@ -631,8 +725,44 @@ def _parse_scope_strings(start: str, end: str) -> tuple[datetime | date, datetim
     return parsed_start, parsed_end
 
 
+def _validate_time_scope_bounds(
+    start: str | datetime | date,
+    end: str | datetime | date,
+) -> None:
+    """Validate one half-open scope before it enters a temporal contract."""
+
+    if isinstance(start, str) and isinstance(end, str):
+        start_value, end_value = _parse_scope_strings(start, end)
+    elif isinstance(start, str) or isinstance(end, str):
+        raise ValueError("TimeScope cannot mix string and normalized bounds")
+    else:
+        start_value, end_value = start, end
+        if type(start_value) is not type(end_value):
+            raise ValueError("TimeScope cannot mix date and datetime bounds")
+    try:
+        if start_value >= end_value:
+            raise ValueError("TimeScope requires start < end")
+    except TypeError as exc:
+        raise ValueError("TimeScope bounds must be comparable date or datetime values") from exc
+
+
+def time_scope(
+    *,
+    start: date | datetime | str,
+    end: date | datetime | str,
+) -> TimeScope:
+    """Construct one validated absolute public analysis scope.
+
+    Public callers should use this helper instead of constructing ``TimeScope``
+    directly. Calendar-period scopes are returned by certified catalog lookups.
+    """
+
+    _validate_time_scope_bounds(start, end)
+    return _new_time_scope(start=start, end=end)
+
+
 def absolute_time_scope(*, start: date, end: date) -> TimeScope:
-    return TimeScope(start=start, end=end)
+    return time_scope(start=start, end=end)
 
 
 @dataclass(frozen=True, slots=True)
@@ -756,7 +886,7 @@ class PeriodCalendarSnapshotV1:
                 raise KeyError(f"period day:{key!r} is not in certified calendar coverage") from exc
             if day < self.coverage[0] or day >= self.coverage[1]:
                 raise KeyError(f"period day:{key!r} is not in certified calendar coverage")
-            return TimeScope(
+            return _new_time_scope(
                 start=day,
                 end=day + timedelta(days=1),
                 calendar=self.calendar_ref,
@@ -768,7 +898,7 @@ class PeriodCalendarSnapshotV1:
             )
         for period in self.periods:
             if period.level_name == level and _key_token(period.key) == _key_token(key):
-                return TimeScope(
+                return _new_time_scope(
                     start=period.start_date,
                     end=period.end_date,
                     calendar=self.calendar_ref,

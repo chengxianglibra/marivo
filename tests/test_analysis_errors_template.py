@@ -18,7 +18,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
         kind="retry",
         action="Pass a parseable time_scope.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
-        snippet='session.observe(metric, time_scope={"start": "2026-07-01", "end": "2026-10-01"})',
+        snippet='session.observe(metric, time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))',
     )
     err = AnalysisError(
         message="something happened",
@@ -39,7 +39,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
     assert "Repair:" in rendered
     assert "  Pass a parseable time_scope." in rendered
     assert (
-        '  session.observe(metric, time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+        '  session.observe(metric, time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
         in rendered
     )
     assert "Help: marivo.help('analysis.observe')" in rendered
@@ -117,7 +117,7 @@ def test_metric_not_found_renders_repair_with_candidates() -> None:
             "catalog = ms.load()\n"
             "catalog.metrics.show()\n"
             'session.observe(catalog.require(ms.ref.metric("<registered_metric_id>")), '
-            'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+            'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
         ),
         candidates=("sales.revenue", "sales.orders"),
     )
@@ -146,8 +146,8 @@ def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
         help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         snippet=(
             'revenue = session.catalog.require(ms.ref.metric("sales.revenue"))\n'
-            'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
-            'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})\n'
+            'cur  = session.observe(revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))\n'
+            'base = session.observe(revenue, time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"))\n'
             "delta = session.compare(cur, base, alignment=mv.window_bucket())"
         ),
     )
@@ -185,7 +185,7 @@ def test_window_invalid_has_repair_snippet() -> None:
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet=(
             'session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
-            'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+            'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
         ),
     )
     err = WindowInvalidError(
@@ -201,7 +201,7 @@ def test_window_invalid_has_repair_snippet() -> None:
     assert "Repair:" in rendered
     assert (
         '  session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
-        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+        'time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"))'
     ) in rendered
 
 

@@ -51,8 +51,8 @@ def test_panel_observe_prunes_unused_source_columns_from_query_sql() -> None:
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
@@ -72,7 +72,7 @@ def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> No
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
         dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
@@ -98,7 +98,7 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
 
     frame = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
         dimensions=[make_ref("sales.orders.market", SemanticKind.DIMENSION)],
     )
 

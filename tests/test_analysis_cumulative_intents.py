@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
@@ -86,6 +87,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
+        "import marivo.analysis as mv\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "order_date = ms.time_dimension_column("
@@ -96,7 +98,7 @@ def _bootstrap_project(tmp_path) -> None:
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=order_date)\n"
         "mtd_gmv = ms.cumulative(name='mtd_gmv', base=gmv, over=order_date, "
-        "anchor=ms.grain_to_date(grain='month'))\n"
+        "anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
         "trailing_2d_gmv = ms.cumulative(name='trailing_2d_gmv', base=gmv, "
         "over=order_date, anchor=ms.trailing(count=2, unit='day'))\n",
         encoding="utf-8",
@@ -1518,11 +1520,11 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
     delta = compare(current, baseline, session=session)
     region = session.catalog.require(ref_factory.dimension("sales.orders.region")).ref
@@ -1553,11 +1555,11 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
     delta = compare(current, baseline, session=session)
     order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
@@ -1586,11 +1588,11 @@ def test_cumulative_flow_validator_rejects_semantic_evidence_corruption(
     metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
     delta = compare(current, baseline, session=session)
     order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
@@ -1652,13 +1654,13 @@ def test_cumulative_delta_attributes_comparable_period_flow(
     metric = session.catalog.require(ref_factory.metric(metric_path)).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04"),
+        grain=mv.grain("day"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-06-01", "end": "2026-06-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-06-01", end="2026-06-04"),
+        grain=mv.grain("day"),
     )
     delta = compare(current, baseline, session=session)
     order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
@@ -1681,13 +1683,13 @@ def test_grain_to_date_flow_uses_period_owning_exclusive_boundary(tmp_path, monk
     metric = session.catalog.require(ref_factory.metric("sales.mtd_gmv")).ref
     current = session.observe(
         metric,
-        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        grain=mv.grain("day"),
     )
     baseline = session.observe(
         metric,
-        time_scope={"start": "2026-06-01", "end": "2026-07-01"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-06-01", end="2026-07-01"),
+        grain=mv.grain("day"),
     )
     delta = compare(current, baseline, session=session)
     order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref

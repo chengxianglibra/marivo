@@ -84,7 +84,7 @@ def _event_frame(session: mv.Session) -> EventFrame:
         subject_identity=("commerce.users.user_id",),
         pattern=pattern,
         matching=first_per_subject(),
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),

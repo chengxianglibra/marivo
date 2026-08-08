@@ -5,6 +5,7 @@ from __future__ import annotations
 import ibis
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis.intents.observe_errors import ObservePlanningError
@@ -143,8 +144,8 @@ def test_snapshot_last_selects_inside_each_time_bucket(tmp_path) -> None:
 
     frame = session.observe(
         ms.ref.metric("inventory.end_inventory"),
-        time_scope={"start": "2026-01-01", "end": "2026-01-04"},
-        grain="day",
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-01-04"),
+        grain=mv.grain("day"),
     )
 
     values = frame.to_pandas()["end_inventory"].tolist()
@@ -189,8 +190,8 @@ def test_snapshot_fold_empty_window_returns_empty_frame_without_assertion(tmp_pa
 
     frame = session.observe(
         ms.ref.metric("inventory.end_inventory"),
-        time_scope={"start": "2027-01-01", "end": "2027-01-02"},
-        grain="day",
+        time_scope=mv.time_scope(start="2027-01-01", end="2027-01-02"),
+        grain=mv.grain("day"),
     )
 
     assert frame.to_pandas().empty

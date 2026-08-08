@@ -6,7 +6,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from time import monotonic
 from typing import Any, cast
 
@@ -561,37 +561,212 @@ def _align_component_role(
     baseline_role: MetricFrame,
     *,
     alignment: AlignmentPolicy,
+    parent_pairs: pd.DataFrame,
     session: Session,
 ) -> pd.DataFrame:
-    if alignment.kind != "window_bucket":
-        return align_temporal_policy(
-            current_role,
-            baseline_role,
-            policy=alignment,
-            session=session,
-        ).frame
-    if current_role.meta.semantic_kind == "segmented":
-        aligned, _segment_info = _align_segmented(current_role, baseline_role)
-        return aligned
-    if current_role.meta.semantic_kind == "panel":
-        aligned, _segment_info, _calendar_info, _window_info = _align_panel(
-            current_role,
-            baseline_role,
-            alignment=alignment,
-            session=session,
+    # Every attribution role inherits the parent DeltaFrame's exact pair
+    # coordinates. Re-running even ``window_bucket`` here would allow a role's
+    # sparse/missing rows to choose a different ordinal or calendar match.
+    return _project_component_role_to_parent_pairs(
+        current_role,
+        baseline_role,
+        parent_pairs=parent_pairs,
+    )
+
+
+def _project_component_role_to_parent_pairs(
+    current_role: MetricFrame,
+    baseline_role: MetricFrame,
+    *,
+    parent_pairs: pd.DataFrame,
+) -> pd.DataFrame:
+    """Project one component role onto the parent's already-paired rows.
+
+    Slice 3 temporal policies are executed exactly once for the parent metric.
+    Component attribution is a value projection over those coordinates; it
+    must never invoke a second policy resolver with a potentially different
+    candidate set or authority.
+    """
+
+    parent_keys = _aligned_key_columns(parent_pairs)
+    if not parent_keys:
+        if len(parent_pairs) != 1:
+            raise ComponentFrameMismatchError(
+                message="scalar component projection requires one parent pair",
+                context={"parent_pair_rows": len(parent_pairs)},
+            )
+        result = parent_pairs.iloc[:1].copy()
+    else:
+        result = parent_pairs[parent_keys].copy().reset_index(drop=True)
+    if PRESENCE_STATUS_COLUMN in parent_pairs.columns:
+        result[PRESENCE_STATUS_COLUMN] = parent_pairs[PRESENCE_STATUS_COLUMN].to_numpy()
+
+    current_dims = _dimension_columns(current_role)
+    baseline_dims = _dimension_columns(baseline_role)
+    if current_dims != baseline_dims:
+        raise ComponentFrameMismatchError(
+            message="component projection requires matching dimension axes",
+            context={
+                "current_dimensions": current_dims,
+                "baseline_dimensions": baseline_dims,
+            },
         )
-        return aligned
-    if current_role.meta.semantic_kind == "time_series":
-        aligned, _window_info = _align_time_series_window_bucket(
-            current_role,
-            baseline_role,
-            alignment=alignment,
-            track_presence_status=(
-                isinstance(cumulative_compare_anchor(current_role.meta.cumulative), tuple)
-            ),
+
+    def value_column(frame: MetricFrame, data: pd.DataFrame, *, time_column: str | None) -> str:
+        return _value_column(frame, data, time_column=time_column or "")
+
+    current_data = current_role._dataframe_copy()
+    baseline_data = baseline_role._dataframe_copy()
+    current_time = (
+        _time_axis_column(current_role)
+        if current_role.meta.semantic_kind in {"time_series", "panel"}
+        else None
+    )
+    baseline_time = (
+        _time_axis_column(baseline_role)
+        if baseline_role.meta.semantic_kind in {"time_series", "panel"}
+        else None
+    )
+    current_value = value_column(current_role, current_data, time_column=current_time)
+    baseline_value = value_column(baseline_role, baseline_data, time_column=baseline_time)
+
+    def temporal_key(value: object) -> tuple[str, str]:
+        """Normalize date/datetime representations across persisted frames."""
+
+        if isinstance(value, datetime):
+            timestamp = pd.Timestamp(value)
+            if timestamp.tzinfo is not None:
+                timestamp = timestamp.tz_convert("UTC")
+            if timestamp.time() == datetime.min.time():
+                return ("date", timestamp.date().isoformat())
+            return ("datetime", timestamp.isoformat())
+        if isinstance(value, date):
+            return ("date", value.isoformat())
+        if isinstance(value, str):
+            raw = value.strip()
+            if len(raw) == 10 and "T" not in raw and " " not in raw:
+                try:
+                    return ("date", date.fromisoformat(raw).isoformat())
+                except ValueError:
+                    return ("raw", raw)
+            try:
+                timestamp = pd.Timestamp(raw)
+            except (TypeError, ValueError):
+                return ("raw", raw)
+            if timestamp.tzinfo is not None:
+                timestamp = timestamp.tz_convert("UTC")
+            if timestamp.time() == datetime.min.time():
+                return ("date", timestamp.date().isoformat())
+            return ("datetime", timestamp.isoformat())
+        return ("raw", str(value))
+
+    def attach_side(
+        output: pd.DataFrame,
+        data: pd.DataFrame,
+        *,
+        time_column: str | None,
+        value: str,
+        parent_time_column: str | None,
+        output_column: str,
+    ) -> pd.DataFrame:
+        if time_column is None:
+            if current_dims:
+                lookup = data[[*current_dims, value]].rename(columns={value: output_column})
+                return output.merge(
+                    lookup,
+                    on=current_dims,
+                    how="left",
+                    sort=False,
+                    validate="one_to_one",
+                )
+            if len(data) != 1:
+                raise ComponentFrameMismatchError(
+                    message="scalar component projection requires one source row",
+                    context={"source_rows": len(data), "column": value},
+                )
+            output[output_column] = data[value].iloc[0]
+            return output
+        if parent_time_column is None or parent_time_column not in output.columns:
+            raise ComponentFrameMismatchError(
+                message="parent paired artifact is missing a component time coordinate",
+                context={
+                    "expected_parent_time_column": parent_time_column,
+                    "parent_columns": [str(column) for column in output.columns],
+                },
+            )
+        join_columns = [*current_dims]
+        source_columns = [*current_dims, time_column, value]
+        lookup = (
+            data[source_columns]
+            .rename(columns={time_column: "__component_time", value: output_column})
+            .copy()
         )
-        return aligned
-    return _align_and_compute(current_role._dataframe_copy(), baseline_role._dataframe_copy())
+        output = output.copy()
+        output["__temporal_join_key"] = output[parent_time_column].map(temporal_key)
+        lookup["__temporal_join_key"] = lookup["__component_time"].map(temporal_key)
+        left_on = [*join_columns, "__temporal_join_key"]
+        right_on = [*join_columns, "__temporal_join_key"]
+        merged = output.merge(
+            lookup,
+            left_on=left_on,
+            right_on=right_on,
+            how="left",
+            sort=False,
+            validate="one_to_one",
+        )
+        if PRESENCE_STATUS_COLUMN in merged.columns:
+            if output_column == "current":
+                merged.loc[merged[PRESENCE_STATUS_COLUMN] == "churned", output_column] = 0.0
+            elif output_column == "baseline":
+                merged.loc[merged[PRESENCE_STATUS_COLUMN] == "new", output_column] = 0.0
+        return merged.drop(columns=["__temporal_join_key", "__component_time"], errors="ignore")
+
+    if current_time is None and baseline_time is None:
+        result = attach_side(
+            result,
+            current_data,
+            time_column=None,
+            value=current_value,
+            parent_time_column=None,
+            output_column="current",
+        )
+        result = attach_side(
+            result,
+            baseline_data,
+            time_column=None,
+            value=baseline_value,
+            parent_time_column=None,
+            output_column="baseline",
+        )
+    else:
+        if current_time is None or baseline_time is None:
+            raise ComponentFrameMismatchError(
+                message="component projection requires matching time axes",
+                context={"current_time": current_time, "baseline_time": baseline_time},
+            )
+        current_parent_time = (
+            "bucket_start_a" if "bucket_start_a" in result.columns else current_time
+        )
+        baseline_parent_time = (
+            "bucket_start_b" if "bucket_start_b" in result.columns else f"{baseline_time}_b"
+        )
+        result = attach_side(
+            result,
+            current_data,
+            time_column=current_time,
+            value=current_value,
+            parent_time_column=current_parent_time,
+            output_column="current",
+        )
+        result = attach_side(
+            result,
+            baseline_data,
+            time_column=baseline_time,
+            value=baseline_value,
+            parent_time_column=baseline_parent_time,
+            output_column="baseline",
+        )
+    return _compute_delta_columns(result)
 
 
 def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
@@ -666,6 +841,7 @@ def _align_component_frames(
     baseline_parent: MetricFrame,
     *,
     alignment: AlignmentPolicy,
+    parent_pairs: pd.DataFrame,
     session: Session,
 ) -> pd.DataFrame:
     """Merge current/baseline component data with delta columns using parent alignment logic."""
@@ -718,6 +894,7 @@ def _align_component_frames(
             current_role,
             baseline_role,
             alignment=alignment,
+            parent_pairs=parent_pairs,
             session=session,
         )
         role_keys = _aligned_key_columns(aligned)
@@ -1512,6 +1689,7 @@ def compare(
             current,
             baseline,
             alignment=alignment,
+            parent_pairs=df,
             session=session,
         )
         if cumulative_pair_summary is not None or cur_cumulative_anchor == "all_history":

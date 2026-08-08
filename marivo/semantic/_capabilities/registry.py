@@ -803,8 +803,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("active_loader_context", "cumulative_anchor"),
             example=(
+                "import marivo.analysis as mv\n"
                 "mtd_revenue = ms.cumulative(name='mtd_revenue', base=revenue, "
-                "anchor=ms.grain_to_date(grain='month'))"
+                "anchor=ms.grain_to_date(grain=mv.grain('month')))"
             ),
         ),
         _capability(

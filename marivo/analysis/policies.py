@@ -7,7 +7,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from marivo._temporal import Grain
+from marivo._temporal import Grain, builtin_grain
 from marivo.analysis.errors import AlignmentPolicyValidationError
 
 AlignmentKind = Literal[
@@ -18,7 +18,7 @@ AlignmentKind = Literal[
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
 UnmatchedMode = Literal["fail", "drop"]
-_DEFAULT_WITHIN = Grain(kind="builtin", unit="month", count=1)
+_DEFAULT_WITHIN = builtin_grain("month")
 
 
 def _invalid_policy(

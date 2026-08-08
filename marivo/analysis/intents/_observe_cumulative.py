@@ -783,6 +783,8 @@ def _execute_cumulative(
     anchor = getattr(plan_composition, "anchor", "all_history") or "all_history"
     is_grain_to_date = isinstance(anchor, tuple) and anchor[0] == "grain_to_date"
     reset_grain = anchor[1] if is_grain_to_date else None
+    if isinstance(reset_grain, TemporalGrain) and reset_grain.kind == "builtin":
+        reset_grain = reset_grain.to_token()
     is_trailing = isinstance(anchor, tuple) and anchor[0] == "trailing"
 
     axes: dict[str, Any] = {}
@@ -798,7 +800,7 @@ def _execute_cumulative(
                 "plain windowed session.observe(...) with time_scope for a "
                 "single windowed value."
             ),
-            hint="Pass grain='day' (or another grain) to observe a trailing rolling window.",
+            hint="Pass grain=mv.grain('day') (or another grain) to observe a trailing rolling window.",
             context={"anchor": anchor},
         )
 

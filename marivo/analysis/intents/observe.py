@@ -16,6 +16,7 @@ from marivo._temporal import (
     PeriodCalendarSnapshotV1,
     TemporalResolver,
     TimeScope,
+    _new_time_scope,
     builtin_grain,
     period_binding_for_grain,
 )
@@ -190,11 +191,7 @@ from marivo.analysis.session._runtime import (
 )
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.slice_types import SliceValue
-from marivo.analysis.windows.spec import (
-    GrainInput,
-    TimeScopeInput,
-    dump_window,
-)
+from marivo.analysis.windows.spec import dump_window
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import (
     DimensionKind,
@@ -860,7 +857,7 @@ def _build_frame_temporal_contract(
         scope = semantic_scope
         scope_contract = scope.contract()
     else:
-        scope = TimeScope(start=resolved_window.start, end=resolved_window.end)
+        scope = _new_time_scope(start=resolved_window.start, end=resolved_window.end)
         try:
             scope_contract = scope.contract()
         except ValueError as exc:
@@ -882,7 +879,7 @@ def _build_frame_temporal_contract(
                 start = start.tz_localize(end.tzinfo)
             elif start.tzinfo is not None and end.tzinfo is None:
                 end = end.tz_localize(start.tzinfo)
-            scope = TimeScope(
+            scope = _new_time_scope(
                 start=start.to_pydatetime(),
                 end=end.to_pydatetime(),
             )
@@ -941,8 +938,8 @@ def observe(
         | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
     ),
     *,
-    time_scope: TimeScopeInput = None,
-    grain: GrainInput = None,
+    time_scope: TimeScope | None = None,
+    grain: TemporalGrain | None = None,
     dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
     slice_by: Mapping[
         _SemanticInput[DimensionKind | TimeDimensionKind],
@@ -1963,8 +1960,8 @@ def _resolve_forest_status_time_dimension(
 def _observe_metric_forest(
     metric_inputs: tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...],
     *,
-    time_scope: TimeScopeInput,
-    grain: GrainInput,
+    time_scope: TimeScope | None,
+    grain: TemporalGrain | None,
     dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None,
     slice_by: Mapping[
         _SemanticInput[DimensionKind | TimeDimensionKind],

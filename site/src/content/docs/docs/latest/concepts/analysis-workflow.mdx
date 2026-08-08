@@ -180,8 +180,8 @@ across almost every intent:
 | --- | --- | --- |
 | metric input | `catalog.metrics.get("sales.revenue")` | Exact current `MetricEntry` or `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; stale/cross-catalog entries, generic refs, and strings are rejected. |
 | dimension input | `catalog.dimensions.get("sales.orders.region")` | Exact current dimension/time-dimension entry or matching ref (see [Semantic refs](/docs/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and axes. |
-| `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
-| `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
+| `time_scope` | `mv.time_scope(start="2026-10-01", end="2027-01-01")` | Half-open time range — `start` inclusive, `end` exclusive. |
+| `grain` | `mv.grain("day")` or `ms.calendar_grain(...)` | Unified time bucket value. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
 | `slice_by` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
 | `AlignmentPolicy` | `mv.window_bucket()` | How two windows are paired for `compare` / `correlate`. |
@@ -218,8 +218,8 @@ segments.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `metrics` | `MetricEntry | Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact current metric entry/ref or closed runtime expression; accepts one value or a sequence. Stale/cross-catalog entries, generic refs, and bare strings are rejected. |
-| `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
-| `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
+| `time_scope` | `TimeScope` | No | `None` | One scope returned by `mv.time_scope(...)` or an exact catalog period lookup. |
+| `grain` | `Grain` | No | `None` | One value returned by `mv.grain(...)` or `ms.calendar_grain(...)`. |
 | `dimensions` | entry/ref sequence | No | `None` | Exact current dimension/time-dimension entries or refs. |
 | `slice_by` | entry/ref-keyed mapping | No | `None` | Global pre-aggregation row filter. |
 | `time_dimension` | time-dimension entry/ref | No | entity default | Pick the time axis when the entity declares several. |
@@ -234,8 +234,8 @@ recovered from configuration, logs, or persisted state.
 ```python
 current = session.observe(
     revenue,
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 ```
@@ -282,8 +282,8 @@ afterward, read the result with `filtered[filtered.value_columns[0]]` or
 ```python
 report = session.observe(
     metrics=[revenue, catalog.metrics.get("sales.total_orders")],
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
 )
 revenue_only = report.metric("sales.revenue")
 ```
@@ -313,7 +313,7 @@ failure_rate = mv.runtime_metric.ratio(
     zero_division="null",
     label="Runtime failure rate",
 )
-frame = session.observe(failure_rate, time_scope=window, grain="day")
+frame = session.observe(failure_rate, time_scope=window, grain=mv.grain("day"))
 ```
 
 Runtime expressions may recursively contain runtime expressions and catalog
@@ -357,8 +357,8 @@ and runtime identities may differ.
 ```python
 baseline = session.observe(
     revenue,
-    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
@@ -523,7 +523,11 @@ raises `ForecastInputQualityError` when one segment is missing a bucket; it does
 not silently fill the bucket with zero or move that segment's forecast origin.
 
 ```python
-history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+history = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
@@ -577,7 +581,11 @@ Neither order is a recommendation from Marivo.
 | `semantic_hypotheses` | arity-one catalog `MetricFrame` or same-Metric `DeltaFrame` | ready optional ontology | `limit=50` (`1..200`) |
 
 ```python
-series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+series = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
+)
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 item_id = str(candidates.to_pandas().iloc[0]["item_id"])
@@ -686,13 +694,13 @@ delta, including for panel frames.
 ```python
 cum_frame = session.observe(
     cumulative_active_users,
-    time_scope={"start": "2026-01-01", "end": "2026-04-01"},
-    grain="day",
+    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    grain=mv.grain("day"),
 )
 cum_frame.contract()  # shows the anchor-specific caveat
 windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # Roll up a cumulative frame to a coarser grain (period-end semantics):
-monthly = cum_frame.transform.rollup(grain="month")
+monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
 # For attribute/forecast, observe the base metric instead:
 base_frame = session.observe(active_users, ...)
 ```
@@ -848,14 +856,14 @@ region = catalog.dimensions.get("sales.orders.region")
 
 current = session.observe(
     revenue,
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2026-10-01", end="2027-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 baseline = session.observe(
     revenue,
-    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
-    grain="month",
+    time_scope=mv.time_scope(start="2025-10-01", end="2026-01-01"),
+    grain=mv.grain("month"),
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
@@ -894,7 +902,7 @@ payment_step = mv.step(participant=payment_user, key="payment")
 pattern = mv.sequence(cart_step, checkout_step, payment_step)
 journeys = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
 )
@@ -912,13 +920,13 @@ attempt; `shared` permits one completion to close multiple eligible attempts:
 ```python
 exclusive_attempts = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.every_start(completion_assignment="exclusive"),
 )
 shared_attempts = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.every_start(completion_assignment="shared"),
 )
@@ -943,7 +951,7 @@ coverage = mv.declared_complete_through(
 )
 journeys = session.events.match(
     pattern=pattern,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
     completeness=(coverage,),
@@ -990,7 +998,7 @@ dropout_revenue = session.observe(revenue, cohort=dropouts)
 return_journeys = session.events.match(
     pattern=return_pattern,
     cohort=dropouts,
-    cohort_window=mv.TimeScope(start=start, end=end),
+    cohort_window=mv.time_scope(start=start, end=end),
     completion_through=followup_end,
     matching=mv.first_per_subject(),
 )
@@ -1051,7 +1059,7 @@ order_model = catalog.state_models.get("sales.order_lifecycle")
 
 history = session.lifecycle.replay(
     order_model,
-    window=mv.TimeScope(start=start, end=end),
+    window=mv.time_scope(start=start, end=end),
     seed=mv.from_inception(),
     analysis_purpose="Reconstruct governed order state history.",
 )

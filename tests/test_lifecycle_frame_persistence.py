@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import FrameCacheCorruptedError, ModelStateMismatchError
@@ -41,7 +42,6 @@ from marivo.analysis.session._runtime import (
     persist_frame,
     persist_job_record,
 )
-from marivo.analysis.windows.spec import TimeScope
 from marivo.refs import RefPayloadV1, ref
 
 
@@ -109,7 +109,7 @@ def _history_frame(session, *, trace_rows=()):
             subject_identity=(identity_ref.path,),
             states=(state,),
             seed=from_inception(),
-            window=TimeScope(
+            window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-08-01T00:00:00Z",
             ),

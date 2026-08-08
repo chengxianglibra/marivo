@@ -531,7 +531,7 @@ def test_completion_through_is_inclusive_for_governed_time_resolutions(
 
     frame = session.events.match(
         pattern=pattern,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -590,7 +590,7 @@ def test_multi_participant_event_preserves_null_identity_for_validation(
     with pytest.raises(EventIdentityError, match="empty identity component") as captured:
         session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-02T00:00:00Z",
             ),
@@ -626,7 +626,7 @@ def test_event_identity_duplicate_outside_query_window_is_rejected(
     with pytest.raises(EventIdentityError, match="identity is not unique"):
         session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-02T00:00:00Z",
             ),
@@ -664,7 +664,7 @@ def test_incomplete_completeness_declaration_fails_before_query(
     ) as captured:
         session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-02T00:00:00Z",
             ),
@@ -726,7 +726,7 @@ def test_session_events_match_materializes_persists_and_recovers(
 
     frame = session.events.match(
         pattern=pattern,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -758,7 +758,7 @@ def test_session_events_match_materializes_persists_and_recovers(
                 key="second_cart",
             ),
         ),
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -788,7 +788,7 @@ def test_session_events_match_materializes_persists_and_recovers(
                     key="cart",
                 ),
             ),
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-02T00:00:00Z",
             ),
@@ -830,7 +830,7 @@ def test_session_match_requires_semantic_authoring_for_non_subject_cardinality(
     with pytest.raises(EventParticipantCardinalityError) as captured:
         session.events.match(
             pattern=pattern,
-            cohort_window=mv.TimeScope(
+            cohort_window=mv.time_scope(
                 start="2026-07-01T00:00:00Z",
                 end="2026-07-02T00:00:00Z",
             ),
@@ -879,7 +879,7 @@ def test_subject_set_scopes_event_match_and_metric_observe_before_reduction(
     )
     journeys = session.events.match(
         pattern=pattern,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -919,7 +919,7 @@ def test_subject_set_scopes_event_match_and_metric_observe_before_reduction(
     scoped_journeys = session.events.match(
         pattern=pattern,
         cohort=subjects,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -1047,7 +1047,7 @@ def test_coverage_censored_subject_set_is_readable_but_rejected_as_cohort(
     )
     journeys = session.events.match(
         pattern=mv.sequence(cart_step, payment_step),
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -1106,7 +1106,7 @@ def test_empty_ready_subject_set_produces_normal_empty_scoped_results(
     )
     journeys = session.events.match(
         pattern=pattern,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -1129,7 +1129,7 @@ def test_empty_ready_subject_set_produces_normal_empty_scoped_results(
     scoped_journeys = session.events.match(
         pattern=pattern,
         cohort=subjects,
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end="2026-07-02T00:00:00Z",
         ),
@@ -1167,7 +1167,7 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     through = "2026-07-02T00:00:00Z"
     journeys = session.events.match(
         pattern=mv.sequence(cart_step, payment_step),
-        cohort_window=mv.TimeScope(
+        cohort_window=mv.time_scope(
             start="2026-07-01T00:00:00Z",
             end=through,
         ),

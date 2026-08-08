@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo._temporal import _new_time_scope
 from marivo.analysis._cumulative import (
     GrainToDateAnchorSemanticsV1,
     TrailingAnchorSemanticsV1,
@@ -80,8 +81,7 @@ from marivo.analysis.intents.decompose import (
     decompose,
 )
 from marivo.analysis.session.core import Session, ensure_session_can_execute
-from marivo.analysis.windows.grain import Grain
-from marivo.analysis.windows.spec import TimeScope
+from marivo.analysis.windows.grain import Grain, to_temporal_grain
 from marivo.refs import DimensionKind, RefPayloadV1, TimeDimensionKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import _SemanticInput
@@ -651,8 +651,8 @@ def _observe_base_flow(
     over_ref = session.catalog.require(ref_factory.time_dimension(contract.over_ref.path)).ref
     return observe(
         session.catalog.require(ref_factory.metric(base_path)).ref,
-        time_scope=TimeScope(start=start.isoformat(), end=end.isoformat()),
-        grain=contract.bridge.value.grain,
+        time_scope=_new_time_scope(start=start.isoformat(), end=end.isoformat()),
+        grain=to_temporal_grain(contract.bridge.value.grain),
         dimensions=cast("Any", list(replay.dimensions) or None),
         slice_by=cast("Any", replay.slice_by or None),
         time_dimension=over_ref,

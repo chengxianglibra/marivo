@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Literal, NoReturn, cast
 
 from marivo._temporal import Grain as TemporalGrain
-from marivo._temporal import semantic_grain
+from marivo._temporal import builtin_grain, semantic_grain
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic.ir import AggKind, AggregateFoldInput
@@ -317,7 +317,7 @@ def _cumulative_anchor(value: object, *, context: str) -> CumulativeAnchorV1:
         and parts[0] == "grain_to_date"
         and parts[1] in {"week", "month", "quarter", "year"}
     ):
-        return ("grain_to_date", parts[1])
+        return ("grain_to_date", builtin_grain(parts[1]))
     if (
         len(parts) == 3
         and parts[0] == "trailing"
