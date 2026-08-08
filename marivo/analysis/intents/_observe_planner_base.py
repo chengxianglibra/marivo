@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
+from zoneinfo import ZoneInfo
 
 from marivo.analysis.executor.runner import apply_slice_to_dataset
 from marivo.analysis.executor.windowing import (
@@ -223,11 +224,24 @@ def plan_base_observe(
         session._connection_runtime.get_or_create(datasource_name),
     )
     root_table = dataset_fns[root](backend)
+    window_timezone = session.report_tz
+    temporal_snapshot = getattr(resolved_window, "temporal_snapshot", None)
+    semantic_grain = getattr(resolved_window, "grain", None)
+    semantic_scope = getattr(resolved_window, "semantic_scope", None)
+    has_semantic_window = (
+        getattr(semantic_grain, "kind", None) == "semantic"
+        or getattr(semantic_scope, "calendar", None) is not None
+    )
+    if temporal_snapshot is not None and has_semantic_window:
+        # A certified semantic snapshot owns civil-date membership. The report
+        # timezone remains presentation policy and must not move facts across
+        # custom fiscal boundaries.
+        window_timezone = ZoneInfo(temporal_snapshot.boundary_timezone)
     root_table = apply_window_to_dataset(
         root_table,
         resolved_window,
         dataset_ir=dataset_irs[root],
-        report_tz=session.report_tz,
+        report_tz=window_timezone,
         datasource_read_tz=datasource_read_timezone(
             session._connection_runtime, dataset_irs[root].datasource_name
         ),

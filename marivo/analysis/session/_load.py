@@ -132,6 +132,17 @@ _CURRENT_METRIC_FRAME_FIELDS = frozenset(
 )
 
 
+def _contains_semantic_grain(value: Any) -> bool:
+    """Detect a serialized semantic Grain that requires JSON model decoding."""
+    if isinstance(value, dict):
+        if value.get("kind") == "semantic" and isinstance(value.get("calendar_ref"), str):
+            return True
+        return any(_contains_semantic_grain(child) for child in value.values())
+    if isinstance(value, list | tuple):
+        return any(_contains_semantic_grain(child) for child in value)
+    return False
+
+
 def _current_metric_state_error(
     ref: str,
     *,
@@ -786,6 +797,11 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             # fields whose persisted JSON representation must be parsed by
             # Pydantic's JSON decoder on cold-start recovery.
             or bool(meta.get("temporal_contract"))
+            # MetricExpressionGraphV1 can carry a semantic Grain anchor even
+            # when an older or heterogeneous forest omitted the frame-level
+            # temporal contract. Direct model construction leaves that mapping
+            # as a dict and fails the graph validator; JSON mode rehydrates it.
+            or _contains_semantic_grain(meta.get("expression_graph"))
         )
         parsed_meta = (
             cast("Any", meta_cls).model_validate_json(json.dumps(meta))

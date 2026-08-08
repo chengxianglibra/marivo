@@ -120,7 +120,9 @@ def grain_to_date(*, grain: TemporalGrain | str) -> GrainToDate:
     at the boundary it drops to the period's first-bucket flow.
 
     Args:
-        grain: Reset grain, one of ``week``, ``month``, ``quarter``, ``year``.
+        grain: Reset grain. Built-in reset grains are ``week``, ``month``,
+            ``quarter``, and ``year``. A certified custom-calendar grain is
+            passed as a ``TemporalGrain`` from ``ms.calendar_grain(...)``.
 
     Returns:
         A frozen ``GrainToDate`` value object to pass as ``anchor=`` on
@@ -130,6 +132,15 @@ def grain_to_date(*, grain: TemporalGrain | str) -> GrainToDate:
         >>> mtd_revenue = ms.cumulative(
         ...     name="mtd_revenue", base=revenue, over=event_time,
         ...     anchor=ms.grain_to_date(grain="month"),
+        ... )
+        >>> fiscal_mtd = ms.cumulative(
+        ...     name="fiscal_mtd", base=revenue, over=event_time,
+        ...     anchor=ms.grain_to_date(
+        ...         grain=ms.calendar_grain(
+        ...             calendar=ms.ref.period_calendar("sales.fiscal"),
+        ...             level="fiscal_month",
+        ...         )
+        ...     ),
         ... )
 
     Constraints:

@@ -347,6 +347,147 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     )
     assert builtin_frame.meta.temporal_contract.cumulative_reset_period.kind == "semantic_period"
 
+    semantic_shanghai = shanghai.observe(
+        metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=semantic_week,
+    )
+    semantic_shanghai_df = semantic_shanghai.to_pandas().sort_values("bucket_start")
+    assert semantic_shanghai_df[EVALUATION_END_COLUMN].iloc[0] == pd.Timestamp(
+        "2026-01-08T00:00:00Z"
+    )
+
+
+def test_semantic_reset_binds_derived_forest_and_recovers(
+    semantic_project_factory, monkeypatch
+) -> None:
+    files = _fiscal_analysis_project_files()
+    files["sales/metrics.py"] += (
+        "fiscal_ratio = ms.ratio(name='fiscal_ratio', numerator=fiscal_mtd, "
+        "denominator=fiscal_active_users)\n"
+    )
+    project = semantic_project_factory(files)
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=_fiscal_calendar_evidence(project.workspace_dir))
+    session = mv.session.get_or_create(
+        name="fiscal-derived-forest",
+        backends={"warehouse": lambda: backend},
+        report_timezone="Asia/Shanghai",
+    )
+    semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    scope = {"start": "2026-01-01", "end": "2026-03-01"}
+
+    derived = session.observe(
+        session.catalog.require(ms.ref.metric("sales.fiscal_ratio")).ref,
+        time_scope=scope,
+        grain=semantic_week,
+    )
+    assert derived.meta.temporal_contract is not None
+    derived_builtin = session.observe(
+        session.catalog.require(ms.ref.metric("sales.fiscal_ratio")).ref,
+        time_scope=scope,
+        grain="day",
+    )
+    assert derived_builtin.meta.temporal_contract is not None
+
+    forest = session.observe(
+        [
+            session.catalog.require(ms.ref.metric("sales.fiscal_ratio")).ref,
+            session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+        ],
+        time_scope=scope,
+        grain=semantic_week,
+    )
+    assert forest.meta.temporal_contract is not None
+    assert forest.meta.temporal_contract.observation_period is not None
+    assert forest.meta.cumulative is not None
+    assert forest.meta.measure_bindings[0].cumulative is not None
+    assert forest.lineage.steps[-1].params["temporal_contract"]
+    assert forest.lineage.steps[-1].params["cumulative"]
+    recovered = session.get_frame(forest.ref)
+    assert recovered.meta.temporal_contract == forest.meta.temporal_contract
+    assert recovered.meta.cumulative is not None
+    assert recovered.meta.cumulative["compare_blocker"] == "non_cumulative_component"
+
+
+def test_semantic_membership_uses_calendar_boundary_timezone(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = semantic_project_factory(_fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date TIMESTAMPTZ, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(TIMESTAMPTZ '2026-01-01 04:00:00+00', 10, 1), "
+        "(TIMESTAMPTZ '2026-01-31 20:00:00+00', 20, 1)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=_fiscal_calendar_evidence(project.workspace_dir))
+    metric = catalog.require(ms.ref.metric("sales.gmv")).ref
+    scope = {"start": "2026-01-01", "end": "2026-02-01"}
+    week = catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    utc = mv.session.get_or_create(
+        name="fiscal-membership-utc",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    shanghai = mv.session.get_or_create(
+        name="fiscal-membership-shanghai",
+        backends={"warehouse": lambda: backend},
+        report_timezone="Asia/Shanghai",
+    )
+    utc_total = utc.observe(metric, time_scope=scope, grain=week).to_pandas()["gmv"].sum()
+    shanghai_total = shanghai.observe(metric, time_scope=scope, grain=week).to_pandas()["gmv"].sum()
+    assert utc_total == pytest.approx(30)
+    assert shanghai_total == pytest.approx(30)
+    cumulative = shanghai.observe(
+        catalog.require(ms.ref.metric("sales.fiscal_mtd")).ref,
+        time_scope=scope,
+        grain=week,
+    ).to_pandas()
+    assert cumulative["fiscal_mtd"].max() == pytest.approx(30)
+
 
 def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
     tmp_path, monkeypatch

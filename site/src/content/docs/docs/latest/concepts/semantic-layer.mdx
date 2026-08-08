@@ -593,8 +593,9 @@ the additional anchor kinds.
 
 `ms.grain_to_date(grain=...)` resets the running total at each reset-grain boundary
 (MTD / QTD / YTD / WTD). Within a reset period the value accumulates; at the boundary it
-drops to the period's first-bucket flow. `grain` is one of `week`, `month`, `quarter`,
-`year`.
+drops to the period's first-bucket flow. Built-in `grain` values are `week`, `month`,
+`quarter`, and `year`; a certified custom calendar uses the typed `TemporalGrain` returned
+by `ms.calendar_grain(...)`.
 
 ```python
 mtd_revenue = ms.cumulative(
@@ -604,6 +605,33 @@ mtd_revenue = ms.cumulative(
     anchor=ms.grain_to_date(grain="month"),
 )
 ```
+
+For a fiscal or other certified calendar, carry the calendar authority in the grain value
+instead of repeating its level as an independent analysis option:
+
+```python
+fiscal_mtd = ms.cumulative(
+    name="fiscal_mtd",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(
+        grain=ms.calendar_grain(
+            calendar=ms.ref.period_calendar("sales.fiscal"),
+            level="fiscal_month",
+        )
+    ),
+)
+
+fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+frame = session.observe(
+    fiscal_mtd,
+    time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+    grain=fiscal_week,
+)
+```
+
+The calendar snapshot owns fiscal membership and its boundary timezone; changing the
+session report timezone changes presentation only.
 
 `ms.trailing(count=..., unit=...)` is a fixed-size rolling window: the value at each
 bucket is the base aggregation over the span ending at that bucket's end boundary. Empty

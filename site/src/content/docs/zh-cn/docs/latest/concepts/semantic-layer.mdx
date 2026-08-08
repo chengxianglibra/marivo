@@ -540,8 +540,9 @@ cumulative_active_users = ms.cumulative(
 构造器开启额外的锚点类型。
 
 `ms.grain_to_date(grain=...)` 在每个重置粒度边界重置累计值（MTD / QTD / YTD / WTD）。在一个
-重置周期内值持续累计；到达边界时回落到该周期首个 bucket 的流量。`grain` 取值为 `week`、
-`month`、`quarter`、`year` 之一。
+重置周期内值持续累计；到达边界时回落到该周期首个 bucket 的流量。内置 `grain` 取值为
+`week`、`month`、`quarter`、`year`；认证的自定义日历则使用 `ms.calendar_grain(...)` 返回的
+类型化 `TemporalGrain`。
 
 ```python
 mtd_revenue = ms.cumulative(
@@ -551,6 +552,33 @@ mtd_revenue = ms.cumulative(
     anchor=ms.grain_to_date(grain="month"),
 )
 ```
+
+对于 fiscal 或其他已认证日历，将日历 authority 保存在 grain 值中，不要在分析参数里重复传入
+可互相冲突的 level：
+
+```python
+fiscal_mtd = ms.cumulative(
+    name="fiscal_mtd",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(
+        grain=ms.calendar_grain(
+            calendar=ms.ref.period_calendar("sales.fiscal"),
+            level="fiscal_month",
+        )
+    ),
+)
+
+fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+frame = session.observe(
+    fiscal_mtd,
+    time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+    grain=fiscal_week,
+)
+```
+
+日历 snapshot 负责 fiscal membership 及其 boundary timezone；改变 session report timezone 只会改变
+展示，不会改变周期归属。
 
 `ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口：每个 bucket 的值是该 bucket 结束边界
 为止的 span 上的 base 聚合。空窗口为真零，不会向前 carry。部分窗口（span 触及数据起点之前）
