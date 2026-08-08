@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import pairwise
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import ibis
 import pandas as pd
 
+from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import PeriodCalendarSnapshotV1, TemporalResolver
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.string_time import _classify_strptime_format, _parse_string_column
 from marivo.analysis.executor.windowing import (
@@ -356,7 +358,7 @@ def _apply_hour_only_bucket(
 ) -> ibis.Table:
     """Bucket for hour-only string/integer time fields that use required_prefix."""
     time_meta = field_ir.time_meta
-    grain = window.grain
+    grain = cast("Grain", window.grain)
     assert grain is not None
     field_grain = Grain(count=1, unit=time_meta.granularity)
 
@@ -495,6 +497,209 @@ def ensure_bucket_start_timestamp(
     return pd.to_datetime(series, format=strptime_fmt, errors="coerce")
 
 
+def _semantic_civil_date_expr(
+    raw: Any,
+    *,
+    field_ir: Any,
+    table: ibis.Table,
+    window: AbsoluteWindow,
+    boundary_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
+    dataset_ir: Any | None,
+    profile: EngineProfile,
+) -> Any:
+    """Lower a fact time field to the calendar authority's civil date."""
+    time_meta = field_ir.time_meta
+    assert time_meta is not None
+    data_type = time_meta.data_type
+    if data_type == "date":
+        return raw
+    if data_type in {"datetime", "timestamp"}:
+        context = effective_time_context(
+            time_meta,
+            report_tz=boundary_tz,
+            datasource_read_tz=datasource_read_tz,
+            field_expr=raw,
+        )
+        column_tz = context.effective_column_tz or datasource_read_tz
+        local = _timestamp_expr_in_report_timezone(
+            raw,
+            column_tz=column_tz,
+            report_tz=boundary_tz,
+            window=window,
+        )
+        return local.cast("date")
+    if (
+        data_type in {"string", "integer"}
+        and time_meta.format is not None
+        and time_meta.format.startswith("%")
+        and not _is_hour_only_partition_meta(time_meta)
+    ):
+        parsed = _parse_string_column(raw, time_meta, profile=profile)
+        context = effective_time_context(
+            time_meta,
+            report_tz=boundary_tz,
+            datasource_read_tz=datasource_read_tz,
+            field_expr=raw,
+        )
+        column_tz = context.effective_column_tz or datasource_read_tz
+        local = _timestamp_expr_in_report_timezone(
+            parsed,
+            column_tz=column_tz,
+            report_tz=boundary_tz,
+            window=window,
+        )
+        return local.cast("date")
+    if data_type in {"string", "integer"} and _is_hour_only_partition_meta(time_meta):
+        if dataset_ir is None:
+            raise WindowInvalidError(
+                message="semantic calendar bucketing requires the hour field's day prefix"
+            )
+        prefix_field_ir = _resolve_required_prefix_time_field(dataset_ir, field_ir)
+        if prefix_field_ir is None:
+            raise WindowInvalidError(
+                message="semantic calendar bucketing could not resolve the hour day prefix"
+            )
+        return _prefix_date_expr(table, prefix_field_ir, profile=profile)
+    raise WindowInvalidError(
+        message=(
+            f"semantic calendar bucketing requires a civil-date-compatible time field; "
+            f"got data_type={data_type!r}, format={time_meta.format!r}"
+        )
+    )
+
+
+def semantic_period_bucket_expr(
+    table: ibis.Table,
+    *,
+    raw: Any,
+    field_ir: Any,
+    window: AbsoluteWindow,
+    snapshot: PeriodCalendarSnapshotV1,
+    grain: TemporalGrain,
+    datasource_read_tz: ZoneInfo,
+    dataset_ir: Any | None,
+    profile: EngineProfile,
+) -> Any:
+    """Build a bounded CASE relation from civil dates to certified ordinals."""
+    if grain.kind != "semantic" or grain.level is None:
+        raise ValueError("semantic_period_bucket_expr requires a semantic Grain")
+    boundary_tz = ZoneInfo(snapshot.boundary_timezone)
+    civil_date = _semantic_civil_date_expr(
+        raw,
+        field_ir=field_ir,
+        table=table,
+        window=window,
+        boundary_tz=boundary_tz,
+        datasource_read_tz=datasource_read_tz,
+        dataset_ir=dataset_ir,
+        profile=profile,
+    )
+    periods = tuple(period for period in snapshot.periods if period.level_name == grain.level)
+    if not periods:
+        raise WindowInvalidError(
+            message=f"calendar level {grain.level!r} has no certified periods",
+            context={"calendar": grain.calendar.path if grain.calendar else None},
+        )
+    cases = tuple(
+        (
+            (civil_date >= ibis.literal(period.start_date))
+            & (civil_date < ibis.literal(period.end_date)),
+            ibis.literal(period.global_ordinal),
+        )
+        for period in periods
+    )
+    return ibis.cases(*cases, else_=ibis.literal(-1)).name("bucket_start")
+
+
+def materialize_semantic_period_columns(
+    frame: pd.DataFrame,
+    *,
+    snapshot: PeriodCalendarSnapshotV1,
+    grain: TemporalGrain,
+    window: AbsoluteWindow | None = None,
+) -> pd.DataFrame:
+    """Replace ordinal buckets with exact certified key and clipped bounds."""
+    if grain.kind != "semantic" or grain.level is None:
+        return frame
+    periods = tuple(period for period in snapshot.periods if period.level_name == grain.level)
+    by_ordinal = {period.global_ordinal: period for period in periods}
+    if "bucket_start" not in frame.columns:
+        return frame
+    output = frame.copy()
+    ordinal_values = pd.to_numeric(output["bucket_start"], errors="coerce")
+    if not ordinal_values.isna().any() and all(
+        int(value) in by_ordinal for value in ordinal_values
+    ):
+        records = [by_ordinal[int(value)] for value in ordinal_values]
+    else:
+        parsed_values = pd.to_datetime(output["bucket_start"], errors="coerce")
+        if parsed_values.isna().any():
+            raise WindowInvalidError(
+                message="fact rows fall outside the certified semantic period coverage",
+                context={
+                    "calendar": grain.calendar.path if grain.calendar else None,
+                    "level": grain.level,
+                },
+            )
+        resolver = TemporalResolver(snapshot)
+        records = []
+        for value in parsed_values:
+            timestamp = value
+            if timestamp.tzinfo is not None:
+                timestamp = timestamp.tz_convert(snapshot.boundary_timezone).tz_localize(None)
+            try:
+                records.append(resolver.period_on(grain.level, timestamp.date()))
+            except (KeyError, ValueError) as exc:
+                raise WindowInvalidError(
+                    message="fact rows fall outside the certified semantic period coverage",
+                    context={
+                        "calendar": grain.calendar.path if grain.calendar else None,
+                        "level": grain.level,
+                    },
+                ) from exc
+    output["period_key"] = [record.key for record in records]
+    output["period_start"] = [record.start_date for record in records]
+    output["period_end"] = [record.end_date for record in records]
+    output["period_ordinal"] = [record.global_ordinal for record in records]
+    if window is not None:
+        scope_start = pd.Timestamp(window.start)
+        scope_end = pd.Timestamp(window.end)
+        boundary_timezone = ZoneInfo(snapshot.boundary_timezone)
+        if scope_start.tzinfo is not None:
+            scope_start = scope_start.tz_convert(boundary_timezone)
+        if scope_end.tzinfo is not None:
+            scope_end = scope_end.tz_convert(boundary_timezone)
+
+        observed_starts: list[date | datetime] = []
+        observed_ends: list[date | datetime] = []
+        complete: list[bool] = []
+        date_start = isinstance(window.start, str) and len(window.start) == 10
+        date_end = isinstance(window.end, str) and len(window.end) == 10
+        for record in records:
+            period_start = pd.Timestamp(record.start_date)
+            period_end = pd.Timestamp(record.end_date)
+            if scope_start.tzinfo is not None:
+                period_start = period_start.tz_localize(boundary_timezone)
+                period_end = period_end.tz_localize(boundary_timezone)
+            observed_start = max(period_start, scope_start)
+            observed_end = min(period_end, scope_end)
+            complete.append(observed_start == period_start and observed_end == period_end)
+            if date_start and observed_start.tzinfo is None:
+                observed_starts.append(observed_start.date())
+            else:
+                observed_starts.append(observed_start.to_pydatetime())
+            if date_end and observed_end.tzinfo is None:
+                observed_ends.append(observed_end.date())
+            else:
+                observed_ends.append(observed_end.to_pydatetime())
+        output["observed_start"] = observed_starts
+        output["observed_end"] = observed_ends
+        output["is_complete"] = complete
+    output["bucket_start"] = output["period_start"]
+    return output
+
+
 def apply_time_series_bucket(
     table: ibis.Table,
     *,
@@ -515,6 +720,26 @@ def apply_time_series_bucket(
     fmt = time_meta.format
     if window.grain is None:
         return table
+
+    if isinstance(window.grain, TemporalGrain) and window.grain.kind == "semantic":
+        snapshot = window.temporal_snapshot
+        if snapshot is None:
+            raise WindowInvalidError(
+                message="semantic grain is not bound to a certified period snapshot",
+                context={"kind": "SemanticGrainSnapshotMissing"},
+            )
+        bucket = semantic_period_bucket_expr(
+            table,
+            raw=raw,
+            field_ir=field_ir,
+            window=window,
+            snapshot=snapshot,
+            grain=window.grain,
+            datasource_read_tz=datasource_read_tz,
+            dataset_ir=dataset_ir,
+            profile=profile,
+        )
+        return table.mutate(bucket_start=bucket)
 
     # Strptime format: parse the column into a temporal type
     # (excludes hour-only fields that rely on required_prefix)
@@ -558,7 +783,7 @@ def apply_time_series_bucket(
                     report_tz=report_tz,
                     window=window,
                 )
-                bucket = bucket_start_expr(local_parsed, window.grain)
+                bucket = bucket_start_expr(local_parsed, cast("Grain", window.grain))
         else:
             context = effective_time_context(
                 time_meta,
@@ -573,7 +798,7 @@ def apply_time_series_bucket(
                 report_tz=report_tz,
                 window=window,
             )
-            bucket = bucket_start_expr(local_parsed, window.grain)
+            bucket = bucket_start_expr(local_parsed, cast("Grain", window.grain))
         return table.mutate(bucket_start=bucket)
 
     # Timestamp: bucket in report-local calendar
@@ -581,7 +806,7 @@ def apply_time_series_bucket(
         bucket = _local_bucket_expr(
             raw,
             time_meta=time_meta,
-            grain=window.grain,
+            grain=cast("Grain", window.grain),
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
             window=window,
@@ -603,7 +828,7 @@ def apply_time_series_bucket(
 
     # Date type: simple truncate or cast
     if data_type == "date":
-        bucket = bucket_start_expr(raw, window.grain)
+        bucket = bucket_start_expr(raw, cast("Grain", window.grain))
         return table.mutate(bucket_start=bucket)
 
     # Unhandled type/format combination

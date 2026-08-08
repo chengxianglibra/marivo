@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from marivo._fixed_duration import fixed_duration_seconds
+from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import semantic_grain
+from marivo.refs import ref as ref_factory
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CatalogBodyLeafV1,
@@ -219,9 +222,41 @@ class CumulativeAlignmentV1(BaseModel):
 
 type CumulativeAnchor = (
     Literal["all_history"]
-    | tuple[Literal["grain_to_date"], str]
+    | tuple[Literal["grain_to_date"], str | TemporalGrain]
     | tuple[Literal["trailing"], int, str]
 )
+
+
+def canonical_cumulative_metadata(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Make cumulative metadata JSON-safe without changing tuple identities.
+
+    Lineage and frame metadata keep tuple anchors in memory for the existing
+    comparison contract. Semantic Grain values are the one non-JSON object in
+    the marker; lower those values to their stable calendar/level payload while
+    preserving mapping insertion order and tuple shape.
+    """
+
+    def lower(item: Any) -> Any:
+        if isinstance(item, TemporalGrain):
+            if item.kind == "builtin":
+                return item.to_token()
+            assert item.calendar is not None and item.level is not None
+            return {
+                "kind": "semantic",
+                "calendar_ref": item.calendar.path,
+                "level": item.level,
+            }
+        if isinstance(item, dict):
+            return {key: lower(child) for key, child in item.items()}
+        if isinstance(item, tuple):
+            return tuple(lower(child) for child in item)
+        if isinstance(item, list):
+            return [lower(child) for child in item]
+        return item
+
+    return cast("dict[str, Any] | None", lower(value)) if value is not None else None
+
+
 type CumulativeCompareBlocker = Literal[
     "non_cumulative_component",
     "mixed_component_anchors",
@@ -245,8 +280,28 @@ def normalize_cumulative_anchor(value: object) -> CumulativeAnchor | None:
         return "all_history"
     if not isinstance(value, (tuple, list)):
         return None
-    if len(value) == 2 and value[0] == "grain_to_date" and isinstance(value[1], str) and value[1]:
-        return ("grain_to_date", value[1])
+    if len(value) == 2 and value[0] == "grain_to_date":
+        candidate = value[1]
+        if isinstance(candidate, str) and candidate:
+            return ("grain_to_date", candidate)
+        if isinstance(candidate, TemporalGrain) and (
+            candidate.kind == "semantic" or bool(candidate.unit)
+        ):
+            return ("grain_to_date", candidate)
+        # Persisted metadata uses the canonical JSON representation of a
+        # semantic Grain. Rehydrate it to the same dependency-neutral value
+        # before execution or contract checks inspect the anchor.
+        if isinstance(candidate, Mapping) and candidate.get("kind") == "semantic":
+            calendar_ref = candidate.get("calendar_ref")
+            level = candidate.get("level")
+            if isinstance(calendar_ref, str) and calendar_ref and isinstance(level, str) and level:
+                return (
+                    "grain_to_date",
+                    semantic_grain(
+                        calendar=ref_factory.period_calendar(calendar_ref),
+                        level=level,
+                    ),
+                )
     if (
         len(value) == 3
         and value[0] == "trailing"

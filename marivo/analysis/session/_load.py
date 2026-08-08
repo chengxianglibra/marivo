@@ -769,9 +769,8 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             },
         )
     try:
-        parsed_meta = (
-            cast("Any", meta_cls).model_validate_json(json.dumps(meta))
-            if kind
+        use_json_validation = (
+            kind
             in {
                 "event_frame",
                 "lifecycle_frame",
@@ -783,6 +782,14 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             # CandidateOrigin contains the sealed SemanticEdgeRef, whose
             # persisted dict form is intentionally accepted only in JSON mode.
             or bool(meta.get("candidate_origins"))
+            # FrameTemporalContractV1 contains strict date/datetime and tuple
+            # fields whose persisted JSON representation must be parsed by
+            # Pydantic's JSON decoder on cold-start recovery.
+            or bool(meta.get("temporal_contract"))
+        )
+        parsed_meta = (
+            cast("Any", meta_cls).model_validate_json(json.dumps(meta))
+            if use_json_validation
             else meta_cls(**meta)
         )
     except ValidationError as exc:

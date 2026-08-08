@@ -56,9 +56,13 @@ def _key_token(value: _JSON_SCALAR) -> str:
 class Grain:
     """One closed aggregation grain, created through public helpers only."""
 
-    kind: Literal["builtin", "semantic"]
+    # ``kind`` defaults to builtin so the dependency-neutral value can also be
+    # consumed by the existing analysis execution helpers, which historically
+    # constructed ``Grain(unit=..., count=...)`` directly.  Public callers use
+    # ``builtin_grain`` or ``semantic_grain`` and never need to spell it.
+    kind: Literal["builtin", "semantic"] = "builtin"
     unit: str | None = None
-    count: int | None = None
+    count: int | None = 1
     calendar: Ref[PeriodCalendarKind] | None = None
     level: str | None = None
 
@@ -81,6 +85,83 @@ class Grain:
             return
         raise ValueError(f"unknown Grain kind {self.kind!r}")
 
+    @property
+    def is_subday(self) -> bool:
+        return self.kind == "builtin" and self.unit in {"second", "minute", "hour"}
+
+    @property
+    def is_day(self) -> bool:
+        return self.kind == "builtin" and self.unit == "day" and self.count == 1
+
+    def width_seconds(self) -> int:
+        """Return fixed width for builtin sub-day/day/week grains."""
+        if self.kind != "builtin" or self.unit not in {
+            "second",
+            "minute",
+            "hour",
+            "day",
+            "week",
+        }:
+            raise ValueError(
+                f"Grain.width_seconds() is undefined for calendar-variable grain {self!r}"
+            )
+        assert self.count is not None
+        return (
+            self.count
+            * {
+                "second": 1,
+                "minute": 60,
+                "hour": 3600,
+                "day": 86400,
+                "week": 7 * 86400,
+            }[self.unit]
+        )
+
+    def to_token(self) -> str:
+        """Return a stable display token for metadata and diagnostics."""
+        if self.kind == "builtin":
+            assert self.unit is not None and self.count is not None
+            return self.unit if self.count == 1 else f"{self.count}{self.unit}"
+        assert self.calendar is not None and self.level is not None
+        return f"{self.calendar.path}::{self.level}"
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        if self.kind != "builtin" or other.kind != "builtin":
+            raise TypeError("semantic Grain has no fixed rank")
+        assert self.unit is not None and other.unit is not None
+        ranks = {
+            "second": 0,
+            "minute": 1,
+            "hour": 2,
+            "day": 3,
+            "week": 4,
+            "month": 5,
+            "quarter": 6,
+            "year": 7,
+        }
+        if self.is_subday and other.is_subday:
+            return self.width_seconds() < other.width_seconds()
+        return ranks[self.unit] < ranks[other.unit]
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        if self.kind != "builtin" or other.kind != "builtin":
+            raise TypeError("semantic Grain has no fixed rank")
+        return other < self
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        return not self > other
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        return not self < other
+
     def __repr__(self) -> str:
         if self.kind == "builtin":
             assert self.unit is not None and self.count is not None
@@ -97,7 +178,7 @@ def builtin_grain(unit: str, *, count: int = 1) -> Grain:
 
 def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     """Create the semantic Grain variant behind ``ms.calendar_grain``."""
-    return Grain(kind="semantic", calendar=calendar, level=level)
+    return Grain(kind="semantic", unit=None, count=None, calendar=calendar, level=level)
 
 
 def period_calendar_definition_digest(
@@ -299,6 +380,109 @@ class TimeScope(BaseModel):
         # semantic provenance whenever it is present.
         kwargs.setdefault("exclude_none", True)
         return cast("dict[str, object]", super().model_dump(*args, **kwargs))
+
+
+class BuiltinPeriodBindingV1(BaseModel):
+    """Closed artifact identity for the built-in Gregorian/ISO authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["builtin_period"] = "builtin_period"
+    authority_id: Literal["builtin:gregorian-iso/v1"] = "builtin:gregorian-iso/v1"
+    level_name: str
+    boundary_timezone: str
+
+
+class SemanticPeriodBindingV1(BaseModel):
+    """Closed artifact identity for one certified semantic calendar level."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["semantic_period"] = "semantic_period"
+    calendar_ref: str
+    snapshot_digest: str
+    level_name: str
+
+
+PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
+TemporalAuthorityBindingV1 = PeriodBindingV1
+
+
+class FrameTemporalContractV1(BaseModel):
+    """Versioned temporal authority carried by an observed frame."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+    schema_: Literal["frame-temporal/v1"] = Field(
+        default="frame-temporal/v1",
+        alias="schema",
+        serialization_alias="schema",
+    )
+    time_scope: TimeScopeContractV1 | None = None
+    observation_period: PeriodBindingV1 | None = None
+    cumulative_reset_period: PeriodBindingV1 | None = None
+    actual_start: date | datetime | None = None
+    actual_end: date | datetime | None = None
+    output_period_keys: tuple[_JSON_SCALAR, ...] = ()
+    display_timezone: str
+
+    @model_validator(mode="after")
+    def _validate_contract(self) -> FrameTemporalContractV1:
+        if (self.actual_start is None) != (self.actual_end is None):
+            raise ValueError("frame temporal bounds must be provided together")
+        if (
+            self.actual_start is not None
+            and self.actual_end is not None
+            and (
+                type(self.actual_start) is not type(self.actual_end)
+                or self.actual_start >= self.actual_end
+            )
+        ):
+            raise ValueError("frame temporal bounds must be one non-empty half-open interval")
+        if not self.display_timezone:
+            raise ValueError("frame temporal contract requires display_timezone")
+        return self
+
+
+def period_binding_for_grain(
+    grain: Grain | Any,
+    *,
+    snapshot: PeriodCalendarSnapshotV1 | None,
+    boundary_timezone: str,
+) -> PeriodBindingV1:
+    """Resolve a unified Grain to its closed persisted authority binding."""
+    # The public analysis window still carries its dependency-local Pydantic
+    # ``analysis.windows.grain.Grain`` for builtin inputs.  Keep this
+    # dependency-neutral helper as the single authority by accepting that
+    # shape at the boundary and lowering it to the same builtin binding.
+    if not isinstance(grain, Grain):
+        unit = getattr(grain, "unit", None)
+        count = getattr(grain, "count", None)
+        if not isinstance(unit, str) or not isinstance(count, int):
+            raise TypeError("period binding requires a Grain value")
+        return BuiltinPeriodBindingV1(
+            level_name=unit if count == 1 else f"{count}{unit}",
+            boundary_timezone=boundary_timezone,
+        )
+    if grain.kind == "builtin":
+        return BuiltinPeriodBindingV1(
+            level_name=grain.to_token(),
+            boundary_timezone=boundary_timezone,
+        )
+    if snapshot is None or grain.calendar is None or grain.level is None:
+        raise ValueError("semantic Grain requires its certified snapshot for a period binding")
+    if snapshot.calendar_ref != grain.calendar:
+        raise ValueError("semantic Grain and snapshot calendar refs do not match")
+    return SemanticPeriodBindingV1(
+        calendar_ref=grain.calendar.path,
+        snapshot_digest=snapshot.snapshot_digest,
+        level_name=grain.level,
+    )
 
 
 def _scope_bound_text(value: str | datetime | date) -> str:

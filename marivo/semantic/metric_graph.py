@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic._expression_binding import ExpressionBindingV1
 from marivo.semantic.ir import AggKind, AggregateFoldInput
@@ -42,7 +43,7 @@ class CanonicalSliceEntryV1:
 type CanonicalSlice = tuple[CanonicalSliceEntryV1, ...]
 type CumulativeAnchorV1 = (
     Literal["all_history"]
-    | tuple[Literal["grain_to_date"], str]
+    | tuple[Literal["grain_to_date"], str | TemporalGrain]
     | tuple[Literal["trailing"], int, str]
 )
 

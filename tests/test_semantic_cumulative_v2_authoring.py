@@ -81,6 +81,37 @@ def test_grain_to_date_accepts_reset_grains(grain):
     assert ms.grain_to_date(grain=grain).grain == grain
 
 
+def test_grain_to_date_preserves_semantic_grain_identity():
+    fiscal_month = ms.calendar_grain(
+        calendar=ms.ref.period_calendar("sales.fiscal"),
+        level="fiscal_month",
+    )
+    authored = ms.grain_to_date(grain=fiscal_month)
+
+    assert authored.grain is fiscal_month
+    same_calendar = _compute_composition_hash(
+        CumulativeComposition(
+            base="sales.gmv",
+            over="sales.events.event_time",
+            anchor=("grain_to_date", fiscal_month),
+        )
+    )
+    other_calendar = _compute_composition_hash(
+        CumulativeComposition(
+            base="sales.gmv",
+            over="sales.events.event_time",
+            anchor=(
+                "grain_to_date",
+                ms.calendar_grain(
+                    calendar=ms.ref.period_calendar("sales.retail"),
+                    level="fiscal_month",
+                ),
+            ),
+        )
+    )
+    assert same_calendar != other_calendar
+
+
 def test_trailing_returns_frozen_value_object():
     obj = ms.trailing(count=7, unit="day")
     assert isinstance(obj, Trailing)

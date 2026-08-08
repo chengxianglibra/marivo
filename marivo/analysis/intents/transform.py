@@ -16,6 +16,16 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+from marivo._temporal import (
+    FrameTemporalContractV1,
+    PeriodCalendarSnapshotV1,
+    SemanticPeriodBindingV1,
+    TemporalResolver,
+    period_binding_for_grain,
+)
+from marivo._temporal import (
+    Grain as TemporalGrain,
+)
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,
@@ -89,6 +99,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.metric_graph_canonical import fingerprint
 
 TransformFrame = MetricFrame | DeltaFrame
+RollupGrain = str | TemporalGrain
 RankMethod = Literal["ordinal", "dense", "min", "max"]
 NormalizeKind = Literal["index", "share", "pct_change", "per_unit", "z_score"]
 NormalizeBaseline = dict[str, str | int | float | bool | None]
@@ -224,6 +235,7 @@ def _finish_transform[TTransformFrame: TransformFrame](
             normalization=meta_overrides.get("normalization"),
             window=meta_overrides.get("window"),
             analysis_purpose=analysis_purpose,
+            temporal_contract=meta_overrides.get("temporal_contract"),
         ),
     )
     coverage_df = meta_overrides.get("coverage_df")
@@ -409,7 +421,7 @@ def transform_rollup[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
     drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
-    grain: str | None = None,
+    grain: RollupGrain | None = None,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     if drop_axes is None and grain is None:
@@ -424,7 +436,12 @@ def transform_rollup[TTransformFrame: TransformFrame](
     )
     started_at = datetime.now(UTC)
     started_monotonic = monotonic()
-    new_df, meta_overrides, op_params = _op_rollup(prepared, drop_axes=drop_axis_ids, grain=grain)
+    new_df, meta_overrides, op_params = _op_rollup(
+        prepared,
+        drop_axes=drop_axis_ids,
+        grain=grain,
+        catalog=session.catalog,
+    )
     return _finish_transform(
         session=session,
         parent=prepared,
@@ -1805,7 +1822,8 @@ def _op_rollup(
     frame: TransformFrame,
     *,
     drop_axes: list[str] | None,
-    grain: str | None,
+    grain: RollupGrain | None,
+    catalog: Any | None = None,
 ) -> _TransformHandlerResult:
     reaggregatable = getattr(frame.meta, "reaggregatable", True)
     rollup_fold = getattr(frame.meta, "rollup_fold", None)
@@ -1818,6 +1836,13 @@ def _op_rollup(
         )
 
     if grain is not None:
+        if isinstance(grain, TemporalGrain):
+            return _op_rollup_semantic_grain(
+                frame,
+                grain=grain,
+                rollup_fold=rollup_fold,
+                catalog=catalog,
+            )
         return _op_rollup_grain(frame, grain=grain, rollup_fold=rollup_fold)
 
     if not drop_axes:
@@ -2057,6 +2082,312 @@ def _grain_period_end(start: pd.Timestamp, grain: str) -> pd.Timestamp:
     raise ValueError(f"unsupported rollup grain for period end: {grain!r}")
 
 
+def _semantic_rollup_snapshot(
+    frame: TransformFrame,
+    *,
+    grain: TemporalGrain,
+    catalog: Any | None,
+) -> tuple[PeriodCalendarSnapshotV1, TemporalResolver, str, FrameTemporalContractV1]:
+    """Load and validate the one certified authority used by semantic roll-up."""
+    if grain.kind != "semantic" or grain.calendar is None or grain.level is None:
+        raise TransformArgError(
+            message="semantic roll-up requires a semantic Grain value",
+            context={"op": "rollup", "grain": repr(grain)},
+        )
+    if catalog is None:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires the active catalog authority",
+            hint="Re-run rollup through the owning analysis session.",
+            context={"op": "rollup", "reason": "temporal_catalog_missing"},
+        )
+    try:
+        snapshot = catalog.period_calendars.get(grain.calendar.path)._snapshot()
+    except Exception as exc:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires a current certified period-calendar snapshot",
+            hint="Certify the referenced period calendar and re-observe the source frame.",
+            context={
+                "op": "rollup",
+                "reason": "temporal_snapshot_missing",
+                "calendar_ref": grain.calendar.path,
+                "level": grain.level,
+            },
+        ) from exc
+    contract = getattr(frame.meta, "temporal_contract", None)
+    binding = contract.observation_period if contract is not None else None
+    if not isinstance(binding, SemanticPeriodBindingV1):
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires a source frame with a semantic period binding",
+            hint="Observe the source metric with the same semantic Grain first.",
+            context={
+                "op": "rollup",
+                "reason": "cross_authority_rollup",
+                "source_binding": repr(binding),
+                "target_calendar_ref": grain.calendar.path,
+            },
+        )
+    if (
+        binding.calendar_ref != grain.calendar.path
+        or binding.snapshot_digest != snapshot.snapshot_digest
+    ):
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up authority does not match the source frame binding",
+            hint="Re-observe the source frame after the calendar snapshot changed.",
+            context={
+                "op": "rollup",
+                "reason": "temporal_binding_changed",
+                "source_calendar_ref": binding.calendar_ref,
+                "target_calendar_ref": grain.calendar.path,
+                "source_snapshot_digest": binding.snapshot_digest,
+                "target_snapshot_digest": snapshot.snapshot_digest,
+            },
+        )
+    resolver = TemporalResolver(snapshot)
+    source_level = binding.level_name
+    if not resolver.rolls_up_to(source_level, grain.level):
+        raise TransformShapeUnsupportedError(
+            message=(
+                f"semantic roll-up from level {source_level!r} to {grain.level!r} "
+                "is not admitted by the certified containment graph"
+            ),
+            hint="Choose a target level with a certified source-to-target containment edge.",
+            context={
+                "op": "rollup",
+                "reason": "rollup_not_certified",
+                "source_level": source_level,
+                "target_level": grain.level,
+                "calendar_ref": grain.calendar.path,
+            },
+        )
+    if contract is None:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up source frame is missing its temporal contract",
+            context={"op": "rollup", "reason": "temporal_contract_missing"},
+        )
+    return snapshot, resolver, source_level, contract
+
+
+def _semantic_rollup_period_rows(
+    frame: TransformFrame,
+    *,
+    grain: TemporalGrain,
+    snapshot: PeriodCalendarSnapshotV1,
+    resolver: TemporalResolver,
+    source_level: str,
+    rollup_fold: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """Roll one semantic time axis through certified period records."""
+    df = frame._dataframe_copy().reset_index(drop=True)
+    time_axis = _window_time_axis(frame, df)
+    time_col = time_axis.get("column")
+    if not isinstance(time_col, str) or time_col not in df.columns:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires a persisted time axis column",
+            context={"op": "rollup", "reason": "time_axis_missing"},
+        )
+    required = {"period_start", "period_end", "is_complete"}
+    if not required.issubset(df.columns):
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires certified source period completeness",
+            hint=("Re-observe the source frame so period bounds and is_complete are persisted."),
+            context={"op": "rollup", "reason": "source_period_completeness_missing"},
+        )
+    if not bool(df["is_complete"].all()):
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up requires complete source periods",
+            hint="Use an exact period TimeScope or re-observe a complete containing period.",
+            context={"op": "rollup", "reason": "incomplete_period"},
+        )
+    if df.empty:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up cannot infer target periods from an empty frame",
+            context={"op": "rollup", "reason": "empty_source"},
+        )
+
+    source_starts = pd.to_datetime(df["period_start"], errors="coerce").dt.date
+    source_ends = pd.to_datetime(df["period_end"], errors="coerce").dt.date
+    if source_starts.isna().any() or source_ends.isna().any():
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up encountered invalid certified source period bounds",
+            context={"op": "rollup", "reason": "source_period_bounds_invalid"},
+        )
+    records = []
+    for start, end in zip(source_starts, source_ends, strict=True):
+        try:
+            record = resolver.period_on(grain.level or "", start)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TransformShapeUnsupportedError(
+                message="source period falls outside the target calendar coverage",
+                context={"op": "rollup", "reason": "target_period_out_of_coverage"},
+            ) from exc
+        if start < record.start_date or end > record.end_date:
+            raise TransformShapeUnsupportedError(
+                message="source period is not contained in its target certified period",
+                context={
+                    "op": "rollup",
+                    "reason": "rollup_containment_violation",
+                    "source_level": source_level,
+                    "target_level": grain.level,
+                },
+            )
+        records.append(record)
+    df["_target_period_key"] = [record.key for record in records]
+    target_by_key = {record.key: record for record in records}
+
+    dims = [
+        axis["column"]
+        for axis in _frame_axes(frame).values()
+        if isinstance(axis, dict)
+        and axis.get("role") == "dimension"
+        and isinstance(axis.get("column"), str)
+        and axis["column"] in df.columns
+    ]
+    axis_columns = set(_axis_columns_by_id(_frame_axes(frame)).values())
+    axis_columns.update(
+        {
+            "period_key",
+            "period_start",
+            "period_end",
+            "period_ordinal",
+            "observed_start",
+            "observed_end",
+            "is_complete",
+        }
+    )
+    measure_columns = _rollup_measure_columns(frame, df, axis_columns | {"_target_period_key"})
+    if not measure_columns:
+        raise TransformShapeUnsupportedError(
+            message="semantic roll-up found no measure columns to aggregate",
+            context={"op": "rollup", "reason": "measure_columns_missing"},
+        )
+
+    group_keys = [*dims, "_target_period_key"]
+    # Complete coverage is a prerequisite for both additive and last-value
+    # roll-ups.  A sorted interval walk rejects gaps and overlaps instead of
+    # inferring completeness from min/max bounds alone.
+    for key, group in df.groupby(group_keys, dropna=False, sort=False):
+        record = target_by_key[cast("Any", key[-1] if isinstance(key, tuple) else key)]
+        intervals = sorted(
+            zip(
+                source_starts.loc[group.index],
+                source_ends.loc[group.index],
+                strict=True,
+            ),
+            key=lambda item: item[0],
+        )
+        cursor = record.start_date
+        for start, end in intervals:
+            if start != cursor or end <= start:
+                raise TransformShapeUnsupportedError(
+                    message="semantic roll-up requires complete, contiguous source periods",
+                    hint="Observe a scope containing complete certified source periods.",
+                    context={
+                        "op": "rollup",
+                        "reason": "incomplete_period",
+                        "target_period_key": record.key,
+                    },
+                )
+            cursor = end
+        if cursor != record.end_date:
+            raise TransformShapeUnsupportedError(
+                message="semantic roll-up target period is only partially covered",
+                hint="Use an exact period TimeScope or re-observe a complete containing period.",
+                context={
+                    "op": "rollup",
+                    "reason": "incomplete_period",
+                    "target_period_key": record.key,
+                },
+            )
+
+    if rollup_fold == "last":
+        selected = (
+            df.assign(_source_end=source_ends)
+            .sort_values([*dims, "_target_period_key", "_source_end"])
+            .groupby(group_keys, dropna=False, sort=False)
+            .tail(1)
+            .reset_index(drop=True)
+        )
+        selected[time_col] = selected["_target_period_key"].map(
+            lambda key: target_by_key[key].start_date
+        )
+        new_df = selected.drop(columns=["_target_period_key", "_source_end"], errors="ignore")
+    else:
+        new_df = (
+            df.groupby(group_keys, as_index=False, dropna=False)[measure_columns]
+            .sum(min_count=1)
+            .rename(columns={"_target_period_key": "period_key"})
+        )
+        new_df[time_col] = new_df["period_key"].map(lambda key: target_by_key[key].start_date)
+
+    key_values = new_df[time_col].map(
+        lambda value: resolver.period_on(grain.level or "", pd.Timestamp(value).date())
+    )
+    new_df["period_key"] = [record.key for record in key_values]
+    new_df["period_start"] = [record.start_date for record in key_values]
+    new_df["period_end"] = [record.end_date for record in key_values]
+    new_df["period_ordinal"] = [record.global_ordinal for record in key_values]
+    new_df["observed_start"] = new_df["period_start"]
+    new_df["observed_end"] = new_df["period_end"]
+    new_df["is_complete"] = True
+    new_df = new_df.sort_values([*dims, time_col]).reset_index(drop=True)
+
+    new_axes = copy.deepcopy(_frame_axes(frame))
+    for axis in new_axes.values():
+        if isinstance(axis, dict) and axis.get("role") == "time":
+            axis["grain"] = grain.to_token()
+            axis["column"] = time_col
+    new_contract = getattr(frame.meta, "temporal_contract", None)
+    assert isinstance(new_contract, FrameTemporalContractV1)
+    target_binding = period_binding_for_grain(
+        grain,
+        snapshot=snapshot,
+        boundary_timezone=snapshot.boundary_timezone,
+    )
+    new_contract = new_contract.model_copy(
+        update={
+            "observation_period": target_binding,
+            "output_period_keys": tuple(new_df["period_key"].tolist()),
+        }
+    )
+    if isinstance(frame, DeltaFrame):
+        _recompute_delta_pct_change(new_df)
+    return (
+        new_df,
+        {
+            "axes": new_axes,
+            "semantic_kind": _semantic_kind_from_axes(new_axes),
+            "temporal_contract": new_contract,
+        },
+        {
+            "op": "rollup",
+            "grain": grain.to_token(),
+            "temporal_contract": new_contract.model_dump(mode="json"),
+        },
+    )
+
+
+def _op_rollup_semantic_grain(
+    frame: TransformFrame,
+    *,
+    grain: TemporalGrain,
+    rollup_fold: str | None,
+    catalog: Any | None,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    snapshot, resolver, source_level, _contract = _semantic_rollup_snapshot(
+        frame,
+        grain=grain,
+        catalog=catalog,
+    )
+    return _semantic_rollup_period_rows(
+        frame,
+        grain=grain,
+        snapshot=snapshot,
+        resolver=resolver,
+        source_level=source_level,
+        rollup_fold=rollup_fold,
+    )
+
+
 def _op_rollup_grain(
     frame: TransformFrame,
     *,
@@ -2254,6 +2585,7 @@ def _persist_transform_frame(
     normalization: dict[str, Any] | None = None,
     window: dict[str, Any] | None = None,
     analysis_purpose: str | None = None,
+    temporal_contract: FrameTemporalContractV1 | None = None,
 ) -> MetricFrame | DeltaFrame:
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
@@ -2335,6 +2667,8 @@ def _persist_transform_frame(
         meta_payload["alignment"] = alignment
     if normalization is not None:
         meta_payload["normalization"] = normalization
+    if temporal_contract is not None:
+        meta_payload["temporal_contract"] = temporal_contract
     if window is not None and isinstance(parent, MetricFrame):
         meta_payload["window"] = window
     if axes is not None and isinstance(parent, MetricFrame):

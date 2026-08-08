@@ -2,23 +2,92 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
+
 import ibis
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis._cumulative import EVALUATION_END_COLUMN
 from marivo.analysis.errors import (
     AttributeAdmissionBlockedError,
     CumulativeFrameUnsupportedError,
+    TransformShapeUnsupportedError,
 )
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
+from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
+
+
+def _fiscal_analysis_project_files() -> dict[str, str]:
+    return {
+        "sales/_domain.py": (
+            "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
+        ),
+        "sales/calendar.py": (
+            "import marivo.datasource as md\n"
+            "import marivo.semantic as ms\n"
+            "calendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'), source=md.table('calendar'))\n"
+            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date', granularity='day')\n"
+            "fiscal_week = ms.dimension_column(name='fiscal_week', entity=calendar, column='fiscal_week')\n"
+            "fiscal_month = ms.dimension_column(name='fiscal_month', entity=calendar, column='fiscal_month')\n"
+            "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
+        ),
+        "sales/metrics.py": (
+            "import marivo.datasource as md\n"
+            "import marivo.semantic as ms\n"
+            "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
+            "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
+            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
+            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
+            "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
+            "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
+            "fiscal_mtd = ms.cumulative(name='fiscal_mtd', base=gmv, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+            "fiscal_active_users = ms.cumulative(name='fiscal_active_users', base=active_users, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+        ),
+    }
+
+
+def _fiscal_calendar_evidence(project_root):
+    rows: list[tuple[str, str, str]] = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    return DiscoverySnapshot(
+        id="fiscal-calendar-analysis",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("calendar"),
+        scope=md.unpruned(max_rows=len(rows), timeout_seconds=30),
+        columns=("calendar_date", "fiscal_week", "fiscal_month"),
+        schema_fingerprint="fiscal-calendar-analysis-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=len(rows),
+            retained_row_count=len(rows),
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=project_root,
+        retained_values=tuple(rows),
+    )
 
 
 def _metric_pandas(frame):
@@ -111,6 +180,114 @@ def _session(tmp_path, monkeypatch):
     return session_attach.get_or_create(
         name="cum", backends={"warehouse": lambda: con}, report_timezone="UTC"
     )
+
+
+def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = semantic_project_factory(_fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=_fiscal_calendar_evidence(project.workspace_dir))
+
+    session = mv.session.get_or_create(
+        name="fiscal-analysis",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    metric = session.catalog.require(ms.ref.metric("sales.fiscal_mtd")).ref
+    semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    frame = session.observe(
+        metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=semantic_week,
+    )
+
+    result = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert result["period_key"].tolist() == [
+        "M1-W1",
+        "M1-W2",
+        "M1-W3",
+        "M1-W4",
+        "M1-W5",
+        "M2-W1",
+        "M2-W2",
+        "M2-W3",
+        "M2-W4",
+    ]
+    assert result["fiscal_mtd"].tolist() == pytest.approx([10, 30, 30, 30, 30, 30, 70, 70, 70])
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.observation_period is not None
+    assert frame.meta.temporal_contract.observation_period.kind == "semantic_period"
+    assert frame.contract().temporal_contract == frame.meta.temporal_contract
+
+    distinct_metric = session.catalog.require(ms.ref.metric("sales.fiscal_active_users")).ref
+    distinct_frame = session.observe(
+        distinct_metric,
+        time_scope={"start": "2026-01-01", "end": "2026-03-01"},
+        grain=semantic_week,
+    )
+    distinct_result = distinct_frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert distinct_result["fiscal_active_users"].tolist() == pytest.approx(
+        [1, 1, 1, 1, 1, 1, 2, 2, 2]
+    )
+
+    month_scope = session.catalog.period_calendars.get("sales.fiscal").period("fiscal_month", "M1")
+    scoped = session.observe(metric, time_scope=month_scope, grain=semantic_week)
+    assert scoped.meta.temporal_contract is not None
+    assert scoped.meta.temporal_contract.time_scope is not None
+    assert scoped.meta.temporal_contract.time_scope.kind == "calendar_period"
+    assert scoped.meta.temporal_contract.time_scope.calendar_ref == "sales.fiscal"
+
+    semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
+    partial = session.observe(
+        metric,
+        time_scope={"start": "2026-01-02", "end": "2026-02-01"},
+        grain=semantic_week,
+    )
+    partial_df = partial.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert partial_df.loc[0, "period_start"] == date(2026, 1, 1)
+    assert partial_df.loc[0, "period_end"] == date(2026, 1, 8)
+    assert partial_df.loc[0, "observed_start"] == date(2026, 1, 2)
+    assert partial_df.loc[0, "observed_end"] == date(2026, 1, 8)
+    assert not bool(partial_df.loc[0, "is_complete"])
+    with pytest.raises(TransformShapeUnsupportedError, match="complete source periods"):
+        partial.transform.rollup(grain=semantic_month)
+
+    rolled = frame.transform.rollup(grain=semantic_month)
+    rolled_df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert rolled_df["period_key"].tolist() == ["M1", "M2"]
+    assert rolled_df["fiscal_mtd"].tolist() == pytest.approx([30, 70])
+    assert rolled.meta.temporal_contract is not None
+    assert rolled.meta.temporal_contract.observation_period.level_name == "fiscal_month"
+    recovered = session.get_frame(rolled.ref)
+    assert recovered.meta.temporal_contract == rolled.meta.temporal_contract
+    with pytest.raises(TransformShapeUnsupportedError, match="supported grain"):
+        frame.transform.rollup(grain="month")
 
 
 def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(

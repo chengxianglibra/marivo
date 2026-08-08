@@ -651,7 +651,9 @@ def _build_registry() -> CapabilityRegistry:
             help_target="observe",
             summary=(
                 "Materialize exact current-catalog entries/refs or closed runtime "
-                "metric expressions through one bounded graph into a typed MetricFrame."
+                "metric expressions through one bounded graph into a typed MetricFrame; "
+                "grain accepts builtin mv.grain(...) values or certified semantic "
+                "ms.calendar_grain(...) values."
             ),
             root_group="artifact_production",
             root_visibility="direct",
@@ -1382,7 +1384,8 @@ def _build_registry() -> CapabilityRegistry:
         ),
         (
             "rollup",
-            "Aggregate by dropping axes or re-bucketing time.",
+            "Aggregate by dropping axes or re-bucketing time; certified semantic "
+            "Grain roll-ups require containment and complete source periods.",
             _MF_OR_DF,
             {"drop_axes": _FIELD_SEMANTIC},
         ),

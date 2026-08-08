@@ -8,7 +8,7 @@ identity, or authored-anchor provenance.  Those remain with observe/compare.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -282,7 +282,7 @@ def _bridge_grain_for_source(
         if grain is None:
             raise ValueError("cumulative observation query grain is missing")
         return CumulativeBridgeGrainV1(
-            grain=grain,
+            grain=cast("Any", grain),
             report_timezone=report_timezone,
             origin="observation_query_grain",
         )
@@ -291,7 +291,7 @@ def _bridge_grain_for_source(
         if grain is None:
             raise ValueError("cumulative over-axis granularity is missing")
         return CumulativeBridgeGrainV1(
-            grain=grain,
+            grain=cast("Any", grain),
             report_timezone=report_timezone,
             origin="over_declared_granularity",
         )

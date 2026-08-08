@@ -169,16 +169,14 @@ def parse_grain_token(text: str) -> Grain:
     return Grain(count=count, unit=unit)  # type: ignore[arg-type]
 
 
-def normalize_grain(value: GrainInput) -> Grain | None:
+def normalize_grain(value: GrainInput) -> Grain | TemporalGrain | None:
     if value is None:
         return None
     if isinstance(value, Grain):
         return value
     if isinstance(value, TemporalGrain):
-        if value.kind != "builtin":
-            raise TypeError(
-                "semantic calendar Grain is not admitted to analysis execution until temporal Slice 2"
-            )
+        if value.kind == "semantic":
+            return value
         assert value.unit is not None and value.count is not None
         return Grain(count=value.count, unit=value.unit)  # type: ignore[arg-type]
     if isinstance(value, str):
@@ -191,7 +189,15 @@ def normalize_grain(value: GrainInput) -> Grain | None:
     raise TypeError(f"unsupported grain input type {type(value).__name__}")
 
 
-def ensure_grain_supported(grain: Grain, base_granularity: str) -> None:
+def ensure_grain_supported(grain: Grain | TemporalGrain, base_granularity: str) -> None:
+    # Semantic levels are day-or-coarser in V1. Their containment and source
+    # compatibility are proved by the certified snapshot, not by a fixed unit
+    # rank, so the caller must resolve the calendar before execution.
+    if isinstance(grain, TemporalGrain):
+        if grain.kind == "semantic":
+            return
+        assert grain.unit is not None and grain.count is not None
+        grain = Grain(count=grain.count, unit=grain.unit)  # type: ignore[arg-type]
     base = base_granularity
     if base not in _UNIT_RANK:
         supported = ", ".join(_SUPPORTED_GRANULARITIES)
