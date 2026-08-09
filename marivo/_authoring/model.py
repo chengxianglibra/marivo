@@ -83,6 +83,7 @@ TransitionKind = Literal[
     "preview",
     "readiness",
     "audit",
+    "use",
 ]
 TransitionInputRole = Literal[
     "receiver",

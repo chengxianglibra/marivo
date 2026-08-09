@@ -12,10 +12,13 @@ from marivo._temporal import (
     TemporalResolver,
     TemporalSetSnapshotStore,
     TimeScopeContractV1,
+    WorkScheduleSnapshotStore,
     certify_period_calendar,
     certify_period_calendar_rows,
     certify_temporal_set,
     certify_temporal_set_rows,
+    certify_work_schedule,
+    certify_work_schedule_rows,
     time_scope,
 )
 from marivo.refs import ref
@@ -402,6 +405,89 @@ def test_temporal_set_rows_reapply_time_dimension_parse_convention() -> None:
     assert snapshot.encoding == "date"
     assert snapshot.occurrences[0].start == date(2026, 1, 1)
     assert snapshot.occurrences[0].end == date(2026, 1, 3)
+
+
+def test_work_schedule_snapshot_is_order_independent_and_requires_complete_boolean_days() -> None:
+    kwargs = {
+        "work_schedule_ref": ref.work_schedule("sales.cn_schedule"),
+        "boundary_timezone": "Asia/Shanghai",
+        "coverage": (date(2026, 1, 1), date(2026, 1, 5)),
+        "date_column": "date",
+        "is_working": "is_working",
+    }
+    rows = [
+        {"date": date(2026, 1, 1), "is_working": False},
+        {"date": date(2026, 1, 2), "is_working": True},
+        # A makeup Saturday is an authored fact, not a derived weekday rule.
+        {"date": date(2026, 1, 3), "is_working": True},
+        {"date": date(2026, 1, 4), "is_working": False},
+    ]
+    first = certify_work_schedule(rows=rows, **kwargs)
+    second = certify_work_schedule(rows=reversed(rows), **kwargs)
+
+    assert first.snapshot_digest == second.snapshot_digest
+    assert first.working_dates == (date(2026, 1, 2), date(2026, 1, 3))
+    assert first.status_on(date(2026, 1, 3)) is True
+    with pytest.raises(ValueError, match="duplicate"):
+        certify_work_schedule(rows=[*rows, rows[0]], **kwargs)
+    with pytest.raises(ValueError, match="non-null booleans"):
+        certify_work_schedule(
+            rows=[
+                {**row, "is_working": None} if index == 1 else row for index, row in enumerate(rows)
+            ],
+            **kwargs,
+        )
+
+
+def test_work_schedule_rows_reject_timestamp_dates_and_store_exact_history(tmp_path) -> None:
+    common = {
+        "work_schedule_ref": ref.work_schedule("sales.cn_schedule"),
+        "boundary_timezone": "UTC",
+        "coverage": (date(2026, 1, 1), date(2026, 1, 3)),
+        "columns": ("date", "is_working"),
+        "date_column": "date",
+        "is_working": "is_working",
+    }
+    with pytest.raises(ValueError, match="civil dates"):
+        certify_work_schedule_rows(
+            retained_values=(("2026-01-01T00:00:00Z", True), ("2026-01-02", False)),
+            **common,
+        )
+
+    first = certify_work_schedule(
+        work_schedule_ref=common["work_schedule_ref"],
+        boundary_timezone="UTC",
+        coverage=common["coverage"],
+        rows=[
+            {"date": date(2026, 1, 1), "is_working": True},
+            {"date": date(2026, 1, 2), "is_working": False},
+        ],
+        date_column="date",
+        is_working="is_working",
+    )
+    second = certify_work_schedule(
+        work_schedule_ref=common["work_schedule_ref"],
+        boundary_timezone="UTC",
+        coverage=common["coverage"],
+        rows=[
+            {"date": date(2026, 1, 1), "is_working": False},
+            {"date": date(2026, 1, 2), "is_working": True},
+        ],
+        date_column="date",
+        is_working="is_working",
+    )
+    store = WorkScheduleSnapshotStore(tmp_path)
+    store.publish(first, definition_digest="definition-1")
+    store.publish(second, definition_digest="definition-2")
+    status, current = store.inspect_current(
+        common["work_schedule_ref"], definition_digest="definition-2"
+    )
+    assert status == "current"
+    assert current == second
+    assert (
+        store.load_exact(common["work_schedule_ref"], snapshot_digest=first.snapshot_digest)
+        == first
+    )
 
 
 def test_temporal_set_loader_rejects_mixed_start_end_time_encodings(

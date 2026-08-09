@@ -34,6 +34,7 @@ from marivo.semantic.ir import (
     MeasureIR,
     MetricIR,
     PeriodCalendarIR,
+    WorkScheduleIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext, loader_context
 
@@ -2754,3 +2755,23 @@ def test_period_calendar_authoring_pushes_typed_declaration() -> None:
     assert isinstance(pending.definition, PeriodCalendarIR)
     assert pending.definition.levels == (("week", "sales.calendar.fiscal_week"),)
     assert pending.definition.correspondences == (("prior", "week", "sales.calendar.prior_week"),)
+
+
+def test_work_schedule_authoring_pushes_typed_declaration() -> None:
+    ctx = LoaderContext(default_domain="sales")
+    with loader_context(ctx):
+        schedule = ms.work_schedule(
+            name="sales_schedule",
+            date=ref_factory.time_dimension("sales.calendar.calendar_date"),
+            is_working=ref_factory.dimension("sales.calendar.is_working"),
+            boundary_timezone="Asia/Shanghai",
+            coverage=(date(2026, 1, 1), date(2026, 1, 5)),
+        )
+
+    assert schedule == ref_factory.work_schedule("sales.sales_schedule")
+    pending = ctx.pending_definitions[-1]
+    assert isinstance(pending, PendingDefinition)
+    assert isinstance(pending.definition, WorkScheduleIR)
+    assert pending.definition.date == "sales.calendar.calendar_date"
+    assert pending.definition.is_working == "sales.calendar.is_working"
+    assert pending.definition.coverage == ("2026-01-01", "2026-01-05")

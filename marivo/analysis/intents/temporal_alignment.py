@@ -1464,24 +1464,24 @@ def _schedule_scope_days(
         )
     start = _local_datetime(scope.start, timezone=snapshot.boundary_timezone)
     end = _local_datetime(scope.end, timezone=snapshot.boundary_timezone)
-    if start.time() != time.min or end.time() != time.min:
+    if end <= start:
         raise AlignmentPolicyNotApplicableError(
-            message="working_day_progress requires whole effective local days",
-            expected="scope bounds at local midnight for the schedule boundary timezone",
+            message="working_day_progress requires a non-empty effective local-day interval",
+            expected="a non-empty half-open scope",
             received=f"start={start.isoformat()}, end={end.isoformat()}",
-            context={"kind": "TemporalScopeSubDay", "frame_ref": frame.ref},
+            context={"kind": "TemporalScopeEmpty", "frame_ref": frame.ref},
         )
     start_date = start.date()
-    end_date = end.date()
+    last_date = end.date() - timedelta(days=1) if end.time() == time.min else end.date()
     coverage_start, coverage_end = snapshot.coverage
-    if start_date < coverage_start or end_date > coverage_end or start_date >= end_date:
+    if start_date < coverage_start or last_date >= coverage_end or last_date < start_date:
         raise AlignmentPolicyNotApplicableError(
             message="working_day_progress scope is outside work-schedule coverage",
             expected=(
                 f"[{coverage_start.isoformat()}, {coverage_end.isoformat()}) in "
                 f"{snapshot.boundary_timezone}"
             ),
-            received=f"[{start_date.isoformat()}, {end_date.isoformat()})",
+            received=f"[{start_date.isoformat()}, {(last_date + timedelta(days=1)).isoformat()})",
             context={
                 "kind": "WorkScheduleCoverageMissing",
                 "work_schedule_ref": snapshot.work_schedule_ref.path,
@@ -1489,7 +1489,7 @@ def _schedule_scope_days(
             },
         )
     days = tuple(
-        start_date + timedelta(days=index) for index in range((end_date - start_date).days)
+        start_date + timedelta(days=index) for index in range((last_date - start_date).days + 1)
     )
     return days, snapshot.boundary_timezone
 

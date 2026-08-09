@@ -1311,3 +1311,106 @@ named_campaigns = ms.temporal_set(
     )
     after = catalog.readiness(refs=[temporal_set_ref])
     assert not any(issue.kind == "temporal_set_snapshot_missing" for issue in after.blockers)
+
+
+def test_work_schedule_preview_certifies_authored_statuses_and_preserves_current_snapshot(
+    semantic_project_factory, tmp_path: Path, query_spy: _QuerySpy
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/calendar.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.table("calendar"))
+calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date", granularity="day")
+is_working = ms.dimension_column(name="is_working", entity=calendar, column="is_working")
+schedule = ms.work_schedule(
+    name="sales_schedule", date=calendar_date, is_working=is_working,
+    boundary_timezone="Asia/Shanghai",
+    coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)),
+)
+""",
+        }
+    )
+    catalog = SemanticCatalog(project)
+    snapshot = DiscoverySnapshot(
+        id="schedule-evidence-v1",
+        datasource=ref.datasource("warehouse"),
+        source=md.table("calendar"),
+        scope=md.unpruned(max_rows=4, timeout_seconds=30),
+        columns=("calendar_date", "is_working"),
+        schema_fingerprint="schedule-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=4,
+            retained_row_count=4,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=tmp_path,
+        retained_values=(
+            ("2026-01-01", False),  # statutory holiday
+            ("2026-01-02", True),
+            ("2026-01-03", True),  # makeup Saturday
+            ("2026-01-04", False),  # weekend
+        ),
+    )
+    schedule_ref = ms.ref.work_schedule("sales.sales_schedule")
+
+    before = catalog.readiness(refs=[schedule_ref])
+    assert any(issue.kind == "work_schedule_snapshot_missing" for issue in before.blockers)
+    assert catalog.verify(schedule_ref).kind == "work_schedule"
+
+    query_spy.user_data_queries = 0
+    preview = catalog.preview(schedule_ref, using=snapshot)
+    assert query_spy.user_data_queries == 0
+    assert preview.rows == (
+        {"date": "2026-01-01", "is_working": False},
+        {"date": "2026-01-02", "is_working": True},
+        {"date": "2026-01-03", "is_working": True},
+        {"date": "2026-01-04", "is_working": False},
+    )
+    entry = catalog.work_schedules.get(schedule_ref)
+    assert entry.details().snapshot_status == "current"
+    assert entry.details().coverage == (date(2026, 1, 1), date(2026, 1, 5))
+    assert catalog.domains.get("sales").work_schedules.get(schedule_ref) == entry
+    schedule_contract = entry.contract()
+    schedule_use = next(
+        transition
+        for transition in schedule_contract.transitions
+        if transition.help_target.surface == "analysis"
+        and transition.help_target.canonical_id == "working_day_progress"
+    )
+    assert schedule_use.kind == "use"
+    assert schedule_use.available is True
+    assert "mv.working_day_progress(schedule=entry" in entry.render()
+    assert not any(
+        issue.kind == "work_schedule_snapshot_missing"
+        for issue in catalog.readiness(refs=[schedule_ref]).blockers
+    )
+
+    malformed = replace(snapshot, retained_values=snapshot.retained_values[:-1])
+    with pytest.raises(SemanticRuntimeError) as malformed_preview:
+        catalog.preview(schedule_ref, using=malformed)
+    assert malformed_preview.value.kind == "materialize_failed"
+    assert entry.details().snapshot_status == "current"
+
+    schedule_path = tmp_path / "models" / "semantic" / "sales" / "calendar.py"
+    schedule_path.write_text(
+        schedule_path.read_text(encoding="utf-8").replace(
+            'column="is_working"', 'column="final_is_working"'
+        ),
+        encoding="utf-8",
+    )
+    project.load()
+    changed_entry = SemanticCatalog(project).work_schedules.get(schedule_ref)
+    assert changed_entry.details().snapshot_status == "stale"

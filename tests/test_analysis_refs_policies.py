@@ -17,6 +17,7 @@ from marivo.analysis.policies import (
     period_correspondence,
     period_progress,
     window_bucket,
+    working_day_progress,
 )
 from marivo.analysis.refs import ArtifactRef
 
@@ -58,6 +59,7 @@ def test_alignment_helpers_have_exact_closed_payloads():
         period_progress(unmatched="drop"),
         period_correspondence(correspondence="prior_year_shifted"),
         occurrence_progress(anchor="end", unmatched="drop"),
+        working_day_progress(schedule=ms.ref.work_schedule("sales.cn_schedule"), unmatched="drop"),
     ]
     assert [policy.kind for policy in policies] == [
         "window_bucket",
@@ -66,6 +68,7 @@ def test_alignment_helpers_have_exact_closed_payloads():
         "period_progress",
         "period_correspondence",
         "occurrence_progress",
+        "working_day_progress",
     ]
     assert policies[0].model_dump(mode="json") == {
         "kind": "window_bucket",
@@ -80,6 +83,11 @@ def test_alignment_helpers_have_exact_closed_payloads():
         "anchor": "end",
         "unmatched": "drop",
     }
+    assert policies[6].model_dump(mode="json") == {
+        "kind": "working_day_progress",
+        "schedule_ref": "sales.cn_schedule",
+        "unmatched": "drop",
+    }
 
 
 @pytest.mark.parametrize(
@@ -92,6 +100,8 @@ def test_alignment_helpers_have_exact_closed_payloads():
         (occurrence_progress, {"anchor": "middle"}),
         (occurrence_progress, {"anchor": []}),
         (occurrence_progress, {"unmatched": []}),
+        (working_day_progress, {"schedule": {}}),
+        (working_day_progress, {"schedule": ms.ref.metric("sales.revenue")}),
     ],
 )
 def test_alignment_helpers_reject_invalid_arguments(factory, kwargs):
