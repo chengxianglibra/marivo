@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict
 
+from marivo._temporal import FrameTemporalContractV1
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 
@@ -23,13 +24,14 @@ class ForecastFrameMeta(BaseFrameMeta):
     history_window: dict[str, Any]
     forecast_window: dict[str, Any]
     horizon: int
-    horizon_unit: Literal["day", "week", "month", "quarter"]
+    horizon_unit: str
     model: Literal["naive", "seasonal_naive", "drift"]
     seasonality_period: int | None
     interval_level: float
     interval_method: Literal["normal_residual"]
     train_row_count_per_segment: dict[str, int]
     segment_dimensions: list[str]
+    temporal_contract: FrameTemporalContractV1 | None = None
 
 
 @dataclass(repr=False)

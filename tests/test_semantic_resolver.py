@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import ibis
 import pytest
@@ -233,6 +233,60 @@ def test_gregorian_iso_resolver_uses_half_open_period_before_without_epsilon() -
         date(2026, 2, 1),
         "2026-01",
     )
+
+
+def test_gregorian_iso_resolver_matches_stdlib_across_wide_range() -> None:
+    resolver = GregorianIsoResolver()
+    dates = [
+        date(year, month, day)
+        for year in range(1995, 2036)
+        for month, day in ((1, 1), (2, 28), (3, 1), (6, 30), (12, 31))
+    ]
+    for value in dates:
+        iso = value.isocalendar()
+        week = resolver.period_on("week", value)
+        assert week.key == f"{iso.year}-W{iso.week:02d}"
+        assert week.start_date == value - timedelta(days=value.weekday())
+        month = resolver.period_on("month", value)
+        assert month.key == f"{value.year}-{value.month:02d}"
+        quarter = resolver.period_on("quarter", value)
+        assert quarter.key == f"{value.year}-Q{((value.month - 1) // 3) + 1}"
+        year = resolver.period_on("year", value)
+        assert year.key == str(value.year)
+
+
+def test_53_week_fixture_requires_explicit_shifted_and_unshifted_correspondence() -> None:
+    start = date(2026, 1, 1)
+    end = start + timedelta(days=53 * 7)
+    rows = []
+    for offset in range((end - start).days):
+        week_number = offset // 7 + 1
+        rows.append(
+            {
+                "date": start + timedelta(days=offset),
+                "week": f"W{week_number:02d}",
+                "shifted": None if week_number == 1 else f"W{week_number - 1:02d}",
+                "unshifted": None if week_number == 53 else f"W{week_number + 1:02d}",
+            }
+        )
+
+    snapshot = certify_period_calendar(
+        calendar_ref=ref.period_calendar("sales.retail"),
+        boundary_timezone="UTC",
+        coverage=(start, end),
+        rows=rows,
+        levels={"week": "week"},
+        correspondences={
+            "shifted": ("week", "shifted"),
+            "unshifted": ("week", "unshifted"),
+        },
+    )
+    resolver = TemporalResolver(snapshot)
+    assert len(tuple(period for period in snapshot.periods if period.level_name == "week")) == 53
+    assert resolver.correspondence("shifted", "week", "W52") == "W51"
+    assert resolver.correspondence("unshifted", "week", "W52") == "W53"
+    assert resolver.correspondence("shifted", "week", "W01") is None
+    assert resolver.correspondence("unshifted", "week", "W53") is None
 
 
 def test_period_snapshot_keeps_day_derived_without_persisting_daily_records() -> None:

@@ -1319,29 +1319,36 @@ class Session(RenderableResult):
         measure_column: str | None = None,
         analysis_purpose: str | None = None,
     ) -> ForecastFrame:
-        """Project a time_series or panel MetricFrame forward by ``horizon`` buckets.
+        """Project a time_series or panel MetricFrame forward by ``horizon`` periods.
 
         When to use: project a time series forward; requires time_series or panel shape.
 
-        v1 requires continuous time buckets and no NaN values. Every panel series
-        must cover the same training buckets; forecast never treats a missing
-        segment bucket as zero. Impute or re-observe before forecasting.
-        ``seasonal_naive`` needs at least ``seasonality_period + 1`` training rows
-        per series.
+        Built-in day/week/month/quarter histories retain their fixed-calendar
+        behavior. A history observed with a certified semantic calendar uses
+        that exact period binding: periods must be complete, consecutive, and
+        shared by every panel series, while ``horizon`` counts certified period
+        ordinals and cannot exceed the snapshot's coverage. ``naive`` and
+        ``drift`` operate on ordinal steps; semantic ``seasonal_naive`` requires
+        an explicit ``seasonality_period > 1``. Forecast never treats a missing
+        segment period as zero, guesses a future boundary, or substitutes the
+        current snapshot for the history binding. Impute or re-observe before
+        forecasting.
 
         Args:
             history: A ``time_series`` or ``panel`` MetricFrame.
-            horizon: Number of buckets to project. Must be >= 1.
-            model: Forecast strategy. ``seasonal_naive`` defaults to the grain-typical period.
-            seasonality_period: Override for the seasonality period. Defaults by grain
-                (day=7, week=52, month=12, quarter=4).
+            horizon: Number of exact periods to project. Must be >= 1.
+            model: Forecast strategy. Semantic ``seasonal_naive`` needs an explicit
+                ``seasonality_period``.
+            seasonality_period: Seasonal ordinal distance. Built-in grains retain
+                defaults (day=7, week=52, month=12, quarter=4); semantic grains do not.
             interval_level: Confidence level for prediction intervals. Must be in (0, 1).
             measure_column: Public value column from ``history.value_columns``.
                 Defaults to the frame's unique metric value column.
 
         Raises:
             ForecastShapeUnsupportedError: ``history`` is not a time_series / panel MetricFrame,
-                or its grain is not in {day, week, month, quarter}.
+                its binding is unsupported or unavailable, its certified periods are
+                incomplete/non-consecutive, or the requested semantic horizon exceeds coverage.
             ForecastPolicyError: ``horizon`` or ``interval_level`` is out of range.
             ForecastInsufficientHistoryError: Not enough rows for the chosen model.
             ForecastInputQualityError: ``history`` contains NaN values or missing
@@ -1361,6 +1368,12 @@ class Session(RenderableResult):
             ...     analysis_purpose="预测未来 30 天收入走势",
             ... )
             >>> forecast.show()
+
+        Guidance:
+            A semantic history carries one exact certified period binding. ``naive``
+            and ``drift`` advance by period ordinal; ``seasonal_naive`` requires an
+            explicit ``seasonality_period > 1``. Re-observe complete consecutive
+            periods when a snapshot, key, boundary, or coverage check fails.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.forecast import forecast

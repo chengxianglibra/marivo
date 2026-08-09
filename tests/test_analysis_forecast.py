@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
+
 import ibis
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
+from marivo._temporal import (
+    TemporalResolver,
+    TemporalSnapshotStore,
+    certify_period_calendar,
+)
 from marivo.analysis.errors import (
     ForecastInputQualityError,
     ForecastInsufficientHistoryError,
@@ -16,6 +24,8 @@ from marivo.analysis.session._load import load_frame
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import (
+    fiscal_analysis_project_files,
+    fiscal_calendar_evidence,
     make_metric_frame,
     seeded_time_series_metric_frame,
 )
@@ -318,6 +328,29 @@ def test_forecast_errors_and_persistence(tmp_path):
     with pytest.raises(ForecastShapeUnsupportedError):
         session.forecast(scalar, horizon=1)
 
+    unsupported_grain = make_metric_frame(
+        pd.DataFrame(
+            {
+                "time": pd.date_range("2026-01-01", periods=2, freq="5min"),
+                "value": [1.0, 2.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "time", "grain": "5minute"}},
+        measure={"field": "value"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-02",
+            "grain": "5minute",
+            "time_dimension": "time",
+        },
+        session=session,
+    )
+    with pytest.raises(ForecastShapeUnsupportedError, match="does not support grain"):
+        session.forecast(unsupported_grain, horizon=1)
+
     with_nan = history._dataframe_copy()
     with_nan.loc[0, "value"] = None
     nan_frame = make_metric_frame(
@@ -351,3 +384,204 @@ def test_forecast_errors_and_persistence(tmp_path):
     loaded = load_frame(result.ref, session=session)
     assert loaded.meta.kind == "forecast_frame"
     assert loaded.lineage.steps[-1].intent == "forecast"
+
+
+def _fiscal_forecast_project_files() -> dict[str, str]:
+    files = fiscal_analysis_project_files()
+    files["sales/metrics.py"] += (
+        "\nregion = ms.dimension_column(name='region', entity=events, column='region')\n"
+    )
+    return files
+
+
+def _seed_fiscal_forecast_backend() -> ibis.BaseBackend:
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor = cursor + pd.Timedelta(days=1).to_pytimedelta()
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, region VARCHAR)")
+    event_rows = []
+    for index, (day, _week, _month) in enumerate(calendar_rows):
+        if (
+            index == 0
+            or day.endswith("01")
+            or day.endswith("08")
+            or day.endswith("15")
+            or day.endswith("22")
+            or day.endswith("29")
+        ):
+            event_rows.extend(
+                [
+                    f"(DATE '{day}', {index + 1}.0, 'US')",
+                    f"(DATE '{day}', {index + 2}.0, 'CA')",
+                ]
+            )
+    backend.raw_sql("INSERT INTO events VALUES " + ",".join(event_rows))
+    return backend
+
+
+def test_semantic_period_forecast_uses_certified_future_keys_and_contract(
+    semantic_project_factory, monkeypatch
+):
+    project = semantic_project_factory(_fiscal_forecast_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = _seed_fiscal_forecast_backend()
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = session_attach.get_or_create(
+        name="semantic-forecast",
+        backends={"warehouse": lambda: backend},
+        report_timezone="Asia/Shanghai",
+    )
+    history = session.observe(
+        session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+        grain=session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week"),
+    )
+
+    with pytest.raises(ForecastShapeUnsupportedError, match="explicit seasonality_period"):
+        session.forecast(history, horizon=1)
+
+    result = session.forecast(history, horizon=2, model="naive")
+    output = result.to_pandas()
+    assert result.meta.horizon_unit == "fiscal_week"
+    assert output["period_key"].tolist() == ["M2-W1", "M2-W2"]
+    assert output["period_start"].tolist() == [date(2026, 2, 1), date(2026, 2, 8)]
+    assert output["period_end"].tolist() == [date(2026, 2, 8), date(2026, 2, 15)]
+    assert output["period_ordinal"].tolist() == [5, 6]
+    assert output["is_complete"].tolist() == [True, True]
+    assert result.meta.temporal_contract is not None
+    assert result.meta.temporal_contract.observation_period is not None
+    assert result.meta.temporal_contract.observation_period.kind == "semantic_period"
+    assert result.meta.temporal_contract.output_period_keys == ("M2-W1", "M2-W2")
+    assert result.contract().temporal_contract == result.meta.temporal_contract
+
+
+def test_semantic_period_forecast_validates_panel_sequences_and_ordinal_models(
+    semantic_project_factory, monkeypatch
+):
+    project = semantic_project_factory(_fiscal_forecast_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = _seed_fiscal_forecast_backend()
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = session_attach.get_or_create(
+        name="semantic-forecast-panel", backends={"warehouse": lambda: backend}
+    )
+    history = session.observe(
+        session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+        grain=session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week"),
+        dimensions=[ms.ref.dimension("sales.events.region")],
+    )
+    drift = session.forecast(history, horizon=1, model="drift")
+    assert set(drift.to_pandas()["region"]) == {"CA", "US"}
+    assert drift.meta.train_row_count_per_segment == {"CA": 5, "US": 5}
+
+    seasonal = session.forecast(
+        history,
+        horizon=1,
+        model="seasonal_naive",
+        seasonality_period=2,
+    )
+    assert seasonal.meta.seasonality_period == 2
+
+    broken = history._dataframe_copy()
+    broken.loc[broken.index[0], "period_ordinal"] = 99
+    broken_frame = make_metric_frame(
+        broken,
+        metric_id="sales.gmv",
+        axes=history.meta.axes,
+        measure=history.meta.measure,
+        semantic_kind="panel",
+        semantic_model="sales",
+        window=None,
+        session=session,
+    )
+    broken_frame.meta = broken_frame.meta.model_copy(
+        update={"temporal_contract": history.meta.temporal_contract}
+    )
+    with pytest.raises(ForecastShapeUnsupportedError, match="does not match its snapshot"):
+        session.forecast(broken_frame, horizon=1, model="naive")
+
+
+def test_semantic_period_forecast_replays_exact_history_snapshot_without_datasource_reads(
+    semantic_project_factory, monkeypatch
+):
+    project = semantic_project_factory(_fiscal_forecast_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = _seed_fiscal_forecast_backend()
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    factory_calls: list[str] = []
+
+    def backend_factory():
+        factory_calls.append("warehouse")
+        return backend
+
+    session = session_attach.get_or_create(
+        name="semantic-forecast-recovery",
+        backends={"warehouse": backend_factory},
+    )
+    history = session.observe(
+        session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+        grain=session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week"),
+    )
+    calls_after_observe = len(factory_calls)
+    binding = history.meta.temporal_contract.observation_period
+    assert binding is not None
+    store = TemporalSnapshotStore(session.project_root)
+    original = store.load_exact(calendar_ref, snapshot_digest=binding.snapshot_digest)
+    resolver = TemporalResolver(original)
+    changed_until = resolver.period_on("fiscal_week", original.coverage[0]).end_date
+    changed_rows = []
+    for offset in range((original.coverage[1] - original.coverage[0]).days):
+        current_date = original.coverage[0] + pd.Timedelta(days=offset).to_pytimedelta()
+        row = {"date": current_date}
+        for level in ("fiscal_week", "fiscal_month"):
+            row[level] = resolver.period_on(level, current_date).key
+        if current_date < changed_until:
+            row["fiscal_week"] = f"{row['fiscal_week']}-changed"
+        changed_rows.append(row)
+    changed = certify_period_calendar(
+        calendar_ref=calendar_ref,
+        boundary_timezone=original.boundary_timezone,
+        coverage=original.coverage,
+        rows=changed_rows,
+        levels={"fiscal_week": "fiscal_week", "fiscal_month": "fiscal_month"},
+    )
+    store.publish(changed, definition_digest="changed-definition")
+
+    loaded_history = load_frame(history.ref, session=session)
+    replayed = session.forecast(loaded_history, horizon=1, model="naive")
+    assert replayed.to_pandas()["period_key"].tolist() == ["M2-W1"]
+    assert len(factory_calls) == calls_after_observe
+    assert (
+        replayed.meta.temporal_contract.observation_period.snapshot_digest
+        == binding.snapshot_digest
+    )
+
+    snapshot_path = store._directory(calendar_ref) / f"{binding.snapshot_digest}.json"
+    snapshot_path.unlink()
+    with pytest.raises(ForecastShapeUnsupportedError) as exc_info:
+        session.forecast(loaded_history, horizon=1, model="naive")
+    assert exc_info.value._context["case"] == "period_snapshot_unavailable"
+    assert len(factory_calls) == calls_after_observe

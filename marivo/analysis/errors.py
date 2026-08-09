@@ -852,11 +852,60 @@ class TestAlignmentError(AlignmentFailedError):
 
 class ForecastShapeUnsupportedError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
+        case = self._context.get("case")
+        period_binding = self._context.get("period_binding")
+        semantic_binding = (
+            isinstance(period_binding, dict) and period_binding.get("kind") == "semantic_period"
+        )
+        if (
+            semantic_binding
+            and isinstance(case, str)
+            and (
+                case.startswith("period_")
+                or case
+                in {
+                    "panel_period_sequence_mismatch",
+                    "period_columns_missing",
+                    "period_history_empty",
+                    "unsupported_model",
+                    "seasonality_period_required",
+                }
+            )
+        ):
+            action = (
+                "Re-observe the history with the same certified semantic grain and an exact "
+                "snapshot; use only complete consecutive periods."
+            )
+            snippet = (
+                'history = session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), '
+                'time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"), '
+                'grain=session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week"))'
+            )
+            if case == "period_future_out_of_coverage":
+                action = "Reduce horizon or certify a period-calendar snapshot covering the requested future periods."
+            elif case == "period_snapshot_unavailable":
+                action = "Re-certify the period calendar and re-observe history so its exact snapshot is available."
+            elif case == "unsupported_model":
+                action = "Use one admitted model: naive, drift, or seasonal_naive with an explicit seasonality_period."
+            elif case == "seasonality_period_required":
+                action = "Pass seasonality_period > 1 when using seasonal_naive on a semantic period grain."
+            return _DerivedFields(
+                location="session.forecast semantic period binding",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=action,
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
+                    snippet=snippet,
+                ),
+            )
         return _DerivedFields(
             location="session.forecast input frame",
             repair=AnalysisRepair(
                 kind="retry",
-                action="forecast v1 accepts only MetricFrame time_series or panel shapes.",
+                action=(
+                    "forecast accepts MetricFrame time_series or panel shapes; for a semantic "
+                    "grain, use one certified period binding with complete ordered history."
+                ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
                     'history = session.observe(session.catalog.require(ms.ref.metric("sales.revenue")), time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"), grain=mv.grain("day"))\n'
