@@ -1478,15 +1478,15 @@ def certify_work_schedule_rows(
         if len(values) != len(columns):
             raise ValueError("persisted snapshot row width does not match selected columns")
         raw = values[positions[date_column]]
+        if type(raw) is datetime:
+            raise ValueError("work-schedule date values must be civil dates")
         parsed = _parse_persisted_temporal_value(
             raw,
             parse=date_parse,
             boundary_timezone=boundary_timezone,
         )
         if type(parsed) is datetime:
-            if parsed.time() != time.min:
-                raise ValueError("work-schedule date values must be civil dates")
-            parsed = parsed.date()
+            raise ValueError("work-schedule date values must be civil dates")
         rows.append(
             {
                 "date": parsed,

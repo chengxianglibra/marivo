@@ -53,6 +53,7 @@ def _transition(
     input_requirements: tuple[AuthoringInputRequirement, ...] = (),
     blocked_by: tuple[str, ...] = (),
     help_target: LiveHelpTarget | None = None,
+    effects: AuthoringEffects | None = None,
 ) -> AuthoringTransition:
     descriptor = REGISTRY.by_canonical_id(canonical_id)
     resolved_target = help_target or LiveHelpTarget(
@@ -64,7 +65,7 @@ def _transition(
         subject_refs=subject_refs,
         required_states=required_states,
         produced_state=produced_state,
-        effects=_effects(canonical_id),
+        effects=effects or _effects(canonical_id),
         available=available,
         input_requirements=input_requirements,
         blocked_by=blocked_by,
@@ -210,6 +211,28 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
                         role="subject", family="CatalogEntry", subject_refs=subject_refs
                     ),
                     AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
+                ),
+            )
+        )
+    if kind == "work_schedule":
+        transitions.append(
+            _transition(
+                "verify",
+                kind="use",
+                subject_refs=subject_refs,
+                required_states=(loaded,),
+                available=True,
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id="working_day_progress",
+                ),
+                effects=AuthoringEffects(data_access="none", connection="none"),
+                input_requirements=(
+                    AuthoringInputRequirement(
+                        role="subject",
+                        family="WorkScheduleEntry",
+                        subject_refs=subject_refs,
+                    ),
                 ),
             )
         )

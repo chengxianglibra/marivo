@@ -64,6 +64,7 @@ _REF_ID_FORMATS: tuple[tuple[SemanticKind, str], ...] = (
     (SemanticKind.DOMAIN, 'ms.ref.domain("<domain_name>")'),
     (SemanticKind.STATE_MODEL, 'ms.ref.state_model("<domain>.<state_model_name>")'),
     (SemanticKind.TEMPORAL_SET, 'ms.ref.temporal_set("<domain>.<temporal_set_name>")'),
+    (SemanticKind.WORK_SCHEDULE, 'ms.ref.work_schedule("<domain>.<work_schedule_name>")'),
 )
 
 

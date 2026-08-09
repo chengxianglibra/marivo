@@ -156,11 +156,23 @@ def test_alignment_help_exposes_closed_admission_matrix() -> None:
         "period_progress",
         "period_correspondence",
         "occurrence_progress",
+        "working_day_progress",
     ):
         assert f"mv.{member}" in text
     assert "MetricFrame.compare day-grain time-series or panel" in text
     assert "EventFrame.compare     alignment=None" in text
     assert "holiday_aligned" not in text
+
+
+def test_working_day_progress_help_exposes_schedule_example_and_constraints() -> None:
+    text = _text("working_day_progress")
+    assert "schedule: Ref[WorkScheduleKind] | WorkScheduleEntry" in text
+    assert (
+        "session.compare(current, baseline, alignment=mv.working_day_progress(schedule=schedule))"
+        in text
+    )
+    assert "Constraints:" in text
+    assert "alignment_policy_shape" in text
 
 
 def test_grouping_members_use_registered_prefix_without_renderer_branches(

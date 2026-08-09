@@ -1903,6 +1903,8 @@ def _build_registry() -> CapabilityRegistry:
                 constraint_ids=(
                     ("window_absolute_parseable",)
                     if cap_id in {"TimeScope", "AbsoluteWindow"}
+                    else ("alignment_policy_shape",)
+                    if cap_id == "working_day_progress"
                     else ()
                 ),
                 callable_path=_module_path_for(callable_obj),

@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from marivo._temporal import Grain, builtin_grain
 from marivo.analysis.errors import AlignmentPolicyValidationError
+from marivo.refs import Ref, SemanticKind, WorkScheduleKind
+from marivo.semantic.catalog import WorkScheduleEntry
 
 AlignmentKind = Literal[
     "window_bucket",
@@ -281,28 +283,58 @@ def occurrence_progress(
 
 def working_day_progress(
     *,
-    schedule: object,
+    schedule: Ref[WorkScheduleKind] | WorkScheduleEntry,
     unmatched: UnmatchedMode = "fail",
 ) -> AlignmentPolicy:
     """Construct same-working-day ordinal alignment under one exact schedule.
 
-    ``schedule`` must be a loaded ``WorkScheduleEntry`` from a semantic
-    catalog.  The entry supplies the typed ref; certification and snapshot
+    Args:
+        schedule: Exact typed ``Ref[WorkScheduleKind]`` or a loaded
+            ``WorkScheduleEntry`` from the current semantic catalog.
+        unmatched: Whether a working-day ordinal present on only one side
+            fails the comparison or is dropped and counted in evidence.
+
+    Returns:
+        A frozen ``AlignmentPolicy`` tagged ``working_day_progress``.
+
+    Example:
+        ``session.compare(current, baseline, alignment=mv.working_day_progress(schedule=schedule))``.
+
+    Constraints:
+        Both inputs must be day-grain time-series or panel frames with one
+        row for every effective local day, and the schedule must be certified
+        for both frame scopes in one boundary timezone.
+
+    ``schedule`` may be the exact typed ``Ref[WorkScheduleKind]`` or a loaded
+    ``WorkScheduleEntry`` from a semantic catalog.  Certification and snapshot
     identity are resolved query-free during compare admission and persisted in
     the comparison temporal contract.
     """
-    schedule_ref = getattr(schedule, "ref", None)
-    kind = getattr(getattr(schedule_ref, "kind", None), "value", None)
-    if (
-        schedule_ref is None
-        or kind != "work_schedule"
-        or not hasattr(schedule, "details")
-        or not hasattr(schedule, "_snapshot")
-    ):
+    schedule_ref: Ref[WorkScheduleKind]
+    if type(schedule) is Ref:
+        candidate = schedule
+        if candidate.kind is not SemanticKind.WORK_SCHEDULE:
+            raise _invalid_policy(
+                helper="mv.working_day_progress",
+                received=schedule,
+                reason="schedule must be Ref[WorkScheduleKind] or WorkScheduleEntry",
+                fields=("schedule", "unmatched"),
+            )
+        schedule_ref = candidate
+    elif type(schedule) is WorkScheduleEntry:
+        schedule_ref = schedule.ref
+        if type(schedule_ref) is not Ref or schedule_ref.kind is not SemanticKind.WORK_SCHEDULE:
+            raise _invalid_policy(
+                helper="mv.working_day_progress",
+                received=schedule,
+                reason="schedule must be Ref[WorkScheduleKind] or WorkScheduleEntry",
+                fields=("schedule", "unmatched"),
+            )
+    else:
         raise _invalid_policy(
             helper="mv.working_day_progress",
             received=schedule,
-            reason="schedule must be a loaded WorkScheduleEntry from catalog.work_schedules",
+            reason="schedule must be Ref[WorkScheduleKind] or WorkScheduleEntry",
             fields=("schedule", "unmatched"),
         )
     if type(unmatched) is not str or unmatched not in {"fail", "drop"}:

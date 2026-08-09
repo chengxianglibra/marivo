@@ -2,7 +2,7 @@
 
 import importlib
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import ibis
 import numpy as np
@@ -11,6 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.datasource as md
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,
@@ -18,8 +19,10 @@ from marivo._temporal import (
     TemporalSetSnapshotStore,
     TemporalSnapshotStore,
     TimeScopeContractV1,
+    WorkScheduleSnapshotStore,
     certify_period_calendar,
     certify_temporal_set,
+    certify_work_schedule,
 )
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -38,8 +41,10 @@ from marivo.analysis.policies import (
     period_correspondence,
     period_progress,
     window_bucket,
+    working_day_progress,
 )
 from marivo.analysis.session._layout import read_frame_from_disk
+from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
@@ -529,6 +534,152 @@ def test_compare_occurrence_progress_anchors_exact_scopes_and_records_drops(tmp_
     assert evidence.current_only_points == 1
     assert evidence.dropped_points == 1
     assert delta.meta.temporal_contract.resolved_target_period is None
+
+
+def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworking_rows(
+    tmp_path,
+):
+    bootstrap_sales_project(tmp_path)
+    datasets_path = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets_path.write_text(
+        datasets_path.read_text(encoding="utf-8")
+        + "\n"
+        + "schedule_date = ms.time_dimension_column(name='schedule_date', entity=orders, column='created_at', granularity='day')\n"
+        + "is_working = ms.dimension_column(name='is_working', entity=orders, column='is_working')\n"
+        + "sales_schedule = ms.work_schedule(name='sales_schedule', date=schedule_date, is_working=is_working, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 2, 5)))\n",
+        encoding="utf-8",
+    )
+    session = session_attach.get_or_create(name="demo")
+    schedule_ref = ref.work_schedule("sales.sales_schedule")
+    schedule_rows = [
+        {
+            "date": date(2026, 1, 1) + timedelta(days=index),
+            "is_working": index not in {1, 3, 32, 34},
+        }
+        for index in range(35)
+    ]
+    schedule_snapshot = certify_work_schedule(
+        work_schedule_ref=schedule_ref,
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 2, 5)),
+        rows=schedule_rows,
+        date_column="date",
+        is_working="is_working",
+    )
+    schedule_evidence = DiscoverySnapshot(
+        id="schedule-evidence",
+        datasource=ref.datasource("warehouse"),
+        source=md.table("orders"),
+        scope=md.unpruned(max_rows=35, timeout_seconds=30),
+        columns=("created_at", "is_working"),
+        schema_fingerprint="schedule-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=35,
+            retained_row_count=35,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=tmp_path,
+        retained_values=tuple(
+            (row["date"].isoformat(), row["is_working"]) for row in schedule_rows
+        ),
+    )
+    session.catalog.preview(schedule_ref, using=schedule_evidence)
+    schedule_entry = session.catalog.work_schedules.get(schedule_ref)
+    assert schedule_entry.details().snapshot_status == "current"
+
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "sales.orders.schedule_date",
+        }
+    }
+    observation = BuiltinPeriodBindingV1(level_name="day", boundary_timezone="UTC")
+
+    def make_schedule_frame(
+        data: pd.DataFrame, *, start: date | datetime, end: date | datetime
+    ) -> MetricFrame:
+        frame = make_metric_frame(
+            data,
+            metric_id="sales.revenue",
+            axes=axes,
+            measure={"name": "value"},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            window={"start": start.isoformat(), "end": end.isoformat()},
+            session=session,
+        )
+        return _attach_temporal_contract(
+            frame,
+            start=start,
+            end=end,
+            observation_period=observation,
+        )
+
+    current = make_schedule_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]
+                ),
+                "value": [10.0, 20.0, 30.0, 40.0],
+            }
+        ),
+        start=datetime(2026, 1, 1, 12),
+        end=datetime(2026, 1, 5),
+    )
+    baseline = make_schedule_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-02-01", "2026-02-02", "2026-02-03", "2026-02-04"]
+                ),
+                "value": [1.0, 2.0, 3.0, 4.0],
+            }
+        ),
+        start=datetime(2026, 2, 1, 12),
+        end=datetime(2026, 2, 5),
+    )
+
+    delta = compare(
+        current,
+        baseline,
+        alignment=working_day_progress(schedule=schedule_entry),
+        session=session,
+    )
+    output = delta.to_pandas()
+    assert len(output) == 2
+    assert list(output["bucket_start_a"]) == [
+        pd.Timestamp("2026-01-01"),
+        pd.Timestamp("2026-01-03"),
+    ]
+    evidence = delta.meta.temporal_contract.alignment_evidence
+    assert evidence.paired_points == 2
+    assert evidence.policy_excluded_current_points == 2
+    assert evidence.policy_excluded_baseline_points == 2
+    assert delta.meta.temporal_contract.work_schedule is not None
+    assert delta.meta.temporal_contract.work_schedule.work_schedule_ref == schedule_ref.path
+    assert (
+        delta.meta.temporal_contract.work_schedule.snapshot_digest
+        == schedule_snapshot.snapshot_digest
+    )
+    snapshot_path = (
+        WorkScheduleSnapshotStore(tmp_path)._directory(schedule_ref)
+        / f"{schedule_snapshot.snapshot_digest}.json"
+    )
+    snapshot_path.unlink()
+    recovered = session.get_frame(delta.ref)
+    pd.testing.assert_frame_equal(recovered.to_pandas(), delta.to_pandas())
 
 
 def test_period_progress_rejects_builtin_coarse_source_against_semantic_target(tmp_path):

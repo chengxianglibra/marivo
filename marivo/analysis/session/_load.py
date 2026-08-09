@@ -443,23 +443,6 @@ def _validate_delta_comparison_state(
         schedule_ref = getattr(policy, "schedule_ref", None)
         if binding is None or binding.work_schedule_ref != schedule_ref:
             mismatches.append("work schedule binding")
-        else:
-            from marivo._temporal import WorkScheduleSnapshotStore
-            from marivo.refs import ref as ref_factory
-
-            try:
-                WorkScheduleSnapshotStore(session.project_root).load_exact(
-                    ref_factory.work_schedule(binding.work_schedule_ref),
-                    snapshot_digest=binding.snapshot_digest,
-                )
-            except (KeyError, OSError, TypeError, ValueError) as exc:
-                raise _delta_identity_recovery_error(
-                    ref,
-                    reason=(
-                        "the exact certified work-schedule snapshot named by the "
-                        f"comparison contract is unavailable: {exc}"
-                    ),
-                ) from exc
 
     cumulative_alignment = meta.cumulative_alignment
     expected_semantics: DeltaComparisonSemantics

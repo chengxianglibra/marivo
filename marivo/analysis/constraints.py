@@ -185,8 +185,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "runtime",
         ("compare", "correlate", "hypothesis_test", "AlignmentPolicy", "alignment"),
         "AlignmentPolicy arguments must match the selected alignment kind.",
-        "The closed helpers admit only window_bucket, day_of_week, period_progress, period_correspondence, and occurrence_progress with their exact fields.",
-        "Construct one policy with mv.window_bucket(), mv.day_of_week(), mv.period_progress(), mv.period_correspondence(), or mv.occurrence_progress().",
+        "The closed helpers admit only the registered alignment kinds with their exact fields, including working_day_progress(schedule=...).",
+        "Construct one policy with mv.window_bucket(), mv.day_of_week(), mv.period_progress(), mv.period_correspondence(), mv.occurrence_progress(), or mv.working_day_progress(schedule=...).",
         help_target="alignment",
     ),
     ConstraintId.CORRELATE_LAG_SEMANTICS: _constraint(

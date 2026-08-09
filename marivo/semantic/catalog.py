@@ -2093,7 +2093,13 @@ class WorkScheduleEntry(CatalogEntry[WorkScheduleKind]):
         return (
             Card(
                 identity=self._repr_identity(),
-                available=(".ref", ".details()", ".contract()", ".show()"),
+                available=(
+                    ".ref",
+                    ".details()",
+                    ".contract()",
+                    ".show()",
+                    "mv.working_day_progress(schedule=entry, unmatched='fail')",
+                ),
             )
             .field(label="kind", value=self.kind.value)
             .field(label="path", value=self.path)
