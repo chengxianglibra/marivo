@@ -65,6 +65,10 @@ The runtime verifies that references exist, inputs match the operation, comparis
 
 None of these roles can stand in for another. Technical validation does not approve business meaning. A convincing explanation does not establish causality. An approved metric does not guarantee that every future request is executable.
 
+Taken together, the architecture separates three kinds of authority. Accountable people confirm business meaning, the agent plans and interprets, and the Marivo runtime governs the analytical work that was actually executed. Its agent-facing interface keeps that boundary visible while the four foundations carry definitions, actions, state, and evidence into a handoff that operations, governance, and decision-makers can inspect.
+
+![Marivo architecture: an agent plans through an agent-facing interface while the Semantic Layer, Typed Analysis DSL, Analysis Session, and Evidence connect confirmed business meaning and data execution to a trusted business handoff](../../assets/blog/marivo-architecture-en.png)
+
 ## Four foundations, one analytical loop
 
 Marivo supports this division of responsibility through four connected foundations: the Semantic Layer, Typed Analysis DSL, Analysis Session, and Evidence. They are not a list of independent features. Each answers a different question in the same investigation:

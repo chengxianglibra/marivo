@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title description">
+  <title id="title">Marivo architecture</title>
+  <desc id="description">An agent plans and interprets through an agent-facing interface. Marivo governs semantic meaning, typed analysis, persistent session state, and evidence, connecting confirmed business meaning and data execution to a traceable handoff for operations, governance, and decisions.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfaf6"/>
+      <stop offset="1" stop-color="#f2f6f1"/>
+    </linearGradient>
+    <linearGradient id="agentFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff8ea"/>
+      <stop offset="1" stop-color="#f8edda"/>
+    </linearGradient>
+    <linearGradient id="harnessFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef8f2"/>
+      <stop offset="1" stop-color="#e4f1e9"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-20%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#173b2f" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#147d64"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c67a00"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .ink { fill: #17241f; }
+      .muted { fill: #64726c; }
+      .green { fill: #0d5b49; }
+      .amber { fill: #a96400; }
+      .eyebrow { font-size: 15px; font-weight: 700; letter-spacing: 2.4px; }
+      .card-title { font-size: 23px; font-weight: 700; }
+      .card-copy { font-size: 16px; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="900" rx="28" fill="url(#paper)"/>
+  <path d="M0 158H1400M0 742H1400" stroke="#147d64" stroke-opacity="0.06"/>
+  <circle cx="1275" cy="95" r="190" fill="#b9f4dd" opacity="0.16"/>
+  <circle cx="95" cy="835" r="210" fill="#d9eadf" opacity="0.22"/>
+
+  <text x="80" y="68" class="sans ink" font-size="31" font-weight="760">Marivo at a glance</text>
+  <text x="1320" y="66" text-anchor="end" class="sans muted" font-size="17">Freedom to investigate. Structure you can trust.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="180" y="100" width="1040" height="142" rx="24" fill="url(#agentFill)" stroke="#d89a35" stroke-width="1.5"/>
+  </g>
+  <text x="215" y="132" class="mono amber eyebrow">OPEN INTELLIGENCE · PLANNING &amp; JUDGMENT</text>
+  <rect x="215" y="157" width="235" height="56" rx="14" fill="#fffdf8" stroke="#d89a35" stroke-opacity="0.45"/>
+  <text x="332.5" y="180" text-anchor="middle" class="sans ink" font-size="17" font-weight="700">Business question</text>
+  <text x="332.5" y="201" text-anchor="middle" class="sans muted" font-size="14">Intent and decision context</text>
+  <path d="M466 185H562" stroke="#c67a00" stroke-width="2.5" marker-end="url(#arrowAmber)"/>
+  <circle cx="700" cy="185" r="46" fill="#fffdf8" stroke="#c67a00" stroke-width="2"/>
+  <text x="700" y="179" text-anchor="middle" class="mono amber" font-size="21" font-weight="800">AGENT</text>
+  <text x="700" y="202" text-anchor="middle" class="sans muted" font-size="13">chooses the path</text>
+  <path d="M838 185H934" stroke="#c67a00" stroke-width="2.5" marker-end="url(#arrowAmber)"/>
+  <rect x="950" y="157" width="235" height="56" rx="14" fill="#fffdf8" stroke="#d89a35" stroke-opacity="0.45"/>
+  <text x="1067.5" y="180" text-anchor="middle" class="sans ink" font-size="17" font-weight="700">Interpret and synthesize</text>
+  <text x="1067.5" y="201" text-anchor="middle" class="sans muted" font-size="14">State judgment and limits</text>
+
+  <path d="M700 246V278" stroke="#147d64" stroke-width="2.5" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+  <rect x="245" y="282" width="910" height="76" rx="18" fill="#0d5b49"/>
+  <text x="275" y="311" class="mono" fill="#b9f4dd" font-size="14" font-weight="700" letter-spacing="2">AGENT-FACING INTERFACE</text>
+  <text x="275" y="337" class="sans" fill="#ffffff" font-size="17">Live help  ·  object state  ·  valid next actions  ·  structured errors</text>
+  <text x="1125" y="327" text-anchor="end" class="mono" fill="#b9f4dd" font-size="14">write → run → read</text>
+
+  <g filter="url(#shadow)">
+    <rect x="80" y="390" width="1240" height="330" rx="28" fill="url(#harnessFill)" stroke="#147d64" stroke-width="1.6"/>
+  </g>
+  <rect x="108" y="416" width="38" height="38" rx="9" fill="#0d5b49"/>
+  <text x="127" y="442" text-anchor="middle" class="mono" fill="#ffffff" font-size="20" font-weight="800">M</text>
+  <text x="160" y="434" class="mono green eyebrow">MARIVO ANALYSIS HARNESS</text>
+  <text x="160" y="457" class="sans muted" font-size="15">Governed facts, actions, state, and support</text>
+
+  <g>
+    <rect x="108" y="488" width="270" height="190" rx="20" fill="#fffefa" stroke="#82b9a5"/>
+    <text x="132" y="523" class="mono green" font-size="14" font-weight="700">01 · MEANING</text>
+    <text x="132" y="558" class="sans ink card-title">Semantic Layer</text>
+    <text x="132" y="590" class="sans muted card-copy">Stable business objects,</text>
+    <text x="132" y="614" class="sans muted card-copy">metrics, relationships,</text>
+    <text x="132" y="638" class="sans muted card-copy">and usage constraints</text>
+  </g>
+  <path d="M390 583H410" stroke="#147d64" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <g>
+    <rect x="422" y="488" width="270" height="190" rx="20" fill="#fffefa" stroke="#82b9a5"/>
+    <text x="446" y="523" class="mono green" font-size="14" font-weight="700">02 · ACTION</text>
+    <text x="446" y="558" class="sans ink card-title">Typed Analysis DSL</text>
+    <text x="446" y="590" class="sans muted card-copy">Explicit operations,</text>
+    <text x="446" y="614" class="sans muted card-copy">input rules, result types,</text>
+    <text x="446" y="638" class="sans muted card-copy">and honest rejection</text>
+  </g>
+  <path d="M704 583H724" stroke="#147d64" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <g>
+    <rect x="736" y="488" width="270" height="190" rx="20" fill="#fffefa" stroke="#82b9a5"/>
+    <text x="760" y="523" class="mono green" font-size="14" font-weight="700">03 · STATE</text>
+    <text x="760" y="558" class="sans ink card-title">Analysis Session</text>
+    <text x="760" y="590" class="sans muted card-copy">Durable investigation state,</text>
+    <text x="760" y="614" class="sans muted card-copy">immutable artifacts,</text>
+    <text x="760" y="638" class="sans muted card-copy">and lineage across turns</text>
+  </g>
+  <path d="M1018 583H1038" stroke="#147d64" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
+  <g>
+    <rect x="1050" y="488" width="242" height="190" rx="20" fill="#fff9ed" stroke="#d89a35"/>
+    <text x="1074" y="523" class="mono amber" font-size="14" font-weight="700">04 · SUPPORT</text>
+    <text x="1074" y="558" class="sans ink card-title">Evidence</text>
+    <text x="1074" y="590" class="sans muted card-copy">Bounded reading, exact</text>
+    <text x="1074" y="614" class="sans muted card-copy">traceability, and explicit</text>
+    <text x="1074" y="638" class="sans muted card-copy">limits on every claim</text>
+  </g>
+
+  <path d="M245 720V758" stroke="#147d64" stroke-width="2.2" marker-start="url(#arrowGreen)"/>
+  <path d="M700 720V758" stroke="#147d64" stroke-width="2.2" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+  <path d="M1167 720V758" stroke="#c67a00" stroke-width="2.2" marker-end="url(#arrowAmber)"/>
+
+  <g>
+    <rect x="80" y="766" width="360" height="92" rx="18" fill="#fffefa" stroke="#82b9a5"/>
+    <text x="106" y="800" class="mono green" font-size="13" font-weight="700" letter-spacing="1.3">CONFIRMED BUSINESS MEANING</text>
+    <text x="106" y="830" class="sans muted" font-size="15">Accountable owners settle definitions</text>
+  </g>
+  <g>
+    <rect x="520" y="766" width="360" height="92" rx="18" fill="#fffefa" stroke="#82b9a5"/>
+    <text x="546" y="800" class="mono green" font-size="13" font-weight="700" letter-spacing="1.3">DATA &amp; QUERY EXECUTION</text>
+    <text x="546" y="830" class="sans muted" font-size="15">Warehouses, databases, and engines</text>
+  </g>
+  <g>
+    <rect x="960" y="766" width="360" height="92" rx="18" fill="#fff8ea" stroke="#d89a35"/>
+    <text x="986" y="794" class="mono amber" font-size="13" font-weight="700" letter-spacing="1.3">TRUSTED HANDOFF</text>
+    <text x="986" y="819" class="sans ink" font-size="15">Findings  ·  evidence  ·  limits</text>
+    <text x="986" y="841" class="sans muted" font-size="13">For operations, governance, and decisions</text>
+  </g>
+</svg>
