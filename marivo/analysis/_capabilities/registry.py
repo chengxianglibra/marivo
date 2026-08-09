@@ -2207,6 +2207,23 @@ def _build_registry() -> CapabilityRegistry:
             )
         )
 
+    descriptors.append(
+        ReadCapability(
+            id="catalog.period_calendars.period",
+            public_entrypoint="calendar.period(level, key)",
+            help_target="calendar.period",
+            summary="Return one exact certified TimeScope for a named calendar period.",
+            root_group="semantic_inputs",
+            root_visibility="grouped",
+            constraint_ids=(),
+            callable_path="marivo.semantic.catalog.PeriodCalendarEntry.period",
+            receiver_family="PeriodCalendarEntry",
+            result_kind="immutable_metadata",
+            read_bound="bounded",
+            produced_input_family="TimeScopeInput",
+        )
+    )
+
     # -- Grouping descriptors (non-invokable) -----------------------------
 
     descriptors.append(

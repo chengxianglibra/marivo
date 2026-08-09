@@ -1942,9 +1942,10 @@ textually equal.
 ## Discovery and repair
 
 `marivo.help(ms.period_calendar)` owns constructor constraints and the next
-mechanical call. Catalog cards own loaded calendar structure and copyable grains
-and scopes. Analysis errors own operation-specific repair. Skills teach the workflow
-but do not duplicate parameter tables.
+mechanical call. `marivo.help("analysis.calendar.period")` owns the exact
+snapshot-bound period lookup syntax. Catalog cards own loaded calendar structure
+and copyable grains and scopes. Analysis errors own operation-specific repair.
+Skills teach the workflow but do not duplicate parameter tables.
 
 Required typed failures include:
 

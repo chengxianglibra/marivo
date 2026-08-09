@@ -640,6 +640,20 @@ def test_analysis_catalog_help_covers_the_closed_semantic_collections() -> None:
         assert f"session.catalog.{member.property_name}" in text
 
 
+def test_period_calendar_period_help_teaches_exact_scope_navigation() -> None:
+    text = _text("calendar.period")
+
+    assert "Entrypoint: calendar.period(level, key)" in text
+    assert "Signature: period(level: str, key: str | int | float | bool)" in text
+    assert 'calendar = session.catalog.period_calendars.get("sales.fiscal")' in text
+    assert 'scope = calendar.period("fiscal_week", "FY2026-W01")' in text
+    assert "The calendar must have a current certified snapshot" in text
+    assert "Constraints" not in text
+    assert "Result kind: immutable_metadata" in text
+    assert "Read bound: bounded" in text
+    assert "calendar.period(level, key)" in _text("catalog")
+
+
 def test_compare_help_explains_cumulative_component_compatibility() -> None:
     text = _text("compare")
 

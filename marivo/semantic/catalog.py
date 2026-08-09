@@ -1772,7 +1772,27 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         return semantic_grain(calendar=self.ref, level=level)
 
     def period(self, level: str, key: str | int | float | bool, /) -> TimeScope:
-        """Return the exact certified scope for one named period."""
+        """Return the exact certified scope for one named period.
+
+        Args:
+            level: Declared calendar level name, such as ``"fiscal_week"``.
+            key: Exact certified period key at that level.
+
+        Returns:
+            Snapshot-bound half-open ``TimeScope`` accepted by
+            ``session.observe``.
+
+        Example:
+            >>> session = mv.session.get_or_create(
+            ...     "analysis", question="Compare one certified fiscal week"
+            ... )
+            >>> calendar = session.catalog.period_calendars.get("sales.fiscal")
+            >>> scope = calendar.period("fiscal_week", "FY2026-W01")
+
+        Guidance:
+            The calendar must have a current certified snapshot, and ``level``
+            and ``key`` must identify one exact record in that snapshot.
+        """
         try:
             return self._snapshot().period_scope(level, key)
         except (KeyError, TypeError, ValueError):

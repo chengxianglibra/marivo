@@ -274,6 +274,37 @@ def _time_column_from_meta(meta: Any) -> str | None:
     return None
 
 
+def _delta_time_columns(df: pd.DataFrame, meta: Any) -> tuple[str | None, str | None]:
+    """Resolve the actual current and baseline coordinates in comparison rows."""
+
+    alignment = getattr(meta, "alignment", None)
+    configured_current = (
+        alignment.get("current_bucket_column") if isinstance(alignment, dict) else None
+    )
+    configured_baseline = (
+        alignment.get("baseline_bucket_column") if isinstance(alignment, dict) else None
+    )
+    current = configured_current if isinstance(configured_current, str) else None
+    baseline = configured_baseline if isinstance(configured_baseline, str) else None
+
+    if current is None:
+        declared = _time_column_from_meta(meta)
+        if declared in df.columns:
+            current = declared
+        elif "bucket_start_a" in df.columns:
+            current = "bucket_start_a"
+        else:
+            current = declared
+
+    if baseline is None:
+        if "bucket_start_b" in df.columns:
+            baseline = "bucket_start_b"
+        elif current is not None and f"{current}_b" in df.columns:
+            baseline = f"{current}_b"
+
+    return current, baseline
+
+
 def _atomic_write_parquet(df: pd.DataFrame, dest: Path) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=str(dest.parent))
@@ -613,6 +644,7 @@ def _extract_findings(
         return _FINDINGS_ADAPTER.validate_python(findings)
     if extractor_family == "delta_frame":
         delta_meta = cast("_DeltaEvidenceMeta", meta)
+        time_column, baseline_time_column = _delta_time_columns(df, meta)
         cumulative_pairs = (
             delta_meta.cumulative_alignment.pairs
             if delta_meta.cumulative_alignment is not None
@@ -628,7 +660,8 @@ def _extract_findings(
             semantic_kind=semantic_kind,
             committed_at=committed_at,
             dimension_columns=_dimension_columns_from_meta(meta),
-            time_column=_time_column_from_meta(meta),
+            time_column=time_column,
+            baseline_time_column=baseline_time_column,
             unit=delta_meta.unit,
             cumulative_pairs=cumulative_pairs,
             cumulative_change=delta_meta.cumulative_change,
