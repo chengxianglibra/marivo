@@ -440,6 +440,12 @@ def test_compare_period_progress_and_correspondence_use_certified_snapshot(tmp_p
     assert correspondence_delta.meta.temporal_contract is not None
     assert progress_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
     assert correspondence_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
+    for delta in (progress_delta, correspondence_delta):
+        assert delta.evidence_status == "complete"
+        assert delta.evidence_digest is not None
+        findings = session.evidence.findings(artifact_ref=delta.ref).items
+        assert len(findings) == 4
+        assert len({finding.canonical_item_key for finding in findings}) == 4
 
 
 def test_compare_period_progress_uses_frames_from_public_observe(
@@ -647,6 +653,15 @@ def test_compare_occurrence_progress_uses_frames_from_public_observe(tmp_path):
     assert delta.meta.temporal_contract is not None
     evidence = delta.meta.temporal_contract.alignment_evidence
     assert evidence.paired_points == 2
+    assert delta.evidence_status == "complete"
+    assert delta.evidence_digest is not None
+    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    assert len(findings) == 2
+    assert len({finding.canonical_item_key for finding in findings}) == 2
+    assert all(
+        finding.derivation.source_fields[:2] == ("bucket_start_a", "bucket_start_b")
+        for finding in findings
+    )
 
 
 def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworking_rows(
@@ -793,6 +808,11 @@ def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworkin
     snapshot_path.unlink()
     recovered = session.get_frame(delta.ref)
     pd.testing.assert_frame_equal(recovered.to_pandas(), delta.to_pandas())
+    assert recovered.evidence_status == "complete"
+    assert recovered.evidence_digest == delta.evidence_digest
+    findings = session.evidence.findings(artifact_ref=delta.ref).items
+    assert len(findings) == 2
+    assert len({finding.canonical_item_key for finding in findings}) == 2
 
 
 def test_compare_working_day_progress_uses_frames_from_public_observe(tmp_path):

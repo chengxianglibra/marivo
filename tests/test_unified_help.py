@@ -206,6 +206,20 @@ def test_equivalent_observe_targets_render_one_native_descriptor(
     assert _text(target) == _text("analysis.observe")
 
 
+def test_period_calendar_period_navigation_resolves_through_public_help() -> None:
+    from marivo.semantic.catalog import PeriodCalendarEntry
+
+    route = route_help_target("analysis.calendar.period")
+
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "analysis"
+    assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("calendar.period")
+    assert 'scope = calendar.period("fiscal_week", "FY2026-W01")' in _text(
+        "analysis.calendar.period"
+    )
+    assert _text(PeriodCalendarEntry.period) == _text("analysis.calendar.period")
+
+
 def test_bound_method_renders_the_same_descriptor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

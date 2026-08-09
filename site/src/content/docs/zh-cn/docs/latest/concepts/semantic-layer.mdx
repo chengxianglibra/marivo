@@ -152,6 +152,7 @@ week_scope.contract()  # 精确边界和认证快照身份
 保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。
 `calendar.periods(level, limit=..., cursor=...)` 返回有界的精确 scope；覆盖缺失、定义过期或
 证据损坏都会以结构化 semantic error fail closed。
+精确查找语法由 `marivo.help("analysis.calendar.period")` 提供有界说明。
 
 ## 命名时间 occurrence
 

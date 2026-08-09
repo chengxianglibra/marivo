@@ -128,6 +128,88 @@ def test_delta_preserves_undefined_relative_delta_reason_and_unit() -> None:
     assert finding.epistemic_kind == "algebraic"
 
 
+def test_time_series_delta_identity_uses_both_comparison_coordinates() -> None:
+    findings = extract_delta_findings(
+        df=pd.DataFrame(
+            {
+                "bucket_start_a": [pd.NaT, pd.NaT],
+                "bucket_start_b": pd.to_datetime(["2025-06-01", "2025-06-02"]),
+                "current": [None, None],
+                "baseline": [4.0, 5.0],
+                "delta": [None, None],
+                "pct_change": [None, None],
+            }
+        ),
+        artifact_id="art_delta_time",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="time"),
+        semantic_kind="time_series",
+        time_column="bucket_start_a",
+        baseline_time_column="bucket_start_b",
+        committed_at=_now(),
+    )
+
+    assert len({finding.canonical_item_key for finding in findings}) == 2
+    assert all(
+        "bucket=|baseline_bucket=2025-06-0" in finding.canonical_item_key for finding in findings
+    )
+    assert all(finding.value.bucket is None for finding in findings)
+    assert all(
+        finding.derivation.source_fields[:2] == ("bucket_start_a", "bucket_start_b")
+        for finding in findings
+    )
+
+
+def test_time_series_delta_rejects_missing_declared_coordinate() -> None:
+    with pytest.raises(ValueError, match="time_column 'bucket_start' is absent"):
+        extract_delta_findings(
+            df=pd.DataFrame(
+                {
+                    "bucket_start_a": pd.to_datetime(["2026-06-01"]),
+                    "current": [5.0],
+                    "baseline": [4.0],
+                    "delta": [1.0],
+                    "pct_change": [0.25],
+                }
+            ),
+            artifact_id="art_delta_time",
+            session_id="sess_1",
+            subject=make_test_subject(metric_id="revenue", analysis_axis="time"),
+            semantic_kind="time_series",
+            time_column="bucket_start",
+            committed_at=_now(),
+        )
+
+
+def test_panel_delta_identity_preserves_segment_and_paired_coordinates() -> None:
+    findings = extract_delta_findings(
+        df=pd.DataFrame(
+            {
+                "region": ["north", "north"],
+                "bucket_start_a": [pd.NaT, pd.NaT],
+                "bucket_start_b": pd.to_datetime(["2025-06-01", "2025-06-02"]),
+                "current": [None, None],
+                "baseline": [4.0, 5.0],
+                "delta": [None, None],
+                "pct_change": [None, None],
+            }
+        ),
+        artifact_id="art_delta_panel",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="panel"),
+        semantic_kind="panel",
+        dimension_columns=["region"],
+        time_column="bucket_start_a",
+        baseline_time_column="bucket_start_b",
+        committed_at=_now(),
+    )
+
+    assert len({finding.canonical_item_key for finding in findings}) == 2
+    assert all(
+        finding.canonical_item_key.startswith("rows:region=north|bucket=|") for finding in findings
+    )
+
+
 def test_contribution_has_rank_and_method_but_no_driver_role() -> None:
     findings = extract_decomposition_findings(
         df=pd.DataFrame(

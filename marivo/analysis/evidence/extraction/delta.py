@@ -136,6 +136,7 @@ def extract_delta_findings(
     committed_at: datetime,
     dimension_columns: list[str] | None = None,
     time_column: str | None = None,
+    baseline_time_column: str | None = None,
     unit: str | None = None,
     cumulative_pairs: AllHistoryPairAlignmentV1 | CumulativePairSummaryV1 | None = None,
     cumulative_change: AllHistoryLevelChangeV1 | None = None,
@@ -295,14 +296,31 @@ def extract_delta_findings(
     if semantic_kind in {"time_series", "panel"}:
         if time_column is None:
             raise ValueError(f"{semantic_kind} delta extraction requires time_column")
+        if time_column not in df.columns:
+            raise ValueError(
+                f"{semantic_kind} delta extraction time_column {time_column!r} "
+                "is absent from the comparison rows"
+            )
+        if baseline_time_column is not None and baseline_time_column not in df.columns:
+            raise ValueError(
+                f"{semantic_kind} delta extraction baseline_time_column "
+                f"{baseline_time_column!r} is absent from the comparison rows"
+            )
         if semantic_kind == "panel" and not dimension_columns:
             raise ValueError("panel delta extraction requires dimension_columns")
         findings = []
         for _, row in df.iterrows():
             keys = {column: row[column] for column in (dimension_columns or [])}
-            bucket = _timestamp_text(row.get(time_column)) or str(row.get(time_column))
+            bucket = _timestamp_text(row[time_column])
+            baseline_bucket = (
+                _timestamp_text(row[baseline_time_column])
+                if baseline_time_column is not None
+                else None
+            )
             stable_parts = [f"{key}={_escape_seg_component(keys[key])}" for key in sorted(keys)]
             stable_parts.append(f"bucket={_escape_seg_component(bucket)}")
+            if baseline_time_column is not None:
+                stable_parts.append(f"baseline_bucket={_escape_seg_component(baseline_bucket)}")
             canonical_item_key = "rows:" + "|".join(stable_parts)
             current = _to_float(row.get("current"))
             baseline = _to_float(row.get("baseline"))
@@ -346,11 +364,12 @@ def extract_delta_findings(
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
-                        rule_version="v3",
+                        rule_version="v4",
                         operator="compare",
                         source_fields=(
                             *(dimension_columns or []),
                             time_column,
+                            *((baseline_time_column,) if baseline_time_column is not None else ()),
                             "current",
                             "baseline",
                             "delta",

@@ -540,6 +540,15 @@ def test_by_callable_resolves_semantic_catalog_properties() -> None:
     assert descriptor.id == "catalog.dimensions"
 
 
+def test_by_callable_resolves_period_calendar_period_navigation() -> None:
+    from marivo.semantic.catalog import PeriodCalendarEntry
+
+    descriptor = REGISTRY.by_callable(PeriodCalendarEntry.period)
+    assert descriptor.id == "catalog.period_calendars.period"
+    assert descriptor.help_target == "calendar.period"
+    assert descriptor.produced_input_family == "TimeScopeInput"
+
+
 # ---------------------------------------------------------------------------
 # Registry: capability ids coverage
 # ---------------------------------------------------------------------------
