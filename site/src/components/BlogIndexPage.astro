@@ -2,6 +2,8 @@
 import marivoMark from '../assets/marivo-mark.svg';
 import agentFlowEn from '../assets/blog/agent-analysis-flow-en.png';
 import agentFlowZh from '../assets/blog/agent-analysis-flow.png';
+import semanticContractEn from '../assets/blog/semantic-layer-contract-en.png';
+import semanticContractZh from '../assets/blog/semantic-layer-contract.png';
 import '../styles/blog.css';
 
 interface Props {
@@ -13,10 +15,8 @@ const isZh = locale === 'zh-cn';
 const githubUrl = 'https://github.com/chengxianglibra/marivo';
 const homeUrl = isZh ? '/zh-cn/' : '/';
 const blogUrl = isZh ? '/zh-cn/blog/' : '/blog/';
-const articleUrl = `${blogUrl}why-data-analysis-agents-need-a-harness/`;
 const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
 const languageUrl = isZh ? '/blog/' : '/zh-cn/blog/';
-const agentFlow = isZh ? agentFlowZh : agentFlowEn;
 const siteUrl = Astro.site ?? new URL('https://marivo.io');
 const englishUrl = new URL('/blog/', siteUrl);
 const chineseUrl = new URL('/zh-cn/blog/', siteUrl);
@@ -25,15 +25,46 @@ const copy = isZh
   ? {
       lang: 'zh-CN', description: 'Marivo Blog：分享产品设计、分析实践、版本演进与社区动态。', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English',
       headline: ['记录 Marivo 的设计、', '实践与演进。'], intro: '这里收录设计思想、真实分析实践、版本变化和社区故事。我们既讨论为什么这样设计，也记录 Marivo 如何进入具体的数据项目，以及它在使用中学到了什么。',
-      meta: '最新文章 · 设计', date: '2026.08.05', articleTitle: '为什么数据分析 Agent 需要 Harness，而不只是生成 SQL', articleSummary: '如果分析不只是生成一段能执行的 SQL，那么语义、分析状态、证据和接口分别应该承担什么责任？这篇综述介绍 Marivo 试图解决的问题，以及整套设计背后的分工。', read: '阅读文章', imageAlt: 'Marivo 中 Agent 从业务问题到证据与判断的分析流程',
+      meta: '最新文章 · 设计', date: '2026.08.09', articleTitle: '语义层：把业务含义变成 Agent 可以依赖的代码契约', articleSummary: '语义层为什么是数据分析 Agent 的必要边界？这篇文章从业务含义、对象抽象、Python 与 Git 管理，一直讲到 semantic authoring 和分析交接。', read: '阅读文章', imageAlt: 'Marivo 语义层把物理证据、Python 代码契约与 Agent 分析连接起来',
       footer: '让智能自由探索，让约束守住事实。', home: '主页',
     }
   : {
       lang: 'en', description: 'The Marivo Blog covers product design, analytical practice, releases, and community updates.', homeLabel: 'Marivo home', navLabel: 'Blog navigation', language: '简体中文',
       headline: ['The design, practice,', 'and evolution of Marivo.'], intro: 'Essays on product design, field experience, release changes, and the community around Marivo. We explain the decisions behind the system and examine how they hold up in real data projects.',
-      meta: 'Latest · Design', date: '2026.08.05', articleTitle: 'Why Data Analysis Agents Need a Harness, Not Just SQL Generation', articleSummary: 'Reliable agent analysis takes more than executable SQL. This overview explains how Marivo connects governed semantics, typed operations, persistent state, and evidence—and why those boundaries matter when findings drive business decisions.', read: 'Read article', imageAlt: 'The Marivo agent analysis path from a business question to evidence and judgment',
+      meta: 'Latest · Design', date: '2026.08.09', articleTitle: 'The Semantic Layer: Turning Business Meaning into an Executable Contract for Agents', articleSummary: 'Why agents cannot derive approved business meaning from schemas alone—and how Marivo uses semantic objects, Python, Git, runtime validation, and CI to keep that meaning dependable.', read: 'Read article', imageAlt: 'The Marivo semantic layer connecting physical datasource evidence, business-approved Python contracts, and agent analysis',
       footer: 'Let intelligence explore. Let constraints keep it grounded.', home: 'Home',
     };
+const featured = isZh
+  ? {
+      url: `${blogUrl}semantic-layer-as-an-agent-contract/`,
+      image: semanticContractZh,
+    }
+  : {
+      url: `${blogUrl}semantic-layer-as-an-agent-contract/`,
+      image: semanticContractEn,
+    };
+const archiveLabel = isZh ? '更多文章' : 'More articles';
+const articles = isZh
+  ? [
+      {
+        url: `${blogUrl}why-data-analysis-agents-need-a-harness/`,
+        image: agentFlowZh,
+        meta: '设计综述',
+        date: '2026.08.05',
+        title: '为什么数据分析 Agent 需要 Harness，而不只是生成 SQL',
+        summary: '从语义、类型化分析、session、evidence 和 Agent 接口出发，理解 Marivo 想解决的问题与责任边界。',
+      },
+    ]
+  : [
+      {
+        url: `${blogUrl}why-data-analysis-agents-need-a-harness/`,
+        image: agentFlowEn,
+        meta: 'Design overview',
+        date: '2026.08.05',
+        title: 'Why Data Analysis Agents Need a Harness, Not Just SQL Generation',
+        summary: 'How governed semantics, typed analysis, persistent sessions, and traceable evidence give open-ended agent analysis dependable boundaries.',
+      },
+    ];
 ---
 
 <!doctype html>
@@ -78,12 +109,34 @@ const copy = isZh
             <div class="featured-meta"><span>{copy.meta}</span><span>{copy.date}</span></div>
             <h2 id="featured-title">{copy.articleTitle}</h2>
             <p>{copy.articleSummary}</p>
-            <a href={articleUrl}>{copy.read} <span aria-hidden="true">→</span></a>
+            <a href={featured.url}>{copy.read} <span aria-hidden="true">→</span></a>
           </div>
-          <a class="featured-visual" href={articleUrl} aria-label={copy.articleTitle}>
-            <img src={agentFlow.src} alt={copy.imageAlt} />
+          <a class="featured-visual" href={featured.url} aria-label={copy.articleTitle}>
+            <img src={featured.image.src} alt={copy.imageAlt} />
           </a>
         </section>
+
+        {articles.length > 0 && (
+          <section class="article-archive" aria-labelledby="archive-title">
+            <div class="archive-heading">
+              <p class="blog-kicker">Archive</p>
+              <h2 id="archive-title">{archiveLabel}</h2>
+            </div>
+            <div class="archive-grid">
+              {articles.map((article) => (
+                <a class="archive-card" href={article.url}>
+                  <div class="archive-image"><img src={article.image.src} alt="" /></div>
+                  <div class="archive-copy">
+                    <div class="featured-meta"><span>{article.meta}</span><span>{article.date}</span></div>
+                    <h3>{article.title}</h3>
+                    <p>{article.summary}</p>
+                    <span class="archive-link">{copy.read} <span aria-hidden="true">→</span></span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
 
       </main>
 

@@ -8,6 +8,8 @@ interface BlogFrontmatter {
   publishedAt: string;
   series: string;
   locale: 'en' | 'zh-cn';
+  readingTime?: string;
+  translationAvailable?: boolean;
 }
 
 interface Props {
@@ -20,6 +22,7 @@ const githubUrl = 'https://github.com/chengxianglibra/marivo';
 const homeUrl = isZh ? '/zh-cn/' : '/';
 const blogUrl = isZh ? '/zh-cn/blog/' : '/blog/';
 const docsUrl = isZh ? '/zh-cn/docs/latest/' : '/docs/latest/';
+const translationAvailable = frontmatter.translationAvailable ?? true;
 const languageUrl = isZh
   ? `/blog${Astro.url.pathname.slice('/zh-cn/blog'.length)}`
   : `/zh-cn/blog${Astro.url.pathname.slice('/blog'.length)}`;
@@ -40,9 +43,9 @@ const copy = isZh
     <meta name="description" content={frontmatter.description} />
     <meta name="theme-color" content="#f6f3eb" />
     <link rel="canonical" href={canonicalUrl} />
-    <link rel="alternate" hreflang="en" href={englishUrl} />
-    <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />
-    <link rel="alternate" hreflang="x-default" href={englishUrl} />
+    {translationAvailable && <link rel="alternate" hreflang="en" href={englishUrl} />}
+    {translationAvailable && <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />}
+    {translationAvailable && <link rel="alternate" hreflang="x-default" href={englishUrl} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{frontmatter.title} · Marivo Blog</title>
   </head>
@@ -58,7 +61,7 @@ const copy = isZh
         <nav aria-label={copy.navLabel}>
           <a href={docsUrl}>Docs</a>
           <a href={githubUrl}>GitHub</a>
-          <a href={languageUrl}>{copy.language}</a>
+          {translationAvailable && <a href={languageUrl}>{copy.language}</a>}
         </nav>
       </header>
 
@@ -70,7 +73,7 @@ const copy = isZh
           <p class="article-description">{frontmatter.description}</p>
           <div class="article-meta">
             <span>{frontmatter.publishedAt}</span>
-            <span>{copy.reading}</span>
+            <span>{frontmatter.readingTime ?? copy.reading}</span>
           </div>
         </header>
 
@@ -89,7 +92,7 @@ const copy = isZh
           <a href={blogUrl}>Blog</a>
           <a href={docsUrl}>Docs</a>
           <a href={githubUrl}>GitHub</a>
-          <a href={languageUrl}>{copy.language}</a>
+          {translationAvailable && <a href={languageUrl}>{copy.language}</a>}
         </div>
       </footer>
     </div>

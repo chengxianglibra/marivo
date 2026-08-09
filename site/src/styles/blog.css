@@ -249,6 +249,106 @@ html {
   outline-offset: -4px;
 }
 
+.article-archive {
+  padding-top: 86px;
+}
+
+.archive-heading {
+  display: flex;
+  margin-bottom: 28px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.archive-heading h2 {
+  margin: 0;
+  color: #11261e;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "PingFang SC", monospace;
+  font-size: 30px;
+  font-weight: 620;
+  letter-spacing: -0.045em;
+}
+
+.archive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 22px;
+}
+
+.archive-card {
+  display: grid;
+  overflow: hidden;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  border: 1px solid var(--blog-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.archive-card:hover,
+.archive-card:focus-visible {
+  border-color: rgba(20, 125, 100, 0.35);
+  box-shadow: 0 18px 48px rgba(32, 54, 46, 0.09);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.archive-image {
+  display: flex;
+  min-height: 260px;
+  padding: 18px;
+  align-items: center;
+  overflow: hidden;
+  border-right: 1px solid var(--blog-line);
+  background:
+    linear-gradient(rgba(13, 70, 57, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 70, 57, 0.045) 1px, transparent 1px),
+    #e8f2ec;
+  background-size: 26px 26px, 26px 26px, auto;
+}
+
+.archive-image img {
+  display: block;
+  width: 100%;
+  max-width: none;
+  border: 1px solid rgba(13, 70, 57, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(13, 70, 57, 0.15);
+}
+
+.archive-copy {
+  display: flex;
+  min-height: 260px;
+  padding: 28px;
+  flex-direction: column;
+}
+
+.archive-copy h3 {
+  margin: 30px 0 13px;
+  color: #11261e;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "PingFang SC", monospace;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.035em;
+  line-height: 1.42;
+  text-wrap: balance;
+}
+
+.archive-copy > p {
+  margin: 0;
+  color: var(--blog-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.archive-link {
+  margin-top: auto;
+  padding-top: 24px;
+  color: var(--blog-green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .article-shell {
   width: min(800px, 100%);
   margin-inline: auto;
@@ -282,6 +382,7 @@ html {
   font-weight: 620;
   letter-spacing: -0.065em;
   line-height: 1.18;
+  text-wrap: balance;
 }
 
 .article-description {
@@ -336,6 +437,7 @@ html {
 
 .article-content p {
   margin: 0 0 24px;
+  text-wrap: pretty;
 }
 
 .article-content ul,
@@ -390,6 +492,25 @@ html {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.74);
   font-size: 0.88em;
+}
+
+.article-content pre {
+  margin: 34px 0 38px;
+  padding: 24px 26px;
+  overflow-x: auto;
+  border: 1px solid rgba(13, 70, 57, 0.2);
+  border-radius: 14px;
+  background: rgba(244, 247, 244, 0.96);
+  box-shadow: 0 16px 42px rgba(13, 70, 57, 0.1);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.article-content pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: inherit;
 }
 
 .blog-footer {
@@ -449,6 +570,10 @@ html {
     border-left: 0;
   }
 
+  .archive-grid {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 @media (max-width: 640px) {
@@ -501,6 +626,33 @@ html {
     padding: 18px;
   }
 
+  .article-archive {
+    padding-top: 64px;
+  }
+
+  .archive-heading {
+    display: block;
+  }
+
+  .archive-heading h2 {
+    margin-top: 12px;
+  }
+
+  .archive-card {
+    grid-template-columns: 1fr;
+  }
+
+  .archive-image {
+    min-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid var(--blog-line);
+  }
+
+  .archive-copy {
+    min-height: 300px;
+    padding: 24px;
+  }
+
   .article-shell {
     padding: 48px 0 80px;
   }
@@ -541,6 +693,13 @@ html {
     margin-block: 36px;
   }
 
+  .article-content pre {
+    margin-inline: -14px;
+    padding: 20px 18px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
   .blog-footer {
     padding: 28px 0;
     align-items: flex-start;
@@ -559,6 +718,10 @@ html {
   }
 
   .featured-visual img {
+    transition: none;
+  }
+
+  .archive-card {
     transition: none;
   }
 }
