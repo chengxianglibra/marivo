@@ -466,7 +466,8 @@ def validate_compare(
                     kind="retry",
                     action=(
                         "Use mv.window_bucket(mode='ordinal_bucket') or choose an explicit "
-                        "day_of_week, period_progress, or period_correspondence policy."
+                        "day_of_week, period_progress, period_correspondence, or "
+                        "occurrence_progress policy."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 ),

@@ -314,9 +314,16 @@ delta = session.compare(current, baseline)
 ```
 
 `compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 时只能选择一个
-封闭 helper：`mv.window_bucket()`、`mv.day_of_week()`、`mv.period_progress()` 或
-`mv.period_correspondence()`。后三者要求 source frame 携带完全匹配的已认证周期
-authority；不再使用 analysis 本地 holiday-calendar 参数。
+封闭 helper：`mv.window_bucket()`、`mv.day_of_week()`、`mv.period_progress()`、
+`mv.period_correspondence()` 或 `mv.occurrence_progress()`。后四者要求 source frame 携带完全匹配的已认证
+authority（前三者是周期 authority，`occurrence_progress` 是 TemporalSet occurrence scope）；
+不再使用 analysis 本地 holiday-calendar 参数。
+
+其中 `mv.occurrence_progress(anchor="start" | "end")` 只接受由精确
+`TemporalSet` occurrence scope 选择的 day-grain time-series 或 panel frame，按 occurrence
+有效本地日从首日正向或从 exclusive end 反向配对，不会推断 recurrence 或名称对应关系。
+裸 built-in `day` grain 仍使用各自 session 的 report timezone；要通过
+`occurrence_progress` admission，必须与 occurrence boundary timezone 一致。
 
 只有两侧 source frame 的 additivity、aggregation 与 status-time 三项语义完全一致，
 且 additivity 已知时，delta 才会携带这些语义。任一项缺失或不一致时，语义门保持

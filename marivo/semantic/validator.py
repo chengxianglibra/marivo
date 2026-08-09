@@ -53,9 +53,11 @@ from marivo.semantic.ir import (
     StateTriggerDeclarationIR,
     StateTriggerIR,
     StrptimeParse,
+    TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
     composition_components,
+    is_time_bearing_format,
 )
 
 if TYPE_CHECKING:
@@ -90,6 +92,7 @@ class Registry:
     events: dict[str, EventIR] = field(default_factory=dict)
     state_models: dict[str, StateModelIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
+    temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -107,6 +110,7 @@ class Registry:
             "events",
             "state_models",
             "period_calendars",
+            "temporal_sets",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))
@@ -136,6 +140,26 @@ _PARTITION_TIME_COLUMN_NAMES = {
 
 _TEMPORAL_DATA_TYPES = {"date", "datetime", "timestamp"}
 _PUSHDOWN_UNFRIENDLY_CALLS = {"cast", "as_date", "as_timestamp"}
+
+
+def _temporal_set_encoding(field: DimensionIR | None) -> Literal["date", "timestamp"] | None:
+    """Return the closed civil-date/timestamp encoding for one time field.
+
+    An omitted parse is resolved from the physical datasource at runtime, so
+    the assembly validator leaves that case open.  ``strptime`` formats carry
+    the same distinction explicitly; hour-prefix parsing is intentionally
+    left unknown because it needs a separate date-bearing prefix field.
+    """
+    if field is None or not field.is_time_dimension:
+        return None
+    parse = field.parse
+    if isinstance(parse, DateParse):
+        return "date"
+    if isinstance(parse, (DatetimeParse, TimestampParse)):
+        return "timestamp"
+    if isinstance(parse, StrptimeParse):
+        return "timestamp" if is_time_bearing_format(parse.format) else "date"
+    return None
 
 
 def _participant_endpoint(
@@ -1600,6 +1624,78 @@ def assembly_validate(
                         refs=(calendar_id, baseline_ref),
                     )
                 )
+
+    # -- Validate temporal-set source-field ownership -----------------------
+    for set_id, temporal_set in registry.temporal_sets.items():
+        occurrence = registry.dimensions.get(temporal_set.occurrence_id)
+        start_field = registry.dimensions.get(temporal_set.start)
+        end_field = registry.dimensions.get(temporal_set.end)
+        category_field = (
+            registry.dimensions.get(temporal_set.category)
+            if temporal_set.category is not None
+            else None
+        )
+        if (
+            occurrence is None
+            or occurrence.is_time_dimension
+            or occurrence.entity != getattr(start_field, "entity", None)
+            or occurrence.entity != getattr(end_field, "entity", None)
+            or (temporal_set.category is not None and category_field is None)
+            or (
+                category_field is not None
+                and (category_field.is_time_dimension or category_field.entity != occurrence.entity)
+            )
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=(
+                        f"Temporal set {set_id!r} occurrence_id, start, end, and category "
+                        "must be fields on one source entity, with occurrence_id/category categorical."
+                    ),
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            set_id,
+                            temporal_set.occurrence_id,
+                            temporal_set.start,
+                            temporal_set.end,
+                            temporal_set.category,
+                        )
+                        if isinstance(ref, str)
+                    ),
+                )
+            )
+        for label, field in (("start", start_field), ("end", end_field)):
+            if field is None or not field.is_time_dimension:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=(
+                            f"Temporal set {set_id!r} {label} ref must resolve to a time dimension."
+                        ),
+                        refs=(set_id, getattr(temporal_set, label)),
+                    )
+                )
+        start_encoding = _temporal_set_encoding(start_field)
+        end_encoding = _temporal_set_encoding(end_field)
+        if (
+            start_encoding is not None
+            and end_encoding is not None
+            and start_encoding != end_encoding
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=(
+                        f"Temporal set {set_id!r} start and end time dimensions must "
+                        "use the same civil-date or timestamp encoding."
+                    ),
+                    refs=(set_id, temporal_set.start, temporal_set.end),
+                    expected="matching date/date or timestamp/timestamp time encodings",
+                    received=f"start={start_encoding}, end={end_encoding}",
+                )
+            )
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))

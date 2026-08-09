@@ -6,6 +6,7 @@ Public entrypoint: ms.load() -> SemanticCatalog
 from __future__ import annotations
 
 import base64
+import binascii
 import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -15,7 +16,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, cast, overload
 
-from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TemporalResolver, TimeScope
+from marivo._temporal import (
+    Grain,
+    PeriodCalendarSnapshotV1,
+    TemporalOccurrenceRecord,
+    TemporalResolver,
+    TemporalSetSnapshotStore,
+    TemporalSetSnapshotV1,
+    TimeScope,
+)
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -47,6 +56,7 @@ from marivo.refs import (
     SemanticKind,
     SemanticKindTag,
     StateModelKind,
+    TemporalSetKind,
     TimeDimensionKind,
 )
 from marivo.refs import (
@@ -91,6 +101,7 @@ from marivo.semantic.ir import (
     SqlProvenance,
     StateModelIR,
     StrptimeParse,
+    TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
     WhereValue,
@@ -159,6 +170,9 @@ __all__ = [
     "SnapshotVersioning",
     "StateModelDetails",
     "StateModelEntry",
+    "TemporalOccurrencePage",
+    "TemporalSetDetails",
+    "TemporalSetEntry",
     "TimeDimensionDetails",
     "TimeDimensionEntry",
     "ValidityVersioning",
@@ -283,6 +297,10 @@ def _make_ref(
 
 
 @overload
+def _make_ref(path: str, kind: Literal[SemanticKind.TEMPORAL_SET]) -> Ref[TemporalSetKind]: ...
+
+
+@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -299,6 +317,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
+        SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
     }[kind]
     return factory(path)
 
@@ -1118,6 +1137,70 @@ class CalendarPeriodPage(RenderableResult):
         )
 
 
+@dataclass(frozen=True, repr=False)
+class TemporalSetDetails(_DetailsBase):
+    """Static source contract for one governed temporal set."""
+
+    boundary_timezone: str
+    coverage: tuple[CalendarDate, CalendarDate]
+    occurrence_id: Ref[DimensionKind]
+    start: Ref[TimeDimensionKind]
+    end: Ref[TimeDimensionKind]
+    category: Ref[DimensionKind] | None
+    occurrence_count: int | None
+    snapshot_status: Literal["missing", "current", "stale", "invalid"]
+
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        sections.extend(
+            (
+                FieldSection(label="boundary_timezone", value=self.boundary_timezone),
+                FieldSection(
+                    label="coverage",
+                    value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
+                ),
+                FieldSection(label="occurrence_id", value=self.occurrence_id.key),
+                FieldSection(label="start", value=self.start.key),
+                FieldSection(label="end", value=self.end.key),
+                FieldSection(
+                    label="category",
+                    value=self.category.key if self.category is not None else "(none)",
+                ),
+                FieldSection(label="occurrence_count", value=str(self.occurrence_count)),
+                FieldSection(label="snapshot_status", value=self.snapshot_status),
+            )
+        )
+        return sections
+
+
+@dataclass(frozen=True, repr=False)
+class TemporalOccurrencePage(RenderableResult):
+    """Bounded snapshot-bound page of exact occurrence scopes."""
+
+    items: tuple[TimeScope, ...]
+    next_cursor: str | None
+
+    def _repr_identity(self) -> str:
+        return f"TemporalOccurrencePage items={len(self.items)}"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(".items", ".next_cursor", ".show()"),
+        ).table(
+            columns=("scope",),
+            rows=((repr(item),) for item in self.items),
+            row_count=len(self.items),
+        )
+
+
 _CatalogObjectDetails = (
     DatasourceDetails
     | DomainDetails
@@ -1130,6 +1213,7 @@ _CatalogObjectDetails = (
     | EventDetails
     | StateModelDetails
     | PeriodCalendarDetails
+    | TemporalSetDetails
 )
 
 
@@ -1239,6 +1323,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "events",
         "state_models",
         "period_calendars",
+        "temporal_sets",
     )
 
     def details(self) -> DomainDetails:
@@ -1297,6 +1382,14 @@ class DomainEntry(CatalogEntry[DomainKind]):
         return self._catalog._collection(
             PeriodCalendarEntry,
             SemanticKind.PERIOD_CALENDAR,
+            scope_ref=self.ref,
+        )
+
+    @property
+    def temporal_sets(self) -> CatalogCollection[TemporalSetKind]:
+        return self._catalog._collection(
+            TemporalSetEntry,
+            SemanticKind.TEMPORAL_SET,
             scope_ref=self.ref,
         )
 
@@ -1766,6 +1859,175 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         )
 
 
+class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
+    """Loaded temporal-set declaration with exact occurrence navigation."""
+
+    ref: Ref[TemporalSetKind]
+
+    def _card(self) -> Card:
+        details = self.details()
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(
+                    ".ref",
+                    ".occurrence(key)",
+                    ".occurrences(...)",
+                    ".details()",
+                    ".contract()",
+                    ".show()",
+                ),
+            )
+            .field(label="kind", value=self.kind.value)
+            .field(label="path", value=self.path)
+            .field(label="boundary_timezone", value=details.boundary_timezone)
+            .field(
+                label="coverage",
+                value=f"[{details.coverage[0].isoformat()}, {details.coverage[1].isoformat()})",
+            )
+            .field(label="occurrence_count", value=str(details.occurrence_count))
+            .field(label="snapshot_status", value=details.snapshot_status)
+        )
+
+    def details(self) -> TemporalSetDetails:
+        details = cast("TemporalSetDetails", self._details)
+        status, snapshot = self._snapshot_with_status()
+        return replace(
+            details,
+            snapshot_status=status,
+            occurrence_count=len(snapshot.occurrences)
+            if status == "current" and snapshot
+            else None,
+        )
+
+    def occurrence(self, key: str | int | float | bool, /) -> TimeScope:
+        """Return the exact certified scope for one named occurrence."""
+        try:
+            return self._snapshot().occurrence_scope(key)
+        except (KeyError, TypeError, ValueError):
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrence",
+                f"No certified temporal occurrence matches key {key!r}.",
+                details={"key": key},
+            )
+
+    def occurrences(
+        self,
+        *,
+        start: date | datetime | None = None,
+        end: date | datetime | None = None,
+        category: str | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> TemporalOccurrencePage:
+        """Return deterministic, bounded certified occurrence scopes."""
+        if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrences",
+                "occurrence page limit must be an integer in [1, 100].",
+                details={"limit": limit},
+            )
+        if category is not None and (type(category) is not str or not category):
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrences",
+                "category must be a non-empty string or null.",
+                details={"category": category},
+            )
+        snapshot = self._snapshot()
+        try:
+            start, end = _normalize_occurrence_filters(
+                snapshot,
+                start=start,
+                end=end,
+            )
+        except (TypeError, ValueError) as exc:
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrences",
+                str(exc),
+                details={"start": repr(start), "end": repr(end)},
+            )
+        filter_token = _occurrence_filter_token(start=start, end=end, category=category)
+        try:
+            offset = _decode_occurrence_cursor(
+                cursor,
+                snapshot_digest=snapshot.snapshot_digest,
+                filter_token=filter_token,
+            )
+        except (TypeError, ValueError):
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrences",
+                "The cursor is invalid or belongs to a different snapshot/filter.",
+                details={"cursor": "provided"},
+            )
+        values = tuple(
+            occurrence
+            for occurrence in snapshot.occurrences
+            if _occurrence_overlaps(occurrence, start=start, end=end)
+            and (category is None or occurrence.category == category)
+        )
+        if offset > len(values):
+            _raise_temporal_set_lookup(
+                self.ref,
+                "occurrences",
+                "The cursor points beyond the current certified occurrence page.",
+                details={"offset": offset},
+            )
+        page_values = values[offset : offset + limit]
+        next_offset = offset + len(page_values)
+        next_cursor = (
+            _encode_occurrence_cursor(snapshot.snapshot_digest, filter_token, next_offset)
+            if next_offset < len(values)
+            else None
+        )
+        return TemporalOccurrencePage(
+            items=tuple(snapshot.occurrence_scope(item.key) for item in page_values),
+            next_cursor=next_cursor,
+        )
+
+    def _snapshot(self) -> TemporalSetSnapshotV1:
+        status, snapshot = self._snapshot_with_status()
+        if status != "current" or snapshot is None:
+            _raise_temporal_set_lookup(
+                self.ref,
+                "snapshot",
+                f"{self.ref.key} has no current certified temporal-set snapshot ({status}).",
+                details={"snapshot_status": status},
+            )
+        return snapshot
+
+    def _snapshot_with_status(
+        self,
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], TemporalSetSnapshotV1 | None]:
+        from marivo._temporal import temporal_set_definition_digest
+        from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+        details = cast("TemporalSetDetails", self._details)
+        definition_digest = temporal_set_definition_digest(
+            temporal_set_ref=self.ref,
+            boundary_timezone=details.boundary_timezone,
+            coverage=(details.coverage[0], details.coverage[1]),
+            occurrence_id=details.occurrence_id.path,
+            start=details.start.path,
+            end=details.end.path,
+            category=details.category.path if details.category is not None else None,
+            dependency_digest=scoped_definition_fingerprint(
+                root=self.ref,
+                definitions=self._catalog._state.definitions,
+                dependencies=self._catalog._state.dependencies,
+                sidecar=self._catalog._state.sidecar,
+            ),
+        )
+        return TemporalSetSnapshotStore(self._catalog.workspace_dir).inspect_current(
+            self.ref,
+            definition_digest=definition_digest,
+        )
+
+
 def _calendar_level_details(
     details: PeriodCalendarDetails,
     *,
@@ -1886,6 +2148,128 @@ def _decode_period_cursor(cursor: str | None, *, snapshot_digest: str, level: st
     return raw_offset
 
 
+def _raise_temporal_set_lookup(
+    temporal_set_ref: Ref[TemporalSetKind],
+    operation: str,
+    message: str,
+    *,
+    details: Mapping[str, object],
+) -> NoReturn:
+    """Raise one structured, bounded-retry temporal-set catalog error."""
+    _raise(
+        ErrorKind.NOT_FOUND,
+        message,
+        cls=SemanticRuntimeError,
+        refs=(temporal_set_ref.key,),
+        details={"operation": operation, **dict(details)},
+        repair_value=repair(
+            kind="retry",
+            canonical_id="temporal_set",
+            action=(
+                "Inspect the temporal-set card for a certified occurrence key/filter and "
+                "retry using the exact current snapshot."
+            ),
+        ),
+    )
+
+
+def _occurrence_filter_token(
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+    category: str | None,
+) -> str:
+    def encode(value: date | datetime | None) -> str | None:
+        return value.isoformat() if value is not None else None
+
+    return json.dumps(
+        [encode(start), encode(end), category],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _normalize_occurrence_filters(
+    snapshot: TemporalSetSnapshotV1,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+) -> tuple[date | datetime | None, date | datetime | None]:
+    """Validate and normalize overlap filters to the certified encoding."""
+    if start is not None and type(start) not in {date, datetime}:
+        raise ValueError("start filter must be date or datetime")
+    if end is not None and type(end) not in {date, datetime}:
+        raise ValueError("end filter must be date or datetime")
+    if start is not None and end is not None and type(start) is not type(end):
+        raise ValueError("start and end filters must use the same date or datetime encoding")
+    if snapshot.encoding == "date":
+        if (start is not None and type(start) is not date) or (
+            end is not None and type(end) is not date
+        ):
+            raise ValueError("date temporal sets require date overlap filters")
+    elif (start is not None and type(start) is not datetime) or (
+        end is not None and type(end) is not datetime
+    ):
+        raise ValueError("timestamp temporal sets require datetime overlap filters")
+    if start is not None and type(start) is datetime:
+        from marivo._temporal import _normalize_temporal_timestamp
+
+        start = _normalize_temporal_timestamp(start, boundary_timezone=snapshot.boundary_timezone)
+    if end is not None and type(end) is datetime:
+        from marivo._temporal import _normalize_temporal_timestamp
+
+        end = _normalize_temporal_timestamp(end, boundary_timezone=snapshot.boundary_timezone)
+    if start is not None and end is not None and start >= end:
+        raise ValueError("occurrence filter requires start < end")
+    return start, end
+
+
+def _occurrence_overlaps(
+    occurrence: TemporalOccurrenceRecord,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+) -> bool:
+    if start is None and end is None:
+        return True
+    if type(occurrence.start) is not type(start) and start is not None:
+        raise ValueError("occurrence filter encoding does not match the certified set")
+    if type(occurrence.end) is not type(end) and end is not None:
+        raise ValueError("occurrence filter encoding does not match the certified set")
+    return (end is None or occurrence.start < end) and (start is None or occurrence.end > start)
+
+
+def _encode_occurrence_cursor(snapshot_digest: str, filter_token: str, offset: int) -> str:
+    payload = json.dumps([snapshot_digest, filter_token, offset], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_occurrence_cursor(
+    cursor: str | None,
+    *,
+    snapshot_digest: str,
+    filter_token: str,
+) -> int:
+    if cursor is None:
+        return 0
+    if type(cursor) is not str or not cursor:
+        raise ValueError("occurrence cursor must be an opaque non-empty string or None")
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw_digest, raw_filter, raw_offset = json.loads(base64.urlsafe_b64decode(padded))
+    except (binascii.Error, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("occurrence cursor is invalid") from exc
+    if (
+        raw_digest != snapshot_digest
+        or raw_filter != filter_token
+        or type(raw_offset) is not int
+        or raw_offset < 0
+    ):
+        raise ValueError("occurrence cursor does not match the current certified snapshot/filter")
+    return raw_offset
+
+
 def _object_from_details[CatalogObjectT](
     object_type: type[CatalogObjectT],
     details: _CatalogObjectDetails,
@@ -1993,6 +2377,12 @@ class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
         self: CatalogCollection[PeriodCalendarKind],
         key: str | Ref[PeriodCalendarKind],
     ) -> PeriodCalendarEntry: ...
+
+    @overload
+    def get(
+        self: CatalogCollection[TemporalSetKind],
+        key: str | Ref[TemporalSetKind],
+    ) -> TemporalSetEntry: ...
 
     # Overloads encode the closed KindT-to-entry mapping that Python's generic
     # syntax cannot otherwise express while the runtime signature stays CatalogEntry[K].
@@ -2404,7 +2794,19 @@ def _build_domain_object(
         for calendar in reg.period_calendars.values()
         if calendar.domain == model_ir.name
     )
-    children = datasets_refs + metrics_refs + event_refs + state_model_refs + period_calendar_refs
+    temporal_set_refs = tuple(
+        _make_ref(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
+        for temporal_set in reg.temporal_sets.values()
+        if temporal_set.domain == model_ir.name
+    )
+    children = (
+        datasets_refs
+        + metrics_refs
+        + event_refs
+        + state_model_refs
+        + period_calendar_refs
+        + temporal_set_refs
+    )
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -3176,6 +3578,220 @@ def _build_period_calendar_object(
     return _object_from_details(PeriodCalendarEntry, details, catalog)
 
 
+def _build_temporal_set_object(
+    temporal_set_ir: TemporalSetIR,
+    reg: Registry,
+    catalog: SemanticCatalog,
+) -> TemporalSetEntry:
+    ref = ref_factory.temporal_set(temporal_set_ir.semantic_id)
+    occurrence_ref = ref_factory.dimension(temporal_set_ir.occurrence_id)
+    start_ref = ref_factory.time_dimension(temporal_set_ir.start)
+    end_ref = ref_factory.time_dimension(temporal_set_ir.end)
+    category_ref = (
+        ref_factory.dimension(temporal_set_ir.category)
+        if temporal_set_ir.category is not None
+        else None
+    )
+    parents = tuple(
+        value for value in (occurrence_ref, start_ref, end_ref, category_ref) if value is not None
+    )
+    details = TemporalSetDetails(
+        ref=ref,
+        kind=SemanticKind.TEMPORAL_SET,
+        name=temporal_set_ir.name,
+        domain=temporal_set_ir.domain,
+        context=temporal_set_ir.ai_context,
+        source_location=temporal_set_ir.location,
+        parents=parents,
+        children=(),
+        dependents=(),
+        python_symbol=temporal_set_ir.python_symbol,
+        boundary_timezone=temporal_set_ir.boundary_timezone,
+        coverage=(
+            date.fromisoformat(temporal_set_ir.coverage[0]),
+            date.fromisoformat(temporal_set_ir.coverage[1]),
+        ),
+        occurrence_id=occurrence_ref,
+        start=start_ref,
+        end=end_ref,
+        category=category_ref,
+        occurrence_count=None,
+        snapshot_status="missing",
+    )
+    return _object_from_details(TemporalSetEntry, details, catalog)
+
+
+def _preview_temporal_set(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    registry: Registry,
+    project_root: Path,
+    using: PreviewUsing,
+    limit: int,
+    dependency_digest: str,
+) -> PreviewResult:
+    """Certify a temporal set locally from one exhaustive persisted snapshot."""
+    preview_limit = validate_preview_limit(limit)
+    if not isinstance(using, DiscoverySnapshot):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set preview requires exactly one DiscoverySnapshot in using=.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={"query_executed": False},
+        )
+    if using._project_root.resolve() != project_root.resolve():
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set snapshot belongs to a different semantic project.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={"query_executed": False},
+        )
+    if using.cache_status in {"stale", "mismatched"} or using.expires_at <= datetime.now(UTC):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set preview cannot certify stale or expired datasource evidence.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={"query_executed": False, "cache_status": using.cache_status},
+        )
+    if using.value_evidence_state != "available" or not using.retained_values:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set preview requires retained persisted value evidence.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={
+                "query_executed": False,
+                "value_evidence_state": using.value_evidence_state,
+                "retained_row_count": len(using.retained_values),
+            },
+        )
+    temporal_set = registry.temporal_sets.get(temporal_set_ref.path)
+    if temporal_set is None:
+        raise RuntimeError(f"missing compiled temporal set {temporal_set_ref.path!r}")
+    occurrence_field = registry.dimensions.get(temporal_set.occurrence_id)
+    start_field = registry.dimensions.get(temporal_set.start)
+    end_field = registry.dimensions.get(temporal_set.end)
+    category_field = (
+        registry.dimensions.get(temporal_set.category)
+        if temporal_set.category is not None
+        else None
+    )
+    if (
+        occurrence_field is None
+        or start_field is None
+        or end_field is None
+        or occurrence_field.source_column is None
+        or start_field.source_column is None
+        or end_field.source_column is None
+        or (category_field is not None and category_field.source_column is None)
+    ):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set fields must be declared with physical source columns.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={"query_executed": False},
+        )
+    source_entity = registry.entities.get(occurrence_field.entity)
+    if (
+        source_entity is None
+        or using.datasource.path != source_entity.datasource
+        or using.source != source_entity.source
+        or using.coverage.scope_exhaustion != "exhaustive"
+        or not using.persist_values
+    ):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Temporal-set preview requires an exhaustive snapshot from the occurrence entity source with persist_values=True.",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={
+                "query_executed": False,
+                "scope_exhaustion": using.coverage.scope_exhaustion,
+                "persist_values": using.persist_values,
+            },
+        )
+    from marivo._temporal import (
+        TemporalSetSnapshotStore,
+        certify_temporal_set_rows,
+        temporal_set_definition_digest,
+    )
+
+    try:
+        snapshot = certify_temporal_set_rows(
+            temporal_set_ref=temporal_set_ref,
+            boundary_timezone=temporal_set.boundary_timezone,
+            coverage=(
+                date.fromisoformat(temporal_set.coverage[0]),
+                date.fromisoformat(temporal_set.coverage[1]),
+            ),
+            columns=using.columns,
+            retained_values=using.retained_values,
+            occurrence_id=occurrence_field.source_column,
+            start=start_field.source_column,
+            end=end_field.source_column,
+            category=category_field.source_column if category_field is not None else None,
+            start_parse=start_field.parse,
+            end_parse=end_field.parse,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"Temporal-set certification failed: {exc}",
+            cls=SemanticRuntimeError,
+            refs=(temporal_set_ref.key,),
+            details={"query_executed": False, "certification_error": type(exc).__name__},
+        )
+    definition_digest = temporal_set_definition_digest(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone=temporal_set.boundary_timezone,
+        coverage=temporal_set.coverage,
+        occurrence_id=temporal_set.occurrence_id,
+        start=temporal_set.start,
+        end=temporal_set.end,
+        category=temporal_set.category,
+        dependency_digest=dependency_digest,
+    )
+    TemporalSetSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
+    rows: tuple[dict[str, object], ...] = tuple(
+        {
+            "key": item.key,
+            "start": item.start.isoformat(),
+            "end": item.end.isoformat(),
+            "category": item.category,
+        }
+        for item in snapshot.occurrences[:preview_limit]
+    )
+    return PreviewResult(
+        kind="semantic_dataset",
+        ref=temporal_set_ref.path,
+        columns=("key", "start", "end", "category"),
+        types={
+            "key": "json_scalar",
+            "start": snapshot.encoding,
+            "end": snapshot.encoding,
+            "category": "string|null",
+        },
+        rows=rows,
+        requested_limit=preview_limit,
+        returned_row_count=len(rows),
+        is_truncated=len(snapshot.occurrences) > preview_limit,
+        status="passed",
+        coverage=PreviewCoverage(
+            scopes=((occurrence_field.entity, using.scope),),
+            rows_observed=using.coverage.observed_row_count,
+            scope_exhaustion=using.coverage.scope_exhaustion,
+            scope_exactness=using.coverage.scope_exactness,
+            snapshot_ids=(using.id,),
+            cache_status="fresh" if using.cache_status == "mismatched" else using.cache_status,
+        ),
+        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+    )
+
+
 def _preview_period_calendar(
     *,
     calendar_ref: Ref[PeriodCalendarKind],
@@ -3457,6 +4073,10 @@ class _CatalogIndex:
             _build_period_calendar_object(item, reg, self.catalog)
             for item in reg.period_calendars.values()
         )
+        result.extend(
+            _build_temporal_set_object(item, reg, self.catalog)
+            for item in reg.temporal_sets.values()
+        )
         return tuple(sorted(result, key=lambda obj: obj.key))
 
     def require(self, ref: Ref[SemanticKindTag]) -> CatalogEntry[SemanticKindTag] | None:
@@ -3527,6 +4147,8 @@ class _CatalogIndex:
                 )
             if isinstance(details, StateModelDetails):
                 return scope.ref == details.subject
+            if isinstance(details, TemporalSetDetails):
+                return any(parent == scope.ref for parent in details.parents)
         return False
 
 
@@ -3932,6 +4554,10 @@ class SemanticCatalog(RenderableResult):
     @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
         return self._collection(PeriodCalendarEntry, SemanticKind.PERIOD_CALENDAR)
+
+    @property
+    def temporal_sets(self) -> CatalogCollection[TemporalSetKind]:
+        return self._collection(TemporalSetEntry, SemanticKind.TEMPORAL_SET)
 
     def require[KindT: SemanticKindTag](self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
@@ -4354,6 +4980,22 @@ class SemanticCatalog(RenderableResult):
 
             return _preview_period_calendar(
                 calendar_ref=cast("Ref[PeriodCalendarKind]", ref_obj),
+                registry=reg,
+                project_root=self.workspace_dir,
+                using=using,
+                limit=limit,
+                dependency_digest=scoped_definition_fingerprint(
+                    root=ref_obj,
+                    definitions=self._state.definitions,
+                    dependencies=self._state.dependencies,
+                    sidecar=self._state.sidecar,
+                ),
+            )
+        if kind is SemanticKind.TEMPORAL_SET:
+            from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+            return _preview_temporal_set(
+                temporal_set_ref=cast("Ref[TemporalSetKind]", ref_obj),
                 registry=reg,
                 project_root=self.workspace_dir,
                 using=using,

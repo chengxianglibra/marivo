@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.semantic as ms
+from marivo._temporal import _new_time_scope
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis.executor.bucketing import apply_time_series_bucket
 from marivo.analysis.executor.runner import (
@@ -20,6 +21,7 @@ from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.datasource import manage as datasource_registry
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.refs import ref
 from marivo.semantic.reader import SemanticProject
 
 
@@ -380,6 +382,45 @@ def test_apply_time_series_bucket_day_respects_report_tz_for_timestamp(tmp_path)
         report_tz=ZoneInfo("Asia/Shanghai"),
         datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
+    df = bucketed.order_by("created_at").execute()
+    assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == [
+        "2026-04-30",
+        "2026-05-01",
+    ]
+
+
+def test_apply_time_series_bucket_keeps_report_timezone_for_occurrence_scope(tmp_path):
+    sp = _bootstrap_project(tmp_path, time_field_data_type="timestamp", time_field_timezone="UTC")
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (created_at TIMESTAMP, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(TIMESTAMP '2026-04-30 16:00:00', 10.0), "
+        "(TIMESTAMP '2026-05-01 15:00:00', 20.0)"
+    )
+
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
+    occurrence = _new_time_scope(
+        start="2026-05-01",
+        end="2026-05-02",
+        temporal_set=ref.temporal_set("sales.events"),
+        snapshot_digest="sha256:exact",
+        boundary_timezone="Asia/Shanghai",
+        key="launch",
+    )
+    bucketed = apply_time_series_bucket(
+        ds_adapter.fn(con),
+        field_ir=ds_adapter.fields["created_at"],
+        window=AbsoluteWindow(
+            start="2026-05-01",
+            end="2026-05-02",
+            grain="day",
+            semantic_scope=occurrence,
+        ),
+        report_tz=ZoneInfo("UTC"),
+        datasource_read_tz=ZoneInfo("UTC"),
+    )
+
     df = bucketed.order_by("created_at").execute()
     assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == [
         "2026-04-30",

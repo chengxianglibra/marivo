@@ -787,6 +787,12 @@ def _materialize_cumulative_evaluation_end(
         and resolved_window.temporal_snapshot is not None
     ):
         evaluation_timezone = resolved_window.temporal_snapshot.boundary_timezone
+    if (
+        isinstance(resolved_window.semantic_scope, TimeScope)
+        and resolved_window.semantic_scope.kind == "temporal_occurrence"
+        and resolved_window.semantic_scope.boundary_timezone
+    ):
+        evaluation_timezone = resolved_window.semantic_scope.boundary_timezone
     window_end = _evaluation_timestamp_utc(
         resolved_window.end,
         report_tz=evaluation_timezone,

@@ -14,6 +14,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import TemporalSetSnapshotStore
 from marivo.analysis.errors import (
     AnalysisRepair,
     GrainUnsupportedError,
@@ -41,6 +42,7 @@ from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     GrainInput,
     TimeScopeInput,
+    bind_temporal_set_window,
     bind_temporal_window,
     make_absolute_window,
     normalize_timescope_input,
@@ -118,16 +120,100 @@ def _resolve_timescope(
                 )
             if (
                 semantic_scope is not None
+                and semantic_scope.kind == "calendar_period"
                 and semantic_scope.snapshot_digest != snapshot.snapshot_digest
             ):
                 raise ValueError(
                     "time_scope belongs to a stale period-calendar snapshot; reacquire the exact current scope"
                 )
+            if semantic_scope is not None and semantic_scope.kind == "calendar_period":
+                try:
+                    exact_scope = snapshot.period_scope(
+                        semantic_scope.level or "",
+                        semantic_scope.key,
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise WindowInvalidError(
+                        message="time_scope period key is not present in its certified snapshot",
+                        context={
+                            "kind": "TemporalPeriodMissing",
+                            "calendar_ref": calendar_ref.path,
+                            "level": semantic_scope.level,
+                            "key": semantic_scope.key,
+                        },
+                    ) from exc
+                if (
+                    exact_scope.start != semantic_scope.start
+                    or exact_scope.end != semantic_scope.end
+                    or exact_scope.calendar != semantic_scope.calendar
+                    or exact_scope.snapshot_digest != semantic_scope.snapshot_digest
+                    or exact_scope.boundary_timezone != semantic_scope.boundary_timezone
+                    or exact_scope.level != semantic_scope.level
+                    or exact_scope.key != semantic_scope.key
+                ):
+                    raise WindowInvalidError(
+                        message="time_scope period bounds do not match its certified period",
+                        context={
+                            "kind": "TemporalPeriodBindingMismatch",
+                            "calendar_ref": calendar_ref.path,
+                            "level": semantic_scope.level,
+                            "key": semantic_scope.key,
+                        },
+                    )
+                resolved = resolved.model_copy(update={"semantic_scope": exact_scope})
             _validate_semantic_window_coverage(resolved, snapshot=snapshot)
             resolved = bind_temporal_window(resolved, snapshot=snapshot)
+        if semantic_scope is not None and semantic_scope.kind == "temporal_occurrence":
+            from marivo.refs import SemanticKind
+
+            temporal_set_ref = semantic_scope.temporal_set
+            if temporal_set_ref is None or temporal_set_ref.kind is not SemanticKind.TEMPORAL_SET:
+                raise TypeError("temporal occurrence scope requires Ref[temporal_set]")
+            if not semantic_scope.snapshot_digest:
+                raise WindowInvalidError(
+                    message="temporal occurrence scope has no snapshot digest",
+                    context={"kind": "TemporalSetSnapshotMissing"},
+                )
+            if semantic_scope.key is None:
+                raise WindowInvalidError(
+                    message="temporal occurrence scope has no key",
+                    context={"kind": "TemporalOccurrenceKeyMissing"},
+                )
+            try:
+                temporal_set_snapshot = TemporalSetSnapshotStore(catalog.workspace_dir).load_exact(
+                    temporal_set_ref,
+                    snapshot_digest=semantic_scope.snapshot_digest,
+                )
+            except (KeyError, OSError, TypeError, ValueError) as exc:
+                raise WindowInvalidError(
+                    message="temporal occurrence scope requires its exact certified snapshot",
+                    expected="the snapshot named by TimeScope.contract()",
+                    received=repr(semantic_scope.snapshot_digest),
+                    context={
+                        "kind": "TemporalSetSnapshotUnavailable",
+                        "temporal_set_ref": temporal_set_ref.path,
+                        "snapshot_digest": semantic_scope.snapshot_digest,
+                    },
+                ) from exc
+            try:
+                exact_scope = temporal_set_snapshot.occurrence_scope(semantic_scope.key)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise WindowInvalidError(
+                    message="temporal occurrence scope key is not present in its certified snapshot",
+                    context={"kind": "TemporalOccurrenceMissing", "key": semantic_scope.key},
+                ) from exc
+            if exact_scope != semantic_scope:
+                raise WindowInvalidError(
+                    message="temporal occurrence scope bounds do not match its certified occurrence",
+                    context={
+                        "kind": "TemporalOccurrenceBindingMismatch",
+                        "key": semantic_scope.key,
+                    },
+                )
+            resolved = bind_temporal_set_window(resolved, snapshot=temporal_set_snapshot)
     original = (
         timescope_in.contract().model_dump(mode="json")
-        if timescope_in is not None and timescope_in.kind == "calendar_period"
+        if timescope_in is not None and timescope_in.kind != "absolute"
         else timescope_in.model_dump(mode="json")
         if timescope_in is not None
         else None

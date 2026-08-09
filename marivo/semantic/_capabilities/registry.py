@@ -49,6 +49,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[event] | ParticipantRoleHandle",
         "Ref[state_model]",
         "Ref[period_calendar]",
+        "Ref[temporal_set]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "Ref | RuntimeMetricExpression",
@@ -139,6 +140,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[event]",
         "Ref[state_model]",
         "Ref[period_calendar]",
+        "Ref[temporal_set]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
@@ -384,6 +386,16 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
             prerequisite_targets=(_target("time_dimension"), _target("dimension")),
             judgment_requirements=("period_boundaries", "coverage", "boundary_timezone"),
         ),
+        SemanticKind.TEMPORAL_SET: _authoring_source_contract(
+            SemanticKind.TEMPORAL_SET,
+            prerequisite_targets=(_target("dimension"), _target("time_dimension")),
+            judgment_requirements=(
+                "occurrence_identity",
+                "occurrence_bounds",
+                "coverage",
+                "boundary_timezone",
+            ),
+        ),
     }
     ids_by_kind = {
         SemanticKind.DOMAIN: ("domain",),
@@ -404,6 +416,7 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
         SemanticKind.EVENT: ("event",),
         SemanticKind.STATE_MODEL: ("state_model",),
         SemanticKind.PERIOD_CALENDAR: ("period_calendar",),
+        SemanticKind.TEMPORAL_SET: ("temporal_set",),
     }
     return MappingProxyType(
         {
@@ -689,6 +702,26 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "coverage=(__import__('datetime').date(2026, 1, 1), "
                 "__import__('datetime').date(2027, 1, 1)), "
                 "levels={'week': ms.ref.dimension('sales.calendar.fiscal_week')})"
+            ),
+        ),
+        _capability(
+            "temporal_set",
+            "marivo.semantic._authoring_temporal.temporal_set",
+            "Declare a finite governed set of named temporal occurrences.",
+            output="Ref[temporal_set]",
+            inputs=(
+                AuthoringInputRequirement(role="mapping_key", family="Text"),
+                AuthoringInputRequirement(role="subject", family="Ref[dimension]"),
+                AuthoringInputRequirement(role="dependency", family="Ref[time_dimension]"),
+                AuthoringInputRequirement(role="dependency", family="Ref[time_dimension]"),
+                _optional_input("dependency", "Ref[dimension]"),
+            ),
+            effects=_AUTHOR,
+            constraints=("active_loader_context", "ref_shape"),
+            example=(
+                "ms.temporal_set(name='campaigns', occurrence_id=ms.ref.dimension('sales.events.id'), "
+                "start=ms.ref.time_dimension('sales.events.start'), end=ms.ref.time_dimension('sales.events.end'), "
+                "boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2027, 1, 1)))"
             ),
         ),
         _capability(
@@ -1345,6 +1378,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_dimension_column",
                 "period_correspondence",
                 "period_calendar",
+                "temporal_set",
                 "calendar_grain",
                 "measure",
                 "measure_column",
@@ -1432,6 +1466,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SimpleMetricDetails,
         StateModelDetails,
         StateModelEntry,
+        TemporalOccurrencePage,
+        TemporalSetDetails,
+        TemporalSetEntry,
         TimeDimensionDetails,
         TimeDimensionEntry,
     )
@@ -1680,6 +1717,41 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
+        TemporalSetEntry,
+        "TemporalSetEntry",
+        (),
+        properties=("ref",),
+        methods=("occurrence", "occurrences", "details", "show", "contract", "render"),
+        state_bearing=True,
+    )
+    add(
+        TemporalSetDetails,
+        "TemporalSetDetails",
+        (),
+        properties=(
+            "ref",
+            "boundary_timezone",
+            "coverage",
+            "occurrence_id",
+            "start",
+            "end",
+            "category",
+            "occurrence_count",
+            "snapshot_status",
+            "parents",
+            "children",
+            "dependents",
+        ),
+        methods=show_render,
+    )
+    add(
+        TemporalOccurrencePage,
+        "TemporalOccurrencePage",
+        (),
+        properties=("items", "next_cursor"),
+        methods=show_render,
+    )
+    add(
         DatasourceEntry,
         "DatasourceEntry",
         (),
@@ -1761,6 +1833,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "event",
             "state_model",
             "period_calendar",
+            "temporal_set",
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
@@ -1787,12 +1860,20 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "event",
             "state_model",
             "period_calendar",
+            "temporal_set",
         ),
     )
     add(
         PeriodCalendarKind,
         "PeriodCalendarKind",
         ("period_calendar",),
+    )
+    from marivo.refs import TemporalSetKind
+
+    add(
+        TemporalSetKind,
+        "TemporalSetKind",
+        ("temporal_set",),
     )
     from marivo.semantic.event import Participant, ParticipantRoleHandle
     from marivo.semantic.state_model import (

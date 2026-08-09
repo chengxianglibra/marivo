@@ -150,7 +150,13 @@ def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
 
 def test_alignment_help_exposes_closed_admission_matrix() -> None:
     text = _text("alignment")
-    for member in ("window_bucket", "day_of_week", "period_progress", "period_correspondence"):
+    for member in (
+        "window_bucket",
+        "day_of_week",
+        "period_progress",
+        "period_correspondence",
+        "occurrence_progress",
+    ):
         assert f"mv.{member}" in text
     assert "MetricFrame.compare day-grain time-series or panel" in text
     assert "EventFrame.compare     alignment=None" in text
@@ -1211,6 +1217,7 @@ def test_analysis_all_is_pinned() -> None:
         "day_of_week",
         "period_progress",
         "period_correspondence",
+        "occurrence_progress",
         "session",
         "window_bucket",
         "runtime_metric",

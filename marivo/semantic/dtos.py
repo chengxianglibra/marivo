@@ -51,6 +51,7 @@ AuthoringObjectKind = Literal[
     "event",
     "state_model",
     "period_calendar",
+    "temporal_set",
 ]
 
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]

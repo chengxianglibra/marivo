@@ -241,6 +241,7 @@ Alignment and window helpers
    day_of_week
    period_progress
    period_correspondence
+   occurrence_progress
 
 Slices
 ------

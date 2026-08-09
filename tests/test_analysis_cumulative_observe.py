@@ -12,6 +12,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._temporal import _new_time_scope
 from marivo.analysis._cumulative import EVALUATION_END_COLUMN
 from marivo.analysis.errors import (
     AttributeAdmissionBlockedError,
@@ -22,8 +23,10 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
-from marivo.analysis.intents.observe import observe
+from marivo.analysis.intents.observe import _build_frame_temporal_contract, observe
+from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
+from marivo.refs import ref
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 
@@ -91,6 +94,32 @@ def _fiscal_calendar_evidence(project_root):
         _project_root=project_root,
         retained_values=tuple(rows),
     )
+
+
+def test_occurrence_scope_does_not_override_builtin_observation_timezone() -> None:
+    occurrence = _new_time_scope(
+        start="2026-05-01",
+        end="2026-05-02",
+        temporal_set=ref.temporal_set("sales.events"),
+        snapshot_digest="sha256:exact",
+        boundary_timezone="Asia/Shanghai",
+        key="launch",
+    )
+    contract = _build_frame_temporal_contract(
+        resolved_window=AbsoluteWindow(
+            start="2026-05-01",
+            end="2026-05-02",
+            grain="day",
+            semantic_scope=occurrence,
+        ),
+        cumulative=None,
+        frame=pd.DataFrame(),
+        report_timezone="UTC",
+    )
+
+    assert contract is not None
+    assert contract.observation_period is not None
+    assert contract.observation_period.boundary_timezone == "UTC"
 
 
 def _metric_pandas(frame):

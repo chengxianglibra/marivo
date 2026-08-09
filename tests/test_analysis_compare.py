@@ -15,9 +15,11 @@ from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,
     SemanticPeriodBindingV1,
+    TemporalSetSnapshotStore,
     TemporalSnapshotStore,
     TimeScopeContractV1,
     certify_period_calendar,
+    certify_temporal_set,
 )
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -32,6 +34,7 @@ from marivo.analysis.intents.compare import _align_component_role, compare
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import (
     day_of_week,
+    occurrence_progress,
     period_correspondence,
     period_progress,
     window_bucket,
@@ -427,6 +430,105 @@ def test_compare_period_progress_and_correspondence_use_certified_snapshot(tmp_p
     assert correspondence_delta.meta.temporal_contract is not None
     assert progress_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
     assert correspondence_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
+
+
+def test_compare_occurrence_progress_anchors_exact_scopes_and_records_drops(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    snapshot = certify_temporal_set(
+        temporal_set_ref=ref.temporal_set("sales.campaigns"),
+        boundary_timezone="UTC",
+        coverage=(date(2025, 1, 1), date(2027, 1, 1)),
+        rows=[
+            {"id": "spring", "start": date(2026, 3, 1), "end": date(2026, 3, 4)},
+            {"id": "legacy", "start": date(2025, 4, 10), "end": date(2025, 4, 12)},
+        ],
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+    TemporalSetSnapshotStore(session.project_root).publish(
+        snapshot,
+        definition_digest="sha256:temporal-set-definition",
+    )
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "sales.orders.created_at",
+        }
+    }
+    observation = BuiltinPeriodBindingV1(level_name="day", boundary_timezone="UTC")
+
+    def frame(data: pd.DataFrame, *, start: date, end: date, key: str):
+        result = make_metric_frame(
+            data,
+            metric_id="sales.revenue",
+            axes=axes,
+            measure={"name": "value"},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            window={"start": start.isoformat(), "end": end.isoformat()},
+            session=session,
+        )
+        return _attach_temporal_contract(
+            result,
+            start=start,
+            end=end,
+            observation_period=observation,
+            scope=TimeScopeContractV1(
+                kind="temporal_occurrence",
+                start=start,
+                end=end,
+                temporal_set_ref="sales.campaigns",
+                snapshot_digest=snapshot.snapshot_digest,
+                boundary_timezone="UTC",
+                key=key,
+            ),
+        )
+
+    current = frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"]),
+                "value": [10.0, 20.0, 30.0],
+            }
+        ),
+        start=date(2026, 3, 1),
+        end=date(2026, 3, 4),
+        key="spring",
+    )
+    baseline = frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2025-04-10", "2025-04-11"]),
+                "value": [8.0, 18.0],
+            }
+        ),
+        start=date(2025, 4, 10),
+        end=date(2025, 4, 12),
+        key="legacy",
+    )
+
+    delta = compare(
+        current,
+        baseline,
+        alignment=occurrence_progress(anchor="start", unmatched="drop"),
+        session=session,
+    )
+
+    output = delta.to_pandas()
+    assert len(output) == 2
+    assert list(output["bucket_start_a"]) == [
+        pd.Timestamp("2026-03-01"),
+        pd.Timestamp("2026-03-02"),
+    ]
+    evidence = delta.meta.temporal_contract.alignment_evidence
+    assert evidence.paired_points == 2
+    assert evidence.current_only_points == 1
+    assert evidence.dropped_points == 1
+    assert delta.meta.temporal_contract.resolved_target_period is None
 
 
 def test_period_progress_rejects_builtin_coarse_source_against_semantic_target(tmp_path):

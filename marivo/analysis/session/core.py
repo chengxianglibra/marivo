@@ -947,8 +947,11 @@ class Session(RenderableResult):
         Args:
             current: Current-period MetricFrame or EventFrame[funnel].
             baseline: Baseline-period MetricFrame or EventFrame[funnel].
-            alignment: Defaults to ``mv.window_bucket()``. For
-                ``segmented`` frames, only ``window_bucket`` is supported in v1.
+            alignment: Defaults to ``mv.window_bucket()``. For day-grain
+                time-series or panel frames selected by exact temporal-occurrence
+                scopes, ``mv.occurrence_progress(anchor=..., unmatched=...)``
+                pairs effective local-day ordinals. Segmented frames continue to
+                support only ``window_bucket`` in v1.
 
         Guidance:
             Funnel comparison has one mechanically determined alignment:

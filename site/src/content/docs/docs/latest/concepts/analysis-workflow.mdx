@@ -366,9 +366,18 @@ delta = session.compare(current, baseline)
 
 `compare` pairs buckets with `window_bucket` by default. Pass `alignment=` to
 choose one closed helper: `mv.window_bucket()`, `mv.day_of_week()`,
-`mv.period_progress()`, or `mv.period_correspondence()`. The latter three
-require the exact certified period authority carried by the source frames;
-there is no analysis-local holiday-calendar parameter.
+`mv.period_progress()`, `mv.period_correspondence()`, or
+`mv.occurrence_progress()`. The latter four
+require exact certified authority carried by the source frames; the period
+helpers use a period authority and `occurrence_progress` uses temporal-set
+occurrence scopes. There is no analysis-local holiday-calendar parameter.
+
+`mv.occurrence_progress(anchor="start" | "end")` is reserved for day-grain
+time-series or panel frames selected by exact `TemporalSet` occurrence scopes.
+It pairs zero-based effective local-day ordinals (forward from the start or
+backward from the exclusive end); it does not infer recurrence or label matches.
+The built-in `day` grain still uses each session's report timezone; it must match
+the occurrence boundary timezone for `occurrence_progress` admission.
 
 The delta carries additivity, aggregation, and status-time semantics only when
 both source frames have the same three values and additivity is known. Missing

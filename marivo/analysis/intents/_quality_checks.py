@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo._temporal import _trusted_time_scope_validation
 from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
@@ -931,9 +932,10 @@ def _load_lifecycle_source_history(
     if not data_path.is_file() or not meta_path.is_file():
         return None
     try:
-        source_meta = LifecycleHistoryFrameMeta.model_validate_json(
-            meta_path.read_text(encoding="utf-8")
-        )
+        with _trusted_time_scope_validation():
+            source_meta = LifecycleHistoryFrameMeta.model_validate_json(
+                meta_path.read_text(encoding="utf-8")
+            )
         source_df = pd.read_parquet(
             data_path,
             engine="pyarrow",

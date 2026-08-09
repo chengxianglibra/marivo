@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from pydantic import (
     BaseModel,
@@ -16,6 +17,7 @@ from pydantic import (
 from marivo._temporal import Grain as TemporalGrain
 from marivo._temporal import (
     PeriodCalendarSnapshotV1,
+    TemporalSetSnapshotV1,
     TimeScope,
     _new_time_scope,
     _validate_time_scope_data,
@@ -78,6 +80,7 @@ class AbsoluteWindow(BaseModel):
     # semantic grain/scope to its immutable certified snapshot.
     semantic_scope: TimeScope | None = Field(default=None, exclude=True)
     temporal_snapshot: PeriodCalendarSnapshotV1 | None = Field(default=None, exclude=True)
+    temporal_set_snapshot: TemporalSetSnapshotV1 | None = Field(default=None, exclude=True)
 
     @field_validator("grain", mode="before")
     @classmethod
@@ -208,7 +211,7 @@ def make_absolute_window(
         end=_as_absolute_bound(timescope.end),
         grain=resolved_grain,
         time_dimension=time_dimension,
-        semantic_scope=timescope if timescope.kind == "calendar_period" else None,
+        semantic_scope=timescope if timescope.kind != "absolute" else None,
     )
 
 
@@ -231,6 +234,39 @@ def bind_temporal_window(
             context={"kind": "SemanticGrainSnapshotMissing", "grain": window.grain.to_token()},
         )
     return window.model_copy(update={"temporal_snapshot": snapshot})
+
+
+def bind_temporal_set_window(
+    window: AbsoluteWindow | None,
+    *,
+    snapshot: TemporalSetSnapshotV1 | None,
+) -> AbsoluteWindow | None:
+    """Attach one immutable temporal-set snapshot to an execution window."""
+    if window is None:
+        return None
+    if (
+        snapshot is None
+        and isinstance(window.semantic_scope, TimeScope)
+        and window.semantic_scope.kind == "temporal_occurrence"
+    ):
+        raise WindowInvalidError(
+            message="temporal occurrence scope has no certified snapshot",
+            hint="Preview the temporal set with one exhaustive persisted snapshot, then retry.",
+            context={"kind": "TemporalSetSnapshotMissing"},
+        )
+    return window.model_copy(update={"temporal_set_snapshot": snapshot})
+
+
+def _window_authority_timezone(window: AbsoluteWindow, fallback: ZoneInfo) -> ZoneInfo:
+    """Return the boundary timezone owned by an exact semantic scope."""
+    scope = window.semantic_scope
+    if (
+        isinstance(scope, TimeScope)
+        and scope.kind == "temporal_occurrence"
+        and scope.boundary_timezone
+    ):
+        return ZoneInfo(scope.boundary_timezone)
+    return fallback
 
 
 def dump_window(window: AbsoluteWindow | None) -> dict[str, Any] | None:

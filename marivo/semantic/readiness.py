@@ -37,6 +37,9 @@ ReadinessIssueKind = Literal[
     "period_calendar_snapshot_missing",
     "period_calendar_snapshot_stale",
     "period_calendar_snapshot_invalid",
+    "temporal_set_snapshot_missing",
+    "temporal_set_snapshot_stale",
+    "temporal_set_snapshot_invalid",
 ]
 
 
@@ -205,6 +208,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
+        SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
     }[kind]
     return factory(path)
 
@@ -322,6 +326,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         kinds[key] = SemanticKind.PERIOD_CALENDAR
         objects[key] = calendar
+    for temporal_set in reg.temporal_sets.values():
+        key = _exact_key(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
+        kinds[key] = SemanticKind.TEMPORAL_SET
+        objects[key] = temporal_set
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -466,6 +474,23 @@ def _dependencies_for_ref(
                 SemanticKind.TIME_DIMENSION if field == date_field else SemanticKind.DIMENSION,
             )
             for field in (date_field, *levels, *correspondence_fields)
+            if isinstance(field, str)
+        )
+    if kind == SemanticKind.TEMPORAL_SET:
+        fields = (
+            getattr(obj, "occurrence_id", None),
+            getattr(obj, "start", None),
+            getattr(obj, "end", None),
+            getattr(obj, "category", None),
+        )
+        return tuple(
+            _exact_key(
+                field,
+                SemanticKind.TIME_DIMENSION
+                if field in {getattr(obj, "start", None), getattr(obj, "end", None)}
+                else SemanticKind.DIMENSION,
+            )
+            for field in fields
             if isinstance(field, str)
         )
     if kind == SemanticKind.METRIC:
@@ -847,6 +872,59 @@ def build_readiness_report(
                                 "Acquire one fresh exhaustive DiscoverySnapshot with "
                                 "persist_values=True, then preview this period calendar using "
                                 "that exact snapshot."
+                            ),
+                        ),
+                        details={"snapshot_status": status},
+                    )
+                )
+
+        from marivo._temporal import TemporalSetSnapshotStore, temporal_set_definition_digest
+        from marivo.semantic.ir import TemporalSetIR
+
+        temporal_set_store = TemporalSetSnapshotStore(project._workspace_dir)
+        for ref in checked_refs:
+            if kinds.get(ref) is not SemanticKind.TEMPORAL_SET:
+                continue
+            temporal_set = objects.get(ref)
+            if not isinstance(temporal_set, TemporalSetIR):
+                continue
+            temporal_set_ref = ref_factory.temporal_set(_display_path(ref))
+            definition_digest = temporal_set_definition_digest(
+                temporal_set_ref=temporal_set_ref,
+                boundary_timezone=temporal_set.boundary_timezone,
+                coverage=temporal_set.coverage,
+                occurrence_id=temporal_set.occurrence_id,
+                start=temporal_set.start,
+                end=temporal_set.end,
+                category=temporal_set.category,
+                dependency_digest=scoped_definition_fingerprint(
+                    root=temporal_set_ref,
+                    definitions=compiled_state.definitions,
+                    dependencies=compiled_state.dependencies,
+                    sidecar=compiled_state.sidecar,
+                ),
+            )
+            status, _temporal_snapshot = temporal_set_store.inspect_current(
+                temporal_set_ref,
+                definition_digest=definition_digest,
+            )
+            if status != "current":
+                path = _display_path(ref)
+                issue_kind = cast("ReadinessIssueKind", f"temporal_set_snapshot_{status}")
+                if status == "missing":
+                    issue_kind = "temporal_set_snapshot_missing"
+                blockers.append(
+                    _issue(
+                        issue_kind,
+                        "blocker",
+                        (path,),
+                        f"{path} has no current certified temporal-set snapshot for its declaration (state={status}).",
+                        repair(
+                            kind="reverify",
+                            canonical_id="preview",
+                            action=(
+                                "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
+                                "then preview this temporal set using that exact snapshot."
                             ),
                         ),
                         details={"snapshot_status": status},

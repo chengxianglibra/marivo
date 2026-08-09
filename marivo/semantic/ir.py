@@ -80,6 +80,7 @@ __all__ = [
     "StateTriggerIR",
     "StrptimeParse",
     "TableSourceIR",
+    "TemporalSetIR",
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
@@ -301,6 +302,24 @@ class PeriodCalendarIR:
     python_symbol: str
     location: SourceLocation
     correspondences: tuple[tuple[str, str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class TemporalSetIR:
+    """Authored identity and source-field contract for named occurrences."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    occurrence_id: str
+    start: str
+    end: str
+    boundary_timezone: str
+    coverage: tuple[str, str]
+    category: str | None
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
 
 
 @dataclass(frozen=True)

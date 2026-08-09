@@ -63,6 +63,7 @@ _REF_ID_FORMATS: tuple[tuple[SemanticKind, str], ...] = (
     (SemanticKind.ENTITY, 'ms.ref.entity("<domain>.<entity_name>")'),
     (SemanticKind.DOMAIN, 'ms.ref.domain("<domain_name>")'),
     (SemanticKind.STATE_MODEL, 'ms.ref.state_model("<domain>.<state_model_name>")'),
+    (SemanticKind.TEMPORAL_SET, 'ms.ref.temporal_set("<domain>.<temporal_set_name>")'),
 )
 
 
@@ -577,7 +578,13 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
         return []
     if desc.id == "alignment":
         member_targets = frozenset(
-            {"window_bucket", "day_of_week", "period_progress", "period_correspondence"}
+            {
+                "window_bucket",
+                "day_of_week",
+                "period_progress",
+                "period_correspondence",
+                "occurrence_progress",
+            }
         )
         return sorted(
             (
@@ -640,6 +647,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                 "    day_of_week            MetricFrame.compare day-grain time-series or panel",
                 "    period_progress        MetricFrame.compare cumulative or one target period",
                 "    period_correspondence  MetricFrame.compare complete exact semantic grain",
+                "    occurrence_progress   MetricFrame.compare day-grain exact occurrence scopes",
                 "    EventFrame.compare     alignment=None (mechanical step/axis pairing)",
                 "    segmented frames      window_bucket only",
             )

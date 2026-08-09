@@ -1,4 +1,4 @@
-"""Period-calendar declarations for the first temporal-semantics slice."""
+"""Authoring helpers for governed calendar and named temporal-set semantics."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from marivo.refs import (
     PeriodCalendarKind,
     Ref,
     SemanticKind,
+    TemporalSetKind,
     TimeDimensionKind,
 )
 from marivo.refs import (
@@ -29,7 +30,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import _validate_timezone
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.ir import PeriodCalendarIR
+from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR
 from marivo.semantic.typing import AiContextValue
 
 
@@ -195,3 +196,82 @@ def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
             cls=SemanticDecoratorError,
         )
     return semantic_grain(calendar=calendar, level=level)
+
+
+def temporal_set(
+    *,
+    name: str,
+    occurrence_id: Ref[DimensionKind],
+    start: Ref[TimeDimensionKind],
+    end: Ref[TimeDimensionKind],
+    boundary_timezone: str,
+    coverage: tuple[_datetime.date, _datetime.date],
+    category: Ref[DimensionKind] | None = None,
+    domain: Ref[DomainKind] | None = None,
+    ai_context: AiContextValue | None = None,
+) -> Ref[TemporalSetKind]:
+    """Declare one finite governed set of named temporal occurrences."""
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    if type(name) is not str or not name:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "temporal set name must be a non-empty string.",
+            cls=SemanticDecoratorError,
+        )
+    occurrence_id_value = _require_ref_id(
+        occurrence_id,
+        parameter="occurrence_id",
+        expected=(SemanticKind.DIMENSION,),
+    )
+    start_value = _require_ref_id(
+        start,
+        parameter="start",
+        expected=(SemanticKind.TIME_DIMENSION,),
+    )
+    end_value = _require_ref_id(
+        end,
+        parameter="end",
+        expected=(SemanticKind.TIME_DIMENSION,),
+    )
+    category_value = (
+        None
+        if category is None
+        else _require_ref_id(category, parameter="category", expected=(SemanticKind.DIMENSION,))
+    )
+    _validate_timezone(boundary_timezone)
+    if (
+        type(coverage) is not tuple
+        or len(coverage) != 2
+        or type(coverage[0]) is not _datetime.date
+        or type(coverage[1]) is not _datetime.date
+        or coverage[0] >= coverage[1]
+    ):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "coverage= must be a non-empty half-open tuple of exact civil dates.",
+            cls=SemanticDecoratorError,
+        )
+    semantic_id = f"{resolved_domain}.{name}"
+    ref = ref_factory.temporal_set(semantic_id)
+    _check_duplicate(ctx, semantic_id, TemporalSetIR)
+    _push_ir(
+        ctx,
+        ref,
+        TemporalSetIR(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=name,
+            occurrence_id=occurrence_id_value,
+            start=start_value,
+            end=end_value,
+            boundary_timezone=boundary_timezone,
+            coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
+            category=category_value,
+            ai_context=_build_ai_context(ai_context),
+            python_symbol=name,
+            location=_caller_location(),
+        ),
+        None,
+    )
+    return ref
