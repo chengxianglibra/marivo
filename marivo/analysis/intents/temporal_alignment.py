@@ -24,6 +24,7 @@ from marivo._temporal import (
     TemporalResolver,
     TemporalSetSnapshotStore,
     TemporalSnapshotStore,
+    WorkScheduleBindingV1,
     ref_factory_period_calendar,
     ref_factory_temporal_set,
 )
@@ -31,6 +32,7 @@ from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import AlignmentFailedError, AlignmentPolicyNotApplicableError
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.policies import AlignmentPolicy
+from marivo.semantic.errors import SemanticError
 
 _TIME_KINDS = {"time_series", "panel"}
 _MISSING = object()
@@ -44,6 +46,7 @@ class TemporalAlignmentResult:
     target_binding: PeriodBindingV1 | None
     evidence: dict[str, object]
     cumulative_info: dict[str, int]
+    work_schedule_binding: WorkScheduleBindingV1 | None = None
 
 
 def _axis_columns(frame: MetricFrame) -> tuple[list[str], str | None]:
@@ -544,6 +547,8 @@ def _pair_maps(
     policy: AlignmentPolicy,
     current_key_text: Any,
     baseline_key_text: Any,
+    policy_excluded_current_points: int = 0,
+    policy_excluded_baseline_points: int = 0,
 ) -> TemporalAlignmentResult:
     current_keys = set(current_rows)
     baseline_keys = set(baseline_rows)
@@ -605,6 +610,8 @@ def _pair_maps(
         "unmatched_points": unmatched,
         "dropped_points": dropped,
         "dropped_reason": "unmatched_coordinate" if dropped else None,
+        "policy_excluded_current_points": policy_excluded_current_points,
+        "policy_excluded_baseline_points": policy_excluded_baseline_points,
         "execution_path": "local",
         "backend_optimized": False,
     }
@@ -1398,6 +1405,297 @@ def _occurrence_progress_alignment(
     )
 
 
+def _work_schedule_for_policy(
+    policy: AlignmentPolicy,
+    *,
+    session: Any,
+) -> tuple[Any, Any, WorkScheduleBindingV1]:
+    """Resolve one exact current work-schedule snapshot without datasource access."""
+    schedule_ref = getattr(policy, "schedule_ref", None)
+    if not isinstance(schedule_ref, str) or not schedule_ref:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires a named work schedule",
+            expected="AlignmentPolicy(schedule_ref=<work schedule path>)",
+            received=repr(policy),
+            context={"kind": "WorkScheduleReferenceMissing"},
+        )
+    try:
+        entry = session.catalog.work_schedules.get(schedule_ref)
+        snapshot = entry._snapshot()
+    except (KeyError, OSError, TypeError, ValueError, AttributeError, SemanticError) as exc:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires the current certified work-schedule snapshot",
+            expected="catalog.work_schedules entry with a current immutable snapshot",
+            received=schedule_ref,
+            context={
+                "kind": "WorkScheduleSnapshotUnavailable",
+                "work_schedule_ref": schedule_ref,
+            },
+        ) from exc
+    try:
+        binding = WorkScheduleBindingV1(
+            work_schedule_ref=schedule_ref,
+            snapshot_digest=snapshot.snapshot_digest,
+        )
+    except (TypeError, ValueError) as exc:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress received an invalid work-schedule binding",
+            expected="a certified WorkScheduleBindingV1",
+            received=repr(snapshot),
+            context={"kind": "WorkScheduleBindingInvalid", "work_schedule_ref": schedule_ref},
+        ) from exc
+    return entry, snapshot, binding
+
+
+def _schedule_scope_days(
+    frame: MetricFrame,
+    *,
+    snapshot: Any,
+) -> tuple[tuple[date, ...], str]:
+    """Return the complete effective local-day interval for one frame scope."""
+    contract = _contract(frame)
+    scope = contract.time_scope
+    if scope is None:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires a persisted frame scope",
+            expected="FrameTemporalContractV1.time_scope with finite day bounds",
+            received=f"frame={frame.ref}",
+            context={"kind": "TemporalScopeMissing", "frame_ref": frame.ref},
+        )
+    start = _local_datetime(scope.start, timezone=snapshot.boundary_timezone)
+    end = _local_datetime(scope.end, timezone=snapshot.boundary_timezone)
+    if start.time() != time.min or end.time() != time.min:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires whole effective local days",
+            expected="scope bounds at local midnight for the schedule boundary timezone",
+            received=f"start={start.isoformat()}, end={end.isoformat()}",
+            context={"kind": "TemporalScopeSubDay", "frame_ref": frame.ref},
+        )
+    start_date = start.date()
+    end_date = end.date()
+    coverage_start, coverage_end = snapshot.coverage
+    if start_date < coverage_start or end_date > coverage_end or start_date >= end_date:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress scope is outside work-schedule coverage",
+            expected=(
+                f"[{coverage_start.isoformat()}, {coverage_end.isoformat()}) in "
+                f"{snapshot.boundary_timezone}"
+            ),
+            received=f"[{start_date.isoformat()}, {end_date.isoformat()})",
+            context={
+                "kind": "WorkScheduleCoverageMissing",
+                "work_schedule_ref": snapshot.work_schedule_ref.path,
+                "frame_ref": frame.ref,
+            },
+        )
+    days = tuple(
+        start_date + timedelta(days=index) for index in range((end_date - start_date).days)
+    )
+    return days, snapshot.boundary_timezone
+
+
+def _working_day_progress_alignment(
+    current: MetricFrame,
+    baseline: MetricFrame,
+    *,
+    policy: AlignmentPolicy,
+    session: Any,
+) -> TemporalAlignmentResult:
+    if (
+        current.meta.semantic_kind != baseline.meta.semantic_kind
+        or current.meta.semantic_kind not in _TIME_KINDS
+    ):
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires matching time-series or panel frames",
+            expected="time_series or panel frames with identical dimension axes",
+            received=f"current={current.meta.semantic_kind}, baseline={baseline.meta.semantic_kind}",
+            context={"kind": "TemporalShapeMismatch", "alignment_kind": policy.kind},
+        )
+    dimensions, current_time = _axis_columns(current)
+    baseline_dimensions, baseline_time = _axis_columns(baseline)
+    if current_time is None or baseline_time is None or dimensions != baseline_dimensions:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires matching declared time and dimension axes",
+            context={"kind": "TemporalAxisMismatch", "alignment_kind": policy.kind},
+        )
+
+    _entry, schedule_snapshot, schedule_binding = _work_schedule_for_policy(
+        policy,
+        session=session,
+    )
+    current_days, current_timezone = _schedule_scope_days(current, snapshot=schedule_snapshot)
+    baseline_days, baseline_timezone = _schedule_scope_days(baseline, snapshot=schedule_snapshot)
+    if current_timezone != baseline_timezone:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires one effective local-day boundary timezone",
+            expected=current_timezone,
+            received=baseline_timezone,
+            context={"kind": "TemporalAuthorityTimezoneMismatch"},
+        )
+
+    for label, frame in (("current", current), ("baseline", baseline)):
+        source = _contract(frame).observation_period
+        if not isinstance(source, (BuiltinPeriodBindingV1, SemanticPeriodBindingV1)):
+            raise AlignmentPolicyNotApplicableError(
+                message=f"working_day_progress requires an observed day grain on {label}",
+                expected="PeriodBindingV1(level_name='day')",
+                received=repr(source),
+                context={"kind": "TemporalSourceGrainMissing", "frame": label},
+            )
+        if source.level_name != "day":
+            raise AlignmentPolicyNotApplicableError(
+                message=f"working_day_progress rejects {label} source grain {source.level_name!r}",
+                expected="observation_period.level_name == 'day'",
+                received=source.level_name,
+                context={
+                    "kind": "TemporalSourceGrainUnsupported",
+                    "source_level": source.level_name,
+                    "frame": label,
+                },
+            )
+        source_timezone: str | None
+        if isinstance(source, BuiltinPeriodBindingV1):
+            source_timezone = source.boundary_timezone
+        else:
+            _source_resolver, source_snapshot = _resolver(source, session=session)
+            source_timezone = (
+                source_snapshot.boundary_timezone if source_snapshot is not None else None
+            )
+        if source_timezone != schedule_snapshot.boundary_timezone:
+            raise AlignmentPolicyNotApplicableError(
+                message=f"working_day_progress requires the {label} day grain timezone to match the schedule",
+                expected=schedule_snapshot.boundary_timezone,
+                received=source_timezone,
+                context={"kind": "TemporalAuthorityTimezoneMismatch", "frame": label},
+            )
+
+    current_data, _current_dimensions, _current_time, current_value = _prepare_frame(current)
+    baseline_data, _baseline_dimensions, _baseline_time, baseline_value = _prepare_frame(baseline)
+    current_rows: dict[tuple[object, ...], dict[str, object]] = {}
+    baseline_rows: dict[tuple[object, ...], dict[str, object]] = {}
+    current_groups: dict[tuple[object, ...], set[date]] = {}
+    baseline_groups: dict[tuple[object, ...], set[date]] = {}
+    excluded_current = 0
+    excluded_baseline = 0
+
+    def add_rows(
+        data: pd.DataFrame,
+        *,
+        time_column: str,
+        value_column: str,
+        days: tuple[date, ...],
+        frame: MetricFrame,
+        current_side: bool,
+        rows: dict[tuple[object, ...], dict[str, object]],
+        groups: dict[tuple[object, ...], set[date]],
+    ) -> int:
+        valid_days = set(days)
+        working_days = {day for day in days if schedule_snapshot.status_on(day)}
+        for row in data.to_dict("records"):
+            local_day = _local_date(row[time_column], timezone=schedule_snapshot.boundary_timezone)
+            if local_day not in valid_days:
+                raise AlignmentPolicyNotApplicableError(
+                    message="working_day_progress found a row outside its selected scope",
+                    expected="every row inside the frame's effective local-day interval",
+                    received=local_day.isoformat(),
+                    context={"kind": "WorkScheduleRowOutOfScope", "frame_ref": frame.ref},
+                )
+            dimension_key = _dimension_key(row, dimensions)
+            axis_days = groups.setdefault(dimension_key, set())
+            if local_day in axis_days:
+                raise AlignmentFailedError(
+                    message="working_day_progress found duplicate local-day rows",
+                    context={
+                        "kind": "TemporalAlignmentDuplicateCoordinate",
+                        "frame_ref": frame.ref,
+                        "local_day": local_day.isoformat(),
+                    },
+                )
+            axis_days.add(local_day)
+            if local_day not in working_days:
+                continue
+            ordinal = sum(
+                1 for candidate in days if candidate in working_days and candidate < local_day
+            )
+            key, payload = _row_coordinate(
+                row,
+                frame=frame,
+                dimensions=dimensions,
+                coordinate=ordinal,
+                current=current_side,
+                time_column=time_column,
+                value_column=value_column,
+            )
+            if key in rows:
+                raise AlignmentFailedError(
+                    message="working_day_progress found duplicate working-day coordinates",
+                    context={"kind": "TemporalAlignmentDuplicateCoordinate", "coordinate": ordinal},
+                )
+            rows[key] = payload
+        missing_days = set(days)
+        for axis_days in groups.values():
+            missing = missing_days - axis_days
+            if missing:
+                first_missing = min(missing)
+                raise AlignmentPolicyNotApplicableError(
+                    message="working_day_progress requires one row for every effective local day",
+                    expected="complete daily coverage including non-working days",
+                    received=first_missing.isoformat(),
+                    context={
+                        "kind": "WorkScheduleDailyCoverageMissing",
+                        "frame_ref": frame.ref,
+                        "missing_day": first_missing.isoformat(),
+                    },
+                )
+        return sum(
+            1 for axis_days in groups.values() for day in axis_days if day not in working_days
+        )
+
+    excluded_current = add_rows(
+        current_data,
+        time_column=current_time,
+        value_column=current_value,
+        days=current_days,
+        frame=current,
+        current_side=True,
+        rows=current_rows,
+        groups=current_groups,
+    )
+    excluded_baseline = add_rows(
+        baseline_data,
+        time_column=baseline_time,
+        value_column=baseline_value,
+        days=baseline_days,
+        frame=baseline,
+        current_side=False,
+        rows=baseline_rows,
+        groups=baseline_groups,
+    )
+    if not current_rows or not baseline_rows:
+        raise AlignmentPolicyNotApplicableError(
+            message="working_day_progress requires at least one working day on both sides",
+            expected="one or more certified working days in each selected scope",
+            received=f"current={len(current_rows)}, baseline={len(baseline_rows)}",
+            context={"kind": "WorkScheduleNoWorkingDays"},
+        )
+    result = _pair_maps(
+        current_rows,
+        baseline_rows,
+        policy=policy,
+        current_key_text=dimensions,
+        baseline_key_text=dimensions,
+        policy_excluded_current_points=excluded_current,
+        policy_excluded_baseline_points=excluded_baseline,
+    )
+    return TemporalAlignmentResult(
+        frame=result.frame,
+        target_binding=None,
+        evidence=result.evidence,
+        cumulative_info=result.cumulative_info,
+        work_schedule_binding=schedule_binding,
+    )
+
+
 def align_temporal_policy(
     current: MetricFrame,
     baseline: MetricFrame,
@@ -1414,6 +1712,8 @@ def align_temporal_policy(
         return _period_correspondence_alignment(current, baseline, policy=policy, session=session)
     if policy.kind == "occurrence_progress":
         return _occurrence_progress_alignment(current, baseline, policy=policy, session=session)
+    if policy.kind == "working_day_progress":
+        return _working_day_progress_alignment(current, baseline, policy=policy, session=session)
     raise AlignmentPolicyNotApplicableError(
         message=f"temporal alignment does not handle policy {policy.kind!r}",
         context={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": policy.kind},
@@ -1440,5 +1740,6 @@ def comparison_temporal_contract(
         baseline=baseline_contract,
         alignment_policy=cast("Any", policy.model_dump(mode="json")),
         resolved_target_period=result.target_binding,
+        work_schedule=result.work_schedule_binding,
         alignment_evidence=AlignmentEvidenceV1.model_validate(result.evidence),
     )

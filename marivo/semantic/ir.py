@@ -85,6 +85,7 @@ __all__ = [
     "TimestampParse",
     "ValidityVersioningIR",
     "WeightedMeanAggregation",
+    "WorkScheduleIR",
     "is_time_bearing_format",
     "source_from_dict",
     "source_label",
@@ -317,6 +318,22 @@ class TemporalSetIR:
     boundary_timezone: str
     coverage: tuple[str, str]
     category: str | None
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+
+
+@dataclass(frozen=True)
+class WorkScheduleIR:
+    """Authored identity and source-field contract for final daily status."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    date: str
+    is_working: str
+    boundary_timezone: str
+    coverage: tuple[str, str]
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation

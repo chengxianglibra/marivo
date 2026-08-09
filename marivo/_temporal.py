@@ -24,7 +24,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
-from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
+from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKind
+
+_DATE_TYPE = date
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _JSON_SCALAR = str | int | float | bool
@@ -271,7 +273,9 @@ def period_calendar_definition_digest(
         "schema": "period-calendar-definition/v1",
         "calendar_ref": calendar_ref.key,
         "boundary_timezone": boundary_timezone,
-        "coverage": [value.isoformat() if isinstance(value, date) else value for value in coverage],
+        "coverage": [
+            value.isoformat() if isinstance(value, _DATE_TYPE) else value for value in coverage
+        ],
         "levels": [list(item) for item in levels],
         "correspondences": [list(item) for item in correspondences],
         "dependency_digest": dependency_digest,
@@ -297,11 +301,39 @@ def temporal_set_definition_digest(
         "schema": "temporal-set-definition/v1",
         "temporal_set_ref": temporal_set_ref.key,
         "boundary_timezone": boundary_timezone,
-        "coverage": [value.isoformat() if isinstance(value, date) else value for value in coverage],
+        "coverage": [
+            value.isoformat() if isinstance(value, _DATE_TYPE) else value for value in coverage
+        ],
         "occurrence_id": occurrence_id,
         "start": start,
         "end": end,
         "category": category,
+        "dependency_digest": dependency_digest,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def work_schedule_definition_digest(
+    *,
+    work_schedule_ref: Ref[WorkScheduleKind],
+    boundary_timezone: str,
+    coverage: tuple[str | date, str | date],
+    date: str,
+    is_working: str,
+    dependency_digest: str | None = None,
+) -> str:
+    """Return declaration identity used to reject stale schedule evidence."""
+    payload = {
+        "schema": "work-schedule-definition/v1",
+        "work_schedule_ref": work_schedule_ref.key,
+        "boundary_timezone": boundary_timezone,
+        "coverage": [
+            value.isoformat() if isinstance(value, _DATE_TYPE) else value for value in coverage
+        ],
+        "date": date,
+        "is_working": is_working,
         "dependency_digest": dependency_digest,
     }
     return hashlib.sha256(
@@ -702,8 +734,18 @@ class TemporalSetBindingV1(BaseModel):
     snapshot_digest: str
 
 
+class WorkScheduleBindingV1(BaseModel):
+    """Closed artifact identity for one certified work-schedule snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["work_schedule"] = "work_schedule"
+    work_schedule_ref: str
+    snapshot_digest: str
+
+
 PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
-TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1
+TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1 | WorkScheduleBindingV1
 
 
 class FrameTemporalContractV1(BaseModel):
@@ -770,6 +812,8 @@ class AlignmentEvidenceV1(BaseModel):
     unmatched_points: int = Field(ge=0)
     dropped_points: int = Field(ge=0)
     dropped_reason: str | None = None
+    policy_excluded_current_points: int = Field(default=0, ge=0)
+    policy_excluded_baseline_points: int = Field(default=0, ge=0)
     execution_path: Literal["backend", "local"]
     backend_optimized: bool = False
 
@@ -835,12 +879,21 @@ class _OccurrenceProgressAlignmentPayloadV1(BaseModel):
     unmatched: Literal["fail", "drop"] = "fail"
 
 
+class _WorkingDayProgressAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["working_day_progress"] = "working_day_progress"
+    schedule_ref: str
+    unmatched: Literal["fail", "drop"] = "fail"
+
+
 _AlignmentPolicyPayloadV1 = Annotated[
     _WindowBucketAlignmentPayloadV1
     | _DayOfWeekAlignmentPayloadV1
     | _PeriodProgressAlignmentPayloadV1
     | _PeriodCorrespondenceAlignmentPayloadV1
-    | _OccurrenceProgressAlignmentPayloadV1,
+    | _OccurrenceProgressAlignmentPayloadV1
+    | _WorkingDayProgressAlignmentPayloadV1,
     Field(discriminator="kind"),
 ]
 
@@ -858,7 +911,7 @@ class ComparisonTemporalContractV1(BaseModel):
     baseline: FrameTemporalContractV1
     alignment_policy: _AlignmentPolicyPayloadV1 | None = None
     resolved_target_period: PeriodBindingV1 | None = None
-    work_schedule: dict[str, object] | None = None
+    work_schedule: WorkScheduleBindingV1 | None = None
     alignment_evidence: AlignmentEvidenceV1
 
 
@@ -1225,6 +1278,229 @@ class TemporalSetSnapshotV1:
                     occurrence_category=occurrence.category,
                 )
         raise KeyError(f"temporal occurrence {key!r} is not in certified temporal set")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkScheduleDayRecord:
+    """One normalized civil date and its final authored working status."""
+
+    date: date
+    is_working: bool
+
+    def __post_init__(self) -> None:
+        if type(self.date) is not date or type(self.is_working) is not bool:
+            raise TypeError("work-schedule rows require an exact civil date and boolean status")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkScheduleSnapshotV1:
+    """Certified exhaustive finite daily working-status authority."""
+
+    work_schedule_ref: Ref[WorkScheduleKind]
+    boundary_timezone: str
+    coverage: tuple[date, date]
+    days: tuple[WorkScheduleDayRecord, ...]
+    snapshot_digest: str
+    schema: Literal["work-schedule-snapshot/v1"] = "work-schedule-snapshot/v1"
+
+    def __post_init__(self) -> None:
+        if self.schema != "work-schedule-snapshot/v1":
+            raise ValueError("unsupported work-schedule snapshot schema")
+        if (
+            type(self.work_schedule_ref) is not Ref
+            or self.work_schedule_ref.kind.value != "work_schedule"
+        ):
+            raise TypeError("work_schedule_ref must be Ref[work_schedule]")
+        _require_timezone(self.boundary_timezone)
+        start, end = self.coverage
+        if type(start) is not date or type(end) is not date or start >= end:
+            raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
+        required = (end - start).days
+        ordered = tuple(sorted(self.days, key=lambda item: item.date))
+        if ordered != self.days:
+            raise ValueError("work-schedule days must be sorted by civil date")
+        if len(self.days) != required:
+            raise ValueError(
+                "work-schedule snapshot must contain exactly one row per coverage date"
+            )
+        for index, item in enumerate(self.days):
+            expected = start + timedelta(days=index)
+            if item.date != expected:
+                raise ValueError(
+                    f"work-schedule snapshot has a coverage gap or duplicate at {expected.isoformat()}"
+                )
+        expected_digest = _work_schedule_snapshot_digest(
+            work_schedule_ref=self.work_schedule_ref,
+            boundary_timezone=self.boundary_timezone,
+            coverage=self.coverage,
+            days=self.days,
+        )
+        if self.snapshot_digest != expected_digest:
+            raise ValueError("snapshot_digest does not match normalized work-schedule content")
+
+    @property
+    def working_dates(self) -> tuple[date, ...]:
+        return tuple(item.date for item in self.days if item.is_working)
+
+    def status_on(self, value: date) -> bool:
+        if type(value) is not date:
+            raise TypeError("work-schedule lookup requires an exact civil date")
+        index = (value - self.coverage[0]).days
+        if index < 0 or index >= len(self.days):
+            raise KeyError(f"date {value!r} is outside certified work-schedule coverage")
+        return self.days[index].is_working
+
+
+def _work_schedule_snapshot_payload(
+    *,
+    work_schedule_ref: Ref[WorkScheduleKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    days: tuple[WorkScheduleDayRecord, ...],
+) -> dict[str, object]:
+    return {
+        "schema": "work-schedule-snapshot/v1",
+        "work_schedule_ref": work_schedule_ref.key,
+        "boundary_timezone": boundary_timezone,
+        "coverage": [coverage[0].isoformat(), coverage[1].isoformat()],
+        "days": [[item.date.isoformat(), item.is_working] for item in days],
+    }
+
+
+def _work_schedule_snapshot_digest(
+    *,
+    work_schedule_ref: Ref[WorkScheduleKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    days: tuple[WorkScheduleDayRecord, ...],
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _work_schedule_snapshot_payload(
+                work_schedule_ref=work_schedule_ref,
+                boundary_timezone=boundary_timezone,
+                coverage=coverage,
+                days=days,
+            ),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+def certify_work_schedule(
+    *,
+    work_schedule_ref: Ref[WorkScheduleKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    rows: Iterable[Mapping[str, object]],
+    date_column: str,
+    is_working: str,
+) -> WorkScheduleSnapshotV1:
+    """Certify one exhaustive daily status sequence from retained rows."""
+    _require_timezone(boundary_timezone)
+    if type(work_schedule_ref) is not Ref or work_schedule_ref.kind.value != "work_schedule":
+        raise TypeError("work_schedule_ref must be Ref[work_schedule]")
+    start, end = coverage
+    if type(start) is not date or type(end) is not date or start >= end:
+        raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
+    if type(date_column) is not str or not date_column:
+        raise ValueError("date source column must be a non-empty string")
+    if type(is_working) is not str or not is_working:
+        raise ValueError("is_working source column must be a non-empty string")
+    by_date: dict[date, bool] = {}
+    for row in rows:
+        if date_column not in row or is_working not in row:
+            raise ValueError("work-schedule snapshot row is missing a required source column")
+        raw_date = row[date_column]
+        if type(raw_date) is not date:
+            raise TypeError("work-schedule dates must be exact civil dates")
+        if raw_date < start or raw_date >= end:
+            continue
+        raw_status = row[is_working]
+        if type(raw_status) is not bool:
+            raise ValueError("work-schedule is_working values must be non-null booleans")
+        if raw_date in by_date:
+            raise ValueError(
+                f"work-schedule snapshot contains duplicate date {raw_date.isoformat()}"
+            )
+        by_date[raw_date] = raw_status
+    required = (end - start).days
+    if len(by_date) != required:
+        missing = next(
+            (
+                start + timedelta(days=index)
+                for index in range(required)
+                if start + timedelta(days=index) not in by_date
+            ),
+            None,
+        )
+        raise ValueError(
+            f"work-schedule snapshot does not completely cover declared range; first missing date is {missing}"
+        )
+    days = tuple(
+        WorkScheduleDayRecord(start + timedelta(days=index), by_date[start + timedelta(days=index)])
+        for index in range(required)
+    )
+    return WorkScheduleSnapshotV1(
+        work_schedule_ref=work_schedule_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        days=days,
+        snapshot_digest=_work_schedule_snapshot_digest(
+            work_schedule_ref=work_schedule_ref,
+            boundary_timezone=boundary_timezone,
+            coverage=coverage,
+            days=days,
+        ),
+    )
+
+
+def certify_work_schedule_rows(
+    *,
+    work_schedule_ref: Ref[WorkScheduleKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    columns: tuple[str, ...],
+    retained_values: tuple[tuple[object, ...], ...],
+    date_column: str,
+    is_working: str,
+    date_parse: object | None = None,
+) -> WorkScheduleSnapshotV1:
+    """Certify rows retained by one persisted datasource acquisition."""
+    positions = {name: index for index, name in enumerate(columns)}
+    missing = tuple(name for name in (date_column, is_working) if name not in positions)
+    if missing:
+        raise ValueError(f"persisted snapshot is missing work-schedule columns {missing!r}")
+    rows: list[dict[str, object]] = []
+    for values in retained_values:
+        if len(values) != len(columns):
+            raise ValueError("persisted snapshot row width does not match selected columns")
+        raw = values[positions[date_column]]
+        parsed = _parse_persisted_temporal_value(
+            raw,
+            parse=date_parse,
+            boundary_timezone=boundary_timezone,
+        )
+        if type(parsed) is datetime:
+            if parsed.time() != time.min:
+                raise ValueError("work-schedule date values must be civil dates")
+            parsed = parsed.date()
+        rows.append(
+            {
+                "date": parsed,
+                "is_working": values[positions[is_working]],
+            }
+        )
+    return certify_work_schedule(
+        work_schedule_ref=work_schedule_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        rows=rows,
+        date_column="date",
+        is_working="is_working",
+    )
 
 
 def _temporal_set_snapshot_payload(
@@ -2422,6 +2698,127 @@ class TemporalSetSnapshotStore:
         os.replace(temporary, path)
 
 
+@dataclass(frozen=True, slots=True)
+class WorkScheduleManifestV1:
+    """Current certified snapshot pointer for one work-schedule declaration."""
+
+    work_schedule_ref: Ref[WorkScheduleKind]
+    definition_digest: str
+    snapshot_digest: str
+    schema: Literal["work-schedule-manifest/v1"] = "work-schedule-manifest/v1"
+
+
+class WorkScheduleSnapshotStore:
+    """Project-local atomic persistence for certified work schedules."""
+
+    __slots__ = ("_root",)
+
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root / ".marivo" / "temporal" / "work-schedules"
+
+    def publish(
+        self,
+        snapshot: WorkScheduleSnapshotV1,
+        *,
+        definition_digest: str,
+    ) -> WorkScheduleManifestV1:
+        if type(definition_digest) is not str or not definition_digest:
+            raise ValueError("definition_digest must be a non-empty string")
+        directory = self._directory(snapshot.work_schedule_ref)
+        directory.mkdir(parents=True, exist_ok=True)
+        self._write_json(
+            directory / f"{snapshot.snapshot_digest}.json",
+            _work_schedule_snapshot_json(snapshot),
+        )
+        manifest = WorkScheduleManifestV1(
+            work_schedule_ref=snapshot.work_schedule_ref,
+            definition_digest=definition_digest,
+            snapshot_digest=snapshot.snapshot_digest,
+        )
+        self._write_json(directory / "current.json", _work_schedule_manifest_json(manifest))
+        return manifest
+
+    def load_current(
+        self,
+        work_schedule_ref: Ref[WorkScheduleKind],
+        *,
+        definition_digest: str,
+    ) -> WorkScheduleSnapshotV1 | None:
+        status, snapshot = self.inspect_current(
+            work_schedule_ref,
+            definition_digest=definition_digest,
+        )
+        return snapshot if status == "current" else None
+
+    def load_exact(
+        self,
+        work_schedule_ref: Ref[WorkScheduleKind],
+        *,
+        snapshot_digest: str,
+    ) -> WorkScheduleSnapshotV1:
+        if type(snapshot_digest) is not str or not snapshot_digest:
+            raise ValueError("snapshot_digest must be a non-empty string")
+        path = self._directory(work_schedule_ref) / f"{snapshot_digest}.json"
+        if not path.is_file():
+            raise KeyError(
+                f"certified snapshot {snapshot_digest!r} for {work_schedule_ref.path!r} is unavailable"
+            )
+        snapshot = _work_schedule_snapshot_from_json(_read_json(path))
+        if (
+            snapshot.work_schedule_ref != work_schedule_ref
+            or snapshot.snapshot_digest != snapshot_digest
+        ):
+            raise ValueError(
+                "persisted work-schedule snapshot identity does not match requested binding"
+            )
+        return snapshot
+
+    def inspect_current(
+        self,
+        work_schedule_ref: Ref[WorkScheduleKind],
+        *,
+        definition_digest: str,
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], WorkScheduleSnapshotV1 | None]:
+        directory = self._directory(work_schedule_ref)
+        manifest_path = directory / "current.json"
+        if not manifest_path.exists():
+            return "missing", None
+        try:
+            manifest = _work_schedule_manifest_from_json(_read_json(manifest_path))
+        except (OSError, TypeError, ValueError, KeyError, IndexError):
+            return "invalid", None
+        if manifest.work_schedule_ref != work_schedule_ref:
+            return "invalid", None
+        if manifest.definition_digest != definition_digest:
+            return "stale", None
+        snapshot_path = directory / f"{manifest.snapshot_digest}.json"
+        if not snapshot_path.exists():
+            return "invalid", None
+        try:
+            snapshot = _work_schedule_snapshot_from_json(_read_json(snapshot_path))
+        except (OSError, TypeError, ValueError, KeyError, IndexError):
+            return "invalid", None
+        if (
+            snapshot.work_schedule_ref != work_schedule_ref
+            or snapshot.snapshot_digest != manifest.snapshot_digest
+        ):
+            return "invalid", None
+        return "current", snapshot
+
+    def _directory(self, work_schedule_ref: Ref[WorkScheduleKind]) -> Path:
+        token = hashlib.sha256(work_schedule_ref.key.encode()).hexdigest()
+        return self._root / token
+
+    @staticmethod
+    def _write_json(path: Path, payload: Mapping[str, object]) -> None:
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+
+
 def _temporal_set_manifest_json(manifest: TemporalSetManifestV1) -> dict[str, object]:
     return {
         "schema": manifest.schema,
@@ -2518,6 +2915,91 @@ def _temporal_set_snapshot_from_json(payload: Mapping[str, object]) -> TemporalS
         coverage=coverage,
         encoding=raw_encoding,
         occurrences=tuple(occurrences),
+        snapshot_digest=digest,
+    )
+
+
+def _work_schedule_manifest_json(manifest: WorkScheduleManifestV1) -> dict[str, object]:
+    return {
+        "schema": manifest.schema,
+        "work_schedule_ref": manifest.work_schedule_ref.path,
+        "definition_digest": manifest.definition_digest,
+        "snapshot_digest": manifest.snapshot_digest,
+    }
+
+
+def _work_schedule_manifest_from_json(payload: Mapping[str, object]) -> WorkScheduleManifestV1:
+    if payload.get("schema") != "work-schedule-manifest/v1":
+        raise ValueError("unsupported work schedule manifest schema")
+    raw_ref = payload.get("work_schedule_ref")
+    definition_digest = payload.get("definition_digest")
+    snapshot_digest = payload.get("snapshot_digest")
+    if not all(
+        type(value) is str and value for value in (raw_ref, definition_digest, snapshot_digest)
+    ):
+        raise ValueError("work schedule manifest fields are invalid")
+    return WorkScheduleManifestV1(
+        work_schedule_ref=ref_factory_work_schedule(cast("str", raw_ref)),
+        definition_digest=cast("str", definition_digest),
+        snapshot_digest=cast("str", snapshot_digest),
+    )
+
+
+def _work_schedule_snapshot_json(snapshot: WorkScheduleSnapshotV1) -> dict[str, object]:
+    return {
+        **_work_schedule_snapshot_payload(
+            work_schedule_ref=snapshot.work_schedule_ref,
+            boundary_timezone=snapshot.boundary_timezone,
+            coverage=snapshot.coverage,
+            days=snapshot.days,
+        ),
+        "snapshot_digest": snapshot.snapshot_digest,
+    }
+
+
+def _work_schedule_snapshot_from_json(payload: Mapping[str, object]) -> WorkScheduleSnapshotV1:
+    if payload.get("schema") != "work-schedule-snapshot/v1":
+        raise ValueError("unsupported work schedule snapshot schema")
+    raw_ref = payload.get("work_schedule_ref")
+    raw_timezone = payload.get("boundary_timezone")
+    raw_coverage = payload.get("coverage")
+    raw_days = payload.get("days")
+    digest = payload.get("snapshot_digest")
+    if (
+        type(raw_ref) is not str
+        or not raw_ref.startswith("work_schedule:")
+        or type(raw_timezone) is not str
+        or not isinstance(raw_coverage, list)
+        or len(raw_coverage) != 2
+        or not isinstance(raw_days, list)
+        or type(digest) is not str
+        or not digest
+    ):
+        raise ValueError("work schedule snapshot payload fields are invalid")
+    coverage = (
+        date.fromisoformat(cast("str", raw_coverage[0])),
+        date.fromisoformat(cast("str", raw_coverage[1])),
+    )
+    days: list[WorkScheduleDayRecord] = []
+    for raw in raw_days:
+        if (
+            not isinstance(raw, list)
+            or len(raw) != 2
+            or type(raw[0]) is not str
+            or type(raw[1]) is not bool
+        ):
+            raise ValueError("work schedule day payload is invalid")
+        days.append(
+            WorkScheduleDayRecord(
+                date=date.fromisoformat(raw[0]),
+                is_working=raw[1],
+            )
+        )
+    return WorkScheduleSnapshotV1(
+        work_schedule_ref=ref_factory_work_schedule(raw_ref.removeprefix("work_schedule:")),
+        boundary_timezone=raw_timezone,
+        coverage=coverage,
+        days=tuple(days),
         snapshot_digest=digest,
     )
 
@@ -2652,3 +3134,10 @@ def ref_factory_temporal_set(path: str) -> Ref[TemporalSetKind]:
     from marivo.refs import ref
 
     return ref.temporal_set(path)
+
+
+def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
+    """Late import helper for dependency-neutral work-schedule persistence."""
+    from marivo.refs import ref
+
+    return ref.work_schedule(path)

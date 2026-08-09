@@ -628,6 +628,7 @@ def _build_registry(
         RelationshipIR,
         StateModelDeclarationIR,
         TemporalSetIR,
+        WorkScheduleIR,
     )
 
     registry = Registry()
@@ -666,6 +667,8 @@ def _build_registry(
                 registry.period_calendars[sid] = ir
             elif isinstance(ir, TemporalSetIR):
                 registry.temporal_sets[sid] = ir
+            elif isinstance(ir, WorkScheduleIR):
+                registry.work_schedules[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
             elif isinstance(ir, EventIR):

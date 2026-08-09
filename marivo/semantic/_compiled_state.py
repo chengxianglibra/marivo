@@ -22,6 +22,7 @@ from marivo.semantic.ir import (
     SemiAdditive,
     StateModelIR,
     TemporalSetIR,
+    WorkScheduleIR,
     composition_components,
 )
 from marivo.semantic.validator import Registry
@@ -107,6 +108,12 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.temporal_set(key)), value)
         for key, value in registry.temporal_sets.items()
     )
+    rows.update(
+        {
+            (cast("Ref[SemanticKindTag]", ref_factory.work_schedule(key))): value
+            for key, value in registry.work_schedules.items()
+        }
+    )
     return rows
 
 
@@ -137,6 +144,8 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.period_calendar(path))
     if path in registry.temporal_sets:
         return cast("Ref[SemanticKindTag]", ref_factory.temporal_set(path))
+    if path in registry.work_schedules:
+        return cast("Ref[SemanticKindTag]", ref_factory.work_schedule(path))
     if path in registry.domains:
         return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
@@ -196,6 +205,8 @@ def _dependencies_for(
             )
             if isinstance(value, str)
         )
+    elif isinstance(definition, WorkScheduleIR):
+        paths.extend((definition.date, definition.is_working))
     body = sidecar.bodies.get(ref)
     if body is not None:
         paths.extend(binding.field_ref.path for binding in body.bindings)

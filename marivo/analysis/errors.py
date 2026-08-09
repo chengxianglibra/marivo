@@ -782,7 +782,8 @@ class AlignmentPolicyValidationError(AnalysisError):
                     action=(
                         "Construct an alignment with one closed helper: "
                         "mv.window_bucket(), mv.day_of_week(), mv.period_progress(), "
-                        "mv.period_correspondence(), or mv.occurrence_progress()."
+                        "mv.period_correspondence(), mv.occurrence_progress(), or "
+                        "mv.working_day_progress(schedule=...)."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
                     snippet="alignment = mv.window_bucket()",

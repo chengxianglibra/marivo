@@ -193,6 +193,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
         "event",
         "state_model",
         "temporal_set",
+        "work_schedule",
     }
     if kind in executable_kinds:
         transitions.append(

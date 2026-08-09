@@ -584,6 +584,7 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
                 "period_progress",
                 "period_correspondence",
                 "occurrence_progress",
+                "working_day_progress",
             }
         )
         return sorted(
@@ -648,6 +649,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                 "    period_progress        MetricFrame.compare cumulative or one target period",
                 "    period_correspondence  MetricFrame.compare complete exact semantic grain",
                 "    occurrence_progress   MetricFrame.compare day-grain exact occurrence scopes",
+                "    working_day_progress  MetricFrame.compare day-grain time-series/panel under one certified work schedule",
                 "    EventFrame.compare     alignment=None (mechanical step/axis pairing)",
                 "    segmented frames      window_bucket only",
             )

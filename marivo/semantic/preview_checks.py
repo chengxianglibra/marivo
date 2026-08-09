@@ -189,6 +189,10 @@ def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tu
         if model.subject not in model_entities:
             model_entities.append(model.subject)
         return tuple(model_entities)
+    if kind == SemanticKind.WORK_SCHEDULE:
+        schedule = registry.work_schedules[ref]
+        date_field = registry.dimensions.get(schedule.date)
+        return (date_field.entity,) if date_field is not None else ()
     if kind != SemanticKind.METRIC:
         return ()
 
@@ -300,6 +304,8 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         return SemanticKind.EVENT
     if ref in registry.state_models:
         return SemanticKind.STATE_MODEL
+    if ref in registry.work_schedules:
+        return SemanticKind.WORK_SCHEDULE
     raise KeyError(ref)
 
 
@@ -313,6 +319,7 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }.get(kind)
     if factory is None:
         raise AssertionError(f"unsupported preview ref kind: {kind}")

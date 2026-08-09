@@ -56,6 +56,7 @@ from marivo.semantic.ir import (
     TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
+    WorkScheduleIR,
     composition_components,
     is_time_bearing_format,
 )
@@ -93,6 +94,7 @@ class Registry:
     state_models: dict[str, StateModelIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
+    work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -111,6 +113,7 @@ class Registry:
             "state_models",
             "period_calendars",
             "temporal_sets",
+            "work_schedules",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))
@@ -1666,6 +1669,7 @@ def assembly_validate(
                     ),
                 )
             )
+
         for label, field in (("start", start_field), ("end", end_field)):
             if field is None or not field.is_time_dimension:
                 errors.append(
@@ -1694,6 +1698,33 @@ def assembly_validate(
                     refs=(set_id, temporal_set.start, temporal_set.end),
                     expected="matching date/date or timestamp/timestamp time encodings",
                     received=f"start={start_encoding}, end={end_encoding}",
+                )
+            )
+
+    # -- Validate work-schedule source-field ownership ----------------------
+    for schedule_id, schedule in registry.work_schedules.items():
+        date_field = registry.dimensions.get(schedule.date)
+        working_field = registry.dimensions.get(schedule.is_working)
+        valid_date = (
+            date_field is not None
+            and date_field.is_time_dimension
+            and date_field.granularity == "day"
+            and _temporal_set_encoding(date_field) in {None, "date"}
+        )
+        valid_working = (
+            working_field is not None
+            and not working_field.is_time_dimension
+            and working_field.entity == getattr(date_field, "entity", None)
+        )
+        if not valid_date or not valid_working:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=(
+                        f"Work schedule {schedule_id!r} date must be a day-grain civil-date "
+                        "time dimension and is_working must be a categorical field on the same entity."
+                    ),
+                    refs=(schedule_id, schedule.date, schedule.is_working),
                 )
             )
 

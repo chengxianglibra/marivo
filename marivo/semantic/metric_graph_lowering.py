@@ -182,6 +182,7 @@ def _ref_payload(kind: str, path: str) -> RefPayloadV1:
         "relationship": ref_factory.relationship,
         "event": ref_factory.event,
         "state_model": ref_factory.state_model,
+        "work_schedule": ref_factory.work_schedule,
     }
     factory = factories.get(kind)
     if factory is None:
@@ -247,6 +248,7 @@ def _entry_for(
             SemanticKind.RELATIONSHIP: ref_factory.relationship,
             SemanticKind.EVENT: ref_factory.event,
             SemanticKind.STATE_MODEL: ref_factory.state_model,
+            SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
         }[ref_payload.kind]
         body = sidecar.bodies.get(factory(ref_payload.path))
     bindings = body.bindings if body is not None else ()
@@ -378,6 +380,20 @@ def _entry_for(
                 inceptions=model.inceptions,
                 transitions=model.transitions,
                 ai_context=model.ai_context,
+            ),
+        )
+    if semantic_kind == "work_schedule":
+        schedule = registry.work_schedules[semantic_id]
+        return SemanticDependencyEntryV1(
+            ref=_ref_payload("work_schedule", semantic_id),
+            body_digest=None,
+            fields=_fields(
+                domain_ref=_ref_payload("domain", schedule.domain),
+                boundary_timezone=schedule.boundary_timezone,
+                coverage=schedule.coverage,
+                date_ref=_ref_payload("time_dimension", schedule.date),
+                is_working_ref=_ref_payload("dimension", schedule.is_working),
+                ai_context=schedule.ai_context,
             ),
         )
     raise AssertionError(f"unsupported dependency kind: {semantic_kind}")
@@ -556,6 +572,14 @@ class _DependencyCollector:
                         ref_factory.event(transition.trigger.event_ref),
                     )
                 )
+            return
+        if ref.kind is SemanticKind.WORK_SCHEDULE:
+            schedule = self.registry.work_schedules.get(ref.path)
+            if schedule is None:
+                raise KeyError(ref.path)
+            self._add("work_schedule", ref.path)
+            self.collect_dimension(schedule.date)
+            self.collect_dimension(schedule.is_working)
             return
         if ref.kind is SemanticKind.DATASOURCE:
             if ref.path not in self.registry.datasources:
