@@ -7,7 +7,7 @@ import secrets
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -47,6 +47,80 @@ def rendered_help(target: object | None = None, *, owner: str | None = None) -> 
     from marivo._help.render import render_help_text
 
     return render_help_text(target)[0]
+
+
+def fiscal_analysis_project_files() -> dict[str, str]:
+    """Return the compact fiscal-calendar project used by temporal tests."""
+
+    return {
+        "sales/_domain.py": (
+            "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
+        ),
+        "sales/calendar.py": (
+            "import marivo.datasource as md\n"
+            "import marivo.semantic as ms\n"
+            "calendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'), source=md.table('calendar'))\n"
+            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date', granularity='day')\n"
+            "fiscal_week = ms.dimension_column(name='fiscal_week', entity=calendar, column='fiscal_week')\n"
+            "fiscal_month = ms.dimension_column(name='fiscal_month', entity=calendar, column='fiscal_month')\n"
+            "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
+        ),
+        "sales/metrics.py": (
+            "import marivo.datasource as md\n"
+            "import marivo.semantic as ms\n"
+            "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
+            "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
+            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
+            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
+            "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
+            "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
+            "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
+            "fiscal_mtd = ms.cumulative(name='fiscal_mtd', base=gmv, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+            "fiscal_active_users = ms.cumulative(name='fiscal_active_users', base=active_users, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+            "fiscal_weighted_user = ms.cumulative(name='fiscal_weighted_user', base=weighted_user, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+        ),
+    }
+
+
+def fiscal_calendar_evidence(project_root: Path) -> Any:
+    """Build the exhaustive persisted-value snapshot for the fiscal fixture."""
+
+    import marivo.datasource as md
+    import marivo.semantic as ms
+    from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
+
+    rows: list[tuple[str, str, str]] = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    now = datetime.now(UTC)
+    return DiscoverySnapshot(
+        id="fiscal-calendar-analysis",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("calendar"),
+        scope=md.unpruned(max_rows=len(rows), timeout_seconds=30),
+        columns=("calendar_date", "fiscal_week", "fiscal_month"),
+        schema_fingerprint="fiscal-calendar-analysis-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=len(rows),
+            retained_row_count=len(rows),
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=now,
+        expires_at=now + timedelta(hours=1),
+        _project_root=project_root,
+        retained_values=tuple(rows),
+    )
 
 
 def make_test_metric_contract(

@@ -234,9 +234,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ForecastShapeUnsupported",
         "runtime",
         ("forecast", "ForecastFrame", "MetricFrame"),
-        "Forecast accepts MetricFrame time_series or panel inputs.",
-        "Forecast models need ordered history buckets and cannot operate on scalar or segmented-only frames.",
-        "Observe the metric with a grain and enough history before calling session.forecast(...).",
+        "Forecast accepts MetricFrame time_series or panel inputs, including certified semantic periods.",
+        "Forecast models need complete ordered history periods; semantic histories must match one exact period snapshot and cannot operate on scalar or segmented-only frames.",
+        "Observe the metric with a built-in or certified semantic grain and enough complete history before calling session.forecast(...).",
         help_target="forecast",
     ),
     ConstraintId.QUALITY_TARGET_SHAPE: _constraint(

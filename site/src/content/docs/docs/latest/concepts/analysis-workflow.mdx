@@ -522,20 +522,26 @@ the exact public names returned by `a.value_columns` and `b.value_columns`.
 
 ### `forecast` → `ForecastFrame`
 
-Project a time series or panel forward.
+Project a time series or panel forward. A history observed with a certified
+semantic grain keeps its exact `SemanticPeriodBindingV1`: forecast periods are
+complete, consecutive ordinal steps, and future keys/bounds come from the same
+snapshot rather than a fixed-frequency approximation.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `history` | `MetricFrame` (time_series/panel) | Yes | — | Continuous history, no NaNs. |
-| `horizon` | `int` | Yes | — | Buckets to project (≥ 1). |
+| `horizon` | `int` | Yes | — | Periods to project (≥ 1); for semantic grains, the count is in certified period ordinals. |
 | `model` | `"naive" \| "seasonal_naive" \| "drift"` | No | `"seasonal_naive"` | Forecast strategy. |
-| `seasonality_period` | `int` | No | by grain | Override the seasonal period (day=7, week=52, month=12, quarter=4). |
+| `seasonality_period` | `int` | No | by grain | Seasonal ordinal distance. Built-in defaults are day=7, week=52, month=12, quarter=4; semantic grains require an explicit value for `seasonal_naive`. |
 | `interval_level` | `float` | No | `0.95` | Confidence level for the prediction interval. |
 | `measure_column` | `str` | No | frame measure | Public value name from `history.value_columns`. |
 
-Every panel series must cover the same continuous training buckets. Forecast
-raises `ForecastInputQualityError` when one segment is missing a bucket; it does
-not silently fill the bucket with zero or move that segment's forecast origin.
+Every panel series must cover the same continuous training periods. For semantic
+grains, an incomplete/mismatched period, unavailable exact snapshot, unsupported
+model, or future coverage gap raises `ForecastShapeUnsupportedError` before an
+artifact is written. Forecast does not silently fill a period, infer seasonality,
+or manufacture a boundary from average history duration. Built-in panel gaps
+continue to raise `ForecastInputQualityError`.
 
 ```python
 history = session.observe(

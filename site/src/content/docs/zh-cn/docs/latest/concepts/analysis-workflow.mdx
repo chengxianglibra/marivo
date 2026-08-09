@@ -449,20 +449,23 @@ total delta、contribution 合计、one-sided contribution 合计、未归因合
 
 ### `forecast` → `ForecastFrame`
 
-将一个 time series 或 panel 向前投影。
+将一个 time series 或 panel 向前投影。若 history 使用已认证的 semantic
+grain，forecast 会保留精确的 `SemanticPeriodBindingV1`：预测周期按认证序数
+连续推进，未来 key 与 `[start, end)` 边界直接来自同一 snapshot，不会用固定频率近似。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `history` | `MetricFrame`（time_series/panel） | 是 | — | 连续历史，无 NaN。 |
-| `horizon` | `int` | 是 | — | 要投影的桶数（≥ 1）。 |
+| `horizon` | `int` | 是 | — | 要投影的周期数（≥ 1）；semantic grain 按认证周期序数计数。 |
 | `model` | `"naive" \| "seasonal_naive" \| "drift"` | 否 | `"seasonal_naive"` | 预测策略。 |
-| `seasonality_period` | `int` | 否 | 按 grain | 覆盖季节周期（day=7、week=52、month=12、quarter=4）。 |
+| `seasonality_period` | `int` | 否 | 按 grain | 季节序数距离。内置默认值为 day=7、week=52、month=12、quarter=4；semantic grain 使用 `seasonal_naive` 时必须显式提供。 |
 | `interval_level` | `float` | 否 | `0.95` | 预测区间的置信水平。 |
 | `measure_column` | `str` | 否 | frame measure | `history.value_columns` 返回的公开值列名。 |
 
-Panel 中每个序列必须覆盖相同且连续的训练时间桶。若某个 segment 缺少时间桶，
-forecast 会抛出 `ForecastInputQualityError`；它不会静默补零，也不会移动该
-segment 的预测起点。
+Panel 中每个序列必须覆盖相同且连续的训练周期。semantic grain 若出现不完整或不匹配
+的周期、精确 snapshot 不可用、不支持的模型或未来 coverage 不足，forecast 会在写入
+artifact 前抛出 `ForecastShapeUnsupportedError`。它不会静默补零、猜测季节性，或按
+历史平均时长制造边界；内置 panel 的缺桶仍抛出 `ForecastInputQualityError`。
 
 ```python
 history = session.observe(

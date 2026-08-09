@@ -505,7 +505,14 @@ artifact plus an explicit hypothesis and `SamplingPolicy`, and returns a
 `forecast(history, horizon=...)` accepts an observed history `MetricFrame`
 (`time_series` or `panel`) and returns a `ForecastFrame`. It never implicitly
 materializes history; the agent declares the history window/grain/dimensions via
-`observe`. Forecast-vs-actual evaluation is not a public Session step.
+`observe`. For a certified semantic grain, the history frame's exact
+`SemanticPeriodBindingV1` is the authority: every period must be complete and
+consecutive, `horizon` counts period ordinals, and future rows use the next
+certified keys and `[start, end)` bounds from that same snapshot. `naive` and
+`drift` are admitted on ordinal steps; `seasonal_naive` requires an explicit
+`seasonality_period > 1`. Missing snapshots, partial or mismatched periods, and
+future coverage gaps fail before the artifact is written. Forecast-vs-actual
+evaluation is not a public Session step.
 
 ### `assess_quality`
 

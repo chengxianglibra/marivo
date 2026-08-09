@@ -1246,7 +1246,10 @@ def _build_registry() -> CapabilityRegistry:
             id="forecast",
             public_entrypoint="session.forecast(...)",
             help_target="forecast",
-            summary="Project a time_series or panel MetricFrame forward.",
+            summary=(
+                "Project a time_series or panel MetricFrame forward; certified semantic "
+                "periods use their exact ordinal binding and future coverage."
+            ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=("forecast_input_shape",),
