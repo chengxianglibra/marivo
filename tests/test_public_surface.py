@@ -35,6 +35,7 @@ SEMANTIC_PUBLIC = {
     "EntityDetails",
     "EventDetails",
     "EventEntry",
+    "GrainToDate",
     "Inception",
     "JoinKey",
     "LifecycleState",

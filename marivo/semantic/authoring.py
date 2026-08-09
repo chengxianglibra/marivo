@@ -79,6 +79,7 @@ from marivo.semantic.state_model import (
 __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
+    "GrainToDate",
     "PeriodCorrespondence",
     "aggregate",
     "ai_context",

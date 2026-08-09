@@ -7,10 +7,11 @@ Internal module: public symbols are re-exported from
 from __future__ import annotations
 
 import hashlib
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import Grain
 from marivo.refs import (
     DomainKind,
     MetricKind,
@@ -49,16 +50,23 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.typing import AiContextValue
 
+_GRAIN_TO_DATE_INTERNAL = ContextVar("marivo_grain_to_date_internal", default=False)
+
 
 @dataclass(frozen=True)
 class GrainToDate:
     """Value object selecting a grain-to-date cumulative anchor (MTD/QTD/YTD)."""
 
-    grain: TemporalGrain
+    grain: Grain
     kind: Literal["grain_to_date"] = "grain_to_date"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.grain, TemporalGrain):
+        if not _GRAIN_TO_DATE_INTERNAL.get():
+            raise TypeError(
+                "GrainToDate values are returned by ms.grain_to_date(...); direct "
+                "construction is not supported"
+            )
+        if not isinstance(self.grain, Grain):
             raise TypeError("GrainToDate.grain must be a Grain value")
         if self.grain.kind == "builtin" and self.grain.unit not in _GRAIN_TO_DATE_RESETS:
             _raise(
@@ -102,7 +110,7 @@ class Trailing:
             )
 
 
-def grain_to_date(*, grain: TemporalGrain) -> GrainToDate:
+def grain_to_date(*, grain: Grain) -> GrainToDate:
     """Select a grain-to-date cumulative anchor (MTD / QTD / YTD resets).
 
     The running total resets at each reset-grain boundary (start of the
@@ -112,7 +120,7 @@ def grain_to_date(*, grain: TemporalGrain) -> GrainToDate:
     Args:
         grain: Reset grain. Built-in reset grains are ``week``, ``month``,
             ``quarter``, and ``year``. A certified custom-calendar grain is
-            passed as a ``TemporalGrain`` from ``ms.calendar_grain(...)``.
+            passed as a ``Grain`` from ``ms.calendar_grain(...)``.
 
     Returns:
         A frozen ``GrainToDate`` value object to pass as ``anchor=`` on
@@ -138,7 +146,11 @@ def grain_to_date(*, grain: TemporalGrain) -> GrainToDate:
         display bucket must lie within one reset period (week grain under a
         month/quarter/year reset is illegal). ``day`` and ``hour`` are legal.
     """
-    return GrainToDate(grain=grain)
+    token = _GRAIN_TO_DATE_INTERNAL.set(True)
+    try:
+        return GrainToDate(grain=grain)
+    finally:
+        _GRAIN_TO_DATE_INTERNAL.reset(token)
 
 
 def trailing(*, count: int, unit: str) -> Trailing:

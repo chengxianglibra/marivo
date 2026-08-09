@@ -12,6 +12,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,
@@ -50,7 +51,11 @@ from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.shared_fixtures import make_metric_frame
+from tests.shared_fixtures import (
+    fiscal_analysis_project_files,
+    fiscal_calendar_evidence,
+    make_metric_frame,
+)
 
 compare_intent = importlib.import_module("marivo.analysis.intents.compare")
 
@@ -437,6 +442,64 @@ def test_compare_period_progress_and_correspondence_use_certified_snapshot(tmp_p
     assert correspondence_delta.meta.temporal_contract.alignment_evidence.paired_points == 4
 
 
+def test_compare_period_progress_uses_frames_from_public_observe(
+    semantic_project_factory, monkeypatch
+):
+    """The certified period binding must survive the public observe handoff."""
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = session_attach.get_or_create(
+        name="fiscal-compare",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    metric = session.catalog.require(ref.metric("sales.gmv")).ref
+    calendar = session.catalog.period_calendars.get("sales.fiscal")
+    semantic_week = calendar.grain("fiscal_week")
+    current = session.observe(
+        metric,
+        time_scope=calendar.period("fiscal_month", "M2"),
+        grain=semantic_week,
+    )
+    baseline = session.observe(
+        metric,
+        time_scope=calendar.period("fiscal_month", "M1"),
+        grain=semantic_week,
+    )
+
+    delta = session.compare(current, baseline, alignment=period_progress())
+
+    assert len(delta.to_pandas()) == 2
+    assert delta.meta.temporal_contract is not None
+    assert delta.meta.temporal_contract.alignment_evidence.paired_points == 2
+
+
 def test_compare_occurrence_progress_anchors_exact_scopes_and_records_drops(tmp_path):
     bootstrap_sales_project(tmp_path)
     session = session_attach.get_or_create(name="demo")
@@ -534,6 +597,56 @@ def test_compare_occurrence_progress_anchors_exact_scopes_and_records_drops(tmp_
     assert evidence.current_only_points == 1
     assert evidence.dropped_points == 1
     assert delta.meta.temporal_contract.resolved_target_period is None
+
+
+def test_compare_occurrence_progress_uses_frames_from_public_observe(tmp_path):
+    """Occurrence provenance must survive catalog scope selection and observe."""
+    bootstrap_sales_project(tmp_path)
+    backend = ibis.duckdb.connect(":memory:")
+    session = session_attach.get_or_create(
+        name="demo",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    _seed(backend)
+    snapshot = certify_temporal_set(
+        temporal_set_ref=ref.temporal_set("sales.campaigns"),
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+        rows=[
+            {"id": "spring", "start": date(2026, 7, 1), "end": date(2026, 7, 3)},
+            {"id": "legacy", "start": date(2026, 4, 1), "end": date(2026, 4, 3)},
+        ],
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+    TemporalSetSnapshotStore(session.project_root).publish(
+        snapshot,
+        definition_digest="sha256:temporal-set-definition",
+    )
+
+    metric = ref.metric("sales.revenue")
+    current = session.observe(
+        metric,
+        time_scope=snapshot.occurrence_scope("spring"),
+        grain=mv.grain("day"),
+    )
+    baseline = session.observe(
+        metric,
+        time_scope=snapshot.occurrence_scope("legacy"),
+        grain=mv.grain("day"),
+    )
+    delta = session.compare(
+        current,
+        baseline,
+        alignment=occurrence_progress(anchor="start", unmatched="drop"),
+    )
+
+    assert len(delta.to_pandas()) == 2
+    assert delta.meta.temporal_contract is not None
+    evidence = delta.meta.temporal_contract.alignment_evidence
+    assert evidence.paired_points == 2
 
 
 def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworking_rows(
@@ -680,6 +793,103 @@ def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworkin
     snapshot_path.unlink()
     recovered = session.get_frame(delta.ref)
     pd.testing.assert_frame_equal(recovered.to_pandas(), delta.to_pandas())
+
+
+def test_compare_working_day_progress_uses_frames_from_public_observe(tmp_path):
+    """Schedule alignment must consume the same frames users get from observe."""
+    bootstrap_sales_project(tmp_path)
+    datasets_path = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets_path.write_text(
+        datasets_path.read_text(encoding="utf-8")
+        + "\n"
+        + "schedule_date = ms.time_dimension_column(name='schedule_date', entity=orders, column='created_at', granularity='day')\n"
+        + "is_working = ms.dimension_column(name='is_working', entity=orders, column='is_working')\n"
+        + "sales_schedule = ms.work_schedule(name='sales_schedule', date=schedule_date, is_working=is_working, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 2, 5)))\n",
+        encoding="utf-8",
+    )
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, amount DOUBLE, is_working BOOLEAN)"
+    )
+    backend.raw_sql(
+        "INSERT INTO orders VALUES "
+        + ",".join(
+            f"({index + 1}, DATE '2026-01-{index + 1:02d}', {index + 1}.0, "
+            f"{str(index not in {1, 3}).upper()})"
+            for index in range(10)
+        )
+    )
+    session = session_attach.get_or_create(
+        name="schedule-observe",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    schedule_ref = ref.work_schedule("sales.sales_schedule")
+    schedule_rows = [
+        {
+            "date": date(2026, 1, 1) + timedelta(days=index),
+            "is_working": index not in {1, 3, 32, 34},
+        }
+        for index in range(35)
+    ]
+    schedule_snapshot = certify_work_schedule(
+        work_schedule_ref=schedule_ref,
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 2, 5)),
+        rows=schedule_rows,
+        date_column="date",
+        is_working="is_working",
+    )
+    schedule_evidence = DiscoverySnapshot(
+        id="schedule-observe-evidence",
+        datasource=ref.datasource("warehouse"),
+        source=md.table("orders"),
+        scope=md.unpruned(max_rows=35, timeout_seconds=30),
+        columns=("created_at", "is_working"),
+        schema_fingerprint="schedule-observe-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=35,
+            retained_row_count=35,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=tmp_path,
+        retained_values=tuple(
+            (row["date"].isoformat(), row["is_working"]) for row in schedule_rows
+        ),
+    )
+    session.catalog.preview(schedule_ref, using=schedule_evidence)
+    metric = ref.metric("sales.revenue")
+    current = session.observe(
+        metric,
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-01-05"),
+        grain=mv.grain("day"),
+    )
+    baseline = session.observe(
+        metric,
+        time_scope=mv.time_scope(start="2026-01-06", end="2026-01-11"),
+        grain=mv.grain("day"),
+    )
+
+    delta = session.compare(
+        current,
+        baseline,
+        alignment=working_day_progress(schedule=schedule_ref, unmatched="drop"),
+    )
+
+    assert len(delta.to_pandas()) == 2
+    assert delta.meta.temporal_contract is not None
+    evidence = delta.meta.temporal_contract.alignment_evidence
+    assert evidence.paired_points == 2
+    assert evidence.policy_excluded_current_points == 2
 
 
 def test_period_progress_rejects_builtin_coarse_source_against_semantic_target(tmp_path):

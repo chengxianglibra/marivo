@@ -741,7 +741,10 @@ def _validate_cumulative_anchor(anchor: object) -> None:
                 (isinstance(anchor[1], str) and anchor[1] in _GRAIN_TO_DATE_RESETS)
                 or (
                     isinstance(anchor[1], TemporalGrain)
-                    and (anchor[1].kind == "semantic" or anchor[1].unit in _GRAIN_TO_DATE_RESETS)
+                    and (
+                        anchor[1].kind == "semantic"
+                        or anchor[1].to_token() in _GRAIN_TO_DATE_RESETS
+                    )
                 )
             )
         ):

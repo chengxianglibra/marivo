@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from marivo._temporal import _new_time_scope
@@ -10,6 +12,22 @@ from marivo.refs import ref
 def test_normalize_timescope_input_accepts_concrete_instances():
     scope = time_scope(start="2026-05-01", end="2026-05-24")
     assert normalize_timescope_input(scope) is scope
+
+
+def test_timescope_strings_are_normalized_for_structural_identity():
+    from marivo.analysis import time_scope as public_time_scope
+
+    string_scope = public_time_scope(start="2026-05-01", end="2026-05-24")
+    typed_scope = public_time_scope(start=date(2026, 5, 1), end=date(2026, 5, 24))
+
+    assert type(string_scope.start) is date
+    assert type(string_scope.end) is date
+    assert string_scope == typed_scope
+    assert hash(string_scope) == hash(typed_scope)
+    assert string_scope.model_dump() == {
+        "start": date(2026, 5, 1),
+        "end": date(2026, 5, 24),
+    }
 
 
 def test_timescope_direct_constructor_is_not_public():

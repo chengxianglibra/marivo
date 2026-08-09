@@ -520,7 +520,7 @@ def test_by_callable_resolves_types() -> None:
     import marivo.analysis as mv
 
     descriptor = REGISTRY.by_callable(mv.time_scope)
-    assert descriptor.id == "TimeScope"
+    assert descriptor.id == "time_scope"
 
     descriptor = REGISTRY.by_callable(mv.SamplingPolicy)
     assert descriptor.id == "SamplingPolicy"
@@ -579,7 +579,7 @@ EXPECTED_CONSTRUCTOR_IDS = {
     "day_of_week",
     "period_progress",
     "period_correspondence",
-    "TimeScope",
+    "time_scope",
     "AbsoluteWindow",
     "SamplingPolicy",
 }

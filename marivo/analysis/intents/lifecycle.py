@@ -151,7 +151,22 @@ def _parse_instant(value: object, *, label: str, location: str) -> pd.Timestamp:
         "Pass mv.time_scope(start=<aware instant>, end=<later aware instant>) "
         "with explicit timezone offsets."
     )
-    if type(value) is not str or not value.strip():
+    if isinstance(value, datetime):
+        parsed = value
+    elif type(value) is str and value.strip():
+        raw = value.strip()
+        normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except (TypeError, ValueError) as exc:
+            raise WindowInvalidError(
+                message=f"lifecycle.replay {label} is not a valid ISO-8601 instant",
+                expected="a timezone-aware ISO-8601 instant",
+                received=repr(value),
+                location=location,
+                repair=_repair(kind="user_choice", action=action),
+            ) from exc
+    else:
         raise WindowInvalidError(
             message=f"lifecycle.replay {label} must be a non-empty ISO-8601 instant",
             expected="a timezone-aware ISO-8601 instant",
@@ -159,18 +174,6 @@ def _parse_instant(value: object, *, label: str, location: str) -> pd.Timestamp:
             location=location,
             repair=_repair(kind="user_choice", action=action),
         )
-    raw = value.strip()
-    normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except (TypeError, ValueError) as exc:
-        raise WindowInvalidError(
-            message=f"lifecycle.replay {label} is not a valid ISO-8601 instant",
-            expected="a timezone-aware ISO-8601 instant",
-            received=repr(value),
-            location=location,
-            repair=_repair(kind="user_choice", action=action),
-        ) from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise WindowInvalidError(
             message=f"lifecycle.replay {label} must carry an explicit timezone offset",
@@ -183,7 +186,10 @@ def _parse_instant(value: object, *, label: str, location: str) -> pd.Timestamp:
 
 
 def _resolve_window(window: TimeScope) -> tuple[pd.Timestamp, pd.Timestamp]:
-    if type(window) is not TimeScope:
+    # Runtime/catalog helpers return private closed TimeScope variants.  The
+    # public contract is the shared base type, so exact-type checks would
+    # reject valid absolute and semantic scopes alike.
+    if not isinstance(window, TimeScope):
         raise WindowInvalidError(
             message="lifecycle.replay window must be an exact TimeScope from mv.time_scope(...)",
             expected="mv.time_scope(start=<inclusive>, end=<exclusive>)",

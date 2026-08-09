@@ -100,7 +100,7 @@ INPUT_FAMILIES = frozenset(
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
-        "GrainToDateSpec",
+        "GrainToDate",
         "TrailingSpec",
         "WhereFilter",
         "FilterConditions",
@@ -154,7 +154,7 @@ OUTPUT_FAMILIES = frozenset(
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
-        "GrainToDateSpec",
+        "GrainToDate",
         "TrailingSpec",
         "None",
         "Text",
@@ -1234,7 +1234,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "Build a grain-to-date cumulative anchor specification from a builtin reset "
                 "granularity or a certified semantic Grain."
             ),
-            output="GrainToDateSpec",
+            output="GrainToDate",
             inputs=_inputs(("dependency", "Granularity | Grain")),
             effects=_AUTHOR,
             constraints=("cumulative_anchor",),
@@ -1467,6 +1467,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
     from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, WorkScheduleKind
     from marivo.refs import ref as ref_factory
+    from marivo.semantic._authoring_metrics import GrainToDate
     from marivo.semantic._authoring_temporal import PeriodCorrespondence
     from marivo.semantic.catalog import (
         CalendarLevelDetails,
@@ -1534,6 +1535,13 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             consumers=tuple(_target(value) for value in consumers),
             state_bearing=state_bearing,
         )
+
+    add(
+        GrainToDate,
+        "GrainToDate",
+        ("grain_to_date",),
+        properties=("grain", "kind"),
+    )
 
     # Catalog types
     add(
