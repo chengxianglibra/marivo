@@ -73,6 +73,7 @@ def test_all_list_matches_expected() -> None:
         "EntityDetails",
         "EventEntry",
         "EventDetails",
+        "GrainToDate",
         "Inception",
         "JoinKey",
         "LifecycleState",

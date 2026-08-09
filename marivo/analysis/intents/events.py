@@ -125,7 +125,34 @@ def _journey_id(
 
 
 def _parse_bound(value: object, *, report_tz: ZoneInfo, label: str) -> pd.Timestamp:
-    if type(value) is not str or not value.strip():
+    if isinstance(value, datetime):
+        parsed = value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=report_tz)
+    elif type(value) is date:
+        parsed = datetime.combine(value, time.min, tzinfo=report_tz)
+    elif type(value) is str and value.strip():
+        raw = value.strip()
+        normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
+        try:
+            if len(raw) == 10 and "T" not in raw:
+                parsed = datetime.combine(date.fromisoformat(raw), time.min, tzinfo=report_tz)
+            else:
+                parsed = datetime.fromisoformat(normalized)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=report_tz)
+        except (TypeError, ValueError) as exc:
+            raise InvalidEventPatternError(
+                message=f"events.match {label} is not a valid ISO-8601 bound",
+                expected="an ISO-8601 date or datetime string",
+                received=repr(value),
+                location=f"session.events.match.{label}",
+                repair=_repair(
+                    kind="user_choice",
+                    action="Pass an explicit ISO-8601 cohort window and completion_through bound.",
+                ),
+            ) from exc
+    else:
         raise InvalidEventPatternError(
             message=f"events.match {label} must be a non-empty ISO-8601 string",
             expected="an ISO-8601 date or datetime string",
@@ -136,26 +163,6 @@ def _parse_bound(value: object, *, report_tz: ZoneInfo, label: str) -> pd.Timest
                 action="Pass an explicit ISO-8601 cohort window and completion_through bound.",
             ),
         )
-    raw = value.strip()
-    normalized = f"{raw[:-1]}+00:00" if raw.endswith("Z") else raw
-    try:
-        if len(raw) == 10 and "T" not in raw:
-            parsed = datetime.combine(date.fromisoformat(raw), time.min, tzinfo=report_tz)
-        else:
-            parsed = datetime.fromisoformat(normalized)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=report_tz)
-    except (TypeError, ValueError) as exc:
-        raise InvalidEventPatternError(
-            message=f"events.match {label} is not a valid ISO-8601 bound",
-            expected="an ISO-8601 date or datetime string",
-            received=repr(value),
-            location=f"session.events.match.{label}",
-            repair=_repair(
-                kind="user_choice",
-                action="Pass an explicit ISO-8601 cohort window and completion_through bound.",
-            ),
-        ) from exc
     return pd.Timestamp(parsed.astimezone(UTC))
 
 

@@ -3,6 +3,7 @@
 from datetime import date as _date
 from datetime import datetime as _datetime
 from typing import Any as _Any
+from typing import Literal
 
 from marivo._temporal import Grain
 from marivo._temporal import time_scope as _time_scope
@@ -117,7 +118,16 @@ from marivo.analysis.windows.spec import (
 
 
 def grain(
-    unit: str,
+    unit: Literal[
+        "second",
+        "minute",
+        "hour",
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year",
+    ],
     *,
     count: int = 1,
 ) -> Grain:

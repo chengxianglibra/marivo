@@ -71,6 +71,12 @@ def test_grain_to_date_returns_frozen_value_object():
         obj.grain = "quarter"  # type: ignore[misc]
 
 
+def test_grain_to_date_is_exported_but_not_directly_constructible():
+    assert ms.GrainToDate is GrainToDate
+    with pytest.raises(TypeError, match="direct construction is not supported"):
+        GrainToDate(grain=mv.grain("month"))
+
+
 def test_grain_to_date_rejects_unknown_grain():
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.grain_to_date(grain=mv.grain("day"))

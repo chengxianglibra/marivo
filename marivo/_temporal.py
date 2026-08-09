@@ -18,7 +18,16 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Protocol, cast, overload, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    Protocol,
+    cast,
+    overload,
+    runtime_checkable,
+)
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,7 +39,6 @@ _DATE_TYPE = date
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _JSON_SCALAR = str | int | float | bool
-_GRAIN_INTERNAL = ContextVar("marivo_grain_internal", default=False)
 _TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
 
 
@@ -85,87 +93,146 @@ def _local_civil_datetime(
     raise TypeError(f"expected date or datetime, got {type(value).__name__}")
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, eq=False)
 class Grain:
-    """One closed aggregation grain, created through public helpers only."""
+    """One closed aggregation grain, created through public helpers only.
 
-    # ``kind`` defaults to builtin so the dependency-neutral value can also be
-    # consumed by the existing analysis execution helpers, which historically
-    # constructed ``Grain(unit=..., count=...)`` directly.  Public callers use
-    # ``builtin_grain`` or ``semantic_grain`` and never need to spell it.
-    kind: Literal["builtin", "semantic"] = "builtin"
-    unit: str | None = None
-    count: int | None = 1
-    calendar: Ref[PeriodCalendarKind] | None = None
-    level: str | None = None
+    Builtin and semantic values use private implementation variants.  The
+    public base intentionally exposes only ``kind`` and value identity; variant
+    fields live on the unexported concrete classes.
+    """
 
-    def __init__(
-        self,
-        kind: Literal["builtin", "semantic"] = "builtin",
-        unit: str | None = None,
-        count: int | None = 1,
-        calendar: Ref[PeriodCalendarKind] | None = None,
-        level: str | None = None,
-    ) -> None:
-        if not _GRAIN_INTERNAL.get():
-            raise TypeError(
-                "Grain values are returned by marivo.analysis.grain(...), "
-                "ms.calendar_grain(...), or an exact catalog lookup; direct "
-                "construction is not supported"
-            )
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "unit", unit)
-        object.__setattr__(self, "count", count)
-        object.__setattr__(self, "calendar", calendar)
-        object.__setattr__(self, "level", level)
-        self.__post_init__()
+    kind: Literal["builtin", "semantic"]
 
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
-        schema = handler(source)
+    # Variant fields are intentionally type-checker-only on the public base.
+    # Concrete values expose only the fields belonging to their closed kind at
+    # runtime; internal code can still narrow/access the shared protocol.
+    if TYPE_CHECKING:
+        unit: str | None
+        count: int | None
+        calendar: Ref[PeriodCalendarKind] | None
+        level: str | None
 
-        def _allow_trusted_validation(value: Any, validator: Any, _info: Any) -> Any:
-            token = _GRAIN_INTERNAL.set(True)
-            try:
-                return validator(value)
-            finally:
-                _GRAIN_INTERNAL.reset(token)
-
-        return core_schema.with_info_wrap_validator_function(
-            _allow_trusted_validation,
-            schema,
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError(
+            "Grain values are returned by marivo.analysis.grain(...), "
+            "ms.calendar_grain(...), or an exact catalog lookup; direct "
+            "construction is not supported"
         )
 
-    def __post_init__(self) -> None:
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any) -> Any:
+        def _decode_mapping(value: Mapping[str, object]) -> Grain:
+            kind = value.get("kind")
+            if kind == "builtin":
+                return builtin_grain(
+                    cast("str", value.get("unit")),
+                    count=cast("int", value.get("count", 1)),
+                )
+            if kind == "semantic":
+                raw_calendar = value.get("calendar") or value.get("calendar_ref")
+                if type(raw_calendar) is Ref and raw_calendar.kind.value == "period_calendar":
+                    return semantic_grain(
+                        calendar=cast("Ref[PeriodCalendarKind]", raw_calendar),
+                        level=cast("str", value.get("level")),
+                    )
+                if isinstance(raw_calendar, Mapping):
+                    raw_calendar = raw_calendar.get("path")
+                if isinstance(raw_calendar, str):
+                    raw_calendar = raw_calendar.removeprefix("period_calendar:")
+                    return semantic_grain(
+                        calendar=ref_factory_period_calendar(raw_calendar),
+                        level=cast("str", value.get("level")),
+                    )
+            raise ValueError(f"unknown Grain payload kind {kind!r}")
+
+        def _validate(value: Any, info: Any) -> Grain:
+            if isinstance(value, Grain):
+                return value
+            if not isinstance(value, Mapping):
+                # A Grain may appear inside a tagged union (for example the
+                # cumulative trailing-window payload).  Let Pydantic reject
+                # this candidate as a normal validation error so another
+                # union branch can handle the value.  Direct construction is
+                # still sealed below for mapping payloads.
+                raise ValueError("grain values must be returned Grain instances")
+            if info.field_name is None:
+                raise TypeError("grain values must be returned Grain instances")
+            return _decode_mapping(value)
+
+        def _serialize(value: Grain, info: Any) -> dict[str, object]:
+            mode = getattr(info, "mode", "python")
+            if value.kind == "builtin":
+                builtin = cast("_BuiltinGrain", value)
+                return {
+                    "kind": "builtin",
+                    "unit": builtin.unit,
+                    "count": builtin.count,
+                    "calendar": None,
+                    "level": None,
+                }
+            semantic = cast("_SemanticGrain", value)
+            return {
+                "kind": "semantic",
+                "unit": None,
+                "count": None,
+                "calendar": (
+                    {
+                        "schema": "marivo.semantic_ref/v1",
+                        "kind": semantic.calendar.kind.value,
+                        "path": semantic.calendar.path,
+                    }
+                    if mode == "json"
+                    else semantic.calendar
+                ),
+                "level": semantic.level,
+            }
+
+        return core_schema.with_info_plain_validator_function(
+            _validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                _serialize,
+                info_arg=True,
+            ),
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Grain) or self.kind != other.kind:
+            return False
         if self.kind == "builtin":
-            if self.unit not in _GRAIN_UNITS or type(self.count) is not int or self.count < 1:
-                raise ValueError("builtin Grain requires a supported unit and count >= 1")
-            if self.unit not in {"second", "minute", "hour"} and self.count != 1:
-                raise ValueError(f"calendar grain {self.unit!r} only supports count == 1")
-            if self.calendar is not None or self.level is not None:
-                raise ValueError("builtin Grain cannot include calendar or level")
-            return
-        if self.kind == "semantic":
-            if type(self.calendar) is not Ref or self.calendar.kind.value != "period_calendar":
-                raise TypeError("semantic Grain requires Ref[period_calendar]")
-            if type(self.level) is not str or not self.level:
-                raise ValueError("semantic Grain requires a non-empty level")
-            if self.unit is not None or self.count is not None:
-                raise ValueError("semantic Grain cannot include builtin unit or count")
-            return
-        raise ValueError(f"unknown Grain kind {self.kind!r}")
+            left, right = cast("_BuiltinGrain", self), cast("_BuiltinGrain", other)
+            return left.unit == right.unit and left.count == right.count
+        semantic_left, semantic_right = cast("_SemanticGrain", self), cast("_SemanticGrain", other)
+        return (
+            semantic_left.calendar == semantic_right.calendar
+            and semantic_left.level == semantic_right.level
+        )
+
+    def __hash__(self) -> int:
+        if self.kind == "builtin":
+            value = cast("_BuiltinGrain", self)
+            return hash((self.kind, value.unit, value.count))
+        semantic_value = cast("_SemanticGrain", self)
+        return hash((self.kind, semantic_value.calendar, semantic_value.level))
 
     @property
     def is_subday(self) -> bool:
-        return self.kind == "builtin" and self.unit in {"second", "minute", "hour"}
+        return self.kind == "builtin" and cast("_BuiltinGrain", self).unit in {
+            "second",
+            "minute",
+            "hour",
+        }
 
     @property
     def is_day(self) -> bool:
-        return self.kind == "builtin" and self.unit == "day" and self.count == 1
+        if self.kind != "builtin":
+            return False
+        value = cast("_BuiltinGrain", self)
+        return value.unit == "day" and value.count == 1
 
     def width_seconds(self) -> int:
         """Return fixed width for builtin sub-day/day/week grains."""
-        if self.kind != "builtin" or self.unit not in {
+        if self.kind != "builtin" or cast("_BuiltinGrain", self).unit not in {
             "second",
             "minute",
             "hour",
@@ -175,32 +242,32 @@ class Grain:
             raise ValueError(
                 f"Grain.width_seconds() is undefined for calendar-variable grain {self!r}"
             )
-        assert self.count is not None
+        value = cast("_BuiltinGrain", self)
         return (
-            self.count
+            value.count
             * {
                 "second": 1,
                 "minute": 60,
                 "hour": 3600,
                 "day": 86400,
                 "week": 7 * 86400,
-            }[self.unit]
+            }[value.unit]
         )
 
     def to_token(self) -> str:
         """Return a stable display token for metadata and diagnostics."""
         if self.kind == "builtin":
-            assert self.unit is not None and self.count is not None
-            return self.unit if self.count == 1 else f"{self.count}{self.unit}"
-        assert self.calendar is not None and self.level is not None
-        return f"{self.calendar.path}::{self.level}"
+            value = cast("_BuiltinGrain", self)
+            return value.unit if value.count == 1 else f"{value.count}{value.unit}"
+        semantic_value = cast("_SemanticGrain", self)
+        return f"{semantic_value.calendar.path}::{semantic_value.level}"
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, Grain):
             return NotImplemented
         if self.kind != "builtin" or other.kind != "builtin":
             raise TypeError("semantic Grain has no fixed rank")
-        assert self.unit is not None and other.unit is not None
+        left, right = cast("_BuiltinGrain", self), cast("_BuiltinGrain", other)
         ranks = {
             "second": 0,
             "minute": 1,
@@ -213,7 +280,7 @@ class Grain:
         }
         if self.is_subday and other.is_subday:
             return self.width_seconds() < other.width_seconds()
-        return ranks[self.unit] < ranks[other.unit]
+        return ranks[left.unit] < ranks[right.unit]
 
     def __gt__(self, other: object) -> bool:
         if not isinstance(other, Grain):
@@ -234,29 +301,51 @@ class Grain:
 
     def __repr__(self) -> str:
         if self.kind == "builtin":
-            assert self.unit is not None and self.count is not None
-            token = self.unit if self.count == 1 else f"{self.count}{self.unit}"
+            value = cast("_BuiltinGrain", self)
+            token = value.unit if value.count == 1 else f"{value.count}{value.unit}"
             return f"Grain({token!r})"
-        assert self.calendar is not None and self.level is not None
-        return f"Grain(calendar={self.calendar.key!r}, level={self.level!r})"
+        semantic_value = cast("_SemanticGrain", self)
+        return f"Grain(calendar={semantic_value.calendar.key!r}, level={semantic_value.level!r})"
+
+
+@dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
+class _BuiltinGrain(Grain):
+    unit: str
+    count: int
+
+    def __init__(self, *, unit: str, count: int = 1) -> None:
+        if unit not in _GRAIN_UNITS or type(count) is not int or count < 1:
+            raise ValueError("builtin Grain requires a supported unit and count >= 1")
+        if unit not in {"second", "minute", "hour"} and count != 1:
+            raise ValueError(f"calendar grain {unit!r} only supports count == 1")
+        object.__setattr__(self, "kind", "builtin")
+        object.__setattr__(self, "unit", unit)
+        object.__setattr__(self, "count", count)
+
+
+@dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
+class _SemanticGrain(Grain):
+    calendar: Ref[PeriodCalendarKind]
+    level: str
+
+    def __init__(self, *, calendar: Ref[PeriodCalendarKind], level: str) -> None:
+        if type(calendar) is not Ref or calendar.kind.value != "period_calendar":
+            raise TypeError("semantic Grain requires Ref[period_calendar]")
+        if type(level) is not str or not level:
+            raise ValueError("semantic Grain requires a non-empty level")
+        object.__setattr__(self, "kind", "semantic")
+        object.__setattr__(self, "calendar", calendar)
+        object.__setattr__(self, "level", level)
 
 
 def builtin_grain(unit: str, *, count: int = 1) -> Grain:
     """Create the builtin Grain variant behind ``mv.grain``."""
-    token = _GRAIN_INTERNAL.set(True)
-    try:
-        return Grain(kind="builtin", unit=unit, count=count)
-    finally:
-        _GRAIN_INTERNAL.reset(token)
+    return _BuiltinGrain(unit=unit, count=count)
 
 
 def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     """Create the semantic Grain variant behind ``ms.calendar_grain``."""
-    token = _GRAIN_INTERNAL.set(True)
-    try:
-        return Grain(kind="semantic", unit=None, count=None, calendar=calendar, level=level)
-    finally:
-        _GRAIN_INTERNAL.reset(token)
+    return _SemanticGrain(calendar=calendar, level=level)
 
 
 def period_calendar_definition_digest(
@@ -448,16 +537,24 @@ class TimeScope(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    start: str | datetime | date
-    end: str | datetime | date
-    calendar: Ref[PeriodCalendarKind] | None = None
-    temporal_set: Ref[TemporalSetKind] | None = None
-    snapshot_digest: str | None = None
-    boundary_timezone: str | None = None
-    level: str | None = None
-    key: _JSON_SCALAR | None = None
-    ordinal: int | None = None
-    occurrence_category: str | None = None
+    # Strings are accepted only at the public constructor boundary.  The
+    # immutable value itself always stores one normalized bound type so
+    # semantically identical scopes have stable equality and hashing.
+    start: date | datetime
+    end: date | datetime
+
+    # Provenance belongs to the private concrete variants.  These declarations
+    # keep the dependency-neutral base usable by statically typed internal
+    # helpers without leaking optional fields into the runtime public object.
+    if TYPE_CHECKING:
+        calendar: Ref[PeriodCalendarKind]
+        temporal_set: Ref[TemporalSetKind]
+        snapshot_digest: str
+        boundary_timezone: str
+        level: str
+        key: _JSON_SCALAR
+        ordinal: int
+        occurrence_category: str | None
 
     def __init__(self, **data: Any) -> None:
         if not _TIME_SCOPE_INTERNAL.get():
@@ -466,6 +563,24 @@ class TimeScope(BaseModel):
                 "or an exact catalog lookup; direct construction is not supported"
             )
         super().__init__(**data)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_bounds(cls, data: Any) -> Any:
+        """Normalize ISO constructor strings before Pydantic freezes the scope."""
+        if isinstance(data, TimeScope) or not isinstance(data, Mapping):
+            return data
+        start = data.get("start")
+        end = data.get("end")
+        if isinstance(start, str) and isinstance(end, str):
+            normalized_start, normalized_end = _parse_scope_strings(start, end)
+            payload = dict(data)
+            payload["start"] = normalized_start
+            payload["end"] = normalized_end
+            return payload
+        if isinstance(start, str) or isinstance(end, str):
+            raise ValueError("TimeScope cannot mix string and normalized bounds")
+        return data
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -492,80 +607,129 @@ class TimeScope(BaseModel):
     @property
     def kind(self) -> Literal["absolute", "calendar_period", "temporal_occurrence"]:
         """Return the closed variant tag used by the current runtime."""
-        if self.calendar is not None:
+        if isinstance(self, _CalendarPeriodTimeScope):
             return "calendar_period"
-        if self.temporal_set is not None:
+        if isinstance(self, _TemporalOccurrenceTimeScope):
             return "temporal_occurrence"
         return "absolute"
 
     @model_validator(mode="after")
     def _validate_scope(self) -> TimeScope:
+        calendar = getattr(self, "calendar", None)
+        temporal_set = getattr(self, "temporal_set", None)
+        snapshot_digest = getattr(self, "snapshot_digest", None)
+        boundary_timezone = getattr(self, "boundary_timezone", None)
+        level = getattr(self, "level", None)
+        key = getattr(self, "key", None)
+        ordinal = getattr(self, "ordinal", None)
+        occurrence_category = getattr(self, "occurrence_category", None)
         provenance = (
-            self.calendar,
-            self.temporal_set,
-            self.snapshot_digest,
-            self.boundary_timezone,
-            self.level,
-            self.key,
-            self.ordinal,
-            self.occurrence_category,
+            calendar,
+            temporal_set,
+            snapshot_digest,
+            boundary_timezone,
+            level,
+            key,
+            ordinal,
+            occurrence_category,
         )
-        if self.calendar is None:
-            if self.temporal_set is None:
+        if calendar is None:
+            if temporal_set is None:
                 if any(value is not None for value in provenance[2:]):
                     raise ValueError(
                         "absolute TimeScope cannot contain semantic temporal provenance"
                     )
             else:
-                if (
-                    type(self.temporal_set) is not Ref
-                    or self.temporal_set.kind.value != "temporal_set"
-                ):
+                if type(temporal_set) is not Ref or temporal_set.kind.value != "temporal_set":
                     raise TypeError("temporal occurrence TimeScope requires Ref[temporal_set]")
-                if type(self.snapshot_digest) is not str or not self.snapshot_digest:
+                if type(snapshot_digest) is not str or not snapshot_digest:
                     raise ValueError("temporal occurrence TimeScope requires snapshot_digest")
-                if type(self.boundary_timezone) is not str or not self.boundary_timezone:
+                if type(boundary_timezone) is not str or not boundary_timezone:
                     raise ValueError("temporal occurrence TimeScope requires boundary_timezone")
-                if self.key is None or self.level is not None or self.ordinal is not None:
+                if key is None or level is not None or ordinal is not None:
                     raise ValueError(
                         "temporal occurrence TimeScope requires key and no period provenance"
                     )
-                if self.occurrence_category is not None and (
-                    type(self.occurrence_category) is not str or not self.occurrence_category
+                if occurrence_category is not None and (
+                    type(occurrence_category) is not str or not occurrence_category
                 ):
                     raise ValueError(
                         "temporal occurrence category must be a non-empty string or null"
                     )
-                canonical_key(self.key)
+                canonical_key(key)
         else:
-            if self.temporal_set is not None or self.occurrence_category is not None:
+            if temporal_set is not None or occurrence_category is not None:
                 raise ValueError("period TimeScope cannot contain occurrence provenance")
-            if type(self.calendar) is not Ref or self.calendar.kind.value != "period_calendar":
+            if type(calendar) is not Ref or calendar.kind.value != "period_calendar":
                 raise TypeError("period TimeScope requires Ref[period_calendar]")
-            if type(self.snapshot_digest) is not str or not self.snapshot_digest:
+            if type(snapshot_digest) is not str or not snapshot_digest:
                 raise ValueError("period TimeScope requires snapshot_digest")
-            if type(self.boundary_timezone) is not str or not self.boundary_timezone:
+            if type(boundary_timezone) is not str or not boundary_timezone:
                 raise ValueError("period TimeScope requires boundary_timezone")
-            if type(self.level) is not str or not self.level:
+            if type(level) is not str or not level:
                 raise ValueError("period TimeScope requires level")
-            if self.key is None or type(self.ordinal) is not int or self.ordinal < 0:
+            if key is None or type(ordinal) is not int or ordinal < 0:
                 raise ValueError("period TimeScope requires key and non-negative ordinal")
-            canonical_key(self.key)
+            canonical_key(key)
         _validate_time_scope_bounds(self.start, self.end)
         return self
+
+    def _identity(self) -> tuple[object, ...]:
+        """Return the closed value identity independent of concrete class.
+
+        Pydantic rehydrates nested absolute scopes as the public base model,
+        while trusted constructors return the private closed variant.  Both
+        represent the same public value and therefore must compare and hash
+        identically across artifact round-trips.
+        """
+        if self.kind == "absolute":
+            return ("absolute", self.start, self.end)
+        if self.kind == "temporal_occurrence":
+            occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
+            return (
+                "temporal_occurrence",
+                self.start,
+                self.end,
+                occurrence_scope.temporal_set,
+                occurrence_scope.snapshot_digest,
+                occurrence_scope.boundary_timezone,
+                occurrence_scope.key,
+                occurrence_scope.occurrence_category,
+            )
+        calendar_scope = cast("_CalendarPeriodTimeScope", self)
+        return (
+            "calendar_period",
+            self.start,
+            self.end,
+            calendar_scope.calendar,
+            calendar_scope.snapshot_digest,
+            calendar_scope.boundary_timezone,
+            calendar_scope.level,
+            calendar_scope.key,
+            calendar_scope.ordinal,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TimeScope):
+            return NotImplemented
+        return self._identity() == other._identity()
+
+    def __hash__(self) -> int:
+        return hash(self._identity())
 
     def __repr__(self) -> str:
         if self.kind == "absolute":
             return f"TimeScope([{_scope_bound_text(self.start)}, {_scope_bound_text(self.end)}))"
         if self.kind == "temporal_occurrence":
-            assert self.temporal_set is not None
+            occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return (
-                f"TimeScope(occurrence={self.temporal_set.key!r}/{self.key!r}; "
+                f"TimeScope(occurrence={occurrence_scope.temporal_set.key!r}/"
+                f"{occurrence_scope.key!r}; "
                 "call .show() for detail)"
             )
-        assert self.calendar is not None and self.level is not None
+        calendar_scope = cast("_CalendarPeriodTimeScope", self)
         return (
-            f"TimeScope(period={self.calendar.key!r}/{self.level}:{self.key!r}; "
+            f"TimeScope(period={calendar_scope.calendar.key!r}/{calendar_scope.level}:{calendar_scope.key!r}; "
             "call .show() for detail)"
         )
 
@@ -580,59 +744,56 @@ class TimeScope(BaseModel):
             f"start={_scope_bound_text(self.start)}",
             f"end={_scope_bound_text(self.end)}",
         ]
-        if self.calendar is not None:
+        if self.kind == "calendar_period":
+            calendar_scope = cast("_CalendarPeriodTimeScope", self)
             values.extend(
                 (
-                    f"calendar={self.calendar.key}",
-                    f"snapshot={self.snapshot_digest}",
-                    f"level={self.level}",
-                    f"key={self.key!r}",
-                    f"ordinal={self.ordinal}",
+                    f"calendar={calendar_scope.calendar.key}",
+                    f"snapshot={calendar_scope.snapshot_digest}",
+                    f"level={calendar_scope.level}",
+                    f"key={calendar_scope.key!r}",
+                    f"ordinal={calendar_scope.ordinal}",
                 )
             )
-        elif self.temporal_set is not None:
+        elif self.kind == "temporal_occurrence":
+            occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             values.extend(
                 (
-                    f"temporal_set={self.temporal_set.key}",
-                    f"snapshot={self.snapshot_digest}",
-                    f"key={self.key!r}",
-                    f"category={self.occurrence_category!r}",
+                    f"temporal_set={occurrence_scope.temporal_set.key}",
+                    f"snapshot={occurrence_scope.snapshot_digest}",
+                    f"key={occurrence_scope.key!r}",
+                    f"category={occurrence_scope.occurrence_category!r}",
                 )
             )
         return "TimeScope(" + ", ".join(values) + ")"
 
     def contract(self) -> TimeScopeContractV1:
         """Return the bounded, versioned scope identity used by artifacts."""
-        if isinstance(self.start, str) and isinstance(self.end, str):
-            start, end = _parse_scope_strings(self.start, self.end)
-        elif isinstance(self.start, str) or isinstance(self.end, str):
-            raise ValueError("TimeScope contract cannot mix string and normalized bounds")
-        else:
-            start, end = self.start, self.end
+        start, end = self.start, self.end
         if self.kind == "absolute":
             return TimeScopeContractV1(kind="absolute", start=start, end=end)
         if self.kind == "temporal_occurrence":
-            assert self.temporal_set is not None
+            occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return TimeScopeContractV1(
                 kind="temporal_occurrence",
                 start=start,
                 end=end,
-                temporal_set_ref=self.temporal_set.path,
-                snapshot_digest=self.snapshot_digest,
-                boundary_timezone=self.boundary_timezone,
-                key=self.key,
-                occurrence_category=self.occurrence_category,
+                temporal_set_ref=occurrence_scope.temporal_set.path,
+                snapshot_digest=occurrence_scope.snapshot_digest,
+                boundary_timezone=occurrence_scope.boundary_timezone,
+                key=occurrence_scope.key,
+                occurrence_category=occurrence_scope.occurrence_category,
             )
-        assert self.calendar is not None
+        calendar_scope = cast("_CalendarPeriodTimeScope", self)
         return TimeScopeContractV1(
             kind="calendar_period",
             start=start,
             end=end,
-            calendar_ref=self.calendar.path,
-            snapshot_digest=self.snapshot_digest,
-            boundary_timezone=self.boundary_timezone,
-            level=self.level,
-            key=self.key,
+            calendar_ref=calendar_scope.calendar.path,
+            snapshot_digest=calendar_scope.snapshot_digest,
+            boundary_timezone=calendar_scope.boundary_timezone,
+            level=calendar_scope.level,
+            key=calendar_scope.key,
         )
 
     @overload
@@ -648,18 +809,50 @@ class TimeScope(BaseModel):
         return cast("dict[str, object]", super().model_dump(*args, **kwargs))
 
 
+class _AbsoluteTimeScope(TimeScope):
+    """Private concrete scope for an unbound absolute interval."""
+
+    pass
+
+
+class _CalendarPeriodTimeScope(TimeScope):
+    """Private concrete scope carrying one certified calendar period."""
+
+    calendar: Ref[PeriodCalendarKind]
+    snapshot_digest: str
+    boundary_timezone: str
+    level: str
+    key: _JSON_SCALAR
+    ordinal: int
+
+
+class _TemporalOccurrenceTimeScope(TimeScope):
+    """Private concrete scope carrying one certified temporal occurrence."""
+
+    temporal_set: Ref[TemporalSetKind]
+    snapshot_digest: str
+    boundary_timezone: str
+    key: _JSON_SCALAR
+    occurrence_category: str | None = None
+
+
 def _new_time_scope(**data: Any) -> TimeScope:
     """Build a validated scope for trusted runtime/catalog paths."""
 
+    if data.get("calendar") is not None:
+        scope_type: type[TimeScope] = _CalendarPeriodTimeScope
+    elif data.get("temporal_set") is not None:
+        scope_type = _TemporalOccurrenceTimeScope
+    else:
+        scope_type = _AbsoluteTimeScope
     with _trusted_time_scope_validation():
-        return TimeScope(**data)
+        return scope_type(**data)
 
 
 def _validate_time_scope_data(data: Mapping[str, Any]) -> TimeScope:
     """Decode one persisted scope without exposing model construction publicly."""
 
-    with _trusted_time_scope_validation():
-        return TimeScope.model_validate(dict(data))
+    return _new_time_scope(**dict(data))
 
 
 def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
@@ -940,19 +1133,20 @@ def period_binding_for_grain(
             level_name=grain.to_token(),
             boundary_timezone=boundary_timezone,
         )
-    if snapshot is None or grain.calendar is None or grain.level is None:
+    semantic_grain = cast("Any", grain)
+    if snapshot is None or semantic_grain.calendar is None or semantic_grain.level is None:
         raise ValueError("semantic Grain requires its certified snapshot for a period binding")
-    if snapshot.calendar_ref != grain.calendar:
+    if snapshot.calendar_ref != semantic_grain.calendar:
         raise ValueError("semantic Grain and snapshot calendar refs do not match")
     return SemanticPeriodBindingV1(
-        calendar_ref=grain.calendar.path,
+        calendar_ref=semantic_grain.calendar.path,
         snapshot_digest=snapshot.snapshot_digest,
-        level_name=grain.level,
+        level_name=semantic_grain.level,
     )
 
 
-def _scope_bound_text(value: str | datetime | date) -> str:
-    return value.isoformat() if not isinstance(value, str) else value
+def _scope_bound_text(value: date | datetime) -> str:
+    return value.isoformat()
 
 
 def _parse_scope_strings(start: str, end: str) -> tuple[datetime | date, datetime | date]:
@@ -978,19 +1172,14 @@ def _parse_scope_strings(start: str, end: str) -> tuple[datetime | date, datetim
 
 
 def _validate_time_scope_bounds(
-    start: str | datetime | date,
-    end: str | datetime | date,
+    start: date | datetime,
+    end: date | datetime,
 ) -> None:
     """Validate one half-open scope before it enters a temporal contract."""
 
-    if isinstance(start, str) and isinstance(end, str):
-        start_value, end_value = _parse_scope_strings(start, end)
-    elif isinstance(start, str) or isinstance(end, str):
-        raise ValueError("TimeScope cannot mix string and normalized bounds")
-    else:
-        start_value, end_value = start, end
-        if type(start_value) is not type(end_value):
-            raise ValueError("TimeScope cannot mix date and datetime bounds")
+    start_value, end_value = start, end
+    if type(start_value) is not type(end_value):
+        raise ValueError("TimeScope cannot mix date and datetime bounds")
     try:
         if start_value >= end_value:
             raise ValueError("TimeScope requires start < end")
@@ -1009,6 +1198,10 @@ def time_scope(
     directly. Calendar-period scopes are returned by certified catalog lookups.
     """
 
+    if isinstance(start, str) and isinstance(end, str):
+        start, end = _parse_scope_strings(start, end)
+    elif isinstance(start, str) or isinstance(end, str):
+        raise ValueError("TimeScope cannot mix string and normalized bounds")
     _validate_time_scope_bounds(start, end)
     return _new_time_scope(start=start, end=end)
 

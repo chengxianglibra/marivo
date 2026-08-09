@@ -320,7 +320,7 @@ def test_focused_help_includes_live_signature() -> None:
 
 def test_time_scope_help_states_half_open_end_contract() -> None:
     observe = _text("observe")
-    time_scope = _text("TimeScope")
+    time_scope = _text("time_scope")
     absolute = _text("AbsoluteWindow")
 
     for text in (observe, time_scope, absolute):
@@ -738,7 +738,7 @@ def test_constructor_descriptors_declare_direct_input_families() -> None:
         "sequence": "EventPattern",
         "first_per_subject": "EventMatchingPolicy",
         "from_inception": "LifecycleSeed",
-        "TimeScope": "TimeScopeInput",
+        "time_scope": "TimeScopeInput",
     }
     for capability_id, input_family in expected.items():
         descriptor = REGISTRY.by_id(capability_id)
@@ -1047,7 +1047,6 @@ def test_live_help_preserves_leading_keyword_only_separator() -> None:
     "type_name",
     (
         "Session",
-        "TimeScope",
         "AbsoluteWindow",
         "SamplingPolicy",
         "AlignmentPolicy",
@@ -1056,7 +1055,7 @@ def test_live_help_preserves_leading_keyword_only_separator() -> None:
     ),
 )
 def test_type_resolves_same_as_string(type_name: str) -> None:
-    type_obj = mv.time_scope if type_name == "TimeScope" else getattr(mv, type_name)
+    type_obj = getattr(mv, type_name)
     text_type = _text(type_obj)
     text_string = _text(type_name)
     assert text_type == text_string

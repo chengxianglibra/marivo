@@ -1840,9 +1840,9 @@ def _build_registry() -> CapabilityRegistry:
             "AlignmentPolicy",
         ),
         (
-            "TimeScope",
+            "time_scope",
             "mv.time_scope(...)",
-            "TimeScope",
+            "time_scope",
             "Half-open time interval [start, end) for observe time_scope; "
             'start is inclusive and end is exclusive (for example, end="2026-08-01" '
             "includes all of July and excludes August 1).",
@@ -1905,7 +1905,7 @@ def _build_registry() -> CapabilityRegistry:
                 ),
                 constraint_ids=(
                     ("window_absolute_parseable",)
-                    if cap_id in {"TimeScope", "AbsoluteWindow"}
+                    if cap_id in {"time_scope", "AbsoluteWindow"}
                     else ("alignment_policy_shape",)
                     if cap_id == "working_day_progress"
                     else ()

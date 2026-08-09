@@ -160,7 +160,7 @@ def day_of_week(
     Constraints:
         Inputs must be one row per local day in exactly one containing period.
     """
-    if type(within) is not Grain:
+    if not isinstance(within, Grain):
         raise _invalid_policy(
             helper="mv.day_of_week",
             received=within,

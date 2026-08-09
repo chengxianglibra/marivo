@@ -100,7 +100,7 @@ def _resolve_timescope(
             semantic_grain.calendar
             if isinstance(semantic_grain, TemporalGrain) and semantic_grain.kind == "semantic"
             else semantic_scope.calendar
-            if semantic_scope is not None
+            if semantic_scope is not None and semantic_scope.kind == "calendar_period"
             else None
         )
         if calendar_ref is not None:

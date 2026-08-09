@@ -29,7 +29,9 @@ def test_public_grain_constructors_share_one_value_type():
     builtin = mv.grain("minute", count=5)
     semantic = ms.calendar_grain(calendar=calendar, level="week")
 
-    assert type(builtin) is type(semantic)
+    assert isinstance(builtin, mv.Grain)
+    assert isinstance(semantic, mv.Grain)
+    assert type(builtin) is not type(semantic)
     assert builtin.kind == "builtin"
     assert semantic.kind == "semantic"
     assert normalize_grain(builtin).to_token() == "5minute"

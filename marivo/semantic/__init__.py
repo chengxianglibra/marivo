@@ -36,6 +36,7 @@ from marivo.refs import (
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
+    GrainToDate,
     PeriodCorrespondence,
     aggregate,
     ai_context,
@@ -232,6 +233,7 @@ __all__ = [
     "EntityEntry",
     "EventDetails",
     "EventEntry",
+    "GrainToDate",
     "Inception",
     "JoinKey",
     "LifecycleState",
