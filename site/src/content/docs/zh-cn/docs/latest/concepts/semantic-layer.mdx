@@ -190,6 +190,37 @@ calendar day grain）；Marivo 不会静默地用 occurrence timezone 重解释�
 是否对应。两个精确 occurrence scope 选出的 day-grain frame 可以使用
 `mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` 按本地日进度比较。
 
+## 工作日计划
+
+当业务数据源已经给出每个 civil date 的最终工作状态时，使用独立的
+`WorkSchedule`。它不依赖节日或促销窗口；认证要求有限 coverage 内每个日期恰好一条
+boolean 记录，运行时不会推断 recurrence 或重新执行节假日规则。
+
+```python
+schedule_ref = ms.work_schedule(
+    name="cn_sales_schedule",
+    date=ms.ref.time_dimension("sales.calendar.date"),
+    is_working=ms.ref.dimension("sales.calendar.is_working"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+)
+schedule_snapshot = md.inspect(
+    ms.ref.datasource("warehouse"), md.table("calendar")
+).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("date", "is_working"),
+    persist_values=True,
+)
+catalog.preview(schedule_ref, using=schedule_snapshot)
+schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
+```
+
+将 catalog entry 传给
+`mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")`，即可在两个
+day-grain time-series 或 panel frame 之间按从选定 scope 起算的零基工作日 ordinal 配对。
+精确 schedule snapshot 会写入 comparison contract；缺日、重复日、sub-day 或 coverage
+之外的日期都会 fail closed。
+
 ## 建模步骤
 
 ### 1. 连接数据源

@@ -15,6 +15,7 @@ from marivo.refs import (
     SemanticKind,
     TemporalSetKind,
     TimeDimensionKind,
+    WorkScheduleKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -30,7 +31,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import _validate_timezone
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR
+from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR, WorkScheduleIR
 from marivo.semantic.typing import AiContextValue
 
 
@@ -268,6 +269,71 @@ def temporal_set(
             boundary_timezone=boundary_timezone,
             coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
             category=category_value,
+            ai_context=_build_ai_context(ai_context),
+            python_symbol=name,
+            location=_caller_location(),
+        ),
+        None,
+    )
+    return ref
+
+
+def work_schedule(
+    *,
+    name: str,
+    date: Ref[TimeDimensionKind],
+    is_working: Ref[DimensionKind],
+    boundary_timezone: str,
+    coverage: tuple[_datetime.date, _datetime.date],
+    domain: Ref[DomainKind] | None = None,
+    ai_context: AiContextValue | None = None,
+) -> Ref[WorkScheduleKind]:
+    """Declare one finite governed daily final working-status schedule."""
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    if type(name) is not str or not name:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "work schedule name must be a non-empty string.",
+            cls=SemanticDecoratorError,
+        )
+    date_value = _require_ref_id(
+        date,
+        parameter="date",
+        expected=(SemanticKind.TIME_DIMENSION,),
+    )
+    is_working_value = _require_ref_id(
+        is_working,
+        parameter="is_working",
+        expected=(SemanticKind.DIMENSION,),
+    )
+    _validate_timezone(boundary_timezone)
+    if (
+        type(coverage) is not tuple
+        or len(coverage) != 2
+        or type(coverage[0]) is not _datetime.date
+        or type(coverage[1]) is not _datetime.date
+        or coverage[0] >= coverage[1]
+    ):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "coverage= must be a non-empty half-open tuple of exact civil dates.",
+            cls=SemanticDecoratorError,
+        )
+    semantic_id = f"{resolved_domain}.{name}"
+    ref = ref_factory.work_schedule(semantic_id)
+    _check_duplicate(ctx, semantic_id, WorkScheduleIR)
+    _push_ir(
+        ctx,
+        ref,
+        WorkScheduleIR(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=name,
+            date=date_value,
+            is_working=is_working_value,
+            boundary_timezone=boundary_timezone,
+            coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
             ai_context=_build_ai_context(ai_context),
             python_symbol=name,
             location=_caller_location(),

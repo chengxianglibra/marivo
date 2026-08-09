@@ -51,6 +51,7 @@ from marivo.semantic._authoring_temporal import (
     period_calendar,
     period_correspondence,
     temporal_set,
+    work_schedule,
 )
 from marivo.semantic._authoring_values import (
     ai_context,
@@ -122,4 +123,5 @@ __all__ = [
     "validity",
     "weighted_mean",
     "where",
+    "work_schedule",
 ]

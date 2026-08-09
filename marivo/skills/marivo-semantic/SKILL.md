@@ -171,8 +171,10 @@ persistence requires the live effect contract and explicit acceptance.
 
 Semantic Events own governed business occurrence meaning and identity; ordered
 pattern matching belongs to analysis. A ``TemporalSet`` owns named analysis
-windows such as holidays, campaigns, and incidents, so it must not be used as
-an Event substitute or as an implicit recurrence rule. StateModels own normative states and legal transitions,
+windows such as holidays, campaigns, and incidents, while a ``WorkSchedule``
+owns a finite daily final ``is_working`` status authority for working-day
+alignment. Neither is an Event substitute or an implicit recurrence rule.
+StateModels own normative states and legal transitions,
 not replay windows, censoring, completeness assumptions, or observed policy.
 A loadable model without the required inception is not silently treated as replay-ready.
 

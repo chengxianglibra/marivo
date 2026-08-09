@@ -16,6 +16,7 @@ AlignmentKind = Literal[
     "period_correspondence",
     "day_of_week",
     "occurrence_progress",
+    "working_day_progress",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
 UnmatchedMode = Literal["fail", "drop"]
@@ -90,6 +91,12 @@ class _PeriodCorrespondencePolicy(AlignmentPolicy):
 class _OccurrenceProgressPolicy(AlignmentPolicy):
     kind: Literal["occurrence_progress"] = "occurrence_progress"
     anchor: Literal["start", "end"] = "start"
+    unmatched: UnmatchedMode = "fail"
+
+
+class _WorkingDayProgressPolicy(AlignmentPolicy):
+    kind: Literal["working_day_progress"] = "working_day_progress"
+    schedule_ref: str
     unmatched: UnmatchedMode = "fail"
 
 
@@ -272,6 +279,45 @@ def occurrence_progress(
     return _OccurrenceProgressPolicy(anchor=anchor, unmatched=unmatched)
 
 
+def working_day_progress(
+    *,
+    schedule: object,
+    unmatched: UnmatchedMode = "fail",
+) -> AlignmentPolicy:
+    """Construct same-working-day ordinal alignment under one exact schedule.
+
+    ``schedule`` must be a loaded ``WorkScheduleEntry`` from a semantic
+    catalog.  The entry supplies the typed ref; certification and snapshot
+    identity are resolved query-free during compare admission and persisted in
+    the comparison temporal contract.
+    """
+    schedule_ref = getattr(schedule, "ref", None)
+    kind = getattr(getattr(schedule_ref, "kind", None), "value", None)
+    if (
+        schedule_ref is None
+        or kind != "work_schedule"
+        or not hasattr(schedule, "details")
+        or not hasattr(schedule, "_snapshot")
+    ):
+        raise _invalid_policy(
+            helper="mv.working_day_progress",
+            received=schedule,
+            reason="schedule must be a loaded WorkScheduleEntry from catalog.work_schedules",
+            fields=("schedule", "unmatched"),
+        )
+    if type(unmatched) is not str or unmatched not in {"fail", "drop"}:
+        raise _invalid_policy(
+            helper="mv.working_day_progress",
+            received=unmatched,
+            reason="unmatched must be 'fail' or 'drop'",
+            fields=("schedule", "unmatched"),
+        )
+    return _WorkingDayProgressPolicy(
+        schedule_ref=schedule_ref.path,
+        unmatched=unmatched,
+    )
+
+
 def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
     """Decode a persisted policy; this is intentionally not a public input path."""
     if type(payload) is not dict:
@@ -287,6 +333,7 @@ def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
         "period_progress": _PeriodProgressPolicy,
         "period_correspondence": _PeriodCorrespondencePolicy,
         "occurrence_progress": _OccurrenceProgressPolicy,
+        "working_day_progress": _WorkingDayProgressPolicy,
     }
     variant = variants.get(cast("str", kind))
     if variant is None:

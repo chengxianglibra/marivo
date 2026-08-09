@@ -68,6 +68,9 @@ SEMANTIC_PUBLIC = {
     "TemporalOccurrencePage",
     "TemporalSetDetails",
     "TemporalSetEntry",
+    "WorkScheduleDetails",
+    "WorkScheduleEntry",
+    "WorkScheduleKind",
     "SqlProvenance",
     "TimeDimensionEntry",
     "TimeDimensionDetails",
@@ -121,6 +124,7 @@ SEMANTIC_PUBLIC = {
     "validity",
     "weighted_mean",
     "where",
+    "work_schedule",
 }
 
 ANALYSIS_PUBLIC = {
@@ -190,6 +194,7 @@ ANALYSIS_PUBLIC = {
     "period_progress",
     "period_correspondence",
     "occurrence_progress",
+    "working_day_progress",
     "AlignmentPolicy",
     "runtime_metric",
     "sequence",

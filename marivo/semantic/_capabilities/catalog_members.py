@@ -49,6 +49,11 @@ CATALOG_MEMBER_CONTRACTS: tuple[CatalogMemberContract, ...] = (
         "temporal_sets",
         "TemporalSetEntry",
     ),
+    CatalogMemberContract(
+        SemanticKind.WORK_SCHEDULE,
+        "work_schedules",
+        "WorkScheduleEntry",
+    ),
 )
 
 CATALOG_COLLECTION_PROPERTIES: tuple[str, ...] = tuple(

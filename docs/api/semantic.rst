@@ -67,6 +67,7 @@ Column helpers
    period_calendar
    period_correspondence
    temporal_set
+   work_schedule
    calendar_grain
 
 Time parsing
@@ -154,6 +155,7 @@ Details types
    PeriodCalendarDetails
    CalendarLevelDetails
    TemporalSetDetails
+   WorkScheduleDetails
 
 Catalog & objects
 -----------------
@@ -182,6 +184,7 @@ ref-based.
    CalendarPeriodPage
    TemporalSetEntry
    TemporalOccurrencePage
+   WorkScheduleEntry
 
 Sources & provenance
 --------------------

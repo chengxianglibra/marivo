@@ -107,6 +107,9 @@ def test_all_list_matches_expected() -> None:
         "TemporalOccurrencePage",
         "TemporalSetDetails",
         "TemporalSetEntry",
+        "WorkScheduleDetails",
+        "WorkScheduleEntry",
+        "WorkScheduleKind",
         "TimeDimensionEntry",
         "TimeDimensionDetails",
         "VerifyResult",
@@ -144,6 +147,7 @@ def test_all_list_matches_expected() -> None:
         "period_calendar",
         "period_correspondence",
         "temporal_set",
+        "work_schedule",
         "relationship",
         "richness",
         "ratio",
@@ -527,6 +531,7 @@ def test_symbol_kind_values() -> None:
         "state_model",
         "period_calendar",
         "temporal_set",
+        "work_schedule",
     }
     actual = {k.value for k in SemanticKind}
     assert actual == expected

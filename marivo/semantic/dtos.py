@@ -52,6 +52,7 @@ AuthoringObjectKind = Literal[
     "state_model",
     "period_calendar",
     "temporal_set",
+    "work_schedule",
 ]
 
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]

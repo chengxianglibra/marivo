@@ -146,6 +146,7 @@ _AUTHORING_KIND_BY_SYMBOL: dict[SemanticKind, AuthoringObjectKind] = {
     SemanticKind.STATE_MODEL: "state_model",
     SemanticKind.PERIOD_CALENDAR: "period_calendar",
     SemanticKind.TEMPORAL_SET: "temporal_set",
+    SemanticKind.WORK_SCHEDULE: "work_schedule",
 }
 
 
@@ -635,6 +636,8 @@ class SemanticProject:
             return "period_calendar"
         if ref.kind is SemanticKind.TEMPORAL_SET and path in self._registry.temporal_sets:
             return "temporal_set"
+        if ref.kind is SemanticKind.WORK_SCHEDULE and path in self._registry.work_schedules:
+            return "work_schedule"
         return "unknown"
 
     def _failed_verify(

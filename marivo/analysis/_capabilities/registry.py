@@ -634,6 +634,7 @@ def _build_registry() -> CapabilityRegistry:
         period_correspondence,
         period_progress,
         window_bucket,
+        working_day_progress,
     )
     from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
     from marivo.analysis.subject import dropped_before
@@ -1827,6 +1828,15 @@ def _build_registry() -> CapabilityRegistry:
             "AlignmentPolicy",
         ),
         (
+            "working_day_progress",
+            "mv.working_day_progress(...)",
+            "working_day_progress",
+            "Construct same-working-day ordinal alignment under one certified work schedule.",
+            working_day_progress,
+            "AlignmentPolicy",
+            "AlignmentPolicy",
+        ),
+        (
             "TimeScope",
             "mv.time_scope(...)",
             "TimeScope",
@@ -1884,6 +1894,7 @@ def _build_registry() -> CapabilityRegistry:
                         "period_progress",
                         "period_correspondence",
                         "occurrence_progress",
+                        "working_day_progress",
                         "AbsoluteWindow",
                         "SamplingPolicy",
                     }

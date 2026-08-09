@@ -40,6 +40,9 @@ ReadinessIssueKind = Literal[
     "temporal_set_snapshot_missing",
     "temporal_set_snapshot_stale",
     "temporal_set_snapshot_invalid",
+    "work_schedule_snapshot_missing",
+    "work_schedule_snapshot_stale",
+    "work_schedule_snapshot_invalid",
 ]
 
 
@@ -209,6 +212,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.STATE_MODEL: ref_factory.state_model,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
+        SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }[kind]
     return factory(path)
 
@@ -330,6 +334,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
         kinds[key] = SemanticKind.TEMPORAL_SET
         objects[key] = temporal_set
+    for work_schedule in reg.work_schedules.values():
+        key = _exact_key(work_schedule.semantic_id, SemanticKind.WORK_SCHEDULE)
+        kinds[key] = SemanticKind.WORK_SCHEDULE
+        objects[key] = work_schedule
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -491,6 +499,17 @@ def _dependencies_for_ref(
                 else SemanticKind.DIMENSION,
             )
             for field in fields
+            if isinstance(field, str)
+        )
+    if kind == SemanticKind.WORK_SCHEDULE:
+        date_field = getattr(obj, "date", None)
+        status_field = getattr(obj, "is_working", None)
+        return tuple(
+            _exact_key(
+                field,
+                SemanticKind.TIME_DIMENSION if field == date_field else SemanticKind.DIMENSION,
+            )
+            for field in (date_field, status_field)
             if isinstance(field, str)
         )
     if kind == SemanticKind.METRIC:
@@ -872,6 +891,57 @@ def build_readiness_report(
                                 "Acquire one fresh exhaustive DiscoverySnapshot with "
                                 "persist_values=True, then preview this period calendar using "
                                 "that exact snapshot."
+                            ),
+                        ),
+                        details={"snapshot_status": status},
+                    )
+                )
+
+        from marivo._temporal import WorkScheduleSnapshotStore, work_schedule_definition_digest
+        from marivo.semantic.ir import WorkScheduleIR
+
+        work_schedule_store = WorkScheduleSnapshotStore(project._workspace_dir)
+        for ref in checked_refs:
+            if kinds.get(ref) is not SemanticKind.WORK_SCHEDULE:
+                continue
+            work_schedule = objects.get(ref)
+            if not isinstance(work_schedule, WorkScheduleIR):
+                continue
+            work_schedule_ref = ref_factory.work_schedule(_display_path(ref))
+            definition_digest = work_schedule_definition_digest(
+                work_schedule_ref=work_schedule_ref,
+                boundary_timezone=work_schedule.boundary_timezone,
+                coverage=work_schedule.coverage,
+                date=work_schedule.date,
+                is_working=work_schedule.is_working,
+                dependency_digest=scoped_definition_fingerprint(
+                    root=work_schedule_ref,
+                    definitions=compiled_state.definitions,
+                    dependencies=compiled_state.dependencies,
+                    sidecar=compiled_state.sidecar,
+                ),
+            )
+            status, _schedule_snapshot = work_schedule_store.inspect_current(
+                work_schedule_ref,
+                definition_digest=definition_digest,
+            )
+            if status != "current":
+                path = _display_path(ref)
+                issue_kind = cast("ReadinessIssueKind", f"work_schedule_snapshot_{status}")
+                if status == "missing":
+                    issue_kind = "work_schedule_snapshot_missing"
+                blockers.append(
+                    _issue(
+                        issue_kind,
+                        "blocker",
+                        (path,),
+                        f"{path} has no current certified work-schedule snapshot for its declaration (state={status}).",
+                        repair(
+                            kind="reverify",
+                            canonical_id="preview",
+                            action=(
+                                "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
+                                "then preview this work schedule using that exact snapshot."
                             ),
                         ),
                         details={"snapshot_status": status},

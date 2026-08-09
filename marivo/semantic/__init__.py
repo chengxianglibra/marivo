@@ -25,7 +25,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, TemporalSetKind, ref
+from marivo.refs import (
+    PeriodCalendarKind,
+    Ref,
+    SemanticKind,
+    TemporalSetKind,
+    WorkScheduleKind,
+    ref,
+)
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
@@ -73,6 +80,7 @@ from marivo.semantic.authoring import (
     validity,
     weighted_mean,
     where,
+    work_schedule,
 )
 from marivo.semantic.catalog import (
     CalendarLevelDetails,
@@ -107,6 +115,8 @@ from marivo.semantic.catalog import (
     TemporalSetEntry,
     TimeDimensionDetails,
     TimeDimensionEntry,
+    WorkScheduleDetails,
+    WorkScheduleEntry,
     load,
 )
 from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
@@ -259,6 +269,9 @@ __all__ = [
     "TimeDimensionDetails",
     "TimeDimensionEntry",
     "VerifyResult",
+    "WorkScheduleDetails",
+    "WorkScheduleEntry",
+    "WorkScheduleKind",
     "aggregate",
     "ai_context",
     "all_rows",
@@ -308,6 +321,7 @@ __all__ = [
     "validity",
     "weighted_mean",
     "where",
+    "work_schedule",
 ]
 
 

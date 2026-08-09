@@ -223,6 +223,38 @@ across years. Compare two exact occurrence-selected day-grain frames with
 `mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` when
 relative local-day progress is the intended business axis.
 
+## Working-day schedules
+
+Use a `WorkSchedule` when the business source already owns the final working
+status for every civil date. It is independent of named holiday or campaign
+windows: certification requires one exhaustive boolean row per date in finite
+coverage, and no recurrence or holiday rule is inferred at runtime.
+
+```python
+schedule_ref = ms.work_schedule(
+    name="cn_sales_schedule",
+    date=ms.ref.time_dimension("sales.calendar.date"),
+    is_working=ms.ref.dimension("sales.calendar.is_working"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+)
+schedule_snapshot = md.inspect(
+    ms.ref.datasource("warehouse"), md.table("calendar")
+).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("date", "is_working"),
+    persist_values=True,
+)
+catalog.preview(schedule_ref, using=schedule_snapshot)
+schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
+```
+
+Pass that catalog entry to
+`mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")` to
+pair zero-based working-day ordinals across two day-grain time-series or panel
+frames. The exact schedule snapshot is retained in the comparison contract;
+missing, duplicate, sub-day, or uncovered dates fail closed.
+
 ## Build the model
 
 ### 1. Connect a datasource

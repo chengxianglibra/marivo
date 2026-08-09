@@ -950,8 +950,10 @@ class Session(RenderableResult):
             alignment: Defaults to ``mv.window_bucket()``. For day-grain
                 time-series or panel frames selected by exact temporal-occurrence
                 scopes, ``mv.occurrence_progress(anchor=..., unmatched=...)``
-                pairs effective local-day ordinals. Segmented frames continue to
-                support only ``window_bucket`` in v1.
+                pairs effective local-day ordinals; ``mv.working_day_progress(
+                schedule=..., unmatched=...)`` pairs working-day ordinals under
+                one certified schedule. Segmented frames continue to support only
+                ``window_bucket`` in v1.
 
         Guidance:
             Funnel comparison has one mechanically determined alignment:

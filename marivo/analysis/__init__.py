@@ -92,6 +92,7 @@ from marivo.analysis.policies import (
     period_correspondence,
     period_progress,
     window_bucket,
+    working_day_progress,
 )
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._store import SessionSummary
@@ -249,6 +250,7 @@ __all__ = [
     "step",
     "time_scope",
     "window_bucket",
+    "working_day_progress",
 ]
 
 

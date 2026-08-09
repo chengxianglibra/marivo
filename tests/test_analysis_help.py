@@ -1218,6 +1218,7 @@ def test_analysis_all_is_pinned() -> None:
         "period_progress",
         "period_correspondence",
         "occurrence_progress",
+        "working_day_progress",
         "session",
         "window_bucket",
         "runtime_metric",

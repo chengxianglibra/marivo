@@ -375,6 +375,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "period_progress",
         "period_correspondence",
         "occurrence_progress",
+        "working_day_progress",
         "AlignmentPolicy",
         "ArtifactRef",
         "TimeScope",
