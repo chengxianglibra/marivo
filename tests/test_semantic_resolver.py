@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 
 import ibis
 import pytest
@@ -10,14 +10,18 @@ import marivo.semantic as ms
 from marivo._temporal import (
     GregorianIsoResolver,
     TemporalResolver,
+    TemporalSetSnapshotStore,
     TimeScopeContractV1,
     certify_period_calendar,
     certify_period_calendar_rows,
+    certify_temporal_set,
+    certify_temporal_set_rows,
     time_scope,
 )
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.ir import StrptimeParse
 from tests.ref_helpers import make_ref
 
 
@@ -265,6 +269,248 @@ def test_period_snapshot_distinguishes_json_scalar_key_types() -> None:
     resolver = TemporalResolver(snapshot)
     assert resolver.period("bucket", 1).key == 1
     assert resolver.period("bucket", True).key is True
+
+
+def test_temporal_set_snapshot_is_order_independent_and_preserves_exact_occurrence_scope() -> None:
+    kwargs = {
+        "temporal_set_ref": ref.temporal_set("sales.campaigns"),
+        "boundary_timezone": "Asia/Shanghai",
+        "coverage": (date(2026, 1, 1), date(2027, 1, 1)),
+        "occurrence_id": "campaign_id",
+        "start": "starts_on",
+        "end": "ends_on",
+        "category": "category",
+    }
+    rows = [
+        {
+            "campaign_id": "spring",
+            "starts_on": date(2026, 3, 1),
+            "ends_on": date(2026, 3, 4),
+            "category": "promotion",
+        },
+        {
+            "campaign_id": "holiday",
+            "starts_on": date(2026, 1, 20),
+            "ends_on": date(2026, 1, 22),
+            "category": None,
+        },
+        # Gaps and overlaps are valid for a named occurrence set.
+        {
+            "campaign_id": "overlap",
+            "starts_on": date(2026, 3, 3),
+            "ends_on": date(2026, 3, 5),
+            "category": "incident",
+        },
+    ]
+    first = certify_temporal_set(rows=rows, **kwargs)
+    second = certify_temporal_set(rows=reversed(rows), **kwargs)
+
+    assert first.snapshot_digest == second.snapshot_digest
+    scope = first.occurrence_scope("spring")
+    assert scope.kind == "temporal_occurrence"
+    assert scope.start == date(2026, 3, 1)
+    assert scope.end == date(2026, 3, 4)
+    assert scope.contract().model_dump() == {
+        "schema": "time-scope/v1",
+        "kind": "temporal_occurrence",
+        "start": date(2026, 3, 1),
+        "end": date(2026, 3, 4),
+        "temporal_set_ref": "sales.campaigns",
+        "snapshot_digest": first.snapshot_digest,
+        "boundary_timezone": "Asia/Shanghai",
+        "key": "spring",
+        "occurrence_category": "promotion",
+    }
+    assert first.occurrence_scope("holiday").contract().model_dump()["occurrence_category"] is None
+
+
+def test_temporal_set_snapshot_rows_reject_invalid_encoding_bounds_and_category() -> None:
+    common = {
+        "temporal_set_ref": ref.temporal_set("sales.campaigns"),
+        "boundary_timezone": "UTC",
+        "coverage": (date(2026, 1, 1), date(2026, 2, 1)),
+        "columns": ("id", "start", "end", "category"),
+        "occurrence_id": "id",
+        "start": "start",
+        "end": "end",
+        "category": "category",
+    }
+    with pytest.raises(ValueError, match="duplicate"):
+        certify_temporal_set_rows(
+            retained_values=(
+                ("same", "2026-01-02", "2026-01-03", "holiday"),
+                ("same", "2026-01-04", "2026-01-05", "holiday"),
+            ),
+            **common,
+        )
+    with pytest.raises(ValueError, match="mix date and timestamp"):
+        certify_temporal_set_rows(
+            retained_values=(
+                ("date", "2026-01-02", "2026-01-03", None),
+                ("instant", "2026-01-04T00:00:00Z", "2026-01-05T00:00:00Z", None),
+            ),
+            **common,
+        )
+    with pytest.raises(ValueError, match="start < end"):
+        certify_temporal_set_rows(
+            retained_values=(("empty", "2026-01-04", "2026-01-04", None),),
+            **common,
+        )
+    with pytest.raises(ValueError, match="category"):
+        certify_temporal_set_rows(
+            retained_values=(("bad-category", "2026-01-04", "2026-01-05", 1),),
+            **common,
+        )
+
+
+def test_temporal_set_timestamp_rows_normalize_to_one_instant_encoding() -> None:
+    snapshot = certify_temporal_set_rows(
+        temporal_set_ref=ref.temporal_set("sales.campaigns"),
+        boundary_timezone="Asia/Shanghai",
+        coverage=(date(2026, 1, 1), date(2026, 1, 3)),
+        columns=("id", "start", "end"),
+        retained_values=(
+            ("launch", "2026-01-01T08:00:00+08:00", "2026-01-02T00:00:00+08:00"),
+            ("incident", "2026-01-02T00:00:00Z", "2026-01-02T08:00:00Z"),
+        ),
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+
+    assert snapshot.encoding == "timestamp"
+    assert snapshot.occurrences[0].start.tzinfo is not None
+    assert snapshot.occurrences[0].start == datetime(2026, 1, 1, 0, tzinfo=UTC)
+    assert snapshot.occurrence_scope("launch").boundary_timezone == "Asia/Shanghai"
+
+
+def test_temporal_set_rows_reapply_time_dimension_parse_convention() -> None:
+    parse = StrptimeParse(format="%Y%m%d")
+    snapshot = certify_temporal_set_rows(
+        temporal_set_ref=ref.temporal_set("sales.campaigns"),
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 1, 4)),
+        columns=("id", "start", "end"),
+        retained_values=(("launch", "20260101", "20260103"),),
+        occurrence_id="id",
+        start="start",
+        end="end",
+        start_parse=parse,
+        end_parse=parse,
+    )
+
+    assert snapshot.encoding == "date"
+    assert snapshot.occurrences[0].start == date(2026, 1, 1)
+    assert snapshot.occurrences[0].end == date(2026, 1, 3)
+
+
+def test_temporal_set_loader_rejects_mixed_start_end_time_encodings(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Data', default=True)\n"
+            ),
+            "sales/campaigns.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+campaigns = ms.entity(
+    name="campaigns",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("campaigns"),
+)
+occurrence_id = ms.dimension_column(name="occurrence_id", entity=campaigns, column="id")
+start = ms.time_dimension_column(
+    name="start", entity=campaigns, column="start", granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+)
+end = ms.time_dimension_column(
+    name="end", entity=campaigns, column="end", granularity="day",
+    parse=ms.datetime(timezone="UTC"),
+)
+ms.temporal_set(
+    name="campaigns", occurrence_id=occurrence_id, start=start, end=end,
+    boundary_timezone="UTC",
+    coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2027, 1, 1)),
+)
+""",
+        }
+    )
+
+    assert any("same civil-date or timestamp encoding" in str(error) for error in project.errors())
+
+
+def test_temporal_set_loader_rejects_unresolved_category_ref(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/campaigns.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+campaigns = ms.entity(
+    name="campaigns",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("campaigns"),
+)
+occurrence_id = ms.dimension_column(name="occurrence_id", entity=campaigns, column="id")
+start = ms.time_dimension_column(name="start", entity=campaigns, column="start", granularity="day")
+end = ms.time_dimension_column(name="end", entity=campaigns, column="end", granularity="day")
+ms.temporal_set(
+    name="campaigns", occurrence_id=occurrence_id, start=start, end=end,
+    category=ms.ref.dimension("sales.campaigns.missing_category"),
+    boundary_timezone="UTC",
+    coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2027, 1, 1)),
+)
+""",
+        }
+    )
+
+    errors = project.errors()
+    assert any(
+        error.kind == ErrorKind.INVALID_REF
+        and "category" in str(error)
+        and "must be fields on one source entity" in str(error)
+        for error in errors
+    )
+
+
+def test_temporal_set_snapshot_store_retains_exact_history(tmp_path) -> None:
+    temporal_set_ref = ref.temporal_set("sales.campaigns")
+    first = certify_temporal_set(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 2, 1)),
+        rows=[
+            {"id": "first", "start": date(2026, 1, 2), "end": date(2026, 1, 3)},
+        ],
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+    second = certify_temporal_set(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone="UTC",
+        coverage=(date(2026, 1, 1), date(2026, 2, 1)),
+        rows=[
+            {"id": "second", "start": date(2026, 1, 4), "end": date(2026, 1, 5)},
+        ],
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+    store = TemporalSetSnapshotStore(tmp_path)
+    store.publish(first, definition_digest="definition-1")
+    store.publish(second, definition_digest="definition-2")
+
+    status, current = store.inspect_current(temporal_set_ref, definition_digest="definition-2")
+    assert status == "current"
+    assert current == second
+    assert store.load_exact(temporal_set_ref, snapshot_digest=first.snapshot_digest) == first
 
 
 def test_time_scope_contract_preserves_normalized_bounds_and_provenance() -> None:

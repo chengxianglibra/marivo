@@ -1,4 +1,4 @@
-"""Certified temporal comparison alignment for Slice 3."""
+"""Certified temporal comparison alignment for calendar and occurrence policies."""
 
 from __future__ import annotations
 
@@ -22,8 +22,10 @@ from marivo._temporal import (
     PeriodProgressCoordinate,
     SemanticPeriodBindingV1,
     TemporalResolver,
+    TemporalSetSnapshotStore,
     TemporalSnapshotStore,
     ref_factory_period_calendar,
+    ref_factory_temporal_set,
 )
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import AlignmentFailedError, AlignmentPolicyNotApplicableError
@@ -1158,6 +1160,244 @@ def _period_correspondence_alignment(
     )
 
 
+def _occurrence_effective_days(scope: Any, *, timezone: str) -> tuple[date, ...]:
+    start = _local_datetime(scope.start, timezone=timezone)
+    end = _local_datetime(scope.end, timezone=timezone)
+    last = end.date() - timedelta(days=1) if end.time() == time.min else end.date()
+    if last < start.date():
+        return ()
+    return tuple(
+        start.date() + timedelta(days=offset) for offset in range((last - start.date()).days + 1)
+    )
+
+
+def _occurrence_frame_scope(
+    frame: MetricFrame,
+    *,
+    session: Any,
+) -> tuple[Any, str, tuple[date, ...]]:
+    contract = _contract(frame)
+    scope = contract.time_scope
+    if scope is None or scope.kind != "temporal_occurrence" or not scope.boundary_timezone:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires an exact temporal-occurrence scope",
+            expected="TimeScopeContractV1(kind='temporal_occurrence')",
+            received=f"scope={scope!r}",
+            context={"kind": "TemporalOccurrenceScopeRequired", "frame_ref": frame.ref},
+        )
+    if not scope.temporal_set_ref or not scope.snapshot_digest:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires complete occurrence provenance",
+            expected="temporal_set_ref and snapshot_digest on the exact scope",
+            received=repr(scope),
+            context={"kind": "TemporalOccurrenceProvenanceMissing", "frame_ref": frame.ref},
+        )
+    if scope.key is None:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires an occurrence key",
+            expected="TimeScopeContractV1.key",
+            received=repr(scope),
+            context={"kind": "TemporalOccurrenceKeyMissing", "frame_ref": frame.ref},
+        )
+    try:
+        snapshot = TemporalSetSnapshotStore(session.project_root).load_exact(
+            ref_factory_temporal_set(scope.temporal_set_ref),
+            snapshot_digest=scope.snapshot_digest,
+        )
+        exact_scope = snapshot.occurrence_scope(scope.key)
+    except (KeyError, OSError, TypeError, ValueError) as exc:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires the exact certified occurrence snapshot",
+            expected="the snapshot named by each frame's occurrence scope",
+            received=(
+                f"temporal_set={scope.temporal_set_ref!r}, "
+                f"snapshot_digest={scope.snapshot_digest!r}"
+            ),
+            context={
+                "kind": "TemporalSetSnapshotUnavailable",
+                "temporal_set_ref": scope.temporal_set_ref,
+                "snapshot_digest": scope.snapshot_digest,
+                "frame_ref": frame.ref,
+            },
+        ) from exc
+    if exact_scope.contract() != scope:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires scope bounds from its certified occurrence",
+            expected="exact occurrence key, category, bounds, and snapshot identity",
+            received=repr(scope),
+            context={
+                "kind": "TemporalOccurrenceBindingMismatch",
+                "temporal_set_ref": scope.temporal_set_ref,
+                "snapshot_digest": scope.snapshot_digest,
+                "key": scope.key,
+                "frame_ref": frame.ref,
+            },
+        )
+    source = contract.observation_period
+    if not isinstance(source, (BuiltinPeriodBindingV1, SemanticPeriodBindingV1)):
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires a persisted observation grain",
+            expected="day-grain PeriodBindingV1",
+            received=repr(source),
+            context={"kind": "TemporalSourceGrainMissing", "frame_ref": frame.ref},
+        )
+    if source.level_name != "day":
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires one row per day",
+            expected="observation_period.level_name == 'day'",
+            received=source.level_name,
+            context={"kind": "TemporalSourceGrainUnsupported", "source_level": source.level_name},
+        )
+    if isinstance(source, BuiltinPeriodBindingV1):
+        timezone = source.boundary_timezone
+    else:
+        _, period_snapshot = _resolver(source, session=session)
+        assert period_snapshot is not None
+        timezone = period_snapshot.boundary_timezone
+    if timezone != scope.boundary_timezone:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires the day grain and occurrence to use one boundary timezone",
+            expected=scope.boundary_timezone,
+            received=timezone,
+            context={"kind": "TemporalAuthorityTimezoneMismatch", "frame_ref": frame.ref},
+        )
+    return scope, timezone, _occurrence_effective_days(scope, timezone=timezone)
+
+
+def _occurrence_progress_alignment(
+    current: MetricFrame,
+    baseline: MetricFrame,
+    *,
+    policy: AlignmentPolicy,
+    session: Any,
+) -> TemporalAlignmentResult:
+    if (
+        current.meta.semantic_kind != baseline.meta.semantic_kind
+        or current.meta.semantic_kind not in _TIME_KINDS
+    ):
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires matching time-series or panel frames",
+            expected="time_series or panel frames with identical dimension axes",
+            received=f"current={current.meta.semantic_kind}, baseline={baseline.meta.semantic_kind}",
+            context={"kind": "TemporalShapeMismatch", "alignment_kind": policy.kind},
+        )
+    dimensions, current_time = _axis_columns(current)
+    baseline_dimensions, baseline_time = _axis_columns(baseline)
+    if current_time is None or baseline_time is None or dimensions != baseline_dimensions:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires matching declared time and dimension axes",
+            context={"kind": "TemporalAxisMismatch"},
+        )
+    _, current_tz, current_days = _occurrence_frame_scope(current, session=session)
+    _, baseline_tz, baseline_days = _occurrence_frame_scope(baseline, session=session)
+    if current_tz != baseline_tz:
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires matching effective boundary timezones",
+            expected=current_tz,
+            received=baseline_tz,
+            context={"kind": "TemporalAuthorityTimezoneMismatch"},
+        )
+    policy_any = cast("Any", policy)
+    current_data, _current_dimensions, _current_time, current_value = _prepare_frame(current)
+    baseline_data, _baseline_dimensions, _baseline_time, baseline_value = _prepare_frame(baseline)
+    current_rows: dict[tuple[object, ...], dict[str, object]] = {}
+    baseline_rows: dict[tuple[object, ...], dict[str, object]] = {}
+    current_groups: dict[tuple[object, ...], set[int]] = {}
+    baseline_groups: dict[tuple[object, ...], set[int]] = {}
+
+    def add_rows(
+        data: pd.DataFrame,
+        *,
+        time_column: str,
+        value_column: str,
+        days: tuple[date, ...],
+        current_side: bool,
+        rows: dict[tuple[object, ...], dict[str, object]],
+        groups: dict[tuple[object, ...], set[int]],
+        frame: MetricFrame,
+    ) -> None:
+        day_index = {value: index for index, value in enumerate(days)}
+        for row in data.to_dict("records"):
+            local_day = _local_date(row[time_column], timezone=current_tz)
+            ordinal = day_index.get(local_day)
+            if ordinal is None:
+                raise AlignmentPolicyNotApplicableError(
+                    message="occurrence_progress found a row outside its selected occurrence",
+                    expected="every row inside the exact occurrence local-day span",
+                    received=local_day.isoformat(),
+                    context={"kind": "TemporalOccurrenceRowOutOfScope", "frame_ref": frame.ref},
+                )
+            coordinate = ordinal if policy_any.anchor == "start" else len(days) - ordinal - 1
+            dimension_key = _dimension_key(row, dimensions)
+            groups.setdefault(dimension_key, set()).add(ordinal)
+            key, payload = _row_coordinate(
+                row,
+                frame=frame,
+                dimensions=dimensions,
+                coordinate=coordinate,
+                current=current_side,
+                time_column=time_column,
+                value_column=value_column,
+            )
+            if key in rows:
+                raise AlignmentFailedError(
+                    message="occurrence_progress found duplicate local-day coordinates",
+                    context={
+                        "kind": "TemporalAlignmentDuplicateCoordinate",
+                        "coordinate": coordinate,
+                    },
+                )
+            rows[key] = payload
+
+    add_rows(
+        current_data,
+        time_column=current_time,
+        value_column=current_value,
+        days=current_days,
+        current_side=True,
+        rows=current_rows,
+        groups=current_groups,
+        frame=current,
+    )
+    add_rows(
+        baseline_data,
+        time_column=baseline_time,
+        value_column=baseline_value,
+        days=baseline_days,
+        current_side=False,
+        rows=baseline_rows,
+        groups=baseline_groups,
+        frame=baseline,
+    )
+    required_current = set(range(len(current_days)))
+    required_baseline = set(range(len(baseline_days)))
+    if (
+        not current_groups
+        or not baseline_groups
+        or any(values != required_current for values in current_groups.values())
+        or any(values != required_baseline for values in baseline_groups.values())
+    ):
+        raise AlignmentPolicyNotApplicableError(
+            message="occurrence_progress requires one row for every effective local day",
+            expected="complete daily coverage inside each dimension axis",
+            received=f"current_days={len(current_days)}, baseline_days={len(baseline_days)}",
+            context={"kind": "TemporalOccurrenceDailyCoverageMissing"},
+        )
+    result = _pair_maps(
+        current_rows,
+        baseline_rows,
+        policy=policy,
+        current_key_text=dimensions,
+        baseline_key_text=dimensions,
+    )
+    return TemporalAlignmentResult(
+        frame=result.frame,
+        target_binding=None,
+        evidence=result.evidence,
+        cumulative_info=result.cumulative_info,
+    )
+
+
 def align_temporal_policy(
     current: MetricFrame,
     baseline: MetricFrame,
@@ -1165,13 +1405,15 @@ def align_temporal_policy(
     policy: AlignmentPolicy,
     session: Any,
 ) -> TemporalAlignmentResult:
-    """Run Slice 3 preflight and pairing for one closed policy variant."""
+    """Run closed temporal-policy preflight and pairing for one variant."""
     if policy.kind == "day_of_week":
         return _day_of_week_alignment(current, baseline, policy=policy, session=session)
     if policy.kind == "period_progress":
         return _period_progress_alignment(current, baseline, policy=policy, session=session)
     if policy.kind == "period_correspondence":
         return _period_correspondence_alignment(current, baseline, policy=policy, session=session)
+    if policy.kind == "occurrence_progress":
+        return _occurrence_progress_alignment(current, baseline, policy=policy, session=session)
     raise AlignmentPolicyNotApplicableError(
         message=f"temporal alignment does not handle policy {policy.kind!r}",
         context={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": policy.kind},

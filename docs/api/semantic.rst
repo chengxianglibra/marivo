@@ -66,6 +66,7 @@ Column helpers
    time_dimension_column
    period_calendar
    period_correspondence
+   temporal_set
    calendar_grain
 
 Time parsing
@@ -152,6 +153,7 @@ Details types
    SimpleMetricDetails
    PeriodCalendarDetails
    CalendarLevelDetails
+   TemporalSetDetails
 
 Catalog & objects
 -----------------
@@ -178,6 +180,8 @@ ref-based.
    SemanticKind
    PeriodCalendarEntry
    CalendarPeriodPage
+   TemporalSetEntry
+   TemporalOccurrencePage
 
 Sources & provenance
 --------------------

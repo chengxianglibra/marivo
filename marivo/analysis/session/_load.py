@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
+from marivo._temporal import _trusted_time_scope_validation
 from marivo.analysis._cumulative import (
     authored_comparable_period_anchor,
     cumulative_compare_anchor,
@@ -415,7 +416,15 @@ def _validate_delta_comparison_state(
 
     policy_fields = {
         key: meta.alignment[key]
-        for key in ("kind", "mode", "strict_lengths", "within", "unmatched", "correspondence")
+        for key in (
+            "kind",
+            "mode",
+            "strict_lengths",
+            "within",
+            "unmatched",
+            "correspondence",
+            "anchor",
+        )
         if key in meta.alignment
     }
     try:
@@ -803,11 +812,12 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             # as a dict and fails the graph validator; JSON mode rehydrates it.
             or _contains_semantic_grain(meta.get("expression_graph"))
         )
-        parsed_meta = (
-            cast("Any", meta_cls).model_validate_json(json.dumps(meta))
-            if use_json_validation
-            else meta_cls(**meta)
-        )
+        with _trusted_time_scope_validation():
+            parsed_meta = (
+                cast("Any", meta_cls).model_validate_json(json.dumps(meta))
+                if use_json_validation
+                else meta_cls(**meta)
+            )
     except ValidationError as exc:
         errors = exc.errors()
         extra_fields = [

@@ -23,6 +23,7 @@ def test_analysis_keeps_frame_and_policy_exports():
     assert callable(mv.day_of_week)
     assert callable(mv.period_progress)
     assert callable(mv.period_correspondence)
+    assert callable(mv.occurrence_progress)
     assert mv.SamplingPolicy().pairing == "window_bucket"
     assert HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
     assert ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"

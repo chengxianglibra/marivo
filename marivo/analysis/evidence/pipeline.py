@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, cast
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from marivo._temporal import _trusted_time_scope_validation
 from marivo.analysis._cumulative import (
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
@@ -1087,11 +1088,12 @@ def _reuse_committed_result(
                 ),
                 context={"artifact_id": artifact_id},
             )
-        persisted_meta = (
-            type(frame.meta).model_validate_json(json.dumps(persisted_payload))
-            if getattr(frame.meta, "kind", None) in {"event_frame", "lifecycle_frame"}
-            else type(frame.meta).model_validate(persisted_payload)
-        )
+        with _trusted_time_scope_validation():
+            persisted_meta = (
+                type(frame.meta).model_validate_json(json.dumps(persisted_payload))
+                if getattr(frame.meta, "kind", None) in {"event_frame", "lifecycle_frame"}
+                else type(frame.meta).model_validate(persisted_payload)
+            )
         persisted_df = pd.read_parquet(parquet_path, engine="pyarrow", to_pandas_kwargs={})
     except FrameMetaInvalidError:
         raise

@@ -153,6 +153,43 @@ week_scope.contract()  # 精确边界和认证快照身份
 `calendar.periods(level, limit=..., cursor=...)` 返回有界的精确 scope；覆盖缺失、定义过期或
 证据损坏都会以结构化 semantic error fail closed。
 
+## 命名时间 occurrence
+
+对于节日、促销、发布、事故等可能有间隙或重叠的命名窗口，使用独立的
+`TemporalSet`。通过 `ms.temporal_set(...)` 声明显式的 start 和 exclusive end，
+再用一次 exhaustive、`persist_values=True` 的 `DiscoverySnapshot` 完成本地认证：
+
+```python
+campaigns_ref = ms.temporal_set(
+    name="campaigns",
+    occurrence_id=ms.ref.dimension("sales.campaigns.campaign_id"),
+    start=ms.ref.time_dimension("sales.campaigns.starts_at"),
+    end=ms.ref.time_dimension("sales.campaigns.ends_at"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    category=ms.ref.dimension("sales.campaigns.category"),
+)
+snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("campaigns")).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("campaign_id", "starts_at", "ends_at", "category"),
+    persist_values=True,
+)
+catalog.preview(campaigns_ref, using=snapshot)
+
+campaigns = catalog.temporal_sets.get("sales.campaigns")
+launch = campaigns.occurrence("spring-2026")
+frame = session.observe(revenue, time_scope=launch, grain=mv.grain("day"))
+```
+
+`mv.grain("day")` 始终使用 session 的 report timezone 作为边界。occurrence 使用其他
+boundary timezone 时，应将 session 配置为相同的 `report_timezone`（或使用已认证的
+calendar day grain）；Marivo 不会静默地用 occurrence timezone 重解释裸 built-in day grain。
+
+`occurrence(key)` 返回绑定精确快照的 `TimeScope`；分页有界，区间筛选使用半开区间重叠规则，
+导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的 occurrence
+是否对应。两个精确 occurrence scope 选出的 day-grain frame 可以使用
+`mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` 按本地日进度比较。
+
 ## 建模步骤
 
 ### 1. 连接数据源

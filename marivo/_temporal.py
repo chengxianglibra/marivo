@@ -10,10 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Iterable, Mapping
+import re
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Protocol, cast, overload, runtime_checkable
@@ -22,12 +24,23 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
-from marivo.refs import PeriodCalendarKind, Ref
+from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _JSON_SCALAR = str | int | float | bool
 _GRAIN_INTERNAL = ContextVar("marivo_grain_internal", default=False)
 _TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
+
+
+@contextmanager
+def _trusted_time_scope_validation() -> Iterator[None]:
+    """Allow trusted persistence readers to rehydrate an already sealed scope."""
+
+    token = _TIME_SCOPE_INTERNAL.set(True)
+    try:
+        yield
+    finally:
+        _TIME_SCOPE_INTERNAL.reset(token)
 
 
 def _require_timezone(value: object) -> str:
@@ -268,6 +281,34 @@ def period_calendar_definition_digest(
     ).hexdigest()
 
 
+def temporal_set_definition_digest(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    boundary_timezone: str,
+    coverage: tuple[str | date, str | date],
+    occurrence_id: str,
+    start: str,
+    end: str,
+    category: str | None = None,
+    dependency_digest: str | None = None,
+) -> str:
+    """Return declaration identity used to reject stale temporal-set evidence."""
+    payload = {
+        "schema": "temporal-set-definition/v1",
+        "temporal_set_ref": temporal_set_ref.key,
+        "boundary_timezone": boundary_timezone,
+        "coverage": [value.isoformat() if isinstance(value, date) else value for value in coverage],
+        "occurrence_id": occurrence_id,
+        "start": start,
+        "end": end,
+        "category": category,
+        "dependency_digest": dependency_digest,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 class TimeScopeContractV1(BaseModel):
     """Versioned serialization returned by :meth:`TimeScope.contract`."""
 
@@ -282,14 +323,16 @@ class TimeScopeContractV1(BaseModel):
         default="time-scope/v1",
         alias="schema",
     )
-    kind: Literal["absolute", "calendar_period"]
+    kind: Literal["absolute", "calendar_period", "temporal_occurrence"]
     start: date | datetime
     end: date | datetime
     calendar_ref: str | None = None
+    temporal_set_ref: str | None = None
     snapshot_digest: str | None = None
     boundary_timezone: str | None = None
     level: str | None = None
     key: _JSON_SCALAR | None = None
+    occurrence_category: str | None = None
 
     @model_validator(mode="after")
     def _validate_contract(self) -> TimeScopeContractV1:
@@ -301,21 +344,57 @@ class TimeScopeContractV1(BaseModel):
             self.boundary_timezone,
             self.level,
             self.key,
+            self.temporal_set_ref,
+            self.occurrence_category,
         )
         if self.kind == "absolute":
             if any(value is not None for value in provenance):
                 raise ValueError("absolute time-scope contract cannot contain period provenance")
             return self
-        if type(self.start) is not date:
-            raise ValueError("calendar-period time-scope contract bounds must be civil dates")
-        if any(type(value) is not str or not value for value in provenance[:4]) or self.key is None:
-            raise ValueError("calendar-period time-scope contract requires complete provenance")
+        if self.kind == "calendar_period":
+            if self.temporal_set_ref is not None or self.occurrence_category is not None:
+                raise ValueError(
+                    "calendar-period time-scope contract cannot contain occurrence provenance"
+                )
+            if type(self.start) is not date:
+                raise ValueError("calendar-period time-scope contract bounds must be civil dates")
+            if (
+                any(type(value) is not str or not value for value in provenance[:4])
+                or self.key is None
+            ):
+                raise ValueError("calendar-period time-scope contract requires complete provenance")
+            canonical_key(self.key)
+            return self
+        if self.calendar_ref is not None or self.level is not None:
+            raise ValueError(
+                "temporal-occurrence time-scope contract cannot contain period provenance"
+            )
+        if (
+            type(self.temporal_set_ref) is not str
+            or not self.temporal_set_ref
+            or type(self.snapshot_digest) is not str
+            or not self.snapshot_digest
+            or type(self.boundary_timezone) is not str
+            or not self.boundary_timezone
+            or self.key is None
+        ):
+            raise ValueError("temporal-occurrence time-scope contract requires complete provenance")
         canonical_key(self.key)
+        if self.occurrence_category is not None and (
+            type(self.occurrence_category) is not str or not self.occurrence_category
+        ):
+            raise ValueError("temporal-occurrence category must be a non-empty string or null")
         return self
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, object]:
         kwargs.setdefault("exclude_none", True)
-        return cast("dict[str, object]", super().model_dump(*args, **kwargs))
+        payload = cast("dict[str, object]", super().model_dump(*args, **kwargs))
+        # The occurrence variant has a closed nullable category field.  Keep
+        # that tag explicit in direct contract serialization so an uncategorized
+        # occurrence cannot be confused with a legacy/partial payload.
+        if self.kind == "temporal_occurrence":
+            payload.setdefault("occurrence_category", None)
+        return payload
 
 
 class TimeScope(BaseModel):
@@ -340,11 +419,13 @@ class TimeScope(BaseModel):
     start: str | datetime | date
     end: str | datetime | date
     calendar: Ref[PeriodCalendarKind] | None = None
+    temporal_set: Ref[TemporalSetKind] | None = None
     snapshot_digest: str | None = None
     boundary_timezone: str | None = None
     level: str | None = None
     key: _JSON_SCALAR | None = None
     ordinal: int | None = None
+    occurrence_category: str | None = None
 
     def __init__(self, **data: Any) -> None:
         if not _TIME_SCOPE_INTERNAL.get():
@@ -358,37 +439,75 @@ class TimeScope(BaseModel):
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
         schema = handler(source)
 
-        def _allow_trusted_validation(value: Any, validator: Any, _info: Any) -> Any:
-            token = _TIME_SCOPE_INTERNAL.set(True)
-            try:
-                return validator(value)
-            finally:
-                _TIME_SCOPE_INTERNAL.reset(token)
+        def _allow_nested_validation(value: Any, validator: Any, info: Any) -> Any:
+            # A parent Pydantic model may rehydrate a trusted TimeScope field
+            # from its persisted JSON representation.  A direct
+            # ``TimeScope.model_validate({...})`` has no field name and must
+            # still hit the constructor seal below.
+            if _TIME_SCOPE_INTERNAL.get() or info.field_name is not None:
+                token = _TIME_SCOPE_INTERNAL.set(True)
+                try:
+                    return validator(value)
+                finally:
+                    _TIME_SCOPE_INTERNAL.reset(token)
+            return validator(value)
 
         return core_schema.with_info_wrap_validator_function(
-            _allow_trusted_validation,
+            _allow_nested_validation,
             schema,
         )
 
     @property
-    def kind(self) -> Literal["absolute", "calendar_period"]:
+    def kind(self) -> Literal["absolute", "calendar_period", "temporal_occurrence"]:
         """Return the closed variant tag used by the current runtime."""
-        return "calendar_period" if self.calendar is not None else "absolute"
+        if self.calendar is not None:
+            return "calendar_period"
+        if self.temporal_set is not None:
+            return "temporal_occurrence"
+        return "absolute"
 
     @model_validator(mode="after")
     def _validate_scope(self) -> TimeScope:
         provenance = (
             self.calendar,
+            self.temporal_set,
             self.snapshot_digest,
             self.boundary_timezone,
             self.level,
             self.key,
             self.ordinal,
+            self.occurrence_category,
         )
         if self.calendar is None:
-            if any(value is not None for value in provenance[1:]):
-                raise ValueError("absolute TimeScope cannot contain semantic period provenance")
+            if self.temporal_set is None:
+                if any(value is not None for value in provenance[2:]):
+                    raise ValueError(
+                        "absolute TimeScope cannot contain semantic temporal provenance"
+                    )
+            else:
+                if (
+                    type(self.temporal_set) is not Ref
+                    or self.temporal_set.kind.value != "temporal_set"
+                ):
+                    raise TypeError("temporal occurrence TimeScope requires Ref[temporal_set]")
+                if type(self.snapshot_digest) is not str or not self.snapshot_digest:
+                    raise ValueError("temporal occurrence TimeScope requires snapshot_digest")
+                if type(self.boundary_timezone) is not str or not self.boundary_timezone:
+                    raise ValueError("temporal occurrence TimeScope requires boundary_timezone")
+                if self.key is None or self.level is not None or self.ordinal is not None:
+                    raise ValueError(
+                        "temporal occurrence TimeScope requires key and no period provenance"
+                    )
+                if self.occurrence_category is not None and (
+                    type(self.occurrence_category) is not str or not self.occurrence_category
+                ):
+                    raise ValueError(
+                        "temporal occurrence category must be a non-empty string or null"
+                    )
+                canonical_key(self.key)
         else:
+            if self.temporal_set is not None or self.occurrence_category is not None:
+                raise ValueError("period TimeScope cannot contain occurrence provenance")
             if type(self.calendar) is not Ref or self.calendar.kind.value != "period_calendar":
                 raise TypeError("period TimeScope requires Ref[period_calendar]")
             if type(self.snapshot_digest) is not str or not self.snapshot_digest:
@@ -406,6 +525,12 @@ class TimeScope(BaseModel):
     def __repr__(self) -> str:
         if self.kind == "absolute":
             return f"TimeScope([{_scope_bound_text(self.start)}, {_scope_bound_text(self.end)}))"
+        if self.kind == "temporal_occurrence":
+            assert self.temporal_set is not None
+            return (
+                f"TimeScope(occurrence={self.temporal_set.key!r}/{self.key!r}; "
+                "call .show() for detail)"
+            )
         assert self.calendar is not None and self.level is not None
         return (
             f"TimeScope(period={self.calendar.key!r}/{self.level}:{self.key!r}; "
@@ -433,6 +558,15 @@ class TimeScope(BaseModel):
                     f"ordinal={self.ordinal}",
                 )
             )
+        elif self.temporal_set is not None:
+            values.extend(
+                (
+                    f"temporal_set={self.temporal_set.key}",
+                    f"snapshot={self.snapshot_digest}",
+                    f"key={self.key!r}",
+                    f"category={self.occurrence_category!r}",
+                )
+            )
         return "TimeScope(" + ", ".join(values) + ")"
 
     def contract(self) -> TimeScopeContractV1:
@@ -445,6 +579,18 @@ class TimeScope(BaseModel):
             start, end = self.start, self.end
         if self.kind == "absolute":
             return TimeScopeContractV1(kind="absolute", start=start, end=end)
+        if self.kind == "temporal_occurrence":
+            assert self.temporal_set is not None
+            return TimeScopeContractV1(
+                kind="temporal_occurrence",
+                start=start,
+                end=end,
+                temporal_set_ref=self.temporal_set.path,
+                snapshot_digest=self.snapshot_digest,
+                boundary_timezone=self.boundary_timezone,
+                key=self.key,
+                occurrence_category=self.occurrence_category,
+            )
         assert self.calendar is not None
         return TimeScopeContractV1(
             kind="calendar_period",
@@ -473,21 +619,55 @@ class TimeScope(BaseModel):
 def _new_time_scope(**data: Any) -> TimeScope:
     """Build a validated scope for trusted runtime/catalog paths."""
 
-    token = _TIME_SCOPE_INTERNAL.set(True)
-    try:
+    with _trusted_time_scope_validation():
         return TimeScope(**data)
-    finally:
-        _TIME_SCOPE_INTERNAL.reset(token)
 
 
 def _validate_time_scope_data(data: Mapping[str, Any]) -> TimeScope:
     """Decode one persisted scope without exposing model construction publicly."""
 
-    token = _TIME_SCOPE_INTERNAL.set(True)
-    try:
+    with _trusted_time_scope_validation():
         return TimeScope.model_validate(dict(data))
-    finally:
-        _TIME_SCOPE_INTERNAL.reset(token)
+
+
+def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
+    """Decode a persisted ``TimeScopeContractV1`` into a trusted scope.
+
+    The public scope model intentionally stores typed ``Ref`` values while the
+    artifact contract stores their path strings.  Recovery uses this private
+    bridge so cold-start replay can retain exact semantic provenance without
+    opening a public dictionary-input path.
+    """
+    contract = TimeScopeContractV1.model_validate(dict(data))
+    if contract.kind == "absolute":
+        return _new_time_scope(start=contract.start, end=contract.end)
+    if contract.kind == "calendar_period":
+        assert contract.calendar_ref is not None
+        assert contract.snapshot_digest is not None
+        assert contract.boundary_timezone is not None
+        assert contract.level is not None
+        return _new_time_scope(
+            start=contract.start,
+            end=contract.end,
+            calendar=ref_factory_period_calendar(contract.calendar_ref),
+            snapshot_digest=contract.snapshot_digest,
+            boundary_timezone=contract.boundary_timezone,
+            level=contract.level,
+            key=contract.key,
+            ordinal=0,
+        )
+    assert contract.temporal_set_ref is not None
+    assert contract.snapshot_digest is not None
+    assert contract.boundary_timezone is not None
+    return _new_time_scope(
+        start=contract.start,
+        end=contract.end,
+        temporal_set=ref_factory_temporal_set(contract.temporal_set_ref),
+        snapshot_digest=contract.snapshot_digest,
+        boundary_timezone=contract.boundary_timezone,
+        key=contract.key,
+        occurrence_category=contract.occurrence_category,
+    )
 
 
 class BuiltinPeriodBindingV1(BaseModel):
@@ -512,8 +692,18 @@ class SemanticPeriodBindingV1(BaseModel):
     level_name: str
 
 
+class TemporalSetBindingV1(BaseModel):
+    """Closed artifact identity for one certified temporal set snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["temporal_set"] = "temporal_set"
+    temporal_set_ref: str
+    snapshot_digest: str
+
+
 PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
-TemporalAuthorityBindingV1 = PeriodBindingV1
+TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1
 
 
 class FrameTemporalContractV1(BaseModel):
@@ -637,11 +827,20 @@ class _PeriodCorrespondenceAlignmentPayloadV1(BaseModel):
         return self
 
 
+class _OccurrenceProgressAlignmentPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["occurrence_progress"] = "occurrence_progress"
+    anchor: Literal["start", "end"] = "start"
+    unmatched: Literal["fail", "drop"] = "fail"
+
+
 _AlignmentPolicyPayloadV1 = Annotated[
     _WindowBucketAlignmentPayloadV1
     | _DayOfWeekAlignmentPayloadV1
     | _PeriodProgressAlignmentPayloadV1
-    | _PeriodCorrespondenceAlignmentPayloadV1,
+    | _PeriodCorrespondenceAlignmentPayloadV1
+    | _OccurrenceProgressAlignmentPayloadV1,
     Field(discriminator="kind"),
 ]
 
@@ -909,6 +1108,408 @@ class PeriodCalendarSnapshotV1:
                     ordinal=period.global_ordinal,
                 )
         raise KeyError(f"period {level}:{key!r} is not in certified calendar coverage")
+
+
+def _normalize_temporal_timestamp(value: datetime, *, boundary_timezone: str) -> datetime:
+    """Normalize one timestamp occurrence to an aware UTC instant."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo(boundary_timezone))
+    return value.astimezone(ZoneInfo("UTC"))
+
+
+@dataclass(frozen=True, slots=True)
+class TemporalOccurrenceRecord:
+    """One normalized named temporal occurrence."""
+
+    key: _JSON_SCALAR
+    start: date | datetime
+    end: date | datetime
+    category: str | None = None
+
+    def __post_init__(self) -> None:
+        canonical_key(self.key)
+        if type(self.start) is not type(self.end) or self.start >= self.end:
+            raise ValueError("temporal occurrence bounds must have one type and start < end")
+        if self.category is not None and (type(self.category) is not str or not self.category):
+            raise ValueError("temporal occurrence category must be a non-empty string or null")
+
+
+@dataclass(frozen=True, slots=True)
+class TemporalSetSnapshotV1:
+    """Certified finite temporal-set occurrence authority."""
+
+    temporal_set_ref: Ref[TemporalSetKind]
+    boundary_timezone: str
+    coverage: tuple[date, date]
+    encoding: Literal["date", "timestamp"]
+    occurrences: tuple[TemporalOccurrenceRecord, ...]
+    snapshot_digest: str
+    schema: Literal["temporal-set-snapshot/v1"] = "temporal-set-snapshot/v1"
+
+    def __post_init__(self) -> None:
+        if self.schema != "temporal-set-snapshot/v1":
+            raise ValueError("unsupported temporal-set snapshot schema")
+        if (
+            type(self.temporal_set_ref) is not Ref
+            or self.temporal_set_ref.kind.value != "temporal_set"
+        ):
+            raise TypeError("temporal_set_ref must be Ref[temporal_set]")
+        _require_timezone(self.boundary_timezone)
+        start, end = self.coverage
+        if type(start) is not date or type(end) is not date or start >= end:
+            raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
+        if self.encoding not in {"date", "timestamp"}:
+            raise ValueError("temporal-set encoding must be date or timestamp")
+        seen: set[str] = set()
+        for occurrence in self.occurrences:
+            occurrence_start = occurrence.start
+            occurrence_end = occurrence.end
+            if self.encoding == "date":
+                if type(occurrence_start) is not date or type(occurrence_end) is not date:
+                    raise ValueError("temporal-set occurrences must use one consistent encoding")
+            else:
+                if type(occurrence_start) is not datetime or type(occurrence_end) is not datetime:
+                    raise ValueError("temporal-set occurrences must use one consistent encoding")
+                if (
+                    occurrence_start.tzinfo is None
+                    or occurrence_end.tzinfo is None
+                    or occurrence_start.utcoffset() is None
+                    or occurrence_end.utcoffset() is None
+                ):
+                    raise ValueError(
+                        "timestamp temporal-set occurrences must be timezone-aware instants"
+                    )
+            token = _key_token(occurrence.key)
+            if token in seen:
+                raise ValueError("temporal-set occurrence ids must be unique")
+            seen.add(token)
+            if self.encoding == "date":
+                assert type(occurrence_start) is date and type(occurrence_end) is date
+                inside = occurrence_start >= start and occurrence_end <= end
+            else:
+                assert type(occurrence_start) is datetime and type(occurrence_end) is datetime
+                coverage_start = datetime.combine(
+                    start, time.min, tzinfo=ZoneInfo(self.boundary_timezone)
+                )
+                coverage_end = datetime.combine(
+                    end, time.min, tzinfo=ZoneInfo(self.boundary_timezone)
+                )
+                inside = occurrence_start >= coverage_start.astimezone(
+                    ZoneInfo("UTC")
+                ) and occurrence_end <= coverage_end.astimezone(ZoneInfo("UTC"))
+            if not inside:
+                raise ValueError(
+                    f"temporal occurrence {occurrence.key!r} is outside declared coverage"
+                )
+        expected = _temporal_set_snapshot_digest(
+            temporal_set_ref=self.temporal_set_ref,
+            boundary_timezone=self.boundary_timezone,
+            coverage=self.coverage,
+            encoding=self.encoding,
+            occurrences=self.occurrences,
+        )
+        if self.snapshot_digest != expected:
+            raise ValueError("snapshot_digest does not match normalized temporal-set content")
+
+    def occurrence_scope(self, key: _JSON_SCALAR) -> TimeScope:
+        token = _key_token(canonical_key(key))
+        for occurrence in self.occurrences:
+            if _key_token(occurrence.key) == token:
+                return _new_time_scope(
+                    start=occurrence.start,
+                    end=occurrence.end,
+                    temporal_set=self.temporal_set_ref,
+                    snapshot_digest=self.snapshot_digest,
+                    boundary_timezone=self.boundary_timezone,
+                    key=occurrence.key,
+                    occurrence_category=occurrence.category,
+                )
+        raise KeyError(f"temporal occurrence {key!r} is not in certified temporal set")
+
+
+def _temporal_set_snapshot_payload(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    encoding: Literal["date", "timestamp"],
+    occurrences: tuple[TemporalOccurrenceRecord, ...],
+) -> dict[str, object]:
+    return {
+        "schema": "temporal-set-snapshot/v1",
+        "temporal_set_ref": temporal_set_ref.key,
+        "boundary_timezone": boundary_timezone,
+        "coverage": [coverage[0].isoformat(), coverage[1].isoformat()],
+        "encoding": encoding,
+        "occurrences": [
+            [
+                _key_token(item.key),
+                item.start.isoformat(),
+                item.end.isoformat(),
+                item.category,
+            ]
+            for item in occurrences
+        ],
+    }
+
+
+def _temporal_set_snapshot_digest(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    encoding: Literal["date", "timestamp"],
+    occurrences: tuple[TemporalOccurrenceRecord, ...],
+) -> str:
+    payload = _temporal_set_snapshot_payload(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        encoding=encoding,
+        occurrences=occurrences,
+    )
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def certify_temporal_set(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    rows: Iterable[Mapping[str, object]],
+    occurrence_id: str,
+    start: str,
+    end: str,
+    category: str | None = None,
+) -> TemporalSetSnapshotV1:
+    """Certify named occurrences from one previously acquired value snapshot."""
+    _require_timezone(boundary_timezone)
+    if type(temporal_set_ref) is not Ref or temporal_set_ref.kind.value != "temporal_set":
+        raise TypeError("temporal_set_ref must be Ref[temporal_set]")
+    coverage_start, coverage_end = coverage
+    if (
+        type(coverage_start) is not date
+        or type(coverage_end) is not date
+        or coverage_start >= coverage_end
+    ):
+        raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
+    for field_name, field in (("occurrence_id", occurrence_id), ("start", start), ("end", end)):
+        if type(field) is not str or not field:
+            raise ValueError(f"{field_name} source column must be a non-empty string")
+    if category is not None and (type(category) is not str or not category):
+        raise ValueError("category source column must be a non-empty string or null")
+
+    normalized: list[TemporalOccurrenceRecord] = []
+    encoding: Literal["date", "timestamp"] | None = None
+    seen: set[str] = set()
+    for row in rows:
+        if occurrence_id not in row or start not in row or end not in row:
+            raise ValueError("temporal-set snapshot row is missing a required source column")
+        key = canonical_key(row[occurrence_id])
+        raw_start = row[start]
+        raw_end = row[end]
+        if raw_start is None or raw_end is None:
+            raise ValueError(f"temporal occurrence {key!r} has null bounds")
+        if type(raw_start) is date and type(raw_end) is date:
+            current_encoding: Literal["date", "timestamp"] = "date"
+            start_value: date | datetime = raw_start
+            end_value: date | datetime = raw_end
+        elif type(raw_start) is datetime and type(raw_end) is datetime:
+            current_encoding = "timestamp"
+            start_value = _normalize_temporal_timestamp(
+                raw_start, boundary_timezone=boundary_timezone
+            )
+            end_value = _normalize_temporal_timestamp(raw_end, boundary_timezone=boundary_timezone)
+        else:
+            raise ValueError(
+                "temporal-set start/end values must use matching date or datetime encoding"
+            )
+        if encoding is None:
+            encoding = current_encoding
+        elif encoding != current_encoding:
+            raise ValueError("temporal-set occurrences cannot mix date and timestamp encoding")
+        category_value = row.get(category) if category is not None else None
+        if category is not None and category not in row:
+            raise ValueError("temporal-set snapshot row is missing the category source column")
+        if category_value is not None and (type(category_value) is not str or not category_value):
+            raise ValueError("temporal occurrence category must be a non-empty string or null")
+        token = _key_token(key)
+        if token in seen:
+            raise ValueError(f"temporal-set occurrence id {key!r} is duplicated")
+        seen.add(token)
+        normalized.append(
+            TemporalOccurrenceRecord(
+                key=key,
+                start=start_value,
+                end=end_value,
+                category=category_value,
+            )
+        )
+    if encoding is None:
+        raise ValueError("temporal-set snapshot must contain at least one occurrence")
+    ordered = tuple(
+        sorted(normalized, key=lambda item: (item.start, item.end, _key_token(item.key)))
+    )
+    digest = _temporal_set_snapshot_digest(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        encoding=encoding,
+        occurrences=ordered,
+    )
+    return TemporalSetSnapshotV1(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        encoding=encoding,
+        occurrences=ordered,
+        snapshot_digest=digest,
+    )
+
+
+_STRPTIME_TIME_DIRECTIVES = frozenset(
+    {
+        "%H",
+        "%I",
+        "%k",
+        "%l",
+        "%M",
+        "%S",
+        "%f",
+        "%p",
+        "%P",
+    }
+)
+
+
+def _parse_persisted_temporal_value(
+    value: object,
+    *,
+    parse: object | None = None,
+    boundary_timezone: str | None = None,
+) -> date | datetime:
+    """Decode one retained source value under its authored time convention.
+
+    Discovery snapshots persist values as JSON scalars, so a semantic time
+    dimension's ``strptime``/timezone declaration must be reapplied before
+    certification.  The helper intentionally uses the small value-object
+    protocol (``kind``, ``format``, and ``timezone``) instead of importing the
+    semantic layer into this dependency-neutral module.
+    """
+    parse_kind = getattr(parse, "kind", None)
+    if parse_kind == "hour_prefix":
+        raise ValueError("hour-prefix temporal-set bounds require a complete date-bearing source")
+    if parse_kind == "date":
+        if type(value) is date:
+            return value
+        if type(value) is datetime:
+            if value.time() != time.min:
+                raise ValueError("date temporal-set bounds must not contain a time component")
+            return value.date()
+        if type(value) is not str:
+            raise TypeError("persisted date temporal-set bounds must be ISO date strings")
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError as exc:
+            raise ValueError(f"invalid persisted temporal date {value!r}") from exc
+    if parse_kind in {"datetime", "timestamp"}:
+        timezone = getattr(parse, "timezone", None) or boundary_timezone
+        decoded = _parse_persisted_temporal_value(value, boundary_timezone=boundary_timezone)
+        if type(decoded) is date:
+            decoded = datetime.combine(decoded, time.min)
+        assert type(decoded) is datetime
+        if decoded.tzinfo is None:
+            if not isinstance(timezone, str) or not timezone:
+                raise ValueError("naive timestamp bounds require a declared or boundary timezone")
+            decoded = decoded.replace(tzinfo=ZoneInfo(timezone))
+        return decoded
+    if parse_kind == "strptime":
+        fmt = getattr(parse, "format", None)
+        if type(fmt) is not str or not fmt:
+            raise ValueError("strptime temporal-set bounds require a non-empty format")
+        if type(value) not in {str, int, float}:
+            raise TypeError("strptime temporal-set bounds must be string or numeric scalars")
+        try:
+            decoded = datetime.strptime(str(value), fmt)
+        except ValueError as exc:
+            raise ValueError(
+                f"persisted temporal value {value!r} does not match strptime format {fmt!r}"
+            ) from exc
+        tokens = set(re.findall(r"%[a-zA-Z]", fmt))
+        if not tokens.intersection(_STRPTIME_TIME_DIRECTIVES):
+            return decoded.date()
+        timezone = getattr(parse, "timezone", None) or boundary_timezone
+        if not isinstance(timezone, str) or not timezone:
+            raise ValueError("time-bearing strptime bounds require a declared or boundary timezone")
+        return decoded.replace(tzinfo=ZoneInfo(timezone))
+    if type(value) is date or type(value) is datetime:
+        return value
+    if type(value) is not str:
+        raise TypeError("persisted temporal-set bounds must be ISO date or datetime strings")
+    raw = value.strip()
+    if len(raw) == 10 and "T" not in raw and " " not in raw:
+        try:
+            return date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError(f"invalid persisted temporal date {value!r}") from exc
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"invalid persisted temporal datetime {value!r}") from exc
+
+
+def certify_temporal_set_rows(
+    *,
+    temporal_set_ref: Ref[TemporalSetKind],
+    boundary_timezone: str,
+    coverage: tuple[date, date],
+    columns: tuple[str, ...],
+    retained_values: tuple[tuple[object, ...], ...],
+    occurrence_id: str,
+    start: str,
+    end: str,
+    category: str | None = None,
+    start_parse: object | None = None,
+    end_parse: object | None = None,
+) -> TemporalSetSnapshotV1:
+    """Certify rows retained by one persisted datasource acquisition."""
+    positions = {name: index for index, name in enumerate(columns)}
+    required = (occurrence_id, start, end, *((category,) if category is not None else ()))
+    missing = tuple(name for name in required if name not in positions)
+    if missing:
+        raise ValueError(f"persisted snapshot is missing temporal-set columns {missing!r}")
+    rows: list[dict[str, object]] = []
+    for values in retained_values:
+        if len(values) != len(columns):
+            raise ValueError("persisted snapshot row width does not match selected columns")
+        rows.append(
+            {
+                occurrence_id: values[positions[occurrence_id]],
+                start: _parse_persisted_temporal_value(
+                    values[positions[start]],
+                    parse=start_parse,
+                    boundary_timezone=boundary_timezone,
+                ),
+                end: _parse_persisted_temporal_value(
+                    values[positions[end]],
+                    parse=end_parse,
+                    boundary_timezone=boundary_timezone,
+                ),
+                **({category: values[positions[category]]} if category is not None else {}),
+            }
+        )
+    return certify_temporal_set(
+        temporal_set_ref=temporal_set_ref,
+        boundary_timezone=boundary_timezone,
+        coverage=coverage,
+        rows=rows,
+        occurrence_id=occurrence_id,
+        start=start,
+        end=end,
+        category=category,
+    )
 
 
 def _snapshot_payload(
@@ -1700,6 +2301,227 @@ class TemporalSnapshotStore:
         os.replace(temporary, path)
 
 
+@dataclass(frozen=True, slots=True)
+class TemporalSetManifestV1:
+    """Current certified snapshot pointer for one temporal set declaration."""
+
+    temporal_set_ref: Ref[TemporalSetKind]
+    definition_digest: str
+    snapshot_digest: str
+    schema: Literal["temporal-set-manifest/v1"] = "temporal-set-manifest/v1"
+
+
+class TemporalSetSnapshotStore:
+    """Project-local atomic persistence for certified temporal-set authorities."""
+
+    __slots__ = ("_root",)
+
+    def __init__(self, project_root: Path) -> None:
+        self._root = project_root / ".marivo" / "temporal" / "temporal-sets"
+
+    def publish(
+        self,
+        snapshot: TemporalSetSnapshotV1,
+        *,
+        definition_digest: str,
+    ) -> TemporalSetManifestV1:
+        if type(definition_digest) is not str or not definition_digest:
+            raise ValueError("definition_digest must be a non-empty string")
+        directory = self._directory(snapshot.temporal_set_ref)
+        directory.mkdir(parents=True, exist_ok=True)
+        self._write_json(
+            directory / f"{snapshot.snapshot_digest}.json",
+            _temporal_set_snapshot_json(snapshot),
+        )
+        manifest = TemporalSetManifestV1(
+            temporal_set_ref=snapshot.temporal_set_ref,
+            definition_digest=definition_digest,
+            snapshot_digest=snapshot.snapshot_digest,
+        )
+        self._write_json(directory / "current.json", _temporal_set_manifest_json(manifest))
+        return manifest
+
+    def load_current(
+        self,
+        temporal_set_ref: Ref[TemporalSetKind],
+        *,
+        definition_digest: str,
+    ) -> TemporalSetSnapshotV1 | None:
+        status, snapshot = self.inspect_current(
+            temporal_set_ref,
+            definition_digest=definition_digest,
+        )
+        return snapshot if status == "current" else None
+
+    def load_exact(
+        self,
+        temporal_set_ref: Ref[TemporalSetKind],
+        *,
+        snapshot_digest: str,
+    ) -> TemporalSetSnapshotV1:
+        if type(snapshot_digest) is not str or not snapshot_digest:
+            raise ValueError("snapshot_digest must be a non-empty string")
+        path = self._directory(temporal_set_ref) / f"{snapshot_digest}.json"
+        if not path.is_file():
+            raise KeyError(
+                f"certified snapshot {snapshot_digest!r} for {temporal_set_ref.path!r} is unavailable"
+            )
+        snapshot = _temporal_set_snapshot_from_json(_read_json(path))
+        if (
+            snapshot.temporal_set_ref != temporal_set_ref
+            or snapshot.snapshot_digest != snapshot_digest
+        ):
+            raise ValueError(
+                "persisted temporal-set snapshot identity does not match requested binding"
+            )
+        return snapshot
+
+    def inspect_current(
+        self,
+        temporal_set_ref: Ref[TemporalSetKind],
+        *,
+        definition_digest: str,
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], TemporalSetSnapshotV1 | None]:
+        directory = self._directory(temporal_set_ref)
+        manifest_path = directory / "current.json"
+        if not manifest_path.exists():
+            return "missing", None
+        try:
+            manifest = _temporal_set_manifest_from_json(_read_json(manifest_path))
+        except (OSError, TypeError, ValueError, KeyError, IndexError):
+            return "invalid", None
+        if manifest.temporal_set_ref != temporal_set_ref:
+            return "invalid", None
+        if manifest.definition_digest != definition_digest:
+            return "stale", None
+        snapshot_path = directory / f"{manifest.snapshot_digest}.json"
+        if not snapshot_path.exists():
+            return "invalid", None
+        try:
+            snapshot = _temporal_set_snapshot_from_json(_read_json(snapshot_path))
+        except (OSError, TypeError, ValueError, KeyError, IndexError):
+            return "invalid", None
+        if (
+            snapshot.temporal_set_ref != temporal_set_ref
+            or snapshot.snapshot_digest != manifest.snapshot_digest
+        ):
+            return "invalid", None
+        return "current", snapshot
+
+    def _directory(self, temporal_set_ref: Ref[TemporalSetKind]) -> Path:
+        token = hashlib.sha256(temporal_set_ref.key.encode()).hexdigest()
+        return self._root / token
+
+    @staticmethod
+    def _write_json(path: Path, payload: Mapping[str, object]) -> None:
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+
+
+def _temporal_set_manifest_json(manifest: TemporalSetManifestV1) -> dict[str, object]:
+    return {
+        "schema": manifest.schema,
+        "temporal_set_ref": manifest.temporal_set_ref.path,
+        "definition_digest": manifest.definition_digest,
+        "snapshot_digest": manifest.snapshot_digest,
+    }
+
+
+def _temporal_set_manifest_from_json(payload: Mapping[str, object]) -> TemporalSetManifestV1:
+    if payload.get("schema") != "temporal-set-manifest/v1":
+        raise ValueError("unsupported temporal set manifest schema")
+    raw_ref = payload.get("temporal_set_ref")
+    definition_digest = payload.get("definition_digest")
+    snapshot_digest = payload.get("snapshot_digest")
+    if not all(
+        type(value) is str and value for value in (raw_ref, definition_digest, snapshot_digest)
+    ):
+        raise ValueError("temporal set manifest fields are invalid")
+    return TemporalSetManifestV1(
+        temporal_set_ref=ref_factory_temporal_set(cast("str", raw_ref)),
+        definition_digest=cast("str", definition_digest),
+        snapshot_digest=cast("str", snapshot_digest),
+    )
+
+
+def _temporal_set_snapshot_json(snapshot: TemporalSetSnapshotV1) -> dict[str, object]:
+    return {
+        **_temporal_set_snapshot_payload(
+            temporal_set_ref=snapshot.temporal_set_ref,
+            boundary_timezone=snapshot.boundary_timezone,
+            coverage=snapshot.coverage,
+            encoding=snapshot.encoding,
+            occurrences=snapshot.occurrences,
+        ),
+        "snapshot_digest": snapshot.snapshot_digest,
+    }
+
+
+def _temporal_set_snapshot_from_json(payload: Mapping[str, object]) -> TemporalSetSnapshotV1:
+    if payload.get("schema") != "temporal-set-snapshot/v1":
+        raise ValueError("unsupported temporal set snapshot schema")
+    raw_ref = payload.get("temporal_set_ref")
+    raw_timezone = payload.get("boundary_timezone")
+    raw_coverage = payload.get("coverage")
+    raw_encoding = payload.get("encoding")
+    raw_occurrences = payload.get("occurrences")
+    digest = payload.get("snapshot_digest")
+    if (
+        type(raw_ref) is not str
+        or type(raw_timezone) is not str
+        or not isinstance(raw_coverage, list)
+        or len(raw_coverage) != 2
+        or raw_encoding not in {"date", "timestamp"}
+        or not isinstance(raw_occurrences, list)
+        or type(digest) is not str
+    ):
+        raise ValueError("temporal set snapshot payload fields are invalid")
+    if not raw_ref.startswith("temporal_set:"):
+        raise ValueError("temporal set snapshot ref must use temporal_set: prefix")
+    coverage = (
+        date.fromisoformat(cast("str", raw_coverage[0])),
+        date.fromisoformat(cast("str", raw_coverage[1])),
+    )
+    occurrences: list[TemporalOccurrenceRecord] = []
+    for raw in raw_occurrences:
+        if not isinstance(raw, list) or len(raw) != 4 or not isinstance(raw[0], str):
+            raise ValueError("temporal set occurrence payload is invalid")
+        key = json.loads(raw[0])
+        start = (
+            date.fromisoformat(cast("str", raw[1]))
+            if raw_encoding == "date"
+            else datetime.fromisoformat(cast("str", raw[1]))
+        )
+        end = (
+            date.fromisoformat(cast("str", raw[2]))
+            if raw_encoding == "date"
+            else datetime.fromisoformat(cast("str", raw[2]))
+        )
+        category = raw[3]
+        if category is not None and type(category) is not str:
+            raise ValueError("temporal set occurrence category payload is invalid")
+        occurrences.append(
+            TemporalOccurrenceRecord(
+                key=canonical_key(key),
+                start=start,
+                end=end,
+                category=category,
+            )
+        )
+    return TemporalSetSnapshotV1(
+        temporal_set_ref=ref_factory_temporal_set(raw_ref.removeprefix("temporal_set:")),
+        boundary_timezone=raw_timezone,
+        coverage=coverage,
+        encoding=raw_encoding,
+        occurrences=tuple(occurrences),
+        snapshot_digest=digest,
+    )
+
+
 def _snapshot_json(snapshot: PeriodCalendarSnapshotV1) -> dict[str, object]:
     return {
         **_snapshot_payload(
@@ -1823,3 +2645,10 @@ def ref_factory_period_calendar(path: str) -> Ref[PeriodCalendarKind]:
     from marivo.refs import ref
 
     return ref.period_calendar(path)
+
+
+def ref_factory_temporal_set(path: str) -> Ref[TemporalSetKind]:
+    """Late import helper for dependency-neutral temporal-set persistence."""
+    from marivo.refs import ref
+
+    return ref.temporal_set(path)

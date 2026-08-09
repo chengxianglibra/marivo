@@ -1221,3 +1221,93 @@ fiscal = ms.period_calendar(
     changed_catalog = SemanticCatalog(project)
     changed_calendar = changed_catalog.period_calendars.get("sales.fiscal")
     assert changed_calendar.details().snapshot_status == "stale"
+
+
+def test_temporal_set_preview_certifies_once_and_navigates_exact_occurrences(
+    semantic_project_factory, tmp_path: Path
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/campaigns.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+campaigns = ms.entity(name="campaigns", datasource=ms.ref.datasource("warehouse"), source=md.table("campaigns"))
+campaign_id = ms.dimension_column(name="campaign_id", entity=campaigns, column="campaign_id")
+category = ms.dimension_column(name="category", entity=campaigns, column="category")
+starts = ms.time_dimension_column(name="starts", entity=campaigns, column="starts", granularity="day")
+ends = ms.time_dimension_column(name="ends", entity=campaigns, column="ends", granularity="day")
+named_campaigns = ms.temporal_set(
+    name="named_campaigns", occurrence_id=campaign_id, start=starts, end=ends,
+    category=category, boundary_timezone="UTC",
+    coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2027, 1, 1)),
+)
+""",
+        }
+    )
+    catalog = SemanticCatalog(project)
+    snapshot = DiscoverySnapshot(
+        id="campaign-evidence-v1",
+        datasource=ref.datasource("warehouse"),
+        source=md.table("campaigns"),
+        scope=md.unpruned(max_rows=4, timeout_seconds=30),
+        columns=("campaign_id", "starts", "ends", "category"),
+        schema_fingerprint="campaign-v1",
+        profiles=(),
+        coverage=SnapshotCoverage(
+            observed_row_count=3,
+            retained_row_count=3,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            sampling_method="first_rows_limit",
+            pushed_predicate=(),
+        ),
+        persist_values=True,
+        value_evidence_state="available",
+        cache_status="fresh",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        _project_root=tmp_path,
+        retained_values=(
+            ("spring", "2026-03-01", "2026-03-04", "promotion"),
+            ("holiday", "2026-01-20", "2026-01-22", None),
+            ("incident", "2026-03-03", "2026-03-05", "incident"),
+        ),
+    )
+    temporal_set_ref = ms.ref.temporal_set("sales.named_campaigns")
+
+    before = catalog.readiness(refs=[temporal_set_ref])
+    assert any(issue.kind == "temporal_set_snapshot_missing" for issue in before.blockers)
+    assert catalog.verify(temporal_set_ref).kind == "temporal_set"
+    preview = catalog.preview(temporal_set_ref, using=snapshot)
+    assert preview.rows[0]["key"] in {"holiday", "spring", "incident"}
+
+    entry = catalog.temporal_sets.get("sales.named_campaigns")
+    details = entry.details()
+    assert details.snapshot_status == "current"
+    assert details.occurrence_count == 3
+    assert catalog.domains.get("sales").temporal_sets.get(entry.ref) == entry
+
+    spring = entry.occurrence("spring")
+    assert spring.kind == "temporal_occurrence"
+    assert spring.start == date(2026, 3, 1)
+    assert spring.end == date(2026, 3, 4)
+    assert spring.contract().temporal_set_ref == "sales.named_campaigns"
+    assert spring.contract().snapshot_digest
+
+    page = entry.occurrences(start=date(2026, 3, 2), end=date(2026, 3, 4), limit=1)
+    assert tuple(scope.key for scope in page.items) == ("spring",)
+    assert page.next_cursor is not None
+    with pytest.raises(SemanticRuntimeError) as cursor_error:
+        entry.occurrences(category="incident", cursor=page.next_cursor)
+    assert cursor_error.value.details["operation"] == "occurrences"
+    assert tuple(scope.key for scope in entry.occurrences(category="incident").items) == (
+        "incident",
+    )
+    assert tuple(scope.key for scope in entry.occurrences(category=None, limit=2).items) == (
+        "holiday",
+        "spring",
+    )
+    after = catalog.readiness(refs=[temporal_set_ref])
+    assert not any(issue.kind == "temporal_set_snapshot_missing" for issue in after.blockers)

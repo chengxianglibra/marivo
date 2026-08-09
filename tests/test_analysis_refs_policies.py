@@ -13,6 +13,7 @@ from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
     day_of_week,
+    occurrence_progress,
     period_correspondence,
     period_progress,
     window_bucket,
@@ -56,6 +57,7 @@ def test_alignment_helpers_have_exact_closed_payloads():
         day_of_week(),
         period_progress(unmatched="drop"),
         period_correspondence(correspondence="prior_year_shifted"),
+        occurrence_progress(anchor="end", unmatched="drop"),
     ]
     assert [policy.kind for policy in policies] == [
         "window_bucket",
@@ -63,6 +65,7 @@ def test_alignment_helpers_have_exact_closed_payloads():
         "day_of_week",
         "period_progress",
         "period_correspondence",
+        "occurrence_progress",
     ]
     assert policies[0].model_dump(mode="json") == {
         "kind": "window_bucket",
@@ -72,6 +75,11 @@ def test_alignment_helpers_have_exact_closed_payloads():
     assert policies[2].model_dump(mode="json")["within"]["unit"] == "month"
     assert policies[3].model_dump(mode="json")["unmatched"] == "drop"
     assert policies[4].model_dump(mode="json")["correspondence"] == "prior_year_shifted"
+    assert policies[5].model_dump(mode="json") == {
+        "kind": "occurrence_progress",
+        "anchor": "end",
+        "unmatched": "drop",
+    }
 
 
 @pytest.mark.parametrize(
@@ -81,6 +89,9 @@ def test_alignment_helpers_have_exact_closed_payloads():
         (day_of_week, {"unmatched": "bad"}),
         (period_progress, {"unmatched": "bad"}),
         (period_correspondence, {"correspondence": "", "unmatched": "fail"}),
+        (occurrence_progress, {"anchor": "middle"}),
+        (occurrence_progress, {"anchor": []}),
+        (occurrence_progress, {"unmatched": []}),
     ],
 )
 def test_alignment_helpers_reject_invalid_arguments(factory, kwargs):

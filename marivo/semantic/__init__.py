@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, ref
+from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, TemporalSetKind, ref
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
@@ -64,6 +64,7 @@ from marivo.semantic.authoring import (
     snapshot,
     state_model,
     strptime,
+    temporal_set,
     time_dimension,
     time_dimension_column,
     timestamp,
@@ -101,6 +102,9 @@ from marivo.semantic.catalog import (
     SimpleMetricDetails,
     StateModelDetails,
     StateModelEntry,
+    TemporalOccurrencePage,
+    TemporalSetDetails,
+    TemporalSetEntry,
     TimeDimensionDetails,
     TimeDimensionEntry,
     load,
@@ -248,6 +252,10 @@ __all__ = [
     "StateModelDetails",
     "StateModelEntry",
     "StateTransition",
+    "TemporalOccurrencePage",
+    "TemporalSetDetails",
+    "TemporalSetEntry",
+    "TemporalSetKind",
     "TimeDimensionDetails",
     "TimeDimensionEntry",
     "VerifyResult",
@@ -290,6 +298,7 @@ __all__ = [
     "snapshot",
     "state_model",
     "strptime",
+    "temporal_set",
     "time_dimension",
     "time_dimension_column",
     "timestamp",

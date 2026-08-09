@@ -50,6 +50,7 @@ from marivo.semantic._authoring_temporal import (
     calendar_grain,
     period_calendar,
     period_correspondence,
+    temporal_set,
 )
 from marivo.semantic._authoring_values import (
     ai_context,
@@ -112,6 +113,7 @@ __all__ = [
     "snapshot",
     "state_model",
     "strptime",
+    "temporal_set",
     "time_dimension",
     "time_dimension_column",
     "timestamp",

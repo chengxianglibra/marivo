@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from marivo._temporal import (
-    _validate_time_scope_data,
+    _time_scope_from_contract_data,
 )
 from marivo._temporal import (
     time_scope as make_time_scope,
@@ -45,6 +45,7 @@ _ALIGNMENT_POLICY_FIELDS = {
     "within",
     "unmatched",
     "correspondence",
+    "anchor",
 }
 
 type ReplayMetricInput = (
@@ -245,7 +246,10 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
             if (
                 "start" in original
                 and "end" in original
-                and original.get("kind") != "calendar_period"
+                # Absolute scopes historically persisted only their bounds.
+                # Keep replay of those existing artifacts lossless while all
+                # semantic scopes continue through the closed contract decoder.
+                and original.get("kind", "absolute") == "absolute"
             ):
                 original_timescope = make_time_scope(
                     start=original["start"],
@@ -253,7 +257,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
                 )
             else:
                 try:
-                    original_timescope = _validate_time_scope_data(original)
+                    original_timescope = _time_scope_from_contract_data(original)
                 except (TypeError, ValueError) as exc:
                     raise AttributionMaterializationError(
                         message="MetricFrame replay contains an invalid persisted time scope",

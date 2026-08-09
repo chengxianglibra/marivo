@@ -21,6 +21,7 @@ from marivo.semantic.ir import (
     RelationshipIR,
     SemiAdditive,
     StateModelIR,
+    TemporalSetIR,
     composition_components,
 )
 from marivo.semantic.validator import Registry
@@ -102,6 +103,10 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.period_calendar(key)), value)
         for key, value in registry.period_calendars.items()
     )
+    rows.update(
+        (cast("Ref[SemanticKindTag]", ref_factory.temporal_set(key)), value)
+        for key, value in registry.temporal_sets.items()
+    )
     return rows
 
 
@@ -130,6 +135,8 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.state_model(path))
     if path in registry.period_calendars:
         return cast("Ref[SemanticKindTag]", ref_factory.period_calendar(path))
+    if path in registry.temporal_sets:
+        return cast("Ref[SemanticKindTag]", ref_factory.temporal_set(path))
     if path in registry.domains:
         return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
@@ -178,6 +185,17 @@ def _dependencies_for(
         paths.append(definition.date)
         paths.extend(ref for _level, ref in definition.levels)
         paths.extend(ref for _name, _level, ref in definition.correspondences)
+    elif isinstance(definition, TemporalSetIR):
+        paths.extend(
+            value
+            for value in (
+                definition.occurrence_id,
+                definition.start,
+                definition.end,
+                definition.category,
+            )
+            if isinstance(value, str)
+        )
     body = sidecar.bodies.get(ref)
     if body is not None:
         paths.extend(binding.field_ref.path for binding in body.bindings)

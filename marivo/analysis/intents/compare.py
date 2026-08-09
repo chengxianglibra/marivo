@@ -582,7 +582,7 @@ def _project_component_role_to_parent_pairs(
 ) -> pd.DataFrame:
     """Project one component role onto the parent's already-paired rows.
 
-    Slice 3 temporal policies are executed exactly once for the parent metric.
+    Closed temporal policies are executed exactly once for the parent metric.
     Component attribution is a value projection over those coordinates; it
     must never invoke a second policy resolver with a potentially different
     candidate set or authority.

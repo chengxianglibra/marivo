@@ -627,6 +627,7 @@ def _build_registry(
         PeriodCalendarIR,
         RelationshipIR,
         StateModelDeclarationIR,
+        TemporalSetIR,
     )
 
     registry = Registry()
@@ -663,6 +664,8 @@ def _build_registry(
                 registry.metrics[sid] = ir
             elif isinstance(ir, PeriodCalendarIR):
                 registry.period_calendars[sid] = ir
+            elif isinstance(ir, TemporalSetIR):
+                registry.temporal_sets[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
             elif isinstance(ir, EventIR):

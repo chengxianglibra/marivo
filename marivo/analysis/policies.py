@@ -15,6 +15,7 @@ AlignmentKind = Literal[
     "period_progress",
     "period_correspondence",
     "day_of_week",
+    "occurrence_progress",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
 UnmatchedMode = Literal["fail", "drop"]
@@ -83,6 +84,12 @@ class _PeriodProgressPolicy(AlignmentPolicy):
 class _PeriodCorrespondencePolicy(AlignmentPolicy):
     kind: Literal["period_correspondence"] = "period_correspondence"
     correspondence: str
+    unmatched: UnmatchedMode = "fail"
+
+
+class _OccurrenceProgressPolicy(AlignmentPolicy):
+    kind: Literal["occurrence_progress"] = "occurrence_progress"
+    anchor: Literal["start", "end"] = "start"
     unmatched: UnmatchedMode = "fail"
 
 
@@ -226,6 +233,45 @@ def period_correspondence(
     )
 
 
+def occurrence_progress(
+    *,
+    anchor: Literal["start", "end"] = "start",
+    unmatched: UnmatchedMode = "fail",
+) -> AlignmentPolicy:
+    """Construct relative-local-day alignment inside two exact occurrences.
+
+    Args:
+        anchor: Count local-day ordinals forward from occurrence start or
+            backward from its exclusive end.
+        unmatched: Whether missing ordinals fail or are dropped and counted.
+
+    Returns:
+        A frozen ``AlignmentPolicy`` tagged ``occurrence_progress``.
+
+    Example:
+        ``session.compare(current, baseline, alignment=mv.occurrence_progress())``.
+
+    Constraints:
+        Both frames must be day-grain time-series or panel frames selected by
+        exact temporal-occurrence scopes.
+    """
+    if type(anchor) is not str or anchor not in {"start", "end"}:
+        raise _invalid_policy(
+            helper="mv.occurrence_progress",
+            received=anchor,
+            reason="anchor must be 'start' or 'end'",
+            fields=("anchor", "unmatched"),
+        )
+    if type(unmatched) is not str or unmatched not in {"fail", "drop"}:
+        raise _invalid_policy(
+            helper="mv.occurrence_progress",
+            received=unmatched,
+            reason="unmatched must be 'fail' or 'drop'",
+            fields=("anchor", "unmatched"),
+        )
+    return _OccurrenceProgressPolicy(anchor=anchor, unmatched=unmatched)
+
+
 def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
     """Decode a persisted policy; this is intentionally not a public input path."""
     if type(payload) is not dict:
@@ -240,6 +286,7 @@ def decode_alignment_policy(payload: Mapping[str, object]) -> AlignmentPolicy:
         "day_of_week": _DayOfWeekPolicy,
         "period_progress": _PeriodProgressPolicy,
         "period_correspondence": _PeriodCorrespondencePolicy,
+        "occurrence_progress": _OccurrenceProgressPolicy,
     }
     variant = variants.get(cast("str", kind))
     if variant is None:

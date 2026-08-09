@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     RelationshipIR,
     SourceLocation,
     StateModelDeclarationIR,
+    TemporalSetIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
@@ -46,6 +47,7 @@ type DefinitionIR = (
     | EventIR
     | StateModelDeclarationIR
     | PeriodCalendarIR
+    | TemporalSetIR
 )
 
 
@@ -126,6 +128,8 @@ def _ir_kind(ir: Any) -> str:
         return "state model"
     if isinstance(ir, PeriodCalendarIR):
         return "period calendar"
+    if isinstance(ir, TemporalSetIR):
+        return "temporal set"
     return type(ir).__name__
 
 
@@ -141,6 +145,7 @@ def _check_duplicate(
         | EventIR
         | StateModelDeclarationIR
         | PeriodCalendarIR
+        | TemporalSetIR
     ],
 ) -> None:
     """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
@@ -162,6 +167,7 @@ def _check_duplicate(
                 EventIR,
                 StateModelDeclarationIR,
                 PeriodCalendarIR,
+                TemporalSetIR,
             ),
         ):
             continue

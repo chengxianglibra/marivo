@@ -630,6 +630,7 @@ def _build_registry() -> CapabilityRegistry:
     from marivo.analysis.policies import (
         SamplingPolicy,
         day_of_week,
+        occurrence_progress,
         period_correspondence,
         period_progress,
         window_bucket,
@@ -1817,6 +1818,15 @@ def _build_registry() -> CapabilityRegistry:
             "AlignmentPolicy",
         ),
         (
+            "occurrence_progress",
+            "mv.occurrence_progress(...)",
+            "occurrence_progress",
+            "Construct same-local-day progress alignment inside two exact temporal occurrences.",
+            occurrence_progress,
+            "AlignmentPolicy",
+            "AlignmentPolicy",
+        ),
+        (
             "TimeScope",
             "mv.time_scope(...)",
             "TimeScope",
@@ -1873,6 +1883,7 @@ def _build_registry() -> CapabilityRegistry:
                         "day_of_week",
                         "period_progress",
                         "period_correspondence",
+                        "occurrence_progress",
                         "AbsoluteWindow",
                         "SamplingPolicy",
                     }

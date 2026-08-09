@@ -178,6 +178,51 @@ persisted as one record per day. `calendar.periods(level, limit=..., cursor=...)
 returns bounded exact scopes for declared levels; missing coverage, stale
 definitions, and malformed evidence fail closed with structured semantic errors.
 
+## Named temporal occurrences
+
+Use a `TemporalSet` for named windows such as holidays, campaigns, launches, or
+incidents whose intervals may overlap or leave gaps. Declare explicit start and
+exclusive end fields with `ms.temporal_set(...)`, then certify the values from one
+exhaustive `DiscoverySnapshot` with `persist_values=True`:
+
+```python
+campaigns_ref = ms.temporal_set(
+    name="campaigns",
+    occurrence_id=ms.ref.dimension("sales.campaigns.campaign_id"),
+    start=ms.ref.time_dimension("sales.campaigns.starts_at"),
+    end=ms.ref.time_dimension("sales.campaigns.ends_at"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    category=ms.ref.dimension("sales.campaigns.category"),
+)
+snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("campaigns")).sample(
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+    columns=("campaign_id", "starts_at", "ends_at", "category"),
+    persist_values=True,
+)
+catalog.preview(campaigns_ref, using=snapshot)
+
+campaigns = catalog.temporal_sets.get("sales.campaigns")
+launch = campaigns.occurrence("spring-2026")
+frame = session.observe(
+    revenue,
+    time_scope=launch,
+    grain=mv.grain("day"),
+)
+```
+
+`mv.grain("day")` is always bounded in the session report timezone. When the
+occurrence uses another boundary timezone, configure the session with the same
+`report_timezone` (or use a certified calendar day grain); Marivo never silently
+reinterprets a bare built-in day grain from the occurrence timezone.
+
+`occurrence(key)` returns an exact, snapshot-bound `TimeScope`; catalog paging is
+bounded and filters half-open interval overlap without reading the datasource
+again. Temporal sets do not infer recurrence or match similarly named occurrences
+across years. Compare two exact occurrence-selected day-grain frames with
+`mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` when
+relative local-day progress is the intended business axis.
+
 ## Build the model
 
 ### 1. Connect a datasource

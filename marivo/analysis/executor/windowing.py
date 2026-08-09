@@ -19,7 +19,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.executor.string_time import _classify_strptime_format, _parse_string_column
 from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.timezone import zoneinfo_from_name
-from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
+from marivo.analysis.windows.spec import AbsoluteWindow, _window_authority_timezone, is_date_only
 from marivo.datasource.engines import profile_for_backend
 from marivo.datasource.engines.base import GENERIC_PROFILE, EngineProfile
 
@@ -1023,6 +1023,7 @@ def apply_window_to_dataset(
             grain=window.get("grain"),
             time_dimension=window.get("time_dimension"),
         )
+    report_tz = _window_authority_timezone(normalized_window, report_tz)
     time_field_ir = resolve_window_time_field(dataset_ir, window=normalized_window)
     if time_field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{time_field_ir.name}' has no time metadata")
