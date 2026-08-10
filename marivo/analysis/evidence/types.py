@@ -229,6 +229,7 @@ class EventTimeToEventAnalysisScope(_FrozenModel):
     source_scope: EventAnalysisScope
     start_step: dict[str, JsonValue]
     end_step: dict[str, JsonValue]
+    axes: tuple[dict[str, JsonValue], ...] = ()
 
 
 class LifecycleAnalysisScope(_FrozenModel):

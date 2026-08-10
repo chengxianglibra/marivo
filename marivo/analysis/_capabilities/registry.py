@@ -962,14 +962,22 @@ def _build_registry() -> CapabilityRegistry:
             help_target="events.time_to_event",
             summary=(
                 "Project exact persisted journey assignments into time-to-event rows "
-                "without querying or rematching Events."
+                "without querying or rematching Events, with optional governed "
+                "subject axes to group elapsed durations."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("event_reducer_source_valid", "event_step_pair_valid"),
+            constraint_ids=(
+                "event_reducer_source_valid",
+                "event_step_pair_valid",
+                "event_subject_axis_valid",
+            ),
             callable_path="marivo.analysis.session.core.SessionEvents.time_to_event",
             receiver="SessionEvents",
-            accepted_inputs={"journeys": _EF},
+            accepted_inputs={
+                "journeys": _EF,
+                "axes": frozenset({"DimensionSemantic"}),
+            },
             artifact_admission={
                 "journeys": ArtifactAdmissionRule(
                     semantic_shapes={"EventFrame": frozenset({"journey"})},

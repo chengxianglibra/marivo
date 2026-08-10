@@ -258,6 +258,7 @@ def _validate_event_reducer_payload(value: object) -> None:
         "time_to_event": {
             "start_step",
             "end_step",
+            "axes",
             "source_unused_end_count",
         },
     }

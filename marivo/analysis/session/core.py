@@ -1731,18 +1731,22 @@ class SessionEvents(RenderableResult):
         *,
         start_step: PatternStep,
         end_step: PatternStep,
+        axes: Sequence[object] = (),
         analysis_purpose: str | None = None,
     ) -> EventFrame:
         """Project persisted Event assignments into exact elapsed durations.
 
         The reducer never queries or rematches Event inputs. ``start_step`` and
         ``end_step`` must be the exact typed steps retained by the source
-        pattern, and the start must precede the end.
+        pattern, and the start must precede the end. ``axes`` may carry
+        governed subject Dimensions to group elapsed durations (each journey
+        subject receives one deterministic cohort-entry axis tuple).
 
         Args:
             journeys: Exact same-session ``EventFrame[journey]``.
             start_step: Exact reached step from the persisted source pattern.
             end_step: Exact later step from the persisted source pattern.
+            axes: Optional governed subject Dimensions retained per row.
             analysis_purpose: Optional business purpose retained in lineage.
 
         Returns:
@@ -1754,6 +1758,7 @@ class SessionEvents(RenderableResult):
             ...     journeys,
             ...     start_step=checkout_step,
             ...     end_step=payment_step,
+            ...     axes=[channel],
             ...     analysis_purpose="Measure checkout-to-payment elapsed time.",
             ... )
         """
@@ -1765,6 +1770,7 @@ class SessionEvents(RenderableResult):
             journeys=journeys,
             start_step=start_step,
             end_step=end_step,
+            axes=axes,
         )
         with _track_session_operation(
             self._session,
@@ -1776,6 +1782,7 @@ class SessionEvents(RenderableResult):
                 journeys,
                 start_step=start_step,
                 end_step=end_step,
+                axes=axes,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

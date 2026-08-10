@@ -325,6 +325,7 @@ class EventTimeToEventFrameMeta(EventFrameMetaBase):
     source_unused_end_count: int = Field(ge=0)
     start_step: PatternStep
     end_step: PatternStep
+    axes: tuple[SubjectAxisBinding, ...] = ()
 
     @model_validator(mode="after")
     def _validate_steps(self) -> EventTimeToEventFrameMeta:
@@ -339,6 +340,12 @@ class EventTimeToEventFrameMeta(EventFrameMetaBase):
             self.end_step.fingerprint
         ):
             raise ValueError("start_step must precede end_step in the retained EventPattern")
+        refs = tuple(item.dimension_ref.path for item in self.axes)
+        columns = tuple(item.output_column for item in self.axes)
+        if len(set(refs)) != len(refs):
+            raise ValueError("EventFrame[time_to_event] axes must have unique Dimension refs")
+        if len(set(columns)) != len(columns):
+            raise ValueError("EventFrame[time_to_event] axes must have unique output columns")
         return self
 
 

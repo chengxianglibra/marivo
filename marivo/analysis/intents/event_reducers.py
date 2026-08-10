@@ -442,6 +442,7 @@ def time_to_event(
     *,
     start_step: PatternStep,
     end_step: PatternStep,
+    axes: Sequence[object] = (),
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> EventFrame:
@@ -461,11 +462,30 @@ def time_to_event(
         start_step=start_step,
         end_step=end_step,
     )
+    subject_entity = ref_factory.entity(journeys.meta.subject_entity_ref.path)
+    resolved_axes = resolve_subject_axes(
+        resolved_session,
+        subject_entity=subject_entity,
+        axes=axes,
+        operator="events.time_to_event",
+    )
+    axis_materialization = materialize_subject_axes(
+        resolved_session,
+        journey_rows=journeys._dataframe_copy(),
+        first_step_key=journeys.meta.pattern.steps[0].key,
+        subject_entity=subject_entity,
+        subject_identity=journeys.meta.subject_identity,
+        axes=resolved_axes,
+        operator="events.time_to_event",
+    )
+    axis_columns = tuple(item.output_column for item in axis_materialization.bindings)
     output = reduce_event_time_to_event(
         journeys._dataframe_copy(),
         pattern=journeys.meta.pattern,
         start_step=start_step,
         end_step=end_step,
+        axis_values=axis_materialization.values if axis_columns else None,
+        axis_columns=axis_columns,
     )
 
     finished_at = datetime.now(UTC)
@@ -475,6 +495,7 @@ def time_to_event(
         "source_artifact_fingerprint": source_fingerprint,
         "start_step": start_step.model_dump(mode="json"),
         "end_step": end_step.model_dump(mode="json"),
+        "axes": [item.model_dump(mode="json") for item in axis_materialization.bindings],
         "source_unused_end_count": journey_meta.unused_event_counts_by_step[end_step.key],
     }
     step = LineageStep(
@@ -486,6 +507,7 @@ def time_to_event(
             "source_artifact_ref": source_ref,
             "start_step": start_step.key,
             "end_step": end_step.key,
+            "axis_refs": [axis.ref.key for axis in resolved_axes],
         },
         analysis_purpose=analysis_purpose,
     )
@@ -520,6 +542,7 @@ def time_to_event(
             source_unused_end_count=journey_meta.unused_event_counts_by_step[end_step.key],
             start_step=start_step,
             end_step=end_step,
+            axes=axis_materialization.bindings,
         ),
     )
     return _commit_reducer(
@@ -533,7 +556,7 @@ def time_to_event(
         finished_at=finished_at,
         analysis_purpose=analysis_purpose,
         params=params,
-        queries=[],
+        queries=list(axis_materialization.lineage),
     )
 
 

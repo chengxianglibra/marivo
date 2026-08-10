@@ -385,6 +385,7 @@ def job_semantics_from_frames(*frames: BaseFrame) -> dict[str, Any]:
                 "coverage_basis": first.coverage_basis,
                 "start_step": first.start_step.model_dump(mode="json"),
                 "end_step": first.end_step.model_dump(mode="json"),
+                "axes": [item.model_dump(mode="json") for item in first.axes],
                 "source_unused_end_count": first.source_unused_end_count,
             }
         else:
