@@ -195,6 +195,7 @@ def run_event_time_to_event_checks(frame: EventFrame) -> list[dict[str, str]]:
         _event_time_to_event_contract_check(df, frame),
         _event_time_to_event_identity_check(df),
         _event_time_to_event_duration_check(df),
+        _event_time_to_event_axis_check(df, frame),
     ]
     rows.extend(_event_coverage_checks(frame))
     rows.append(_event_declaration_check(frame))
@@ -2068,9 +2069,11 @@ def _event_time_to_event_contract_check(
     meta = frame.meta
     if not isinstance(meta, EventTimeToEventFrameMeta):
         raise ValueError("time-to-event quality requires EventFrame[time_to_event]")
-    missing = tuple(column for column in _EVENT_TIME_TO_EVENT_COLUMNS if column not in df)
-    extra = tuple(column for column in df.columns if column not in _EVENT_TIME_TO_EVENT_COLUMNS)
-    column_order_mismatch = tuple(df.columns) != _EVENT_TIME_TO_EVENT_COLUMNS
+    axes = tuple(axis.output_column for axis in meta.axes)
+    expected_columns = (*axes, *_EVENT_TIME_TO_EVENT_COLUMNS)
+    missing = tuple(column for column in expected_columns if column not in df)
+    extra = tuple(column for column in df.columns if column not in expected_columns)
+    column_order_mismatch = tuple(df.columns) != expected_columns
     invalid_statuses = 0
     null_consistency = 0
     duplicate_journeys = 0
@@ -2114,6 +2117,7 @@ def _event_time_to_event_contract_check(
             "duplicate_journeys": duplicate_journeys,
             "start_step": meta.start_step.key,
             "end_step": meta.end_step.key,
+            "axis_count": len(axes),
         },
     )
 
@@ -2182,6 +2186,36 @@ def _event_time_to_event_duration_check(df: pd.DataFrame) -> dict[str, str]:
             "invalid_count": invalid_count,
             "negative_count": negative_count,
             "mismatch_count": mismatch_count,
+        },
+    )
+
+
+def _event_time_to_event_axis_check(df: pd.DataFrame, frame: EventFrame) -> dict[str, str]:
+    meta = frame.meta
+    if not isinstance(meta, EventTimeToEventFrameMeta):
+        raise ValueError("time-to-event quality requires EventFrame[time_to_event]")
+    axes = tuple(meta.axes)
+    missing_columns = tuple(axis.output_column for axis in axes if axis.output_column not in df)
+    invalid_anchor_count = sum(axis.anchor != "cohort_entry" for axis in axes)
+    invalid_null_contract_count = sum(axis.null_group != "explicit" for axis in axes)
+    invalid_count = len(missing_columns) + invalid_anchor_count + invalid_null_contract_count
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "event_time_to_event_axes",
+        "event_time_to_event_axes",
+        severity,
+        severity,
+        (
+            "time-to-event axes retain governed cohort-entry contracts"
+            if not invalid_count
+            else f"time-to-event axes have {invalid_count} violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing_columns,
+            "invalid_anchor_count": invalid_anchor_count,
+            "invalid_null_contract_count": invalid_null_contract_count,
+            "axis_count": len(axes),
         },
     )
 

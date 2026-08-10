@@ -245,6 +245,10 @@ def compute_analysis_scope(frame: BaseFrame) -> EvidenceScope:
                     "dict[str, JsonValue]",
                     event_meta.end_step.model_dump(mode="json"),
                 ),
+                axes=tuple(
+                    cast("dict[str, JsonValue]", axis.model_dump(mode="json"))
+                    for axis in event_meta.axes
+                ),
             )
         return journey_scope
 

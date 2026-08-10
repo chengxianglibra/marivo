@@ -163,9 +163,13 @@ def test_event_metadata_variants_are_closed_and_tagged() -> None:
     funnel_payload = funnel.model_dump(mode="json")
     assert "start_step" not in funnel_payload
     assert "query_refs" not in funnel_payload
+    assert "axes" in funnel_payload
     time_payload = time_to_event.model_dump(mode="json")
-    assert "axes" not in time_payload
+    assert "axes" in time_payload
+    assert "start_step" in time_payload
+    assert "end_step" in time_payload
     assert "unused_event_count" not in time_payload
+    assert "query_refs" not in time_payload
     with pytest.raises(ValueError, match="first_per_subject"):
         EventFunnelFrameMeta(
             **{**common, "matching": mv.every_start(completion_assignment="exclusive")},

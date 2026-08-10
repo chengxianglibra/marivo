@@ -337,6 +337,7 @@ def _quality_issues(
             "event_time_to_event_row_contract",
             "event_time_to_event_identity",
             "event_time_to_event_duration",
+            "event_time_to_event_axes",
             "funnel_delta_alignment",
             "funnel_delta_components",
             "funnel_delta_coverage",

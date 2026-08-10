@@ -13,7 +13,7 @@ import ibis
 import pandas as pd
 
 from marivo.analysis.errors import InvalidSubjectAxisError, RepairKind
-from marivo.analysis.event import _event_repair
+from marivo.analysis.event import EventHelpTarget, _event_repair
 from marivo.analysis.executor.runner import execute
 from marivo.analysis.frames.event import SubjectAxisBinding
 from marivo.analysis.intents._event_funnel import (
@@ -88,6 +88,7 @@ def _axis_error(
     repair_kind: RepairKind = "user_choice",
     action: str,
     candidates: tuple[str, ...] = (),
+    help_target: EventHelpTarget = "events.funnel",
 ) -> InvalidSubjectAxisError:
     return InvalidSubjectAxisError(
         message=message,
@@ -97,7 +98,7 @@ def _axis_error(
         repair=_event_repair(
             kind=repair_kind,
             action=action,
-            help_target="events.funnel",
+            help_target=help_target,
             candidates=candidates,
         ),
     )
@@ -188,6 +189,7 @@ def resolve_subject_axes(
     subject_entity: Ref[EntityKind],
     axes: Sequence[object],
     _reserved_columns: frozenset[str] = _RESERVED_FUNNEL_COLUMNS,
+    operator: EventHelpTarget = "events.funnel",
 ) -> tuple[ResolvedSubjectAxis, ...]:
     """Resolve exact Dimension inputs to unique directed to-one subject paths."""
 
@@ -200,7 +202,7 @@ def resolve_subject_axes(
     seen_refs: set[Ref[DimensionKind]] = set()
     seen_columns: set[str] = set()
     for index, value in enumerate(axes):
-        location = f"session.events.funnel.axes[{index}]"
+        location = f"session.{operator}.axes[{index}]"
         try:
             normalized = _normalize_semantic_input(
                 catalog,
@@ -211,32 +213,35 @@ def resolve_subject_axes(
         except SemanticRuntimeError as exc:
             received_ref = value.ref if isinstance(value, CatalogEntry) else value
             raise _axis_error(
-                "funnel axes accept only current-catalog Dimension entries or exact refs",
+                f"{operator} axes accept only current-catalog Dimension entries or exact refs",
                 expected="DimensionEntry | Ref[dimension]",
                 received=(received_ref.key if type(received_ref) is Ref else type(value).__name__),
                 location=location,
                 repair_kind="inspect",
                 action="Inspect current catalog Dimensions and choose an exact subject axis.",
                 candidates=available,
+                help_target=operator,
             ) from exc
         if normalized.kind is not SemanticKind.DIMENSION:
             raise _axis_error(
-                "funnel axes do not accept TimeDimensions or other semantic kinds",
+                f"{operator} axes do not accept TimeDimensions or other semantic kinds",
                 expected="DimensionEntry | Ref[dimension]",
                 received=normalized.key,
                 location=location,
                 action="Choose a categorical Dimension from the current catalog.",
                 candidates=available,
+                help_target=operator,
             )
         dimension_ref = cast("Ref[DimensionKind]", normalized)
         if dimension_ref in seen_refs:
             raise _axis_error(
-                "funnel axes repeat the same Dimension",
+                f"{operator} axes repeat the same Dimension",
                 expected="unique Dimension refs in caller-declared order",
                 received=dimension_ref.key,
                 location=location,
                 action="Remove the repeated axis or choose a different Dimension.",
                 candidates=available,
+                help_target=operator,
             )
         seen_refs.add(dimension_ref)
         entry = catalog.require(dimension_ref)
@@ -248,12 +253,13 @@ def resolve_subject_axes(
         output_column = details.name
         if output_column in _reserved_columns or output_column in seen_columns:
             raise _axis_error(
-                "funnel axis output column collides with another public column",
-                expected="unique Dimension expression names outside the funnel row contract",
+                f"{operator} axis output column collides with another public column",
+                expected="unique Dimension expression names outside the row contract",
                 received=output_column,
                 location=location,
                 action="Choose Dimensions whose resolved output names are unique.",
                 candidates=available,
+                help_target=operator,
             )
         seen_columns.add(output_column)
         owner = cast("Ref[EntityKind]", details.entity)
@@ -270,6 +276,7 @@ def resolve_subject_axes(
                 location=location,
                 repair_kind="semantic_authoring",
                 action="Author a governed directed relationship path for this subject axis.",
+                help_target=operator,
             )
         if len(paths) != 1:
             candidates = tuple(
@@ -283,6 +290,7 @@ def resolve_subject_axes(
                 repair_kind="semantic_authoring",
                 action="Remove the ambiguous relationship path or choose an unambiguous axis.",
                 candidates=candidates,
+                help_target=operator,
             )
         path = paths[0]
         current_entity = subject_entity.path
@@ -301,6 +309,7 @@ def resolve_subject_axes(
                     location=location,
                     repair_kind="semantic_authoring",
                     action="Repair relationship keys or choose a fanout-safe subject axis.",
+                    help_target=operator,
                 )
             current_entity = relationship.to_entity.path
             current_details = _entity_details(catalog, current_entity)
@@ -312,6 +321,7 @@ def resolve_subject_axes(
                     location=location,
                     repair_kind="semantic_authoring",
                     action="Author an executable same-datasource subject axis path.",
+                    help_target=operator,
                 )
         owner_details = _entity_details(catalog, owner.path)
         versioning_resolution = _versioning_resolution(owner_details)
@@ -427,6 +437,7 @@ def _materialize_one_axis(
     subject_entity: Ref[EntityKind],
     subject_identity: tuple[str, ...],
     axis: ResolvedSubjectAxis,
+    operator: EventHelpTarget = "events.funnel",
 ) -> tuple[pd.DataFrame, tuple[str, ...], dict[str, object]]:
     catalog = session.catalog
     resolver = catalog._semantic_resolver(connections=session._connection_runtime)
@@ -560,7 +571,7 @@ def _materialize_one_axis(
                 "snapshot axis has no point-in-time row for at least one subject",
                 expected="one snapshot row at or before each cohort-entry timestamp",
                 received="missing snapshot point-in-time value",
-                location=f"session.events.funnel.axes[{axis.ref.key}]",
+                location=f"session.{operator}.axes[{axis.ref.key}]",
                 repair_kind="inspect",
                 action="Inspect snapshot coverage at the journey cohort-entry timestamps.",
             )
@@ -574,7 +585,7 @@ def _materialize_one_axis(
             "validity axis has no point-in-time row for at least one subject",
             expected="one validity interval containing each cohort-entry timestamp",
             received="missing validity point-in-time value",
-            location=f"session.events.funnel.axes[{axis.ref.key}]",
+            location=f"session.{operator}.axes[{axis.ref.key}]",
             repair_kind="inspect",
             action="Inspect validity coverage at the journey cohort-entry timestamps.",
         )
@@ -583,7 +594,7 @@ def _materialize_one_axis(
             "subject axis materialization produced multiple values for one subject",
             expected="exactly one axis row per journey subject",
             received="duplicate subject-axis rows",
-            location=f"session.events.funnel.axes[{axis.ref.key}]",
+            location=f"session.{operator}.axes[{axis.ref.key}]",
             repair_kind="inspect",
             action="Inspect relationship keys and versioning intervals for duplicate matches.",
         )
@@ -593,7 +604,7 @@ def _materialize_one_axis(
             "subject axis materialization did not preserve every journey subject",
             expected=f"{expected_count} subject-axis rows",
             received=f"{len(values)} rows",
-            location=f"session.events.funnel.axes[{axis.ref.key}]",
+            location=f"session.{operator}.axes[{axis.ref.key}]",
             repair_kind="inspect",
             action="Inspect subject keys and temporal coverage for missing axis rows.",
         )
@@ -621,6 +632,7 @@ def materialize_subject_axes(
     subject_entity: Ref[EntityKind],
     subject_identity: tuple[str, ...],
     axes: tuple[ResolvedSubjectAxis, ...],
+    operator: EventHelpTarget = "events.funnel",
 ) -> SubjectAxisMaterialization:
     """Materialize one deterministic declared-order axis tuple per subject."""
 
@@ -659,6 +671,7 @@ def materialize_subject_axes(
             subject_entity=subject_entity,
             subject_identity=subject_identity,
             axis=axis,
+            operator=operator,
         )
         combined = combined.merge(
             values,

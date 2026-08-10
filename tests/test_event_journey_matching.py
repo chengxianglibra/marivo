@@ -1193,6 +1193,12 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         start_step=cart_step,
         end_step=payment_step,
     )
+    grouped_time_to_payment = session.events.time_to_event(
+        journeys,
+        start_step=cart_step,
+        end_step=payment_step,
+        axes=[session.catalog.require(ms.ref.dimension("commerce.users.acquisition_channel"))],
+    )
     assert session._connection_runtime.take_captured_queries() == []
 
     funnel_rows = funnel.to_pandas().set_index("step_key")
@@ -1248,6 +1254,21 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert duration_findings[0].value.value.source_unused_end_count == 1
     assert "u1" not in duration_findings[0].model_dump_json()
 
+    grouped_duration_rows = grouped_time_to_payment.to_pandas().sort_values("subject_identity")
+    assert grouped_time_to_payment.meta.axes[0].relationship_path == ()
+    assert grouped_time_to_payment.meta.axes[0].output_column == "acquisition_channel"
+    assert grouped_time_to_payment.meta.source_unused_end_count == 1
+    assert grouped_duration_rows["acquisition_channel"].tolist() == ["paid", "organic"]
+    assert grouped_duration_rows["completion_status"].tolist() == ["complete", "incomplete"]
+    assert grouped_duration_rows.iloc[0]["duration"] == pd.Timedelta(hours=1)
+    assert pd.isna(grouped_duration_rows.iloc[1]["duration"])
+    grouped_duration_findings = session.evidence.findings(
+        artifact_ref=grouped_time_to_payment.ref
+    ).items
+    assert len(grouped_duration_findings) == 1
+    assert grouped_duration_findings[0].value.value.shape == "event_time_to_event"
+    assert "u1" not in grouped_duration_findings[0].model_dump_json()
+
     journey_affordances = {item.capability_id for item in journeys.contract().affordances}
     assert {
         "events.funnel",
@@ -1263,7 +1284,7 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         "assess_quality"
     }
 
-    for artifact in (funnel, grouped_funnel, time_to_payment):
+    for artifact in (funnel, grouped_funnel, time_to_payment, grouped_time_to_payment):
         recovered = session.get_frame(artifact.ref)
         assert isinstance(recovered, mv.EventFrame)
         assert recovered.meta.model_dump(mode="json") == artifact.meta.model_dump(mode="json")
@@ -1276,9 +1297,12 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     funnel_quality = session.assess_quality(funnel)
     grouped_funnel_quality = session.assess_quality(grouped_funnel)
     duration_quality = session.assess_quality(time_to_payment)
+    grouped_duration_quality = session.assess_quality(grouped_time_to_payment)
     assert funnel_quality.meta.report_shape == "event_funnel"
     assert grouped_funnel_quality.meta.report_shape == "event_funnel"
     assert duration_quality.meta.report_shape == "event_time_to_event"
+    assert grouped_duration_quality.meta.report_shape == "event_time_to_event"
     assert funnel_quality.meta.blocking_issue_count == 0
     assert grouped_funnel_quality.meta.blocking_issue_count == 0
     assert duration_quality.meta.blocking_issue_count == 0
+    assert grouped_duration_quality.meta.blocking_issue_count == 0

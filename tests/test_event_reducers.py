@@ -11,7 +11,10 @@ from marivo.analysis.intents._event_funnel import (
     FUNNEL_ADDITIVE_COLUMNS,
     reduce_event_funnel,
 )
-from marivo.analysis.intents._event_time_to_event import reduce_event_time_to_event
+from marivo.analysis.intents._event_time_to_event import (
+    TIME_TO_EVENT_COLUMNS,
+    reduce_event_time_to_event,
+)
 
 
 def _pattern() -> tuple[mv.EventPattern, mv.PatternStep, mv.PatternStep, mv.PatternStep]:
@@ -237,6 +240,107 @@ def test_time_to_event_retains_multiple_attempts_for_one_subject() -> None:
 
     assert set(result["journey_id"]) == {"j1", "j2", "j3", "j5"}
     assert result.loc[result["journey_id"] == "j5", "subject_identity"].iloc[0] == ("u1",)
+
+
+def test_time_to_event_attaches_governed_axis_and_preserves_null_group() -> None:
+    pattern, _cart, checkout, payment = _pattern()
+    axes = pd.DataFrame(
+        {
+            "subject_identity": [("u1",), ("u2",), ("u3",), ("u4",)],
+            "channel": ["paid", "paid", None, "organic"],
+        }
+    )
+
+    result = reduce_event_time_to_event(
+        _journey_rows(),
+        pattern=pattern,
+        start_step=checkout,
+        end_step=payment,
+        axis_values=axes,
+        axis_columns=("channel",),
+    )
+    assert list(result.columns) == ["channel", *TIME_TO_EVENT_COLUMNS]
+    result = result.set_index("journey_id")
+    assert result.loc["j1", "channel"] == "paid"
+    assert result.loc["j2", "channel"] == "paid"
+    assert pd.isna(result.loc["j3", "channel"])
+    assert "j4" not in result.index
+
+
+def test_time_to_event_axis_requires_matching_axis_arguments() -> None:
+    pattern, _cart, checkout, payment = _pattern()
+    axes = pd.DataFrame(
+        {
+            "subject_identity": [("u1",), ("u2",), ("u3",), ("u4",)],
+            "channel": ["paid", "paid", "organic", None],
+        }
+    )
+    with pytest.raises(ValueError, match="axis_columns are required when axis_values"):
+        reduce_event_time_to_event(
+            _journey_rows(),
+            pattern=pattern,
+            start_step=checkout,
+            end_step=payment,
+            axis_values=axes,
+        )
+    with pytest.raises(ValueError, match="axis_values are required when axis_columns"):
+        reduce_event_time_to_event(
+            _journey_rows(),
+            pattern=pattern,
+            start_step=checkout,
+            end_step=payment,
+            axis_columns=("channel",),
+        )
+
+
+def test_time_to_event_axis_rejects_incomplete_or_ambiguous_enrichment() -> None:
+    pattern, _cart, checkout, payment = _pattern()
+    rows = _journey_rows()
+    partial = pd.DataFrame(
+        {
+            "subject_identity": [("u1",), ("u2",)],
+            "channel": ["paid", "paid"],
+        }
+    )
+    with pytest.raises(ValueError, match="cover exactly the journey subjects"):
+        reduce_event_time_to_event(
+            rows,
+            pattern=pattern,
+            start_step=checkout,
+            end_step=payment,
+            axis_values=partial,
+            axis_columns=("channel",),
+        )
+    duplicate = pd.DataFrame(
+        {
+            "subject_identity": [("u1",), ("u1",), ("u2",), ("u3",), ("u4",)],
+            "channel": ["paid", "paid", "paid", "organic", None],
+        }
+    )
+    with pytest.raises(ValueError, match="exactly one row per subject"):
+        reduce_event_time_to_event(
+            rows,
+            pattern=pattern,
+            start_step=checkout,
+            end_step=payment,
+            axis_values=duplicate,
+            axis_columns=("channel",),
+        )
+    missing_column = pd.DataFrame(
+        {
+            "subject_identity": [("u1",), ("u2",), ("u3",), ("u4",)],
+            "other": ["a", "b", "c", "d"],
+        }
+    )
+    with pytest.raises(ValueError, match="missing required columns"):
+        reduce_event_time_to_event(
+            rows,
+            pattern=pattern,
+            start_step=checkout,
+            end_step=payment,
+            axis_values=missing_column,
+            axis_columns=("channel",),
+        )
 
 
 def test_time_to_event_requires_exact_ordered_pattern_steps() -> None:
