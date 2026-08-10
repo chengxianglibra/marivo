@@ -269,6 +269,31 @@ def test_subject_axis_rejects_time_duplicate_and_to_many_paths(
         )
 
 
+def test_subject_axis_rejects_output_colliding_with_operator_reserved_columns(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    session = _axis_session(tmp_path, monkeypatch)
+    # ``channel`` collides with the operator's row contract when it is declared
+    # reserved (e.g. time-to-event reserves ``duration``/``completion_status``).
+    with pytest.raises(InvalidSubjectAxisError, match="collides"):
+        resolve_subject_axes(
+            session,
+            subject_entity=ms.ref.entity("commerce.users"),
+            axes=[ms.ref.dimension("commerce.profiles.channel")],
+            _reserved_columns=frozenset({"channel"}),
+            operator="events.time_to_event",
+        )
+    with pytest.raises(InvalidSubjectAxisError, match="collides"):
+        resolve_subject_axes(
+            session,
+            subject_entity=ms.ref.entity("commerce.users"),
+            axes=[ms.ref.dimension("commerce.profiles.channel")],
+            _reserved_columns=frozenset({"channel"}),
+            operator="events.funnel",
+        )
+
+
 def test_subject_axis_snapshot_and_validity_use_cohort_entry_anchor(
     tmp_path: Any,
     monkeypatch: Any,

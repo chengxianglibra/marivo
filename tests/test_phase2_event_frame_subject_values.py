@@ -189,6 +189,41 @@ def test_grouped_funnel_reconciliation_receipt_rejects_mismatched_hashes() -> No
         )
 
 
+def test_time_to_event_meta_rejects_duplicate_axis_dimension_refs() -> None:
+    common = _event_common()
+    assert isinstance(common["pattern"], EventPattern)
+    _, cart, payment = _pattern()
+    same_axis = SubjectAxisBinding(
+        dimension_ref=RefPayloadV1.from_ref(ms.ref.dimension("commerce.users.acquisition_channel")),
+        output_column="acquisition_channel",
+        versioning_resolution="ordinary",
+    )
+    duplicate_ref_axis = same_axis.model_copy(update={"output_column": "acquisition_channel_2"})
+    with pytest.raises(ValueError, match="unique Dimension refs"):
+        EventTimeToEventFrameMeta(
+            **common,
+            source_journey_ref="frame_journey",
+            source_journey_fingerprint="sha256:journey",
+            source_unused_end_count=0,
+            start_step=cart,
+            end_step=payment,
+            axes=(same_axis, duplicate_ref_axis),
+        )
+    duplicate_column_axis = same_axis.model_copy(
+        update={"dimension_ref": RefPayloadV1.from_ref(ms.ref.dimension("commerce.users.user_id"))}
+    )
+    with pytest.raises(ValueError, match="unique output columns"):
+        EventTimeToEventFrameMeta(
+            **common,
+            source_journey_ref="frame_journey",
+            source_journey_fingerprint="sha256:journey",
+            source_unused_end_count=0,
+            start_step=cart,
+            end_step=payment,
+            axes=(same_axis, duplicate_column_axis),
+        )
+
+
 def test_dropped_before_uses_target_event_coverage_not_journey_status() -> None:
     common = _event_common()
     pattern = common["pattern"]

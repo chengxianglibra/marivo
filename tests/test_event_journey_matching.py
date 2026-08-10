@@ -20,9 +20,11 @@ from marivo.analysis.errors import (
     EventIdentityError,
     EventParticipantCardinalityError,
     InvalidCompletenessDeclarationError,
+    InvalidSubjectAxisError,
     PatternStepMismatchError,
     SubjectSetMismatchError,
 )
+from marivo.analysis.frames._meta_defaults import compute_analysis_scope
 from marivo.analysis.intents import _subject_cohort as subject_cohort_intent
 from marivo.analysis.intents import events as events_intent
 from marivo.analysis.intents._quality_checks import run_event_funnel_checks
@@ -1269,6 +1271,12 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert grouped_duration_findings[0].value.value.shape == "event_time_to_event"
     assert "u1" not in grouped_duration_findings[0].model_dump_json()
 
+    grouped_scope = compute_analysis_scope(grouped_time_to_payment)
+    assert grouped_scope.kind == "event_time_to_event"
+    assert grouped_scope.axes
+    assert grouped_scope.axes[0]["dimension_ref"]["path"] == "commerce.users.acquisition_channel"
+    assert grouped_scope.axes[0]["output_column"] == "acquisition_channel"
+
     journey_affordances = {item.capability_id for item in journeys.contract().affordances}
     assert {
         "events.funnel",
@@ -1306,3 +1314,64 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert grouped_funnel_quality.meta.blocking_issue_count == 0
     assert duration_quality.meta.blocking_issue_count == 0
     assert grouped_duration_quality.meta.blocking_issue_count == 0
+
+
+def test_time_to_event_rejects_axis_colliding_with_emitted_row_columns(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    """time_to_event must fail-closed when an axis output collides with its
+    emitted row contract (P2 regression: reserved columns were not threaded)."""
+    session = _event_session(
+        tmp_path,
+        monkeypatch,
+        event_rows_sql=(
+            "('e1', 'u1', 'cart_created', TIMESTAMP '2026-07-01 01:00:00'),"
+            "('p1', 'u1', 'payment_succeeded', TIMESTAMP '2026-07-01 02:00:00')"
+        ),
+        model_replacements=(
+            (
+                "name='acquisition_channel', entity=users, column='acquisition_channel'",
+                "name='duration', entity=users, column='acquisition_channel'",
+            ),
+        ),
+    )
+    cart = ms.ref.event("commerce.cart_created")
+    payment = ms.ref.event("commerce.payment_succeeded")
+    cart_step = mv.step(
+        participant=ms.participant_role(event=cart, name="user"),
+        key="cart",
+    )
+    payment_step = mv.step(
+        participant=ms.participant_role(event=payment, name="buyer"),
+        key="payment",
+    )
+    through = "2026-07-02T00:00:00Z"
+    journeys = session.events.match(
+        pattern=mv.sequence(cart_step, payment_step),
+        cohort_window=mv.time_scope(
+            start="2026-07-01T00:00:00Z",
+            end=through,
+        ),
+        completion_through=through,
+        matching=mv.first_per_subject(),
+        completeness=(
+            mv.declared_complete_through(
+                inputs=(cart, payment),
+                through=through,
+                rationale="The fixture is reconciled through the follow-up bound.",
+            ),
+        ),
+    )
+    duration_axis = session.catalog.require(ms.ref.dimension("commerce.users.duration"))
+    with pytest.raises(InvalidSubjectAxisError) as captured:
+        session.events.time_to_event(
+            journeys,
+            start_step=cart_step,
+            end_step=payment_step,
+            axes=[duration_axis],
+        )
+    assert captured.value.kind == "invalid_subject_axis"
+    assert captured.value.location == "session.events.time_to_event.axes[0]"
+    assert captured.value.repair is not None
+    assert captured.value.repair.help_target.canonical_id == "events.time_to_event"
