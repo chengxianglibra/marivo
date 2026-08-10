@@ -38,7 +38,10 @@ from marivo.analysis.intents._event_subject_axes import (
     materialize_subject_axes,
     resolve_subject_axes,
 )
-from marivo.analysis.intents._event_time_to_event import reduce_event_time_to_event
+from marivo.analysis.intents._event_time_to_event import (
+    _RESERVED_TIME_TO_EVENT_COLUMNS,
+    reduce_event_time_to_event,
+)
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import (
     persist_job_record,
@@ -467,6 +470,7 @@ def time_to_event(
         resolved_session,
         subject_entity=subject_entity,
         axes=axes,
+        _reserved_columns=_RESERVED_TIME_TO_EVENT_COLUMNS,
         operator="events.time_to_event",
     )
     axis_materialization = materialize_subject_axes(

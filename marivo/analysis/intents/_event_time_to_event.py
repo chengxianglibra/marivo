@@ -8,7 +8,11 @@ from collections.abc import Sequence
 import pandas as pd
 
 from marivo.analysis.event import EventPattern, PatternStep
-from marivo.analysis.intents._event_funnel import _identity_tuple, _validate_journey_rows
+from marivo.analysis.intents._event_funnel import (
+    JOURNEY_COLUMNS,
+    _identity_tuple,
+    _validate_journey_rows,
+)
 
 TIME_TO_EVENT_COLUMNS = (
     "journey_id",
@@ -19,6 +23,15 @@ TIME_TO_EVENT_COLUMNS = (
     "end_time",
     "duration",
     "completion_status",
+)
+
+# Collision surface for governed time-to-event axes: the emitted time-to-event
+# row contract plus the canonical journey row contract that reducer merges onto.
+_RESERVED_TIME_TO_EVENT_COLUMNS = frozenset(
+    {
+        *TIME_TO_EVENT_COLUMNS,
+        *JOURNEY_COLUMNS,
+    }
 )
 
 
@@ -144,4 +157,8 @@ def reduce_event_time_to_event(
     return result.sort_values("journey_id", kind="stable", ignore_index=True)
 
 
-__all__ = ["TIME_TO_EVENT_COLUMNS", "reduce_event_time_to_event"]
+__all__ = [
+    "TIME_TO_EVENT_COLUMNS",
+    "_RESERVED_TIME_TO_EVENT_COLUMNS",
+    "reduce_event_time_to_event",
+]
