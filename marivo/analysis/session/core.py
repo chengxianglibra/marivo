@@ -681,8 +681,8 @@ class Session(RenderableResult):
             | tuple[_SemanticInput[MetricKind] | RuntimeMetricExpr, ...]
         ),
         *,
-        time_scope: TimeScope | None | _Unset = _UNSET,
-        grain: TemporalGrain | None | _Unset = _UNSET,
+        time_scope: TimeScope | _Unset | None = _UNSET,
+        grain: TemporalGrain | _Unset | None = _UNSET,
         dimensions: list[_SemanticInput[DimensionKind | TimeDimensionKind]]
         | _Unset
         | None = _UNSET,
