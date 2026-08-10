@@ -1,13 +1,46 @@
-# Marivo
+<p align="center">
+  <a href="https://marivo.io" target="_blank">
+    <img src="https://raw.githubusercontent.com/chengxianglibra/marivo/main/site/src/assets/marivo-mark.svg" alt="Marivo" width="128">
+  </a>
+</p>
 
-[简体中文](README.zh-CN.md) | English
+<h1 align="center">Marivo</h1>
 
-## A Data Analysis Harness for AI Agents
+<p align="center">
+  <em>A data analysis harness for AI agents that keeps business meaning, analytical steps, session state, and evidence connected.</em>
+</p>
 
-Marivo is a Python framework that helps AI agents analyze business data through
+<p align="center">
+  <a href="https://marivo.io/docs/latest/" target="_blank"><strong>Docs</strong></a> ·
+  <a href="https://marivo.io/docs/latest/first-analysis/" target="_blank"><strong>First Analysis</strong></a> ·
+  <a href="https://discord.gg/8WqCzeaYk" target="_blank"><strong>Discord</strong></a> ·
+  <a href="https://marivo.io/blog/" target="_blank"><strong>Blog</strong></a> ·
+  <a href="https://github.com/chengxianglibra/marivo" target="_blank"><strong>GitHub</strong></a>
+</p>
+
+<p align="center">
+  <b>English</b>
+  <b> | </b>
+  <a href="README.zh-CN.md"><b>简体中文</b></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/chengxianglibra/marivo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/chengxianglibra/marivo/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/marivo/"><img src="https://img.shields.io/pypi/v/marivo" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/marivo/"><img src="https://img.shields.io/pypi/pyversions/marivo" alt="Python versions"></a>
+  <a href="https://github.com/chengxianglibra/marivo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/chengxianglibra/marivo" alt="License"></a>
+</p>
+
+**Marivo** is a Python framework that helps AI agents analyze business data through
 shared semantics, typed analysis operations, persistent sessions, and recorded
-evidence. It runs alongside the agent and turns an open-ended data question into
-a reviewable investigation.
+evidence. It turns an open-ended business question into a reviewable investigation.
+
+**Highlights**
+
+- 🧭 **shared semantics:** define metrics, dimensions, relationships, and guardrails once instead of rebuilding them in every query
+- 🧮 **typed analysis:** move through explicit operators with bounded inputs, outputs, and failure modes
+- 🗂️ **persistent sessions:** keep the question, intermediate results, and artifacts together so an investigation can resume
+- 🔎 **traceable evidence:** keep findings connected to source results, analytical scope, and limitations
 
 Marivo is not a hosted chat UI or a Text-to-SQL wrapper. The agent works with
 declared business meaning and bounded analytical operations instead of rebuilding
