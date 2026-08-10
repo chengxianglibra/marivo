@@ -1,10 +1,44 @@
-# Marivo
+<p align="center">
+  <a href="https://marivo.io" target="_blank">
+    <img src="https://raw.githubusercontent.com/chengxianglibra/marivo/main/site/src/assets/marivo-mark.svg" alt="Marivo" width="128">
+  </a>
+</p>
 
-[English](README.md) | 简体中文
+<h1 align="center">Marivo</h1>
 
-## 面向 AI 智能体的数据分析 Harness 框架
+<p align="center">
+  <em>面向 AI 智能体的数据分析 Harness：把业务语义、分析过程、会话状态和证据连接在一起。</em>
+</p>
 
-Marivo 是一个 Python 框架，让 AI 智能体基于统一的业务语义、类型化分析操作、持久化会话和证据记录来分析业务数据。它与智能体运行在同一环境中，把开放式的数据问题转化为可以检查和继续推进的调查过程。
+<p align="center">
+  <a href="https://marivo.io/zh-cn/docs/latest/" target="_blank"><strong>文档</strong></a> ·
+  <a href="https://marivo.io/zh-cn/docs/latest/first-analysis/" target="_blank"><strong>第一次分析</strong></a> ·
+  <a href="https://discord.gg/8WqCzeaYk" target="_blank"><strong>Discord</strong></a> ·
+  <a href="https://marivo.io/zh-cn/blog/" target="_blank"><strong>博客</strong></a> ·
+  <a href="https://github.com/chengxianglibra/marivo" target="_blank"><strong>GitHub</strong></a>
+</p>
+
+<p align="center">
+  <a href="README.md"><b>English</b></a>
+  <b> | </b>
+  <b>简体中文</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/chengxianglibra/marivo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/chengxianglibra/marivo/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/marivo/"><img src="https://img.shields.io/pypi/v/marivo" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/marivo/"><img src="https://img.shields.io/pypi/pyversions/marivo" alt="Python versions"></a>
+  <a href="https://github.com/chengxianglibra/marivo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/chengxianglibra/marivo" alt="License"></a>
+</p>
+
+**Marivo** 是一个 Python 框架，让 AI 智能体基于共享语义、类型化分析操作、持久化会话和可追溯证据分析业务数据。它把开放式业务问题转化为可以检查、继续和复盘的调查过程。
+
+**核心能力**
+
+- 🧭 **共享语义**：一次定义指标、维度、关系和使用约束，不需要在每次查询中重新推导
+- 🧮 **类型化分析**：通过有明确输入、输出和失败边界的算子推进分析
+- 🗂️ **持久化会话**：把问题、中间结果和分析产物保存在同一条调查线上，随时可以继续
+- 🔎 **可追溯证据**：让分析发现始终连接到来源结果、分析范围和限制
 
 Marivo 不是托管的聊天界面，也不是 Text-to-SQL 包装器。智能体使用已经声明的业务含义和有明确边界的分析操作，不需要在每次 SQL 查询中重新推导指标、关联关系和分析逻辑。
 
