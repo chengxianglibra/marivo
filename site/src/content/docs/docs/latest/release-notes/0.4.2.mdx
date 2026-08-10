@@ -1,0 +1,88 @@
+---
+slug: docs/latest/release-notes/0.4.2
+title: Marivo 0.4.2
+description: Release notes for Marivo 0.4.2.
+---
+
+Marivo 0.4.2 unifies temporal semantics across semantic authoring, analysis
+selection, alignment, evidence, and forecasting. It adds certified custom
+periods, named occurrences, working-day schedules, and the typed contracts
+needed to use them reproducibly.
+
+## Highlights
+
+- Temporal semantics now have separate, reusable authorities: `PeriodCalendar`
+  for fiscal and retail periods, `TemporalSet` for named intervals or dates,
+  and `WorkSchedule` for certified working-day status. `Grain`, `TimeScope`,
+  and `AlignmentPolicy` carry the exact semantic variant and provenance.
+- Semantic authoring and catalog loading can certify period calendars, calendar
+  levels, temporal occurrences, and work schedules. Analysis reuses the exact
+  project-local snapshot and digest instead of deriving boundaries or holidays
+  independently.
+- Certified semantic grains support observation, roll-up, comparison, and
+  custom-period forecasting over ordinal periods with exact keys and bounds.
+  Incomplete, stale, or mismatched snapshots fail before an artifact is written.
+- Comparison adds typed `period_progress`, `period_correspondence`,
+  `occurrence_progress`, and `working_day_progress` policies for equal progress
+  inside periods, named period mappings, named occurrences, and working-day
+  ordinals.
+
+## Breaking changes
+
+- Temporal authorities require exact typed semantic references or catalog
+  entries. Analysis no longer infers fiscal periods, holidays, occurrences, or
+  working-day status from names, locale, or local parameters.
+- Analysis artifacts use `analysis-artifact/v8`. Older artifact schemas and
+  removed fields such as `component_graph_ref` are rejected fail-closed rather
+  than migrated or dual-read; recreate the analysis session after upgrading.
+
+## Changed
+
+- Temporal bindings, period correspondence, occurrence scopes, work schedules,
+  and alignment policies are persisted as typed evidence, including the
+  authority ref, snapshot digest, boundary timezone, and exact half-open bounds.
+- Frame metadata now preserves the report timezone used for coverage and
+  quality calculations. Timezone mixing is canonicalized before coverage
+  ratios are computed.
+- Public errors and contracts expose more precise repair locations for missing
+  temporal authority, invalid coverage, reserved columns, and unsupported
+  metric arity. Live help and exported symbols remain deterministic with the
+  runtime surface.
+- The documentation site adds a bilingual homepage and design blog, exposes
+  search and indexing signals, and builds the Sphinx API reference as part of
+  the repository check.
+
+## Fixed
+
+- Comparison and correlation evidence now remains bound to the exact selected
+  period or lag used for the reported result.
+- Coverage without a coverage sidecar returns no coverage claim, while
+  attribution extraction failures no longer hide rows that remain readable and
+  reconciled.
+- Certified roll-up keys, temporal occurrence identity, and forecast period
+  boundaries are preserved through persistence and reload.
+
+## Documentation
+
+- Added the unified temporal semantics specification covering period calendars,
+  temporal sets, work schedules, grains, scopes, and alignment.
+- Updated English and Chinese analysis workflow guidance for certified temporal
+  selection, alignment, working-day comparison, and semantic-grain forecasting.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.2
+requires Python 3.12 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)
