@@ -680,12 +680,26 @@ def _populate_component_mix(
     output["mix_effect"] = (current_share - baseline_share) * baseline_value
     output["residual"] = output["contribution"] - output["value_effect"] - output["mix_effect"]
     if bool(output["contribution"].isna().any()):
+        invalid_row_count = int(output["contribution"].isna().sum())
         raise ComponentDecompositionError(
             message="component-aware decompose could not form every contribution row",
+            expected="every pair to carry both a current and a baseline component value",
+            received=f"{invalid_row_count} contribution row(s) could not be formed",
+            location="session.attribute component decomposition",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Inspect the component sidecar for rows that fail temporal "
+                    "alignment (e.g. missing/NaT time keys); re-observe the "
+                    "derived metric with a complete temporal axis, or drop the "
+                    "un-matchable component rows, then retry attribution."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
             context={
                 "component_ref": component.ref,
                 "share_role": share_role,
-                "invalid_row_count": int(output["contribution"].isna().sum()),
+                "invalid_row_count": invalid_row_count,
             },
         )
     output["current_share"] = current_share
