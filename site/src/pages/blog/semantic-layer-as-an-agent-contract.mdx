@@ -36,6 +36,10 @@ Putting metric definitions in the agent prompt can improve one conversation. It 
 
 Prompts vary by entry point, team, and model. Conversations end. Rules in a long context may be compressed. The same definition is often copied into several skills and scripts, which then change independently. More importantly, a sentence such as “revenue excludes refunds” does not say which entity it applies to, how refunds are related, which timeline governs recognition, or whether the definition still runs against the current datasource.
 
+A knowledge base is a better home for durable context, but it cannot carry this responsibility alone. It still presents the agent with text to retrieve and interpret. A relevant passage may not be retrieved; conflicting versions may both appear; and the document itself cannot establish that a rule applies to the current question. Even when “revenue excludes refunds” is retrieved correctly, the text does not bind revenue to a particular entity, metric, expression, and timeline. Nor can it stop the analysis when a source field changes or the calculation no longer runs.
+
+This does not make the knowledge base unimportant. It is well suited to policy background, rationale, exceptions, and worked examples. Stable definitions, however, need an executable semantic contract governed by code, version control, and runtime checks. The knowledge base supplies context; the semantic layer supplies a stable business identity that the agent can reference and the runtime can validate.
+
 The first job of a semantic layer is not to give the agent more information. It is to prevent the agent from quietly switching definitions. The agent remains free to decide how to investigate a revenue decline, but every step must refer to the same stable revenue identity. If that definition is missing or no longer valid, the system should stop instead of inventing a convenient substitute in the current conversation.
 
 ### Access does not create a business contract
