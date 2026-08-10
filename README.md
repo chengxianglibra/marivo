@@ -14,8 +14,7 @@
   <a href="https://marivo.io/docs/latest/" target="_blank"><strong>Docs</strong></a> ·
   <a href="https://marivo.io/docs/latest/first-analysis/" target="_blank"><strong>First Analysis</strong></a> ·
   <a href="https://discord.gg/8WqCzeaYk" target="_blank"><strong>Discord</strong></a> ·
-  <a href="https://marivo.io/blog/" target="_blank"><strong>Blog</strong></a> ·
-  <a href="https://github.com/chengxianglibra/marivo" target="_blank"><strong>GitHub</strong></a>
+  <a href="https://marivo.io/blog/" target="_blank"><strong>Blog</strong></a>
 </p>
 
 <p align="center">

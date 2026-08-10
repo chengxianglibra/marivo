@@ -14,8 +14,7 @@
   <a href="https://marivo.io/zh-cn/docs/latest/" target="_blank"><strong>文档</strong></a> ·
   <a href="https://marivo.io/zh-cn/docs/latest/first-analysis/" target="_blank"><strong>第一次分析</strong></a> ·
   <a href="https://discord.gg/8WqCzeaYk" target="_blank"><strong>Discord</strong></a> ·
-  <a href="https://marivo.io/zh-cn/blog/" target="_blank"><strong>博客</strong></a> ·
-  <a href="https://github.com/chengxianglibra/marivo" target="_blank"><strong>GitHub</strong></a>
+  <a href="https://marivo.io/zh-cn/blog/" target="_blank"><strong>博客</strong></a>
 </p>
 
 <p align="center">
