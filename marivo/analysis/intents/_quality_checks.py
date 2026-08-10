@@ -1716,7 +1716,13 @@ def _time_coverage_check(
     # Issue #70: canonicalize an aware scope window against naive (or different
     # tz) frame bucket timestamps onto one wall-clock basis; otherwise the
     # membership test below fails for every bucket and reports 0% coverage.
-    expected, observed_ts = canonicalize_coverage_timestamps(expected, observed_ts, tz=tz)
+    # A naive frame time column contains local wall-clock buckets. When the
+    # explicit scope is aware, let the canonicalizer use that scope timezone
+    # instead of reinterpreting the naive buckets in the host report timezone.
+    expected_aware = expected.tz is not None
+    observed_aware = len(observed_ts) > 0 and observed_ts.dt.tz is not None
+    canonical_tz = tz if expected_aware == observed_aware else None
+    expected, observed_ts = canonicalize_coverage_timestamps(expected, observed_ts, tz=canonical_tz)
     observed = normalize_coverage_buckets(observed_ts, grain=grain).unique()
     observed_set = {pd.Timestamp(value) for value in observed}
     expected_buckets = normalize_coverage_buckets(pd.Series(expected), grain=grain)
