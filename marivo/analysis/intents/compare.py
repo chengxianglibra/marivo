@@ -631,8 +631,15 @@ def _project_component_role_to_parent_pairs(
     baseline_value = value_column(baseline_role, baseline_data, time_column=baseline_time)
 
     def temporal_key(value: object) -> tuple[str, str]:
-        """Normalize date/datetime representations across persisted frames."""
+        """Normalize date/datetime representations across persisted frames.
 
+        A missing temporal coordinate (None/NaT/nan) is treated as an
+        un-matchable key so the component temporal join drops the row instead
+        of crashing on ``pd.Timestamp(NaT).time()`` (issue #75).
+        """
+
+        if pd.isna(cast("Any", value)):
+            return ("raw", "<missing>")
         if isinstance(value, datetime):
             timestamp = pd.Timestamp(value)
             if timestamp.tzinfo is not None:

@@ -1413,3 +1413,196 @@ def test_decompose_component_ratio_rejects_reserved_axis_column(
     assert error.repair.kind == "semantic_authoring"
     # Failing closed must not leave a partially-persisted attribution artifact.
     assert [job.intent for job in session.jobs() if job.intent == "attribute"] == []
+
+
+def _reattach_component_frame(session, frame: MetricFrame, time_column: str) -> MetricFrame:
+    """Rebuild and persist a metric's component frame with the time column
+    coerced to datetime64, simulating the real-data form where a missing
+    temporal coordinate survives as a genuine ``pd.NaT``."""
+    component = frame.components()
+    df = component._dataframe_copy()
+    df[time_column] = pd.to_datetime(df[time_column])
+    rebuilt = ComponentFrame(_df=df, meta=component.meta)
+    rebuilt.meta = persist_frame(session, rebuilt)
+    frame.meta = frame.meta.model_copy(update={"component_ref": rebuilt.ref})
+    frame.meta = persist_frame(session, frame)
+    return frame
+
+
+def test_compare_time_series_component_naT_time_key_does_not_crash():
+    """Issue #75: a component row whose temporal key is NaT must not crash
+    component alignment with ``ValueError: NaTType does not support time``.
+
+    Previously ``temporal_key`` fed a datetime64 NaT straight into
+    ``pd.Timestamp(value).time()`` which raises for NaT. The component
+    temporal join must treat a missing temporal coordinate as an
+    un-matchable key (dropped from the join) rather than blowing up.
+    """
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "order_date",
+        }
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_nat",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-02", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "failed_count": 25.0,
+                "total_count": 100.0,
+                "failure_rate": 0.25,
+            },
+            {
+                # Missing temporal coordinate for this component row.
+                "bucket_start": pd.NaT,
+                "failed_count": 50.0,
+                "total_count": 100.0,
+                "failure_rate": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_nat",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-26", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-25", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "failed_count": 10.0,
+                "total_count": 100.0,
+                "failure_rate": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-25",
+                "failed_count": 20.0,
+                "total_count": 50.0,
+                "failure_rate": 0.40,
+            },
+        ],
+    )
+
+    # Coerce the component time columns to datetime64 so the missing row
+    # survives as a genuine NaT — the exact form that previously crashed.
+    current = _reattach_component_frame(session, current, "bucket_start")
+    baseline = _reattach_component_frame(session, baseline, "bucket_start")
+
+    delta = session.compare(current, baseline, alignment=window_bucket())
+
+    # The delta itself must still be produced; the unmatched NaT row is
+    # dropped from the component projection instead of crashing.
+    assert delta.meta.component_ref is not None
+    component_df = delta.components().to_pandas()
+    # Only the pair-matching rows survive the temporal join.
+    assert not component_df.empty
+    assert "__component_time" not in component_df.columns
+    assert "__temporal_join_key" not in component_df.columns
+
+
+def test_attribute_panel_component_naT_time_key_raises_typed_error():
+    """Issue #75: attribute over a component-aware panel delta whose component
+    rows carry a NaT temporal key must surface a structured typed error, not a
+    raw ``ValueError: NaTType does not support time``.
+
+    Mirrors the q04/q05 scenario. The NaT component row is un-matchable and is
+    dropped by the temporal join; when that leaves the decomposition unable to
+    form every contribution row, attribute must fail with the typed
+    ``ComponentDecompositionError`` (with kind/repair) instead of leaking the
+    pandas/stdlib crash.
+    """
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_dimension": "order_date",
+        },
+        "region": {"role": "dimension", "column": "region"},
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_attr_nat",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "region": "NORTH", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-01", "region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "region": "NORTH",
+                "failed_count": 25.0,
+                "total_count": 100.0,
+                "failure_rate": 0.25,
+            },
+            {
+                # Missing temporal coordinate for this component row.
+                "bucket_start": pd.NaT,
+                "region": "SOUTH",
+                "failed_count": 50.0,
+                "total_count": 100.0,
+                "failure_rate": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_attr_nat",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "region": "NORTH", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-24", "region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "region": "NORTH",
+                "failed_count": 10.0,
+                "total_count": 100.0,
+                "failure_rate": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-24",
+                "region": "SOUTH",
+                "failed_count": 20.0,
+                "total_count": 50.0,
+                "failure_rate": 0.40,
+            },
+        ],
+    )
+
+    current = _reattach_component_frame(session, current, "bucket_start")
+    baseline = _reattach_component_frame(session, baseline, "bucket_start")
+
+    delta = session.compare(current, baseline)
+
+    with pytest.raises(ComponentDecompositionError) as exc_info:
+        session.attribute(delta, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
+    # The structured typed error must carry kind + context + repair, not leak
+    # the raw ``NaTType does not support time`` ValueError.
+    assert exc_info.value.kind == "ComponentDecomposition"
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert "contribution" in exc_info.value.message
