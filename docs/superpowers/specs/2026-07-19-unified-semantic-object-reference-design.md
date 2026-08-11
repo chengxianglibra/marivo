@@ -495,10 +495,10 @@ Dots belong only to the semantic path. Parsing never guesses where kind ends.
 Fields have one meaning:
 
 ```python
-ref.kind   # SemanticKind.METRIC
-ref.path   # "sales.revenue"
-ref.key    # "metric:sales.revenue"
-ref.name   # "revenue"
+ref.kind  # SemanticKind.METRIC
+ref.path  # "sales.revenue"
+ref.key  # "metric:sales.revenue"
+ref.name  # "revenue"
 ```
 
 `.id` and `.semantic_id` are not public ref fields. Catalog entries expose the
@@ -608,8 +608,8 @@ Wrong textual shapes are rejected by the selected factory:
 
 ```python
 ms.ref.metric("metric:sales.revenue")  # invalid_ref: pass semantic path only
-ms.ref.metric("revenue")               # invalid_ref: missing domain path
-ms.ref.dimension("sales.revenue")       # invalid_ref: missing entity path
+ms.ref.metric("revenue")  # invalid_ref: missing domain path
+ms.ref.dimension("sales.revenue")  # invalid_ref: missing entity path
 ```
 
 `ms.Ref` is the only public Python owner and help target. `marivo.datasource`
@@ -810,11 +810,11 @@ RelationshipEntry
 The common base is `CatalogEntry[K]`. Every entry exposes:
 
 ```python
-entry.ref       # Ref[K]
-entry.kind      # delegated from ref
-entry.path      # delegated from ref
-entry.key       # delegated from ref
-entry.name      # local display/lookup name
+entry.ref  # Ref[K]
+entry.kind  # delegated from ref
+entry.path  # delegated from ref
+entry.key  # delegated from ref
+entry.name  # local display/lookup name
 entry.details()
 entry.contract()
 entry.render()
@@ -846,8 +846,8 @@ country = country_entry.ref
 Every `CatalogCollection[K]` has the same protocol:
 
 ```python
-collection.items   # tuple[CatalogEntry[K], ...]
-collection.refs    # tuple[Ref[K], ...]
+collection.items  # tuple[CatalogEntry[K], ...]
+collection.refs  # tuple[Ref[K], ...]
 collection.get(local_name)
 collection.render()
 collection.show()
@@ -940,8 +940,8 @@ The boundaries remain distinct:
 Readiness returns exact refs:
 
 ```python
-report.analysis_ready_refs       # tuple[Ref[SemanticKindTag], ...]
-report.preview_required_refs     # tuple[Ref[SemanticKindTag], ...]
+report.analysis_ready_refs  # tuple[Ref[SemanticKindTag], ...]
+report.preview_required_refs  # tuple[Ref[SemanticKindTag], ...]
 ```
 
 `SemanticKindTag` is the already defined covariant generic bound representing
@@ -1002,9 +1002,9 @@ the accepted semantic kinds rather than an alias name.
 Analysis rejects all implicit conversions:
 
 ```python
-session.observe(metric_entry)         # invalid_input
-session.observe("sales.revenue")      # invalid_input
-session.observe(entity_ref)           # semantic_kind_mismatch
+session.observe(metric_entry)  # invalid_input
+session.observe("sales.revenue")  # invalid_input
+session.observe(entity_ref)  # semantic_kind_mismatch
 session.observe(metric_ref, dimensions=[measure_ref])  # semantic_kind_mismatch
 ```
 

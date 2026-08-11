@@ -126,9 +126,11 @@ class CumulativeBridgeGrainV1(BaseModel):
         "executor_day_default",
     ]
 
+
 class AvailableCumulativeBridgeV1(BaseModel):
     status: Literal["available"]
     value: CumulativeBridgeGrainV1
+
 
 class BlockedCumulativeBridgeV1(BaseModel):
     status: Literal["blocked"]
@@ -138,50 +140,60 @@ class BlockedCumulativeBridgeV1(BaseModel):
     current_report_timezone: str
     baseline_report_timezone: str
 
+
 type CumulativeBridgeV1 = Annotated[
     AvailableCumulativeBridgeV1 | BlockedCumulativeBridgeV1,
     Field(discriminator="status"),
 ]
 
+
 class CumulativeBaseComponentV1(BaseModel):
     canonical_expression_fingerprint: str
     aggregation: Literal["sum", "count", "count_distinct"]
 
+
 class DirectCumulativeAttributionV1(BaseModel):
     kind: Literal["direct"]
     base: CumulativeBaseComponentV1
+
 
 class RatioCumulativeAttributionV1(BaseModel):
     kind: Literal["ratio"]
     numerator: CumulativeBaseComponentV1
     denominator: CumulativeBaseComponentV1
 
+
 class WeightedCumulativeAttributionV1(BaseModel):
     kind: Literal["weighted_mean"]
     numerator: CumulativeBaseComponentV1
     weight: CumulativeBaseComponentV1
 
+
 class LinearCumulativeTermV1(BaseModel):
     coefficient: float
     component: CumulativeBaseComponentV1
+
 
 class LinearCumulativeAttributionV1(BaseModel):
     kind: Literal["linear"]
     terms: tuple[LinearCumulativeTermV1, ...]
 
+
 type CumulativeAttributionStructureV1 = Annotated[
-    DirectCumulativeAttributionV1 |
-    RatioCumulativeAttributionV1 |
-    WeightedCumulativeAttributionV1 |
-    LinearCumulativeAttributionV1,
+    DirectCumulativeAttributionV1
+    | RatioCumulativeAttributionV1
+    | WeightedCumulativeAttributionV1
+    | LinearCumulativeAttributionV1,
     Field(discriminator="kind"),
 ]
+
 
 class CumulativeAttributionContractV1(BaseModel):
     schema: Literal["cumulative-attribution/v1"]
     over_ref: RefPayloadV1
     bridge: CumulativeBridgeV1
     structure: CumulativeAttributionStructureV1
+
 
 class CumulativeDeltaFrameMetaV1(DeltaFrameMeta):
     artifact_schema: Literal["cumulative-delta/v1"]
@@ -242,23 +254,18 @@ SupportedCumulativeAttributionRouteV1(
 BlockedCumulativeAttributionRouteV1(
     status="blocked",
     blocker=(
-        "base_non_additive" |
-        "bridge_grain_mismatch" |
-        "component_time_bridge_unsupported" |
-        "over_plus_business_axis_unsupported"
+        "base_non_additive"
+        | "bridge_grain_mismatch"
+        | "component_time_bridge_unsupported"
+        | "over_plus_business_axis_unsupported"
     ),
     repair=AnalysisRepair(...),
 )
 
+
 class CumulativeAttributionCapabilityV1(BaseModel):
-    business_axes: (
-        SupportedCumulativeAttributionRouteV1 |
-        BlockedCumulativeAttributionRouteV1
-    )
-    accumulation_time: (
-        SupportedCumulativeAttributionRouteV1 |
-        BlockedCumulativeAttributionRouteV1
-    )
+    business_axes: SupportedCumulativeAttributionRouteV1 | BlockedCumulativeAttributionRouteV1
+    accumulation_time: SupportedCumulativeAttributionRouteV1 | BlockedCumulativeAttributionRouteV1
     mixed_axes: BlockedCumulativeAttributionRouteV1
 ```
 
@@ -447,9 +454,11 @@ class CumulativeAttributionPartitionV1(BaseModel):
     residual: float
     tolerance: float = Field(ge=0)
 
+
 class CumulativeAllHistoryPartitionV1(CumulativeAttributionPartitionV1):
     current_evaluation_end: datetime
     baseline_evaluation_end: datetime
+
 
 class CumulativeComparablePeriodPartitionV1(CumulativeAttributionPartitionV1):
     current_scope_start: datetime
@@ -457,15 +466,16 @@ class CumulativeComparablePeriodPartitionV1(CumulativeAttributionPartitionV1):
     baseline_scope_start: datetime
     baseline_scope_end: datetime
 
+
 class AllHistoryAnchorSemanticsV1(BaseModel):
     kind: Literal["all_history"]
 
+
 type CumulativeAttributionAnchorV1 = Annotated[
-    AllHistoryAnchorSemanticsV1 |
-    GrainToDateAnchorSemanticsV1 |
-    TrailingAnchorSemanticsV1,
+    AllHistoryAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1 | TrailingAnchorSemanticsV1,
     Field(discriminator="kind"),
 ]
+
 
 class CumulativeBusinessAxisEvidenceV1(BaseModel):
     kind: Literal["cumulative_business_axes"]
@@ -473,6 +483,7 @@ class CumulativeBusinessAxisEvidenceV1(BaseModel):
     anchor: CumulativeAttributionAnchorV1
     over_ref: RefPayloadV1
     partitions: tuple[CumulativeAttributionPartitionV1, ...]
+
 
 class CumulativeAllHistoryFlowEvidenceV1(BaseModel):
     kind: Literal["cumulative_all_history_flow"]
@@ -482,6 +493,7 @@ class CumulativeAllHistoryFlowEvidenceV1(BaseModel):
     bridge_grain: CumulativeBridgeGrainV1
     effect_kinds: tuple[Literal["between_cutoffs"]]
     partitions: tuple[CumulativeAllHistoryPartitionV1, ...]
+
 
 class CumulativeGrainToDateFlowEvidenceV1(BaseModel):
     kind: Literal["cumulative_grain_to_date_flow"]
@@ -496,6 +508,7 @@ class CumulativeGrainToDateFlowEvidenceV1(BaseModel):
     ]
     partitions: tuple[CumulativeComparablePeriodPartitionV1, ...]
 
+
 class CumulativeTrailingFlowEvidenceV1(BaseModel):
     kind: Literal["cumulative_trailing_flow"]
     route: Literal["accumulation_time"]
@@ -509,11 +522,12 @@ class CumulativeTrailingFlowEvidenceV1(BaseModel):
     ]
     partitions: tuple[CumulativeComparablePeriodPartitionV1, ...]
 
+
 type CumulativeAttributionEvidenceV1 = Annotated[
-    CumulativeBusinessAxisEvidenceV1 |
-    CumulativeAllHistoryFlowEvidenceV1 |
-    CumulativeGrainToDateFlowEvidenceV1 |
-    CumulativeTrailingFlowEvidenceV1,
+    CumulativeBusinessAxisEvidenceV1
+    | CumulativeAllHistoryFlowEvidenceV1
+    | CumulativeGrainToDateFlowEvidenceV1
+    | CumulativeTrailingFlowEvidenceV1,
     Field(discriminator="kind"),
 ]
 ```

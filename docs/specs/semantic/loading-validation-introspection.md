@@ -23,7 +23,7 @@ registry, and returns a `SemanticCatalog`.
 ```python
 import marivo.semantic as ms
 
-catalog = ms.load()                     # locate the nearest models/semantic/ upward
+catalog = ms.load()  # locate the nearest models/semantic/ upward
 catalog = ms.load(workspace_dir="models/semantic", domains=["sales"])  # explicit root + filter
 catalog.domains.show()
 ```

@@ -245,9 +245,7 @@ refund_pressure = mo.influences(
     driver=refund_rate,
     outcome=healthy_order_rate,
     ai_context=ms.ai_context(
-        business_definition=(
-            "Refund pressure may contribute to deterioration in order health."
-        ),
+        business_definition=("Refund pressure may contribute to deterioration in order health."),
     ),
 )
 ```

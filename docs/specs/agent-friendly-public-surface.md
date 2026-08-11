@@ -20,11 +20,11 @@ Marivo's public surface is the Python library: one global help coordinator,
 three execution modules, and one optional knowledge extension:
 
 ```python
-import marivo                    # bounded global and focused help
-import marivo.datasource as md   # physical connections + datasource evidence
-import marivo.semantic  as ms    # the business-object contract
-import marivo.analysis  as mv    # typed, composable analysis operators
-import marivo.ontology  as mo    # optional reviewed semantic relationships
+import marivo  # bounded global and focused help
+import marivo.datasource as md  # physical connections + datasource evidence
+import marivo.semantic as ms  # the business-object contract
+import marivo.analysis as mv  # typed, composable analysis operators
+import marivo.ontology as mo  # optional reviewed semantic relationships
 ```
 
 The primary consumer of this surface is not a human at a REPL. It is a coding
@@ -129,9 +129,9 @@ contract test rather than a base class
 ([agent result surface design](../superpowers/specs/2026-06-13-agent-result-surface-design.md)):
 
 ```python
-repr(result)     # one line: kind + identity + "call .show() to inspect"; no IO
+repr(result)  # one line: kind + identity + "call .show() to inspect"; no IO
 result.render()  # the same bounded plain-text card, returned as a string, no IO
-result.show()    # prints render() + newline, returns None
+result.show()  # prints render() + newline, returns None
 ```
 
 `show()`/`render()` emit a **bounded result card**, not a data dump. The card has
@@ -331,8 +331,11 @@ evidence.show()
 
 # 5. author — one object, in a Python _domain.py file (the source of truth)
 dt = ms.time_dimension_column(
-    name="order_date", entity=orders, column="dt",
-    granularity="day", parse=ms.strptime("%Y%m%d"),
+    name="order_date",
+    entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
 )
 
 # 6. reload the typed object, verify statically, then preview against the snapshot
@@ -361,17 +364,21 @@ Analysis deliberately narrows the agent's mental model to **two exits per
 artifact** ([frame/result interface simplification](../superpowers/specs/2026-06-28-frame-result-interface-simplification-design.md)):
 
 ```python
-session    = mv.session.get_or_create(name="revenue_drop")
-catalog    = session.catalog
-revenue    = catalog.metrics.get("sales.revenue")
+session = mv.session.get_or_create(name="revenue_drop")
+catalog = session.catalog
+revenue = catalog.metrics.get("sales.revenue")
 created_at = catalog.time_dimensions.get("sales.orders.created_at")
 
-cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
-base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
+cur = session.observe(
+    revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month"
+)
+base = session.observe(
+    revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month"
+)
 
-cur.show()                                              # observe the current bounded result
+cur.show()  # observe the current bounded result
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-delta.contract()                                        # machine-readable compatibility before the next operator
+delta.contract()  # machine-readable compatibility before the next operator
 attribution = session.attribute(delta, axes=[created_at])
 attribution.show()
 ```

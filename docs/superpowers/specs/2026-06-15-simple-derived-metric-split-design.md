@@ -138,10 +138,12 @@ L1 不会膨胀：识别集由“**独立且必要的归因语义**”界定，�
 ```python
 TimeFold = Literal["last", "first", "avg", "max", "min"] | tuple[Literal["quantile"], float]
 
+
 @dataclass(frozen=True)
 class SemiAdditive:
-    over: str           # status_time_dimension —— 半可加所在时间轴
-    fold: TimeFold      # 沿该轴的塌缩算子（绝不含 sum / none）
+    over: str  # status_time_dimension —— 半可加所在时间轴
+    fold: TimeFold  # 沿该轴的塌缩算子（绝不含 sum / none）
+
 
 Additivity = Literal["additive", "non_additive"] | SemiAdditive
 ```
@@ -193,7 +195,8 @@ def dimension(
     name: str | None = None,
     entity: EntityRef | str,
     kind: Literal["categorical", "measure"] = "categorical",
-    additivity: Additivity | None = None,                  # 仅 measure：additive / non_additive / ms.semi_additive(over, fold)
+    additivity: Additivity
+    | None = None,  # 仅 measure：additive / non_additive / ms.semi_additive(over, fold)
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -224,9 +227,9 @@ ms.semi_additive(over=<time_dim>, fold="last")     # -> SemiAdditive；over/fold
 ```python
 def aggregate(
     *,
-    measure: DimensionRef | str,                              # 必须是 kind="measure" 的维度
-    agg: AggKind,                                             # sum/count/count_distinct/min/max/avg/median/percentile
-    fold: TimeFold | None = None,                            # 仅半可加时作为塌缩算子覆盖；省略则继承 measure 默认
+    measure: DimensionRef | str,  # 必须是 kind="measure" 的维度
+    agg: AggKind,  # sum/count/count_distinct/min/max/avg/median/percentile
+    fold: TimeFold | None = None,  # 仅半可加时作为塌缩算子覆盖；省略则继承 measure 默认
     name: str | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
@@ -251,7 +254,7 @@ def simple_metric(
     *,
     name: str | None = None,
     entities: list[EntityRef | str],
-    additivity: Additivity,                                 # "additive" | "non_additive" | ms.semi_additive(over, fold)
+    additivity: Additivity,  # "additive" | "non_additive" | ms.semi_additive(over, fold)
     root_entity: EntityRef | str | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
@@ -296,46 +299,63 @@ ms.linear(name=, *, add=[<metric>, ...], subtract=[<metric>, ...], unit=None, ..
 def snapshot_date(inventory):
     return inventory.as_of
 
-@ms.dimension(kind="measure", entity=inventory,                       # 存量
-              additivity=ms.semi_additive(over=snapshot_date, fold="last"))
+
+@ms.dimension(
+    kind="measure",
+    entity=inventory,  # 存量
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
 def quantity(inventory):
     return inventory.qty
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive")   # 流量
+
+@ms.dimension(kind="measure", entity=orders, additivity="additive")  # 流量
 def amount(orders):
     return orders.amount
+
 
 @ms.dimension(kind="measure", entity=orders, additivity="non_additive")  # 强度量
 def unit_price(orders):
     return orders.unit_price
 
+
 # ---------- 2. 简单指标 · tier-1（继承本质，近乎零声明） ----------
-revenue           = ms.aggregate(measure=amount, agg="sum")                 # additive
-order_count       = ms.aggregate(measure=amount, agg="count")              # additive（计行）
-ending_inventory  = ms.aggregate(measure=quantity, agg="sum")              # semi（继承 fold="last"）
-average_inventory = ms.aggregate(measure=quantity, agg="sum", fold="avg")  # agg=跨仓求和, fold=沿时间取平均
-avg_unit_price    = ms.aggregate(measure=unit_price, agg="avg")            # non_additive
+revenue = ms.aggregate(measure=amount, agg="sum")  # additive
+order_count = ms.aggregate(measure=amount, agg="count")  # additive（计行）
+ending_inventory = ms.aggregate(measure=quantity, agg="sum")  # semi（继承 fold="last"）
+average_inventory = ms.aggregate(
+    measure=quantity, agg="sum", fold="avg"
+)  # agg=跨仓求和, fold=沿时间取平均
+avg_unit_price = ms.aggregate(measure=unit_price, agg="avg")  # non_additive
 # ms.aggregate(measure=unit_price, agg="sum")  -> 校验拒绝：强度量不可求和
 
+
 # ---------- 3. 简单指标 · tier-2（逃生舱） ----------
-@ms.simple_metric(entities=[orders], additivity="additive")   # 行级乘法后求和
+@ms.simple_metric(entities=[orders], additivity="additive")  # 行级乘法后求和
 def gmv(orders):
     return (orders.price * orders.qty).sum()
 
+
 # agg×fold 正交：峰值总带宽 = 跨链路求和 × 沿时间取 max
-@ms.dimension(kind="measure", entity=samples,
-              additivity=ms.semi_additive(over=sample_time, fold="last"))
+@ms.dimension(
+    kind="measure", entity=samples, additivity=ms.semi_additive(over=sample_time, fold="last")
+)
 def bw(samples):
     return samples.bw
+
+
 peak_bandwidth = ms.aggregate(measure=bw, agg="sum", fold="max")
 
 # ---------- 4. 派生指标 ----------
-aov           = ms.derived_metric(name="aov",
-                  composition=ms.ratio(numerator=revenue, denominator=order_count))
-total_revenue = ms.derived_metric(name="total_revenue",
-                  composition=ms.linear(add=[product_revenue, service_revenue]))   # additive
-net_revenue   = ms.derived_metric(name="net_revenue",
-                  composition=ms.linear(add=[gross_revenue], subtract=[refunds]))  # additive
+aov = ms.derived_metric(
+    name="aov", composition=ms.ratio(numerator=revenue, denominator=order_count)
+)
+total_revenue = ms.derived_metric(
+    name="total_revenue", composition=ms.linear(add=[product_revenue, service_revenue])
+)  # additive
+net_revenue = ms.derived_metric(
+    name="net_revenue", composition=ms.linear(add=[gross_revenue], subtract=[refunds])
+)  # additive
 ```
 
 ## IR 形态（IR Shape）
@@ -345,12 +365,15 @@ net_revenue   = ms.derived_metric(name="net_revenue",
 ```python
 TimeFold = Literal["last", "first", "avg", "max", "min"] | tuple[Literal["quantile"], float]
 
+
 @dataclass(frozen=True)
 class SemiAdditive:
-    over: str           # status_time_dimension
+    over: str  # status_time_dimension
     fold: TimeFold
 
+
 Additivity = Literal["additive", "non_additive"] | SemiAdditive
+
 
 @dataclass(frozen=True)
 class RatioComposition:
@@ -358,21 +381,25 @@ class RatioComposition:
     denominator: str
     kind: Literal["ratio"] = "ratio"
 
+
 @dataclass(frozen=True)
 class WeightedAverageComposition:
     value: str
     weight: str
     kind: Literal["weighted_average"] = "weighted_average"
 
+
 @dataclass(frozen=True)
 class LinearTerm:
     sign: Literal["+", "-"]
     metric: str
 
+
 @dataclass(frozen=True)
 class LinearComposition:
     terms: tuple[LinearTerm, ...]
     kind: Literal["linear"] = "linear"
+
 
 # L2 预留，本设计不实现：
 #   class ExpressionComposition:
@@ -389,8 +416,10 @@ Composition = RatioComposition | WeightedAverageComposition | LinearComposition
 @dataclass(frozen=True)
 class DimensionIR:
     ...
-    kind: DimensionKind                       # categorical | measure | time
-    additivity: Additivity | None = None      # 仅 measure：additive / non_additive / SemiAdditive(over, fold)
+    kind: DimensionKind  # categorical | measure | time
+    additivity: Additivity | None = (
+        None  # 仅 measure：additive / non_additive / SemiAdditive(over, fold)
+    )
 ```
 
 ### 指标
@@ -404,18 +433,20 @@ class MetricIR:
     metric_type: Literal["simple", "derived"]
 
     # 授权输入（按形态互斥）：
-    aggregation: AggKind | None               # tier-1 有值；tier-2/derived 为 None
-    measure: str | None                       # tier-1 聚合的 measure 维度 ref
-    composition: Composition | None           # derived 专属
+    aggregation: AggKind | None  # tier-1 有值；tier-2/derived 为 None
+    measure: str | None  # tier-1 聚合的 measure 维度 ref
+    composition: Composition | None  # derived 专属
 
     # 解析后的有效汇总语义（所有指标都有）：
-    entities: tuple[str, ...]                 # simple 非空；derived 为空
-    additivity: Additivity | None             # tier-1/derived 在 load 时解析(此前为 None);tier-2 直接声明。load 后恒为具体值。
+    entities: tuple[str, ...]  # simple 非空；derived 为空
+    additivity: (
+        Additivity | None
+    )  # tier-1/derived 在 load 时解析(此前为 None);tier-2 直接声明。load 后恒为具体值。
 
     provenance: ProvenanceIR
     description: str | None
     ai_context: AiContextIR
-    body_ast_hash: str                        # tier-2 为 body hash；derived 为组合结构 hash
+    body_ast_hash: str  # tier-2 为 body hash；derived 为组合结构 hash
     python_symbol: str
     location: SourceLocation
     root_entity: str | None = None
@@ -425,13 +456,13 @@ class MetricIR:
     def __post_init__(self) -> None:
         if self.metric_type == "simple":
             if not self.entities:
-                raise ValueError(...)                      # 简单指标需要 entities
+                raise ValueError(...)  # 简单指标需要 entities
             if self.composition is not None:
-                raise ValueError(...)                      # 简单指标无 composition
+                raise ValueError(...)  # 简单指标无 composition
             # tier-1：aggregation+measure 二者皆有、无 body；tier-2：二者皆 None、有 body
             tier1 = self.aggregation is not None
             if tier1 != (self.measure is not None):
-                raise ValueError(...)                      # aggregation 与 measure 同进同出
+                raise ValueError(...)  # aggregation 与 measure 同进同出
         else:  # derived
             if self.entities:
                 raise ValueError(...)
@@ -461,11 +492,11 @@ class MetricIR:
 ```python
 class MetricDetails:
     metric_type: Literal["simple", "derived"]
-    additivity: Additivity                                 # additive / non_additive / SemiAdditive(over, fold)
-    aggregation: AggKind | None                            # tier-1 展示用
+    additivity: Additivity  # additive / non_additive / SemiAdditive(over, fold)
+    aggregation: AggKind | None  # tier-1 展示用
     measure: SemanticRef | None
     composition: Literal["ratio", "weighted_average", "linear"] | None
-    components: tuple[tuple[str, SemanticRef], ...]         # role-keyed，仅公开名
+    components: tuple[tuple[str, SemanticRef], ...]  # role-keyed，仅公开名
     ...
 ```
 

@@ -810,9 +810,9 @@ They must not expose:
 Every public object returned by `.contract()` implements:
 
 ```python
-repr(contract)       # bounded one line, no I/O
-contract.render()    # bounded text, no I/O
-contract.show()      # prints render(), returns None
+repr(contract)  # bounded one line, no I/O
+contract.render()  # bounded text, no I/O
+contract.show()  # prints render(), returns None
 ```
 
 Its typed fields remain directly accessible. Adding bounded rendering does not
@@ -905,9 +905,9 @@ unknown total cardinality of the underlying query. Its existing immutable
 truncation facts remain adjacent:
 
 ```python
-result.row_count          # returned bounded rows
-result.is_truncated       # whether more rows existed at execution time
-result.requested_limit    # requested result bound
+result.row_count  # returned bounded rows
+result.is_truncated  # whether more rows existed at execution time
+result.requested_limit  # requested result bound
 ```
 
 `RawSqlResult.render()` and `.show()` display `row_count` together with

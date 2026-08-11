@@ -468,6 +468,7 @@ The target filtered authoring shape is additive to `marivo.semantic`:
 ```python
 import marivo.semantic as ms
 
+
 @ms.event(
     name="refund_requested",
     identity=(event_id,),
@@ -479,9 +480,7 @@ import marivo.semantic as ms
             cardinality="one",
         ),
     ),
-    ai_context=ms.ai_context(
-        business_definition="A request to refund an order."
-    ),
+    ai_context=ms.ai_context(business_definition="A request to refund an order."),
 )
 def refund_requested(event_rows):
     return ms.bind(event_type, event_rows) == "refund_requested"
@@ -494,12 +493,8 @@ The corresponding unfiltered shape remains a decorated function:
     name="order_created",
     identity=(order_event_id,),
     occurred_at=created_at,
-    participants=(
-        ms.participant(name="order", cardinality="one"),
-    ),
-    ai_context=ms.ai_context(
-        business_definition="An order creation occurrence."
-    ),
+    participants=(ms.participant(name="order", cardinality="one"),),
+    ai_context=ms.ai_context(business_definition="An order creation occurrence."),
 )
 def order_created(order_rows):
     return ms.all_rows()
@@ -605,9 +600,7 @@ order_lifecycle = ms.state_model(
             to_state=fulfilled,
         ),
     ),
-    ai_context=ms.ai_context(
-        business_definition="Commercial order lifecycle."
-    ),
+    ai_context=ms.ai_context(business_definition="Commercial order lifecycle."),
 )
 ```
 
@@ -741,9 +734,7 @@ current_order_state = ms.state_projection(
     name="current_order_state",
     state_field=order_status,
     normalized_states=order_normalized_states,
-    ai_context=ms.ai_context(
-        business_definition="Current operational order status."
-    ),
+    ai_context=ms.ai_context(business_definition="Current operational order status."),
 )
 
 order_state_projection = ms.state_projection(
@@ -751,9 +742,7 @@ order_state_projection = ms.state_projection(
     state_field=state_code,
     subject_path=(state_row_to_order,),
     normalized_states=order_normalized_states,
-    ai_context=ms.ai_context(
-        business_definition="Operational order-state history."
-    ),
+    ai_context=ms.ai_context(business_definition="Operational order-state history."),
 )
 ```
 
@@ -1114,9 +1103,7 @@ with `mv.first_per_subject()`. With no axes it emits one row per PatternStep.
 With axes it emits one row per exact axis-value tuple and PatternStep:
 
 ```python
-acquisition_channel_entry = session.catalog.dimensions.get(
-    acquisition_channel
-)
+acquisition_channel_entry = session.catalog.dimensions.get(acquisition_channel)
 plan_tier_entry = session.catalog.dimensions.get(plan_tier)
 
 channel_funnel = session.events.funnel(
@@ -1651,9 +1638,7 @@ delta = session.compare(
 )
 
 account_region_entry = session.catalog.dimensions.get(account_region)
-acquisition_channel_entry = session.catalog.dimensions.get(
-    acquisition_channel
-)
+acquisition_channel_entry = session.catalog.dimensions.get(acquisition_channel)
 plan_tier_entry = session.catalog.dimensions.get(plan_tier)
 
 drivers = session.attribute(

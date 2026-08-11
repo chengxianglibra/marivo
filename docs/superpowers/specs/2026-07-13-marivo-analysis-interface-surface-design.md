@@ -1005,6 +1005,7 @@ unqualified string:
 ```python
 HelpSurface = Literal["analysis", "datasource", "semantic"]
 
+
 class LiveHelpTarget(BaseModel):
     surface: HelpSurface
     canonical_id: str | None = None
@@ -1355,6 +1356,7 @@ RepairKind = Literal[
     "semantic_authoring",
     "environment",
 ]
+
 
 class AnalysisRepair(BaseModel):
     kind: RepairKind

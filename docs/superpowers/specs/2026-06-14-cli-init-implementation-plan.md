@@ -749,10 +749,12 @@ In `marivo/cli.py`, add before the `marivo.toml` creation line:
 Add to `tests/test_cli.py` in the `TestInitCreatesAllArtifacts` class:
 
 ```python
-    def test_prints_initialized_header(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        init_project(project_dir=tmp_path)
-        captured = capsys.readouterr()
-        assert f"Initialized Marivo project in {tmp_path}" in captured.out
+def test_prints_initialized_header(
+    self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    init_project(project_dir=tmp_path)
+    captured = capsys.readouterr()
+    assert f"Initialized Marivo project in {tmp_path}" in captured.out
 ```
 
 - [ ] **Step 3: Run tests to verify**

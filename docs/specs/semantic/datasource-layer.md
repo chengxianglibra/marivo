@@ -89,8 +89,8 @@ import marivo.datasource as md
 md.trino(
     name="warehouse",
     host="trino.example.com",
-    catalog="hive",           # connection target, mapped to the ibis database
-    schema="sales_mart",      # optional default schema
+    catalog="hive",  # connection target, mapped to the ibis database
+    schema="sales_mart",  # optional default schema
     user_env="WAREHOUSE_USER",
     auth_env="WAREHOUSE_AUTH",
 )
@@ -141,7 +141,7 @@ native temporal column instead.
 Semantic declarations reference a datasource by one exact ref:
 
 ```python
-warehouse = ms.ref.datasource("warehouse")   # -> Ref[datasource]
+warehouse = ms.ref.datasource("warehouse")  # -> Ref[datasource]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 
@@ -209,8 +209,8 @@ physical `format=`.
 
 ```python
 spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
-md.register(spec)                 # writes models/datasources/warehouse.py
-md.test(spec.ref).show()          # validated live round trip
+md.register(spec)  # writes models/datasources/warehouse.py
+md.test(spec.ref).show()  # validated live round trip
 ```
 
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
@@ -256,9 +256,7 @@ inspection = md.inspect(warehouse, md.table("orders"))
 inspection.show()
 inspection.partitions().show()
 
-scope = md.partition(
-    {"dt": "20260710"}, max_rows=1000, timeout_seconds=30
-)
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "status", "dt", "amount"),

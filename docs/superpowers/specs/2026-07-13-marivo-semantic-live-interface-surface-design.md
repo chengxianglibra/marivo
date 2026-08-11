@@ -522,6 +522,7 @@ AuthoringStateId = Literal[
     "semantic.ready",
 ]
 
+
 class AuthoringStateRef(BaseModel):
     id: AuthoringStateId
     subject_refs: tuple[str, ...] = ()
@@ -684,6 +685,7 @@ Cross-surface links use the shared private target value:
 ```python
 HelpSurface = Literal["analysis", "datasource", "semantic"]
 
+
 class LiveHelpTarget(BaseModel):
     surface: HelpSurface
     canonical_id: str | None = None
@@ -734,6 +736,7 @@ EffectFlag = Literal[
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",
 ]
+
 
 class AuthoringEffects(BaseModel):
     data_access: DataAccessEffect
@@ -1031,6 +1034,7 @@ TransitionInputRole = Literal[
     "mapping_key",
 ]
 
+
 class AuthoringInputRequirement(BaseModel):
     role: TransitionInputRole
     family: str
@@ -1038,6 +1042,7 @@ class AuthoringInputRequirement(BaseModel):
     exact_keys: tuple[str, ...] = ()
     min_count: int = 1
     max_count: int | None = 1
+
 
 class AuthoringTransition(BaseModel):
     kind: TransitionKind
@@ -1049,6 +1054,7 @@ class AuthoringTransition(BaseModel):
     available: bool
     input_requirements: tuple[AuthoringInputRequirement, ...] = ()
     blocked_by: tuple[str, ...] = ()
+
 
 class AuthoringContract(BaseModel):
     subject_refs: tuple[str, ...]
@@ -1150,6 +1156,7 @@ RepairKind = Literal[
     "repreview",
     "environment",
 ]
+
 
 class AuthoringRepair(BaseModel):
     kind: RepairKind

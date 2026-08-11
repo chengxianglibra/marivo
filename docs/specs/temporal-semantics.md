@@ -443,6 +443,7 @@ class SemanticCatalog:
     @property
     def work_schedules(self) -> CatalogCollection[WorkScheduleKind]: ...
 
+
 class DomainEntry:
     @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]: ...
@@ -790,6 +791,7 @@ class CalendarPeriodPage:
     def next_cursor(self) -> str | None: ...
     def show(self) -> None: ...
 
+
 class CalendarLevelDetails:
     name: str
     key_ref: Ref[DimensionKind] | Ref[TimeDimensionKind]
@@ -797,7 +799,9 @@ class CalendarLevelDetails:
     direct_finer_levels: tuple[str, ...] | None
     direct_coarser_levels: tuple[str, ...] | None
     rollup_targets: tuple[str, ...] | None
+
     def show(self) -> None: ...
+
 
 class PeriodCalendarDetails:
     ref: Ref[PeriodCalendarKind]
@@ -810,6 +814,7 @@ class PeriodCalendarDetails:
     parents: tuple[Ref[SemanticKindTag], ...]
     children: tuple[Ref[SemanticKindTag], ...]
     dependents: tuple[Ref[SemanticKindTag], ...]
+
     def show(self) -> None: ...
 ```
 
@@ -870,6 +875,7 @@ class TemporalSetEntry:
     def contract(self) -> AuthoringContract: ...
     def show(self) -> None: ...
 
+
 class WorkScheduleEntry:
     @property
     def ref(self) -> Ref[WorkScheduleKind]: ...
@@ -894,6 +900,7 @@ class TemporalOccurrencePage:
     def next_cursor(self) -> str | None: ...
     def show(self) -> None: ...
 
+
 class TemporalSetDetails:
     ref: Ref[TemporalSetKind]
     boundary_timezone: str
@@ -907,7 +914,9 @@ class TemporalSetDetails:
     parents: tuple[Ref[SemanticKindTag], ...]
     children: tuple[Ref[SemanticKindTag], ...]
     dependents: tuple[Ref[SemanticKindTag], ...]
+
     def show(self) -> None: ...
+
 
 class WorkScheduleDetails:
     ref: Ref[WorkScheduleKind]
@@ -919,6 +928,7 @@ class WorkScheduleDetails:
     parents: tuple[Ref[SemanticKindTag], ...]
     children: tuple[Ref[SemanticKindTag], ...]
     dependents: tuple[Ref[SemanticKindTag], ...]
+
     def show(self) -> None: ...
 ```
 
@@ -1194,9 +1204,7 @@ callers do not branch on it to reproduce calendar logic.
 ```python
 class TimeScope:
     @property
-    def kind(self) -> Literal[
-        "absolute", "calendar_period", "temporal_occurrence"
-    ]: ...
+    def kind(self) -> Literal["absolute", "calendar_period", "temporal_occurrence"]: ...
     @property
     def start(self) -> date | datetime: ...
     @property
@@ -1424,7 +1432,9 @@ The common public member is:
 ```python
 class AlignmentPolicy:
     @property
-    def kind(self) -> Literal[
+    def kind(
+        self,
+    ) -> Literal[
         "window_bucket",
         "period_progress",
         "period_correspondence",

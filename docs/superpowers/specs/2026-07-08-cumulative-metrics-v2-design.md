@@ -59,7 +59,7 @@ Two new public constructors returning frozen value objects (precedent:
 `ms.semi_additive`):
 
 ```python
-ms.grain_to_date(grain="month")   # grain: week | month | quarter | year
+ms.grain_to_date(grain="month")  # grain: week | month | quarter | year
 ms.trailing(count=7, unit="day")  # count >= 1; unit: fixed-size only
 ```
 

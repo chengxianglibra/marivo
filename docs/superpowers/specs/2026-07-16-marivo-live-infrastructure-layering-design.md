@@ -294,6 +294,7 @@ generic resolved target.
 ```python
 DescriptorT_co = TypeVar("DescriptorT_co", covariant=True)
 
+
 class LiveSurfaceRegistry(Protocol[DescriptorT_co]):
     surface: HelpSurface
 

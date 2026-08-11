@@ -63,8 +63,8 @@ The current frame/result surface has four agent-ergonomics problems.
 Agents should learn exactly this path:
 
 ```python
-artifact.show()       # observe the current bounded result
-artifact.contract()   # inspect machine-readable compatibility before next call
+artifact.show()  # observe the current bounded result
+artifact.contract()  # inspect machine-readable compatibility before next call
 artifact.to_pandas()  # terminal escape hatch for custom analysis
 ```
 

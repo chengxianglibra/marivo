@@ -231,10 +231,12 @@ does not use a single optional-field mega result.
 DiscoverySeverity = Literal["blocker", "warning", "info"]
 EvidenceValue = str | int | float | bool | None
 
+
 @dataclass(frozen=True)
 class DiscoveryEvidenceEntry:
     key: str
     value: EvidenceValue
+
 
 @dataclass(frozen=True)
 class DiscoverySignal:
@@ -242,6 +244,7 @@ class DiscoverySignal:
     kind: str
     subject: str
     evidence: tuple[DiscoveryEvidenceEntry, ...]
+
 
 @dataclass(frozen=True)
 class DiscoveryIssue:
@@ -251,6 +254,7 @@ class DiscoveryIssue:
     subject: str
     message: str
     evidence: tuple[DiscoveryEvidenceEntry, ...]
+
 
 @dataclass(frozen=True)
 class SemanticJudgmentTarget:
@@ -372,6 +376,7 @@ class EntityDiscoveryCandidate:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+
 @dataclass(frozen=True)
 class ColumnDiscoveryCandidate:
     column: str
@@ -379,10 +384,12 @@ class ColumnDiscoveryCandidate:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+
 @dataclass(frozen=True)
 class TimeValueRange:
     lower: str | int | datetime.datetime | None
     upper: str | int | datetime.datetime | None
+
 
 @dataclass(frozen=True)
 class TimeColumnDiscoveryCandidate:
@@ -393,6 +400,7 @@ class TimeColumnDiscoveryCandidate:
     partition_aligned: bool
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
+
 
 @dataclass(frozen=True)
 class RelationshipDiscoveryEvidence:
@@ -410,10 +418,12 @@ class RelationshipDiscoveryEvidence:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+
 @dataclass(frozen=True)
 class DimensionValueFact:
     value: str | int | float | bool | None
     count: int
+
 
 @dataclass(frozen=True)
 class DimensionValueDiscoveryResult:

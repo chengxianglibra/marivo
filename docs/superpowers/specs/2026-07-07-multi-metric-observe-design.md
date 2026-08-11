@@ -109,8 +109,8 @@ frame = session.observe(
     time_scope={"start": "2026-06-29", "end": "2026-07-05"},
     grain="day",
 )
-frame.show()                      # time axis + four value columns
-dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
+frame.show()  # time axis + four value columns
+dau = frame.metric("analytics.dau")  # arity-1 MetricFrame
 ```
 
 - `metrics` accepts a single `MetricInput` or a non-empty sequence of
