@@ -69,20 +69,26 @@ New module `marivo/analysis/frames/transforms.py`:
 ```python
 TFrame = TypeVar("TFrame", MetricFrame, DeltaFrame)
 
+
 class _FrameTransforms(Generic[TFrame]):
     _frame: TFrame
+
     def filter(self, *, predicate: Callable[[pd.DataFrame], pd.Series]) -> TFrame: ...
     def slice(self, *, slice_by: dict[DimensionInput, SliceValue]) -> TFrame: ...
     def rollup(self, *, drop_axes: list[DimensionInput]) -> TFrame: ...
     def topk(self, *, by: str, limit: int) -> TFrame: ...
     def bottomk(self, *, by: str, limit: int) -> TFrame: ...
-    def rank(self, *, by: str, method: RankMethod = "ordinal",
-             rank_column: str = "rank") -> TFrame: ...
+    def rank(
+        self, *, by: str, method: RankMethod = "ordinal", rank_column: str = "rank"
+    ) -> TFrame: ...
     def window(self, *, window: TimeScopeInput) -> TFrame: ...
 
+
 class MetricFrameTransforms(_FrameTransforms[MetricFrame]):
-    def normalize(self, *, mode: NormalizeKind,
-                  baseline: NormalizeBaseline | None = None) -> MetricFrame: ...
+    def normalize(
+        self, *, mode: NormalizeKind, baseline: NormalizeBaseline | None = None
+    ) -> MetricFrame: ...
+
 
 class DeltaFrameTransforms(_FrameTransforms[DeltaFrame]):
     pass  # no normalize -- statically absent on delta.transform
@@ -111,6 +117,7 @@ example so `describe` / `help("transform")` still teach the surface.
 def transform(self) -> MetricFrameTransforms:
     return MetricFrameTransforms(self)
 
+
 # DeltaFrame
 @property
 def transform(self) -> DeltaFrameTransforms:
@@ -120,9 +127,9 @@ def transform(self) -> DeltaFrameTransforms:
 Call shape:
 
 ```python
-delta.transform.bottomk(by="delta", limit=10)      # largest decline: most-negative delta
+delta.transform.bottomk(by="delta", limit=10)  # largest decline: most-negative delta
 metric.transform.slice(slice_by={country: "US"})
-metric.transform.normalize(mode="share")           # absent on delta.transform
+metric.transform.normalize(mode="share")  # absent on delta.transform
 ```
 
 ### 3. Session resolution

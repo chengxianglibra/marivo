@@ -270,8 +270,8 @@ Target behavior:
 
 ```python
 metric = catalog.get("sales.revenue")
-metric.ref                                   # SemanticRef("sales.revenue", kind="metric")
-str(metric.ref)                              # "sales.revenue"
+metric.ref  # SemanticRef("sales.revenue", kind="metric")
+str(metric.ref)  # "sales.revenue"
 
 session.observe(metric=metric.ref)
 ```
@@ -351,17 +351,17 @@ Dependency fields have fixed meanings:
 Dataset:
 
 ```python
-details.datasource          # SemanticRef("warehouse", kind="datasource")
-details.source              # TableSource(table="orders", database=None)
-details.primary_key         # ("order_id",)
-details.versioning          # None | SnapshotVersioning | ValidityVersioning
+details.datasource  # SemanticRef("warehouse", kind="datasource")
+details.source  # TableSource(table="orders", database=None)
+details.primary_key  # ("order_id",)
+details.versioning  # None | SnapshotVersioning | ValidityVersioning
 ```
 
 Field:
 
 ```python
-details.entity              # SemanticRef("sales.orders", kind="entity")
-details.dimension_kind      # "categorical" | "measure"
+details.entity  # SemanticRef("sales.orders", kind="entity")
+details.dimension_kind  # "categorical" | "measure"
 ```
 
 Time field:
@@ -437,9 +437,11 @@ ms.entity(
     ai_context={...},
 )
 
+
 @ms.dimension(dataset=orders, description="Sales region.", ai_context={...})
 def region(table):
     return table.region
+
 
 @ms.metric(
     datasets=[orders],
@@ -460,11 +462,11 @@ business definitions, guardrails, examples, instructions, or owner notes.
 
 ```python
 catalog = ms.load()
-catalog.list().show()                              # top-level: models and datasources
+catalog.list().show()  # top-level: models and datasources
 
-catalog.list("sales").show()                       # datasets, metrics, relationships
-catalog.list("sales.orders").show()                # fields, time fields, relationships, filtered metrics
-catalog.list("sales.orders", kind="metric").show() # metrics analyzable from orders
+catalog.list("sales").show()  # datasets, metrics, relationships
+catalog.list("sales.orders").show()  # fields, time fields, relationships, filtered metrics
+catalog.list("sales.orders", kind="metric").show()  # metrics analyzable from orders
 ```
 
 The agent starts broad and narrows using full semantic refs. It does not call

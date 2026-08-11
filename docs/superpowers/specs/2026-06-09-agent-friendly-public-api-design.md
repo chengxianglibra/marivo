@@ -114,11 +114,11 @@ symbol or surface." It should print bounded help text directly and return
 `None`:
 
 ```python
-mv.help()                         # prints top-level Marivo help, returns None
-mv.help("observe")                # prints API/topic help, returns None
-mv.help("semantic.metric")        # prints authoring topic help, returns None
-mv.help(revenue)                  # prints semantic-object help, returns None
-mv.help(revenue, project=project) # explicit project fallback, returns None
+mv.help()  # prints top-level Marivo help, returns None
+mv.help("observe")  # prints API/topic help, returns None
+mv.help("semantic.metric")  # prints authoring topic help, returns None
+mv.help(revenue)  # prints semantic-object help, returns None
+mv.help(revenue, project=project)  # explicit project fallback, returns None
 ```
 
 `mv.help(target=None, *, project=None)` is the canonical public help entrypoint
@@ -133,9 +133,11 @@ the semantic authoring API, not a string id:
 ```python
 orders = ms.entity(...)
 
+
 @ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
 def revenue(table):
     return table.amount.sum()
+
 
 mv.help(revenue)
 mv.help(orders)

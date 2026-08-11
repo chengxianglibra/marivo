@@ -76,8 +76,12 @@ working directory.
 `subscription`). The domain name participates in downstream ids (`sales.revenue`).
 
 ```python
-ms.domain(name="sales", owner="Mina Zhang", default=True,
-          ai_context=ms.ai_context(business_definition="Sales analytics"))
+ms.domain(
+    name="sales",
+    owner="Mina Zhang",
+    default=True,
+    ai_context=ms.ai_context(business_definition="Sales analytics"),
+)
 ```
 
 - `owner` is required — the person accountable for the domain's semantic
@@ -127,9 +131,9 @@ user_profile_daily = ms.entity(
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
         partition_field=ms.ref.dimension("sales.user_profile_daily.dt"),
-        grain="day",                 # snapshot cadence
-        timezone="Asia/Shanghai",    # resolves "latest" on a real calendar
-        format="%Y%m%d",             # on-disk partition encoding; omit for native date
+        grain="day",  # snapshot cadence
+        timezone="Asia/Shanghai",  # resolves "latest" on a real calendar
+        format="%Y%m%d",  # on-disk partition encoding; omit for native date
     ),
 )
 ```
@@ -174,12 +178,18 @@ form only when a row-level Ibis expression is needed:
 ```python
 region = ms.dimension_column(name="region", entity=orders, column="region")
 
+
 @ms.dimension(entity=orders, ai_context=ms.ai_context(business_definition="Normalized region."))
 def region_norm(orders):
     return orders.region.upper()
 
+
 amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity="additive", unit="CNY",
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
 )
 ```
 
@@ -203,10 +213,12 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 `dt`.
 
 ```python
-dt = ms.time_dimension_column(name="dt", entity=orders, column="dt",
-                              granularity="day", parse=ms.strptime("%Y%m%d"))
-hh = ms.time_dimension_column(name="hh", entity=orders, column="hh",
-                              granularity="hour", parse=ms.hour_prefix(dt))
+dt = ms.time_dimension_column(
+    name="dt", entity=orders, column="dt", granularity="day", parse=ms.strptime("%Y%m%d")
+)
+hh = ms.time_dimension_column(
+    name="hh", entity=orders, column="hh", granularity="hour", parse=ms.hour_prefix(dt)
+)
 ```
 
 - **`granularity`** ∈ `year | quarter | month | week | day | hour | minute |
@@ -250,10 +262,15 @@ Metrics come in two tiers. **Tier-1** is the default: declare and verify a
 row-level measure, then aggregate it.
 
 ```python
-@ms.measure(entity=orders, additivity="additive", unit="CNY",
-            ai_context=ms.ai_context(business_definition="Paid order amount in CNY."))
+@ms.measure(
+    entity=orders,
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(business_definition="Paid order amount in CNY."),
+)
 def paid_amount(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount
+
 
 revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
 ```
@@ -280,9 +297,13 @@ metric cannot be expressed as measure + aggregate. It declares dependencies with
 `entities` order — parameter names never determine entity identity.
 
 ```python
-@ms.metric(entities=[orders], additivity="additive",
-           provenance=ms.from_sql(sql="select sum(amount) as value from orders where pay_status=1",
-                                  dialect="duckdb"))
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    provenance=ms.from_sql(
+        sql="select sum(amount) as value from orders where pay_status=1", dialect="duckdb"
+    ),
+)
 def paid_revenue(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount.sum()
 ```
@@ -314,12 +335,21 @@ declares physical precision (`granularity`) and reporting cadence
 
 ```python
 sample_ts = ms.time_dimension_column(
-    name="sample_ts", entity=bw_samples, column="sample_ts", granularity="second",
+    name="sample_ts",
+    entity=bw_samples,
+    column="sample_ts",
+    granularity="second",
     parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
 )
 
-@ms.metric(entities=[bw_samples], additivity="semi_additive",
-           time_fold="mean", status_time_dimension=sample_ts, unit="kbit/s")
+
+@ms.metric(
+    entities=[bw_samples],
+    additivity="semi_additive",
+    time_fold="mean",
+    status_time_dimension=sample_ts,
+    unit="kbit/s",
+)
 def upstream_bw(bw_samples):
     return bw_samples.upstream_kbps.sum()
 ```
@@ -356,8 +386,11 @@ component roles come entirely from the builder:
 
 ```python
 avg_execution_time = ms.ratio(
-    name="avg_execution_time", numerator=total_execution_time, denominator=query_count,
-    unit="s", ai_context=ms.ai_context(business_definition="Average execution time per query."),
+    name="avg_execution_time",
+    numerator=total_execution_time,
+    denominator=query_count,
+    unit="s",
+    ai_context=ms.ai_context(business_definition="Average execution time per query."),
 )
 ```
 
@@ -386,8 +419,9 @@ must be a tier-1 `sum`/`count`/`count_distinct`/`weighted_mean` metric; `over=` 
 axis (required unless the base root entity has exactly one time dimension).
 
 ```python
-cumulative_active_users = ms.cumulative(name="cumulative_active_users",
-                                         base=active_users, over=event_time)
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users", base=active_users, over=event_time
+)
 ```
 
 `count_distinct` bases use first-seen semantics (each entity counted at its

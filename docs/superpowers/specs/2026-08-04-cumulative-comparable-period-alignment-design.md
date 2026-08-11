@@ -95,17 +95,19 @@ class AuthoredTrailingAnchorV1(BaseModel):
     count: int = Field(gt=0)
     unit: Literal["second", "minute", "hour", "day", "week"]
 
+
 class AuthoredGrainToDateAnchorV1(BaseModel):
     kind: Literal["grain_to_date"]
     reset_grain: Literal["week", "month", "quarter", "year"]
 
-type AuthoredComparablePeriodAnchorV1 = (
-    AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1
-)
+
+type AuthoredComparablePeriodAnchorV1 = AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1
+
 
 class TrailingAnchorSemanticsV1(BaseModel):
     kind: Literal["trailing"]
     span_seconds: int = Field(gt=0)
+
 
 class GrainToDateAnchorSemanticsV1(BaseModel):
     kind: Literal["grain_to_date"]
@@ -254,6 +256,7 @@ class ExactComparisonSemanticsV1:
     schema: Literal["exact-comparison-semantics/v1"]
     comparable_semantics_fingerprint: str
 
+
 @dataclass(frozen=True)
 class CumulativeEquivalentComparisonSemanticsV1:
     schema: Literal["cumulative-equivalent-comparison-semantics/v1"]
@@ -264,10 +267,11 @@ class CumulativeEquivalentComparisonSemanticsV1:
     baseline_comparable_semantics_fingerprint: str
     canonical_comparable_semantics_fingerprint: str
 
+
 type DeltaComparisonSemantics = (
-    ExactComparisonSemanticsV1
-    | CumulativeEquivalentComparisonSemanticsV1
+    ExactComparisonSemanticsV1 | CumulativeEquivalentComparisonSemanticsV1
 )
+
 
 @dataclass(frozen=True)
 class DeltaComparisonIdentity:
@@ -280,6 +284,7 @@ class DeltaComparisonIdentity:
     alignment_policy_fingerprint: str
     attribution_basis_fingerprint: str | None = None
 
+
 class CumulativePairSummaryV1(BaseModel):
     schema: Literal["cumulative-pair-summary/v1"]
     matched_rows: int = Field(ge=0)
@@ -289,13 +294,12 @@ class CumulativePairSummaryV1(BaseModel):
     fallback_rows: int = Field(ge=0)
     unpaired_action: Literal["dropped"] = "dropped"
 
+
 class CumulativeAlignmentV1(BaseModel):
     schema: Literal["cumulative-alignment/v1"]
     current_authored_anchor: AuthoredComparablePeriodAnchorV1
     baseline_authored_anchor: AuthoredComparablePeriodAnchorV1
-    canonical_anchor: (
-        TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1
-    )
+    canonical_anchor: TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1
     pairs: CumulativePairSummaryV1
 ```
 
@@ -368,7 +372,7 @@ The typed cumulative alignment record includes:
         "baseline_unpaired_rows": 2,
         "fallback_rows": 1,
         "unpaired_action": "dropped",
-    }
+    },
 }
 ```
 

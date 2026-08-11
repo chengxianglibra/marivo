@@ -118,8 +118,7 @@ The semantic surface declares one restricted operation:
 def bind(
     field: Ref[DimensionKind | TimeDimensionKind | MeasureKind],
     entity_alias: ibis.expr.types.Table,
-) -> ibis.expr.types.Value:
-    ...
+) -> ibis.expr.types.Value: ...
 ```
 
 This is not a second ref subtype or alias. Static typing rejects known
@@ -150,9 +149,7 @@ def revenue(order_rows):
     additivity="additive",
 )
 def vip_revenue(order_rows, customer_rows):
-    return (
-        ms.bind(amount, order_rows) * ms.bind(vip_weight, customer_rows)
-    ).sum()
+    return (ms.bind(amount, order_rows) * ms.bind(vip_weight, customer_rows)).sum()
 ```
 
 Renaming Python variables or parameters changes neither semantic identity nor
@@ -162,13 +159,13 @@ entity position.
 ### Rejected shapes
 
 ```python
-ms.bind(revenue, order_rows)                    # metric is not a field kind
-ms.bind(orders, order_rows)                     # entity is not a field kind
-ms.bind(ms.ref.measure("sales.orders.amount")) # missing direct entity alias
-ms.bind(select_field(), order_rows)             # dynamic field selection
-ms.bind(amount, order_rows.filter(...))         # not a direct body alias
-ms.bind(amount, unrelated_local)                # not a body parameter
-ms.bind(amount, order_rows, other_rows)         # wrong arity
+ms.bind(revenue, order_rows)  # metric is not a field kind
+ms.bind(orders, order_rows)  # entity is not a field kind
+ms.bind(ms.ref.measure("sales.orders.amount"))  # missing direct entity alias
+ms.bind(select_field(), order_rows)  # dynamic field selection
+ms.bind(amount, order_rows.filter(...))  # not a direct body alias
+ms.bind(amount, unrelated_local)  # not a body parameter
+ms.bind(amount, order_rows, other_rows)  # wrong arity
 ms.bind(field=amount, entity_alias=order_rows)  # keywords are not accepted
 ```
 

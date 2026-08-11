@@ -280,7 +280,7 @@ All operators that take semantic identifiers accept
 
 ```python
 session.observe(
-    catalog.get("sales.revenue"),                       # SemanticObject
+    catalog.get("sales.revenue"),  # SemanticObject
     dimensions=[catalog.get("sales.orders.country").ref],  # SemanticRef
     where={catalog.get("sales.orders.country").ref: "US"},
     time_dimension=...,

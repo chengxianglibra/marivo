@@ -273,14 +273,17 @@ AttributeAdmissionV1 = Annotated[
     Field(discriminator="status"),
 ]
 
+
 class AttributeModeAdmissionV1(BaseModel):
     single_axis: Literal["omit"]
     multiple_axes: tuple[AttributionMode, ...] = Field(min_length=1)
+
 
 class SupportedAttributeAdmissionV1(BaseModel):
     status: Literal["supported"]
     attribution_shape: AttributionShape
     mode: AttributeModeAdmissionV1
+
 
 class BlockedAttributeAdmissionV1(BaseModel):
     status: Literal["blocked"]
@@ -369,15 +372,17 @@ class DistinctAttributionBasisV1(BaseModel):
     null_policy: Literal["exclude"]
     reproduction: DistinctAttributionReproductionV1
 
+
 DistinctAttributionReproductionV1 = Annotated[
-    ReproducibleDistinctAttributionV1 |
-    BlockedDistinctAttributionReproductionV1,
+    ReproducibleDistinctAttributionV1 | BlockedDistinctAttributionReproductionV1,
     Field(discriminator="status"),
 ]
+
 
 class ReproducibleDistinctAttributionV1(BaseModel):
     status: Literal["reproducible"]
     source_method: Literal["exact_distinct_membership"]
+
 
 class BlockedDistinctAttributionReproductionV1(BaseModel):
     status: Literal["blocked"]
@@ -402,11 +407,12 @@ class QuantileAttributionBasisV1(BaseModel):
     null_policy: Literal["exclude"]
     reproduction: QuantileAttributionReproductionV1
 
+
 QuantileAttributionReproductionV1 = Annotated[
-    ReproducibleQuantileAttributionV1 |
-    BlockedQuantileAttributionReproductionV1,
+    ReproducibleQuantileAttributionV1 | BlockedQuantileAttributionReproductionV1,
     Field(discriminator="status"),
 ]
+
 
 class ReproducibleQuantileAttributionV1(BaseModel):
     status: Literal["reproducible"]
@@ -417,6 +423,7 @@ class ReproducibleQuantileAttributionV1(BaseModel):
         "exact_value_frequency",
         "mergeable_sketch",
     ]
+
 
 class BlockedQuantileAttributionReproductionV1(BaseModel):
     status: Literal["blocked"]
@@ -691,6 +698,7 @@ AttributionMethodEvidenceV1 = Annotated[
     Field(discriminator="kind"),
 ]
 
+
 class AttributionResolutionReconciliationV1(BaseModel):
     schema: Literal["attribution-resolution-reconciliation/v1"]
     status: Literal["reconciled"] = "reconciled"
@@ -703,29 +711,35 @@ class AttributionResolutionReconciliationV1(BaseModel):
     max_abs_residual: float = Field(ge=0)
     quantile_execution: QuantileResolutionExecutionV1 | None = None
 
+
 class QuantileResolutionExecutionV1(BaseModel):
     schema: Literal["quantile-resolution-execution/v1"]
     coalition: Literal["exact_shapley", "permutation_shapley"]
     permutation_count: int = Field(ge=0)
     deterministic_seed_fingerprint: str | None = None
 
+
 MultiresolutionScopeV1 = Annotated[
     CompleteMultiresolutionScopeV1 | SelectedMultiresolutionScopeV1,
     Field(discriminator="kind"),
 ]
 
+
 class CompleteMultiresolutionScopeV1(BaseModel):
     kind: Literal["complete"]
+
 
 class SelectedMultiresolutionScopeV1(BaseModel):
     kind: Literal["selected"]
     axis_refs: tuple[RefPayloadV1, ...] = Field(min_length=1)
+
 
 class IndependentMultiresolutionEvidenceV1(BaseModel):
     schema: Literal["independent-multiresolution/v1"]
     rollup_safe: Literal[False]
     scope: MultiresolutionScopeV1
     resolution_reconciliations: tuple[AttributionResolutionReconciliationV1, ...]
+
 
 class AttributionFrameMeta(BaseFrameMeta):
     ...
@@ -802,6 +816,7 @@ def at_resolution(
     *,
     axes: list[SemanticInput[DimensionKind | TimeDimensionKind]],
 ) -> AttributionFrame: ...
+
 
 country_drivers = drivers.at_resolution(axes=[country])
 country_channel_drivers = drivers.at_resolution(axes=[country, channel])

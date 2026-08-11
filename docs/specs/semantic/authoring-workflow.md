@@ -174,9 +174,7 @@ project evidence from one acquisition:
 inspection = md.inspect(warehouse, md.table("orders"))
 inspection.show()
 inspection.partitions().show()
-scope = md.partition(
-    {"dt": "20260710"}, max_rows=1000, timeout_seconds=30
-)
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "region", "created_at", "amount"),
@@ -285,7 +283,7 @@ Before adding or changing semantics, read the current registry:
 ```python
 import marivo.semantic as ms
 
-catalog = ms.load()                 # find_project() locates models/semantic/ upward
+catalog = ms.load()  # find_project() locates models/semantic/ upward
 catalog.metrics.show()
 
 sales = catalog.domains.get("sales")

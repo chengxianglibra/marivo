@@ -75,6 +75,7 @@ unit 不进 `dimension(kind="measure")`;派生指标单位不做系统级自动�
 additivity: Additivity | None = None
 unit: str | None = None
 
+
 def __post_init__(self) -> None:
     ...
     # mirror the additivity measure-only guard
@@ -82,6 +83,7 @@ def __post_init__(self) -> None:
         raise ValueError(
             f"DimensionIR {self.semantic_id!r}: unit is only valid on measure dimensions"
         )
+
 
 # marivo/semantic/ir.py — MetricIR,作者声明覆盖,否则 loader 推导
 additivity: Additivity | None = None

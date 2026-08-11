@@ -29,6 +29,7 @@ and function bodies even when they only point at a physical column:
 def region(table):
     return table.region
 
+
 @ms.measure(entity=orders, name="amount", additivity="additive", unit="CNY")
 def amount(table):
     return table.amount

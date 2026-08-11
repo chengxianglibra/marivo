@@ -123,12 +123,9 @@ Validated at authoring and load with teaching errors built from real state:
   bodies nor attempt cumulative-over-ratio:
 
   ```python
-  base = ms.aggregate(name="active_users", measure=user_id,
-                      agg="count_distinct")
-  cum = ms.cumulative(name="cumulative_active_users", base=base,
-                      over=event_time)
-  rate = ms.ratio(name="cumulative_conversion_rate",
-                  numerator=cum_payers, denominator=cum)
+  base = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+  cum = ms.cumulative(name="cumulative_active_users", base=base, over=event_time)
+  rate = ms.ratio(name="cumulative_conversion_rate", numerator=cum_payers, denominator=cum)
   ```
 
 - `ms.help('cumulative')` includes that three-step path as its minimal

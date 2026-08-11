@@ -205,6 +205,7 @@ not repeat fixed anchor, interpretation, flow, endpoint, or ordering facts:
 class AllHistoryLevelChangeV1(BaseModel):
     schema: Literal["all-history-level-change/v1"]
 
+
 class DeltaFrameMeta(BaseFrameMeta):
     cumulative_change: AllHistoryLevelChangeV1 | None = None
 ```

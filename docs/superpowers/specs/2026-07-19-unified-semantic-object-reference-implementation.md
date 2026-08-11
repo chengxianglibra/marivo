@@ -108,14 +108,31 @@ Static precision uses private phantom marker classes:
 
 ```python
 class SemanticKindTag: ...
+
+
 class DomainKind(SemanticKindTag): ...
+
+
 class DatasourceKind(SemanticKindTag): ...
+
+
 class EntityKind(SemanticKindTag): ...
+
+
 class DimensionKind(SemanticKindTag): ...
+
+
 class TimeDimensionKind(SemanticKindTag): ...
+
+
 class MeasureKind(SemanticKindTag): ...
+
+
 class MetricKind(SemanticKindTag): ...
+
+
 class RelationshipKind(SemanticKindTag): ...
+
 
 KindT = TypeVar("KindT", bound=SemanticKindTag, covariant=True)
 type FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
@@ -163,7 +180,6 @@ class Ref(Generic[KindT]):
 
     def __init_subclass__(cls, **kwargs: object) -> Never:
         raise TypeError("Ref is sealed and cannot be subclassed.")
-
 ```
 
 Private `_create_ref(kind, path)` performs validated construction. A final
@@ -190,22 +206,28 @@ The remaining behavior is explicit:
 def key(self) -> str:
     return f"{self.kind.value}:{self.path}"
 
+
 @property
 def name(self) -> str:
     return self.path.rsplit(".", 1)[-1]
 
+
 def __str__(self) -> str:
     return self.key
+
 
 def __repr__(self) -> str:
     return f"Ref[{self.kind.value}]({self.key})"
 
+
 def __copy__(self) -> Ref[KindT]:
     return self
+
 
 def __deepcopy__(self, memo: dict[int, object]) -> Ref[KindT]:
     memo[id(self)] = self
     return self
+
 
 def __reduce_ex__(self, protocol: int) -> tuple[object, tuple[object, ...]]:
     del protocol
@@ -608,8 +630,7 @@ def _evaluate_expression_body(
     body: ExpressionBody,
     entity_refs: tuple[Ref[EntityKind], ...],
     aliases: tuple[ibis.Table, ...],
-) -> ir.Value:
-    ...
+) -> ir.Value: ...
 ```
 
 It verifies arity, installs the root binding context, calls the body, validates
@@ -789,8 +810,7 @@ There is no `.ids()` because `.refs` is the complete identity projection.
 The only global lookup is:
 
 ```python
-def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
-    ...
+def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]: ...
 ```
 
 It requires `type(ref) is Ref`, looks up the exact `(kind, path)` in the frozen
@@ -893,10 +913,13 @@ Analysis signatures use direct generic forms:
 ```python
 metric: Ref[MetricKind] | RuntimeMetricExpr
 dimensions: Sequence[Ref[DimensionKind | TimeDimensionKind]] | None
-slice_by: Mapping[
-    Ref[DimensionKind | TimeDimensionKind],
-    SliceValue,
-] | None
+slice_by: (
+    Mapping[
+        Ref[DimensionKind | TimeDimensionKind],
+        SliceValue,
+    ]
+    | None
+)
 time_dimension: Ref[TimeDimensionKind] | None
 ```
 
@@ -930,6 +953,7 @@ The closed values become:
 class RuntimeAggregateExpr:
     measure: Ref[MeasureKind]
     ...
+
 
 @dataclass(frozen=True, slots=True)
 class FrozenSliceMap:

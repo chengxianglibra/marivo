@@ -55,8 +55,8 @@ def list(
 ```
 
 ```python
-catalog.list("metric")                           # all metrics
-catalog.list("domain")                           # all domains (replaces top-level view)
+catalog.list("metric")  # all metrics
+catalog.list("domain")  # all domains (replaces top-level view)
 catalog.list("dimension", scope="domain.sales")  # all dimensions in the sales subtree
 catalog.list("metric", scope="entity.sales.orders")
 ```

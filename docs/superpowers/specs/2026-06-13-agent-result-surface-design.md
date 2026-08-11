@@ -86,8 +86,8 @@ Defined at top level in `marivo/render.py`, next to `format_bounded_card`:
 ```python
 @runtime_checkable
 class AgentResult(Protocol):
-    def render(self) -> str: ...    # bounded plain-text card, no trailing newline
-    def show(self) -> None: ...     # print(render()) + newline; returns None
+    def render(self) -> str: ...  # bounded plain-text card, no trailing newline
+    def show(self) -> None: ...  # print(render()) + newline; returns None
     def __repr__(self) -> str: ...  # single-line, bounded; "<Kind id=...; call .show() to inspect>"
 ```
 

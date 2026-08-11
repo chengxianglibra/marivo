@@ -190,6 +190,7 @@ non-DuckDB / fake backend gets a teaching error instead of an `AttributeError`:
 ```python
 _HTTP_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
 
+
 def apply_json_http_settings(backend: object, source: object) -> None:
     """Enable force_download for http(s) JSON sources; no-op for local paths."""
     if not isinstance(source, JsonSourceIR):
@@ -276,14 +277,14 @@ union). Once `JsonSourceIR` joins the union and the reader branches exist, the
 full loop works unchanged:
 
 ```python
-md.help("json").show()                        # static authoring contract
-events = md.json("data/events/*.json")         # glob over many fixed-schema files
-md.test(ds).show()                             # datasource round-trip
-md.inspect_table(ds, events).show()            # schema; works on file sources
+md.help("json").show()  # static authoring contract
+events = md.json("data/events/*.json")  # glob over many fixed-schema files
+md.test(ds).show()  # datasource round-trip
+md.inspect_table(ds, events).show()  # schema; works on file sources
 md.discover_entity(ds, events).show()
 md.discover_measures(ds, events, columns=("amount",)).show()
 orders = ms.entity(name="events", datasource=ds, source=events)
-ms.verify_object(orders).show()                # readiness for analysis handoff
+ms.verify_object(orders).show()  # readiness for analysis handoff
 ```
 
 Semantic authoring, materialization, and the analysis track inherit JSON with no

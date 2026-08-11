@@ -306,8 +306,12 @@ Window/grain/dimension choices are made explicitly in the two `observe` calls, s
 `compare` never guesses windows:
 
 ```python
-current = session.observe(metrics=m, time_scope={"start": "2026-06-18", "end": "2026-06-25"}, grain="day")
-baseline = session.observe(metrics=m, time_scope={"start": "2026-06-11", "end": "2026-06-18"}, grain="day")
+current = session.observe(
+    metrics=m, time_scope={"start": "2026-06-18", "end": "2026-06-25"}, grain="day"
+)
+baseline = session.observe(
+    metrics=m, time_scope={"start": "2026-06-11", "end": "2026-06-18"}, grain="day"
+)
 delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
 

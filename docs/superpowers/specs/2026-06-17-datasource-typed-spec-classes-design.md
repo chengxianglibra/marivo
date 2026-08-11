@@ -92,12 +92,13 @@ rule.
 ```python
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
+
 @dataclass(frozen=True, kw_only=True)
 class _DatasourceSpecBase:
     name: str
     description: str | None = None
     ai_context: AiContext | dict[str, Any] | None = None
-    extra: dict[str, JsonValue] | None = None   # verbatim ibis-kwarg escape hatch
+    extra: dict[str, JsonValue] | None = None  # verbatim ibis-kwarg escape hatch
 
     # backend_type is a ClassVar on each concrete subclass (not a field).
     backend_type: ClassVar[str]

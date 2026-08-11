@@ -392,7 +392,8 @@ A composite join is a list of atomic pairs, AND-ed together:
 ```python
 ms.relationship(
     name="orders_to_line_items",
-    from_entity=orders, to_entity=line_items,
+    from_entity=orders,
+    to_entity=line_items,
     keys=[
         ms.join_on(order_id, li_order_id),
         ms.join_on(tenant_id, li_tenant_id),

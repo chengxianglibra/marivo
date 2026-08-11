@@ -834,7 +834,7 @@ require business definition and AI context at construction time. A concise
 form remains available:
 
 ```python
-ai_context=ms.ai_context("Business definition", ...)
+ai_context = ms.ai_context("Business definition", ...)
 ```
 
 Static help owns the constructor contract. Each help entry includes:

@@ -614,6 +614,7 @@ class OmissionSummary(BaseModel):
     omitted_kinds: tuple[DigestItemKind, ...]
     bounded: bool
 
+
 class RawFallback(BaseModel):
     artifact_ref: str
     findings_available: bool
@@ -675,6 +676,7 @@ class ArtifactInputRequirement(BaseModel):
     parameter: str
     accepted_families: tuple[str, ...]
     bindable_from_current_artifact: bool
+
 
 class ArtifactAffordance(BaseModel):
     capability_id: str
@@ -1048,7 +1050,11 @@ The collection methods return concrete bounded result families:
 
 ```python
 class FrameSummaryPage(BoundedPage[FrameSummaryEntry]): ...
+
+
 class ArtifactDigestPage(BoundedPage[ArtifactDigest]): ...
+
+
 class FindingPage(BoundedPage[Finding]): ...
 ```
 
@@ -1210,9 +1216,7 @@ The initial closed union is:
 
 ```python
 ArtifactIssue = Annotated[
-    DataQualityIssue
-    | ComparabilityIssue
-    | EvidenceAvailabilityIssue,
+    DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue,
     Field(discriminator="kind"),
 ]
 ```

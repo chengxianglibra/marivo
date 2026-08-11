@@ -102,6 +102,7 @@ installed. Unused symlinks cause no harm.
 ```python
 import marivo.skills
 
+
 def _skills_source_dir() -> Path:
     return Path(marivo.skills.__file__).parent
 ```

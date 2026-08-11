@@ -98,11 +98,11 @@ field.
 Every object exposes the same minimal high-frequency contract:
 
 ```python
-obj.id          # typed ID, for example "metric.sales.revenue"
-obj.name        # local name, for example "revenue"
-obj.ref         # typed SemanticRef for authoring and runtime handoff
-obj.details()   # kind-specific structured details
-repr(obj)       # bounded one-line identity and .show() hint
+obj.id  # typed ID, for example "metric.sales.revenue"
+obj.name  # local name, for example "revenue"
+obj.ref  # typed SemanticRef for authoring and runtime handoff
+obj.details()  # kind-specific structured details
+repr(obj)  # bounded one-line identity and .show() hint
 obj.render()
 obj.show()
 ```
@@ -217,16 +217,17 @@ Every global and scoped collection is a `CatalogCollection[T]` with the same
 read-only protocol:
 
 ```python
-collection.items      # tuple[T, ...]
-collection.ids()      # list[str], always typed IDs
-collection.refs()     # tuple[SemanticRef, ...]
-collection.get(key)   # exact typed ID or unique local name
-repr(collection)      # bounded one-line type, scope, count, and .show() hint
-collection.render()   # bounded text, no stdout
-collection.show()     # bounded display, returns None
+collection.items  # tuple[T, ...]
+collection.ids()  # list[str], always typed IDs
+collection.refs()  # tuple[SemanticRef, ...]
+collection.get(key)  # exact typed ID or unique local name
+repr(collection)  # bounded one-line type, scope, count, and .show() hint
+collection.render()  # bounded text, no stdout
+collection.show()  # bounded display, returns None
 
 len(collection)
-for obj in collection: ...
+for obj in collection:
+    ...
 collection[0]
 ```
 
