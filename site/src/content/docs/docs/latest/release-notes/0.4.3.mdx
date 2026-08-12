@@ -1,0 +1,75 @@
+---
+slug: docs/latest/release-notes/0.4.3
+title: Marivo 0.4.3
+description: Release notes for Marivo 0.4.3.
+---
+
+Marivo 0.4.3 connects fixed-schema semantic models to parameterized JSON APIs,
+adds governed cohort axes to event elapsed-time analysis, and makes agent-facing
+analysis failures more actionable.
+
+## Highlights
+
+- `md.json(...)` now supports wrapped record arrays, fixed and runtime-bound
+  query parameters, JSON `POST` bodies, and parameterized values declared with
+  `md.source_param(...)`. The physical schema remains explicit and is validated
+  before semantic loading.
+- `Session.source_bindings(...)` supplies required non-secret API parameters for
+  one dynamic analysis scope without changing `observe(...)` or other operator
+  signatures. Inspection can supply the same values explicitly through
+  `inspection.sample(..., source_params=...)`.
+- DuckDB connections can attach environment-backed bearer tokens or custom
+  headers only within a declared `http_scope`, keeping credentials outside
+  project metadata and preventing them from being sent to unrelated URLs.
+- `session.events.time_to_event(...)` accepts governed subject `axes`, allowing
+  elapsed-time results to retain deterministic cohort-entry dimensions together
+  with lineage, quality checks, and persisted analysis scope.
+
+## Changed
+
+- JSON API acquisition supports `GET` query strings and JSON-object `POST`
+  requests while preserving lazy datasource inspection and analysis execution.
+  Missing parameters, extra parameters, invalid wrapped-record paths, and
+  unsupported request shapes fail closed with typed guidance.
+- Analysis help now declares the single-metric input constraint consistently
+  across every MetricFrame operator that enforces it at runtime.
+- Evidence digest and store failures now include typed repair actions and
+  canonical help targets, so blocking issues point to a valid next step.
+- The project README and documentation site use refreshed bilingual navigation,
+  product positioning, and Marivo brand assets.
+
+## Fixed
+
+- Derived-metric component comparison and attribution no longer crash when a
+  temporal join encounters `NaT`; unmatchable rows are dropped, and incomplete
+  decompositions return a typed `ComponentDecompositionError`.
+- `time_to_event` rejects governed axes that collide with reserved journey or
+  result columns, and validates axis uniqueness across persisted metadata.
+- Evidence repairs for metric selection resolve to the public
+  `MetricFrame.metric` help surface instead of an invalid internal target.
+
+## Documentation
+
+- Expanded the semantic-layer guide and datasource specifications with complete
+  wrapped JSON, parameterized request, scoped authentication, inspection, and
+  analysis examples.
+- Clarified why retrieval-oriented knowledge bases complement, but do not
+  replace, executable semantic contracts.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.3
+requires Python 3.12 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)
