@@ -20,7 +20,6 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
-    "sphinx.ext.intersphinx",
 ]
 
 # Document the public surface re-exported through each package ``__all__``.
@@ -39,14 +38,6 @@ autodoc_default_options = {
 # Docstrings across the public surface are Google-style.
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
-
-# Only map external inventories that publish a stable ``objects.inv`` so the
-# strict ``-W`` build does not fail on unresolved cross-references.
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-    "pandas": ("https://pandas.pydata.org/docs", None),
-}
-suppress_warnings = ["intersphinx.inventory"]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"Marivo {release} API"
