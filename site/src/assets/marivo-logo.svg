@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="marivo-mark-title marivo-mark-description">
-  <title id="marivo-mark-title">Marivo</title>
-  <desc id="marivo-mark-description">A green modular cube bearing the letter M, shown from an elevated three-quarter angle.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3000 1024" role="img" aria-labelledby="marivo-logo-title marivo-logo-description">
+  <title id="marivo-logo-title">Marivo</title>
+  <desc id="marivo-logo-description">The Marivo modular cube and uppercase wordmark.</desc>
   <defs>
     <linearGradient id="top-color" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e0fff4"/><stop offset=".48" stop-color="#c1f1e1"/><stop offset="1" stop-color="#9bd8c4"/></linearGradient>
     <linearGradient id="front-color" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22a47d"/><stop offset=".52" stop-color="#138462"/><stop offset="1" stop-color="#0c694f"/></linearGradient>
@@ -14,6 +14,7 @@
     <g id="front-face-row" fill="url(#front-color)" stroke="#0d4b3c" stroke-width="5"><rect x="168" y="8" width="164" height="174" rx="18"/><rect x="348" y="8" width="164" height="174" rx="18"/><rect x="528" y="8" width="164" height="174" rx="18"/></g>
     <g id="front-highlight-row" fill="none" stroke="#d9fff1" stroke-opacity=".16" stroke-width="3"><rect x="171" y="11" width="158" height="168" rx="15"/><rect x="351" y="11" width="158" height="168" rx="15"/><rect x="531" y="11" width="158" height="168" rx="15"/></g>
   </defs>
+  <g transform="translate(42 58) scale(.88)">
   <path d="M359 152Q362 149 368 150L845 216Q850 217 850 222V728Q850 732 847 735L666 888Q662 891 657 890L172 824Q168 823 168 819V318Q168 315 171 313Z" fill="#09392e"/>
   <g transform="matrix(.926 .13 -.633 .533 355 150)">
     <use href="#top-shadow-row"/><use href="#top-shadow-row" y="100"/><use href="#top-shadow-row" y="200"/>
@@ -28,5 +29,14 @@
     <use href="#front-face-row"/><use href="#front-face-row" y="190"/><use href="#front-face-row" y="380"/>
     <g clip-path="url(#front-stickers)" fill="#ffffee"><path d="M235 500V100h95v400Z"/><path d="M535 500V110h95v400Z"/><path d="M315 100 430 275 535 110v145L430 455 315 250Z"/></g>
     <use href="#front-highlight-row"/><use href="#front-highlight-row" y="190"/><use href="#front-highlight-row" y="380"/>
+  </g>
+  </g>
+  <g fill="url(#front-color)">
+    <path d="M950 704V320H1035L1120 515 1205 320H1290V704H1212V475L1150 620H1090L1028 475V704Z"/>
+    <path fill-rule="evenodd" d="M1308 704 1450 320H1532L1674 704H1586L1554 614H1428L1396 704Zm144-160h78l-39-116Z"/>
+    <path fill-rule="evenodd" d="M1715 704V320H1860Q1998 320 1998 447 1998 535 1914 566L2015 704H1918L1828 578H1795V704Zm80-196h60q63 0 63-59t-63-59h-60Z"/>
+    <path d="M2058 320H2140V704H2058Z"/>
+    <path d="M2180 320H2270L2320 572 2370 320H2460L2372 704H2268Z"/>
+    <path fill-rule="evenodd" d="M2697 310Q2898 310 2898 512T2697 714Q2496 714 2496 512T2697 310Zm0 80Q2580 390 2580 512T2697 634Q2814 634 2814 512T2697 390Z"/>
   </g>
 </svg>
