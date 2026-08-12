@@ -117,10 +117,10 @@ type JsonBodyValue = (
     | int
     | float
     | bool
-    | None
     | SourceParamIR
     | Mapping[str, "JsonBodyValue"]
     | Sequence["JsonBodyValue"]
+    | None
 )
 
 
