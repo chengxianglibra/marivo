@@ -36,6 +36,7 @@ Source constructors
    :nosignatures:
 
    csv
+   source_param
    json
    parquet
    duckdb
@@ -110,9 +111,10 @@ Datasource vs source
 
 ``md.duckdb(...)`` and ``md.sqlite(...)`` declare datasources. ``md.table(...)``
 is the source descriptor for internal tables/views inside either datasource.
-``md.parquet(...)``, ``md.csv(...)``, and ``md.json(...)`` remain DuckDB file
-sources used with a datasource ref in inspection and snapshot calls; they are
-not datasource declarations.
+``md.parquet(...)`` and ``md.csv(...)`` remain DuckDB file sources.
+``md.json(...)`` covers DuckDB JSON files and URLs, including a parameterized
+JSON-body POST request. These sources are used with a datasource ref in inspection and
+snapshot calls; they are not datasource declarations.
 
 Metadata & sources
 ------------------

@@ -44,6 +44,30 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
+    from marivo.datasource.authoring_store import snapshot_identity
+
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"start": md.source_param("start")},
+    )
+    scope = md.unpruned(max_rows=100, timeout_seconds=30)
+    common = {
+        "datasource_fingerprint": "sha256:datasource",
+        "source": source,
+        "scope": scope,
+        "columns": ("value",),
+        "schema_fingerprint": "sha256:schema",
+        "persist_values": False,
+    }
+
+    first = snapshot_identity(**common, source_params=(("start", 1),))
+    second = snapshot_identity(**common, source_params=(("start", 2),))
+
+    assert first != second
+
+
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
     from ibis.backends.duckdb import Backend
@@ -350,7 +374,7 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     assert repaired.id == first.id
     assert repaired.cache_status == "mismatched"
     repaired_payload = json.loads(path.read_text(encoding="utf-8"))
-    assert repaired_payload["evidence_format_version"] == 1
+    assert repaired_payload["evidence_format_version"] == 2
 
 
 @pytest.mark.parametrize(

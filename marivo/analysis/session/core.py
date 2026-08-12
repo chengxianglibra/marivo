@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -77,7 +78,14 @@ if TYPE_CHECKING:
     from marivo.analysis.subject import SubjectSelection
     from marivo.analysis.windows.spec import TimeScope
     from marivo.ontology.catalog import OntologyCatalog
-    from marivo.refs import DimensionKind, MetricKind, StateModelKind, TimeDimensionKind
+    from marivo.refs import (
+        DimensionKind,
+        EntityKind,
+        MetricKind,
+        Ref,
+        StateModelKind,
+        TimeDimensionKind,
+    )
     from marivo.semantic.catalog import SemanticCatalog, _SemanticInput
     from marivo.semantic.errors import SemanticError
 
@@ -436,6 +444,36 @@ class Session(RenderableResult):
         has_factory = getattr(service, "_backend_factory", None) is not None
         uses_datasources = bool(getattr(service, "_use_datasources", False))
         return not (has_overrides or has_factory or uses_datasources)
+
+    def source_bindings(
+        self,
+        bindings: Mapping[
+            Ref[EntityKind],
+            Mapping[str, str | int | float | bool],
+        ],
+        /,
+    ) -> AbstractContextManager[None]:
+        """Bind parameterized JSON sources for one analysis execution scope.
+
+        Args:
+            bindings: Exact entity refs mapped to all required scalar source parameters.
+
+        Returns:
+            A context manager that installs bindings only for its dynamic scope.
+
+        Example:
+            >>> with session.source_bindings({
+            ...     ms.ref.entity("monitoring.samples"): {"start": 1, "end": 2},
+            ... }):
+            ...     frame = session.observe(ms.ref.metric("monitoring.value"))
+
+        Constraints:
+            Keys must be current ``Ref[entity]`` values using parameterized
+            ``md.json(...)`` sources. Missing and extra values fail before execution.
+        """
+        from marivo.analysis.session._source_bindings import source_binding_scope
+
+        return source_binding_scope(self._connection_runtime, self._catalog, bindings)
 
     def jobs(self) -> list[JobSummary]:
         """Return lightweight summaries for every recorded job, oldest first.

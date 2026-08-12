@@ -129,6 +129,51 @@ def _validate_jsonable_field(name: str, key: str, value: object) -> JsonValue:
     return normalized
 
 
+def _http_headers_env(name: str, value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or not value:
+        raise DatasourceFieldInvalidError(
+            message=f"datasource {name!r} http_headers_env must be a non-empty mapping",
+            expected="HTTP header names mapped to environment variable names",
+            received=repr(value),
+            location=f"datasource {name!r} HTTP auth",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Map each required HTTP header to one secret environment variable.",
+            ),
+        )
+    normalized: dict[str, str] = {}
+    for header_name, env_var in value.items():
+        if not isinstance(header_name, str) or not re.fullmatch(
+            r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", header_name
+        ):
+            raise DatasourceFieldInvalidError(
+                message="DuckDB custom HTTP authentication header name is invalid",
+                expected="a non-empty HTTP header token",
+                received=repr(header_name),
+                location=f"datasource {name!r} HTTP auth",
+                repair=repair(
+                    kind="reauthor",
+                    canonical_id="duckdb",
+                    action="Use valid header names such as x-secretid and x-signature.",
+                ),
+            )
+        if not isinstance(env_var, str) or not env_var:
+            raise DatasourceFieldInvalidError(
+                message="DuckDB custom HTTP header environment reference is invalid",
+                expected="a non-empty environment variable name",
+                received=repr(env_var),
+                location=f"datasource {name!r} HTTP auth header {header_name!r}",
+                repair=repair(
+                    kind="environment",
+                    canonical_id="duckdb",
+                    action="Reference a non-empty environment variable name.",
+                ),
+            )
+        normalized[header_name] = env_var
+    return normalized
+
+
 @dataclass
 class DatasourceLoaderContext:
     pending_objects: list[DatasourceIR] = field(default_factory=list)
@@ -213,6 +258,10 @@ class _SpecBase:
             value = getattr(self, key)
             if value is None and _allows_none(dataclass_field.type):
                 continue
+            if key == "http_headers_env":
+                for header_name, env_var in _http_headers_env(self.name, value).items():
+                    env_refs[f"http_header:{header_name}"] = env_var
+                continue
             if key.endswith("_env"):
                 if value is None:
                     continue
@@ -278,6 +327,73 @@ class DuckDBSpec(_SpecBase):
     read_only: bool = field(
         default=False, metadata=_description("Open the DuckDB database in read-only mode.")
     )
+    http_scope: str | None = field(
+        default=None,
+        metadata=_description("Optional HTTP(S) URL prefix for scoped remote JSON auth."),
+    )
+    http_bearer_token_env: str | None = field(
+        default=None,
+        metadata=_description("Environment variable for a scoped HTTP bearer token."),
+    )
+    http_headers_env: dict[str, str] | None = field(
+        default=None,
+        metadata=_description(
+            "Optional custom HTTP header names mapped to secret environment variables."
+        ),
+    )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        has_bearer = self.http_bearer_token_env is not None
+        has_custom_headers = self.http_headers_env is not None
+        if has_bearer and has_custom_headers:
+            raise DatasourceFieldInvalidError(
+                message="DuckDB HTTP auth accepts bearer token or custom headers, not both",
+                expected="one HTTP authentication mode",
+                received="bearer and custom headers",
+                location=f"datasource {self.name!r} HTTP auth",
+                repair=repair(
+                    kind="reauthor",
+                    canonical_id="duckdb",
+                    action="Keep either http_bearer_token_env or http_headers_env.",
+                ),
+            )
+        if (has_bearer or has_custom_headers) and self.http_scope is None:
+            raise DatasourceFieldInvalidError(
+                message="DuckDB HTTP auth requires an explicit URL scope",
+                expected="an http(s) http_scope prefix",
+                received="missing http_scope",
+                location=f"datasource {self.name!r} HTTP auth",
+                repair=repair(
+                    kind="reauthor",
+                    canonical_id="duckdb",
+                    action="Set http_scope to the narrow API URL prefix.",
+                ),
+            )
+        if self.http_scope is not None and not (has_bearer or has_custom_headers):
+            raise DatasourceFieldInvalidError(
+                message="DuckDB HTTP auth scope requires an authentication declaration",
+                expected="http_bearer_token_env or http_headers_env",
+                received="http_scope without authentication",
+                location=f"datasource {self.name!r} HTTP auth",
+                repair=repair(
+                    kind="reauthor",
+                    canonical_id="duckdb",
+                    action="Remove http_scope or declare one environment-backed auth mode.",
+                ),
+            )
+        if self.http_scope is not None and not re.match(r"^https?://", self.http_scope, re.I):
+            raise DatasourceFieldInvalidError(
+                message="DuckDB HTTP auth scope must be an HTTP(S) URL prefix",
+                expected="http_scope beginning with http:// or https://",
+                received=self.http_scope,
+                location=f"datasource {self.name!r} HTTP auth",
+                repair=repair(
+                    kind="reauthor",
+                    canonical_id="duckdb",
+                    action="Use an explicit HTTP(S) URL prefix.",
+                ),
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -542,6 +658,9 @@ def duckdb(
     *,
     path: str = ":memory:",
     read_only: bool = False,
+    http_scope: str | None = None,
+    http_bearer_token_env: str | None = None,
+    http_headers_env: dict[str, str] | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> DuckDBSpec:
@@ -551,6 +670,10 @@ def duckdb(
         name: Global datasource name; letters, digits, underscores, and hyphens only.
         path: DuckDB database path; defaults to in-memory.
         read_only: Open the DuckDB database in read-only mode.
+        http_scope: Optional HTTP(S) URL prefix limiting remote JSON authentication.
+        http_bearer_token_env: Environment variable containing a bearer token.
+        http_headers_env: Optional custom HTTP header names mapped to environment
+            variables containing their secret values.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -579,6 +702,9 @@ def duckdb(
         name=name,
         path=path,
         read_only=read_only,
+        http_scope=http_scope,
+        http_bearer_token_env=http_bearer_token_env,
+        http_headers_env=http_headers_env,
         ai_context=ai_context,
         extra=extra,
     )

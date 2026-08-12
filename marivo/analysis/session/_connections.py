@@ -22,6 +22,12 @@ class AnalysisConnectionRuntime:
     def session_backend(self, datasource_name: str) -> Any:
         return self.service.session_backend(datasource_name)
 
+    def source_bindings(self) -> dict[str, dict[str, str | int | float | bool]]:
+        """Return current execution-scoped physical source parameter bindings."""
+        from marivo.analysis.session._source_bindings import current_source_bindings
+
+        return current_source_bindings(self)
+
     def engine_timezone(self, datasource_name: str) -> DatasourceEngineTimezone:
         return self.service.engine_timezone(datasource_name)
 

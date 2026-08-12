@@ -15,9 +15,9 @@ import ibis
 import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
-from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
+from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.refs import EntityKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
@@ -74,11 +74,15 @@ class Materializer:
         *,
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
+        source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory
         self._sample_size = sample_size
         self._entity_scopes = dict(entity_scopes or {})
+        self._source_bindings = {
+            entity_id: dict(params) for entity_id, params in (source_bindings or {}).items()
+        }
         self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
@@ -253,9 +257,8 @@ class Materializer:
             return reader(source.path, **csv_kwargs)
 
         if isinstance(source, JsonSourceIR):
-            apply_json_http_settings(backend, source)
             reader = getattr(backend, "read_json", None)
-            if reader is None:
+            if not callable(reader):
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     (
@@ -266,10 +269,11 @@ class Materializer:
                     refs=(semantic_id,),
                     details={"source_kind": source.kind},
                 )
-            json_kwargs: dict[str, object] = {"columns": dict(source.schema)}
-            if source.format != "auto":
-                json_kwargs["format"] = source.format
-            return reader(source.path, **json_kwargs)
+            return read_json_source(
+                backend,
+                source,
+                source_params=self._source_bindings.get(semantic_id),
+            )
 
         _raise(
             ErrorKind.MATERIALIZE_FAILED,

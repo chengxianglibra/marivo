@@ -248,6 +248,7 @@ DATASOURCE_PUBLIC = {
     "raw_sql",
     "register",
     "remove",
+    "source_param",
     "sqlite",
     "table",
     "test",

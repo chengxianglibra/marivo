@@ -109,8 +109,9 @@ orders = ms.entity(
 ```
 
 - `source` is a datasource-owned structured descriptor: `md.table(...)` for a
-  backend table/view; `md.parquet(...)`, `md.csv(...)`, or `md.json(...)` for
-  DuckDB file sources. CSV and JSON require typed physical `schema=` mappings.
+  backend table/view; `md.parquet(...)` and `md.csv(...)` for DuckDB file
+  sources; and `md.json(...)` for a DuckDB-backed JSON file or HTTP API source.
+  CSV and JSON require typed physical `schema=` mappings.
 - Entities have no Python body and no inline SQL view. A persisted SQL view must
   be exposed as a backend table via `source=md.table(...)`; one-off SQL
   transforms are out of scope.

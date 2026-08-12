@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from marivo.datasource.ir import (
     DatasourceIR,
     JsonSourceIR,
     ParquetSourceIR,
+    QueryParamScalar,
     TableSourceIR,
 )
 from marivo.datasource.metadata import (
@@ -254,8 +256,15 @@ class SourceInspection(RenderableResult):
         columns: tuple[str, ...],
         persist_values: bool = False,
         refresh: bool = False,
+        source_params: Mapping[str, QueryParamScalar] | None = None,
     ) -> DiscoverySnapshot:
-        """Acquire a bounded snapshot through the Task 3 executor after preflight."""
+        """Acquire a bounded snapshot after metadata preflight.
+
+        ``source_params`` supplies the exact non-secret runtime values declared
+        by ``md.source_param(...)`` on a JSON source. Missing or extra values
+        fail before acquisition and the normalized values participate in the
+        persisted snapshot identity.
+        """
         _preflight_sample(self, scope=scope, columns=columns)
         return acquire_snapshot(
             self,
@@ -263,6 +272,7 @@ class SourceInspection(RenderableResult):
             columns=columns,
             persist_values=persist_values,
             refresh=refresh,
+            source_params=source_params,
         )
 
 

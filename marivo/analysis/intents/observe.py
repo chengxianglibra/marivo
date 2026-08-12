@@ -403,6 +403,16 @@ def _observe_artifact_cache_key(
     )
 
 
+def _source_binding_params(session: Session) -> dict[str, dict[str, str | int | float | bool]]:
+    """Return a deterministic, non-secret source-binding identity payload."""
+
+    bindings = session._connection_runtime.source_bindings()
+    return {
+        entity_id: {name: values[name] for name in sorted(values)}
+        for entity_id, values in sorted(bindings.items())
+    }
+
+
 def _lookup_snapshot_verified_artifact(
     *,
     session: Session,
@@ -998,6 +1008,7 @@ def observe(
     ensure_session_can_execute(session)
     catalog = session.catalog
     catalog._require_index()
+    source_binding_params = _source_binding_params(session)
     resolved_cohort = resolve_subject_cohort(
         session=session,
         cohort=cohort,
@@ -1260,6 +1271,7 @@ def observe(
                     if resolved_cohort is not None
                     else None
                 ),
+                **({"source_bindings": source_binding_params} if source_binding_params else {}),
             }
             if resolved_window is not None:
                 temporal_contract = _build_frame_temporal_contract(
@@ -1460,6 +1472,7 @@ def observe(
                     if resolved_cohort is not None
                     else None
                 ),
+                **({"source_bindings": source_binding_params} if source_binding_params else {}),
             }
         )
         key_fields = tuple(
@@ -1986,6 +1999,7 @@ def _observe_metric_forest(
     ensure_session_can_execute(session)
     catalog = session.catalog
     catalog._require_index()
+    source_binding_params = _source_binding_params(session)
     resolved_cohort = resolve_subject_cohort(
         session=session,
         cohort=cohort,
@@ -2170,6 +2184,7 @@ def _observe_metric_forest(
                 if resolved_cohort is not None
                 else None
             ),
+            **({"source_bindings": source_binding_params} if source_binding_params else {}),
         }
         if resolved_window is not None:
             temporal_contract = _build_frame_temporal_contract(
@@ -2329,6 +2344,7 @@ def _observe_metric_forest(
                 if resolved_cohort is not None
                 else None
             ),
+            **({"source_bindings": source_binding_params} if source_binding_params else {}),
         }
     )
     key_fields = tuple(

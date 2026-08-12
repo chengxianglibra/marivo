@@ -90,6 +90,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "alignment",
         "calendar",
         "runtime_metric",
+        "Session.source_bindings",
     }
 
     for constraint in ANALYSIS_CONSTRAINTS.values():

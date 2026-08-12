@@ -60,6 +60,7 @@ class SemanticResolver:
     connections: Any
     sample_size: int | None = None
     entity_scopes: Mapping[str, AuthoringScope] | None = None
+    source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None
 
     def __post_init__(self) -> None:
         self._materializer = Materializer(
@@ -67,6 +68,7 @@ class SemanticResolver:
             self.connections.session_backend,
             sample_size=self.sample_size,
             entity_scopes=self.entity_scopes,
+            source_bindings=self.source_bindings,
         )
 
     def entity(self, entity_ref: Ref[EntityKind]) -> ibis.Table:

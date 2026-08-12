@@ -293,7 +293,7 @@ Backend-specific parameters:
 
 | Helper | Required | Optional |
 | --- | --- | --- |
-| `md.duckdb` | — | `path` (default `":memory:"`), `read_only` (default `False`) |
+| `md.duckdb` | — | `path` (default `":memory:"`), `read_only` (default `False`), scoped HTTP auth fields |
 | `md.sqlite` | — | `path` (default `":memory:"`), `read_only` (default `False`), `type_map` |
 | `md.mysql` | `host`, `database` | `port` (3306), `autocommit`, `user_env`, `password_env` |
 | `md.postgres` | `host`, `database` | `port` (5432), `schema`, `autocommit`, `user_env`, `password_env` |
@@ -338,6 +338,36 @@ md.trino(
     auth_env="TRINO_AUTH",
 )
 ```
+
+For a protected DuckDB HTTP JSON source, authentication stays on the datasource,
+not in `md.json(...)`. The project stores only the environment variable name and
+the narrow URL prefix allowed to receive the credential:
+
+```python
+md.duckdb(
+    name="hawkeye",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+
+Custom-header authentication maps header names to secret environment variables.
+The map may contain one header or a machine-authentication pair:
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+
+Bearer and custom-header modes are mutually exclusive. Marivo resolves each
+value when connecting and creates a temporary DuckDB HTTP secret restricted to
+`http_scope`; POST execution reuses those scoped headers from connection memory.
 
 ### 2. Declare a domain and entity
 
@@ -394,7 +424,7 @@ orders = ms.entity(
 | `md.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
 | `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
 | `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
-| `md.json(path, schema=...)` | `path`, typed `schema` | `format` | JSON file source, glob, or DuckDB httpfs URL. |
+| `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array. |
 
 ### 3. Add fields
 
@@ -1119,17 +1149,95 @@ shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 `unknown`, and Marivo does not issue a cluster-wide fanout query.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
-table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
-`md.json(...)` are DuckDB file source descriptors used with the datasource ref;
-they are not datasource declarations.
+table or view inside that datasource. `md.parquet(...)` and `md.csv(...)` are
+DuckDB file source descriptors; `md.json(...)` is a DuckDB-backed JSON file or
+HTTP API source descriptor. All are used with the datasource ref and are not
+datasource declarations.
 
 ```python
 events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
+api_events = md.json(
+    "https://api.example.com/events",
+    schema={"event_id": "string", "occurred_at": "timestamp"},
+    records_path="$.result.items",
+    query_params={
+        "query": "sum(pending_containers) by (cluster)",
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    schema={
+        "name": "string",
+        "bs": "string",
+        "gpuAbstract": "string",
+        "status": "string",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
 orders_parquet = md.parquet("data/orders/*.parquet")
 orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
 
 md.inspect(warehouse, events).show()
 ```
+
+`records_path` supports a deliberately small JSONPath subset: `$` followed by
+object members, for example `$.data` or `$.result.items`. It does not support
+filters, wildcards, recursive descent, or array indexes. A present empty array
+materializes as zero rows; a missing path or non-array value fails at execution
+so an authentication or response-envelope error is not mistaken for empty data.
+
+For the minimal POST API case, set `method="POST"` and provide one JSON object
+through `body=`. A `md.source_param(...)` may occupy any complete JSON value,
+including a value inside an object or array. The request is issued only when the
+resulting table is executed. POST requires an HTTP(S) URL and `format="auto"`;
+automatic pagination, retry, and incremental ingestion remain outside this
+contract. Datasource-owned bearer or custom headers are applied only within
+`http_scope`, so credentials remain outside the source descriptor.
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    schema={"change_id": "int64", "title": "string"},
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+
+`query_params` keeps fixed request parameters in the source descriptor.
+`md.source_param(name)` declares a required non-secret runtime value occupying
+one complete query parameter value; Marivo URL-encodes it and does not support
+substring templates. Bind exact values around analysis rather than adding an
+API-specific argument to `observe`:
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.api_events"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+```
+
+The binding is nested, execution-local, and keyed by the owning Session runtime;
+another Session in the same task cannot consume it. Missing or extra parameters
+fail before the source is read, and the non-secret values participate in snapshot
+and analysis identity. For datasource authoring evidence, pass the same mapping
+as `inspection.sample(..., source_params={...})`.
 
 Snapshot projections are query-free and expose complete structured evidence even
 when rendering is bounded. Values are memory-only by default; use

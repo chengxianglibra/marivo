@@ -258,7 +258,7 @@ md.duckdb(
 
 | Helper | 必填 | 可选 |
 | --- | --- | --- |
-| `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`） |
+| `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、带 scope 的 HTTP 认证字段 |
 | `md.sqlite` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、`type_map` |
 | `md.mysql` | `host`、`database` | `port`（3306）、`autocommit`、`user_env`、`password_env` |
 | `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
@@ -299,6 +299,35 @@ md.trino(
     auth_env="TRINO_AUTH",
 )
 ```
+
+受保护的 DuckDB HTTP JSON source，其认证应定义在 datasource，而不是
+`md.json(...)`。项目只保存环境变量名，以及允许携带凭据的最窄 URL 前缀：
+
+```python
+md.duckdb(
+    name="hawkeye",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+
+自定义 header 使用“header 名称 → secret 环境变量”的映射，可以声明单个
+header，也可以声明机器鉴权所需的一组 header：
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+
+它与 bearer 模式互斥。Marivo 在建立连接时解析每个环境变量，并创建仅对
+`http_scope` 生效的临时 DuckDB HTTP secret；POST 执行会复用连接内存中的
+这些 scoped header。
 
 ### 2. 声明数据域和实体
 
@@ -354,7 +383,7 @@ orders = ms.entity(
 | `md.table(name)` | `name` | `database` | datasource 中的一张表（Trino/MySQL 用 `database="schema"`）。 |
 | `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet file source。 |
 | `md.csv(path, schema=...)` | `path`、typed `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV file source。 |
-| `md.json(path, schema=...)` | `path`、typed `schema` | `format` | JSON file source、glob 或 DuckDB httpfs URL。 |
+| `md.json(path, schema=...)` | `path`、typed `schema` | `format`、`records_path`、`query_params`、`method`、`body` | JSON file、glob、GET URL 或参数化 body 的 POST URL；`records_path` 用于选择包装响应中的记录数组。 |
 
 ### 3. 添加字段
 
@@ -1020,17 +1049,91 @@ snapshot.measures(columns=("amount",)).show()
 ```
 
 `md.duckdb(...)` 声明 datasource。`md.table(...)` 选择该 datasource 内部的
-table 或 view。`md.parquet(...)`、`md.csv(...)` 和 `md.json(...)` 是配合
-datasource ref 使用的 DuckDB file source descriptor；它们不是 datasource
+table 或 view。`md.parquet(...)` 和 `md.csv(...)` 是 DuckDB file source
+descriptor；`md.json(...)` 是 DuckDB-backed JSON file 或 HTTP API source
+descriptor。它们都需要配合 datasource ref 使用，并且都不是 datasource
 declaration。
 
 ```python
 events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
+api_events = md.json(
+    "https://api.example.com/events",
+    schema={"event_id": "string", "occurred_at": "timestamp"},
+    records_path="$.result.items",
+    query_params={
+        "query": "sum(pending_containers) by (cluster)",
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    schema={
+        "name": "string",
+        "bs": "string",
+        "gpuAbstract": "string",
+        "status": "string",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
 orders_parquet = md.parquet("data/orders/*.parquet")
 orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
 
 md.inspect(warehouse, events).show()
 ```
+
+`records_path` 刻意只支持一小部分 JSONPath：以 `$` 开头，后接对象成员，
+例如 `$.data` 或 `$.result.items`。它不支持过滤器、通配符、递归下降或数组下标。
+路径存在且值为空数组时会物化为 0 行；路径缺失或值不是数组时则在执行阶段失败，
+避免把认证错误或响应包装变化误判成空数据。
+
+最小 POST API 场景使用 `method="POST"`，并通过 `body=` 提供一个 JSON
+对象。`md.source_param(...)` 可以出现在对象或数组中的任意完整 JSON value
+位置。请求只会在结果表执行时发出。POST 要求 HTTP(S) URL 和
+`format="auto"`；自动分页、重试与增量采集不在这一契约内。datasource 中
+声明的 bearer 或自定义 header 只会在 `http_scope` 范围内发送，凭据不会进入
+source descriptor。
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    schema={"change_id": "int64", "title": "string"},
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+
+`query_params` 把固定请求参数留在 source descriptor 中；`md.source_param(name)`
+声明一个必填、非 secret 的运行时值，并且只能占据完整的 query parameter value。
+Marivo 负责 URL 编码，不支持字符串片段模板。分析时通过 execution scope 绑定，
+而不是给 `observe` 增加 API 专用参数：
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.api_events"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+```
+
+binding 可以嵌套，并通过执行上下文隔离；它还会绑定到所属 Session runtime，
+同一任务里的另一个 Session 无法消费这些值。缺少或多余参数会在读取 source 前失败；
+这些非 secret 值会进入 snapshot 与 analysis identity。Datasource authoring evidence
+使用相同映射：`inspection.sample(..., source_params={...})`。
 
 Inspection 是 metadata-only，并在 sampling 前报告 schema、physical extent、partition
 state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards 和明确 columns；

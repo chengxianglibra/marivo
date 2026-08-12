@@ -39,7 +39,16 @@ def _format_mapping(mapping: dict[str, object]) -> str:
 def _format_env_refs(mapping: dict[str, str]) -> str:
     if not mapping:
         return "(none)"
-    return ", ".join(f"{key}_env={value}" for key, value in sorted(mapping.items()))
+    regular: list[str] = []
+    http_headers: list[str] = []
+    for key, value in sorted(mapping.items()):
+        if key.startswith("http_header:"):
+            http_headers.append(f"{key.removeprefix('http_header:')}: {value}")
+        else:
+            regular.append(f"{key}_env={value}")
+    if http_headers:
+        regular.append(f"http_headers_env={{{', '.join(http_headers)}}}")
+    return ", ".join(regular)
 
 
 def _format_tuple(values: tuple[str, ...]) -> str:

@@ -5222,11 +5222,16 @@ class SemanticCatalog(RenderableResult):
         connections: object | None = None,
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
+        source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None,
     ) -> SemanticResolver:
         """Return an internal resolver backed by Materializer."""
         self._require_ready()
         if connections is None:
             connections = self._project._connection_service()
+        if source_bindings is None:
+            binding_provider = getattr(connections, "source_bindings", None)
+            if callable(binding_provider):
+                source_bindings = binding_provider()
         from marivo.semantic.resolver import SemanticResolver
 
         return SemanticResolver(
@@ -5234,6 +5239,7 @@ class SemanticCatalog(RenderableResult):
             connections=connections,
             sample_size=sample_size,
             entity_scopes=entity_scopes,
+            source_bindings=source_bindings,
         )
 
     def preview(
@@ -5438,6 +5444,7 @@ class SemanticCatalog(RenderableResult):
                 connections=connections,
                 sample_size=(METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None),
                 entity_scopes=bindings.entity_scopes,
+                source_bindings=bindings.source_bindings,
             )
             if kind == SemanticKind.ENTITY:
                 table = resolver.table(_make_ref(ref_str, SemanticKind.ENTITY))
@@ -5904,6 +5911,7 @@ class SemanticCatalog(RenderableResult):
         resolver = self._semantic_resolver(
             connections=connections,
             entity_scopes=bindings.entity_scopes,
+            source_bindings=bindings.source_bindings,
         )
         parent_table = resolver.table(_make_ref(entity_id, SemanticKind.ENTITY))
         raw_columns = tuple(parent_table.columns)
@@ -6028,6 +6036,7 @@ class SemanticCatalog(RenderableResult):
             connections=connections,
             sample_size=METRIC_PREVIEW_SAMPLE_SIZE,
             entity_scopes=bindings.entity_scopes,
+            source_bindings=bindings.source_bindings,
         )
         aliases = tuple(f"__marivo_metric_{item.order}" for item in items)
         if len(bindings.entity_ids) == 1:

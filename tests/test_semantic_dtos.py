@@ -4,6 +4,7 @@ from typing import get_args, get_type_hints
 
 import pytest
 
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 from marivo.semantic.dtos import (
@@ -120,6 +121,7 @@ def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
         path="/data/events.json",
         schema=(("event_id", "string"), ("occurred_at", "timestamp")),
         format="newline_delimited",
+        records_path="$.data",
     )
 
     restored = source_from_dict(src.to_dict())
@@ -128,6 +130,38 @@ def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
     assert restored.path == "/data/events.json"
     assert restored.schema == (("event_id", "string"), ("occurred_at", "timestamp"))
     assert restored.format == "newline_delimited"
+    assert restored.records_path == "$.data"
+
+
+def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> None:
+    from marivo.semantic.ir import source_from_dict
+
+    src = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"start": md.source_param("start"), "step": "60s"},
+    )
+
+    restored = source_from_dict(src.to_dict())
+
+    assert restored == src
+
+
+def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
+    from marivo.semantic.ir import source_from_dict
+
+    src = md.json(
+        "https://api.example/graphql",
+        schema={"name": "string"},
+        method="POST",
+        body={
+            "query": "{ items { name } }",
+            "variables": {"page": md.source_param("page_num")},
+        },
+        records_path="$.data.items",
+    )
+
+    assert source_from_dict(src.to_dict()) == src
 
 
 def test_source_from_dict_rejects_non_string_schema_entries() -> None:

@@ -47,6 +47,29 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
                 "cannot become canonical metrics",
             ),
         ),
+        (
+            "source_param",
+            ("Entrypoint: md.source_param", "Signature:", "Output family: SourceParameter"),
+        ),
+        (
+            "json",
+            (
+                "query_params",
+                "records_path",
+                "method",
+                "body",
+                "md.source_param",
+                "json_request_shape",
+            ),
+        ),
+        (
+            "duckdb",
+            ("http_scope", "http_bearer_token_env", "duckdb_http_auth_scoped"),
+        ),
+        (
+            "SourceInspection.sample",
+            ("source_params", "SourceParameters optional", "json_source_params_exact"),
+        ),
     ],
 )
 def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...]) -> None:
@@ -74,6 +97,7 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "snapshot.show()" in sample_text
     assert "snapshot.contract().show()" in sample_text
     assert 'snapshot.dimensions(columns=("status",)).show()' in sample_text
+    assert 'source_params={"page": 1}' in sample_text
 
 
 def test_connection_test_help_teaches_result_and_contract_reads() -> None:

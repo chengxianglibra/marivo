@@ -153,6 +153,7 @@ def test_datasource_public_exports() -> None:
         "parquet",
         "csv",
         "json",
+        "source_param",
         "duckdb",
         "trino",
         "mysql",

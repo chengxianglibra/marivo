@@ -12,6 +12,7 @@ from marivo.analysis.errors import (
     FrameMetaInvalidError,
     JobNotFoundError,
     SchemaVersionMismatchError,
+    SourceBindingError,
 )
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.session._load import load_frame
@@ -69,6 +70,41 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
         layout=layout,
         semantic_catalog=SemanticCatalog(semantic_project),
         store=store,
+    )
+
+
+def _write_parameterized_source_project(tmp_path) -> None:
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "fake.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='fake', path=':memory:')\n"
+    )
+    semantic_dir = tmp_path / "models" / "semantic" / "monitoring"
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='monitoring', owner='Data Team')\n"
+    )
+    (semantic_dir / "samples.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "samples = ms.entity(\n"
+        "    name='samples',\n"
+        "    datasource=ms.ref.datasource('fake'),\n"
+        "    source=md.json(\n"
+        "        'https://api.example/query',\n"
+        "        schema={'value': 'float64'},\n"
+        "        method='POST',\n"
+        "        body={\n"
+        "            'start': md.source_param('start'),\n"
+        "            'window': {'end': md.source_param('end')},\n"
+        "        },\n"
+        "    ),\n"
+        ")\n"
+        "local = ms.entity(\n"
+        "    name='local',\n"
+        "    datasource=ms.ref.datasource('fake'),\n"
+        "    source=md.table('local'),\n"
+        ")\n"
     )
 
 
@@ -146,6 +182,82 @@ def test_session_is_read_only_when_no_factory(tmp_path):
 
 def test_session_is_not_read_only_with_factory(tmp_path):
     assert _session(tmp_path, read_only=False).is_read_only is False
+
+
+def test_session_source_bindings_are_validated_nested_and_scope_local(tmp_path) -> None:
+    from marivo.analysis.intents.observe import _source_binding_params
+
+    _write_parameterized_source_project(tmp_path)
+    session = _session(tmp_path)
+    samples = ms.ref.entity("monitoring.samples")
+
+    assert session._connection_runtime.source_bindings() == {}
+    with session.source_bindings({samples: {"end": "now", "start": "now-3600"}}):
+        assert _source_binding_params(session) == {
+            "monitoring.samples": {"end": "now", "start": "now-3600"}
+        }
+        with session.source_bindings({samples: {"start": 10, "end": 20}}):
+            assert session._connection_runtime.source_bindings() == {
+                "monitoring.samples": {"start": 10, "end": 20}
+            }
+        assert session._connection_runtime.source_bindings()["monitoring.samples"]["start"] == (
+            "now-3600"
+        )
+    assert session._connection_runtime.source_bindings() == {}
+
+
+def test_session_source_bindings_are_owned_by_the_originating_session_runtime(tmp_path) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    _write_parameterized_source_project(first_root)
+    _write_parameterized_source_project(second_root)
+    first = _session(first_root)
+    second = _session(second_root)
+    samples = ms.ref.entity("monitoring.samples")
+
+    with first.source_bindings({samples: {"start": 11, "end": 22}}):
+        assert first._connection_runtime.source_bindings() == {
+            "monitoring.samples": {"start": 11, "end": 22}
+        }
+        assert second._connection_runtime.source_bindings() == {}
+        with second.source_bindings({samples: {"start": 33, "end": 44}}):
+            assert first._connection_runtime.source_bindings()["monitoring.samples"] == {
+                "start": 11,
+                "end": 22,
+            }
+            assert second._connection_runtime.source_bindings()["monitoring.samples"] == {
+                "start": 33,
+                "end": 44,
+            }
+
+
+def test_session_source_bindings_require_exact_declared_nonsecret_values(tmp_path) -> None:
+    _write_parameterized_source_project(tmp_path)
+    session = _session(tmp_path)
+    samples = ms.ref.entity("monitoring.samples")
+
+    with (
+        pytest.raises(SourceBindingError, match=r"missing=\('end',\)"),
+        session.source_bindings({samples: {"start": 1}}),
+    ):
+        pass
+    with (
+        pytest.raises(SourceBindingError, match=r"extra=\('step',\)"),
+        session.source_bindings({samples: {"start": 1, "end": 2, "step": "60s"}}),
+    ):
+        pass
+    with (
+        pytest.raises(SourceBindingError, match=r"does not use md\.json"),
+        session.source_bindings({ms.ref.entity("monitoring.local"): {}}),
+    ):
+        pass
+    with (
+        pytest.raises(SourceBindingError, match="finite float"),
+        session.source_bindings({samples: {"start": float("inf"), "end": 2}}),
+    ):
+        pass
 
 
 def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, capsys):

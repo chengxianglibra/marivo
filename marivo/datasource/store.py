@@ -70,10 +70,16 @@ def _write_datasource_file(
             extra_kwargs[key] = value
     kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
     # Only write explicit *_env overrides; conventional names are implied.
+    http_headers_env: dict[str, str] = {}
     for stem, env_var in spec.env_refs.items():
+        if stem.startswith("http_header:"):
+            http_headers_env[stem.removeprefix("http_header:")] = env_var
+            continue
         if env_var == conventional_env_var(spec.name, stem):
             continue
         kwargs[f"{stem}_env"] = env_var
+    if http_headers_env:
+        kwargs["http_headers_env"] = http_headers_env
     ai_context_call = _ai_context_literal(cast("AiContextIR", spec.ai_context))
     if extra_kwargs:
         kwargs["extra"] = extra_kwargs
