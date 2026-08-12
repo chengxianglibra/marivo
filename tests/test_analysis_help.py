@@ -88,6 +88,19 @@ def test_focused_help_documents_mv_namespace_import() -> None:
     assert text.splitlines()[0] == "observe"
 
 
+def test_source_bindings_has_focused_help_and_session_type_member() -> None:
+    text = _text("Session.source_bindings")
+    session_type = _text("Session")
+
+    assert "session.source_bindings({...})" in text
+    assert "Mapping[Ref[EntityKind]" in text
+    assert "non-secret" in text
+    assert "one Session runtime" in text
+    assert "source_bindings_exact" in text
+    assert ".source_bindings()" in session_type
+    assert REGISTRY.by_callable(Session.source_bindings).id == "Session.source_bindings"
+
+
 # ---------------------------------------------------------------------------
 # Root groups and canonical targets
 # ---------------------------------------------------------------------------

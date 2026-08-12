@@ -30,6 +30,7 @@ from marivo.analysis.errors import (
     SliceAmbiguousError,
     SliceEmptyResultError,
     SliceInvalidError,
+    SourceBindingError,
     WindowAmbiguousError,
     WindowInvalidError,
 )
@@ -56,6 +57,7 @@ def test_base_is_exception():
         NoBackendFactoryError,
         SemanticKindMismatchError,
         SessionStateError,
+        SourceBindingError,
         SliceAmbiguousError,
         SliceEmptyResultError,
         SliceInvalidError,

@@ -32,6 +32,9 @@ class ConstraintId(StrEnum):
     DATASOURCE_CONFIGURED = "datasource_configured"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
+    DUCKDB_HTTP_AUTH_SCOPED = "duckdb_http_auth_scoped"
+    JSON_REQUEST_SHAPE = "json_request_shape"
+    JSON_SOURCE_PARAMS_EXACT = "json_source_params_exact"
 
 
 def _constraint(
@@ -91,7 +94,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_SECRET_ENV_REF,
         "DatasourceSecretInPlaintext",
         "decorator",
-        ("trino", "mysql", "postgres", "clickhouse"),
+        ("duckdb", "trino", "mysql", "postgres", "clickhouse"),
         "Datasource secrets must be authored as environment-variable references.",
         "Datasource files are project metadata; plaintext credentials in them can leak into git and agent context.",
         'Use *_env fields such as password_env="ENV_VAR_NAME" for password, token, auth, api_key, private_key, and similar fields.',
@@ -150,6 +153,42 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource backend_type must have a registered backend adapter.",
         "The analysis runtime can only create ibis connections for supported datasource backend types.",
         "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
+    ),
+    ConstraintId.DUCKDB_HTTP_AUTH_SCOPED: _constraint(
+        ConstraintId.DUCKDB_HTTP_AUTH_SCOPED,
+        "DatasourceFieldInvalid",
+        "decorator",
+        ("duckdb",),
+        "DuckDB HTTP credentials require one explicit URL scope and one auth mode.",
+        "Remote JSON credentials must not be sent outside their declared host and path boundary.",
+        "Set http_scope plus exactly one of http_bearer_token_env or http_headers_env; keep secret values in the referenced environment variables.",
+        example=(
+            'md.duckdb(name="api", http_scope="https://api.example/v1/", '
+            'http_bearer_token_env="API_TOKEN")'
+        ),
+    ),
+    ConstraintId.JSON_REQUEST_SHAPE: _constraint(
+        ConstraintId.JSON_REQUEST_SHAPE,
+        "DatasourceFieldInvalid",
+        "decorator",
+        ("json", "source_param"),
+        "JSON sources declare one fixed-schema GET or JSON-object POST request.",
+        "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
+        "Use method='POST' only with an HTTP(S) path, body={...}, and format='auto'; records_path selects an object-member array and md.source_param(...) occupies one complete query or body value.",
+        example=(
+            'md.json("https://api.example/items", schema={"id": "string"}, '
+            'method="POST", body={"app_id": md.source_param("app_id")}, '
+            'records_path="$.data")'
+        ),
+    ),
+    ConstraintId.JSON_SOURCE_PARAMS_EXACT: _constraint(
+        ConstraintId.JSON_SOURCE_PARAMS_EXACT,
+        "DatasourceFieldInvalid",
+        "runtime",
+        ("SourceInspection.sample",),
+        "Parameterized JSON reads require the exact declared non-secret values.",
+        "Missing or extra values would make snapshot identity differ from the physical request that produced it.",
+        "Pass source_params={...} with exactly every md.source_param(...) name declared by the inspected JSON source.",
     ),
 }
 

@@ -29,6 +29,7 @@ PUBLIC_CALLABLE_TARGETS = {
     "table",
     "parquet",
     "csv",
+    "source_param",
     "json",
     "partition",
     "unpruned",
@@ -92,6 +93,7 @@ EXPECTED_EFFECTS = {
     "table": AuthoringEffects(data_access="none", connection="none"),
     "parquet": AuthoringEffects(data_access="none", connection="none"),
     "csv": AuthoringEffects(data_access="none", connection="none"),
+    "source_param": AuthoringEffects(data_access="none", connection="none"),
     "json": AuthoringEffects(data_access="none", connection="none"),
     "partition": AuthoringEffects(data_access="none", connection="none"),
     "unpruned": AuthoringEffects(data_access="none", connection="none"),
@@ -266,6 +268,7 @@ def test_stateful_type_contracts_list_registered_consumption_methods() -> None:
 
 def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.inspect) is REGISTRY.by_canonical_id("inspect")
+    assert REGISTRY.by_callable(md.source_param) is REGISTRY.by_canonical_id("source_param")
     assert REGISTRY.by_callable(md.load().list) is REGISTRY.by_canonical_id(
         "DatasourceCatalog.list"
     )

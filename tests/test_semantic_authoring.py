@@ -489,6 +489,11 @@ def test_entity_accepts_json_source(semantic_project_factory) -> None:
         "path": "data/events/*.json",
         "schema": {"event_id": "string"},
         "format": "auto",
+        "records_path": None,
+        "query_params": {},
+        "method": "GET",
+        "body": None,
+        "body_params": [],
     }
 
 

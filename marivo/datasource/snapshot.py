@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -31,7 +31,14 @@ from marivo.datasource.errors import (
     DatasourceObservedEffects,
     _backend_failure_summary,
 )
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    JsonSourceIR,
+    ParquetSourceIR,
+    QueryParamScalar,
+    TableSourceIR,
+)
+from marivo.datasource.json_source import normalize_json_source_params, read_json_source
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
 from marivo.preview import normalize_preview_cell
@@ -121,6 +128,7 @@ class DiscoverySnapshot(RenderableResult):
     created_at: datetime
     expires_at: datetime
     _project_root: Path
+    source_params: tuple[tuple[str, QueryParamScalar], ...] = ()
     retained_values: tuple[tuple[JsonScalar, ...], ...] = ()
 
     def _repr_identity(self) -> str:
@@ -136,6 +144,7 @@ class DiscoverySnapshot(RenderableResult):
                 available=(
                     ".profiles",
                     ".coverage",
+                    ".source_params",
                     ".entity(columns=(...))",
                     ".dimensions(columns=(...))",
                     ".values(column, limit=...)",
@@ -152,6 +161,10 @@ class DiscoverySnapshot(RenderableResult):
                 f"sampling={self.coverage.sampling_method}"
             )
             .field("scope", repr(self.scope))
+            .field(
+                "source params",
+                json.dumps(dict(self.source_params), sort_keys=True, separators=(",", ":")),
+            )
             .field("selected columns", ", ".join(self.columns))
             .field(
                 "coverage",
@@ -338,7 +351,12 @@ def _acquisition_error(
     )
 
 
-def _source_expression(backend: object, source: TableSource) -> ir.Table:
+def _source_expression(
+    backend: object,
+    source: TableSource,
+    *,
+    source_params: Mapping[str, QueryParamScalar] | None = None,
+) -> ir.Table:
     if isinstance(source, TableSourceIR):
         table = getattr(backend, "table", None)
         if not callable(table):
@@ -368,14 +386,7 @@ def _source_expression(backend: object, source: TableSource) -> ir.Table:
             csv_options["delimiter"] = source.delimiter
         return cast("ir.Table", reader(source.path, **csv_options))
     if isinstance(source, JsonSourceIR):
-        _backends.apply_json_http_settings(backend, source)
-        reader = getattr(backend, "read_json", None)
-        if not callable(reader):
-            raise RuntimeError("datasource backend does not expose read_json()")
-        json_options: dict[str, object] = {"columns": dict(source.schema)}
-        if source.format != "auto":
-            json_options["format"] = source.format
-        return cast("ir.Table", reader(source.path, **json_options))
+        return read_json_source(backend, source, source_params=source_params)
     raise TypeError(f"unsupported source type: {type(source).__name__}")
 
 
@@ -593,6 +604,7 @@ def acquire_snapshot(
     columns: tuple[str, ...],
     persist_values: bool,
     refresh: bool,
+    source_params: Mapping[str, QueryParamScalar] | None = None,
 ) -> DiscoverySnapshot:
     """Acquire and locally profile one selected-column, limit-plus-one sample."""
     from marivo.datasource.authoring_store import (
@@ -613,6 +625,18 @@ def acquire_snapshot(
         )
     schema_fingerprint = _schema_fingerprint(inspection.schema)
     datasource_fingerprint = datasource_spec_fingerprint(datasource_ir)
+    if isinstance(inspection.source, JsonSourceIR):
+        normalized_source_params = normalize_json_source_params(inspection.source, source_params)
+    elif source_params:
+        raise _acquisition_error(
+            code="source_params_unsupported",
+            reason="source_params are only valid for parameterized JSON sources",
+            received=inspection.source.kind,
+            scope_state=inspection.partitioning.state,
+        )
+    else:
+        normalized_source_params = {}
+    source_param_items = tuple(normalized_source_params.items())
     snapshot_id = snapshot_identity(
         datasource_fingerprint=datasource_fingerprint,
         source=inspection.source,
@@ -620,6 +644,7 @@ def acquire_snapshot(
         columns=columns,
         schema_fingerprint=schema_fingerprint,
         persist_values=persist_values,
+        source_params=source_param_items,
     )
     store = AuthoringStore(inspection._project_root)
     lookup = store.lookup_snapshot(
@@ -631,6 +656,7 @@ def acquire_snapshot(
         columns=columns,
         schema_fingerprint=schema_fingerprint,
         persist_values=persist_values,
+        source_params=source_param_items,
         refresh=refresh,
     )
     if lookup.snapshot is not None:
@@ -660,7 +686,11 @@ def acquire_snapshot(
                 scope_state=inspection.partitioning.state,
             ) from exc
         try:
-            expression = _source_expression(backend, inspection.source)
+            expression = _source_expression(
+                backend,
+                inspection.source,
+                source_params=normalized_source_params,
+            )
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
@@ -774,6 +804,7 @@ def acquire_snapshot(
         created_at=created_at,
         expires_at=created_at + SNAPSHOT_TTL,
         _project_root=inspection._project_root,
+        source_params=source_param_items,
         retained_values=tuple(
             tuple(
                 persisted_value(value, column) for column, value in zip(columns, row, strict=True)

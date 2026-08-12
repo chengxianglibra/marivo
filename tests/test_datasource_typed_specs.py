@@ -52,6 +52,68 @@ def test_duckdb_spec_defaults_to_memory_path() -> None:
     assert ir.env_refs == {}
 
 
+def test_duckdb_http_auth_is_scoped_and_environment_backed() -> None:
+    bearer = _ir(
+        DuckDBSpec(
+            name="hawkeye",
+            http_scope="http://hawkeye.example/report/api/",
+            http_bearer_token_env="HAWKEYE_TOKEN",
+        )
+    )
+    custom = _ir(
+        DuckDBSpec(
+            name="custom",
+            http_scope="https://api.example/v1/",
+            http_headers_env={
+                "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+                "x-signature": "CHANGE_FOCUS_SIGNATURE",
+            },
+        )
+    )
+
+    assert bearer.fields == {
+        "path": ":memory:",
+        "read_only": False,
+        "http_scope": "http://hawkeye.example/report/api/",
+    }
+    assert bearer.env_refs == {"http_bearer_token": "HAWKEYE_TOKEN"}
+    assert custom.env_refs == {
+        "http_header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "http_header:x-signature": "CHANGE_FOCUS_SIGNATURE",
+    }
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"http_scope": "https://api.example/"},
+        {"http_bearer_token_env": "TOKEN"},
+        {
+            "http_scope": "https://api.example/",
+            "http_headers_env": {},
+        },
+        {
+            "http_scope": "https://api.example/",
+            "http_headers_env": {"bad header": "API_KEY"},
+        },
+        {
+            "http_scope": "https://api.example/",
+            "http_headers_env": {"X-API-Key": ""},
+        },
+        {
+            "http_scope": "https://api.example/",
+            "http_bearer_token_env": "TOKEN",
+            "http_headers_env": {"X-API-Key": "API_KEY"},
+        },
+    ],
+)
+def test_duckdb_http_auth_rejects_ambiguous_or_incomplete_declarations(
+    kwargs: dict[str, object],
+) -> None:
+    with pytest.raises(DatasourceFieldInvalidError):
+        DuckDBSpec(name="hawkeye", **kwargs)  # type: ignore[arg-type]
+
+
 def test_sqlite_spec_maps_path_read_only_and_type_map() -> None:
     spec = SQLiteSpec(
         name="app",

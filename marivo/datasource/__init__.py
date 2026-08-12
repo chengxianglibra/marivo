@@ -50,6 +50,7 @@ from marivo.datasource.source import (
     json,
     parquet,
     partition,
+    source_param,
     table,
     unpruned,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "raw_sql",
     "register",
     "remove",
+    "source_param",
     "sqlite",
     "table",
     "test",

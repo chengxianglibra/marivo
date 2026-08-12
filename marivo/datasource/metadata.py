@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+import ibis
+
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMetadataError, repair
@@ -643,13 +645,10 @@ def _inspect_source(
                 kwargs["delimiter"] = source.delimiter
             table_expr = reader(source.path, **kwargs)
         elif isinstance(source, JsonSourceIR):
-            _backends.apply_json_http_settings(backend, source)
-            reader = getattr(backend, "read_json", None)
-            if reader is None:
-                raise AttributeError("backend has no read_json()")
-            if source.format != "auto":
-                kwargs["format"] = source.format
-            table_expr = reader(source.path, **kwargs)
+            # JSON sources carry a required physical schema. Inspection is
+            # metadata-only, so parameterized API URLs do not need runtime
+            # bindings and are never fetched merely to rediscover that schema.
+            table_expr = ibis.table(dict(source.schema), name=source_name(source))
     except Exception as exc:
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",

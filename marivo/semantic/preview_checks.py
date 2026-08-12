@@ -15,7 +15,13 @@ from marivo.datasource.authoring_store import (
     datasource_spec_fingerprint,
     snapshot_identity,
 )
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    JsonSourceIR,
+    ParquetSourceIR,
+    SourceParamIR,
+    TableSourceIR,
+)
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
 from marivo.preview import PreviewCoverage, PreviewResult
@@ -122,6 +128,14 @@ class NormalizedPreviewBindings:
     @property
     def entity_scopes(self) -> Mapping[str, AuthoringScope]:
         return dict(self.scopes)
+
+    @property
+    def source_bindings(self) -> Mapping[str, Mapping[str, str | int | float | bool]]:
+        return {
+            ref.path: dict(snapshot.source_params)
+            for ref, snapshot in zip(self.entity_refs, self.snapshots, strict=True)
+            if snapshot.source_params
+        }
 
 
 @dataclass(frozen=True)
@@ -352,11 +366,57 @@ def _source_call(source: object) -> str:
             f"header={source.header!r}, delimiter={_quoted(source.delimiter)})"
         )
     if isinstance(source, JsonSourceIR):
+        records_path = ""
+        if source.records_path is not None:
+            records_path = f", records_path={_quoted(source.records_path)}"
+        query_params = ""
+        if source.query_params:
+            rendered_params = ", ".join(
+                (
+                    f"{name!r}: md.source_param({value.name!r})"
+                    if isinstance(value, SourceParamIR)
+                    else f"{name!r}: {value!r}"
+                )
+                for name, value in source.query_params
+            )
+            query_params = f", query_params={{{rendered_params}}}"
+        request = ""
+        if source.method == "POST":
+            body = json.loads(source.body_json or "{}")
+            body_params = dict(source.body_params)
+            request = f", method='POST', body={_json_body_call(body, body_params=body_params)}"
         return (
             f"md.json({_quoted(source.path)}, schema={dict(source.schema)!r}, "
-            f"format={_quoted(source.format)})"
+            f"format={_quoted(source.format)}{records_path}{query_params}{request})"
         )
     raise TypeError(f"Unsupported entity source: {type(source).__name__}")
+
+
+def _json_body_call(
+    value: object,
+    *,
+    body_params: Mapping[tuple[str | int, ...], SourceParamIR],
+    path: tuple[str | int, ...] = (),
+) -> str:
+    param = body_params.get(path)
+    if param is not None:
+        return f"md.source_param({param.name!r})"
+    if isinstance(value, dict):
+        items = ", ".join(
+            f"{key!r}: {_json_body_call(item, body_params=body_params, path=(*path, key))}"
+            for key, item in value.items()
+        )
+        return f"{{{items}}}"
+    if isinstance(value, list):
+        return (
+            "["
+            + ", ".join(
+                _json_body_call(item, body_params=body_params, path=(*path, index))
+                for index, item in enumerate(value)
+            )
+            + "]"
+        )
+    return repr(value)
 
 
 def _inspect_call(entity: EntityIR) -> str:
@@ -635,6 +695,7 @@ def _validate_snapshot(
         columns=snapshot.columns,
         schema_fingerprint=snapshot.schema_fingerprint,
         persist_values=snapshot.persist_values,
+        source_params=snapshot.source_params,
     )
     if expected_id != snapshot.id:
         _blocked(
@@ -652,6 +713,7 @@ def _validate_snapshot(
         columns=snapshot.columns,
         schema_fingerprint=snapshot.schema_fingerprint,
         persist_values=snapshot.persist_values,
+        source_params=snapshot.source_params,
         refresh=False,
     )
     stored = lookup.snapshot

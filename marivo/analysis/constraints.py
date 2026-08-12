@@ -55,6 +55,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_CONFIGURED = "datasource_configured"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
+    SOURCE_BINDINGS_EXACT = "source_bindings_exact"
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
     ATTRIBUTION_ADDITIVITY_COMPATIBLE = "attribution_additivity_compatible"
     ATTRIBUTION_AXIS_COLUMN_COMPATIBLE = "attribution_axis_column_compatible"
@@ -495,6 +496,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The analysis runtime can only create ibis connections for supported datasource backend types.",
         "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
         help_target="datasources",
+        docs_ref=_DATASOURCE_DOC,
+    ),
+    ConstraintId.SOURCE_BINDINGS_EXACT: _constraint(
+        ConstraintId.SOURCE_BINDINGS_EXACT,
+        "SourceBinding",
+        "runtime",
+        ("Session.source_bindings", "SourceBindingError"),
+        "Source bindings belong to one Session runtime and exactly match declared JSON request parameters.",
+        "Session-local ownership prevents one analysis from reusing another session's request values, while exact names keep request and artifact identity aligned.",
+        "Use exact ms.ref.entity(...) keys and provide every non-secret md.source_param(...) value with no extras inside that session's context manager.",
+        help_target="Session.source_bindings",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.COMPONENT_FRAME_AVAILABLE: _constraint(

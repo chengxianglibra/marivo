@@ -99,6 +99,121 @@ def test_duckdb_extra_kwargs_pass_through(
     assert captured["force_download"] is True
 
 
+@pytest.mark.parametrize(
+    ("auth_kwargs", "env_values", "sql_fragment", "parameters", "expected_headers"),
+    [
+        (
+            {"http_bearer_token_env": "HAWKEYE_TOKEN"},
+            {"HAWKEYE_TOKEN": "secret-bearer"},
+            "BEARER_TOKEN ?",
+            ["secret-bearer", "https://api.example/v1/"],
+            {"Authorization": "Bearer secret-bearer"},
+        ),
+        (
+            {
+                "http_headers_env": {
+                    "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+                    "x-signature": "CHANGE_FOCUS_SIGNATURE",
+                },
+            },
+            {
+                "CHANGE_FOCUS_SECRET_ID": "secret-id",
+                "CHANGE_FOCUS_SIGNATURE": "secret-signature",
+            },
+            "EXTRA_HTTP_HEADERS ?",
+            [
+                {"x-secretid": "secret-id", "x-signature": "secret-signature"},
+                "https://api.example/v1/",
+            ],
+            {"x-secretid": "secret-id", "x-signature": "secret-signature"},
+        ),
+    ],
+)
+def test_duckdb_http_auth_creates_parameterized_temporary_scoped_secret(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    auth_kwargs: dict[str, object],
+    env_values: dict[str, str],
+    sql_fragment: str,
+    parameters: list[object],
+    expected_headers: dict[str, str],
+) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+    connect_kwargs: dict[str, object] = {}
+
+    class _Backend:
+        def raw_sql(self, sql: str, **kwargs: object) -> None:
+            calls.append((sql, kwargs))
+
+    class _Profile:
+        def connect(self, _name: str, kwargs: dict[str, object]) -> _Backend:
+            connect_kwargs.update(kwargs)
+            return _Backend()
+
+    monkeypatch.setattr(
+        datasource_backends, "require_profile_for_backend_type", lambda _kind: _Profile()
+    )
+    for env_name, env_value in env_values.items():
+        monkeypatch.setenv(env_name, env_value)
+    datasource = datasource_store.save_one(
+        DuckDBSpec(
+            name="hawkeye",
+            http_scope="https://api.example/v1/",
+            **auth_kwargs,  # type: ignore[arg-type]
+        )
+    )
+
+    backend = datasource_backends.build_backend(datasource)
+
+    assert connect_kwargs == {"path": ":memory:", "read_only": False}
+    assert len(calls) == 1
+    sql, kwargs = calls[0]
+    assert sql_fragment in sql
+    assert all(env_value not in sql for env_value in env_values.values())
+    assert kwargs == {"parameters": parameters}
+    assert (
+        datasource_backends.json_http_headers(backend, "https://api.example/v1/query")
+        == expected_headers
+    )
+    assert datasource_backends.json_http_headers(backend, "https://api.example/v2/query") == {}
+
+
+def test_duckdb_http_auth_disconnects_when_secret_configuration_fails(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disconnected = False
+
+    class _Backend:
+        def raw_sql(self, _sql: str, **_kwargs: object) -> None:
+            raise RuntimeError("secret setup failed")
+
+        def disconnect(self) -> None:
+            nonlocal disconnected
+            disconnected = True
+
+    class _Profile:
+        def connect(self, _name: str, _kwargs: dict[str, object]) -> _Backend:
+            return _Backend()
+
+    monkeypatch.setattr(
+        datasource_backends, "require_profile_for_backend_type", lambda _kind: _Profile()
+    )
+    monkeypatch.setenv("HAWKEYE_TOKEN", "secret")
+    datasource = datasource_store.save_one(
+        DuckDBSpec(
+            name="hawkeye",
+            http_scope="https://api.example/v1/",
+            http_bearer_token_env="HAWKEYE_TOKEN",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="secret setup failed"):
+        datasource_backends.build_backend(datasource)
+
+    assert disconnected is True
+
+
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TRINO_AUTH", "shhh")
     datasource = datasource_store.save_one(

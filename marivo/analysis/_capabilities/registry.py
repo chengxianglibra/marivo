@@ -232,6 +232,7 @@ PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
                 "events",
                 "lifecycle",
             ),
+            intrinsic_methods=("source_bindings",),
         ),
         "SessionEvents": PublicObjectContract(),
         "SessionLifecycle": PublicObjectContract(),
@@ -1938,6 +1939,24 @@ def _build_registry() -> CapabilityRegistry:
                 produced_input_family=produced_input_family,
             )
         )
+
+    descriptors.append(
+        ConstructorCapability(
+            id="Session.source_bindings",
+            public_entrypoint="session.source_bindings({...})",
+            help_target="Session.source_bindings",
+            summary=(
+                "Bind declared non-secret JSON request parameters to one Session runtime "
+                "for a nested analysis execution scope."
+            ),
+            root_group="policies_builders",
+            root_visibility="grouped",
+            constraint_ids=("source_bindings_exact",),
+            callable_path="marivo.analysis.session.core.Session.source_bindings",
+            output_type="AbstractContextManager[None]",
+            produced_input_family=None,
+        )
+    )
 
     runtime_metric_specs: tuple[tuple[str, str, object, str], ...] = (
         (

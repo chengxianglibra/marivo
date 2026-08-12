@@ -75,6 +75,31 @@ frame = session.observe(
 )
 ```
 
+### Parameterized physical sources
+
+`session.source_bindings({...})` supplies non-secret runtime values declared by
+`md.source_param(...)` on JSON Entity sources. It is a context manager rather
+than an `observe` keyword: one request scope can consistently cover planning,
+materialization, and any nested analysis calls without changing the stable
+semantic project.
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.samples"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+```
+
+Bindings are validated against the current catalog before execution, nest with
+normal context-manager semantics, and are isolated with `ContextVar`. Each scope
+is keyed by its owning Session connection runtime, so another Session in the
+same task cannot consume its values. The exact non-secret values enter persisted
+observe params and scope identity. Credentials remain datasource-owned `*_env`
+references and are never accepted here.
+
 ## Project-local persistence layout
 
 All analysis state lives project-locally under `<project_root>/.marivo/analysis/`.

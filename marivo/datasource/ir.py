@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
@@ -14,9 +17,17 @@ __all__ = [
     "DatasourceIR",
     "DatasourceSourceLocation",
     "EntitySourceIR",
+    "JsonBodyParam",
+    "JsonBodyPathPart",
+    "JsonBodyValue",
+    "JsonQueryParamValue",
     "JsonSourceIR",
     "ParquetSourceIR",
+    "QueryParamScalar",
+    "SourceParamIR",
     "TableSourceIR",
+    "json_body_to_string",
+    "normalize_json_body",
     "qualify_provenance_sql",
     "source_name",
     "source_to_dict",
@@ -75,11 +86,153 @@ def _require_kind(value: object, *, field_name: str, expected: str) -> None:
 
 
 _JSON_FORMATS = ("auto", "newline_delimited", "array")
+_JSON_RECORDS_PATH = re.compile(r"^\$(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+type QueryParamScalar = str | int | float | bool
+
+
+@dataclass(frozen=True)
+class SourceParamIR:
+    """Required runtime parameter referenced by one physical source."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.name, "SourceParamIR.name")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.name):
+            raise ValueError(
+                "SourceParamIR.name must contain ASCII letters, digits, and underscores, "
+                "and must not start with a digit."
+            )
+
+    def to_dict(self) -> dict[str, str]:
+        return {"kind": "source_param", "name": self.name}
+
+
+type JsonQueryParamValue = QueryParamScalar | SourceParamIR
+type JsonBodyPathPart = str | int
+type JsonBodyParam = tuple[tuple[JsonBodyPathPart, ...], SourceParamIR]
+type JsonBodyValue = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | SourceParamIR
+    | Mapping[str, "JsonBodyValue"]
+    | Sequence["JsonBodyValue"]
+)
+
+
+def _normalize_json_body_value(
+    value: object,
+    *,
+    field_name: str,
+    path: tuple[JsonBodyPathPart, ...],
+    params: list[JsonBodyParam],
+) -> object:
+    if isinstance(value, SourceParamIR):
+        params.append((path, value))
+        return None
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise ValueError(f"{field_name} floats must be finite.")
+        return value
+    if isinstance(value, Mapping):
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{field_name} object keys must be strings.")
+            normalized[key] = _normalize_json_body_value(
+                item,
+                field_name=field_name,
+                path=(*path, key),
+                params=params,
+            )
+        return normalized
+    if isinstance(value, Sequence) and not isinstance(value, bytes | bytearray):
+        return [
+            _normalize_json_body_value(
+                item,
+                field_name=field_name,
+                path=(*path, index),
+                params=params,
+            )
+            for index, item in enumerate(value)
+        ]
+    raise TypeError(f"{field_name} values must be JSON-compatible; got {type(value).__name__}.")
+
+
+def normalize_json_body(value: object) -> tuple[str, tuple[JsonBodyParam, ...]]:
+    """Return one canonical JSON object plus separately typed runtime parameters."""
+    if not isinstance(value, Mapping):
+        raise TypeError("md.json(body=...) must be a JSON object mapping.")
+    params: list[JsonBodyParam] = []
+    normalized = _normalize_json_body_value(
+        value,
+        field_name="md.json(body=...)",
+        path=(),
+        params=params,
+    )
+    return (
+        json.dumps(normalized, ensure_ascii=True, allow_nan=False, separators=(",", ":")),
+        tuple(params),
+    )
+
+
+def json_body_to_string(value: object) -> str:
+    """Validate one concrete JSON object body and return its canonical representation."""
+    body_json, params = normalize_json_body(value)
+    if params:
+        raise TypeError("concrete JSON bodies cannot contain md.source_param(...).")
+    return body_json
 
 
 def _require_json_format(value: object, field_name: str) -> None:
     if value not in _JSON_FORMATS:
         raise TypeError(f"{field_name} must be one of {_JSON_FORMATS!r}, got {value!r}.")
+
+
+def _validate_json_records_path(value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise TypeError(
+            f"JsonSourceIR.records_path must be str | None, got {type(value).__name__}."
+        )
+    if not _JSON_RECORDS_PATH.fullmatch(value):
+        raise ValueError(
+            "JsonSourceIR.records_path must be an object-member path such as "
+            "'$.data' or '$.result.items'."
+        )
+
+
+def _validate_json_query_params(value: object) -> None:
+    if not isinstance(value, tuple):
+        raise TypeError(
+            "JsonSourceIR.query_params must be tuple[tuple[str, JsonQueryParamValue], ...], "
+            f"got {type(value).__name__}."
+        )
+    seen: set[str] = set()
+    for entry in value:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise TypeError("JsonSourceIR.query_params entries must be (name, value) tuples.")
+        name, item = entry
+        _require_non_empty_str(name, "JsonSourceIR.query_params name")
+        if name in seen:
+            raise ValueError(f"JsonSourceIR.query_params contains duplicate name {name!r}.")
+        seen.add(name)
+        if not isinstance(item, str | int | float | bool | SourceParamIR):
+            raise TypeError(
+                "JsonSourceIR.query_params values must be str, int, float, bool, or "
+                f"SourceParamIR; got {type(item).__name__} for {name!r}."
+            )
+        if isinstance(item, float) and not isfinite(item):
+            raise ValueError(
+                f"JsonSourceIR.query_params value for {name!r} must be a finite float."
+            )
 
 
 def _validate_database(value: object) -> None:
@@ -216,12 +369,78 @@ class JsonSourceIR:
     path: str
     schema: tuple[tuple[str, str], ...]
     format: Literal["auto", "newline_delimited", "array"] = "auto"
+    records_path: str | None = None
+    query_params: tuple[tuple[str, JsonQueryParamValue], ...] = ()
+    method: Literal["GET", "POST"] = "GET"
+    body_json: str | None = None
+    body_params: tuple[JsonBodyParam, ...] = ()
     kind: Literal["json"] = "json"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "JsonSourceIR.path")
         _validate_schema(self.schema, "JsonSourceIR.schema")
         _require_json_format(self.format, "JsonSourceIR.format")
+        _validate_json_records_path(self.records_path)
+        _validate_json_query_params(self.query_params)
+        if self.method not in ("GET", "POST"):
+            raise ValueError(f"JsonSourceIR.method must be 'GET' or 'POST', got {self.method!r}.")
+        if self.method == "GET" and (self.body_json is not None or self.body_params):
+            raise ValueError("JsonSourceIR.body_json requires method='POST'.")
+        if self.method == "POST" and self.body_json is None:
+            raise ValueError("JsonSourceIR.method='POST' requires a JSON body.")
+        if self.method == "POST" and not re.match(r"^https?://", self.path, re.IGNORECASE):
+            raise ValueError("JsonSourceIR.method='POST' requires an HTTP(S) path.")
+        if self.method == "POST" and self.format != "auto":
+            raise ValueError("JsonSourceIR.method='POST' only supports format='auto'.")
+        if self.body_json is not None:
+            if not isinstance(self.body_json, str):
+                raise TypeError("JsonSourceIR.body_json must be str | None.")
+            try:
+                parsed_body = json.loads(self.body_json)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("JsonSourceIR.body_json must contain valid JSON.") from exc
+            if not isinstance(parsed_body, dict):
+                raise ValueError("JsonSourceIR.body_json must contain a JSON object.")
+            seen_paths: set[tuple[JsonBodyPathPart, ...]] = set()
+            for entry in self.body_params:
+                if not isinstance(entry, tuple) or len(entry) != 2:
+                    raise TypeError(
+                        "JsonSourceIR.body_params entries must be (path, SourceParamIR) tuples."
+                    )
+                path, param = entry
+                if not isinstance(path, tuple) or not path:
+                    raise TypeError("JsonSourceIR.body_params paths must be non-empty tuples.")
+                if path in seen_paths:
+                    raise ValueError(f"JsonSourceIR.body_params contains duplicate path {path!r}.")
+                seen_paths.add(path)
+                if not isinstance(param, SourceParamIR):
+                    raise TypeError("JsonSourceIR.body_params values must be SourceParamIR values.")
+                cursor: object = parsed_body
+                for part in path:
+                    valid_part = (
+                        isinstance(part, str) and isinstance(cursor, dict) and part in cursor
+                    ) or (
+                        isinstance(part, int)
+                        and not isinstance(part, bool)
+                        and isinstance(cursor, list)
+                        and 0 <= part < len(cursor)
+                    )
+                    if not valid_part:
+                        raise ValueError(
+                            f"JsonSourceIR.body_params path {path!r} does not exist in body_json."
+                        )
+                    if isinstance(cursor, list):
+                        assert isinstance(part, int) and not isinstance(part, bool)
+                        cursor = cursor[part]
+                    else:
+                        assert isinstance(cursor, dict) and isinstance(part, str)
+                        cursor = cursor[part]
+                if cursor is not None:
+                    raise ValueError(
+                        f"JsonSourceIR.body_params path {path!r} must point to a null placeholder."
+                    )
+        elif self.body_params:
+            raise ValueError("JsonSourceIR.body_params require body_json.")
         _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
 
     def to_dict(self) -> dict[str, object]:
@@ -230,10 +449,27 @@ class JsonSourceIR:
             "path": self.path,
             "schema": dict(self.schema),
             "format": self.format,
+            "records_path": self.records_path,
+            "query_params": {
+                name: value.to_dict() if isinstance(value, SourceParamIR) else value
+                for name, value in self.query_params
+            },
+            "method": self.method,
+            "body": json.loads(self.body_json) if self.body_json is not None else None,
+            "body_params": [
+                {"path": list(path), "name": param.name} for path, param in self.body_params
+            ],
         }
 
     def to_ir(self) -> JsonSourceIR:
         return self
+
+
+def json_source_param_names(source: JsonSourceIR) -> tuple[str, ...]:
+    """Return unique runtime parameter names in request declaration order."""
+    declared = [value.name for _, value in source.query_params if isinstance(value, SourceParamIR)]
+    declared.extend(param.name for _, param in source.body_params)
+    return tuple(dict.fromkeys(declared))
 
 
 EntitySourceIR = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR

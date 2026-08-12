@@ -44,6 +44,9 @@ INPUT_FAMILIES = frozenset(
         "Column",
         "TableName",
         "SourcePath",
+        "SourceParameterName",
+        "SourceParameter",
+        "SourceParameters",
         "TypedSchema",
         "PartitionValues",
         "PositiveRowGuard",
@@ -66,6 +69,7 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceConnection",
         "DatasourceTestResult",
         "TableSource",
+        "SourceParameter",
         "PartitionScope",
         "UnprunedScope",
         "SourceInspection",
@@ -184,11 +188,14 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "duckdb",
             "marivo.datasource.authoring.duckdb",
-            "Build a DuckDB datasource specification.",
+            "Build a DuckDB datasource specification with optional URL-scoped, environment-backed HTTP authentication.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
-            constraints=constraints["declare"],
-            example='md.duckdb(name="warehouse", path=":memory:")',
+            constraints=(*constraints["declare"], "duckdb_http_auth_scoped"),
+            example=(
+                'md.duckdb(name="api", http_scope="https://api.example/v1/", '
+                'http_bearer_token_env="API_TOKEN")'
+            ),
             produced_state="datasource.declared",
         ),
         _capability(
@@ -338,12 +345,28 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example='md.csv("data/orders.csv", schema={"order_id": "string"})',
         ),
         _capability(
+            "source_param",
+            "marivo.datasource.source.source_param",
+            "Declare one required runtime query-string or JSON-body value for a JSON source.",
+            output="SourceParameter",
+            inputs=_inputs(("subject", "SourceParameterName")),
+            example='md.source_param("start")',
+        ),
+        _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a typed JSON source descriptor.",
+            "Build a typed JSON source descriptor with GET or parameterized-body POST acquisition, optional runtime request parameters, and wrapped-record extraction.",
             output="TableSource",
-            inputs=_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
-            example='md.json("data/orders.json", schema={"order_id": "string"})',
+            inputs=(
+                *_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
+                _optional_input("dependency", "SourceParameter"),
+            ),
+            constraints=("json_request_shape",),
+            example=(
+                'md.json("https://api.example/orders", '
+                'schema={"order_id": "string"}, records_path="$.data", '
+                'method="POST", body={"app_id": md.source_param("app_id")})'
+            ),
         ),
         _capability(
             "partition",
@@ -493,10 +516,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "Acquire scoped bounded evidence from an inspected source.",
             kind="method",
             output="DiscoverySnapshot",
-            inputs=_inputs(
-                ("receiver", "SourceInspection"),
-                ("scope", "AuthoringScope"),
-                ("dependency", "Columns"),
+            inputs=(
+                *_inputs(
+                    ("receiver", "SourceInspection"),
+                    ("scope", "AuthoringScope"),
+                    ("dependency", "Columns"),
+                ),
+                _optional_input("dependency", "SourceParameters"),
             ),
             effects=_effects(
                 "scoped_data_read",
@@ -509,6 +535,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                     "may_persist_plaintext_values",
                 ),
             ),
+            constraints=("json_source_params_exact",),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "snapshot = inspection.sample(\n"
@@ -517,7 +544,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 ")\n"
                 "snapshot.show()\n"
                 "snapshot.contract().show()\n"
-                'snapshot.dimensions(columns=("status",)).show()'
+                'snapshot.dimensions(columns=("status",)).show()\n'
+                '# For md.source_param("page"), add source_params={"page": 1}.'
             ),
             preconditions=("source.inspected", "scope.explicit"),
             produced_state="evidence.acquired",
@@ -655,7 +683,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "connect",
                 "test",
             ),
-            "physical_sources": ("table", "parquet", "csv", "json"),
+            "physical_sources": ("table", "parquet", "csv", "source_param", "json"),
             "inspect_scope": ("inspect", "SourceInspection.partitions", "partition", "unpruned"),
             "acquire_project": (
                 "SourceInspection.sample",
@@ -709,7 +737,13 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         PhysicalExtent,
         SourceInspection,
     )
-    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+    from marivo.datasource.ir import (
+        CsvSourceIR,
+        JsonSourceIR,
+        ParquetSourceIR,
+        SourceParamIR,
+        TableSourceIR,
+    )
     from marivo.datasource.manage import (
         DatasourceConnection,
         DatasourceDescription,
@@ -841,6 +875,13 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             consumers=("inspect",),
         )
     add(
+        SourceParamIR,
+        "SourceParamIR",
+        ("source_param",),
+        properties=("name",),
+        consumers=("json",),
+    )
+    add(
         PartitionScope,
         "PartitionScope",
         ("partition",),
@@ -915,6 +956,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "datasource",
             "source",
             "scope",
+            "source_params",
             "columns",
             "schema_fingerprint",
             "profiles",

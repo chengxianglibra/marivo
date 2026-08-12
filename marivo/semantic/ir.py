@@ -7,7 +7,7 @@ stored in a sidecar map, not in the IR itself.
 from __future__ import annotations
 
 import re as _re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, cast
@@ -20,9 +20,13 @@ from marivo.datasource.ir import (
     DatasourceIR,
     DatasourceSourceLocation,
     EntitySourceIR,
+    JsonBodyParam,
+    JsonQueryParamValue,
     JsonSourceIR,
     ParquetSourceIR,
+    SourceParamIR,
     TableSourceIR,
+    json_body_to_string,
     source_name,
     source_to_dict,
 )
@@ -242,10 +246,51 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
         )
     if kind == "json":
         raw_format = str(data.get("format", "auto"))
+        raw_records_path = data.get("records_path")
+        raw_query_params = data.get("query_params", {})
+        raw_method = str(data.get("method", "GET"))
+        raw_body = data.get("body")
+        raw_body_params = data.get("body_params", [])
+        if not isinstance(raw_query_params, Mapping):
+            raise TypeError("JsonSourceIR.query_params must be a mapping.")
+        query_params: list[tuple[str, object]] = []
+        for name, raw_value in raw_query_params.items():
+            if not isinstance(name, str):
+                raise TypeError("JsonSourceIR.query_params names must be strings.")
+            value: object = raw_value
+            if isinstance(raw_value, Mapping) and raw_value.get("kind") == "source_param":
+                value = SourceParamIR(name=str(raw_value.get("name", "")))
+            query_params.append((name, value))
+        if not isinstance(raw_body_params, Sequence) or isinstance(raw_body_params, str | bytes):
+            raise TypeError("JsonSourceIR.body_params must be a sequence.")
+        body_params: list[JsonBodyParam] = []
+        for raw_param in raw_body_params:
+            if not isinstance(raw_param, Mapping):
+                raise TypeError("JsonSourceIR.body_params entries must be mappings.")
+            raw_path = raw_param.get("path")
+            raw_name = raw_param.get("name")
+            if not isinstance(raw_path, Sequence) or isinstance(raw_path, str | bytes):
+                raise TypeError("JsonSourceIR.body_params paths must be sequences.")
+            path: list[str | int] = []
+            for part in raw_path:
+                if isinstance(part, str) or (isinstance(part, int) and not isinstance(part, bool)):
+                    path.append(part)
+                else:
+                    raise TypeError(
+                        "JsonSourceIR.body_params path parts must be strings or integers."
+                    )
+            if not isinstance(raw_name, str):
+                raise TypeError("JsonSourceIR.body_params names must be strings.")
+            body_params.append((tuple(path), SourceParamIR(name=raw_name)))
         return JsonSourceIR(
             path=str(data["path"]),
             schema=_source_schema_from_dict(data.get("schema"), field_name="JsonSourceIR.schema"),
             format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
+            records_path=cast("str | None", raw_records_path),
+            query_params=cast("tuple[tuple[str, JsonQueryParamValue], ...]", tuple(query_params)),
+            method=cast('Literal["GET", "POST"]', raw_method),
+            body_json=json_body_to_string(raw_body) if raw_body is not None else None,
+            body_params=tuple(body_params),
         )
     raise ValueError(f"unsupported entity source kind: {kind!r}")
 

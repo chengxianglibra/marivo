@@ -7,7 +7,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._authoring.model import AuthoringContract
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    JsonBodyParam,
+    JsonBodyValue,
+    JsonQueryParamValue,
+    JsonSourceIR,
+    ParquetSourceIR,
+    SourceParamIR,
+    TableSourceIR,
+    normalize_json_body,
+)
 
 type TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
@@ -106,6 +116,38 @@ def _normalize_schema(schema: Mapping[str, str], *, field: str) -> tuple[tuple[s
     return normalized
 
 
+def _normalize_query_params(
+    query_params: Mapping[str, JsonQueryParamValue] | None,
+) -> tuple[tuple[str, JsonQueryParamValue], ...]:
+    if query_params is None:
+        return ()
+    if not isinstance(query_params, Mapping):
+        raise TypeError(
+            "md.json(query_params=...) must be a mapping of query parameter names to "
+            "scalar values or md.source_param(...)."
+        )
+    return tuple(query_params.items())
+
+
+def source_param(name: str, /) -> SourceParamIR:
+    """Declare one required runtime request parameter for a physical source.
+
+    Args:
+        name: Stable parameter name supplied by an analysis source-binding scope.
+
+    Returns:
+        A validated ``SourceParamIR`` for one complete query-string or JSON-body value.
+
+    Example:
+        ``md.source_param("start")``
+
+    Constraints:
+        The parameter occupies one complete query-string or JSON-body value;
+        substring templates and secret values are not supported.
+    """
+    return SourceParamIR(name=name)
+
+
 def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
     """Build a physical table source descriptor.
 
@@ -199,8 +241,12 @@ def json(
     *,
     schema: Mapping[str, str],
     format: Literal["auto", "newline_delimited", "array"] = "auto",
+    records_path: str | None = None,
+    query_params: Mapping[str, JsonQueryParamValue] | None = None,
+    method: Literal["GET", "POST"] = "GET",
+    body: Mapping[str, JsonBodyValue] | None = None,
 ) -> JsonSourceIR:
-    """Build a typed DuckDB file source descriptor for JSON files.
+    """Build a typed DuckDB JSON physical-source descriptor.
 
     This descriptor is not a datasource declaration.
 
@@ -208,6 +254,13 @@ def json(
         path: File path, glob pattern, or supported URL.
         schema: Non-empty insertion-ordered column-to-type mapping.
         format: JSON layout.
+        records_path: Optional object-member path to the array of records inside
+            a wrapped response, for example ``"$.data"`` or ``"$.result.items"``.
+        query_params: Optional query-string mapping. Values are fixed scalars or
+            required runtime parameters from ``md.source_param(...)``.
+        method: HTTP method. ``POST`` sends the JSON object in ``body``.
+        body: JSON object for a ``POST`` request. Values may contain required
+            runtime parameters from ``md.source_param(...)``.
 
     Returns:
         A validated ``JsonSourceIR``.
@@ -215,11 +268,29 @@ def json(
     Example:
         ``md.json("events.json", schema={"event_id": "string"})``
 
+        ``md.json("events.json", schema={"event_id": "string"}, records_path="$.data")``
+
+        ``md.json("https://api.example/graphql", schema={"id": "string"},
+        method="POST", body={"query": "{ items { id } }"}, records_path="$.data.items")``
+
     Constraints:
         Schema column names and type names must be non-empty strings.
+        A declared records path must resolve to an array at execution; a missing
+        path or non-array value fails instead of materializing zero rows.
+        A body is only supported for ``POST`` and must be a JSON object. Runtime
+        parameters occupy complete JSON values; substring templates are unsupported.
     """
+    body_json: str | None = None
+    body_params: tuple[JsonBodyParam, ...] = ()
+    if body is not None:
+        body_json, body_params = normalize_json_body(body)
     return JsonSourceIR(
         path=path,
         schema=_normalize_schema(schema, field="md.json(schema=...)"),
         format=format,
+        records_path=records_path,
+        query_params=_normalize_query_params(query_params),
+        method=method,
+        body_json=body_json,
+        body_params=body_params,
     )

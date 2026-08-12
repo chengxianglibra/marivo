@@ -89,6 +89,11 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
         "path": "data/events/*.json",
         "schema": {"event_id": "string"},
         "format": "newline_delimited",
+        "records_path": None,
+        "query_params": {},
+        "method": "GET",
+        "body": None,
+        "body_params": [],
     }
 
 
@@ -99,6 +104,10 @@ def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
         JsonSourceIR(path="", schema=(("event_id", "string"),))
     with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
         JsonSourceIR(path="events.json", schema=(("event_id", "string"),), format="ndjson")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"JsonSourceIR\.records_path"):
+        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), records_path=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"JsonSourceIR\.records_path"):
+        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), records_path="data")
     with pytest.raises(ValueError, match=r"JsonSourceIR\.kind"):
         JsonSourceIR(path="events.json", schema=(("event_id", "string"),), kind="csv")  # type: ignore[arg-type]
 
@@ -165,17 +174,26 @@ def test_source_from_dict_reads_json_variant() -> None:
             "path": "data/events/*.json",
             "schema": {"event_id": "string"},
             "format": "array",
+            "records_path": "$.result.items",
         }
     )
 
     assert restored == JsonSourceIR(
-        path="data/events/*.json", schema=(("event_id", "string"),), format="array"
+        path="data/events/*.json",
+        schema=(("event_id", "string"),),
+        format="array",
+        records_path="$.result.items",
     )
     assert restored.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
         "schema": {"event_id": "string"},
         "format": "array",
+        "records_path": "$.result.items",
+        "query_params": {},
+        "method": "GET",
+        "body": None,
+        "body_params": [],
     }
 
 

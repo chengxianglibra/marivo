@@ -91,8 +91,12 @@ def _patch_connection_service(project, factory):
     return patch.object(project, "_connection_service", return_value=fake)
 
 
-def _materialize_dataset(project, ref: str):
-    return SemanticCatalog(project)._semantic_resolver().table(make_ref(ref, SemanticKind.ENTITY))
+def _materialize_dataset(project, ref: str, *, source_bindings=None):
+    return (
+        SemanticCatalog(project)
+        ._semantic_resolver(source_bindings=source_bindings)
+        .table(make_ref(ref, SemanticKind.ENTITY))
+    )
 
 
 def _materialize_field(project, ref: str):
@@ -350,6 +354,52 @@ def test_dataset_json_source_passes_declared_schema_to_reader(semantic_project_f
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.get_name() == "orders_file"
+
+
+def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders',\n"
+                "    datasource=ms.ref.datasource('warehouse'),\n"
+                "    source=md.json(\n"
+                "        'https://api.example/query?tenant=main',\n"
+                "        schema={'value': 'float64'},\n"
+                "        query_params={\n"
+                "            'query': 'sum(metric) by (cluster)',\n"
+                "            'start': md.source_param('start'),\n"
+                "        },\n"
+                "    ),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _Backend:
+        def raw_sql(self, sql):
+            assert sql == "SET force_download=true"
+
+        def read_json(self, path, **options):
+            assert path == (
+                "https://api.example/query?tenant=main&"
+                "query=sum%28metric%29+by+%28cluster%29&start=now-3600"
+            )
+            assert options == {"columns": {"value": "float64"}}
+            return ibis.table({"value": "float64"}, name="orders_api")
+
+    with _patch_connection_service(project, lambda _: _Backend()):
+        table = _materialize_dataset(
+            project,
+            "sales.orders",
+            source_bindings={"sales.orders": {"start": "now-3600"}},
+        )
+
+    assert table.get_name() == "orders_api"
 
 
 def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:

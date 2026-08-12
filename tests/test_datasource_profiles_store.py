@@ -69,6 +69,32 @@ def test_save_roundtrip() -> None:
     assert datasource_store.datasource_path("warehouse").is_file()
 
 
+def test_duckdb_multiple_http_header_env_refs_round_trip() -> None:
+    datasource_store.save_one(
+        DuckDBSpec(
+            name="change_focus",
+            http_scope="http://change-focus.example/api/",
+            http_headers_env={
+                "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+                "x-signature": "CHANGE_FOCUS_SIGNATURE",
+            },
+        )
+    )
+
+    restored = datasource_store.load_one("change_focus")
+
+    assert restored is not None
+    assert restored.fields["http_scope"] == "http://change-focus.example/api/"
+    assert restored.env_refs == {
+        "http_header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "http_header:x-signature": "CHANGE_FOCUS_SIGNATURE",
+    }
+    persisted = datasource_store.datasource_path("change_focus").read_text()
+    assert "http_headers_env=" in persisted
+    assert "CHANGE_FOCUS_SECRET_ID" in persisted
+    assert "CHANGE_FOCUS_SIGNATURE" in persisted
+
+
 def test_save_overwrites_same_name() -> None:
     datasource_store.save_one(_spec("wh", backend_type="duckdb", path=":memory:"))
     datasource_store.save_one(_spec("wh", backend_type="duckdb", path="/tmp/foo.ddb"))

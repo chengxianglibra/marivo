@@ -184,6 +184,40 @@ The persistence boundary is a hard rule: resolved secret values may be cached in
 plaintext **user-global** state, but must never be written into **project-local**
 `models/datasources/` files, which only carry `*_env` names.
 
+DuckDB HTTP authentication is datasource-owned because credentials describe how
+the connection reaches a protected host, not which rows one Entity requests.
+The project stores only an environment variable name and an explicit URL scope:
+
+```python
+md.duckdb(
+    name="hawkeye",
+    path=":memory:",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+
+For custom headers, map every header name to its secret environment variable.
+This supports single-header APIs and machine authentication that requires a
+header pair:
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+
+Bearer and custom-header modes are mutually exclusive. At connection time
+Marivo resolves every environment-backed value and installs a temporary DuckDB
+HTTP secret constrained by `http_scope`; the same connection keeps the scoped
+headers in memory for POST execution. Resolved values are never serialized into
+`md.json(...)` or project metadata.
+
 ## Physical sources
 
 A source descriptor names *what to read* inside a datasource. It is not a
@@ -195,15 +229,116 @@ discovery, and `ms.entity(source=...)`.
 | `md.table(name, database=...)` | `TableSourceIR` | An internal table or view inside the datasource (any backend). |
 | `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
 | `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
-| `md.json(path, schema=..., format=...)` | `JsonSourceIR` | A DuckDB JSON file source with required typed physical schema. |
+| `md.json(path, schema=..., format=..., records_path=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with required typed physical schema, optional wrapped-record extraction, and runtime-bindable query-string or POST-body values. |
 
 `TableSource` is the public union of these four IRs. File sources
 (`parquet`/`csv`/`json`) are read by the DuckDB engine, so they attach to a
 DuckDB datasource ref; `md.table(...)` works against any backend. CSV and JSON
 must carry a non-empty backend-independent typed `schema=` mapping so metadata
-inspection never opens user data merely to infer types. Their paths may be local
-files, globs, or DuckDB-supported `http(s)://` URLs; JSON also declares its
-physical `format=`.
+inspection never opens user data merely to infer types. Parquet and CSV paths may
+be local files or globs. JSON additionally supports HTTP(S) GET and JSON-object
+POST requests while retaining the declared physical `format=` and schema.
+
+For a wrapped response, `records_path=` selects the array whose elements match
+the declared schema. The initial contract is intentionally limited to `$` plus
+object-member access, such as `$.data` or `$.result.items`; filters, wildcards,
+recursive descent, and array indexing are not supported. A present, empty array
+materializes as zero rows. A missing path or a non-array value fails at execution
+instead of being treated as an empty result; verify the response envelope and API
+authentication before retrying.
+
+Parameterized API URLs keep their stable request shape in the semantic project
+and bind request-specific values at analysis time:
+
+```python
+samples = md.json(
+    "http://hawkeye.example/report/api/v2/query_range/datasource/81",
+    schema={"metric": "json", "value": "json", "values": "json"},
+    records_path="$.data.result",
+    query_params={
+        "query": 'sum(pending_containers{q1=~"llst_queue|sycpb|report"}) by (cluster, q1)',
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+```
+
+`query_params` values are scalar. `md.source_param(name)` declares a required,
+non-secret runtime value and must occupy one complete query parameter value;
+Marivo URL-encodes names and values and does not interpret substring templates.
+The URL may already contain unrelated fixed parameters, but declaring the same
+name in both the URL and `query_params` fails closed.
+
+A JSON-object body enables the minimal POST API case. The request remains lazy:
+it is sent when the DuckDB-backed table executes, not while the project is
+loaded or inspected. `POST` requires an HTTP(S) URL and `format="auto"`.
+`md.source_param(...)` may occupy a complete value anywhere in the body,
+including inside an object or array; it does not interpolate string fragments.
+
+```python
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    schema={
+        "name": "string",
+        "bs": "string",
+        "gpuAbstract": "string",
+        "status": "string",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
+```
+
+Authentication headers are resolved from the owning DuckDB datasource and are
+sent only when the final URL is inside its declared `http_scope`. The body shape
+stays in `md.json(...)`; only declared non-secret parameter values belong to
+analysis-session bindings.
+
+For example, one change-focus page can declare its app and page number as
+analysis-scoped values without turning pagination into datasource behavior:
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    schema={"change_id": "int64", "title": "string"},
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+
+Marivo executes one request for one binding. Automatic page traversal, app-list
+fanout, watermarks, and ingestion remain outside this physical-source contract.
+
+The binding belongs to the analysis execution scope, not to `observe(...)` and
+not to persisted `md.json(...)`:
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.samples"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+```
+
+Bindings use exact `Ref[entity]` keys and must provide exactly the declared
+parameter names. They are nested, context-local, and keyed by the owning Session
+runtime, so concurrent agents and another Session in the same task cannot consume
+the values. Non-secret bindings participate in analysis and snapshot identity.
+Discovery uses the same contract through
+`inspection.sample(..., source_params={...})`.
 
 ## Registration and state storage
 

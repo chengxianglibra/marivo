@@ -8,6 +8,7 @@ import os
 import tempfile
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
+from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -32,7 +33,7 @@ from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 if TYPE_CHECKING:
     from marivo.semantic.preview_checks import PreviewCheckV1
 
-EVIDENCE_FORMAT_VERSION = 1
+EVIDENCE_FORMAT_VERSION = 2
 SNAPSHOT_TTL = timedelta(hours=24)
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
@@ -48,6 +49,7 @@ _SNAPSHOT_PAYLOAD_FIELDS = frozenset(
         "datasource",
         "datasource_fingerprint",
         "source",
+        "source_params",
         "scope",
         "columns",
         "schema_fingerprint",
@@ -151,11 +153,13 @@ def snapshot_identity(
     columns: tuple[str, ...],
     schema_fingerprint: str,
     persist_values: bool,
+    source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
 ) -> str:
     """Return the stable SHA-256 identity for one snapshot evidence policy."""
     payload = {
         "datasource_fingerprint": datasource_fingerprint,
         "source": source.to_dict(),
+        "source_params": source_params,
         "scope": _scope_payload(scope),
         "columns": columns,
         "schema_fingerprint": schema_fingerprint,
@@ -604,6 +608,7 @@ class AuthoringStore:
         columns: tuple[str, ...],
         schema_fingerprint: str,
         persist_values: bool,
+        source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
     ) -> dict[str, object]:
         return {
             "evidence_format_version": EVIDENCE_FORMAT_VERSION,
@@ -611,6 +616,7 @@ class AuthoringStore:
             "datasource": datasource.path,
             "datasource_fingerprint": datasource_fingerprint,
             "source": source.to_dict(),
+            "source_params": dict(source_params),
             "scope": _scope_payload(scope),
             "columns": columns,
             "schema_fingerprint": schema_fingerprint,
@@ -670,6 +676,15 @@ class AuthoringStore:
                 payload.get("schema_fingerprint"), field="schema_fingerprint"
             )
             persist_values = _boolean(payload.get("persist_values"), field="persist_values")
+            raw_source_params = _mapping(payload.get("source_params"), field="source_params")
+            source_params: list[tuple[str, str | int | float | bool]] = []
+            for name, value in raw_source_params.items():
+                if not isinstance(value, str | int | float | bool):
+                    return None
+                if isinstance(value, float) and not isfinite(value):
+                    return None
+                source_params.append((name, value))
+            source_param_items = tuple(source_params)
             expected_id = snapshot_identity(
                 datasource_fingerprint=datasource_fingerprint,
                 source=source,
@@ -677,6 +692,7 @@ class AuthoringStore:
                 columns=columns,
                 schema_fingerprint=schema_fingerprint,
                 persist_values=persist_values,
+                source_params=source_param_items,
             )
             if snapshot_id != expected_id:
                 return None
@@ -729,6 +745,7 @@ class AuthoringStore:
                 created_at=created_at,
                 expires_at=expires_at,
                 _project_root=self.project_root,
+                source_params=source_param_items,
                 retained_values=retained_values,
             )
         except (TypeError, ValueError):
@@ -778,6 +795,7 @@ class AuthoringStore:
         columns: tuple[str, ...],
         schema_fingerprint: str,
         persist_values: bool,
+        source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
         refresh: bool,
     ) -> SnapshotCacheLookup:
         """Return a matching cache hit or why one acquisition is required.
@@ -807,6 +825,7 @@ class AuthoringStore:
             or persisted.columns != columns
             or persisted.schema_fingerprint != schema_fingerprint
             or persisted.persist_values != persist_values
+            or persisted.source_params != source_params
         ):
             return SnapshotCacheLookup(snapshot=None, status="mismatched", now=now)
         memory_key = self._memory_key(snapshot_id)
@@ -888,6 +907,7 @@ class AuthoringStore:
                 columns=snapshot.columns,
                 schema_fingerprint=snapshot.schema_fingerprint,
                 persist_values=snapshot.persist_values,
+                source_params=snapshot.source_params,
             ),
             "created_at": snapshot.created_at,
             "expires_at": snapshot.expires_at,
