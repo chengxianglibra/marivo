@@ -82,7 +82,7 @@ Marivo 不调用 LLM，也不生成跨 artifact 判断：综合与下一步选�
 Marivo 需要 Python 3.12 或更高版本。进入要作为 Marivo 项目的目录，然后运行：
 
 ```bash
-curl -fsSL https://marivo.io/install.sh | bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
 ```
 
 安装脚本会使用 `uv` 准备项目本地环境并初始化当前目录。它支持 macOS、Linux、WSL，以及

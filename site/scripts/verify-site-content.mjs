@@ -123,6 +123,7 @@ const requiredFiles = [
   'src/pages/zh-cn/blog/semantic-layer-as-an-agent-contract.mdx',
   'src/pages/install.sh.ts',
   'public/favicon.svg',
+  'public/install-marivo-cn.sh',
   'public/robots.txt',
   'src/content/i18n/en.json',
   'src/content/i18n/zh-cn.json',
