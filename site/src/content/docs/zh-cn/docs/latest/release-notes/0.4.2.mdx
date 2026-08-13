@@ -4,61 +4,61 @@ title: Marivo 0.4.2
 description: Marivo 0.4.2 发布说明。
 ---
 
-Marivo 0.4.2 统一了 semantic authoring、analysis selection、alignment、evidence 与
-forecasting 中的 temporal semantics，加入可认证的自定义周期、命名 occurrence、工作日
+Marivo 0.4.2 统一了语义编写、分析选择、对齐、证据与
+forecasting 中的时间语义，加入可认证的自定义周期、命名发生项、工作日
 schedule，以及让这些能力可复现的类型化契约。
 
 ## 重点
 
-- Temporal semantics 现在由彼此独立、可复用的 authority 组成：`PeriodCalendar` 负责 fiscal
-  与 retail period，`TemporalSet` 负责命名的 interval 或 date，`WorkSchedule` 负责经过认证的
-  working-day 状态。`Grain`、`TimeScope` 与 `AlignmentPolicy` 会携带精确的语义 variant 和
-  provenance。
-- Semantic authoring 与 catalog loading 支持认证 period calendar、calendar level、temporal
-  occurrence 和 work schedule。Analysis 复用 project-local 的精确 snapshot 与 digest，不再在
-  不同路径中独立推导 boundary 或 holiday。
-- Certified semantic grain 支持 observation、roll-up、comparison 和 custom-period forecasting；
-  它们使用带精确 key 与 bound 的 ordinal period。Snapshot 不完整、过期或不匹配时，会在写入
-  artifact 前 fail closed。
-- Comparison 新增类型化的 `period_progress`、`period_correspondence`、`occurrence_progress`
-  与 `working_day_progress` policy，分别用于周期内等进度、命名 period 映射、命名 occurrence
-  和 working-day ordinal 对齐。
+- 时间语义现在由彼此独立、可复用的权威来源组成：`PeriodCalendar` 负责 fiscal
+  与 retail 周期，`TemporalSet` 负责命名的区间或日期，`WorkSchedule` 负责经过认证的
+  工作日状态。`Grain`、`TimeScope` 与 `AlignmentPolicy` 会携带精确的语义 variant 和
+  来源信息。
+- 语义编写与目录加载支持认证周期日历、calendar 层级、时间
+  发生项和工作日安排。分析复用项目本地的精确快照与摘要，不再在
+  不同路径中独立推导边界或 holiday。
+- Certified 语义粒度支持观测、roll-up、比较和自定义周期预测；
+  它们使用带精确键与 bound 的 ordinal 周期。快照不完整、过期或不匹配时，会在写入
+  产物前失败即停止。
+- 比较新增类型化的 `period_progress`、`period_correspondence`、`occurrence_progress`
+  与 `working_day_progress` 策略，分别用于周期内等进度、命名周期映射、命名发生项
+  和工作日 ordinal 对齐。
 
 ## 破坏性变更
 
-- Temporal authority 必须使用精确的 typed semantic reference 或 catalog entry。Analysis 不再
-  从名称、locale 或 analysis-local 参数推断 fiscal period、holiday、occurrence 或 working-day
+- 时间权威来源必须使用精确的类型化语义引用或目录条目。分析不再
+  从名称、locale 或分析-本地参数推断 fiscal 周期、holiday、发生项或工作日
   状态。
-- Analysis artifact 使用 `analysis-artifact/v8`。旧 artifact schema 以及
-  `component_graph_ref` 等已移除字段会 fail closed，不再迁移或 dual-read；升级后请重新创建
-  analysis session。
+- 分析产物使用 `analysis-artifact/v8`。旧产物结构以及
+  `component_graph_ref` 等已移除字段会失败即停止，不再迁移或 dual-read；升级后请重新创建
+  分析会话。
 
 ## 变更
 
-- Temporal binding、period correspondence、occurrence scope、work schedule 和 alignment policy
-  以类型化 evidence 持久化，其中包括 authority ref、snapshot digest、boundary timezone 与精确
+- 时间绑定、周期对应关系、发生项范围、工作日安排和对齐策略
+  以类型化证据持久化，其中包括权威来源引用、快照摘要、边界时区与精确
   的半开区间边界。
-- Frame metadata 现在保留 coverage 与 quality 计算所使用的 report timezone；计算 coverage ratio
-  前会先 canonicalize 混合 timezone。
-- Public error 与 contract 对缺失 temporal authority、无效 coverage、保留列和不支持的 metric
-  arity 给出更精确的修复位置。Live help、public export 与 runtime surface 保持确定性一致。
-- Documentation site 新增双语首页与 design blog，补充搜索和 indexing signal，并将 Sphinx API
-  reference 纳入 repository check。
+- Frame 元数据现在保留覆盖率与质量计算所使用的报告时区；计算覆盖率比率
+  前会先 canonicalize 混合时区。
+- 公共错误与契约对缺失时间权威来源、无效覆盖率、保留列和不支持的指标
+  arity 给出更精确的修复位置。实时帮助、公共导出与运行时接口保持确定性一致。
+- 文档站点新增双语首页与设计博客，补充搜索和索引信号，并将 Sphinx API
+  引用纳入仓库检查。
 
 ## 修复
 
-- Comparison 与 correlation evidence 现在绑定到报告实际使用的精确 period 或 lag。
-- 没有 coverage sidecar 时不再声称存在 coverage；attribution extraction 失败也不会隐藏仍可
-  读取且可 reconciliation 的行。
-- Certified roll-up key、temporal occurrence identity 和 forecast period boundary 在持久化与重新
+- 比较与 correlation 证据现在绑定到报告实际使用的精确周期或滞后期。
+- 没有覆盖率 sidecar 时不再声称存在覆盖率；归因 extraction 失败也不会隐藏仍可
+  读取且可对账的行。
+- Certified roll-up 键、时间发生项身份和 forecast 周期边界在持久化与重新
   加载过程中得到保留。
 
 ## 文档
 
-- 新增 unified temporal semantics specification，覆盖 period calendar、temporal set、work
-  schedule、grain、scope 与 alignment。
-- 更新中英文 analysis workflow，说明 certified temporal selection、alignment、working-day
-  comparison 和 semantic-grain forecasting。
+- 新增 unified 时间语义规范，覆盖周期日历、时间集合、work
+  schedule、粒度、范围与对齐。
+- 更新中英文分析流程，说明 certified 时间选择、对齐、工作日
+  比较和语义-粒度 forecasting。
 
 ## 安装
 
@@ -66,13 +66,13 @@ schedule，以及让这些能力可复现的类型化契约。
 pip install marivo
 ```
 
-请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.2 要求 Python 3.12 或更高版本。
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.2 要求 Python 3.12 或更高版本。
 
 ## 文档链接
 
 - [安装 Marivo](/zh-cn/latest/installation/)
 - [快速开始](/zh-cn/latest/quick-start/)
-- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
-- [Readiness](/zh-cn/latest/concepts/readiness/)
-- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)
-- [Evidence](/zh-cn/latest/concepts/evidence/)
+- [语义层](/zh-cn/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/latest/concepts/readiness/)
+- [分析流程](/zh-cn/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/latest/concepts/evidence/)

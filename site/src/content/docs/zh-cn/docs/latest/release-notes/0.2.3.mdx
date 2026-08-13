@@ -4,50 +4,50 @@ title: Marivo 0.2.3
 description: Marivo 0.2.3 发布说明。
 ---
 
-Marivo 0.2.3 是 v0.2 系列的 patch release。这个版本继续收紧面向 agent 的
-semantic 与 analysis contracts。它改进 Trino 聚合兼容性，让 semantic help 与
-catalog scopes 更明确，并为多层 driver analysis 增加稳定的 attribution materialization。
+Marivo 0.2.3 是 v0.2 系列的补丁版本发布。这个版本继续收紧面向智能体的
+语义与分析契约。它改进 Trino 聚合兼容性，让语义帮助与
+目录范围更明确，并为多层驱动因素分析增加稳定的归因物化。
 
 ## 重点
 
 - 增加 `marivo --version`，CLI 环境可以直接报告已安装的 package version。
-- 实现 composite attribution materialization，支持需要稳定 multi-tier driver
-  output 的 analysis workflows。
-- 围绕 typed scopes、explicit domain refs 与 percentile naming 收紧 semantic
-  catalog 和 help contracts。
+- 实现 composite 归因物化，支持需要稳定 multi-tier 驱动因素
+  输出的分析 workflows。
+- 围绕类型化范围、显式领域引用与分位数 naming 收紧语义
+  目录和帮助契约。
 
 ## 变更
 
-- Analysis intent 参数现在统一使用 `time_scope` 与 `slice_by`，不再沿用旧的
+- 分析意图参数现在统一使用 `time_scope` 与 `slice_by`，不再沿用旧的
   `timescope` 与 `where` 命名。
-- Semantic fold help 现在统一使用 percentile 术语，不再混用 quantile 与
-  percentile 名称。
-- Catalog list scopes 现在要求 typed string scope objects，不再接受宽松的
-  bare-string inputs。
-- Analysis evidence suites 按 domain 与 per-tier coverage 重新组织，便于解读
-  release checks。
+- 语义折叠帮助现在统一使用分位数术语，不再混用分位数与
+  分位数名称。
+- 目录 list 范围现在要求类型化字符串范围对象，不再接受宽松的
+  裸-字符串输入。
+- 分析证据 suites 按领域与 per-tier 覆盖率重新组织，便于解读
+  release 检查。
 
 ## 修复
 
-- Trino-backed semantic aggregates 现在支持 percentile expressions。
-- Sampled ratio attribution 现在可以在 attribution path 中工作。
-- Analysis help aliases 现在会解析到当前 public names。
-- Semantic authoring 现在会一致拒绝 `domain=` 的 bare strings。
+- Trino-backed 语义 aggregates 现在支持分位数表达式。
+- 采样比率归因现在可以在归因路径中工作。
+- 分析帮助 aliases 现在会解析到当前公共名称。
+- 语义编写现在会一致拒绝 `domain=` 的裸 strings。
 
 ## 文档
 
-- 增加 attribution composite materialization 设计说明。
-- 更新 analysis design 与 skill guidance，以匹配当前 attribution 和 parameter
-  contracts。
-- 刷新 semantic-layer 文档中关于 typed refs、explicit help output 与 percentile
+- 增加归因 composite 物化设计说明。
+- 更新分析设计与技能指引，以匹配当前归因和参数
+  契约。
+- 刷新语义层文档中关于类型化引用、显式帮助输出与分位数
   folding 的说明。
 
 ## 破坏性变更
 
-- Analysis callers 应使用 `time_scope` 与 `slice_by`；旧的 `timescope` 与 `where`
-  不再是文档化 contract。
-- Semantic catalog 与 authoring helpers 要求 typed scope/domain refs，不再接受
-  bare strings。
+- 分析 callers 应使用 `time_scope` 与 `slice_by`；旧的 `timescope` 与 `where`
+  不再是文档化契约。
+- 语义目录与编写辅助函数要求类型化范围/领域引用，不再接受
+  裸 strings。
 
 ## 安装
 
@@ -55,7 +55,7 @@ catalog scopes 更明确，并为多层 driver analysis 增加稳定的 attribut
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

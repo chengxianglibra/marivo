@@ -4,31 +4,31 @@ title: Marivo 0.2.7
 description: Marivo 0.2.7 发布说明。
 ---
 
-Marivo 0.2.7 是 v0.2 系列的 patch release，聚焦 relationship readiness checks
-和 packaged analysis guidance。它修复了使用 `ms.join_on(...)` 编写的 relationship
-在 readiness expansion 中的依赖展开，并让 packaged `marivo-analysis` skill 专注于
-Marivo evidence，而不是外部 report delivery details。
+Marivo 0.2.7 是 v0.2 系列的补丁版本发布，聚焦关系就绪检查
+和打包分析指引。它修复了使用 `ms.join_on(...)` 编写的关系
+在就绪检查 expansion 中的依赖展开，并让打包 `marivo-analysis` 技能专注于
+Marivo 证据，而不是外部报告交付详情。
 
 ## 重点
 
-- Relationship readiness 现在会通过 `JoinKey` value object contract 展开依赖。对
-  relationship 运行 readiness checks 时，会包含 source entity、target entity 以及两侧
-  authored join-key dimensions。
-- `marivo-analysis` 的 packaged final-report guidance 现在只描述默认 Markdown report
-  boundary，不再内置由 Marivo package 外部维护的 HTML report style 或 publishing
+- 关系就绪检查现在会通过 `JoinKey` 值对象契约展开依赖。对
+  关系运行就绪检查时，会包含来源实体、目标实体以及两侧
+  已编写连接-键维度。
+- `marivo-analysis` 的打包 final-报告指引现在只描述默认 Markdown 报告
+  边界，不再内置由 Marivo package 外部维护的 HTML 报告 style 或 publishing
   instructions。
 
 ## 修复
 
-- 修复使用 `ms.join_on(...)` 编写 relationship 时的 readiness dependency expansion。
-  Marivo 不再把 join keys 当作 raw tuples 读取，从而避免 readiness inspection 漏掉有效的
-  join dimensions。
+- 修复使用 `ms.join_on(...)` 编写关系时的就绪检查依赖 expansion。
+  Marivo 不再把连接键当作原始 tuples 读取，从而避免就绪检查检查漏掉有效的
+  连接维度。
 
 ## 文档
 
-- 从 packaged `marivo-analysis` final-report reference 中移除 HTML-report delivery 和
-  publishing guidance。Agents 只有在用户明确请求对应 delivery surface 时，才应使用这些
-  delivery-specific instructions。
+- 从打包 `marivo-analysis` final-报告引用中移除 HTML-报告交付和
+  publishing 指引。智能体只有在用户明确请求对应交付接口时，才应使用这些
+  交付-specific instructions。
 
 ## 安装
 
@@ -36,7 +36,7 @@ Marivo evidence，而不是外部 report delivery details。
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

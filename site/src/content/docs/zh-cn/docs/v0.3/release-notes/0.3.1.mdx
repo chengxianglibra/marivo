@@ -4,18 +4,18 @@ title: Marivo 0.3.1
 description: Marivo 0.3.1 发布说明。
 ---
 
-Marivo 0.3.1 通过窗口化 cumulative metrics、证据优先的数据源编写流程和更安全的分析保护，
-进一步强化了面向 agent 的编写与分析工作流。
+Marivo 0.3.1 通过窗口化累计指标、证据优先的数据源编写流程和更安全的分析保护，
+进一步强化了面向智能体的编写与分析工作流。
 
 ## 重点
 
-- Cumulative metrics 通过 `ms.cumulative(...)` 的 `anchor=` 参数支持三种累计锚点：
-  全部历史、grain-to-date 和固定 trailing window。现在可以用 `transform.rollup(...)`
-  重新聚合 cumulative frame，并比较兼容锚点的跨周期窗口。
-- 数据源编写遵循证据优先的快照流程。类型化 catalog 对象、限定范围的 inspection 和持久化
-  evidence 替代了旧的宽泛 discovery 流程。
-- JSON 是 DuckDB 的一等文件 source，支持本地和 HTTP JSON 输入。
-- 分析分解支持显式的多轴 attribution mode；quality assessment 会在后续分析把结果视为可靠
+- 累计指标通过 `ms.cumulative(...)` 的 `anchor=` 参数支持三种累计锚点：
+  全部历史、粒度-to-日期和固定尾随窗口。现在可以用 `transform.rollup(...)`
+  重新聚合累计 frame，并比较兼容锚点的跨周期窗口。
+- 数据源编写遵循证据优先的快照流程。类型化目录对象、限定范围的检查和持久化
+  证据替代了旧的宽泛发现流程。
+- JSON 是 DuckDB 的一等文件来源，支持本地和 HTTP JSON 输入。
+- 分析分解支持显式的多轴归因 mode；质量评估会在后续分析把结果视为可靠
   之前，阻断不安全的小时级覆盖范围。
 
 ## 变更
@@ -25,15 +25,15 @@ Marivo 0.3.1 通过窗口化 cumulative metrics、证据优先的数据源编写
 
 ## 修复
 
-- readiness 会拒绝未声明的 naive time axis。
-- typed file schema 会在 materialization 期间保留在运行时。
+- 就绪检查会拒绝未声明的 naive 时间轴。
+- 类型化文件结构会在物化期间保留在运行时。
 
 ## 文档
 
-- 更新了中英文的 semantic-layer、analysis-workflow、installation、quick-start 和 evidence
-  文档，覆盖精简后的 agent 工作流。
-- 新增 cumulative metrics v2、datasource snapshot、类型化 catalog navigation、JSON source 和
-  精炼后的 analysis surface 的设计 spec。
+- 更新了中英文的语义层、分析流程、安装、快速开始和证据
+  文档，覆盖精简后的智能体工作流。
+- 新增累计指标 v2、数据源快照、类型化目录导航、JSON 来源和
+  精炼后的分析接口的设计规范。
 
 ## 安装
 
@@ -41,7 +41,7 @@ Marivo 0.3.1 通过窗口化 cumulative metrics、证据优先的数据源编写
 pip install marivo
 ```
 
-安装你计划使用的 datasource 对应的 backend extra：
+安装你计划使用的数据源对应的后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"
@@ -58,5 +58,5 @@ Marivo 0.3.1 需要 Python 3.12 或更高版本。
 
 - [安装 Marivo](/zh-cn/docs/v0.3/installation/)
 - [快速开始](/zh-cn/docs/v0.3/quick-start/)
-- [Semantic Layer](/zh-cn/docs/v0.3/concepts/semantic-layer/)
-- [Analysis Workflow](/zh-cn/docs/v0.3/concepts/analysis-workflow/)
+- [语义层](/zh-cn/docs/v0.3/concepts/semantic-layer/)
+- [分析流程](/zh-cn/docs/v0.3/concepts/analysis-workflow/)

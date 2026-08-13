@@ -19,7 +19,7 @@ curl -fsSL https://marivo.io/install.sh | bash
 ```
 
 脚本会先确保已安装 `uv`，再用它安装受管的 Python 3.12 并创建或复用 `.venv`，随后安装
-`marivo[duckdb,trino,clickhouse]` 并运行 `marivo init`。它支持 macOS、Linux、WSL，以及 Windows 上的
+`marivo[duckdb,trino,clickhouse]` 并运行 `marivo init`。它支持 macOS、Linux、WSL，以及窗口上的
 Git Bash、MSYS2 或 Cygwin；默认不包含 MySQL，需在准备好本机 client 前置依赖后再手动安装
 `marivo[mysql]`。仅当需要安装 `uv` 时才需要 PowerShell。完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
 
@@ -34,7 +34,7 @@ uv venv --python 3.12 --seed
 source .venv/bin/activate
 ```
 
-在 Windows Bash shell 中，请使用 `source .venv/Scripts/activate` 激活环境。
+在窗口 Bash shell 中，请使用 `source .venv/Scripts/activate` 激活环境。
 
 2. 安装项目所用数据源后端对应的扩展：
 
@@ -79,7 +79,7 @@ marivo init
 | `models/` | 数据源和语义声明。 |
 | `.marivo/` | 项目本地的会话、证据和缓存元数据。 |
 | `.agents/skills/` | 为兼容的智能体提供 `marivo-semantic` 和 `marivo-analysis` 技能链接。 |
-| `.claude/skills/` | 为 Claude Code 提供同一组技能链接。 |
+| `.claude/skills/` | 为 Claude 代码提供同一组技能链接。 |
 | `.codex/skills/` | 为 Codex 提供同一组技能链接。 |
 
 ```text

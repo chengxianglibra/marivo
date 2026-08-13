@@ -1,48 +1,48 @@
 ---
 slug: zh-cn/docs/v0.2/release-notes/0.2.0
 title: Marivo 0.2.0
-description: Marivo 0.2.0 release notes。
+description: Marivo 0.2.0 发布说明。
 ---
 
-Marivo 0.2.0 收紧了 0.1.0 中引入的面向 agent 的 semantic 与 analysis
-契约。这个版本增加了更明确的 semantic authoring helpers，缩小 public
-surfaces，并修复 agent 在 write-run-read workflow 中依赖的 evidence 与 analysis
-result 细节。
+Marivo 0.2.0 收紧了 0.1.0 中引入的面向智能体的语义与分析
+契约。这个版本增加了更明确的语义编写辅助函数，缩小公共
+surfaces，并修复智能体在写入-运行-读取流程中依赖的证据与分析
+结果细节。
 
 ## 重点
 
-- 新增 semantic column authoring helpers，让 agent 可以用更小、更 typed 的
-  surface 声明 column meaning。
-- 新增 `ms.count(entity=...)` helper，作为 entity count metrics 的唯一 public
+- 新增语义列编写辅助函数，让智能体可以用更小、更类型化的
+  接口声明列含义。
+- 新增 `ms.count(entity=...)` 辅助函数，作为实体 count 指标的唯一公共
   route。
-- 用经过验证的 `ms.ai_context(...)` constructor 替换 raw typed-dict context
-  shape。
-- 收紧 datasource 与 semantic public surfaces，减少 helper discovery 中的歧义或
-  internal paths。
+- 用经过验证的 `ms.ai_context(...)` 构造器替换原始类型化-dict 上下文
+  形状。
+- 收紧数据源与语义公共接口，减少辅助函数发现中的歧义或
+  internal 路径。
 - 新增由 GitHub Release 驱动的 PyPI Trusted Publishing，方便后续版本发布。
 
 ## 变更
 
-- Semantic value objects 在进入 declarations 前会通过 public constructors 验证。
-- Semi-additive metrics 的 `over=...` 现在必须提供明确的 time dimension ref。
-- Additivity help 与 validation messages 现在统一使用 underscore enum values。
-- 移除了 runtime startup 中的 startup garbage collection。
+- 语义值对象在进入声明前会通过公共构造器验证。
+- 半可加指标的 `over=...` 现在必须提供明确的时间维度引用。
+- 可加性帮助与验证 messages 现在统一使用 underscore enum 值。
+- 移除了运行时 startup 中的 startup garbage 集合。
 
 ## 修复
 
-- Semi-additive metric ledger evidence 现在可以 JSON serialize。
-- Point anomaly candidates 现在会补齐 `observed_value`、`baseline_value` 和
+- 半可加指标 ledger 证据现在可以 JSON serialize。
+- Point anomaly 候选现在会补齐 `observed_value`、`baseline_value` 和
   `delta`。
-- `VerifyResult.render()` 现在会显示 issue 与 warning 的 detail rows，不再隐藏
+- `VerifyResult.render()` 现在会显示问题与警告的详情行，不再隐藏
   可执行内容。
-- Entity brief display headers 现在与底层 column profile field names 对齐。
-- Semantic decorator docstrings 现在可以被接受。
+- 实体 brief 展示请求头现在与底层列 profile 字段名称对齐。
+- 语义装饰器 docstrings 现在可以被接受。
 
 ## 文档
 
-- 新增 semantic column authoring design notes，并与 public API principles 对齐。
-- 修复不再匹配当前 API 的 semantic-layer documentation examples。
-- 新增 v0.2 documentation snapshot，与 `latest` 和 `v0.1` 并列。
+- 新增语义列编写设计说明，并与公共 API principles 对齐。
+- 修复不再匹配当前 API 的语义层文档示例。
+- 新增 v0.2 文档快照，与 `latest` 和 `v0.1` 并列。
 
 ## 安装
 
@@ -50,7 +50,7 @@ result 细节。
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"
@@ -67,5 +67,5 @@ Marivo 0.2.0 需要 Python 3.12 或更高版本。
 
 - [安装 Marivo](/zh-cn/docs/v0.2/installation/)
 - [快速开始](/zh-cn/docs/v0.2/quick-start/)
-- [Semantic Layer](/zh-cn/docs/v0.2/concepts/semantic-layer/)
-- [Analysis Workflow](/zh-cn/docs/v0.2/concepts/analysis-workflow/)
+- [语义层](/zh-cn/docs/v0.2/concepts/semantic-layer/)
+- [分析流程](/zh-cn/docs/v0.2/concepts/analysis-workflow/)

@@ -4,57 +4,57 @@ title: Marivo 0.4.1
 description: Marivo 0.4.1 发布说明。
 ---
 
-Marivo 0.4.1 扩展了累计指标与非可加指标的类型化分析能力，加入 ontology-guided
-semantic discovery，并进一步收紧面向智能体的公共契约，使分析结果更确定、更可验证。
+Marivo 0.4.1 扩展了累计指标与非可加指标的类型化分析能力，加入本体-guided
+语义发现，并进一步收紧面向智能体的公共契约，使分析结果更确定、更可验证。
 
 ## 重点
 
-- Cumulative observation 现在持久化 evaluation cutoff 与可比周期 evidence。Analysis 支持
-  cumulative level comparison、all-history level change 与 cumulative attribution，并对 scope、
-  cutoff 和 reconciliation 做显式验证。
-- Attribution 支持 count-distinct 与 quantile measure，提供独立的 multiresolution 执行、
-  类型化 evidence 和 fail-closed artifact 校验。
-- Ontology authoring 与 catalog loading 支持单边 semantic hypothesis discovery、稳定的
-  candidate selection，以及 candidate identity 和 lineage。
-- 类型化 measure binding 成为 metric axis resolution 的 authority。Analysis 只按声明的 axis
-  对齐，保留相关 unit state，并将 funnel affordance 收敛为封闭集合。
-- Installer 使用 uv 管理 Unix 与 Windows Bash 环境。默认安装覆盖 DuckDB、Trino 和 ClickHouse；
+- 累计观测现在持久化 evaluation cutoff 与可比周期证据。分析支持
+  累计层级比较、all-history 层级变更与累计归因，并对范围、
+  cutoff 和对账做显式验证。
+- 归因支持去重计数与分位数度量，提供独立的 multiresolution 执行、
+  类型化证据和失败即停止产物校验。
+- 本体编写与目录加载支持单边语义 hypothesis 发现、稳定的
+  候选选择，以及候选身份和血缘。
+- 类型化度量绑定成为指标轴解析的权威来源。分析只按声明的轴
+  对齐，保留相关单位状态，并将漏斗可用操作收敛为封闭集合。
+- Installer 使用 uv 管理 Unix 与窗口 Bash 环境。默认安装覆盖 DuckDB、Trino 和 ClickHouse；
   MySQL 仍需显式 opt-in。
 
 ## 破坏性变更
 
-- Public `LineageStep`、`Lineage`、`FrameSummaryEntry`、`JobSummary` 和 `SessionSummary`
-  data class 改为仅支持 keyword 参数构造。
+- 公共 `LineageStep`、`Lineage`、`FrameSummaryEntry`、`JobSummary` 和 `SessionSummary`
+  数据 class 改为仅支持 keyword 参数构造。
 - 删除无界的 `session.list`，请改用有界的 `session.recent(...)` 与 `session.inspect(...)`。
-- Analysis artifact identity 统一为 ref-only；原有 identifier alias 需要迁移到 canonical `.ref`
+- 分析产物身份统一为仅引用；原有 identifier alias 需要迁移到规范 `.ref`
   契约。
-- 删除旧的 session alias、compatibility shim 与无调用的 error；请使用 canonical public name
-  与 entry point。
-- All-history cumulative comparison 表示为带 evaluation-end evidence 的 level change，而不是
-  interval-flow equivalence。
+- 删除旧的会话 alias、兼容性 shim 与无调用的错误；请使用规范公共名称
+  与条目 point。
+- All-history 累计比较表示为带 evaluation-end 证据的层级变更，而不是
+  区间-流程 equivalence。
 
 ## 变更
 
-- Analysis 会在执行前拒绝与结果 protocol column 冲突的 dimension/output column，并验证
-  multi-metric axis 与 coverage 契约。
-- Attribution hierarchy column 使用 namespaced layout；不支持的 attribution input 会收到可执行
+- 分析会在执行前拒绝与结果 protocol 列冲突的维度/输出列，并验证
+  多指标轴与覆盖率契约。
+- 归因 hierarchy 列使用 namespaced layout；不支持的归因输入会收到可执行
   的修复指引。
-- Development dependency 默认不再安装 MySQL，type checking 基线升级到 mypy 2.3。
+- Development 依赖默认不再安装 MySQL，type checking 基线升级到 mypy 2.3。
 
 ## 修复
 
-- Cumulative comparable-period alignment 对不支持的 legacy calendar identifier fail closed，并在
-  load 时校验持久化 evidence。
-- Panel forecast axis、folded derived metric、cross-entity grain requirement 与 artifact reuse
+- 累计 comparable-周期对齐对不支持的旧版日历标识符失败即停止，并在
+  加载时校验持久化证据。
+- 面板 forecast 轴、folded 派生指标、跨实体粒度 requirement 与产物 reuse
   purpose 现在都有显式校验或元数据记录。
-- Live help target、public export 与 runtime representation 保持确定性，并与已安装 guidance
+- 实时帮助目标、公共导出与运行时 representation 保持确定性，并与已安装指引
   对齐。
 
 ## 文档
 
-- 新增 cumulative comparison、cumulative attribution、non-additive attribution、ontology
-  extension 与 agent-facing public surface specification。
-- 更新中英文 metric-first analysis workflow、semantic-layer 指南与跨平台安装说明。
+- 新增累计比较、累计归因、不可加归因、本体
+  extension 与面向智能体公共接口规范。
+- 更新中英文指标-首个分析流程、语义层指南与跨平台安装说明。
 
 ## 安装
 
@@ -62,13 +62,13 @@ semantic discovery，并进一步收紧面向智能体的公共契约，使分�
 pip install marivo
 ```
 
-请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.1 要求 Python 3.12 或更高版本。
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.1 要求 Python 3.12 或更高版本。
 
 ## 文档链接
 
 - [安装 Marivo](/zh-cn/latest/installation/)
 - [快速开始](/zh-cn/latest/quick-start/)
-- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
-- [Readiness](/zh-cn/latest/concepts/readiness/)
-- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)
-- [Evidence](/zh-cn/latest/concepts/evidence/)
+- [语义层](/zh-cn/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/latest/concepts/readiness/)
+- [分析流程](/zh-cn/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/latest/concepts/evidence/)

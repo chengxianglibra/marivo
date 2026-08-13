@@ -4,27 +4,27 @@ title: Marivo 0.2.4
 description: Marivo 0.2.4 发布说明。
 ---
 
-Marivo 0.2.4 是 v0.2 系列的 patch release，聚焦 static artifact publishing
-path。这个版本让发布到 S3 的 HTML reports 更容易被正确托管，也让 agents 在
+Marivo 0.2.4 是 v0.2 系列的补丁版本发布，聚焦 static 产物 publishing
+路径。这个版本让发布到 S3 的 HTML 报告更容易被正确托管，也让智能体在
 `marivo publish` 成功后更容易交付可打开的 reader-facing URL。
 
 ## 重点
 
-- S3 publishing 现在会为 HTML artifacts 显式上传 `text/html; charset=utf-8`
-  content type。
-- Static publish results 现在暴露 publish 成功后应该打开的 reader-facing URL。
+- S3 publishing 现在会为 HTML 产物显式上传 `text/html; charset=utf-8`
+  内容 type。
+- Static 发布结果现在暴露发布成功后应该打开的 reader-facing URL。
 - `marivo publish` CLI 现在会在成功输出中包含已发布的 reader URL。
 
 ## 修复
 
-- 发布到 S3 的 HTML report artifacts 不再依赖 storage defaults 来推断 content type。
-- Agent final-report guidance 现在指向 publish result 中的 reader URL，不再要求调用方
+- 发布到 S3 的 HTML 报告产物不再依赖 storage defaults 来推断内容 type。
+- 智能体 final-报告指引现在指向发布结果中的 reader URL，不再要求调用方
   自行重建 URL。
 
 ## 文档
 
-- 更新 installation 与 publishing guidance，说明 S3 HTML content type 行为和 reader
-  URL handoff。
+- 更新安装与 publishing 指引，说明 S3 HTML 内容 type 行为和 reader
+  URL 交接。
 
 ## 安装
 
@@ -32,7 +32,7 @@ path。这个版本让发布到 S3 的 HTML reports 更容易被正确托管，�
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

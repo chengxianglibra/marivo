@@ -4,41 +4,41 @@ title: Marivo 0.2.5
 description: Marivo 0.2.5 发布说明。
 ---
 
-Marivo 0.2.5 是 v0.2 系列的 patch release，聚焦 agent-facing semantic
-authoring、catalog browsing 和本地 runtime observability。这个版本收紧了围绕
-project-local files 的 semantic surface，让 catalog traversal 更直接，并从 public
-contract 中移除了旧的 decision ledger。
+Marivo 0.2.5 是 v0.2 系列的补丁版本发布，聚焦面向智能体语义
+编写、目录浏览和本地运行时可观测性。这个版本收紧了围绕
+项目本地文件的语义接口，让目录 traversal 更直接，并从公共
+契约中移除了旧的 decision ledger。
 
 ## 重点
 
-- Semantic projects 现在可以从 `layer_paths` 加载多个 layer roots，因此 teams 可以把
-  datasource、domain 和 metric declarations 拆到多个文件，而不必压平成单个 module。
-- Semantic decision ledger 已从 public surface 移除。Readiness 和 verification 现在聚焦
-  已声明的 semantic objects 与 source evidence，而不是额外的 internal decision log。
-- `catalog.list()` 现在使用 kind-first browsing model，提供 bounded output、明确的
-  drill-down keys，以及指向下一步具体调用的 agent-facing help。
-- Local usage telemetry 现在记录在 project-local state 中，因此 CLI 和 runtime usage
+- 语义 projects 现在可以从 `layer_paths` 加载多个 layer 根，因此 teams 可以把
+  数据源、领域和指标声明拆到多个文件，而不必压平成单个 module。
+- 语义决策账本已从公共接口移除。就绪检查和验证现在聚焦
+  已声明的语义对象与来源证据，而不是额外的 internal decision log。
+- `catalog.list()` 现在使用类型优先 browsing 模型，提供有界输出、明确的
+  drill-down 键，以及指向下一步具体调用的面向智能体帮助。
+- 本地使用遥测现在记录在项目本地状态中，因此 CLI 和运行时 usage
   可以被检查，而不会发送到外部服务。
 
 ## 变更
 
-- Catalog discovery output 现在围绕 datasources、domains、entities、dimensions、
-  measures、metrics 和 relationships 等 kinds 组织。
-- Semantic loader 和 reader 行为现在把 configured layer roots 作为 project contract，并在
-  ambiguous names 上 fail closed。
-- Agent help 与内置 semantic/analysis skills 现在引导作者使用当前的 help、discovery、
-  verification 和 catalog-browsing surfaces。
+- 目录发现结果现在围绕数据源、领域、实体、维度、
+  度量、指标和关系等 kinds 组织。
+- 语义 loader 和 reader 行为现在把 configured layer 根作为项目契约，并在
+  ambiguous 名称上失败即停止。
+- 智能体帮助与内置语义/分析技能现在引导作者使用当前的帮助、发现、
+  验证和目录-browsing surfaces。
 
 ## 修复
 
-- Scalar row-count quality checks 不再为有效的 single-row aggregate outputs 产生噪音警告。
-- Analysis error rendering 与 frame guidance 围绕当前 semantic-input contract 进一步收紧。
+- 标量行-count 质量检查不再为有效的单行 aggregate 输出产生噪音警告。
+- 分析错误 rendering 与 frame 指引围绕当前语义输入契约进一步收紧。
 
 ## 文档
 
-- 增加 multi-root semantic projects 与 kind-first catalog browsing 的 design notes。
-- 更新 `latest` 与 `v0.2` installation、quick start、semantic-layer 和 readiness
-  documentation，使其匹配当前 semantic project model。
+- 增加多根目录语义 projects 与类型优先目录浏览的设计说明。
+- 更新 `latest` 与 `v0.2` 安装、快速开始、语义层和就绪检查
+  文档，使其匹配当前语义项目模型。
 
 ## 安装
 
@@ -46,7 +46,7 @@ contract 中移除了旧的 decision ledger。
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

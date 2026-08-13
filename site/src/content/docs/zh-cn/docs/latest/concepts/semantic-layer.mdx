@@ -17,28 +17,28 @@ description: 用 Python 声明定义智能体可依赖的名称、业务含义�
 
 项目中的 `models/` 已经包含语义对象时，先复用这些定义。安装依赖、配置本地环境变量，
 再让智能体检查现有对象是否适用于当前问题。没有缺口时，直接开始分析；不要重新生成已有
-对象。克隆后的模型发生变化，或者 workflow 要求 technical certification 时，再运行
-scoped readiness。
+对象。克隆后的模型发生变化，或者流程要求技术认证时，再运行
+限定范围的就绪检查。
 
 ### 从新项目开始
 
 向智能体说明数据源、业务目标和已经确定的规则。智能体使用 `marivo-semantic` 检查证据并
 起草对象；用户根据业务需要确认和调整口径。技术验证通过不等于业务定义已经获批。
 
-`marivo-semantic` 只提供稳定的步骤顺序和职责边界。当前 constructor 的文件位置、签名、
-前置条件、加载后的对象获取方式与错误恢复，由 `marivo.help(...)`、result card、
-`.contract()` 和 structured error 提供。读取用户数据前，智能体必须先确认 accountable
-domain owner、目标业务概念等数据本身无法回答的必要输入；sampling 不能回答这些问题。
+`marivo-semantic` 只提供稳定的步骤顺序和职责边界。当前构造器的文件位置、签名、
+前置条件、加载后的对象获取方式与错误恢复，由 `marivo.help(...)`、结果卡片、
+`.contract()` 和 structured 错误提供。读取用户数据前，智能体必须先确认 accountable
+领域负责人、目标业务概念等数据本身无法回答的必要输入；sampling 不能回答这些问题。
 
 `python -m marivo help` 只确认当前解释器、已安装包版本和环境指纹，然后交接到 Python。
-`marivo.help(...)` 是唯一公开的 focused-help 协调入口；限定后的 `datasource.*`、
+`marivo.help(...)` 是唯一公开的专项-帮助协调入口；限定后的 `datasource.*`、
 `semantic.*`、`analysis.*` 内容仍由各自原生 registry 拥有。`md` 和 `ms` 只执行所属
 领域能力，不提供独立的 `.help()` 别名。
 
-Datasource authoring error 会显示稳定的 code 和 stage。bounded acquisition 在执行阶段
-失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的 acquisition 最多重试一次；
-调用者声明的读取次数、行数与超时上限优先。如果相同的 structured code 和 backend name
-再次出现，应停止并报告 backend blocker，不能继续采样或绕过 Marivo。
+数据源编写错误会显示稳定的代码和 stage。有界获取在执行阶段
+失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的获取最多重试一次；
+调用者声明的读取次数、行数与超时上限优先。如果相同的 structured 代码和后端名称
+再次出现，应停止并报告后端阻塞项，不能继续采样或绕过 Marivo。
 
 ## 通过 Git 维护和共享语义层
 
@@ -49,7 +49,7 @@ Datasource authoring error 会显示稳定的 code 和 stage。bounded acquisiti
 - 审查不只检查 Python 是否可运行，还要检查业务含义是否得到负责人确认；
 - 数据源只提交 `*_env` 引用，不提交凭据值；
 - 不提交 `.marivo/` 运行状态、本地缓存或生成的密钥；
-- semantic change 合并后，让智能体检查配置和受影响对象的 scoped readiness。
+- 语义变更合并后，让智能体检查配置和受影响对象的限定范围的就绪检查。
 
 Git 保存可协作审查的语义声明，不会替代业务审批，也不会证明当前数据已经就绪。
 
@@ -116,15 +116,15 @@ frame = session.observe(
 )
 ```
 
-如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
+如果指标刚刚新建或修改，先完成下文所述的限定范围的编写收尾，再进入这条日常分析流程。
 
 ## 认证业务周期日历
 
-当业务周期不能安全地由 Gregorian grain 推导时（例如财务周期或 4-4-5 日历），使用
+当业务周期不能安全地由 Gregorian 粒度推导时（例如财务周期或 4-4-5 日历），使用
 `PeriodCalendar`。通过 `ms.period_calendar(...)` 声明民用日期主轴和命名层级，然后用
 `persist_values=True` 一次获取数据，并把不可变的 `DiscoverySnapshot` 传给
 `catalog.preview(calendar_ref, using=snapshot)`。认证要求覆盖完整范围，并发布绑定快照的
-权威；之后 catalog 导航不会再次读取数据源。
+权威；之后目录导航不会再次读取数据源。
 
 ```python
 calendar_ref = ms.period_calendar(
@@ -150,14 +150,14 @@ week_scope.contract()  # 精确边界和认证快照身份
 ```
 
 保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。
-`calendar.periods(level, limit=..., cursor=...)` 返回有界的精确 scope；覆盖缺失、定义过期或
-证据损坏都会以结构化 semantic error fail closed。
+`calendar.periods(level, limit=..., cursor=...)` 返回有界的精确范围；覆盖缺失、定义过期或
+证据损坏都会以结构化语义错误失败即停止。
 精确查找语法由 `marivo.help("analysis.calendar.period")` 提供有界说明。
 
-## 命名时间 occurrence
+## 命名时间发生项
 
 对于节日、促销、发布、事故等可能有间隙或重叠的命名窗口，使用独立的
-`TemporalSet`。通过 `ms.temporal_set(...)` 声明显式的 start 和 exclusive end，
+`TemporalSet`。通过 `ms.temporal_set(...)` 声明显式的开始和 exclusive end，
 再用一次 exhaustive、`persist_values=True` 的 `DiscoverySnapshot` 完成本地认证：
 
 ```python
@@ -182,19 +182,19 @@ launch = campaigns.occurrence("spring-2026")
 frame = session.observe(revenue, time_scope=launch, grain=mv.grain("day"))
 ```
 
-`mv.grain("day")` 始终使用 session 的 report timezone 作为边界。occurrence 使用其他
-boundary timezone 时，应将 session 配置为相同的 `report_timezone`（或使用已认证的
-calendar day grain）；Marivo 不会静默地用 occurrence timezone 重解释裸 built-in day grain。
+`mv.grain("day")` 始终使用会话的报告时区作为边界。发生项使用其他
+边界时区时，应将会话配置为相同的 `report_timezone`（或使用已认证的
+calendar day 粒度）；Marivo 不会静默地用发生项时区重解释裸 built-in day 粒度。
 
 `occurrence(key)` 返回绑定精确快照的 `TimeScope`；分页有界，区间筛选使用半开区间重叠规则，
-导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的 occurrence
-是否对应。两个精确 occurrence scope 选出的 day-grain frame 可以使用
+导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的发生项
+是否对应。两个精确发生项范围选出的 day-粒度 frame 可以使用
 `mv.occurrence_progress(anchor="start" | "end", unmatched="fail" | "drop")` 按本地日进度比较。
 
 ## 工作日计划
 
-当业务数据源已经给出每个 civil date 的最终工作状态时，使用独立的
-`WorkSchedule`。它不依赖节日或促销窗口；认证要求有限 coverage 内每个日期恰好一条
+当业务数据源已经给出每个 civil 日期的最终工作状态时，使用独立的
+`WorkSchedule`。它不依赖节日或促销窗口；认证要求有限覆盖率内每个日期恰好一条
 boolean 记录，运行时不会推断 recurrence 或重新执行节假日规则。
 
 ```python
@@ -216,19 +216,19 @@ catalog.preview(schedule_ref, using=schedule_snapshot)
 schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 ```
 
-将 catalog entry 传给
+将目录条目传给
 `mv.working_day_progress(schedule=schedule, unmatched="fail" | "drop")`，即可在两个
-day-grain time-series 或 panel frame 之间按从选定 scope 起算的零基工作日 ordinal 配对。
-精确 schedule snapshot 会写入 comparison contract；缺日、重复日、sub-day 或 coverage
-之外的日期都会 fail closed。
+day-粒度时间-series 或面板 frame 之间按从选定范围起算的零基工作日 ordinal 配对。
+精确 schedule 快照会写入比较契约；缺日、重复日、sub-day 或覆盖率
+之外的日期都会失败即停止。
 
 ## 建模步骤
 
 ### 1. 连接数据源
 
-Datasources 在 `models/datasources/*.py` 中声明，每种 backend 对应一个 typed helper。
-helper 会注册连接。Semantic 文件通过精确的 `ms.ref.datasource("warehouse")` factory 引用
-datasource。
+数据源在 `models/datasources/*.py` 中声明，每种后端对应一个类型化辅助函数。
+辅助函数会注册连接。语义文件通过精确的 `ms.ref.datasource("warehouse")` factory 引用
+数据源。
 
 ```python
 # models/datasources/warehouse.py
@@ -246,45 +246,45 @@ md.duckdb(
 )
 ```
 
-每个 helper（`md.duckdb`、`md.sqlite`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都共享以下参数：
+每个辅助函数（`md.duckdb`、`md.sqlite`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都共享以下参数：
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 全局 lowercase snake_case datasource 名称。供 `ms.ref.datasource(name)` 使用。 |
+| `name` | `str` | 是 | — | 全局 lowercase snake_case 数据源名称。供 `ms.ref.datasource(name)` 使用。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
-| `extra` | `dict` | 否 | `None` | typed helper 未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
+| `extra` | `dict` | 否 | `None` | 类型化辅助函数未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
 
-各 backend 特有的参数：
+各后端特有的参数：
 
-| Helper | 必填 | 可选 |
+| 辅助函数 | 必填 | 可选 |
 | --- | --- | --- |
-| `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、带 scope 的 HTTP 认证字段 |
+| `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、带范围的 HTTP 认证字段 |
 | `md.sqlite` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`）、`type_map` |
 | `md.mysql` | `host`、`database` | `port`（3306）、`autocommit`、`user_env`、`password_env` |
 | `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
 | `md.trino` | `host`、`catalog` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`user_env`、`auth_env` |
 | `md.clickhouse` | `host` | `port`（9000 / 9440 secure）、`database`、`secure`、`settings`、`user_env`、`password_env` |
 
-ClickHouse datasource 默认关闭 clickhouse-connect 自动生成的 session id，这样 analysis
-缓存 backend 时，重复查询或并发查询不会共享同一个 ClickHouse server session lock。
-如果 datasource 需要临时表等 ClickHouse session state，可以显式传
-`extra={"autogenerate_session_id": True}`。`settings={...}` 用于 server/query
+ClickHouse 数据源默认关闭 clickhouse-connect 自动生成的会话 id，这样分析
+缓存后端时，重复查询或并发查询不会共享同一个 ClickHouse server 会话 lock。
+如果数据源需要临时表等 ClickHouse 会话状态，可以显式传
+`extra={"autogenerate_session_id": True}`。`settings={...}` 用于 server/查询
 settings；Ibis/clickhouse-connect client keyword arguments 放在 `extra={...}`。
 Marivo 的有界只读路径使用 ClickHouse server setting `readonly=1`，保留其他已声明
 settings，且绝不会通过可写连接重试。
 
-SQLite datasource 通过 `md.table(...)` 使用表和视图。`read_only=True` 会启用 SQLite
-连接级 query-only 模式；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite
+SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会启用 SQLite
+连接级查询-仅模式；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite
 类型名映射为 Ibis 类型字符串。Parquet、CSV 和 JSON descriptor 仍只属于 DuckDB。
-当前 Ibis SQLite backend 不支持 median、percentile metric 或字符串 `strptime` 表达式；Marivo
-会将其报告为结构化的 unsupported-operation 错误。此时应改用受支持的聚合与原生 temporal
+当前 Ibis SQLite 后端不支持 median、分位数指标或字符串 `strptime` 表达式；Marivo
+会将其报告为结构化的不支持-操作错误。此时应改用受支持的聚合与原生时间
 列。
 
-:::caution[凭据是引用，绝不是明文]
+:::note[凭据是引用，绝不是明文]
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、
-`password_env="MYSQL_PASSWORD"`。把 secret 明文写进 datasource 字段会报错。Marivo 通过
+`password_env="MYSQL_PASSWORD"`。把密钥明文写进数据源字段会报错。Marivo 通过
 `os.environ` → `~/.marivo/secrets.toml` 解析 `*_env` 值，并在一次通过验证的
-`md.test(...)` 往返之后把解析到的 secret 缓存到那里。
+`md.test(...)` 往返之后把解析到的密钥缓存到那里。
 :::
 
 ```python
@@ -300,7 +300,7 @@ md.trino(
 )
 ```
 
-受保护的 DuckDB HTTP JSON source，其认证应定义在 datasource，而不是
+受保护的 DuckDB HTTP JSON 来源，其认证应定义在数据源，而不是
 `md.json(...)`。项目只保存环境变量名，以及允许携带凭据的最窄 URL 前缀：
 
 ```python
@@ -311,8 +311,8 @@ md.duckdb(
 )
 ```
 
-自定义 header 使用“header 名称 → secret 环境变量”的映射，可以声明单个
-header，也可以声明机器鉴权所需的一组 header：
+自定义请求头使用“请求头名称 → 密钥环境变量”的映射，可以声明单个
+请求头，也可以声明机器鉴权所需的一组请求头：
 
 ```python
 md.duckdb(
@@ -326,21 +326,21 @@ md.duckdb(
 ```
 
 它与 bearer 模式互斥。Marivo 在建立连接时解析每个环境变量，并创建仅对
-`http_scope` 生效的临时 DuckDB HTTP secret；POST 执行会复用连接内存中的
-这些 scoped header。
+`http_scope` 生效的临时 DuckDB HTTP 密钥；POST 执行会复用连接内存中的
+这些限定范围的请求头。
 
 ### 2. 声明数据域和实体
 
 #### 数据域
 
-`ms.domain(...)` 打开一个 namespace。每个 `_domain.py` 调用一次。它返回一个
-`Ref[domain]`，也可以作为 `domain=` 传入，用来覆盖同级文件中对象的活动 domain。
+`ms.domain(...)` 打开一个命名空间。每个 `_domain.py` 调用一次。它返回一个
+`Ref[domain]`，也可以作为 `domain=` 传入，用来覆盖同级文件中对象的活动领域。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Domain namespace，例如 `"sales"`。对象成为 `<name>.<object>`。 |
-| `owner` | `str` | 是 | — | 负责人姓名，负责该 domain 的语义正确性与质量，例如 `"Mina Zhang"`。 |
-| `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该 domain。 |
+| `name` | `str` | 是 | — | 领域命名空间，例如 `"sales"`。对象成为 `<name>.<object>`。 |
+| `owner` | `str` | 是 | — | 负责人姓名，负责该领域的语义正确性与质量，例如 `"Mina Zhang"`。 |
+| `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -351,17 +351,17 @@ ms.domain(name="sales", owner="Mina Zhang")
 
 #### 实体
 
-Entity 表示一个物理源（一张表或一个文件）及其 primary key。dimensions、measures 和 metrics
-都依附在 entity 上。
+实体表示一个物理源（一张表或一个文件）及其主键。维度、度量和指标
+都依附在实体上。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
+| `name` | `str` | 是 | — | 实体名称。成为 `<domain>.<name>`。 |
 | `datasource` | `Ref[datasource]` | 是 | — | `ms.ref.datasource("warehouse")`。 |
-| `source` | source builder | 是 | — | Datasource-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
-| `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
-| `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `source` | 来源构建器 | 是 | — | 数据源-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
+| `primary_key` | `list[str]` | 否 | `None` | 构成主键的列名。 |
+| `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | 快照或 SCD2 有效性版本控制（见下）。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -376,29 +376,29 @@ orders = ms.entity(
 )
 ```
 
-##### Source builders
+##### 来源 builders
 
-| Builder | 必填 | 可选 | 用于 |
+| 构建器 | 必填 | 可选 | 用于 |
 | --- | --- | --- | --- |
-| `md.table(name)` | `name` | `database` | datasource 中的一张表（Trino/MySQL 用 `database="schema"`）。 |
-| `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet file source。 |
-| `md.csv(path, schema=...)` | `path`、typed `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV file source。 |
-| `md.json(path, schema=...)` | `path`、typed `schema` | `format`、`records_path`、`query_params`、`method`、`body` | JSON file、glob、GET URL 或参数化 body 的 POST URL；`records_path` 用于选择包装响应中的记录数组。 |
+| `md.table(name)` | `name` | `database` | 数据源中的一张表（Trino/MySQL 用 `database="schema"`）。 |
+| `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet 文件来源。 |
+| `md.csv(path, schema=...)` | `path`、类型化 `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV 文件来源。 |
+| `md.json(path, schema=...)` | `path`、类型化 `schema` | `format`、`records_path`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`records_path` 用于选择包装响应中的记录数组。 |
 
 ### 3. 添加字段
 
 #### 维度
 
 维度是用于分组或过滤的分类属性。直接物理列使用 `ms.dimension_column(...)`；需要表达式
-（例如 `table.region.upper()`）时，使用 `@ms.dimension` decorator，其 body 返回一个针对
-entity 表的 ibis expression。
+（例如 `table.region.upper()`）时，使用 `@ms.dimension` 装饰器，其请求体返回一个针对
+实体表的 ibis 表达式。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
-| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `name` | `str` | 是 | — | 维度名称。成为 `<domain>.<entity>.<name>`。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
+| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -412,45 +412,45 @@ region = ms.dimension_column(
 
 #### 时间维度
 
-时间维度是携带 grain 和解析元数据的特殊 dimension。**只有 time dimension 才能作为
+时间维度是携带粒度和解析元数据的特殊维度。**只有时间维度才能作为
 `session.observe` 的时间轴。**
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Dimension 名称。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
-| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
-| `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
-| `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
-| `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `name` | `str` | 是 | — | 维度名称。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
+| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `granularity` | 粒度字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
+| `parse` | 解析变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断解析变体。 |
+| `is_default` | `bool` | 否 | `False` | 当实体有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
-##### Parse 变体
+##### 解析变体
 
-`parse=` 值声明列的物理编码。省略时，分析会根据列的 ibis dtype 自动推断 parse 变体（原生
-`date`、`datetime`、`timestamp` 列无需显式指定 parse）。对于 string 或 integer 列，需提供
+`parse=` 值声明列的物理编码。省略时，分析会根据列的 ibis dtype 自动推断解析变体（原生
+`date`、`datetime`、`timestamp` 列无需显式指定解析）。对于字符串或整数列，需提供
 `ms.strptime(format)` 或 `ms.hour_prefix(prefix)`。该变体必须与 `granularity` 兼容（例如
 hour 粒度需要带时间的格式）。
 
-| Builder | 源列是… | 关键参数 |
+| 构建器 | 源列是… | 关键参数 |
 | --- | --- | --- |
 | *（省略 `parse`）* | 原生时间列 | — |
 | `ms.datetime()` | 原生 `datetime` | `timezone`（IANA）、`sample_interval` |
 | `ms.timestamp()` | 原生 `timestamp` | `timezone`（IANA）、`sample_interval` |
-| `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
+| `ms.strptime(format)` | 需要解析的字符串/整数 | `timezone`、`sample_interval` |
 | `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 `Ref[time_dimension]` |
 
-对于原生但 naive 的 `datetime` 或 `timestamp`，必须声明其 source timezone（例如
+对于原生但 naive 的 `datetime` 或 `timestamp`，必须声明其来源时区（例如
 `ms.datetime(timezone="Asia/Shanghai")`）。显式 `ms.datetime()` 或
-`ms.timestamp()` 未提供 `timezone=` 时，readiness 会返回
-`undeclared_naive_time_axis` blocker：运行时会回退到 datasource read timezone，而
-analysis window 使用 report timezone，可能在日或小时边界错位。零查询 gate 会报告这些
-运行时解析的上下文，但绝不猜测业务 timezone。形如 `(5, "minute")` 的
-`sample_interval` 标记一个被周期采样的时间轴，供 semi-additive fold 使用。
+`ms.timestamp()` 未提供 `timezone=` 时，就绪检查会返回
+`undeclared_naive_time_axis` 阻塞项：运行时会回退到数据源 read 时区，而
+分析窗口使用报告时区，可能在日或小时边界错位。零查询门禁会报告这些
+运行时解析的上下文，但绝不猜测业务时区。形如 `(5, "minute")` 的
+`sample_interval` 标记一个被周期采样的时间轴，供半可加折叠使用。
 
-对于 time-series 和 panel frame，`bucket_start` 始终是 report timezone 下的 bucket
-标签，并以 timezone-naive timestamp 或 date 输出。例如 `report_timezone="Asia/Shanghai"`
+对于时间-series 和面板 frame，`bucket_start` 始终是报告时区下的桶
+标签，并以时区-naive 时间戳或日期输出。例如 `report_timezone="Asia/Shanghai"`
 时，上海业务日的第一个小时桶显示为 `2026-06-20 00:00:00`，而不是等价的 UTC instant。
 
 ```python
@@ -476,18 +476,18 @@ event_ts = ms.time_dimension_column(
 
 #### 度量
 
-Measure 是你打算聚合的行级数量事实（例如金额或数量）。直接物理列使用
-`ms.measure_column(...)`；需要基于一个或多个列的表达式时使用 `@ms.measure`。Measure
-携带 additivity 和可选的 unit。
+度量是你打算聚合的行级数量事实（例如金额或数量）。直接物理列使用
+`ms.measure_column(...)`；需要基于一个或多个列的表达式时使用 `@ms.measure`。度量
+携带可加性和可选的单位。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
-| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
-| `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
-| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `name` | `str` | 是 | — | 度量名称。成为 `<domain>.<entity>.<name>`。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
+| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `additivity` | 可加性值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
+| `unit` | `str` | 否 | `None` | UCUM 单位令牌：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -503,9 +503,9 @@ amount = ms.measure_column(
 ### 4. 定义指标
 
 
-metric 不是一次 query 的结果，而是智能体可以安全 observe 的、可用于分析的业务数值。
-它的定义和计算声明在版本控制中；entity、dimensions、时间行为、unit 和 additivity 说明它如何
-被分析；`ai_context` 说明业务含义和 guardrails；readiness 用于在新建或修改后认证该定义，
+指标不是一次查询的结果，而是智能体可以安全 observe 的、可用于分析的业务数值。
+它的定义和计算声明在版本控制中；实体、维度、时间行为、单位和可加性说明它如何
+被分析；`ai_context` 说明业务含义和约束；就绪检查用于在新建或修改后认证该定义，
 再声明变更已经完成。
 
 #### 选择适合任务的指标构建器
@@ -514,25 +514,25 @@ metric 不是一次 query 的结果，而是智能体可以安全 observe 的、
 | --- | --- | --- |
 | 需要按行级数值汇总时 | `ms.aggregate` | 从 `amount` 得到 revenue |
 | 需要计数时 | `ms.count` | 已完成订单数 |
-| 需要按行级 measures 计算加权均值时 | `ms.weighted_mean` | 按请求数加权的延迟 |
+| 需要按行级度量计算加权均值时 | `ms.weighted_mean` | 按请求数加权的延迟 |
 | 需要由已有指标计算时 | `ms.ratio`、`ms.linear` | 转化率 |
 | 需要累计时 | `ms.cumulative` | 年初至今收入 |
 | 现有构建器无法表达时 | `@ms.metric` | 一个未被上述形式覆盖的计算 |
 
 按需要选择对应的构建器。`@ms.metric` 仅用于现有构建器无法表达的计算。
 
-#### 来自 measure 的简单 metric —— `ms.aggregate`
+#### 来自度量的简单指标 —— `ms.aggregate`
 
-聚合一个 measure。无需 body；additivity 从 measure 继承。
+聚合一个度量。无需请求体；可加性从度量继承。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Metric 名称。 |
-| `measure` | `Ref[measure]` | 是 | — | 要聚合的 measure。 |
+| `name` | `str` | 是 | — | 指标名称。 |
+| `measure` | `Ref[measure]` | 是 | — | 要聚合的度量。 |
 | `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
-| `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
-| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(dimension=value, ...)` 构建的 AND 过滤；scalar 表示等值，非空 tuple/list 表示成员过滤。 |
-| `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
+| `fold` | 折叠 | 否 | `None` | 半可加度量的时间-折叠覆盖。 |
+| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(dimension=value, ...)` 构建的 AND 过滤；标量表示等值，非空元组/list 表示成员过滤。 |
+| `unit` | `str` | 否 | 继承 | 覆盖从度量推导的单位。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
 ```python
@@ -540,27 +540,27 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
 
-#### Count metric —— `ms.count`
+#### Count 指标 —— `ms.count`
 
-需要统计 entity 行数时使用 `ms.count`，不要为了计行数额外声明冗余 measure。这个 helper
-只接受 ref，并会从 entity ref 推断 metric 所属 domain。传入 `filter=ms.where(...)` 可对子集
-计数（如失败数），无需手写 metric body。
+需要统计实体行数时使用 `ms.count`，不要为了计行数额外声明冗余度量。这个辅助函数
+只接受引用，并会从实体引用推断指标所属领域。传入 `filter=ms.where(...)` 可对子集
+计数（如失败数），无需手写指标请求体。
 
 ```python
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="订单总数。"))
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
 
-`ms.where(**conditions)` 构建 AND 组合的等值或成员过滤。key 必须是 metric 目标 entity
-上已声明的本地 semantic dimension 名，而不是任意物理列。scalar
-`str` / `int` / `float` / `bool` 表示等值；非空 tuple/list 会统一为成员过滤。
-load 会拒绝缺失的 filter dimension，preview/analysis 在提交查询前根据已解析的 Ibis
+`ms.where(**conditions)` 构建 AND 组合的等值或成员过滤。键必须是指标目标实体
+上已声明的本地语义维度名，而不是任意物理列。标量
+`str` / `int` / `float` / `bool` 表示等值；非空元组/list 会统一为成员过滤。
+加载会拒绝缺失的 filter 维度，预览/分析在提交查询前根据已解析的 Ibis
 类型检查 literal 是否可比较。
-若合法 authored literal 无法与物理 dtype 比较，两条路径都会在查询提交前返回
+若合法已编写 literal 无法与物理 dtype 比较，两条路径都会在查询提交前返回
 `filter_value_runtime_incompatible`，并携带 `query_executed=False` 与
-`declaration_preserved=True`。Marivo 保留原业务 literal，由用户或业务 owner 确认
-必要的 code/label 映射；不会根据物理类型或样本值改写规则。runtime evidence
-不可用期间，仍可继续不依赖该 evidence 的静态验证与 `semantic_static` readiness。
+`declaration_preserved=True`。Marivo 保留原业务 literal，由用户或业务负责人确认
+必要的代码/label 映射；不会根据物理类型或样本值改写规则。运行时证据
+不可用期间，仍可继续不依赖该证据的静态验证与 `semantic_static` 就绪检查。
 
 ```python
 terminal_count = ms.count(
@@ -572,7 +572,7 @@ terminal_count = ms.count(
 
 #### 加权均值 —— `ms.weighted_mean`
 
-`ms.weighted_mean` 接受同一 entity 上的两个 measures，由 Marivo 自动完成逐行乘权和聚合：
+`ms.weighted_mean` 接受同一实体上的两个度量，由 Marivo 自动完成逐行乘权和聚合：
 
 ```python
 avg_latency = ms.weighted_mean(
@@ -582,18 +582,18 @@ avg_latency = ms.weighted_mean(
 )
 ```
 
-它只对 value 与 weight 都非 null 的行计算
-`SUM(value * weight) / NULLIF(SUM(weight), 0)`。weight 必须是 additive measure；
-结果继承 value measure 的 unit，并持久化精确的 `numerator` / `weight` components，
+它只对值与权重都非 null 的行计算
+`SUM(value * weight) / NULLIF(SUM(weight), 0)`。权重必须是可加度量；
+结果继承值度量的单位，并持久化精确的 `numerator` / `weight` 组件，
 供 `weighted_mix` 归因使用。它也接受 `filter`、`unit`、`domain` 和 `ai_context`。
 
-#### 派生 metrics —— `ms.ratio` / `ms.linear`
+#### 派生指标 —— `ms.ratio` / `ms.linear`
 
-派生 metric 由其他 metrics 组合而成，不需要 body；计算完全来自组成成分。
+派生指标由其他指标组合而成，不需要请求体；计算完全来自组成成分。
 
-| Builder | 必填 | 计算 |
+| 构建器 | 必填 | 计算 |
 | --- | --- | --- |
-| `ms.ratio(name, numerator, denominator)` | 两个 ref | `numerator / denominator`（如客单价、各类比率） |
+| `ms.ratio(name, numerator, denominator)` | 两个引用 | `numerator / denominator`（如客单价、各类比率） |
 | `ms.linear(name, add, subtract)` | `add`（共 ≥2 项） | `add` 之和减去 `subtract`（如 `net = gross - refunds`） |
 
 它们也都接受 `unit`、`domain` 和 `ai_context`。
@@ -603,25 +603,25 @@ net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refun
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
-观察（observe）时，除法按固定的 `zero_division="null"` 策略求值：某个 bucket 的分母
+观察（observe）时，除法按固定的 `zero_division="null"` 策略求值：某个桶的分母
 （`ms.ratio`）或成对权重和（`ms.weighted_mean`）存在但为零时，结果为 null——绝不会出现
 `+/-inf`——受影响的行数记录在观察结果的 `meta.zero_denominator_rows` 与
 `quality_summary.zero_denominator_rows` 中。
 
-#### 累计 metrics —— `ms.cumulative`
+#### 累计指标 —— `ms.cumulative`
 
-当业务问题是"截至 bucket t 累计了多少"时使用 `ms.cumulative(...)`。
-base 必须是使用 `sum`、`count`、`count_distinct` 或加权组件累计的 tier-1
-`ms.aggregate(...)`、`ms.count(...)` 或 `ms.weighted_mean(...)` metric。
+当业务问题是"截至桶 t 累计了多少"时使用 `ms.cumulative(...)`。
+基础必须是使用 `sum`、`count`、`count_distinct` 或加权组件累计的 tier-1
+`ms.aggregate(...)`、`ms.count(...)` 或 `ms.weighted_mean(...)` 指标。
 `anchor` 参数选择累计形态。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 语义 metric 名称。 |
-| `base` | `Ref[metric]` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合 metric。 |
-| `over` | `Ref[time_dimension] \| None` | 否 | `None` | 累计时间轴。除非 base root entity 只有一个时间维度，否则需显式传入。 |
+| `name` | `str` | 是 | — | 语义指标名称。 |
+| `base` | `Ref[metric]` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合指标。 |
+| `over` | `Ref[time_dimension] \| None` | 否 | `None` | 累计时间轴。除非基础根实体只有一个时间维度，否则需显式传入。 |
 | `anchor` | `GrainToDate \| Trailing \| None` | 否 | `None` | 累计锚点。`None` = 全部历史累计；`ms.grain_to_date(...)` = MTD/QTD/YTD 重置；`ms.trailing(...)` = 滚动 N。 |
-| `unit` / `domain` / `ai_context` | — | 否 | — | 同其他 metric。 |
+| `unit` / `domain` / `ai_context` | — | 否 | — | 同其他指标。 |
 
 ```python
 user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
@@ -633,8 +633,8 @@ cumulative_active_users = ms.cumulative(
 )
 ```
 
-对于 `count_distinct` base metric，累计值使用首次出现语义：每个去重实体在最早出现的 bucket
-中计入，因此累计值单调非递减。累计 metric 可作为 ratio 组成成分——用 `ms.ratio(...)` 组合累计
+对于 `count_distinct` 基础指标，累计值使用首次出现语义：每个去重实体在最早出现的桶
+中计入，因此累计值单调非递减。累计指标可作为比率组成成分——用 `ms.ratio(...)` 组合累计
 分子和分母可得到累计比率。
 
 ##### 累计锚点
@@ -643,7 +643,7 @@ cumulative_active_users = ms.cumulative(
 构造器开启额外的锚点类型。
 
 `ms.grain_to_date(grain=...)` 在每个重置粒度边界重置累计值（MTD / QTD / YTD / WTD）。在一个
-重置周期内值持续累计；到达边界时回落到该周期首个 bucket 的流量。内置 `grain` 取值为
+重置周期内值持续累计；到达边界时回落到该周期首个桶的流量。内置 `grain` 取值为
 `week`、`month`、`quarter`、`year`；认证的自定义日历则使用 `ms.calendar_grain(...)` 返回的
 类型化 `TemporalGrain`。
 
@@ -656,8 +656,8 @@ mtd_revenue = ms.cumulative(
 )
 ```
 
-对于 fiscal 或其他已认证日历，将日历 authority 保存在 grain 值中，不要在分析参数里重复传入
-可互相冲突的 level：
+对于 fiscal 或其他已认证日历，将日历权威来源保存在粒度值中，不要在分析参数里重复传入
+可互相冲突的层级：
 
 ```python
 fiscal_mtd = ms.cumulative(
@@ -680,16 +680,16 @@ frame = session.observe(
 )
 ```
 
-日历 snapshot 负责 fiscal membership 及其 boundary timezone；改变 session report timezone 只会改变
+日历快照负责 fiscal membership 及其边界时区；改变会话报告时区只会改变
 展示，不会改变周期归属。
 
-`ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口：每个 bucket 的值是该 bucket 结束边界
-为止的 span 上的 base 聚合。空窗口为真零，不会向前 carry。部分窗口（span 触及数据起点之前）
-展示实际的部分累计值，并在 coverage 中标记为 `partial`。`unit` 仅接受固定大小单位（`second`、
+`ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口：每个桶的值是该桶结束边界
+为止的 span 上的基础聚合。空窗口为真零，不会向前 carry。部分窗口（span 触及数据起点之前）
+展示实际的部分累计值，并在覆盖率中标记为 `partial`。`unit` 仅接受固定大小单位（`second`、
 `minute`、`hour`、`day`、`week`）；日历可变单位（`month`、`quarter`、`year`）会被拒绝并给出
 教学错误。
-trailing `day` 始终等于 86,400 秒，trailing `week` 始终等于 604,800 秒；它们不是 report
-timezone 下的民用日历周期，因此 DST 切换不会改变滚动窗口长度。
+尾随 `day` 始终等于 86,400 秒，尾随 `week` 始终等于 604,800 秒；它们不是报告
+时区下的民用日历周期，因此 DST 切换不会改变滚动窗口长度。
 
 ```python
 rolling7_active = ms.cumulative(
@@ -702,55 +702,55 @@ rolling7_active = ms.cumulative(
 
 两条跨锚点规则约束查询时的粒度选择：
 
-- **粒度兼容规则**（`grain_to_date`）：每个展示 bucket 必须完整落入一个重置周期内。在
-  `month` / `quarter` / `year` 重置下使用 `week` 查询粒度是非法的（week bucket 会跨越月边界）；
+- **粒度兼容规则**（`grain_to_date`）：每个展示桶必须完整落入一个重置周期内。在
+  `month` / `quarter` / `year` 重置下使用 `week` 查询粒度是非法的（week 桶会跨越月边界）；
   `day` 和 `hour` 合法。
 - **整数倍规则**（`trailing`）：窗口 span 必须是查询粒度的整数倍（`W_buckets = span / grain`）。
-  Trailing 要求时间粒度。
+  尾随要求时间粒度。
 
-Derived metric 可以组合 cumulative component。只有所有外层 component 都是 cumulative，且共享
-完全相同的锚点时才支持 compare，其中包括 `all_history`。它的结果是携带精确 evaluation cutoff
-的观测 level 差，不声明等价于区间 flow，且 source revision 未验证。混合锚点以及累计与非累计
-component 混合都会被拒绝。完成 `compare` 后，`attribute` 可接受当前累计 delta：业务维度解释
-端点 level 变化；对于 direct `sum`/`count` 结构，精确的累计 `over` 轴解释 base flow。时间与
-业务轴混合、累计 `count_distinct` 以及 component time bridge 会 fail closed。`decompose` 和
+派生指标可以组合累计组件。只有所有外层组件都是累计，且共享
+完全相同的锚点时才支持比较，其中包括 `all_history`。它的结果是携带精确 evaluation cutoff
+的观测层级差，不声明等价于区间流程，且来源 revision 未验证。混合锚点以及累计与非累计
+组件混合都会被拒绝。完成 `compare` 后，`attribute` 可接受当前累计差值：业务维度解释
+端点层级变化；对于直接 `sum`/`count` 结构，精确的累计 `over` 轴解释基础流程。时间与
+业务轴混合、累计 `count_distinct` 以及组件时间 bridge 会失败即停止。`decompose` 和
 `forecast` 在累计 frame 上仍不支持。
 
 ## 使用并检查模型
 
-### 智能体使用 metric 前先读取它
+### 智能体使用指标前先读取它
 
 ~~~python
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-session = mv.session.get_or_create(
-    name="revenue-investigation",
-    question="Why did Q4 revenue drop?",
+会话 = mv.会话.get_or_create(
+    名称="revenue-investigation",
+    问题="Why did Q4 revenue drop?",
 )
-catalog = session.catalog
-revenue_entry = catalog.metrics.get("sales.revenue")
-region_entry = catalog.dimensions.get("sales.orders.region")
+目录 = 会话.目录
+revenue_entry = 目录.指标.get("sales.revenue")
+region_entry = 目录.维度.get("sales.orders.region")
 
-revenue_entry.details().show()
-current = session.observe(
+revenue_entry.详情().show()
+当前 = 会话.observe(
     revenue_entry,
-    grain=mv.grain("month"),
-    dimensions=[region_entry],
+    粒度=mv.粒度("month"),
+    维度=[region_entry],
 )
 ~~~
 
-`details().show()` 展示人类编写的定义、guardrails、composition、effective entities、候选
-普通/时间维度与 measure lineage。候选轴来自 metric 的 effective entities；跨实体 relationship
-与 fanout 仍由 `session.observe(...)` 验证。只有在读取 verify/preview/readiness 等机械下一步时
-才调用 `.contract().show()`；`.show()` 打印的内容与 `.render()` 返回的 bounded card 相同。
-如果 object 缺失或定义存在争议，先回到 semantic authoring；否则该 observation 会成为 session
-中有 evidence 支撑的调查的第一个 artifact。新建或修改的 object 把 scoped readiness 作为
-authoring closeout 的一部分。
+`details().show()` 展示人类编写的定义、约束、组合、有效实体、候选
+普通/时间维度与度量血缘。候选轴来自指标的有效实体；跨实体关系
+与扩散仍由 `session.observe(...)` 验证。只有在读取验证/预览/就绪检查等机械下一步时
+才调用 `.contract().show()`；`.show()` 打印的内容与 `.render()` 返回的有界卡片相同。
+如果对象缺失或定义存在争议，先回到语义编写；否则该观测会成为会话
+中有证据支撑的调查的第一个产物。新建或修改的对象把限定范围的就绪检查作为
+编写收尾的一部分。
 
 ### 加载模型并认证变更
 
-声明完成后，加载 catalog 并检查它：
+声明完成后，加载目录并检查它：
 
 ```python
 import marivo.semantic as ms
@@ -766,18 +766,18 @@ revenue = orders.metrics.get("revenue")   # one metric object
 region = orders.dimensions.get("region")  # one dimension object
 ```
 
-每个 typed collection 都接受当前 scope 内的 local name、精确 full path 或同 kind ref。
-Scoped collection 不会通过 path 或 ref 返回 scope 外的 object。当 identity 来自配置、
-持久化状态或日志时，使用严格且只接受 ref 的 `catalog.require(ref)`。Entry card 会显示精确
-kind、full path、`.ref` 和有界的当前候选轴；被省略的成员会指向 `details().show()`。
+每个类型化集合都接受当前范围内的本地名称、精确 full 路径或同类型引用。
+限定范围的集合不会通过路径或引用返回范围外的对象。当身份来自配置、
+持久化状态或日志时，使用严格且只接受引用的 `catalog.require(ref)`。条目卡片会显示精确
+类型、full 路径、`.ref` 和有界的当前候选轴；被省略的成员会指向 `details().show()`。
 
-全局 collections 为 `domains`、`datasources`、`entities`、`dimensions`、
+全局集合为 `domains`、`datasources`、`entities`、`dimensions`、
 `time_dimensions`、`measures`、`metrics`、`relationships`、`events` 和
-`state_models`。`repr(catalog)` 会指向 `catalog.show()` 打印的同一个 bounded、
-零查询 catalog card。Collection help 会完整展示 `.items`、`.refs`、`.get(...)`、
+`state_models`。`repr(catalog)` 会指向 `catalog.show()` 打印的同一个有界、
+零查询目录卡片。集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、
 `.render()` 与 `.show()`；lookup 仍是精确查找，不提供 fuzzy search。
 
-新建或修改 object 后，运行**就绪检查**，认证所选定义及其 scoped runtime evidence 仍然有效：
+新建或修改对象后，运行**就绪检查**，认证所选定义及其限定范围的运行时证据仍然有效：
 
 ```python
 catalog.verify(revenue).show()
@@ -787,34 +787,34 @@ if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
 
-这些 runtime call 接受当前 entry 或它的精确 ref，并立即归一化为 ref。Readiness output、
-preview evidence、持久化、replay 与 recovery 仍然只保存 ref。
+这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。就绪检查输出、
+预览证据、持久化、重放与 recovery 仍然只保存引用。
 
-:::note[Readiness 是显式认证]
-project 可以在 readiness 仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。Analysis APIs
-会加载、解析、规划并在运行时检查输入，但不会自动调用 readiness。Blocked report 需要在声明
-semantic change 完成之前修复；日常分析复用未变化的 objects 时，不必在每次调用前重跑
-readiness。缺失或不匹配的 runtime preview certification 会显示为 warning 而不是 blocker：
-日常分析先披露再继续，authoring closeout 前完成修复。
+:::note[就绪检查是显式认证]
+项目可以在就绪检查仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。分析 API
+会加载、解析、规划并在运行时检查输入，但不会自动调用就绪检查。阻塞报告需要在声明
+语义变更完成之前修复；日常分析复用未变化的对象时，不必在每次调用前重跑
+就绪检查。缺失或不匹配的运行时预览认证会显示为警告而不是阻塞项：
+日常分析先披露再继续，编写收尾前完成修复。
 :::
 
-另外两个检查支持 authoring：
+另外两个检查支持编写：
 
 - `ms.richness()` —— 建议性的覆盖度/深度报告；永不阻塞。
-- `ms.parity_check("sales.revenue")` —— 用 metric 的 `provenance` SQL 运行并比对结果。
+- `ms.parity_check("sales.revenue")` —— 用指标的 `provenance` SQL 运行并比对结果。
   需要 `provenance=ms.from_sql(...)`。
 
 就绪检查如何判断“是否就绪”，见 [就绪检查](/zh-cn/docs/latest/concepts/readiness/)。
 分析如何记录结论，见 [证据链](/zh-cn/docs/latest/concepts/evidence/)。
-关于 session 如何加载并验证 metric 输入，继续阅读
-[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)；关于变更认证，见上面的 scoped readiness。
+关于会话如何加载并验证指标输入，继续阅读
+[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)；关于变更认证，见上面的限定范围的就绪检查。
 
 ## 高级建模
 
 ### 语义契约参考
 
 
-日常 authoring 会用到两个 namespace：
+日常编写会用到两个命名空间：
 
 ```python
 import marivo.datasource as md   # connections 与 physical sources
@@ -823,14 +823,14 @@ import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
 
 #### 命名规则
 
-每个对象都归属于一个 **domain**，并通过限定 ref 引用：
+每个对象都归属于一个 **领域**，并通过限定引用引用：
 
-- Domain 级对象：`<domain>.<object>` —— 例如 `sales.revenue`、`sales.orders`。
-- Entity 级对象（dimensions 和 measures）：`<domain>.<entity>.<field>` —— 例如
+- 领域级对象：`<domain>.<object>` —— 例如 `sales.revenue`、`sales.orders`。
+- 实体级对象（维度和度量）：`<domain>.<entity>.<field>` —— 例如
   `sales.orders.region`。
 
-一个 project 由一组声明文件组成。Datasources 在 `models/datasources/` 下声明一次；
-semantics 放在 `models/semantic/<domain>/` 下，每个 domain 有一个 `_domain.py`：
+一个项目由一组声明文件组成。数据源在 `models/datasources/` 下声明一次；
+语义放在 `models/semantic/<domain>/` 下，每个领域有一个 `_domain.py`：
 
 ```text
 your-project/
@@ -843,56 +843,56 @@ your-project/
         _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
 ```
 
-在多仓库语义层场景中，每个业务域仓库仍保持相同的 authored `models/` 布局，
-中央分析 project 只需要引用这些 root：
+在多仓库语义层场景中，每个业务域仓库仍保持相同的已编写 `models/` 布局，
+中央分析项目只需要引用这些根：
 
 ```toml
 [semantic]
 layer_paths = ["../finance-domain/models"]
 ```
 
-Marivo 会先加载中央 project 的 `models/`，再按配置顺序加载外部 `models/` root。
-所有 datasource、domain 与 semantic object 会进入同一个 catalog，因此名称必须全局唯一。
-`marivo doctor`、`catalog.preview`、`catalog.verify` 与 analysis session 都会按同一组
-配置 roots 解析 datasource-backed semantic object。
+Marivo 会先加载中央项目的 `models/`，再按配置顺序加载外部 `models/` 根。
+所有数据源、领域与语义对象会进入同一个目录，因此名称必须全局唯一。
+`marivo doctor`、`catalog.preview`、`catalog.verify` 与分析会话都会按同一组
+配置根解析数据源-backed 语义对象。
 
-#### Semantic refs
+#### 语义引用
 
-每个 semantic 对象都由一个 sealed、不可变的 `ms.Ref` 值标识。运行时只有一个
-具体 `Ref` 类；泛型 kind（如 `Ref[metric]`、`Ref[dimension]`）负责静态角色检查。
+每个语义对象都由一个 sealed、不可变的 `ms.Ref` 值标识。运行时只有一个
+具体 `Ref` 类；泛型类型（如 `Ref[metric]`、`Ref[dimension]`）负责静态角色检查。
 只能通过 `ms.ref.metric("sales.revenue")` 这类精确 factory，或返回同一值类型的
-authoring declaration 创建 ref。
+编写声明创建引用。
 
-所有 ref 都有以下只读属性：
+所有引用都有以下只读属性：
 
 | 属性 | 类型 | 含义 |
 | --- | --- | --- |
-| `.path` | `str` | kind 内的限定路径，例如 `"sales.revenue"`。 |
+| `.path` | `str` | 类型内的限定路径，例如 `"sales.revenue"`。 |
 | `.kind` | `SemanticKind` | 对象种类——以下八个值之一。 |
-| `.key` | `str` | 规范 runtime key，例如 `"metric:sales.revenue"`。 |
-| `.name` | `str` | 最后的本地名称 segment。 |
+| `.key` | `str` | 规范运行时键，例如 `"metric:sales.revenue"`。 |
+| `.name` | `str` | 最后的本地名称分段。 |
 
 `str(ref)` 返回 `.key`，相等性和哈希基于 `(kind, path)`。不能直接调用
-`Ref(...)`，也不能继承 `Ref`。公开边界不会把字符串或 catalog entry 当作 ref。
+`Ref(...)`，也不能继承 `Ref`。公开边界不会把字符串或目录条目当作引用。
 
-| Kind | Factory | 常见 authoring producer | Expression binding |
+| 类型 | Factory | 常见编写 producer | 表达式绑定 |
 | --- | --- | --- | --- |
 | `domain` | `ms.ref.domain(path)` | `ms.domain(...)` | 否 |
-| `datasource` | `ms.ref.datasource(path)` | datasource declaration 的 `.ref` | 否 |
+| `datasource` | `ms.ref.datasource(path)` | 数据源声明的 `.ref` | 否 |
 | `entity` | `ms.ref.entity(path)` | `ms.entity(...)` | 否 |
-| `dimension` | `ms.ref.dimension(path)` | `ms.dimension_column(...)`、`@ms.dimension` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
-| `time_dimension` | `ms.ref.time_dimension(path)` | `ms.time_dimension_column(...)`、`@ms.time_dimension` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
-| `measure` | `ms.ref.measure(path)` | `ms.measure_column(...)`、`@ms.measure` | 在绑定的 expression body 内使用 `ms.bind(ref, entity_alias)` |
+| `dimension` | `ms.ref.dimension(path)` | `ms.dimension_column(...)`、`@ms.dimension` | 在绑定的表达式请求体内使用 `ms.bind(ref, entity_alias)` |
+| `time_dimension` | `ms.ref.time_dimension(path)` | `ms.time_dimension_column(...)`、`@ms.time_dimension` | 在绑定的表达式请求体内使用 `ms.bind(ref, entity_alias)` |
+| `measure` | `ms.ref.measure(path)` | `ms.measure_column(...)`、`@ms.measure` | 在绑定的表达式请求体内使用 `ms.bind(ref, entity_alias)` |
 | `metric` | `ms.ref.metric(path)` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
 | `relationship` | `ms.ref.relationship(path)` | `ms.relationship(...)` | 否 |
 
-Ref 值本身始终不可调用。在 expression body 内，必须通过
-`ms.bind(amount, orders)` 将 field ref 显式绑定到已声明的 entity alias。Loader 会把该绑定
-记录到 compiled catalog。若在 body 外绑定、使用错误 alias，或绑定非 field ref，都会得到
+引用值本身始终不可调用。在表达式请求体内，必须通过
+`ms.bind(amount, orders)` 将字段引用显式绑定到已声明的实体 alias。Loader 会把该绑定
+记录到编译后的目录。若在请求体外绑定、使用错误 alias，或绑定非字段引用，都会得到
 带修复提示的错误。
 
-Authoring ref 可以直接传给分析。如果从字面身份开始，先做一次精确 catalog membership
-校验，再直接传入当前 entry：
+编写引用可以直接传给分析。如果从字面身份开始，先做一次精确目录 membership
+校验，再直接传入当前条目：
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -908,15 +908,15 @@ frame = session.observe(
 )
 ```
 
-`catalog.require(ref)` 是精确的全局查找；catalog collections 负责浏览和本地名称查找，
-也支持完整路径查找。已冻结的 analysis consumer 接受当前 catalog entry 或其精确 ref；
-authoring、持久化和配置边界仍以 ref 为准。持久化 payload 使用带版本的
+`catalog.require(ref)` 是精确的全局查找；目录集合负责浏览和本地名称查找，
+也支持完整路径查找。已冻结的分析 consumer 接受当前目录条目或其精确引用；
+编写、持久化和配置边界仍以引用为准。持久化负载使用带版本的
 `{schema, kind, path}` 记录，裸字符串不是公开 interchange 格式。
 
 #### `ai_context`：人与智能体之间的契约
 
-每个 semantic object 和 datasource 都接受可选的 `ai_context` 参数，并通过 `ms.ai_context(...)`
-构造。业务含义和 guardrails 放在这里；智能体使用对象前会读取这部分上下文。所有参数都是可选的，
+每个语义对象和数据源都接受可选的 `ai_context` 参数，并通过 `ms.ai_context(...)`
+构造。业务含义和约束放在这里；智能体使用对象前会读取这部分上下文。所有参数都是可选的，
 但未知的关键字参数会在调用时被 Python 拒绝。
 
 | 字段 | 类型 | 必填 | 默认 | 含义 |
@@ -931,31 +931,31 @@ ai_context=ms.ai_context(
 )
 ```
 
-### Versioning（可选）
+### 版本化（可选）
 
-对于行会随时间变化的 entity，需要声明如何读取当前状态：
+对于行会随时间变化的实体，需要声明如何读取当前状态：
 
 - `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` ——
   按天分区的快照；`partition_field` 必须是 `Ref[dimension]` 或 `Ref[time_dimension]`。
 - `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` ——
-  SCD2 validity 区间；`valid_from` 和 `valid_to` 必须是 `Ref[dimension]` 或 `Ref[time_dimension]`。`interval` 为 `"closed_open"`（`[from, to)`）或
+  SCD2 有效性区间；`valid_from` 和 `valid_to` 必须是 `Ref[dimension]` 或 `Ref[time_dimension]`。`interval` 为 `"closed_open"`（`[from, to)`）或
   `"closed_closed"`；`open_end` 列出表示“仍然有效”的哨兵值（例如 SQL `NULL` 用
   `(None,)`，或 `("9999-12-31",)`）。
 
-### Custom Ibis metric —— `@ms.metric`
+### Custom Ibis 指标 —— `@ms.metric`
 
-当 metric 无法用 `ms.aggregate(...)`、`ms.count(...)` 或派生 metric builder 表达时，
-才使用这个 escape hatch。Body 返回一个 ibis 聚合；`additivity` 由你显式声明。
+当指标无法用 `ms.aggregate(...)`、`ms.count(...)` 或派生指标构建器表达时，
+才使用这个 escape hatch。请求体返回一个 ibis 聚合；`additivity` 由你显式声明。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 否 | 函数名 | Metric 名称。 |
-| `entities` | `list[Ref[entity]]` | 是 | — | Body 读取的 entities。 |
-| `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `root_entity` | `Ref[entity]` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
-| `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨 entity 连接的 fan-out。 |
-| `unit` | `str` | 否 | `None` | UCUM unit token。 |
-| `provenance` | `SqlProvenance` | 否 | `None` | 用于 parity 校验的 `ms.from_sql(sql=..., dialect=...)`。 |
+| `name` | `str` | 否 | 函数名 | 指标名称。 |
+| `entities` | `list[Ref[entity]]` | 是 | — | 请求体读取的实体。 |
+| `additivity` | 可加性值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
+| `root_entity` | `Ref[entity]` | 否 | 单个实体 | 当 `entities` 多于一个时必填。 |
+| `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨实体连接的 fan-out。 |
+| `unit` | `str` | 否 | `None` | UCUM 单位令牌。 |
+| `provenance` | `SqlProvenance` | 否 | `None` | 用于一致性校验的 `ms.from_sql(sql=..., dialect=...)`。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
 ```python
@@ -975,15 +975,15 @@ def revenue(table):
 
 ### 分析正确性的约束
 
-Additivity 与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。SQL provenance
-不会执行 metric；它为 `ms.parity_check(...)` 提供参考 query，以检查已声明的语义是否与既有实现一致。
+可加性与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。SQL 来源信息
+不会执行指标；它为 `ms.parity_check(...)` 提供参考查询，以检查已声明的语义是否与既有实现一致。
 
 - `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需要在某个时间轴上折叠的
-  snapshot/status 事实。`over` 必须是 `@ms.time_dimension(...)` 返回的状态时间
-  dimension ref；`fold` 为 `"last"`、`"first"`、`"mean"`、`"max"` 或
+  快照/状态事实。`over` 必须是 `@ms.time_dimension(...)` 返回的状态时间
+  维度引用；`fold` 为 `"last"`、`"first"`、`"mean"`、`"max"` 或
   `("percentile", 0.95)`。
-- `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅 provenance** 附加，用于启用
-  `ms.parity_check(...)`。它永远不会作为 metric body 执行。
+- `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅来源信息** 附加，用于启用
+  `ms.parity_check(...)`。它永远不会作为指标请求体执行。
 
 ```python
 snapshot_date = ms.time_dimension_column(
@@ -1003,14 +1003,14 @@ on_hand_units = ms.measure_column(
 
 ### 关系
 
-Relationship 声明两个 entity 如何 join，使 metrics 和 dimensions 能够跨越这两个 entity。
-Keys 使用 dimension ref，而不是原始列名。
+关系声明两个实体如何连接，使指标和维度能够跨越这两个实体。
+键使用维度引用，而不是原始列名。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | Relationship 名称。 |
-| `from_entity` | `Ref[entity]` | 是 | — | 源 entity。 |
-| `to_entity` | `Ref[entity]` | 是 | — | 目标 entity。 |
+| `name` | `str` | 是 | — | 关系名称。 |
+| `from_entity` | `Ref[entity]` | 是 | — | 源实体。 |
+| `to_entity` | `Ref[entity]` | 是 | — | 目标实体。 |
 | `keys` | `list[JoinKey]` | 是 | — | 一个或多个 `ms.join_on(from_key, to_key)` 配对。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
@@ -1023,11 +1023,11 @@ ms.relationship(
 )
 ```
 
-### 先 inspect，只 sample 一次，再 author
+### 先 inspect，只样本一次，再 author
 
-对 datasource-backed 语义对象，使用一个显式 evidence snapshot。查阅
-`marivo.help("datasource.authoring")` 了解 datasource inspection 与 scope，查阅
-`marivo.help("semantic.authoring")` 了解 semantic 依赖阶梯，查阅
+对数据源-backed 语义对象，使用一个显式证据快照。查阅
+`marivo.help("datasource.authoring")` 了解数据源检查与范围，查阅
+`marivo.help("semantic.authoring")` 了解语义依赖阶梯，查阅
 `marivo.help("semantic.ai_context")` 了解共享的 `ms.ai_context(...)` 契约：
 
 ```python
@@ -1048,11 +1048,11 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
-`md.duckdb(...)` 声明 datasource。`md.table(...)` 选择该 datasource 内部的
-table 或 view。`md.parquet(...)` 和 `md.csv(...)` 是 DuckDB file source
-descriptor；`md.json(...)` 是 DuckDB-backed JSON file 或 HTTP API source
-descriptor。它们都需要配合 datasource ref 使用，并且都不是 datasource
-declaration。
+`md.duckdb(...)` 声明数据源。`md.table(...)` 选择该数据源内部的
+表或 view。`md.parquet(...)` 和 `md.csv(...)` 是 DuckDB 文件来源
+descriptor；`md.json(...)` 是 DuckDB-backed JSON 文件或 HTTP API 来源
+descriptor。它们都需要配合数据源引用使用，并且都不是数据源
+声明。
 
 ```python
 events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
@@ -1092,11 +1092,11 @@ md.inspect(warehouse, events).show()
 避免把认证错误或响应包装变化误判成空数据。
 
 最小 POST API 场景使用 `method="POST"`，并通过 `body=` 提供一个 JSON
-对象。`md.source_param(...)` 可以出现在对象或数组中的任意完整 JSON value
+对象。`md.source_param(...)` 可以出现在对象或数组中的任意完整 JSON 值
 位置。请求只会在结果表执行时发出。POST 要求 HTTP(S) URL 和
-`format="auto"`；自动分页、重试与增量采集不在这一契约内。datasource 中
-声明的 bearer 或自定义 header 只会在 `http_scope` 范围内发送，凭据不会进入
-source descriptor。
+`format="auto"`；自动分页、重试与增量采集不在这一契约内。数据源中
+声明的 bearer 或自定义请求头只会在 `http_scope` 范围内发送，凭据不会进入
+来源 descriptor。
 
 ```python
 changes = md.json(
@@ -1115,9 +1115,9 @@ changes = md.json(
 )
 ```
 
-`query_params` 把固定请求参数留在 source descriptor 中；`md.source_param(name)`
-声明一个必填、非 secret 的运行时值，并且只能占据完整的 query parameter value。
-Marivo 负责 URL 编码，不支持字符串片段模板。分析时通过 execution scope 绑定，
+`query_params` 把固定请求参数留在来源 descriptor 中；`md.source_param(name)`
+声明一个必填、非密钥的运行时值，并且只能占据完整的查询参数值。
+Marivo 负责 URL 编码，不支持字符串片段模板。分析时通过执行范围绑定，
 而不是给 `observe` 增加 API 专用参数：
 
 ```python
@@ -1130,64 +1130,64 @@ with session.source_bindings({
     frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
 
-binding 可以嵌套，并通过执行上下文隔离；它还会绑定到所属 Session runtime，
-同一任务里的另一个 Session 无法消费这些值。缺少或多余参数会在读取 source 前失败；
-这些非 secret 值会进入 snapshot 与 analysis identity。Datasource authoring evidence
+绑定可以嵌套，并通过执行上下文隔离；它还会绑定到所属会话运行时，
+同一任务里的另一个会话无法消费这些值。缺少或多余参数会在读取来源前失败；
+这些非密钥值会进入快照与分析身份。数据源编写证据
 使用相同映射：`inspection.sample(..., source_params={...})`。
 
-Inspection 是 metadata-only，并在 sampling 前报告 schema、physical extent、partition
-state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards 和明确 columns；
-`LIMIT` 不保证 bytes scanned。Snapshot projections 不查询 datasource，values 默认只在内存。
-对于 ClickHouse `Distributed` source，本地 `system.parts` 观察只会作为
-`scope=local_node_only` notes 展示；源表级 rows 与 bytes 保持 `unknown`，Marivo
-不会默认发起 cluster-wide fanout query。
-只有接受有界 value evidence 明文写入 project-local cache 时才使用 `persist_values=True`。
-Uncommon formats、keys、timezone、aggregation、unit、additivity、relationship cardinality
-和 business meaning 仍由智能体负责。
+检查是元数据-仅，并在 sampling 前报告结构、物理 extent、分区
+状态和 enforceable 能力。范围必须有正整数行/timeout guards 和明确列；
+`LIMIT` 不保证 bytes scanned。快照投影不查询数据源，值默认只在内存。
+对于 ClickHouse `Distributed` 来源，本地 `system.parts` 观察只会作为
+`scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
+不会默认发起 cluster-wide 扩散查询。
+只有接受有界值证据明文写入项目本地 cache 时才使用 `persist_values=True`。
+非常见格式、键、时区、聚合、单位、可加性、关系 cardinality
+和业务含义仍由智能体负责。
 
-Inspection card 会显示精确 source descriptor，以及真实 schema 的列名和类型。Partition
-card 会显示已捕获 value 的来源、完整性、截断状态、有界值和无需新查询即可使用的 scope
-模板。Snapshot card 会显示 scope、selected columns、coverage 与 value/cache state；
-每个 projection 都明确标记为 `data_access=none`。
+检查卡片会显示精确来源 descriptor，以及真实结构的列名和类型。分区
+卡片会显示已捕获值的来源、完整性、截断状态、有界值和无需新查询即可使用的范围
+模板。快照卡片会显示范围、selected 列、覆盖率与值/cache 状态；
+每个投影都明确标记为 `data_access=none`。
 
 连接测试以 `md.test(ref).show()` 为停止点。失败的 `DatasourceTestResult` 会公开结构化
-`.failure`、focused `.repair`，以及 `.contract()` 中被阻塞的
-`validate_connection` transition。Snapshot 的连接、source resolution、timeout 与
-execution 失败同样保持结构化，并明确 query 是否已经执行；backend message 会被有界化和
+`.failure`、专项 `.repair`，以及 `.contract()` 中被阻塞的
+`validate_connection` 转换。快照的连接、来源解析、timeout 与
+执行失败同样保持结构化，并明确查询是否已经执行；后端 message 会被有界化和
 脱敏。
 
-当 evidence 无法机械地决定业务口径时，
-`result.contract().judgment_requirements` 会提供冻结的判断要求，包括稳定 ID、subjects、
-evidence IDs 和 `authority="user_or_business_owner"`。它不会推荐值、创建 constructor
-transition 或记录审批。所有本地 projection 复用同一个 snapshot；只有缺少必需列或 value
-evidence、snapshot 已过期，或 datasource/source/scope identity 不匹配时才重新采样。
+当证据无法机械地决定业务口径时，
+`result.contract().judgment_requirements` 会提供冻结的判断要求，包括稳定 ID、主体、
+证据 IDs 和 `authority="user_or_business_owner"`。它不会推荐值、创建构造器
+转换或记录审批。所有本地投影复用同一个快照；只有缺少必需列或值
+证据、快照已过期，或数据源/来源/范围身份不匹配时才重新采样。
 
-Focused constructor help 会把调用明确标为其 loader path 内的 declaration fragment。
-加载后使用生成的 catalog handoff：`catalog = ms.load()`、
+专项构造器帮助会把调用明确标为其 loader 路径内的声明 fragment。
+加载后使用生成的目录交接：`catalog = ms.load()`、
 `entry = catalog.<collection>.get(...)`、`entry.show()` 和
 `entry.contract().show()`。
 
-写完一个 Python declaration 后，重新加载当前 catalog entry，依次运行
+写完一个 Python 声明后，重新加载当前目录条目，依次运行
 `catalog.verify(entry)`、`catalog.preview(entry, using=snapshot)` 和零查询
 `catalog.readiness(refs=[entry])`。只有持久化、日志或配置需要精确身份时才使用
 `entry.ref`。
 
-当 readiness 报告多个 runtime preview 缺失时，仍通过同一个入口修复：
+当就绪检查报告多个运行时预览缺失时，仍通过同一个入口修复：
 `catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`。
-它会合并兼容查询，但仍为每个 ref 保留独立 evidence；这不是 batch authoring 捷径。
+它会合并兼容查询，但仍为每个引用保留独立证据；这不是批量编写捷径。
 
-## Event 与 Lifecycle 建模
+## 事件与生命周期建模
 
 大多数项目只需要前面的指标建模路径。只有问题依赖有序业务事件、漏斗、耗时或状态回放时，
-再增加 Event 与 StateModel。
+再增加事件与 StateModel。
 
 ### 对可复用事件建模
 
-Event 为一次业务发生声明可复用的 identity、occurred time 和具名 participant roles。
-source Entity 由 `owner(occurred_at)` 推导，因此 Event 定义不重复接收 `entity` 参数。
-所有 Event 都使用唯一入口 `@ms.event(...)`。
+事件为一次业务发生声明可复用的身份、occurred 时间和具名参与者角色。
+来源实体由 `owner(occurred_at)` 推导，因此事件定义不重复接收 `entity` 参数。
+所有事件都使用唯一入口 `@ms.event(...)`。
 
-如果一个 Entity 的每一行都代表一次订单创建，那么该 Event 不需要额外行过滤，但仍要显式
+如果一个实体的每一行都代表一次订单创建，那么该事件不需要额外行过滤，但仍要显式
 返回 `ms.all_rows()`：
 
 ```python
@@ -1212,20 +1212,20 @@ def order_created(order_rows):
     return ms.all_rows()
 ```
 
-共享事件日志 Entity 上的过滤 Event 则返回受限布尔表达式，例如
+共享事件日志实体上的过滤事件则返回受限布尔表达式，例如
 `ms.bind(event_type, event_rows) == "payment_succeeded"`。不要使用无函数体
-constructor、裸 `True` 或另一套 filtered-Event API。
+构造器、裸 `True` 或另一套 filtered-事件 API。
 
-`ms.participant_role(event=order_created, name="order")` 会解析出 Event analysis
-使用的 typed role。省略 `path` 表示 Event source Entity 自己就是 participant；
-非空 path 则沿着已经声明的 Relationship 到达另一个 Entity。作为 analysis subject
-的 role 必须使用 `cardinality="one"`。其 endpoint Entity 已声明的 primary key
-就是 subject identity，调用方不再重复提供。
+`ms.participant_role(event=order_created, name="order")` 会解析出事件分析
+使用的类型化角色。省略 `path` 表示事件来源实体自己就是参与者；
+非空路径则沿着已经声明的关系到达另一个实体。作为分析主体
+的角色必须使用 `cardinality="one"`。其 endpoint 实体已声明的主键
+就是主体身份，调用方不再重复提供。
 
 ### 对规范生命周期建模
 
-StateModel 为一个 subject Entity 声明允许出现的状态及 Event 驱动的转换。它只描述
-业务规范含义。replay window、seed、完整性假设、cohort 和 observed violation
+StateModel 为一个主体实体声明允许出现的状态及事件驱动的转换。它只描述
+业务规范含义。重放窗口、seed、完整性假设、队列和已观测违规
 属于分析层，不进入 StateModel。
 
 例如，假设订单源还提供支付时间与订单状态：
@@ -1278,14 +1278,14 @@ order_lifecycle = ms.state_model(
 )
 ```
 
-状态名是 StateModel 内部的 immutable authoring value。必须恰好有一个 initial
-state；terminal state 不得再有 outgoing transition。只有当某个 Event 恰好有一个
-`cardinality="one"` participant 到达 StateModel subject 时，才会自动推导 trigger
-role。如果多个 role 都符合条件，应传入精确的 `ms.participant_role(...)` handle，
-而不是分别重复 Event 和 role 字段。
+状态名是 StateModel 内部的 immutable 编写值。必须恰好有一个 initial
+状态；terminal 状态不得再有 outgoing 转换。只有当某个事件恰好有一个
+`cardinality="one"` 参与者到达 StateModel 主体时，才会自动推导触发
+角色。如果多个角色都符合条件，应传入精确的 `ms.participant_role(...)` handle，
+而不是分别重复事件和角色字段。
 
 加载后，通过 `ms.model_state(model=order_lifecycle, name="paid")` 构造分析层接收的
-typed state identity。为将来的 projection seed 而定义的 StateModel 可以没有
-inception，但这种模型不能从 inception 开始 replay。当前 constructor contract 以
+类型化状态身份。为将来的投影 seed 而定义的 StateModel 可以没有
+起始，但这种模型不能从起始开始重放。当前构造器契约以
 `marivo.help("semantic.state_model")` 为准；当前对象可执行的
-`verify`/`preview`/`readiness` continuation 以 catalog entry 为准。
+`verify`/`preview`/`readiness` 后续路径以目录条目为准。
