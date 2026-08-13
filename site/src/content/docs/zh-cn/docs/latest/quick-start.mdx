@@ -13,12 +13,12 @@ description: 复用已有语义层项目，或让智能体为新项目起草第�
 1. 克隆项目并安装项目依赖；
 2. 在本地配置数据源使用的环境变量；
 3. 让智能体检查项目配置，以及现有语义对象是否适用于当前分析；
-4. catalog 能加载且没有 semantic gap 时，直接进入[第一次分析](/zh-cn/docs/latest/first-analysis/)。
+4. 目录能加载且没有语义缺口时，直接进入[第一次分析](/zh-cn/docs/latest/first-analysis/)。
 
 > 使用项目现有的 Marivo 语义层，检查它是否已经能够支持已完成订单收入分析。
 > 告诉我缺少的配置、语义对象或需要重新确认的业务口径；如果没有阻塞项，不要重建已有定义。
 
-只有缺少必要对象、业务负责人要求修改口径，或者 authored change 需要 fresh certification 时，
+只有缺少必要对象、业务负责人要求修改口径，或者已编写的变更需要重新认证时，
 才使用 `marivo-semantic`。
 
 ## 新项目
@@ -128,7 +128,7 @@ revenue = ms.aggregate(
 - 指标的定义、范围、排除规则、时间轴、单位和拆分维度符合业务需要；
 - `ai_context` 中的业务定义和 `guardrails` 清楚表达了限制；
 - 负责人已经确认口径；
-- 智能体报告新模型的 scoped authoring certification 没有阻塞项。
+- 智能体报告新模型的限定范围的编写认证没有阻塞项。
 
-readiness 用于认证刚刚完成 authoring 的模型，不代表业务口径已经获批，也不需要在每次分析前
+就绪检查用于认证刚刚完成编写的模型，不代表业务口径已经获批，也不需要在每次分析前
 重跑。确认后继续[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)。

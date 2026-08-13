@@ -4,67 +4,67 @@ title: Marivo 0.2.2
 description: Marivo 0.2.2 发布说明。
 ---
 
-Marivo 0.2.2 是 v0.2 系列的 patch release。这个版本完成了 v0.2 系列中面向
-agent 的 datasource、semantic 与 analysis surface 清理，增加更丰富的
-datasource discovery evidence，收紧 semantic authoring contract，并让 analysis
-结果通过明确的 artifact 和 display contract 交付。
+Marivo 0.2.2 是 v0.2 系列的补丁版本发布。这个版本完成了 v0.2 系列中面向
+智能体的数据源、语义与分析接口清理，增加更丰富的
+数据源发现证据，收紧语义编写契约，并让分析
+结果通过明确的产物和展示契约交付。
 
 ## 重点
 
-- 增加 public datasource discovery surface，覆盖 table、column、dimension、
-  measure、time 与 relationship evidence，并提供 `md.raw_sql(...)` 用于诊断。
-- 围绕 explicit refs 和更清晰的 help output 收紧 semantic authoring，让 agent
-  只沿着一条 discovery-to-authoring 路径工作，不再混用 prepare-era API。
-- 围绕 artifact contracts、`show(...)` 与 compact frame summaries 统一
-  analysis result display。
-- 将 `derive_metric_frame(...)` 重新定位为 metadata-attachment helper，并保留
-  unbound columns 供后续 analysis 使用。
-- 用更小的 real-project examples 和 workflow-only guidance 更新打包的 Marivo
-  semantic 与 analysis skills。
+- 增加公共数据源发现接口，覆盖表、列、维度、
+  度量、时间与关系证据，并提供 `md.raw_sql(...)` 用于诊断。
+- 围绕显式引用和更清晰的帮助输出收紧语义编写，让智能体
+  只沿着一条发现-to-编写路径工作，不再混用 prepare 时代 API。
+- 围绕产物契约、`show(...)` 与 compact frame summaries 统一
+  分析结果展示。
+- 将 `derive_metric_frame(...)` 重新定位为元数据-attachment 辅助函数，并保留
+  unbound 列供后续分析使用。
+- 用更小的真实项目示例和流程-仅指引更新打包的 Marivo
+  语义与分析技能。
 
 ## 变更
 
-- Datasource connections 现在可以作为 context managers 使用。
-- Datasource metadata 与 scanning 会收集更丰富的 profile、join-key、partition
-  和 warning evidence。
-- Semantic catalog browsing、help text、readiness reports 与 richness checks
-  现在暴露更窄的 agent-facing contract。
-- Analysis frames 现在携带 content hashes 和 explicit display protocols，便于稳定
-  artifact handoff。
-- 本地质量工具链现在通过 repository entrypoints 与统一的 pre-commit 配置执行。
+- 数据源连接现在可以作为上下文 managers 使用。
+- 数据源元数据与 scanning 会收集更丰富的 profile、连接-键、分区
+  和警告证据。
+- 语义目录浏览、帮助 text、就绪检查报告与 richness 检查
+  现在暴露更窄的面向智能体契约。
+- 分析 frames 现在携带内容 hashes 和显式展示 protocols，便于稳定
+  产物交接。
+- 本地质量工具链现在通过仓库入口与统一的 pre-commit 配置执行。
 
 ## 修复
 
-- `md.raw_sql(...)` 不再要求 Trino 为 SELECT diagnostics 开启 read-only
+- `md.raw_sql(...)` 不再要求 Trino 为 SELECT 诊断开启只读
   transaction。
-- Datasource raw SQL diagnostics 现在会可靠地执行 read-only 检查并释放
-  inspection handles。
-- Discovery output 在请求时可以返回完整 evidence payload。
-- Trino comment metadata warnings 与硬 metadata errors 现在会清晰分离。
-- Catalog browse hints、unreadable measure-column classification、percentile
-  aggregation help 与 quantile folding 更清晰。
-- Empty observe dimension selections 现在可以被接受。
-- Artifact contract output 使用修正后的 schema field name。
-- Typed semantic refs 现在会在 verification 和 hour-prefix helpers 中一致要求。
+- 数据源原始 SQL 诊断现在会可靠地执行只读检查并释放
+  检查 handles。
+- 发现结果在请求时可以返回完整证据负载。
+- Trino comment 元数据警告与硬元数据错误现在会清晰分离。
+- 目录 browse hints、unreadable 度量-列 classification、分位数
+  聚合帮助与分位数 folding 更清晰。
+- Empty observe 维度 selections 现在可以被接受。
+- 产物契约输出使用修正后的结构字段名称。
+- 类型化语义引用现在会在验证和 hour-prefix 辅助函数中一致要求。
 
 ## 文档
 
-- 刷新 `latest` 与 `v0.2` 的 quick start、semantic-layer、analysis workflow、
-  readiness 与 evidence 页面，以匹配新的 discovery 和 analysis contracts。
-- 增加 datasource discovery、semantic skill layering、frame result
-  simplification 与 analysis guidance layering 的设计说明。
-- 围绕小型可运行 real-project fixtures 重写打包 skill examples。
+- 刷新 `latest` 与 `v0.2` 的快速开始、语义层、分析流程、
+  就绪检查与证据页面，以匹配新的发现和分析契约。
+- 增加数据源发现、语义技能 layering、frame 结果
+  simplification 与分析指引 layering 的设计说明。
+- 围绕小型可运行真实项目 fixtures 重写打包技能示例。
 
 ## 破坏性变更
 
-- Semantic prepare authoring stage 与 legacy prepare-oriented public APIs 已从
-  agent-facing surface 移除。
-- Semantic authoring 与 verification 现在要求 typed refs，不再接受 bare string
+- 语义 prepare 编写 stage 与旧版 prepare-oriented 公共 API 已从
+  面向智能体接口移除。
+- 语义编写与验证现在要求类型化引用，不再接受裸字符串
   locators。
-- Concrete datasource discovery result types 现在隐藏在 public discovery helpers
+- Concrete 数据源发现结果 types 现在隐藏在公共发现辅助函数
   之后。
-- Analysis frame/result exits 简化为围绕 `show(...)`、artifact contracts 与当前
-  core operators 工作；旧的 result-summary paths 已移除或重命名。
+- 分析 frame/结果 exits 简化为围绕 `show(...)`、产物契约与当前
+  core 操作工作；旧的结果-摘要路径已移除或重命名。
 
 ## 安装
 
@@ -72,7 +72,7 @@ datasource discovery evidence，收紧 semantic authoring contract，并让 anal
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

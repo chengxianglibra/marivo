@@ -4,30 +4,30 @@ title: Marivo 0.2.6
 description: Marivo 0.2.6 发布说明。
 ---
 
-Marivo 0.2.6 是 v0.2 系列的 patch release，聚焦 Trino 和 MySQL 上由字符串支撑的
-time dimensions。作者仍然编写 Python `strptime` 格式，Marivo 会在 SQL emission 阶段
-翻译 backend-specific date parsing tokens。
+Marivo 0.2.6 是 v0.2 系列的补丁版本发布，聚焦 Trino 和 MySQL 上由字符串支撑的
+时间维度。作者仍然编写 Python `strptime` 格式，Marivo 会在 SQL emission 阶段
+翻译后端特定日期解析令牌。
 
 ## 重点
 
-- Trino 和 MySQL analysis paths 现在会在解析 string time dimensions 时，把 Python
-  `strptime` 格式翻译为 MySQL-compatible date parsing formats。
+- Trino 和 MySQL 分析路径现在会在解析字符串时间维度时，把 Python
+  `strptime` 格式翻译为 MySQL-compatible 日期解析格式。
 - Python `%M` 在 Trino/MySQL 上现在会保持作者期望的 minute 语义，并翻译为 MySQL `%i`；
   `%S` 也会翻译为 MySQL `%s`。
-- `%Y-%m-%d %H:%M:%S` 这类常见 timestamp formats 现在可以在 DuckDB、Trino、MySQL 和
-  Postgres-backed analysis paths 中保持一致。
+- `%Y-%m-%d %H:%M:%S` 这类常见时间戳格式现在可以在 DuckDB、Trino、MySQL 和
+  Postgres-backed 分析路径中保持一致。
 
 ## 修复
 
-- 修复使用 Python `%M` 编写 minute-granularity string time dimensions 时，Trino
+- 修复使用 Python `%M` 编写 minute-granularity 字符串时间维度时，Trino
   `date_parse` 和 MySQL `STR_TO_DATE` SQL 会 malformed 的问题。
-- MySQL-family backends 上不支持或含义分歧的 Python directives 现在会产生清晰的
-  analysis error，而不是静默生成语义不同的 SQL。
+- MySQL-家族后端上不支持或含义分歧的 Python directives 现在会产生清晰的
+  分析错误，而不是静默生成语义不同的 SQL。
 
 ## 文档
 
-- 更新 semantic-layer time-field format design 和 docs，说明 Python `strptime` formats 的
-  backend translation boundary。
+- 更新语义层时间-字段格式设计和文档，说明 Python `strptime` 格式的
+  后端 translation 边界。
 
 ## 安装
 
@@ -35,7 +35,7 @@ time dimensions。作者仍然编写 Python `strptime` 格式，Marivo 会在 SQ
 pip install marivo
 ```
 
-按 datasource 选择对应 backend extra：
+按数据源选择对应后端扩展：
 
 ```bash
 pip install "marivo[duckdb]"

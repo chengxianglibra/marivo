@@ -4,59 +4,59 @@ title: Marivo 0.4.0
 description: Marivo 0.4.0 发布说明。
 ---
 
-Marivo 0.4.0 加入一等的事件与生命周期分析能力，为智能体提供统一的公共 help 入口，并强化
-semantic authoring、执行、evidence 与修复之间的契约。
+Marivo 0.4.0 加入一等的事件与生命周期分析能力，为智能体提供统一的公共帮助入口，并强化
+语义编写、执行、证据与修复之间的契约。
 
 ## 重点
 
-- Event 与 lifecycle state model 成为一等语义对象。作者可以定义类型化 participant、事件
-  时间戳、生命周期状态、transition、inception rule 与 validity constraint，并通过 semantic
-  catalog 加载和检查。
-- Analysis 新增类型化 subject 与 cohort、事件 occurrence matching、sequence、funnel、
-  time-to-event、lifecycle replay、dwell 与 transition 分析、violation 检测、funnel
-  comparison 和 funnel-loss attribution。
-- Event 与 lifecycle 结果携带显式的 completeness、subject、time 和 semantic-input
-  evidence。质量检查覆盖事件身份、participant coverage、顺序、生命周期 transition、
-  censoring 与 replay continuity。
-- `marivo.help(...)` 成为跨 datasource、semantic 与 analysis 的唯一公共 help 协调入口。
-  Focused topic、live object briefing、result contract 与类型化错误会引导智能体进入机械上有效
+- 事件与生命周期状态模型成为一等语义对象。作者可以定义类型化参与者、事件
+  时间戳、生命周期状态、转换、起始 rule 与有效性约束，并通过语义
+  目录加载和检查。
+- 分析新增类型化主体与队列、事件发生项匹配、sequence、漏斗、
+  事件耗时、生命周期重放、dwell 与转换分析、违规检测、漏斗
+  比较和漏斗-loss 归因。
+- 事件与生命周期结果携带显式的完整性、主体、时间和语义输入
+  证据。质量检查覆盖事件身份、参与者覆盖率、顺序、生命周期转换、
+  censoring 与重放 continuity。
+- `marivo.help(...)` 成为跨数据源、语义与分析的唯一公共帮助协调入口。
+  专项主题、实时对象 briefing、结果契约与类型化错误会引导智能体进入机械上有效
   的下一步。
-- Telemetry 输出按天写入有界分段文件，并按时间与总大小清理历史文件。
+- 遥测输出按天写入有界分段文件，并按时间与总大小清理历史文件。
 
 ## 破坏性变更
 
 - 请使用 `marivo.help()` 以及 `marivo.help("semantic.event")`、
-  `marivo.help("analysis.events")` 等 qualified topic。原有 `md.help`、`ms.help`、
+  `marivo.help("analysis.events")` 等 qualified 主题。原有 `md.help`、`ms.help`、
   `mv.help` 和 `help_text` 不再是公共入口。
-- Event 与 lifecycle 操作要求精确的类型化语义引用、显式 subject axis；当有界观测无法证明
-  完整性时，还必须提供显式 completeness declaration。裸名称与静默推断会被拒绝。
-- Public frame 与 result contract 改用封闭的、按 kind 区分的 semantic input 和 evidence
-  形状。依赖 internal 或 generic payload field 的代码需要迁移到文档化的 frame、
-  `.show()`、`.contract()` 与 evidence API。
+- 事件与生命周期操作要求精确的类型化语义引用、显式主体轴；当有界观测无法证明
+  完整性时，还必须提供显式完整性声明。裸名称与静默推断会被拒绝。
+- 公共 frame 与结果契约改用封闭的、按类型区分的语义输入和证据
+  形状。依赖 internal 或通用负载字段的代码需要迁移到文档化的 frame、
+  `.show()`、`.contract()` 与证据 API。
 
 ## 变更
 
-- Semantic authoring help 现在负责 constructor constraint，并为无效或不完整声明提供基于
-  evidence 的修复指引。
-- Analysis planning 在各类 operator 之间更一致地保留 metric value column、跨 entity grain
-  requirement、subject axis、time scope 与 evidence continuity。
-- Public frame representation、summary、quality report 与 error 更加有界和确定，并提供更清晰
-  的 continuation hint。
+- 语义编写帮助现在负责构造器约束，并为无效或不完整声明提供基于
+  证据的修复指引。
+- 分析规划在各类操作之间更一致地保留指标值列、跨实体粒度
+  requirement、主体轴、时间范围与证据 continuity。
+- 公共 frame representation、摘要、质量报告与错误更加有界和确定，并提供更清晰
+  的后续路径 hint。
 
 ## 修复
 
-- Cross-entity observation 现在会说明所需的 grain repair，不再要求智能体猜测缺失的 join 或
+- 跨实体观测现在会说明所需的粒度修复建议，不再要求智能体猜测缺失的连接或
   grouping。
-- Help example、live contract、public export 与打包的 agent skill 会联动检查，减少已安装
-  runtime 与 guidance 之间的漂移。
-- 本地 telemetry 不再无限写入单个 `events.jsonl` 文件。
+- 帮助 example、实时契约、公共导出与打包的智能体技能会联动检查，减少已安装
+  运行时与指引之间的漂移。
+- 本地遥测不再无限写入单个 `events.jsonl` 文件。
 
 ## 文档
 
-- 新增和更新中英文统一 help 入口、event 与 lifecycle semantic authoring、analysis
-  workflow、evidence 和 readiness 指南。
-- 新增 event journey、lifecycle replay、ontology extension 与 agent-facing public surface
-  的设计和实现 specification。
+- 新增和更新中英文统一帮助入口、事件与生命周期语义编写、分析
+  流程、证据和就绪检查指南。
+- 新增事件路径、生命周期重放、本体 extension 与面向智能体公共接口
+  的设计和实现规范。
 - 创建隔离的双语 `v0.4` 文档快照。
 
 ## 安装
@@ -65,13 +65,13 @@ semantic authoring、执行、evidence 与修复之间的契约。
 pip install marivo
 ```
 
-请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.0 要求 Python 3.12 或更高版本。
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.0 要求 Python 3.12 或更高版本。
 
 ## 文档链接
 
 - [安装 Marivo](/zh-cn/docs/latest/installation/)
 - [快速开始](/zh-cn/docs/latest/quick-start/)
-- [Semantic Layer](/zh-cn/docs/latest/concepts/semantic-layer/)
-- [Readiness](/zh-cn/docs/latest/concepts/readiness/)
-- [Analysis Workflow](/zh-cn/docs/latest/concepts/analysis-workflow/)
-- [Evidence](/zh-cn/docs/latest/concepts/evidence/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)

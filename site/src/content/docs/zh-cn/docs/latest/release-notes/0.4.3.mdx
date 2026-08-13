@@ -4,51 +4,51 @@ title: Marivo 0.4.3
 description: Marivo 0.4.3 发布说明。
 ---
 
-Marivo 0.4.3 让固定 schema 的 semantic model 可以连接参数化 JSON API，为 event
-elapsed-time analysis 加入受治理的 cohort axis，并让面向 agent 的 analysis failure
+Marivo 0.4.3 让固定结构的语义模型可以连接参数化 JSON API，为事件
+耗时分析加入受治理的队列轴，并让面向智能体的分析失败
 提供更可执行的修复路径。
 
 ## 重点
 
-- `md.json(...)` 现在支持从嵌套响应中选取 record array、固定与运行时绑定的 query
-  parameter、JSON `POST` body，以及用 `md.source_param(...)` 声明的参数值。Physical
-  schema 仍须显式定义，并在 semantic loading 前完成校验。
-- `Session.source_bindings(...)` 在一次动态 analysis scope 内提供必需的非敏感 API 参数，
-  无需改变 `observe(...)` 等 operator 的签名。Inspection 也可以通过
+- `md.json(...)` 现在支持从嵌套响应中选取记录数组、固定与运行时绑定的查询
+  参数、JSON `POST` 请求体，以及用 `md.source_param(...)` 声明的参数值。物理
+  结构仍须显式定义，并在语义加载前完成校验。
+- `Session.source_bindings(...)` 在一次动态分析范围内提供必需的非敏感 API 参数，
+  无需改变 `observe(...)` 等操作的签名。检查也可以通过
   `inspection.sample(..., source_params=...)` 显式提供同一组参数。
-- DuckDB connection 只会在声明的 `http_scope` 内附加来自环境变量的 bearer token 或
-  custom header，使凭证留在 project metadata 之外，并避免发送到无关 URL。
-- `session.events.time_to_event(...)` 支持受治理的 subject `axes`，elapsed-time result
-  可以保留确定性的 cohort-entry dimension，并同步进入 lineage、quality check 和持久化的
-  analysis scope。
+- DuckDB 连接只会在声明的 `http_scope` 内附加来自环境变量的 Bearer 令牌或
+  自定义请求头，使凭证留在项目元数据之外，并避免发送到无关 URL。
+- `session.events.time_to_event(...)` 支持受治理的主体 `axes`，耗时结果
+  可以保留确定性的队列进入维度，并同步进入血缘、质量检查和持久化的
+  分析范围。
 
 ## 变更
 
-- JSON API acquisition 支持带 query string 的 `GET` 与 JSON object `POST`，同时保持
-  datasource inspection 和 analysis execution 的惰性边界。参数缺失或多余、wrapped-record
-  path 无效、request shape 不支持时，都会通过类型化 guidance fail closed。
-- Analysis help 现在会为所有在 runtime 强制单 metric 输入的 MetricFrame operator 一致地
+- JSON API 获取支持带查询字符串的 `GET` 与 JSON 对象 `POST`，同时保持
+  数据源检查和分析执行的惰性边界。参数缺失或多余、包装记录
+  路径无效、请求形状不支持时，都会通过类型化指引失败即停止。
+- 分析帮助现在会为所有在运行时强制单指标输入的 MetricFrame 操作一致地
   声明该约束。
-- Evidence digest 与 store failure 现在包含类型化 repair action 和规范 help target，使
-  blocking issue 能指向有效的下一步。
-- Project README 与 documentation site 更新了双语导航、产品定位和 Marivo 品牌素材。
+- 证据摘要与存储失败现在包含类型化修复建议操作和规范帮助目标，使
+  阻塞问题能指向有效的下一步。
+- 项目 README 与文档站点更新了双语导航、产品定位和 Marivo 品牌素材。
 
 ## 修复
 
-- Derived-metric component comparison 与 attribution 在 temporal join 遇到 `NaT` 时不再
-  crash；无法匹配的行会被丢弃，无法形成完整 decomposition 时返回类型化的
+- 派生指标组件比较与归因在时间连接遇到 `NaT` 时不再
+  崩溃；无法匹配的行会被丢弃，无法形成完整分解时返回类型化的
   `ComponentDecompositionError`。
-- `time_to_event` 会拒绝与 journey 或 result 保留列冲突的 governed axis，并在持久化
-  metadata 中校验 axis 唯一性。
-- Metric selection 的 evidence repair 现在解析到公开的 `MetricFrame.metric` help surface，
-  不再指向无效的内部 target。
+- `time_to_event` 会拒绝与路径或结果保留列冲突的受治理的轴，并在持久化
+  元数据中校验轴唯一性。
+- 指标选择的证据修复建议现在解析到公开的 `MetricFrame.metric` 帮助接口，
+  不再指向无效的内部目标。
 
 ## 文档
 
-- 扩展 semantic-layer guide 与 datasource specification，补充 wrapped JSON、参数化 request、
-  scoped authentication、inspection 和 analysis 的完整示例。
-- 进一步说明 retrieval-oriented knowledge base 可以补充，但不能替代可执行的 semantic
-  contract。
+- 扩展语义层指南与数据源规范，补充 wrapped JSON、参数化请求、
+  限定范围的身份验证、检查和分析的完整示例。
+- 进一步说明检索导向的知识库可以补充，但不能替代可执行的语义
+  契约。
 
 ## 安装
 
@@ -56,13 +56,13 @@ elapsed-time analysis 加入受治理的 cohort axis，并让面向 agent 的 an
 pip install marivo
 ```
 
-请为计划使用的 datasource 安装对应 backend extra。Marivo 0.4.3 要求 Python 3.12 或更高版本。
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.3 要求 Python 3.12 或更高版本。
 
 ## 文档链接
 
 - [安装 Marivo](/zh-cn/docs/latest/installation/)
 - [快速开始](/zh-cn/docs/latest/quick-start/)
-- [Semantic Layer](/zh-cn/docs/latest/concepts/semantic-layer/)
-- [Readiness](/zh-cn/docs/latest/concepts/readiness/)
-- [Analysis Workflow](/zh-cn/docs/latest/concepts/analysis-workflow/)
-- [Evidence](/zh-cn/docs/latest/concepts/evidence/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)

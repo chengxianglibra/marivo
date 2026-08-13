@@ -1,7 +1,7 @@
 ---
 slug: zh-cn/docs/v0.3/installation
 title: 安装
-description: 安装 Marivo，并为你的 datasource 选择对应的 backend extra。
+description: 安装 Marivo，并为你的数据源选择对应的后端扩展。
 ---
 
 Marivo 需要 Python 3.12 或更高版本。
@@ -12,47 +12,47 @@ Marivo 需要 Python 3.12 或更高版本。
 pip install marivo
 ```
 
-根据要连接的 datasource 安装 backend extra：
+根据要连接的数据源安装后端扩展：
 
-| Backend | 安装命令 |
+| 后端 | 安装命令 |
 | --- | --- |
 | DuckDB | `pip install "marivo[duckdb]"` |
 | MySQL | `pip install "marivo[mysql]"` |
 | Postgres | `pip install "marivo[postgres]"` |
 | ClickHouse | `pip install "marivo[clickhouse]"` |
 | Trino | `pip install "marivo[trino]"` |
-| 所有已打包的 backends | `pip install "marivo[all]"` |
+| 所有已打包的后端 | `pip install "marivo[all]"` |
 
-## 初始化一个 project
+## 初始化一个项目
 
-用 CLI 在当前目录中初始化一个新 project：
+用 CLI 在当前目录中初始化一个新项目：
 
 ```bash
 marivo --version
 marivo init
 ```
 
-`marivo init` 会创建 project 骨架，并安装 Marivo 的 agent skills：
+`marivo init` 会创建项目骨架，并安装 Marivo 的智能体技能：
 
 | 路径 | 用途 |
 | --- | --- |
-| `marivo.toml` | Project manifest。project 名默认使用目录名；本地 telemetry 默认 `enabled = "on"`。 |
-| `models/` | 编写 datasource 与 semantic declarations 的位置。 |
-| `.marivo/` | Project 本地状态：sessions、evidence 以及缓存的 metadata。 |
-| `.agents/skills/marivo-semantic`、`.agents/skills/marivo-analysis` | 面向读取 `.agents/skills` 的 agents 的通用 Marivo skill 入口。 |
-| `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude Code 的 Marivo skills（以符号链接接入 project）。 |
-| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的兼容 skill 入口。 |
+| `marivo.toml` | 项目 manifest。项目名默认使用目录名；本地遥测默认 `enabled = "on"`。 |
+| `models/` | 编写数据源与语义声明的位置。 |
+| `.marivo/` | 项目本地状态：会话、证据以及缓存的元数据。 |
+| `.agents/skills/marivo-semantic`、`.agents/skills/marivo-analysis` | 面向读取 `.agents/skills` 的智能体的通用 Marivo 技能入口。 |
+| `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude 代码的 Marivo 技能（以符号链接接入项目）。 |
+| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的兼容技能入口。 |
 
 `init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过。因此可以安全地重复运行，例如在
-升级到附带新版 skills 的 Marivo 之后。重复运行只会补齐缺失的部分。使用 `marivo init --force`
+升级到附带新版技能的 Marivo 之后。重复运行只会补齐缺失的部分。使用 `marivo init --force`
 可删除上述工件并从头重建。
 
 :::note
 当 `marivo.toml` 含有非法 TOML 时，`init` 拒绝静默跳过 —— 请修复或删除它，或传入 `--force`。
-Skill 链接是尽力而为的：如果你的平台无法创建符号链接，`init` 会打印警告并继续。
+技能链接是尽力而为的：如果你的平台无法创建符号链接，`init` 会打印警告并继续。
 :::
 
-初始化完成后，会得到一个可以直接开始编写的 project：
+初始化完成后，会得到一个可以直接开始编写的项目：
 
 ```text
 your-project/
@@ -64,7 +64,7 @@ your-project/
   .codex/skills/    # marivo-semantic, marivo-analysis
 ```
 
-如果语义层对象由其他仓库维护，可以把这些仓库中的 authored `models/` 目录加入
+如果语义层对象由其他仓库维护，可以把这些仓库中的已编写 `models/` 目录加入
 `marivo.toml`：
 
 ```toml
@@ -75,50 +75,50 @@ layer_paths = [
 ]
 ```
 
-当前 project 的 `models/` 会始终优先加载。相对路径按 `marivo.toml` 所在目录解析；
-绝对路径按原样使用。每个外部 `models/` root 都必须同时包含 `datasources/` 与
-`semantic/`。所有 root 中的 datasource 名称、domain 名称与 semantic ID 必须全局唯一；
-出现重复将导致加载失败。`marivo doctor`、semantic preview、对象验证与 analysis
-session 在解析 semantic object 时会使用这些配置层中的 datasources。
+当前项目的 `models/` 会始终优先加载。相对路径按 `marivo.toml` 所在目录解析；
+绝对路径按原样使用。每个外部 `models/` 根都必须同时包含 `datasources/` 与
+`semantic/`。所有根中的数据源名称、领域名称与语义 ID 必须全局唯一；
+出现重复将导致加载失败。`marivo doctor`、语义预览、对象验证与分析
+会话在解析语义对象时会使用这些配置层中的数据源。
 
 把 `.marivo/` 加入 `.gitignore`；对 `marivo.toml` 和 `models/` 做版本控制（参见
-[快速开始](/zh-cn/docs/v0.3/quick-start/#用-git-管理-project)）。
+[快速开始](/zh-cn/docs/v0.3/quick-start/#用-git-管理项目)）。
 
-## 本地使用 telemetry
+## 本地使用遥测
 
-Marivo 会在 project state 目录下写入 OpenTelemetry 形态的本地 JSONL 使用事件：
+Marivo 会在项目状态目录下写入 OpenTelemetry 形态的本地 JSONL 使用事件：
 
 ```text
 .marivo/telemetry/events.jsonl
 ```
 
-Telemetry 只保存在本地：Marivo 不会上传这些事件。事件覆盖 `marivo init`、analysis intents、
-discover/transform helpers，以及 escape-hatch promotions。记录只包含低基数字段，例如 event name、
-intent family、status、duration、error class 和 analysis session id。它不会包含 SQL 文本、
-datasource hosts、credentials、metric ids、dimension ids、session names、session questions
-或 frame data。
+遥测只保存在本地：Marivo 不会上传这些事件。事件覆盖 `marivo init`、分析意图、
+discover/变换辅助函数，以及 escape-hatch promotions。记录只包含低基数字段，例如事件名称、
+意图家族、状态、duration、错误 class 和分析会话 id。它不会包含 SQL 文本、
+数据源 hosts、credentials、指标 ids、维度 ids、会话名称、会话问题
+或 frame 数据。
 
-可以通过环境变量在当前进程中关闭本地 telemetry：
+可以通过环境变量在当前进程中关闭本地遥测：
 
 ```bash
 MARIVO_TELEMETRY=off marivo init
 ```
 
-也可以在 `marivo.toml` 中配置 project 默认值：
+也可以在 `marivo.toml` 中配置项目默认值：
 
 ```toml
 [telemetry]
 enabled = "off" # "on" 或 "off"
 ```
 
-`MARIVO_TELEMETRY=on|off` 会覆盖当前进程中的 project 配置。如果两者都没有设置，
-本地 telemetry 默认使用 `"on"`。
+`MARIVO_TELEMETRY=on|off` 会覆盖当前进程中的项目配置。如果两者都没有设置，
+本地遥测默认使用 `"on"`。
 
 ## 部署与开发
 
-Marivo 是 Python library，不是托管服务。部署 Marivo project 时，需要在 agent 的运行环境中安装
-library，提交 datasource 和 semantic declarations，并通过 `*_env` 字段引用环境变量来提供
-datasource secrets。
+Marivo 是 Python 库，不是托管服务。部署 Marivo 项目时，需要在智能体的运行环境中安装
+库，提交数据源和语义声明，并通过 `*_env` 字段引用环境变量来提供
+数据源密钥。
 
 从当前仓库进行本地开发：
 

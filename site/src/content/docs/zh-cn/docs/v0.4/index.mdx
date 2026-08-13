@@ -40,27 +40,27 @@ Marivo 是面向 AI 智能体的 Python Harness。它让你和智能体沿着一
 ## 分析过程中的四项保障
 
 <CardGrid>
-  <Card title="Semantic Layer" icon="seti:data">
+  <Card title="语义层" icon="seti:data">
     Python 声明会保存数据源绑定、经过确认的业务含义、使用约束，以及指标和维度的引用。
   </Card>
-  <Card title="Typed Analysis DSL" icon="seti:python">
+  <Card title="类型化分析 DSL" icon="seti:python">
     类型化算子接收语义目录中的引用并返回明确的框架对象，不会把分析步骤隐藏在无法检查的
     答案中。
   </Card>
-  <Card title="Analysis Session" icon="seti:folder">
+  <Card title="分析会话" icon="seti:folder">
     项目本地的会话会把一次调查的问题、框架对象、工件和调查记录保存在一起。
   </Card>
-  <Card title="Evidence Engine" icon="seti:config">
-    类型化 findings 与有界 digest 把 operator 结果连接到输入，同时不替代 agent 判断。
+  <Card title="证据引擎" icon="seti:config">
+    类型化证据项与有界摘要把操作结果连接到输入，同时不替代智能体判断。
   </Card>
 </CardGrid>
 
 ## 从业务问题到经过检查的结论
 
-协作路径是 `业务决策 → 已确认的指标与范围 → live catalog validation → 类型化分析 → 证据 →
-用户检查`。如果所需 semantic object 缺失或定义存在争议，或者请求超出已经确认的指标契约，
-智能体会停止，而不是悄悄重新定义问题。新建或修改的 semantic objects 会在 authoring 流程中
-完成 readiness certification。
+协作路径是 `业务决策 → 已确认的指标与范围 → 实时目录验证 → 类型化分析 → 证据 →
+用户检查`。如果所需语义对象缺失或定义存在争议，或者请求超出已经确认的指标契约，
+智能体会停止，而不是悄悄重新定义问题。新建或修改的语义对象会在编写流程中
+完成就绪认证。
 
 ## 从这里开始
 
