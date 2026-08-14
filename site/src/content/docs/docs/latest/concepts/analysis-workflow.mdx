@@ -72,11 +72,12 @@ From the command line, start with `marivo --help` for the CLI entry point.
 Verify the selected environment and discover the Python handoff with:
 
 ```bash
-python -m marivo help
+marivo doctor
 ```
 
-Use the Python interpreter where `marivo` is installed. The rendered version,
-Python executable, and package path form the environment fingerprint — a bare
+Use the Python interpreter where `marivo` is installed. The doctor report
+includes the rendered version, Python executable, package path, and project
+state; these form the environment fingerprint — a bare
 `marivo` resolved from `PATH` is not authoritative unless its fingerprint
 matches the analysis interpreter. Verify this fingerprint once at analysis
 entry. After that, use the public object already in hand: read `.show()` for

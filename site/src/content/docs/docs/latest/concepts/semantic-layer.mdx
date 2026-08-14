@@ -37,8 +37,9 @@ structured errors. Before reading user data, the agent must ask for required
 non-observable inputs such as the accountable domain owner or target business
 concept. Sampling cannot answer those questions.
 
-`python -m marivo help` only confirms the active interpreter, installed package
-version, and environment fingerprint before handing off to Python.
+`marivo doctor` confirms the active interpreter, installed package version,
+package path, and project state before handing off to Python. Use the
+environment's own `marivo` executable when it is not activated.
 `marivo.help(...)` is the sole public focused-help coordinator. Qualified
 `datasource.*`, `semantic.*`, and `analysis.*` content remains owned by its
 native registry; `md` and `ms` execute domain operations and intentionally have

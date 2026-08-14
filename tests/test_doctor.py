@@ -213,6 +213,32 @@ def test_default_doctor_reports_installation_and_project(tmp_path: Path) -> None
     assert _section(report, "installation").status == "ok"
     assert _check(report, "project", "project.marivo_toml").status == "ok"
     assert _check(report, "project", "project.models").status == "ok"
+    assert _section(report, "skills").status == "skipped"
+
+
+def test_doctor_reports_initialized_agent_skills(tmp_path: Path) -> None:
+    from marivo.cli import init_project
+
+    init_project(project_dir=tmp_path)
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    assert _section(report, "skills").status == "ok"
+    assert _check(report, "skills", "skills.claude.marivo-semantic").status == "ok"
+
+
+def test_doctor_fails_on_broken_agent_skill_link(tmp_path: Path) -> None:
+    _write_manifest(tmp_path)
+    skill_path = tmp_path / ".claude" / "skills" / "marivo-semantic"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.symlink_to(tmp_path / "missing-skill")
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    check = _check(report, "skills", "skills.claude.marivo-semantic")
+    assert report.status == "fail"
+    assert check.status == "fail"
+    assert "broken" in check.summary
 
 
 def test_default_doctor_accepts_missing_local_models_when_layer_paths_are_valid(

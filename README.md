@@ -118,11 +118,13 @@ MSYS2, or Cygwin.
 For manual installation, datasource extras, supported platforms, and troubleshooting,
 see [Installation](https://marivo.io/docs/latest/installation/).
 
-Verify the selected environment once, then use Python for focused help:
+Verify the selected environment once:
 
 ```bash
-python -m marivo help
+marivo doctor
 ```
+
+Then use the selected project interpreter for focused help.
 
 ```python
 import marivo

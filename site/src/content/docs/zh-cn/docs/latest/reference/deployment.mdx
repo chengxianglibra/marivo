@@ -17,8 +17,9 @@ python3 -m venv .venv
 .venv/bin/python -c "import marivo; print(marivo.__name__)"
 ```
 
-安装后，使用选定解释器运行 `python -m marivo help`，核对 Marivo 版本、Python 可执行路径和
-加载的包路径。CLI 只负责 bootstrap 检查。进入 Python 后，查阅专项实时契约：
+安装后，在选定环境中运行 `marivo doctor`，核对 Marivo 版本、Python 可执行路径、加载的包路径
+和项目状态。如果环境没有激活，请调用该环境中的 `marivo` 可执行文件。CLI 只负责 bootstrap
+检查。进入 Python 后，查阅专项实时契约：
 
 ```python
 import marivo

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.install_marivo_helpers import (
+    CN_INSTALLER,
     INSTALLER,
     InstallerEnv,
     _run_installer,
@@ -16,10 +17,45 @@ pytestmark = pytest.mark.release
 
 
 def test_installers_default_to_duckdb_trino_and_clickhouse_without_mysql() -> None:
-    content = INSTALLER.read_text(encoding="utf-8")
+    for installer in (INSTALLER, CN_INSTALLER):
+        content = installer.read_text(encoding="utf-8")
 
-    assert 'readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"' in content
-    assert '"marivo[$DEFAULT_MARIVO_EXTRAS]"' in content
+        assert 'readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"' in content
+        assert 'MARIVO_EXTRAS="$DEFAULT_MARIVO_EXTRAS"' in content
+        assert 'local package_spec="marivo[$MARIVO_EXTRAS]"' in content
+
+
+def test_chinese_installer_supports_external_runtime_contract(
+    tmp_path: Path, installer_env: InstallerEnv
+) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.uv)
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    external_venv = tmp_path / "runtime" / ".venv"
+    venv_bin = external_venv / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(toolchain.python310)
+
+    completed = _run_installer(
+        tmp_path,
+        env,
+        "--project-root",
+        str(project_root),
+        "--venv",
+        str(external_venv),
+        "--extras",
+        "trino",
+        "--version",
+        "0.4.4",
+        installer=CN_INSTALLER,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
+    expected_python = external_venv / "bin" / "python"
+    assert f"uv:pip install --python {expected_python} --upgrade marivo[trino]==0.4.4" in log
+    assert f"marivo:{project_root}:init" in log
 
 
 def test_rejects_unknown_argument_before_mutation(
@@ -97,6 +133,72 @@ def test_reuses_valid_python_venv(tmp_path: Path, installer_env: InstallerEnv) -
 
     assert completed.returncode == 0
     assert "Reusing valid virtual environment" in completed.stdout
+
+
+def test_explicit_venv_is_never_replaced_when_invalid(
+    tmp_path: Path, installer_env: InstallerEnv
+) -> None:
+    _, env = installer_env
+    external_venv = tmp_path / "runtime" / ".venv"
+    external_venv.mkdir(parents=True)
+    marker = external_venv / "owned-by-pipe"
+    marker.touch()
+
+    completed = _run_installer(tmp_path, env, "--venv", str(external_venv), "--yes")
+
+    assert completed.returncode != 0
+    assert "provided virtual environment" in completed.stderr
+    assert marker.exists()
+
+
+def test_installs_into_explicit_venv_and_project_root(
+    tmp_path: Path, installer_env: InstallerEnv
+) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.uv)
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    external_venv = tmp_path / "runtime" / ".venv"
+    venv_bin = external_venv / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(toolchain.python310)
+
+    completed = _run_installer(
+        tmp_path,
+        env,
+        "--project-root",
+        str(project_root),
+        "--venv",
+        str(external_venv),
+        "--extras",
+        "trino",
+        "--version",
+        "0.4.4",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
+    expected_python = external_venv / "bin" / "python"
+    assert f"uv:pip install --python {expected_python} --upgrade marivo[trino]==0.4.4" in log
+    assert f"marivo:{project_root}:init" in log
+    assert "uv:python install" not in log
+    assert (project_root / "marivo.toml").is_file()
+    assert (project_root / "models").is_dir()
+    assert (project_root / ".marivo").is_dir()
+
+
+def test_uses_explicit_python_to_create_a_new_venv(
+    tmp_path: Path, installer_env: InstallerEnv
+) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.uv)
+
+    completed = _run_installer(tmp_path, env, "--python", str(toolchain.python310))
+
+    assert completed.returncode == 0, completed.stderr
+    log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
+    assert f"uv:venv --python {toolchain.python310}" in log
+    assert "uv:python install" not in log
 
 
 def test_prepares_the_environment_with_uv_even_when_local_python_is_available(

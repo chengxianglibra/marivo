@@ -36,8 +36,13 @@ expectedCnSource = replaceExactlyOnce(
 );
 expectedCnSource = replaceExactlyOnce(
   expectedCnSource,
-  '    "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "marivo[$DEFAULT_MARIVO_EXTRAS]"',
-  '    UV_INDEX_URL="$PYPI_INDEX_URL" "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "marivo[$DEFAULT_MARIVO_EXTRAS]"',
+  '        "$uv_bin" python install "$PYTHON_SPEC" >&2',
+  '        UV_PYTHON_INSTALL_MIRROR="$UV_PYTHON_INSTALL_MIRROR" "$uv_bin" python install "$PYTHON_SPEC" >&2',
+);
+expectedCnSource = replaceExactlyOnce(
+  expectedCnSource,
+  '    "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "$package_spec"',
+  '    UV_INDEX_URL="$PYPI_INDEX_URL" "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "$package_spec"',
 );
 
 if (cnSource.toString() !== expectedCnSource) {

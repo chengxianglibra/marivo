@@ -86,6 +86,21 @@ def test_uses_uv_to_create_the_virtual_environment(
     assert "uv:venv --python" in log
 
 
+def test_uses_uv_managed_requested_python_version(
+    tmp_path: Path, installer_env: InstallerEnv
+) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.uv)
+    env["FAKE_MANAGED_PYTHON"] = str(toolchain.managed_python)
+
+    completed = _run_installer(tmp_path, env, "--python", "3.10")
+
+    assert completed.returncode == 0, completed.stderr
+    log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
+    assert "uv:python install 3.10" in log
+    assert "uv:python find --managed-python 3.10" in log
+
+
 def test_uv_creates_a_seeded_virtual_environment(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
