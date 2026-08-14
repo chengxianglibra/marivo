@@ -43,6 +43,19 @@ _duckdb_json_type = cast(
     ibis.udf.scalar.builtin(name="json_type")(_duckdb_json_type_signature),
 )
 
+
+def _duckdb_json_object_signature(key: str, value: dt.JSON) -> dt.JSON:
+    raise NotImplementedError
+
+
+_duckdb_json_object = cast(
+    "Callable[[ir.StringValue, ir.JSONValue], ir.JSONValue]",
+    ibis.udf.scalar.builtin(
+        name="json_object",
+        signature=((dt.string, dt.JSON), dt.JSON),
+    )(_duckdb_json_object_signature),
+)
+
 _POST_TIMEOUT_SECONDS = 30
 
 
@@ -108,6 +121,7 @@ def _post_json_envelope(
 
 
 def _unpack_json_records(
+    backend: object,
     envelope: ir.Table,
     records_json: Any,
     source: JsonSourceIR,
@@ -120,12 +134,83 @@ def _unpack_json_records(
         )
     ).cast(dt.json)
     records_json = (_duckdb_json_type(records_json) == "ARRAY").ifelse(records_json, invalid_path)
-    record_type = dt.Struct.from_tuples(source.schema)
-    records = records_json.unwrap_as(dt.Array(record_type))
     record_column = "__marivo_json_record"
     while record_column in dict(source.schema):
         record_column = f"_{record_column}"
-    return envelope.select(records.unnest().name(record_column)).unpack(record_column)
+    records = envelope.select(
+        records_json.unwrap_as(dt.Array(dt.json)).unnest().name(record_column)
+    )
+    record_json = records[record_column]
+    typed_columns = []
+    for name, type_name in source.schema:
+        field_schema = ((name, type_name),)
+        field_type = dt.Struct.from_tuples(field_schema)
+        field_object = _duckdb_json_object(ibis.literal(name), record_json[name])
+        field_structure = ibis.literal(_duckdb_json_transform_structure(backend, field_schema))
+        field_value = _duckdb_json_transform_strict(field_type)(
+            field_object,
+            field_structure,
+        )[name].name(name)
+        typed_columns.append(field_value)
+    return records.select(*typed_columns)
+
+
+def _duckdb_json_type_name(backend: object, value: dt.DataType) -> str:
+    compiler = getattr(backend, "compiler", None)
+    type_mapper = getattr(compiler, "type_mapper", None)
+    from_ibis = getattr(type_mapper, "from_ibis", None)
+    if not callable(from_ibis):
+        raise RuntimeError("DuckDB backend does not expose an Ibis type mapper")
+    return str(from_ibis(value))
+
+
+def _duckdb_json_transform_type(backend: object, value: dt.DataType) -> str:
+    if isinstance(value, dt.Array):
+        return f"{_duckdb_json_transform_type(backend, value.value_type)}[]"
+    if isinstance(value, dt.Map):
+        key_type = _duckdb_json_transform_type(backend, value.key_type)
+        value_type = _duckdb_json_transform_type(backend, value.value_type)
+        return f"MAP({key_type}, {value_type})"
+    if isinstance(value, dt.Struct):
+        fields = ", ".join(
+            f'"{name.replace(chr(34), chr(34) * 2)}" '
+            f"{_duckdb_json_transform_type(backend, field_type)}"
+            for name, field_type in value.fields.items()
+        )
+        return f"STRUCT({fields})"
+    return _duckdb_json_type_name(backend, value)
+
+
+def _duckdb_json_transform_structure(
+    backend: object,
+    schema: tuple[tuple[str, str], ...],
+) -> str:
+    return json.dumps(
+        {
+            name: _duckdb_json_transform_type(backend, dt.dtype(type_name))
+            for name, type_name in schema
+        },
+        separators=(",", ":"),
+    )
+
+
+def _duckdb_json_transform_signature(
+    record: dt.JSON,
+    structure: str,
+) -> dt.Struct:
+    raise NotImplementedError
+
+
+def _duckdb_json_transform_strict(
+    record_type: dt.Struct,
+) -> Callable[[ir.JSONValue, ir.StringValue], ir.StructValue]:
+    return cast(
+        "Callable[[ir.JSONValue, ir.StringValue], ir.StructValue]",
+        ibis.udf.scalar.builtin(
+            name="json_transform_strict",
+            signature=((dt.JSON, dt.string), record_type),
+        )(_duckdb_json_transform_signature),
+    )
 
 
 def _query_value(value: QueryParamScalar) -> str:
@@ -218,7 +303,7 @@ def read_json_source(
         if source.records_path is not None:
             for part in source.records_path.removeprefix("$.").split("."):
                 records_json = records_json[part]
-        return _unpack_json_records(envelope, records_json, source)
+        return _unpack_json_records(backend, envelope, records_json, source)
 
     reader = getattr(backend, "read_json", None)
     if not callable(reader):
@@ -236,4 +321,4 @@ def read_json_source(
     records_json = envelope[path_parts[0]]
     for part in path_parts[1:]:
         records_json = records_json[part]
-    return _unpack_json_records(envelope, records_json, source)
+    return _unpack_json_records(backend, envelope, records_json, source)

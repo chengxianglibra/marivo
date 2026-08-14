@@ -239,8 +239,10 @@ inspection never opens user data merely to infer types. Parquet and CSV paths ma
 be local files or globs. JSON additionally supports HTTP(S) GET and JSON-object
 POST requests while retaining the declared physical `format=` and schema.
 
-For a wrapped response, `records_path=` selects the array whose elements match
-the declared schema. The initial contract is intentionally limited to `$` plus
+For a wrapped response, `records_path=` selects the array whose declared fields
+are projected into the output schema. Additional object fields are ignored and
+missing declared fields become typed nulls; present values must be convertible to
+their declared types. The initial contract is intentionally limited to `$` plus
 object-member access, such as `$.data` or `$.result.items`; filters, wildcards,
 recursive descent, and array indexing are not supported. A present, empty array
 materializes as zero rows. A missing path or a non-array value fails at execution

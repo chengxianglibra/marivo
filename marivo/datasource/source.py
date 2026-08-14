@@ -277,6 +277,9 @@ def json(
         Schema column names and type names must be non-empty strings.
         A declared records path must resolve to an array at execution; a missing
         path or non-array value fails instead of materializing zero rows.
+        For wrapped records, declared fields are projected in schema order;
+        missing fields become typed nulls and additional object fields are
+        ignored. Present fields must be convertible to their declared types.
         A body is only supported for ``POST`` and must be a JSON object. Runtime
         parameters occupy complete JSON values; substring templates are unsupported.
     """
