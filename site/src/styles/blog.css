@@ -385,6 +385,14 @@ html {
   text-wrap: balance;
 }
 
+.article-title-segment {
+  display: inline-block;
+}
+
+.article-header h1.article-segmented-title {
+  font-size: clamp(38px, 6vw, 61px);
+}
+
 .article-description {
   max-width: 680px;
   margin: 26px 0 0;

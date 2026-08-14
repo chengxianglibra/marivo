@@ -4,6 +4,7 @@ import '../styles/blog.css';
 
 interface BlogFrontmatter {
   title: string;
+  titleSegments?: string[];
   description: string;
   publishedAt: string;
   series: string;
@@ -69,7 +70,11 @@ const copy = isZh
         <a class="article-back" href={blogUrl}><span aria-hidden="true">←</span> {copy.back}</a>
         <header class="article-header">
           <p class="article-series">{frontmatter.series}</p>
-          <h1>{frontmatter.title}</h1>
+          <h1 class:list={{ 'article-segmented-title': frontmatter.titleSegments }}>
+            {frontmatter.titleSegments
+              ? frontmatter.titleSegments.map((segment) => <span class="article-title-segment">{segment}</span>)
+              : frontmatter.title}
+          </h1>
           <p class="article-description">{frontmatter.description}</p>
           <div class="article-meta">
             <span>{frontmatter.publishedAt}</span>
