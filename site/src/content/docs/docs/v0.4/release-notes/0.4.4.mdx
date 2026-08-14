@@ -1,0 +1,98 @@
+---
+slug: docs/v0.4/release-notes/0.4.4
+title: Marivo 0.4.4
+description: Release notes for Marivo 0.4.4.
+---
+
+Marivo 0.4.4 broadens runtime support to Python 3.10 and makes installation
+easier to integrate with agent runtimes that already own the project workspace
+and virtual environment. It also makes wrapped JSON API records resilient to
+missing or additional fields without weakening declared type checks.
+
+## Highlights
+
+- Marivo now supports Python 3.10, 3.11, 3.12, and 3.13. Package metadata,
+  compatibility helpers, CI, installers, tests, and current documentation all
+  share the new Python 3.10 minimum.
+- The standard and China-friendly installers can target an explicit project
+  root, reuse a host-owned virtual environment, select a Python interpreter,
+  choose datasource extras, and pin a Marivo version. Existing environments
+  are never removed or replaced.
+- `marivo init --project-root <directory>` initializes a project outside the
+  current working directory, while `marivo doctor` provides the text-based
+  runtime handoff for verifying the interpreter, package, project, and bundled
+  agent skills.
+- Wrapped JSON records selected with `records_path=` now project the declared
+  schema: missing fields become typed nulls and undeclared fields are ignored,
+  while incompatible present values still fail strictly.
+
+## Changed
+
+- Installers initialize the requested project root instead of assuming the
+  shell working directory, and fail fast when an explicit environment or
+  interpreter does not satisfy the supported contract.
+- Packaged `marivo-semantic` and `marivo-analysis` skills now verify the
+  runtime-selected interpreter through `marivo doctor`; environment creation
+  and dependency installation remain owned by the calling runtime.
+- The Python 3.10 compatibility surface uses supported typing and standard
+  library fallbacks, with dependency bounds aligned to the supported runtime
+  matrix.
+- A China-friendly installer is available at
+  `https://marivo.io/install-marivo-cn.sh`, using domestic Python and PyPI
+  sources while preserving the standard install contract.
+
+## Fixed
+
+- Wrapped JSON arrays no longer reject otherwise valid records solely because
+  optional declared fields are absent or additional response fields are
+  present. Declared values continue to use strict conversion and surface type
+  mismatches at execution time.
+
+## Documentation
+
+- Reworked the Chinese official documentation into natural Chinese while
+  retaining necessary API names, code, commands, and technical terms.
+- Added a bilingual design article explaining how the Analysis DSL constrains
+  agent actions without constraining agent reasoning, together with localized
+  diagrams and blog navigation.
+- Expanded installation and deployment guidance for host-owned environments,
+  explicit project roots, runtime verification, and the China-friendly
+  installer.
+
+## Internal
+
+- CI now exercises Python 3.10, 3.12, and 3.13, and release distributions are
+  built from the minimum supported Python version.
+- Installer verification covers standard and China-friendly output parity,
+  explicit environment ownership, version pinning, project-root initialization,
+  and unsupported interpreter failures.
+
+## Installation
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+In mainland China, use:
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+For manual installation:
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.4
+requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)

@@ -136,7 +136,16 @@ elif [ "${1:-}" = "python" ] && [ "${2:-}" = "find" ]; then
     printf '%s\n' "${FAKE_MANAGED_PYTHON:?}"
 elif [ "${1:-}" = "venv" ]; then
     target="${@: -1}"
-    FAKE_VENV_FAIL=0 "${FAKE_MANAGED_PYTHON:?}" -m venv "$target"
+    interpreter="${FAKE_MANAGED_PYTHON:-}"
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--python" ]; then
+            interpreter="${2:?}"
+            break
+        fi
+        shift
+    done
+    [ -n "$interpreter" ] || exit 2
+    FAKE_VENV_FAIL=0 "$interpreter" -m venv "$target"
     touch "$target/.pip-ready"
 elif [ "${1:-}" = "pip" ] && [ "${2:-}" = "install" ]; then
     [ "${FAKE_PIP_FAIL:-0}" != "1" ] || exit 1
