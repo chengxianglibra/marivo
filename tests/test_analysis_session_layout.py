@@ -3,12 +3,14 @@
 from datetime import datetime
 
 import pandas as pd
+import pytest
 
 from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._layout import (
     PersistenceLayout,
+    _atomic_write_parquet,
     _atomic_write_text,
     read_frame_from_disk,
     read_job_record,
@@ -125,3 +127,91 @@ def test_layout_module_has_no_session_meta_functions():
 
     assert not hasattr(mod, "read_session_meta")
     assert not hasattr(mod, "write_session_meta")
+
+
+# -- issue #77: pyarrow 25.0.0 dictionary-decoding race --
+
+
+def test_atomic_write_parquet_disables_dictionary_encoding(tmp_path):
+    """Frame parquet files must not use dictionary encoding (issue #77).
+
+    pyarrow 25.0.0 races in multithreaded reads of dictionary-encoded pages.
+    Disabling dictionary encoding at write time keeps reads deterministic.
+    """
+    import pyarrow.parquet as pq
+
+    target = tmp_path / "data.parquet"
+    # Low-cardinality string columns are exactly what pyarrow dictionary-encodes
+    # by default.
+    df = pd.DataFrame({"component": ["a", "b", "c"] * 50, "value": list(range(150))})
+    _atomic_write_parquet(df, target)
+
+    parquet_file = pq.ParquetFile(target)
+    encodings = {
+        str(encoding)
+        for col in range(parquet_file.metadata.num_columns)
+        for encoding in parquet_file.metadata.row_group(0).column(col).encodings
+    }
+    assert not any("DICTIONARY" in encoding for encoding in encodings)
+
+
+def test_read_parquet_frame_retries_dictionary_bounds(tmp_path, monkeypatch):
+    """A transient dictionary-bounds read failure is retried and recovers."""
+    from pyarrow.lib import ArrowInvalid
+
+    from marivo.analysis.session._layout import _read_parquet_frame
+
+    calls: dict[str, int] = {"n": 0}
+
+    def flaky_read(path, engine=None):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise ArrowInvalid("Index not in dictionary bounds")
+        return pd.DataFrame({"x": [1, 2, 3]})
+
+    monkeypatch.setattr(pd, "read_parquet", flaky_read)
+
+    df = _read_parquet_frame(tmp_path / "data.parquet")
+    assert list(df["x"]) == [1, 2, 3]
+    assert calls["n"] == 4
+
+
+def test_read_parquet_frame_raises_after_retries_exhausted(tmp_path, monkeypatch):
+    """When the dictionary-bounds error persists, the read surfaces it."""
+    from pyarrow.lib import ArrowInvalid
+
+    from marivo.analysis.session._layout import (
+        _DICTIONARY_RACE_RETRIES,
+        _read_parquet_frame,
+    )
+
+    calls: dict[str, int] = {"n": 0}
+
+    def always_fail(path, engine=None):
+        calls["n"] += 1
+        raise ArrowInvalid("Index not in dictionary bounds")
+
+    monkeypatch.setattr(pd, "read_parquet", always_fail)
+
+    with pytest.raises(ArrowInvalid):
+        _read_parquet_frame(tmp_path / "data.parquet")
+    assert calls["n"] == _DICTIONARY_RACE_RETRIES
+
+
+def test_read_parquet_frame_does_not_retry_other_errors(tmp_path, monkeypatch):
+    """Genuine corruption is raised immediately, not masked by retries."""
+    from pyarrow.lib import ArrowInvalid
+
+    from marivo.analysis.session._layout import _read_parquet_frame
+
+    calls: dict[str, int] = {"n": 0}
+
+    def fail_other(path, engine=None):
+        calls["n"] += 1
+        raise ArrowInvalid("Parquet magic bytes not found in footer")
+
+    monkeypatch.setattr(pd, "read_parquet", fail_other)
+
+    with pytest.raises(ArrowInvalid):
+        _read_parquet_frame(tmp_path / "data.parquet")
+    assert calls["n"] == 1

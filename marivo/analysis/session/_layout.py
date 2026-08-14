@@ -218,7 +218,14 @@ def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFram
 
 
 def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
-    """Write one Parquet payload atomically beside its final destination."""
+    """Write one Parquet payload atomically beside its final destination.
+
+    ``use_dictionary=False`` is deliberate: pyarrow 25.0.0 has a race in
+    multithreaded reads of dictionary-encoded pages that intermittently raises
+    ``ArrowInvalid: Index not in dictionary bounds`` (issue #77). Disabling
+    dictionary encoding at write time makes the resulting files immune to the
+    reader-side race without pinning or upgrading pyarrow.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(path.parent),
@@ -232,12 +239,50 @@ def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
             engine="pyarrow",
             compression="snappy",
             index=False,
+            use_dictionary=False,
         )
         os.replace(tmp_name, path)
     except Exception:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
         raise
+
+
+def _is_dictionary_bounds_error(exc: BaseException) -> bool:
+    """Return True for pyarrow's transient dictionary-decoding race error.
+
+    pyarrow 25.0.0 raises ``ArrowInvalid: Index not in dictionary bounds``
+    intermittently when reading dictionary-encoded parquet pages with multiple
+    threads (issue #77). Matching the message keeps the retry scoped to this
+    specific transient condition so genuine corruption is never masked.
+    """
+    message = str(exc).lower()
+    return "dictionary" in message and "bounds" in message
+
+
+_DICTIONARY_RACE_RETRIES = 8
+
+
+def _read_parquet_frame(path: Path) -> pd.DataFrame:
+    """Read a frame parquet file, retrying around the pyarrow dictionary race.
+
+    pyarrow 25.0.0 has a race in multithreaded reads of dictionary-encoded
+    parquet pages that intermittently raises ``Index not in dictionary
+    bounds``. Files written with ``use_dictionary=False`` are immune, but
+    legacy files still use dictionary encoding; retrying the read a few times
+    makes cache-hits reliable. A genuinely corrupt file fails every attempt
+    and its error surfaces to the caller unchanged.
+    """
+    last_error: BaseException | None = None
+    for _ in range(_DICTIONARY_RACE_RETRIES):
+        try:
+            return pd.read_parquet(path, engine="pyarrow")
+        except Exception as exc:
+            if not _is_dictionary_bounds_error(exc):
+                raise
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
 
 def read_frame_from_disk(
@@ -256,6 +301,6 @@ def read_frame_from_disk(
     if isinstance(frame_ref, ArtifactRef):
         frame_ref = frame_ref.ref
     frame_dir = layout.frames_dir / frame_ref
-    df = pd.read_parquet(frame_dir / "data.parquet", engine="pyarrow")
+    df = _read_parquet_frame(frame_dir / "data.parquet")
     meta = json.loads((frame_dir / "meta.json").read_text())
     return df, meta
