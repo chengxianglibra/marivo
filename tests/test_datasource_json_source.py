@@ -427,6 +427,53 @@ def test_loaded_wrapped_json_project_materializes_records(tmp_path: Path) -> Non
     ]
 
 
+def test_wrapped_json_records_fill_missing_fields_and_ignore_extra_fields(tmp_path: Path) -> None:
+    source_path = tmp_path / "events.json"
+    source_path.write_text(
+        '{"result": {"items": ['
+        '{"event_id": 1, "status": "paid", "extra": "ignored"},'
+        '{"event_id": 2, "amount": 20, "status": "void", "metadata": null}'
+        "]}}"
+    )
+    backend = ibis.duckdb.connect(":memory:")
+    schema = {**_EVENT_SCHEMA, "metadata": "json"}
+    source = md.json(
+        str(source_path),
+        schema=schema,
+        records_path="$.result.items",
+    )
+
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute()
+        assert tuple(result.columns) == tuple(schema)
+        assert table.filter(table.amount.isnull()).count().execute() == 1
+        assert table.filter(table["metadata"].isnull()).count().execute() == 2
+        assert result.loc[result["event_id"] == 2, "amount"].iloc[0] == 20
+    finally:
+        backend.disconnect()
+
+
+def test_wrapped_json_record_type_mismatch_fails_strictly(tmp_path: Path) -> None:
+    source_path = tmp_path / "events.json"
+    source_path.write_text(
+        '{"result": {"items": [{"event_id": "not-an-int", "amount": 10, "status": "paid"}]}}'
+    )
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        str(source_path),
+        schema=_EVENT_SCHEMA,
+        records_path="$.result.items",
+    )
+
+    try:
+        table = read_json_source(backend, source)
+        with pytest.raises(InvalidInputException, match="Failed to cast value to numerical"):
+            table.execute()
+    finally:
+        backend.disconnect()
+
+
 def test_wrapped_json_empty_records_array_materializes_zero_rows(tmp_path: Path) -> None:
     source_path = tmp_path / "events.json"
     source_path.write_text('{"code": 0, "result": {"items": []}}')

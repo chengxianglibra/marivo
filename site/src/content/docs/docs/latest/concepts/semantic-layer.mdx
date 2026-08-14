@@ -1189,8 +1189,11 @@ md.inspect(warehouse, events).show()
 `records_path` supports a deliberately small JSONPath subset: `$` followed by
 object members, for example `$.data` or `$.result.items`. It does not support
 filters, wildcards, recursive descent, or array indexes. A present empty array
-materializes as zero rows; a missing path or non-array value fails at execution
-so an authentication or response-envelope error is not mistaken for empty data.
+materializes as zero rows. For each selected record, declared schema fields are
+projected in schema order: missing fields become typed `NULL` values and
+additional object fields are ignored. Present values must be convertible to
+their declared types. A missing path or non-array value fails at execution so
+an authentication or response-envelope error is not mistaken for empty data.
 
 For the minimal POST API case, set `method="POST"` and provide one JSON object
 through `body=`. A `md.source_param(...)` may occupy any complete JSON value,
