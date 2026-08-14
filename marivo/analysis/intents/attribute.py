@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo._temporal import _new_time_scope
 from marivo.analysis._cumulative import (
     GrainToDateAnchorSemanticsV1,
@@ -614,7 +615,7 @@ def _reset_scope_start(
 ) -> pd.Timestamp:
     # ``endpoint`` is the exclusive end of the cumulative bucket.  At an
     # exact reset boundary the bucket belongs to the preceding period.
-    local = (endpoint - pd.Timedelta(nanoseconds=1)).tz_convert(report_timezone)
+    local = (endpoint - pd.Timedelta(1, unit="ns")).tz_convert(report_timezone)
     if reset_grain == "week":
         start = local.normalize() - pd.DateOffset(days=local.weekday())
     elif reset_grain == "month":

@@ -8,7 +8,7 @@ import json
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from math import isclose
 from time import monotonic
 from typing import Any, Literal, cast
@@ -16,6 +16,7 @@ from typing import Any, Literal, cast
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_object_dtype
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AlignmentFailedError,

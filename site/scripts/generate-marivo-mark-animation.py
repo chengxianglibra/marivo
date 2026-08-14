@@ -3,13 +3,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeAlias
 
 from PIL import Image, ImageDraw
 
-type Vec3 = tuple[float, float, float]
-type Matrix3 = tuple[Vec3, Vec3, Vec3]
-type Color = tuple[int, int, int, int]
-type Point2 = tuple[float, float]
+Vec3: TypeAlias = tuple[float, float, float]
+Matrix3: TypeAlias = tuple[Vec3, Vec3, Vec3]
+Color: TypeAlias = tuple[int, int, int, int]
+Point2: TypeAlias = tuple[float, float]
 
 SIZE = 512
 GIF_SIZE = 320

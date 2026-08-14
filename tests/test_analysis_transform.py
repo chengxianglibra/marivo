@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 
 import ibis
@@ -12,6 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis import (
     AttributionFrame,
     DeltaFrame,

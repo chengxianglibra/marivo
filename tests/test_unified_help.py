@@ -98,7 +98,8 @@ def test_public_help_annotation_is_one_closed_alias() -> None:
     assert tuple(signature.parameters) == ("target",)
     assert "format" not in signature.parameters
     assert "print" not in signature.parameters
-    assert get_type_hints(marivo.help)["target"] == PublicHelpTarget
+    target_hint = get_type_hints(marivo.help)["target"]
+    assert target_hint is PublicHelpTarget or PublicHelpTarget in get_args(target_hint)
     assert Callable[..., object] in get_args(PublicHelpTarget.__value__)
 
 

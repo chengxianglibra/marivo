@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.intents._observe_planner_base import plan_base_observe
@@ -56,7 +56,7 @@ from marivo.semantic.unit_algebra import tier1_unit
 if TYPE_CHECKING:
     from marivo.analysis.intents._subject_cohort import ResolvedSubjectCohort
 
-type PhysicalLeafPlanV1 = BaseObservePlan | CumulativePhysicalLeafPlanV1
+PhysicalLeafPlanV1: TypeAlias = BaseObservePlan | CumulativePhysicalLeafPlanV1
 
 
 @dataclass(frozen=True)

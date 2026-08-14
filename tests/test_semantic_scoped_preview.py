@@ -7,7 +7,7 @@ import textwrap
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import ibis
@@ -15,6 +15,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.preview import PreviewLimitError
 from marivo.refs import ref

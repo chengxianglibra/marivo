@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
 
+from marivo._compat import UTC
 from marivo.analysis.evidence.types import EvidenceSubject
 
 _SUBJECT_HASH_LEN = 32

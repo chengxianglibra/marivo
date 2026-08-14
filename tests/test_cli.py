@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,7 @@ import pytest
 import marivo
 import marivo.skills
 from marivo import __version__
+from marivo._compat import tomllib
 from marivo.cli import init_project, main
 
 # ---------------------------------------------------------------------------

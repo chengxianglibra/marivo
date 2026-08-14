@@ -7,11 +7,11 @@ is never a fallback source for intents.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo.analysis.frames.metric import MetricFrame
 
-type AxisRole = Literal["dimension", "time_dimension"]
+AxisRole: TypeAlias = Literal["dimension", "time_dimension"]
 
 
 def metric_dimension_columns(frame: MetricFrame) -> list[str]:

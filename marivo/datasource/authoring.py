@@ -60,7 +60,7 @@ SENSITIVE_FIELD_STEMS = frozenset(
         "api_key",
     }
 )
-JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None  # noqa: UP040
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
 _META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
 
@@ -518,7 +518,7 @@ class ClickHouseSpec(_SpecBase):
     )
 
 
-DatasourceSpec: TypeAlias = (  # noqa: UP040
+DatasourceSpec: TypeAlias = (
     DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec
 )
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._capabilities.validation import (
     classify_input_family,

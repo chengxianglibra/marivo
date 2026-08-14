@@ -5,9 +5,10 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal, cast
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import ComponentBindingV1
 from marivo.analysis.evidence.identity import make_component_artifact_id
 from marivo.analysis.evidence.pipeline import (

@@ -7,13 +7,14 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AnalysisRepair,
     EventIdentityError,
@@ -48,15 +49,15 @@ from marivo.refs import EventKind, Ref, RefPayloadV1
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
 
-type OccurrenceKey = tuple[str, tuple[object, ...]]
-type OccurrenceSetKey = tuple[Ref[EventKind], str]
-type CoverageBasis = Literal[
+OccurrenceKey: TypeAlias = tuple[str, tuple[object, ...]]
+OccurrenceSetKey: TypeAlias = tuple[Ref[EventKind], str]
+CoverageBasis: TypeAlias = Literal[
     "observed_watermark",
     "declared_complete",
     "mixed",
     "unknown",
 ]
-type WindowBound = str | date | datetime
+WindowBound: TypeAlias = str | date | datetime
 
 
 def _bound_text(value: WindowBound) -> str:

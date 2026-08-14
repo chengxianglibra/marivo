@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import pandas as pd
 
@@ -18,9 +19,11 @@ from marivo.analysis.windows import TimeScope
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
+TFrame = TypeVar("TFrame", MetricFrame, DeltaFrame)
+
 
 @dataclass(frozen=True)
-class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
+class _FrameTransforms(Generic[TFrame]):
     _frame: TFrame
 
     def filter(

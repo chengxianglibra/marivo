@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
+from marivo._compat import StrEnum
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.constraints import (

@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 __all__ = [
     "AiContextIR",
@@ -88,7 +88,7 @@ def _require_kind(value: object, *, field_name: str, expected: str) -> None:
 _JSON_FORMATS = ("auto", "newline_delimited", "array")
 _JSON_RECORDS_PATH = re.compile(r"^\$(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
-type QueryParamScalar = str | int | float | bool
+QueryParamScalar: TypeAlias = str | int | float | bool
 
 
 @dataclass(frozen=True)
@@ -109,10 +109,10 @@ class SourceParamIR:
         return {"kind": "source_param", "name": self.name}
 
 
-type JsonQueryParamValue = QueryParamScalar | SourceParamIR
-type JsonBodyPathPart = str | int
-type JsonBodyParam = tuple[tuple[JsonBodyPathPart, ...], SourceParamIR]
-type JsonBodyValue = (
+JsonQueryParamValue: TypeAlias = QueryParamScalar | SourceParamIR
+JsonBodyPathPart: TypeAlias = str | int
+JsonBodyParam: TypeAlias = tuple[tuple[JsonBodyPathPart, ...], SourceParamIR]
+JsonBodyValue: TypeAlias = (
     str
     | int
     | float

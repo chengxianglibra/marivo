@@ -525,7 +525,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         try:
             import pandas as pd
 
-            df = pd.read_parquet(data_path, engine="pyarrow", to_pandas_kwargs={})
+            df = pd.read_parquet(data_path, engine="pyarrow")
             meta = json.loads(meta_path.read_text())
         except Exception as exc:
             raise FrameCacheCorruptedError(
@@ -1101,7 +1101,6 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             trace = pd.read_parquet(
                 trace_path,
                 engine="pyarrow",
-                to_pandas_kwargs={},
             )
         except Exception as exc:
             raise FrameCacheCorruptedError(

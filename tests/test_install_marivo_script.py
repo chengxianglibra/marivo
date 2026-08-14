@@ -88,7 +88,7 @@ def test_reuses_valid_python_venv(tmp_path: Path, installer_env: InstallerEnv) -
     toolchain, env = installer_env
     toolchain.activate(env, toolchain.uv)
     env["FAKE_MANAGED_PYTHON"] = str(toolchain.managed_python)
-    source = toolchain.python312
+    source = toolchain.python310
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
     (venv_bin / "python").symlink_to(source)
@@ -103,14 +103,14 @@ def test_prepares_the_environment_with_uv_even_when_local_python_is_available(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     toolchain, env = installer_env
-    toolchain.activate(env, toolchain.python311, toolchain.python313, toolchain.uv)
+    toolchain.activate(env, toolchain.python39, toolchain.python313, toolchain.uv)
     env["FAKE_MANAGED_PYTHON"] = str(toolchain.managed_python)
 
     completed = _run_installer(tmp_path, env, "--yes")
 
     assert completed.returncode == 0, completed.stderr
     log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
-    assert "uv:python install 3.12" in log
+    assert "uv:python install 3.10" in log
     assert "uv:venv --python" in log
 
 

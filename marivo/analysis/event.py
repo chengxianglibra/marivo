@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -21,7 +21,7 @@ from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.event import ParticipantRoleHandle
 
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
-type EventHelpTarget = Literal[
+EventHelpTarget: TypeAlias = Literal[
     "dropped_before",
     "events.funnel",
     "events.match",

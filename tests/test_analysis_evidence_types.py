@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
 
+from marivo._compat import UTC
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     DeltaFindingValue,

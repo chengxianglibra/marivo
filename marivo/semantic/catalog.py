@@ -11,11 +11,23 @@ import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, cast, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    Literal,
+    NoReturn,
+    TypeAlias,
+    TypeVar,
+    cast,
+    overload,
+)
 
+from marivo._compat import UTC
 from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV1,
@@ -331,6 +343,11 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }[kind]
     return factory(path)
+
+
+CatalogObjectT = TypeVar("CatalogObjectT")
+CatalogEntryKindT = TypeVar("CatalogEntryKindT", bound=SemanticKindTag, covariant=True)
+KindT = TypeVar("KindT", bound=SemanticKindTag)
 
 
 @dataclass(frozen=True)
@@ -1264,10 +1281,10 @@ _CatalogObjectDetails = (
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class CatalogEntry[KindT: SemanticKindTag](RenderableResult):
+class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
     """One immutable browsable object in one compiled semantic catalog."""
 
-    ref: Ref[KindT]
+    ref: Ref[CatalogEntryKindT]
     _details: _CatalogObjectDetails
     _catalog: SemanticCatalog
 
@@ -1352,7 +1369,7 @@ class CatalogEntry[KindT: SemanticKindTag](RenderableResult):
         return contract_for_catalog_object(self.ref.path, self.ref.kind.value)
 
 
-type _SemanticInput[KindT: SemanticKindTag] = Ref[KindT] | CatalogEntry[KindT]
+_SemanticInput: TypeAlias = Ref[KindT] | CatalogEntry[KindT]
 
 
 class DomainEntry(CatalogEntry[DomainKind]):
@@ -2442,7 +2459,7 @@ def _decode_occurrence_cursor(
     return raw_offset
 
 
-def _object_from_details[CatalogObjectT](
+def _object_from_details(
     object_type: type[CatalogObjectT],
     details: _CatalogObjectDetails,
     catalog: SemanticCatalog,
@@ -2457,7 +2474,7 @@ def _object_from_details[CatalogObjectT](
     )
 
 
-class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
+class CatalogCollection(RenderableResult, Generic[KindT]):
     """Read-only typed collection scoped by exact kind and optional owner."""
 
     def __init__(
@@ -2617,6 +2634,10 @@ class CatalogCollection[KindT: SemanticKindTag](RenderableResult):
         )
 
 
+# Preserve the introspection surface exposed by the original PEP 695 class.
+CatalogCollection.__type_params__ = (KindT,)  # type: ignore[attr-defined]
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -2728,7 +2749,7 @@ def _raise_invalid_semantic_input(
     )
 
 
-def _normalize_semantic_input[KindT: SemanticKindTag](
+def _normalize_semantic_input(
     catalog: SemanticCatalog,
     value: _SemanticInput[KindT],
     *,
@@ -3192,7 +3213,9 @@ def _build_dimension_object(
             python_symbol=f_ir.python_symbol,
             entity=ds_ref,
         )
-    return _object_from_details(TimeDimensionEntry if is_time else DimensionEntry, details, catalog)
+    if is_time:
+        return _object_from_details(TimeDimensionEntry, details, catalog)
+    return _object_from_details(DimensionEntry, details, catalog)
 
 
 def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatalog) -> MeasureEntry:
@@ -4451,7 +4474,7 @@ class _CatalogIndex:
     def named(self, name: str) -> tuple[CatalogEntry[SemanticKindTag], ...]:
         return self._by_name.get(name, ())
 
-    def objects[CatalogObjectT](
+    def objects(
         self,
         object_type: type[CatalogObjectT],
         *,
@@ -4701,7 +4724,7 @@ class SemanticCatalog(RenderableResult):
             row_count=len(rows),
         )
 
-    def _collection[KindT: SemanticKindTag](
+    def _collection(
         self,
         object_type: type[CatalogEntry[KindT]],
         kind: SemanticKind,
@@ -4711,7 +4734,7 @@ class SemanticCatalog(RenderableResult):
         self._require_ready()
         return CatalogCollection(self, object_type, kind, scope_ref=scope_ref)
 
-    def _get_from_collection[KindT: SemanticKindTag](
+    def _get_from_collection(
         self,
         collection: CatalogCollection[KindT],
         key: str | Ref[KindT],
@@ -4931,7 +4954,7 @@ class SemanticCatalog(RenderableResult):
     def work_schedules(self) -> CatalogCollection[WorkScheduleKind]:
         return self._collection(WorkScheduleEntry, SemanticKind.WORK_SCHEDULE)
 
-    def require[KindT: SemanticKindTag](self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
+    def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
         exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
         found = self._require_index().require(exact_ref)

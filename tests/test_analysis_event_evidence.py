@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.event import (
     extract_event_funnel_finding,

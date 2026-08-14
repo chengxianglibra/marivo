@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import ibis
 
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     DataTypeMismatchError,
     TimezoneInvalidError,
@@ -194,7 +195,13 @@ def _parse_partition_datetime(
         try:
             parsed_date = date.fromisoformat(raw)
         except ValueError:
-            pass
+            if len(raw) == 8 and raw.isdigit():
+                try:
+                    parsed_date = datetime.strptime(raw, "%Y%m%d").date()
+                except ValueError:
+                    pass
+                else:
+                    return datetime.combine(parsed_date, time.min, tzinfo=tz), True
         else:
             return datetime.combine(parsed_date, time.min, tzinfo=tz), True
 

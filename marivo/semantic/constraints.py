@@ -7,8 +7,7 @@ imperative checks, but they report errors through these constraint ids.
 
 from __future__ import annotations
 
-from enum import StrEnum
-
+from marivo._compat import StrEnum
 from marivo.introspection.constraints import ASTSpec, Constraint, Phase
 
 __all__ = [

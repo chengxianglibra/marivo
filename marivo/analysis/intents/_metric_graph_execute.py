@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo
 
 from marivo._temporal import Grain as TemporalGrain
@@ -68,7 +68,7 @@ from marivo.semantic.unit_algebra import (
     unit_state,
 )
 
-type SemanticShapeV1 = Literal["scalar", "time_series", "segmented", "panel"]
+SemanticShapeV1: TypeAlias = Literal["scalar", "time_series", "segmented", "panel"]
 
 
 @dataclass(frozen=True)

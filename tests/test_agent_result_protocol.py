@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
 from marivo._authoring.model import AuthoringContract, AuthoringStateRef
+from marivo._compat import UTC
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.evidence.types import DigestReadContract
 from marivo.analysis.frames.base import ArtifactContract, BaseFrame
@@ -517,7 +518,7 @@ def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
 
 
 def _metric_frame() -> MetricFrame:
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.lineage import Lineage
     from tests.shared_fixtures import make_test_metric_meta_contract

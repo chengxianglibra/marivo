@@ -15,7 +15,7 @@ import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.datasource.ir import DatasourceIR
 from marivo.introspection._fuzzy import did_you_mean
@@ -603,6 +603,8 @@ except ImportError:
     _IBIS_TABLE_ATTRS = frozenset()
 
 # AST node types that are FORBIDDEN as statements in metric bodies.
+_AST_TRY_STAR = cast("type[ast.stmt]", getattr(ast, "TryStar", ast.Try))
+
 _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
     {
         ast.Assign,
@@ -617,7 +619,7 @@ _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
         ast.With,
         ast.AsyncWith,
         ast.Try,
-        ast.TryStar,
+        _AST_TRY_STAR,
         ast.FunctionDef,
         ast.AsyncFunctionDef,
         ast.ClassDef,

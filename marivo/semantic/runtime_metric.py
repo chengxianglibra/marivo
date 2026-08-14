@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, TypeAlias, TypedDict, cast
 
 from marivo.refs import (
     FieldKind,
@@ -25,19 +25,23 @@ class SlicePredicate(TypedDict):
     value: Any
 
 
-type SliceScalar = str | int | float | bool | None
-type SliceValue = (
+SliceScalar: TypeAlias = str | int | float | bool | None
+SliceValue: TypeAlias = (
     SliceScalar | list[SliceScalar] | tuple[SliceScalar, ...] | set[SliceScalar] | SlicePredicate
 )
 
-type FrozenSliceScalar = SliceScalar
-type FrozenSliceValue = FrozenSliceScalar | tuple[FrozenSliceScalar, ...] | FrozenSlicePredicateV1
+FrozenSliceScalar: TypeAlias = SliceScalar
 
 
 @dataclass(frozen=True)
 class FrozenSlicePredicateV1:
     op: Literal["==", "!=", "in", ">", ">=", "<", "<=", "between"]
     value: FrozenSliceScalar | tuple[FrozenSliceScalar, ...]
+
+
+FrozenSliceValue: TypeAlias = (
+    FrozenSliceScalar | tuple[FrozenSliceScalar, ...] | FrozenSlicePredicateV1
+)
 
 
 def _freeze_slice_value(value: SliceValue) -> FrozenSliceValue:
@@ -209,7 +213,7 @@ class RuntimeWeightedMeanExpr:
         object.__setattr__(self, "label", _normalize_label(self.label))
 
 
-type RuntimeMetricExpr = (
+RuntimeMetricExpr: TypeAlias = (
     RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr
 )
 

@@ -1,8 +1,8 @@
 """Public print boundary for unified Marivo help."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
+
+from typing_extensions import TypeAliasType
 
 from marivo._help.model import (
     MarivoHelpTargetError,
@@ -21,14 +21,15 @@ from marivo.refs import Ref, SemanticKindTag
 from marivo.render import RenderableResult
 from marivo.telemetry import track_operation
 
-type PublicHelpTarget = (
+PublicHelpTarget = TypeAliasType(
+    "PublicHelpTarget",
     str
     | Callable[..., object]
     | type[object]
     | Ref[SemanticKindTag]
     | RenderableResult
     | BaseException
-    | None
+    | None,
 )
 
 

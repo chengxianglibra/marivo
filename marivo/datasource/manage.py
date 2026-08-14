@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -559,7 +559,7 @@ def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
     return _storage_name(value)
 
 
-type DatasourceFailureCode = Literal[
+DatasourceFailureCode: TypeAlias = Literal[
     "connection_open_failed",
     "connection_roundtrip_failed",
     "secret_persistence_failed",

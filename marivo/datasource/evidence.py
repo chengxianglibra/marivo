@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo._authoring.model import (
     AuthoringContract,
@@ -18,7 +18,7 @@ from marivo.datasource.errors import repair
 from marivo.datasource.source import AuthoringScope
 from marivo.render import Card, RenderableResult
 
-type EvidenceValue = str | int | float | bool | None
+EvidenceValue: TypeAlias = str | int | float | bool | None
 
 TIME_RULE_IDS = (
     "type.native_date",

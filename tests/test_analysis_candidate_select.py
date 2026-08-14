@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import inspect
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.frames.candidate import (

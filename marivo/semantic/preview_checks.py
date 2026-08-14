@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._compat import UTC
 from marivo.datasource.authoring_store import (
     AuthoringStore,
     datasource_spec_fingerprint,
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
     from marivo.semantic._expression_binding import CompiledExpressionSidecar
     from marivo.semantic.validator import Registry
 
-type PreviewUsing = DiscoverySnapshot | Mapping[Ref[EntityKind], DiscoverySnapshot]
+PreviewUsing: TypeAlias = DiscoverySnapshot | Mapping[Ref[EntityKind], DiscoverySnapshot]
 
 
 @dataclass(frozen=True, slots=True)

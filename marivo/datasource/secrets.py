@@ -7,12 +7,12 @@ import os
 import re
 import stat
 import tempfile
-import tomllib
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from marivo._compat import tomllib
 from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,

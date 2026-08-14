@@ -1,8 +1,7 @@
 """Static acceptance fixture for the sealed generic Ref contract."""
 
-from typing import Never, assert_type
-
 from ibis.expr.types import Table, Value
+from typing_extensions import Never, assert_type
 
 from marivo.refs import (
     DatasourceKind,

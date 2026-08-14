@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast, overload
 
 from marivo.analysis._pages import (
     _BoundedPage,
@@ -31,7 +31,10 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def _normalize_unset[T](value: T | _Unset) -> T | None:
+T = TypeVar("T")
+
+
+def _normalize_unset(value: T | _Unset) -> T | None:
     return None if isinstance(value, _Unset) else value
 
 

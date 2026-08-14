@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Literal, TypedDict, cast
+from typing import Literal, TypeAlias, TypedDict, cast
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -66,7 +67,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import StateModelEntry
 from marivo.semantic.errors import SemanticRuntimeError
 
-type LifecycleReducerHelpTarget = Literal[
+LifecycleReducerHelpTarget: TypeAlias = Literal[
     "lifecycle.distribution",
     "lifecycle.transitions",
     "lifecycle.dwell",

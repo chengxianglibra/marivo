@@ -6,10 +6,10 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe_planner``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
+from marivo._compat import StrEnum
 from marivo.refs import Ref
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
@@ -77,7 +77,7 @@ class SnapshotSelectionFoldPlan:
     selection: Literal["first", "last"]
 
 
-type TemporalFoldPlan = SampledStatusFoldPlan | SnapshotSelectionFoldPlan
+TemporalFoldPlan: TypeAlias = SampledStatusFoldPlan | SnapshotSelectionFoldPlan
 
 
 @dataclass(frozen=True)

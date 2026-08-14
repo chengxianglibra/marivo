@@ -1,11 +1,12 @@
 """MetricFrame arity accessors, gate, and projection."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.refs import ref as ref_factory

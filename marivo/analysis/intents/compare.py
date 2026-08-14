@@ -6,13 +6,14 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from time import monotonic
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
     CURRENT_EVALUATION_END_COLUMN,

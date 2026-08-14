@@ -1,9 +1,10 @@
 """Tests for session file-system layout and byte I/O helpers."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._layout import (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AxisNotInPanelDimensionsError,
@@ -83,7 +84,7 @@ def test_to_validation_issues_maps_each_error():
 
 
 def _now():
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     return datetime(2026, 5, 24, tzinfo=UTC)
 

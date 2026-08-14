@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
+from marivo._compat import StrEnum
 from marivo.analysis.errors import MetricShapeUnsupportedError
 
 ObserveErrorCode = Literal[

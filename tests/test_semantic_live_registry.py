@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
     AuthoringSourceContract,
@@ -61,7 +63,7 @@ def test_registry_covers_all_public_callables() -> None:
 
     for name in ms.__all__:
         exported = getattr(ms, name)
-        if callable(exported) and not isinstance(exported, type):
+        if inspect.isroutine(exported) and not isinstance(exported, type):
             assert REGISTRY.by_callable(exported), (
                 f"{name} is not registered in the semantic registry"
             )

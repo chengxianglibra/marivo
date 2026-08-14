@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind

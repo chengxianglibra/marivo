@@ -8,7 +8,7 @@ identity, or authored-anchor provenance.  Those remain with observe/compare.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -36,9 +36,9 @@ from marivo.semantic.metric_graph import (
 )
 from marivo.semantic.metric_graph_canonical import fingerprint, node_fingerprint, validate_graph
 
-type CumulativeBaseAggregation = Literal["sum", "count", "count_distinct"]
-type CumulativeAttributionMethod = Literal["sum", "ratio_mix", "weighted_mix"]
-type CumulativeAttributionRoute = Literal["business_axes", "accumulation_time", "mixed_axes"]
+CumulativeBaseAggregation: TypeAlias = Literal["sum", "count", "count_distinct"]
+CumulativeAttributionMethod: TypeAlias = Literal["sum", "ratio_mix", "weighted_mix"]
+CumulativeAttributionRoute: TypeAlias = Literal["business_axes", "accumulation_time", "mixed_axes"]
 
 
 class CumulativeBridgeGrainV1(BaseModel):
@@ -73,7 +73,7 @@ class BlockedCumulativeBridgeV1(BaseModel):
     baseline_report_timezone: str = Field(min_length=1)
 
 
-type CumulativeBridgeV1 = Annotated[
+CumulativeBridgeV1: TypeAlias = Annotated[
     AvailableCumulativeBridgeV1 | BlockedCumulativeBridgeV1,
     Field(discriminator="status"),
 ]
@@ -123,7 +123,7 @@ class LinearCumulativeAttributionV1(BaseModel):
     terms: tuple[LinearCumulativeTermV1, ...] = Field(min_length=1)
 
 
-type CumulativeAttributionStructureV1 = Annotated[
+CumulativeAttributionStructureV1: TypeAlias = Annotated[
     DirectCumulativeAttributionV1
     | RatioCumulativeAttributionV1
     | WeightedCumulativeAttributionV1

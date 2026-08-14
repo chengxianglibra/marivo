@@ -8,14 +8,15 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable, Mapping
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from time import monotonic
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+from marivo._compat import UTC
 from marivo._temporal import (
     FrameTemporalContractV1,
     PeriodCalendarSnapshotV1,
@@ -183,7 +184,10 @@ def _transformed_cumulative_alignment(
     )
 
 
-def _prepare_transform[TTransformFrame: TransformFrame](
+TTransformFrame = TypeVar("TTransformFrame", bound=TransformFrame)
+
+
+def _prepare_transform(
     frame: TTransformFrame,
 ) -> tuple[Session, TTransformFrame]:
     session = require_current_session()
@@ -211,7 +215,7 @@ def _prepare_transform[TTransformFrame: TransformFrame](
     return session, frame
 
 
-def _finish_transform[TTransformFrame: TransformFrame](
+def _finish_transform(
     *,
     session: Session,
     parent: TTransformFrame,
@@ -375,7 +379,7 @@ def _normalize_drop_axes_boundary(
     ]
 
 
-def transform_filter[TTransformFrame: TransformFrame](
+def transform_filter(
     frame: TTransformFrame,
     *,
     predicate: Callable[[pd.DataFrame], pd.Series],
@@ -397,7 +401,7 @@ def transform_filter[TTransformFrame: TransformFrame](
     )
 
 
-def transform_slice[TTransformFrame: TransformFrame](
+def transform_slice(
     frame: TTransformFrame,
     *,
     slice_by: Mapping[_SemanticInput[DimensionKind | TimeDimensionKind], SliceValue],
@@ -420,7 +424,7 @@ def transform_slice[TTransformFrame: TransformFrame](
     )
 
 
-def transform_rollup[TTransformFrame: TransformFrame](
+def transform_rollup(
     frame: TTransformFrame,
     *,
     drop_axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]] | None = None,
@@ -457,7 +461,7 @@ def transform_rollup[TTransformFrame: TransformFrame](
     )
 
 
-def transform_topk[TTransformFrame: TransformFrame](
+def transform_topk(
     frame: TTransformFrame,
     *,
     by: str,
@@ -480,7 +484,7 @@ def transform_topk[TTransformFrame: TransformFrame](
     )
 
 
-def transform_bottomk[TTransformFrame: TransformFrame](
+def transform_bottomk(
     frame: TTransformFrame,
     *,
     by: str,
@@ -503,7 +507,7 @@ def transform_bottomk[TTransformFrame: TransformFrame](
     )
 
 
-def transform_rank[TTransformFrame: TransformFrame](
+def transform_rank(
     frame: TTransformFrame,
     *,
     by: str,
@@ -532,7 +536,7 @@ def transform_rank[TTransformFrame: TransformFrame](
     )
 
 
-def transform_window[TTransformFrame: TransformFrame](
+def transform_window(
     frame: TTransformFrame,
     *,
     window: TimeScope,

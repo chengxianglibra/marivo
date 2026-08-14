@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import (
     MeasureBindingV1,
     job_semantics_from_frames,

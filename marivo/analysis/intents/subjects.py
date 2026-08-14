@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     InvalidEventMatchingPolicyError,

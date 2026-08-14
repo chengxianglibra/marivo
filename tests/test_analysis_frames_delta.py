@@ -1,9 +1,10 @@
 """DeltaFrame and DeltaFrameMeta."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo._temporal import (
     AlignmentEvidenceV1,
     ComparisonTemporalContractV1,
@@ -76,7 +77,7 @@ def test_delta_frame_wraps_df_and_meta():
 
 
 def test_delta_frame_meta_accepts_optional_normalization():
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.frames.delta import DeltaFrameMeta
 

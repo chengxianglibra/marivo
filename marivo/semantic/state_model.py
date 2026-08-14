@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
 from marivo.refs import (
     DomainKind,
@@ -103,7 +103,7 @@ class LifecycleState:
             )
 
 
-type StateTrigger = Ref[EventKind] | ParticipantRoleHandle
+StateTrigger: TypeAlias = Ref[EventKind] | ParticipantRoleHandle
 
 
 @dataclass(frozen=True, slots=True)

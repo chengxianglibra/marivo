@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC
-
 import ibis
 import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref

@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import operator
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, get_type_hints
@@ -16,6 +16,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringStateRef
+from marivo._compat import UTC
 from marivo.datasource.evidence import (
     TIME_RULE_IDS,
     DimensionColumnEvidence,

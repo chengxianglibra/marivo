@@ -3,7 +3,7 @@ title: 安装
 description: 准备一个可供智能体使用的 Marivo 项目，并选择数据源后端。
 ---
 
-Marivo 需要 Python 3.12 或更高版本。
+Marivo 需要 Python 3.10 或更高版本。
 
 ## 选择安装方式
 
@@ -18,7 +18,7 @@ Python 环境和数据源依赖的项目。
 curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-脚本会先确保已安装 `uv`，再用它安装受管的 Python 3.12 并创建或复用 `.venv`，随后安装
+脚本会先确保已安装 `uv`，再用它安装受管的 Python 3.10 并创建或复用 `.venv`，随后安装
 `marivo[duckdb,trino,clickhouse]` 并运行 `marivo init`。它支持 macOS、Linux、WSL，以及窗口上的
 Git Bash、MSYS2 或 Cygwin；默认不包含 MySQL，需在准备好本机 client 前置依赖后再手动安装
 `marivo[mysql]`。仅当需要安装 `uv` 时才需要 PowerShell。完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
@@ -27,10 +27,10 @@ Git Bash、MSYS2 或 Cygwin；默认不包含 MySQL，需在准备好本机 clie
 
 如果需要自行控制虚拟环境和数据源后端，请按顺序完成以下步骤。
 
-1. 使用 `uv` 创建并激活 Python 3.12 或更高版本的虚拟环境：
+1. 使用 `uv` 创建并激活 Python 3.10 或更高版本的虚拟环境：
 
 ```bash
-uv venv --python 3.12 --seed
+uv venv --python 3.10 --seed
 source .venv/bin/activate
 ```
 

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -259,7 +260,7 @@ def _with_shares(rows: pd.DataFrame, *, total_delta: float) -> pd.DataFrame:
     negative = float(values[values < 0].sum())
     total_shares = np.full(values.shape, np.nan, dtype="float64")
     if total_delta != 0:
-        total_shares = values / total_delta
+        total_shares[:] = values / total_delta
     positive_shares = np.full(values.shape, np.nan, dtype="float64")
     if positive != 0:
         positive_mask = values > 0

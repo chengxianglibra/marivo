@@ -11,10 +11,11 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+from marivo._compat import UTC
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
 

@@ -6,18 +6,20 @@ import re
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import (
     Any,
+    Generic,
     Literal,
-    Never,
-    Self,
     SupportsIndex,
+    TypeAlias,
+    TypeVar,
     cast,
     final,
     get_args,
     get_origin,
 )
+
+from marivo._compat import Never, Self, StrEnum
 
 
 class SemanticKind(StrEnum):
@@ -96,7 +98,7 @@ class WorkScheduleKind(SemanticKindTag):
     __slots__ = ()
 
 
-type FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
+FieldKind: TypeAlias = DimensionKind | TimeDimensionKind | MeasureKind
 
 
 _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
@@ -163,8 +165,11 @@ def _validate_ref_path(kind: SemanticKind, path: object) -> str:
     return path
 
 
+KindT = TypeVar("KindT", bound=SemanticKindTag, covariant=True)
+
+
 @final
-class Ref[KindT: SemanticKindTag]:
+class Ref(Generic[KindT]):
     """Sealed semantic identity created only by an exact kind factory."""
 
     __slots__ = ("kind", "path")

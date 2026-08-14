@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.frames.attribution import (
     AttributionFrame,

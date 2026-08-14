@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal
 
 import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from marivo._compat import UTC
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.errors import AnalysisRepair

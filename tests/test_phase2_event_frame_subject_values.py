@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import PatternStepMismatchError
 from marivo.analysis.event import EventPattern, EventWatermarkReceipt, PatternStep

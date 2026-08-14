@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from types import SimpleNamespace
 from typing import Any, Literal, cast
@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo._temporal import (
     FrameTemporalContractV1,
     PeriodCalendarSnapshotV1,

@@ -17,6 +17,7 @@ from marivo._authoring.model import (
     AuthoringTransition,
 )
 from marivo._authoring.normalize import normalize_contract
+from marivo._compat import UTC
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.errors import repair
@@ -26,7 +27,7 @@ from marivo.introspection.live.model import LiveHelpTarget
 
 @pytest.fixture
 def snapshot(tmp_path: Path) -> object:
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.datasource.metadata import ColumnMetadata
     from marivo.datasource.snapshot import (

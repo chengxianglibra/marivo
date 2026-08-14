@@ -7,6 +7,7 @@ import datetime as _dt
 import pandas as pd
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import (
@@ -63,7 +64,7 @@ def _make_base_frame() -> BaseFrame:
         session_id="sess_test",
         project_root="/tmp",
         produced_by_job=None,
-        created_at=_dt.datetime.now(tz=_dt.UTC),
+        created_at=_dt.datetime.now(tz=UTC),
         row_count=1,
         byte_size=10,
         lineage=Lineage(steps=()),

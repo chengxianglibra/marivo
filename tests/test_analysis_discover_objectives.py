@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AnalysisError,
     DiscoverAxisNotMaterializedError,

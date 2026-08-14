@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import TypeVar
 
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -66,7 +67,10 @@ def _analysis_repair(
     )
 
 
-def _normalize_ref_input[KindT: SemanticKindTag](
+KindT = TypeVar("KindT", bound=SemanticKindTag)
+
+
+def _normalize_ref_input(
     catalog: SemanticCatalog,
     value: _SemanticInput[KindT],
     *,

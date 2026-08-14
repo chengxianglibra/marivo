@@ -9,20 +9,20 @@ import os
 import platform
 import sqlite3
 import threading
-import tomllib
 import types
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
 from time import monotonic
 from typing import Literal, ParamSpec, TypeVar, cast
 
 from marivo import __version__
+from marivo._compat import UTC, tomllib
 from marivo.config import PROJECT_MANIFEST, STATE_DIR
 from marivo.project import resolve_project_root
 

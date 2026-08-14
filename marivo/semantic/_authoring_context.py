@@ -9,7 +9,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from marivo.refs import (
     DatasourceKind,
@@ -38,7 +38,7 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
-type DefinitionIR = (
+DefinitionIR: TypeAlias = (
     DomainIR
     | EntityIR
     | DimensionIR

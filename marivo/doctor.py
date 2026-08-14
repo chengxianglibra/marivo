@@ -7,7 +7,6 @@ import os
 import sqlite3
 import stat
 import sys
-import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from marivo import __version__
+from marivo._compat import tomllib
 from marivo.config import (
     AUTHORED_DIR,
     DATASOURCES_DIR,
