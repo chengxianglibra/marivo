@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
+  <title id="title">Marivo Analysis DSL 面向 Agent 的 read-write-execute loop</title>
+  <desc id="desc">Agent 读取语义对象和当前结果，写出一个分析动作，由 Marivo 检查并执行，得到含义明确且生成后不再改写的结果，再由 Agent 读取事实并决定下一步。Marivo 约束动作，但不替 Agent 推理。</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8f5ed"/>
+      <stop offset="1" stop-color="#eaf4ef"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123f34"/>
+      <stop offset="1" stop-color="#092a23"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#147d64" stroke-opacity=".045"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0d4639" flood-opacity=".12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5 0 10Z" fill="#239878"/>
+    </marker>
+    <style>
+      text { font-family: "Hiragino Sans GB", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+      .eyebrow { fill: #147d64; font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+      .heading { fill: #102a21; font-size: 34px; font-weight: 700; }
+      .section { fill: #15372d; font-size: 21px; font-weight: 700; }
+      .label { fill: #29473d; font-size: 16px; font-weight: 650; }
+      .muted { fill: #697d75; font-size: 14px; }
+      .tiny { fill: #71877e; font-size: 12px; }
+      .white { fill: #f3fff9; }
+      .mint { fill: #b9f4dd; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="840" rx="30" fill="url(#paper)"/>
+  <rect width="1400" height="840" rx="30" fill="url(#grid)"/>
+
+  <text x="70" y="70" class="eyebrow mono">MARIVO / ANALYSIS DSL</text>
+  <text x="70" y="116" class="heading">约束每一个分析动作，不替 Agent 决定怎样思考</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="164" width="300" height="496" rx="26" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".22"/>
+  </g>
+  <text x="98" y="204" class="eyebrow mono">AGENT OWNS</text>
+  <text x="98" y="242" class="section">判断与选择</text>
+
+  <rect x="98" y="276" width="244" height="64" rx="15" fill="#edf5f0"/>
+  <text x="118" y="302" class="label">问题与目标</text>
+  <text x="118" y="324" class="tiny">这次调查要回答什么</text>
+  <rect x="98" y="354" width="244" height="64" rx="15" fill="#edf5f0"/>
+  <text x="118" y="380" class="label">假设与下一步</text>
+  <text x="118" y="402" class="tiny">哪个动作对问题有意义</text>
+  <rect x="98" y="432" width="244" height="64" rx="15" fill="#edf5f0"/>
+  <text x="118" y="458" class="label">解释与边界</text>
+  <text x="118" y="480" class="tiny">事实意味着什么、不能说明什么</text>
+  <rect x="98" y="510" width="244" height="64" rx="15" fill="#dff4ea"/>
+  <text x="118" y="536" class="label">继续或停止</text>
+  <text x="118" y="558" class="tiny">根据新事实调整调查方向</text>
+  <text x="98" y="621" class="tiny">推理与判断仍由 Agent 负责</text>
+
+  <path d="M370 314H433" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <text x="386" y="299" class="tiny mono">WRITE</text>
+  <path d="M433 570H370" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <text x="386" y="596" class="tiny mono">READ</text>
+
+  <g filter="url(#shadow)">
+    <rect x="433" y="164" width="897" height="496" rx="28" fill="url(#dark)"/>
+  </g>
+  <text x="466" y="204" class="eyebrow mono mint">MARIVO OWNS</text>
+  <text x="466" y="242" class="section white">可检查的动作、可重复的计算与清楚的结果</text>
+
+  <rect x="466" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
+  <text x="490" y="310" class="eyebrow mono mint">01 / READ</text>
+  <text x="490" y="345" class="label white">读取当前事实</text>
+  <text x="490" y="380" class="tiny" fill="#b9d9ce">catalog · help</text>
+  <text x="490" y="407" class="tiny" fill="#b9d9ce">frame.show()</text>
+  <text x="490" y="434" class="tiny" fill="#b9d9ce">frame.contract()</text>
+  <text x="490" y="476" class="muted" fill="#91bbae">只展开当前一步</text>
+  <text x="490" y="498" class="muted" fill="#91bbae">真正需要的信息</text>
+
+  <path d="M706 401H752" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <rect x="752" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
+  <text x="776" y="310" class="eyebrow mono mint">02 / WRITE</text>
+  <text x="776" y="345" class="label white">写一个分析动作</text>
+  <text x="776" y="380" class="tiny" fill="#b9d9ce">observe(metric, scope)</text>
+  <text x="776" y="407" class="tiny" fill="#b9d9ce">compare(frame, frame)</text>
+  <text x="776" y="434" class="tiny" fill="#b9d9ce">attribute(delta, axes)</text>
+  <text x="776" y="476" class="muted" fill="#91bbae">参数清楚、可以检查</text>
+  <text x="776" y="498" class="muted" fill="#91bbae">这一步分析的完整内容</text>
+
+  <path d="M992 401H1038" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <rect x="1038" y="276" width="259" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
+  <text x="1062" y="310" class="eyebrow mono mint">03 / EXECUTE</text>
+  <text x="1062" y="345" class="label white">检查、计算、保存</text>
+  <text x="1062" y="380" class="tiny" fill="#b9d9ce">输入是否仍然有效</text>
+  <text x="1062" y="407" class="tiny" fill="#b9d9ce">当前结果能否用于下一步</text>
+  <text x="1062" y="434" class="tiny" fill="#b9d9ce">输出明确结果，失败说明原因</text>
+  <text x="1062" y="476" class="muted" fill="#91bbae">不猜输入，不伪造</text>
+  <text x="1062" y="498" class="muted" fill="#91bbae">“尽量正确”的结果</text>
+
+  <path d="M1168 526V565H586V526" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <rect x="710" y="544" width="338" height="72" rx="18" fill="#dff4ea"/>
+  <text x="879" y="573" text-anchor="middle" class="label">含义明确、生成后不再改写的结果</text>
+  <text x="879" y="597" text-anchor="middle" class="tiny mono">MetricFrame · DeltaFrame · AttributionFrame …</text>
+
+  <text x="70" y="715" class="eyebrow mono">THE BOUNDARY</text>
+  <rect x="70" y="741" width="1260" height="54" rx="17" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
+  <circle cx="103" cy="768" r="13" fill="#147d64"/>
+  <path d="M97 768l4 4 8-9" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="130" y="774" class="label">语义层提供名词，Analysis DSL 约束动词；Agent 读取事实后，自己决定下一步。</text>
+</svg>
