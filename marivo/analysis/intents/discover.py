@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
-from datetime import UTC, datetime
+from datetime import datetime
 from numbers import Real
 from time import monotonic
 from typing import Any, Literal, TypeGuard, cast
@@ -11,6 +11,7 @@ from typing import Any, Literal, TypeGuard, cast
 import numpy as np
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import (

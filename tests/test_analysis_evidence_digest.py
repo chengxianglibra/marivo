@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.types import (
     AnalysisScope,

@@ -7,11 +7,14 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, fields, is_dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from math import isfinite
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 
+from typing_extensions import TypeAliasType
+
+from marivo._compat import UTC
 from marivo.config import (
     AUTHORING_CHECK_DIR,
     AUTHORING_DIR,
@@ -36,8 +39,11 @@ if TYPE_CHECKING:
 EVIDENCE_FORMAT_VERSION = 2
 SNAPSHOT_TTL = timedelta(hours=24)
 
-type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
-type CacheMissStatus = Literal["fresh", "stale", "mismatched"]
+JsonValue = TypeAliasType(  # type: ignore[misc]
+    "JsonValue",
+    str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None,  # type: ignore[misc]
+)
+CacheMissStatus: TypeAlias = Literal["fresh", "stale", "mismatched"]
 
 
 _SNAPSHOT_MEMORY: dict[str, DiscoverySnapshot] = {}

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
+from marivo._compat import StrEnum
 from marivo.introspection.constraints import Constraint, Phase
 
 __all__ = [

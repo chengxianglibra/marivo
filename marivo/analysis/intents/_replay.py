@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 from marivo._temporal import (
     _time_scope_from_contract_data,
@@ -48,7 +48,7 @@ _ALIGNMENT_POLICY_FIELDS = {
     "anchor",
 }
 
-type ReplayMetricInput = (
+ReplayMetricInput: TypeAlias = (
     Ref[MetricKind] | RuntimeMetricExpr | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
 )
 

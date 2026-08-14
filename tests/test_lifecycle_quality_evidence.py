@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import cast
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._compat import UTC
 from marivo.analysis.event import EventWatermarkReceipt
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.lifecycle import extract_lifecycle_finding

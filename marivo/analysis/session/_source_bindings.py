@@ -6,16 +6,16 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from math import isfinite
-from typing import NoReturn
+from typing import NoReturn, TypeAlias
 
 from marivo.analysis.errors import AnalysisRepair, SourceBindingError
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, json_source_param_names
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EntityKind, Ref, SemanticKind
 
-type SourceBindingMap = Mapping[Ref[EntityKind], Mapping[str, QueryParamScalar]]
-type NormalizedSourceBindings = dict[str, dict[str, QueryParamScalar]]
-type SourceBindingScopes = dict[object, NormalizedSourceBindings]
+SourceBindingMap: TypeAlias = Mapping[Ref[EntityKind], Mapping[str, QueryParamScalar]]
+NormalizedSourceBindings: TypeAlias = dict[str, dict[str, QueryParamScalar]]
+SourceBindingScopes: TypeAlias = dict[object, NormalizedSourceBindings]
 
 _ACTIVE_SOURCE_BINDINGS: ContextVar[SourceBindingScopes | None] = ContextVar(
     "marivo_analysis_source_bindings",

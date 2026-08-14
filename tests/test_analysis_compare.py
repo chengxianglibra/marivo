@@ -2,7 +2,7 @@
 
 import importlib
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import ibis
 import numpy as np
@@ -13,6 +13,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,

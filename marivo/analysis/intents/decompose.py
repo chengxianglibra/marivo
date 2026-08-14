@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
+from marivo._compat import tomllib
 from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
 
 

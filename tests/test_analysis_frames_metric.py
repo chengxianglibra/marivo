@@ -1,11 +1,12 @@
 """MetricFrame and MetricFrameMeta."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.errors import NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -234,7 +235,7 @@ def test_make_metric_frame_rejects_read_only_session(tmp_path, monkeypatch):
 
 
 def test_metric_frame_meta_accepts_optional_normalization():
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.frames.metric import MetricFrameMeta
 
@@ -260,7 +261,7 @@ def test_metric_frame_meta_accepts_optional_normalization():
 
 
 def test_metric_frame_meta_normalization_defaults_to_none():
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.frames.metric import MetricFrameMeta
 

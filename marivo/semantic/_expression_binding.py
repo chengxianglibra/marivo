@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from types import CellType, FunctionType, MappingProxyType
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 
 import ibis.expr.types as ir
 
@@ -41,7 +41,7 @@ _FIELD_KINDS = frozenset(
         SemanticKind.MEASURE,
     }
 )
-type EventConstant = str | int | float | bool
+EventConstant: TypeAlias = str | int | float | bool
 
 
 @dataclass(frozen=True, slots=True)

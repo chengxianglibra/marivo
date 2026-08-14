@@ -5,13 +5,14 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
 from time import monotonic
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AmbiguousEventOrderError,

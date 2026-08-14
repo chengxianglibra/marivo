@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis.errors import ComponentDecompositionError, SemanticKindMismatchError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta

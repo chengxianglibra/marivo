@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
@@ -40,7 +40,7 @@ EVALUATION_END_COLUMN = "evaluation_end"
 CURRENT_EVALUATION_END_COLUMN = "current_evaluation_end"
 BASELINE_EVALUATION_END_COLUMN = "baseline_evaluation_end"
 
-type AllHistoryLevelChangeSchema = Literal["all-history-level-change/v1"]
+AllHistoryLevelChangeSchema: TypeAlias = Literal["all-history-level-change/v1"]
 ALL_HISTORY_LEVEL_CHANGE_SCHEMA: AllHistoryLevelChangeSchema = "all-history-level-change/v1"
 
 
@@ -92,7 +92,7 @@ class AuthoredGrainToDateAnchorV1(BaseModel):
     reset_grain: Literal["week", "month", "quarter", "year"]
 
 
-type AuthoredComparablePeriodAnchorV1 = AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1
+AuthoredComparablePeriodAnchorV1: TypeAlias = AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1
 
 
 class TrailingAnchorSemanticsV1(BaseModel):
@@ -113,7 +113,9 @@ class GrainToDateAnchorSemanticsV1(BaseModel):
     reset_grain: Literal["week", "month", "quarter", "year"]
 
 
-type ComparablePeriodAnchorSemanticsV1 = TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1
+ComparablePeriodAnchorSemanticsV1: TypeAlias = (
+    TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1
+)
 
 
 class CumulativePairSummaryV1(BaseModel):
@@ -220,7 +222,7 @@ class CumulativeAlignmentV1(BaseModel):
         }
 
 
-type CumulativeAnchor = (
+CumulativeAnchor: TypeAlias = (
     Literal["all_history"]
     | tuple[Literal["grain_to_date"], str | TemporalGrain]
     | tuple[Literal["trailing"], int, str]
@@ -257,7 +259,7 @@ def canonical_cumulative_metadata(value: dict[str, Any] | None) -> dict[str, Any
     return cast("dict[str, Any] | None", lower(value)) if value is not None else None
 
 
-type CumulativeCompareBlocker = Literal[
+CumulativeCompareBlocker: TypeAlias = Literal[
     "non_cumulative_component",
     "mixed_component_anchors",
     "unresolved_component_anchor",

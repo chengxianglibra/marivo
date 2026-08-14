@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import ibis
 import pytest
 
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo._temporal import (
     GregorianIsoResolver,
     TemporalResolver,

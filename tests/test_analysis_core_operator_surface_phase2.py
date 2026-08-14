@@ -5,6 +5,7 @@ from __future__ import annotations
 import marivo.analysis as mv
 import marivo.analysis.intents as intents
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from tests.shared_fixtures import make_test_delta_contract, rendered_help
 
 
@@ -82,7 +83,7 @@ def test_help_default_operator_surface_is_phase2_core() -> None:
 
 
 def test_delta_affordance_uses_attribute_not_decompose(tmp_path, monkeypatch) -> None:
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     import pandas as pd
 

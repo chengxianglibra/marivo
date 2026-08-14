@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._authoring.model import (
     AuthoringContract,
@@ -22,7 +22,7 @@ from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, Tab
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import ref as ref_factory
 
-type ContractSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
+ContractSource: TypeAlias = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
 if TYPE_CHECKING:
     from marivo.datasource._capabilities.model import DatasourceCapabilityRegistry

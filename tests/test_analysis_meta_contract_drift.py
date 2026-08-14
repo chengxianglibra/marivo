@@ -9,6 +9,7 @@ These tests pin the typed surface so that future additions either stay on the
 typed authority or fail loudly.
 """
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import AxisBindingV1, MeasureBindingV1
 from marivo.analysis.intents._metric_axes import (
     metric_dimension_columns,
@@ -176,7 +177,7 @@ def test_measure_binding_pydantic_roundtrip() -> None:
 def _meta_with_bindings(*bindings: AxisBindingV1) -> object:
     """Build a minimal metric meta exposing only typed axis bindings."""
     import sys
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.frames.metric import MetricFrameMeta
     from marivo.analysis.lineage import Lineage, LineageStep
@@ -301,7 +302,7 @@ def test_measure_bindings_arity_mismatch_rejected() -> None:
             session_id="sess",
             project_root="/tmp",
             produced_by_job=None,
-            created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+            created_at=__import__("datetime").datetime.now(UTC),
             row_count=0,
             byte_size=0,
             lineage=Lineage(
@@ -358,7 +359,7 @@ def test_measure_bindings_identity_mismatch_rejected() -> None:
             session_id="sess",
             project_root="/tmp",
             produced_by_job=None,
-            created_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+            created_at=__import__("datetime").datetime.now(UTC),
             row_count=0,
             byte_size=0,
             lineage=Lineage(
@@ -401,7 +402,7 @@ def _metric_meta_holder(
     unit_state: object | None = None,
 ) -> object:
     import sys
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.frames.metric import MetricFrameMeta
     from marivo.analysis.lineage import Lineage, LineageStep

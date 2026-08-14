@@ -6,7 +6,7 @@ import difflib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal, NoReturn
+from typing import Generic, Literal, NoReturn, TypeVar
 
 from marivo.introspection.live.model import (
     SURFACE_LIMITS,
@@ -24,8 +24,11 @@ ResolveKind = Literal[
 ]
 
 
+DescriptorT = TypeVar("DescriptorT", bound=ResolvableHelpDescriptor)
+
+
 @dataclass(frozen=True)
-class ResolvedLiveTarget[DescriptorT: ResolvableHelpDescriptor]:
+class ResolvedLiveTarget(Generic[DescriptorT]):
     """Closed kind/payload carrier for one resolved help target."""
 
     kind: ResolveKind
@@ -91,7 +94,7 @@ def _default_help_target_error(target: object, suggestions: tuple[str, ...]) -> 
 
 
 @dataclass(frozen=True)
-class LiveSurface[DescriptorT: ResolvableHelpDescriptor]:
+class LiveSurface(Generic[DescriptorT]):
     """Immutable bundle of surface-owned inputs to neutral resolution."""
 
     registry: LiveSurfaceRegistry[DescriptorT]
@@ -105,7 +108,7 @@ class LiveSurface[DescriptorT: ResolvableHelpDescriptor]:
     suggestion_index: LiveSuggestionIndex | None = None
 
 
-def resolve_live_target[DescriptorT: ResolvableHelpDescriptor](
+def resolve_live_target(
     target: object,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -123,7 +126,7 @@ def resolve_live_target[DescriptorT: ResolvableHelpDescriptor](
     return _resolve_object(target, surface)
 
 
-def _resolved_descriptor[DescriptorT: ResolvableHelpDescriptor](
+def _resolved_descriptor(
     descriptor: DescriptorT,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -135,7 +138,7 @@ def _resolved_descriptor[DescriptorT: ResolvableHelpDescriptor](
     )
 
 
-def _resolve_string[DescriptorT: ResolvableHelpDescriptor](
+def _resolve_string(
     target: str,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -233,7 +236,7 @@ def _public_type_entrypoint_paths(
     )
 
 
-def build_string_target_index[DescriptorT: ResolvableHelpDescriptor](
+def build_string_target_index(
     registry: LiveSurfaceRegistry[DescriptorT],
     *,
     public_type_names: frozenset[str],
@@ -277,7 +280,7 @@ def build_string_target_index[DescriptorT: ResolvableHelpDescriptor](
     return MappingProxyType(candidates)
 
 
-def _resolve_callable[DescriptorT: ResolvableHelpDescriptor](
+def _resolve_callable(
     target: object,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -287,7 +290,7 @@ def _resolve_callable[DescriptorT: ResolvableHelpDescriptor](
         _raise(surface, target)
 
 
-def _resolve_type[DescriptorT: ResolvableHelpDescriptor](
+def _resolve_type(
     target: type,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -315,7 +318,7 @@ def _resolve_type[DescriptorT: ResolvableHelpDescriptor](
     _raise(surface, target)
 
 
-def _resolve_object[DescriptorT: ResolvableHelpDescriptor](
+def _resolve_object(
     target: object,
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
@@ -329,9 +332,7 @@ def _resolve_object[DescriptorT: ResolvableHelpDescriptor](
     _raise(surface, target)
 
 
-def _raise[DescriptorT: ResolvableHelpDescriptor](
-    surface: LiveSurface[DescriptorT], target: object
-) -> NoReturn:
+def _raise(surface: LiveSurface[DescriptorT], target: object) -> NoReturn:
     query = target if isinstance(target, str) else type(target).__name__
     suggestions: tuple[str, ...] = ()
     if surface.suggestion_index is not None:
@@ -375,7 +376,7 @@ def _tokenize(text: str) -> frozenset[str]:
     return frozenset(tokens)
 
 
-def build_suggestion_index[DescriptorT: ResolvableHelpDescriptor](
+def build_suggestion_index(
     registry: LiveSurfaceRegistry[DescriptorT],
 ) -> LiveSuggestionIndex:
     """Build a deterministic suggestion index without copying descriptors."""

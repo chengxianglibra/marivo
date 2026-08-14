@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis.errors import FindingExtractionFailedError
 from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
 from marivo.analysis.evidence.extraction.composition import (

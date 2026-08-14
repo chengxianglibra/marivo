@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
@@ -35,7 +35,7 @@ class SurfaceRootHelpRoute:
     owner: HelpSurface
 
 
-type HelpRoute = NativeHelpRoute | SurfaceRootHelpRoute | TopicHelpRoute
+HelpRoute: TypeAlias = NativeHelpRoute | SurfaceRootHelpRoute | TopicHelpRoute
 
 
 class MarivoHelpTargetError(ValueError):

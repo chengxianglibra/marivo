@@ -68,7 +68,7 @@ def decompose_loss_rate(
 
     total_shares = np.full(contributions.shape, np.nan, dtype="float64")
     if total_delta != 0:
-        total_shares = contributions / total_delta
+        total_shares[:] = contributions / total_delta
     positive_shares = np.full(contributions.shape, np.nan, dtype="float64")
     if positive_pool != 0:
         positive_mask = contributions > 0

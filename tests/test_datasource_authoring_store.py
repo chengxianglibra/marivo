@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import ibis
@@ -15,6 +15,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo._temporal import (
     TemporalSnapshotStore,
     certify_period_calendar,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import textwrap
-from datetime import UTC, datetime
+from datetime import datetime
 
 import ibis
 import pandas as pd
@@ -12,6 +12,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     InvalidDistributionInstantsError,
     SubjectSetMismatchError,

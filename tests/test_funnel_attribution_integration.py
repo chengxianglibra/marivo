@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import importlib
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,

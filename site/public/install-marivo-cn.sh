@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-readonly MIN_PYTHON="3.12"
+readonly MIN_PYTHON="3.10"
 readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"
 readonly PYPI_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
 readonly UV_PYTHON_INSTALL_MIRROR="https://registry.npmmirror.com/-/binary/python-build-standalone"
@@ -78,7 +78,7 @@ validate_target() {
 python_is_supported() {
     local interpreter=$1
     [ -x "$interpreter" ] && "$interpreter" -c \
-        'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' \
+        'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
         >/dev/null 2>&1
 }
 

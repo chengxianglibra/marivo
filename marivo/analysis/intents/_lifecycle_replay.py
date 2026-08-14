@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
 
 import pandas as pd
 
@@ -24,9 +24,9 @@ from marivo.refs import EventKind, Ref, ref
 if TYPE_CHECKING:
     from marivo.semantic.ir import StateModelIR, StateTriggerIR
 
-type TriggerKey = tuple[Ref[EventKind], str]
-type ViolationKind = Literal["illegal_transition", "transition_from_terminal"]
-type EvaluationKind = Literal[
+TriggerKey: TypeAlias = tuple[Ref[EventKind], str]
+ViolationKind: TypeAlias = Literal["illegal_transition", "transition_from_terminal"]
+EvaluationKind: TypeAlias = Literal[
     "ignored_pre_inception",
     "legal_inception",
     "legal_transition",

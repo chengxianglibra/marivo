@@ -105,7 +105,7 @@ session, or specify evidence fields.
 
 ## Quick Start
 
-Marivo requires Python 3.12 or newer. Enter the directory that will contain the
+Marivo requires Python 3.10 or newer. Enter the directory that will contain the
 project, then run:
 
 ```bash
@@ -157,7 +157,7 @@ management, and evidence collection.
 ## Development
 
 ```bash
-uv venv --python 3.12 --seed
+uv venv --python 3.10 --seed
 uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 ```
 

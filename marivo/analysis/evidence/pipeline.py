@@ -8,13 +8,14 @@ import json
 import os
 import shutil
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from marivo._compat import UTC
 from marivo._temporal import _trusted_time_scope_validation
 from marivo.analysis._cumulative import (
     AllHistoryLevelChangeV1,
@@ -1196,7 +1197,7 @@ def _reuse_committed_result(
                 if getattr(frame.meta, "kind", None) in {"event_frame", "lifecycle_frame"}
                 else type(frame.meta).model_validate(persisted_payload)
             )
-        persisted_df = pd.read_parquet(parquet_path, engine="pyarrow", to_pandas_kwargs={})
+        persisted_df = pd.read_parquet(parquet_path, engine="pyarrow")
     except FrameMetaInvalidError:
         raise
     except Exception:
@@ -1222,7 +1223,6 @@ def _reuse_committed_result(
             trace = pd.read_parquet(
                 trace_path,
                 engine="pyarrow",
-                to_pandas_kwargs={},
             )
         except Exception:
             return None

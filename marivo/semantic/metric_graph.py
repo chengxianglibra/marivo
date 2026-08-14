@@ -8,7 +8,9 @@ contains no executable expressions.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
+
+from typing_extensions import TypeAliasType
 
 from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import RefPayloadV1, SemanticKind
@@ -18,9 +20,12 @@ from marivo.semantic.ir import AggKind, AggregateFoldInput
 MAX_EXPRESSION_DEPTH = 10
 MAX_EXPRESSION_OCCURRENCES = 256
 
-type CanonicalScalar = str | int | float | bool | None
-type CanonicalValue = CanonicalScalar | RefPayloadV1 | tuple[CanonicalValue, ...]
-type CanonicalField = tuple[str, CanonicalValue]
+CanonicalScalar: TypeAlias = str | int | float | bool | None
+CanonicalValue = TypeAliasType(  # type: ignore[misc]
+    "CanonicalValue",
+    CanonicalScalar | RefPayloadV1 | tuple["CanonicalValue", ...],  # type: ignore[misc]
+)
+CanonicalField: TypeAlias = tuple[str, CanonicalValue]  # type: ignore[misc]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +45,8 @@ class CanonicalSliceEntryV1:
             raise ValueError("slice dimension_ref must identify a dimension or time_dimension")
 
 
-type CanonicalSlice = tuple[CanonicalSliceEntryV1, ...]
-type CumulativeAnchorV1 = (
+CanonicalSlice: TypeAlias = tuple[CanonicalSliceEntryV1, ...]
+CumulativeAnchorV1: TypeAlias = (
     Literal["all_history"]
     | tuple[Literal["grain_to_date"], str | TemporalGrain]
     | tuple[Literal["trailing"], int, str]
@@ -175,7 +180,7 @@ class LinearNodeV1:
     unit_override: str | None = None
 
 
-type MetricGraphNodeV1 = (
+MetricGraphNodeV1: TypeAlias = (
     CatalogBodyLeafV1
     | AggregateNodeV1
     | WeightedMeanAggregateNodeV1
@@ -245,7 +250,7 @@ class RuntimeExpressionIdentity:
     expression_fingerprint: str
 
 
-type MetricIdentity = CatalogMetricIdentity | RuntimeExpressionIdentity
+MetricIdentity: TypeAlias = CatalogMetricIdentity | RuntimeExpressionIdentity
 
 
 @dataclass(frozen=True)
@@ -349,7 +354,7 @@ class CumulativeEquivalentComparisonSemanticsV1:
             )
 
 
-type DeltaComparisonSemantics = (
+DeltaComparisonSemantics: TypeAlias = (
     ExactComparisonSemanticsV1 | CumulativeEquivalentComparisonSemanticsV1
 )
 
@@ -416,7 +421,7 @@ class DeltaMetricSubjectV1:
     comparison: DeltaComparisonIdentity
 
 
-type TypedEvidenceSubject = (
+TypedEvidenceSubject: TypeAlias = (
     CatalogMetricSubjectV1 | RuntimeExpressionSubjectV1 | DeltaMetricSubjectV1
 )
 

@@ -2,12 +2,13 @@
 
 import json
 import textwrap
-from datetime import UTC, datetime
+from datetime import datetime
 
 import duckdb
 import pytest
 
 import marivo.semantic as ms
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     FrameMetaInvalidError,
     JobNotFoundError,
@@ -599,7 +600,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
 
 
 def test_session_close_closes_connection_runtime(tmp_path):
-    from datetime import UTC, datetime
+    from datetime import datetime
 
     from marivo.analysis.session._connections import AnalysisConnectionRuntime
     from marivo.analysis.session._layout import PersistenceLayout

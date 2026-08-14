@@ -5,7 +5,7 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from itertools import pairwise
 from math import sqrt
 from numbers import Integral
@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,

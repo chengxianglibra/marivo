@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import importlib
-from datetime import UTC, datetime
+from datetime import datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import AttributionMaterializationError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta

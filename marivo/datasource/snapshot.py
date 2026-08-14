@@ -11,7 +11,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from urllib.parse import urlparse
 
 import ibis.expr.types as ir
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 _FREQUENCY_CAPACITY = 10
 _DISPLAY_SAMPLE_CAPACITY = 10
-type JsonScalar = str | int | float | bool | None
+JsonScalar: TypeAlias = str | int | float | bool | None
 
 
 @dataclass(frozen=True)

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._compat import UTC
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult

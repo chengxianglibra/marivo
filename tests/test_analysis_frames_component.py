@@ -1,11 +1,12 @@
 """ComponentFrame contract and load behavior."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta

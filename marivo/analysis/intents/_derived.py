@@ -8,13 +8,14 @@ import json
 import secrets
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1, AttributionMode
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins

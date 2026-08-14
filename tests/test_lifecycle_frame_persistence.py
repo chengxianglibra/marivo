@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import FrameCacheCorruptedError, ModelStateMismatchError
 from marivo.analysis.evidence.pipeline import (

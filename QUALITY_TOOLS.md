@@ -72,7 +72,7 @@ open htmlcov/index.html
 
 ## 工具版本
 
-- Python: 3.12+
+- Python: 3.10+
 - Ruff: >=0.3.0
 - Mypy: >=1.9
 - pytest: >=8

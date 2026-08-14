@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from typing_extensions import TypeAliasType
 
 from marivo.analysis._cumulative import AllHistoryLevelChangeSchema
 from marivo.analysis._pages import _BoundedPage
@@ -25,8 +26,11 @@ from marivo.semantic.metric_graph import (
     TypedEvidenceSubject,
 )
 
-type JsonScalar = str | int | float | bool | None
-type JsonValue = JsonScalar | tuple["JsonValue", ...] | list["JsonValue"] | dict[str, "JsonValue"]
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue = TypeAliasType(  # type: ignore[misc]
+    "JsonValue",
+    JsonScalar | tuple["JsonValue", ...] | list["JsonValue"] | dict[str, "JsonValue"],  # type: ignore[misc]
+)
 EvidenceStatus = Literal["complete", "partial", "unavailable"]
 EvidenceCompleteness = EvidenceStatus
 EpistemicKind = Literal[

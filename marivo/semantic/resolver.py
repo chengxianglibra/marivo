@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import ibis
 import ibis.expr.types as ir
@@ -25,8 +25,10 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import AggKind
 from marivo.semantic.materializer import Materializer
 
+KindT = TypeVar("KindT", bound=SemanticKindTag)
 
-def _require_kind[KindT: SemanticKindTag](
+
+def _require_kind(
     catalog: SemanticCatalog,
     value: Ref[KindT],
     *,

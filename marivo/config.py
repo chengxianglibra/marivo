@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from marivo._compat import tomllib
 
 # ---------------------------------------------------------------------------
 # Path constants — single source of truth for directory names

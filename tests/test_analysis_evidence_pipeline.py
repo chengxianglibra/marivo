@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis.evidence.pipeline as pipeline_module
+from marivo._compat import UTC
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,

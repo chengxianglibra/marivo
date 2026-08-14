@@ -23,6 +23,7 @@ import pytest
 import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
+from marivo._compat import UTC
 from marivo._help.render import render_help_text
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -151,7 +152,7 @@ def test_metric_frame_repr_is_one_line() -> None:
         session_id="s1",
         project_root="/tmp",
         produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
         row_count=3,
         byte_size=100,
         lineage=Lineage(),
@@ -182,7 +183,7 @@ def test_frame_render_no_stdout(capsys) -> None:
         session_id="s1",
         project_root="/tmp",
         produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
         row_count=2,
         byte_size=50,
         lineage=Lineage(),
@@ -199,7 +200,7 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
         session_id="s1",
         project_root="/tmp",
         produced_by_job=None,
-        created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        created_at=datetime.datetime(2026, 1, 1, tzinfo=UTC),
         row_count=2,
         byte_size=50,
         lineage=Lineage(),

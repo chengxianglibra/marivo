@@ -940,7 +940,6 @@ def _load_lifecycle_source_history(
         source_df = pd.read_parquet(
             data_path,
             engine="pyarrow",
-            to_pandas_kwargs={},
         )
         trace_path = frame_dir / source_meta.violation_trace.filename
         if (
@@ -951,7 +950,6 @@ def _load_lifecycle_source_history(
                 pd.read_parquet(
                     trace_path,
                     engine="pyarrow",
-                    to_pandas_kwargs={},
                 )
             )
             != source_meta.violation_trace.row_count
@@ -1568,7 +1566,6 @@ def _lifecycle_violations_math_check(
             trace = pd.read_parquet(
                 trace_path,
                 engine="pyarrow",
-                to_pandas_kwargs={},
             )
             for column in ("subject_identity", "trigger_event_identity"):
                 trace[column] = trace[column].map(

@@ -6,12 +6,12 @@ import argparse
 import json
 import shutil
 import sys
-import tomllib
 from pathlib import Path
 
 import tomli_w
 
 from marivo import __version__
+from marivo._compat import tomllib
 from marivo.config import (
     AGENTS_SKILLS_DIR,
     AUTHORED_DIR,

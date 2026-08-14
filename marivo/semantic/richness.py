@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from marivo._compat import UTC
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:

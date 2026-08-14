@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AttributionMaterializationError,
     SemanticKindMismatchError,

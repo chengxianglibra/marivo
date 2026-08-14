@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from marivo._compat import UTC
 from marivo.analysis.event import CompletenessDeclaration
 from marivo.analysis.frames.base import (
     BaseFrame,

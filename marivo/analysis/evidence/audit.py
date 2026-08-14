@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
+from marivo._compat import UTC
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.errors import (
     EvidenceDigestNotAvailableError,

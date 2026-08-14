@@ -18,11 +18,12 @@ from __future__ import annotations
 import json
 import secrets
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from marivo._compat import UTC
 from marivo.analysis.errors import NoActiveSessionError, SessionStateError
 from marivo.analysis.session._layout import (
     PersistenceLayout,

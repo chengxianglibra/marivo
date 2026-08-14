@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
+
+from typing_extensions import TypeAliasType
 
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic.metric_graph import (
@@ -23,8 +25,11 @@ from marivo.semantic.unit_algebra import (
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
 
-type JsonScalar = str | int | float | bool | None
-type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue = TypeAliasType(  # type: ignore[misc]
+    "JsonValue",
+    JsonScalar | list["JsonValue"] | dict[str, "JsonValue"],  # type: ignore[misc]
+)
 
 
 @dataclass(frozen=True, slots=True)

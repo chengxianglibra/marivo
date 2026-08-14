@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from marivo._compat import UTC
 from marivo.analysis.intents.observe_planner import (
     _derive_version_mode,
     _effective_key,
@@ -120,7 +121,7 @@ def test_derive_version_mode_falls_back_to_latest_with_timescope(monkeypatch):
 def test_derive_version_mode_falls_back_to_latest_with_plan_time(monkeypatch):
     monkeypatch.setattr(
         "marivo.analysis.intents._observe_planner_versioning._utc_now",
-        lambda: dt.datetime(2026, 7, 5, 12, 0, tzinfo=dt.UTC),
+        lambda: dt.datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
     )
     mode, anchor_source, anchor_value = _derive_version_mode(
         root_time_dimension=None,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo._authoring.model import AuthoringContract
 from marivo.datasource.ir import (
@@ -19,7 +19,7 @@ from marivo.datasource.ir import (
     normalize_json_body,
 )
 
-type TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
+TableSource: TypeAlias = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class UnprunedScope:
         return contract_for_scope("unpruned")
 
 
-type AuthoringScope = PartitionScope | UnprunedScope
+AuthoringScope: TypeAlias = PartitionScope | UnprunedScope
 
 
 def _require_positive(value: int, *, field: str) -> None:

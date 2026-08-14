@@ -7,7 +7,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._compat import UTC
 
 
 def _records(path: Path) -> list[dict[str, object]]:

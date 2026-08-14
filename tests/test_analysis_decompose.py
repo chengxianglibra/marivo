@@ -1,6 +1,6 @@
 """Internal decompose and public attribute for scalar, time-series, and segmented DeltaFrames."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import ibis
 import pandas as pd
@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.errors import (
     AttributionAdditivityError,
     CrossSessionFrameError,

@@ -7,7 +7,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -63,7 +63,7 @@ class AttributionReconciliation(BaseModel):
     max_abs_residual: float
 
 
-type JsonScalar = str | int | float | bool | None
+JsonScalar: TypeAlias = str | int | float | bool | None
 
 
 class QuantileResolutionExecutionV1(BaseModel):
@@ -120,7 +120,7 @@ class SelectedMultiresolutionScopeV1(BaseModel):
     axis_refs: tuple[RefPayloadV1, ...] = Field(min_length=1)
 
 
-type MultiresolutionScopeV1 = Annotated[
+MultiresolutionScopeV1: TypeAlias = Annotated[
     CompleteMultiresolutionScopeV1 | SelectedMultiresolutionScopeV1,
     Field(discriminator="kind"),
 ]
@@ -264,7 +264,7 @@ class AllHistoryAnchorSemanticsV1(BaseModel):
     kind: Literal["all_history"] = "all_history"
 
 
-type CumulativeAttributionAnchorV1 = Annotated[
+CumulativeAttributionAnchorV1: TypeAlias = Annotated[
     AllHistoryAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1 | TrailingAnchorSemanticsV1,
     Field(discriminator="kind"),
 ]
@@ -324,7 +324,7 @@ class CumulativeTrailingFlowEvidenceV1(BaseModel):
     partitions: tuple[CumulativeComparablePeriodPartitionV1, ...]
 
 
-type CumulativeAttributionEvidenceV1 = Annotated[
+CumulativeAttributionEvidenceV1: TypeAlias = Annotated[
     CumulativeBusinessAxisEvidenceV1
     | CumulativeAllHistoryFlowEvidenceV1
     | CumulativeGrainToDateFlowEvidenceV1
@@ -333,7 +333,7 @@ type CumulativeAttributionEvidenceV1 = Annotated[
 ]
 
 
-type AttributionMethodEvidenceV1 = Annotated[
+AttributionMethodEvidenceV1: TypeAlias = Annotated[
     DistinctMembershipEvidenceV1
     | QuantileReplacementEvidenceV1
     | CumulativeBusinessAxisEvidenceV1

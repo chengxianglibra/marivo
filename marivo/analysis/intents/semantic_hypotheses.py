@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import Literal, cast
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.candidate_identity import semantic_hypothesis_item_id
 from marivo.analysis.candidate_lineage import (

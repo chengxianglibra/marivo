@@ -14,13 +14,14 @@ Tests cover two layers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis._capabilities.validation import (
     classify_input_family,
     validate_capability_inputs,

@@ -8,6 +8,7 @@ import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeAlias
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ def _fake_python(
     bin_dir: Path,
     name: str = "python3",
     *,
-    default_version: str = "3.12",
+    default_version: str = "3.10",
 ) -> Path:
     path = bin_dir / name
     _write_executable(
@@ -43,7 +44,7 @@ def _fake_python(
         + r"""set -eu
 printf 'python:%s:%s\n' "$0" "$*" >> "${FAKE_LOG:?}"
 if [[ "$0" == */managed/* ]]; then
-    version="${FAKE_MANAGED_PYTHON_VERSION:-3.12}"
+    version="${FAKE_MANAGED_PYTHON_VERSION:-3.10}"
 else
     version="${FAKE_PYTHON_VERSION:-$default_version}"
 fi
@@ -53,7 +54,7 @@ minor="${minor%%.*}"
 if [ "${1:-}" = "-c" ]; then
     code="${2:-}"
     if [[ "$code" == *"sys.version_info"* ]]; then
-        if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 12 ]; }; then
+        if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 10 ]; }; then
             exit 0
         fi
         exit 1
@@ -215,11 +216,11 @@ class InstallerToolchain:
     """Versioned immutable executable shims reused across pytest runs."""
 
     base_bin: Path
-    python312: Path
-    python311: Path
+    python310: Path
+    python39: Path
     python313: Path
     managed_python: Path
-    host_python312: Path
+    host_python310: Path
     uv: Path
     curl: Path
     uv_installer: Path
@@ -230,11 +231,11 @@ class InstallerToolchain:
         """Resolve a previously published toolchain without modifying it."""
         return cls(
             base_bin=root / "base-bin",
-            python312=root / "python312-bin" / "python3",
-            python311=root / "python311-bin" / "python3",
+            python310=root / "python310-bin" / "python3",
+            python39=root / "python39-bin" / "python3",
             python313=root / "python313-bin" / "python3.13",
             managed_python=root / "managed" / "bin" / "python",
-            host_python312=root / "host-bin" / "python3.12",
+            host_python310=root / "host-bin" / "python3.10",
             uv=root / "uv-bin" / "uv",
             curl=root / "download-bin" / "curl",
             uv_installer=root / "uv-download" / "install-uv.sh",
@@ -263,11 +264,11 @@ class InstallerToolchain:
             return False
         toolchain = cls.from_root(root)
         executables = (
-            toolchain.python312,
-            toolchain.python311,
+            toolchain.python310,
+            toolchain.python39,
             toolchain.python313,
             toolchain.managed_python,
-            toolchain.host_python312,
+            toolchain.host_python310,
             toolchain.uv,
             toolchain.curl,
             toolchain.uv_installer,
@@ -280,8 +281,8 @@ class InstallerToolchain:
     def build(cls, root: Path) -> InstallerToolchain:
         """Build every installer shim once, then make the files read-only."""
         base_bin = root / "base-bin"
-        python312_bin = root / "python312-bin"
-        python311_bin = root / "python311-bin"
+        python310_bin = root / "python310-bin"
+        python39_bin = root / "python39-bin"
         python313_bin = root / "python313-bin"
         managed_bin = root / "managed" / "bin"
         host_bin = root / "host-bin"
@@ -291,8 +292,8 @@ class InstallerToolchain:
         marivo_bin = root / "marivo-bin"
         for directory in (
             base_bin,
-            python312_bin,
-            python311_bin,
+            python310_bin,
+            python39_bin,
             python313_bin,
             managed_bin,
             host_bin,
@@ -304,13 +305,13 @@ class InstallerToolchain:
             directory.mkdir(parents=True)
 
         _fake_uname(base_bin)
-        for name in ("python3.14", "python3.13", "python3.12"):
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11"):
             _fake_unsupported_python(base_bin, name)
-        python312 = _fake_python(python312_bin)
-        python311 = _fake_python(python311_bin, default_version="3.11")
+        python310 = _fake_python(python310_bin)
+        python39 = _fake_python(python39_bin, default_version="3.9")
         python313 = _fake_python(python313_bin, "python3.13", default_version="3.13")
         managed_python = _fake_python(managed_bin, "python")
-        host_python312 = _fake_python(host_bin, "python3.12")
+        host_python310 = _fake_python(host_bin, "python3.10")
         uv = _fake_uv(uv_bin)
         uv_installer = _fake_uv_download(download_bin, download_root)
         curl = download_bin / "curl"
@@ -323,11 +324,11 @@ class InstallerToolchain:
 
         return cls(
             base_bin=base_bin,
-            python312=python312,
-            python311=python311,
+            python310=python310,
+            python39=python39,
             python313=python313,
             managed_python=managed_python,
-            host_python312=host_python312,
+            host_python310=host_python310,
             uv=uv,
             curl=curl,
             uv_installer=uv_installer,
@@ -340,7 +341,7 @@ class InstallerToolchain:
         env["PATH"] = ":".join((*map(str, directories), env["PATH"]))
 
 
-type InstallerEnv = tuple[InstallerToolchain, dict[str, str]]
+InstallerEnv: TypeAlias = tuple[InstallerToolchain, dict[str, str]]
 
 
 def _run_installer(

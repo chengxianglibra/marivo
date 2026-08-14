@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Never, Self, SupportsIndex, cast, final
+from typing import Any, Literal, SupportsIndex, TypeAlias, cast, final
 
+from marivo._compat import Never, Self
 from marivo.refs import EntityKind, MeasureKind, MetricKind, Ref, RefPayloadV1
 from marivo.semantic.ir import AiContextIR, SourceLocation
 
-type OntologyEndpointKind = EntityKind | MeasureKind | MetricKind
-type OntologyEndpointRef = Ref[OntologyEndpointKind]
-type OntologyOutcomeRef = Ref[EntityKind | MetricKind]
-type SemanticEdgeRelation = Literal["influences", "related_to"]
+OntologyEndpointKind: TypeAlias = EntityKind | MeasureKind | MetricKind
+OntologyEndpointRef: TypeAlias = Ref[OntologyEndpointKind]
+OntologyOutcomeRef: TypeAlias = Ref[EntityKind | MetricKind]
+SemanticEdgeRelation: TypeAlias = Literal["influences", "related_to"]
 
 
 @final

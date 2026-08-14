@@ -6,6 +6,7 @@ import base64
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from marivo.render import Card, RenderableResult
 
@@ -31,8 +32,11 @@ def decode_keyset_cursor(cursor: str) -> tuple[str | int, str]:
     return payload[0], payload[1]
 
 
+T = TypeVar("T")
+
+
 @dataclass(frozen=True, repr=False)
-class _BoundedPage[T](RenderableResult):
+class _BoundedPage(RenderableResult, Generic[T]):
     items: tuple[T, ...]
     limit: int
     has_more: bool

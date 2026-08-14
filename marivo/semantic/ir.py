@@ -9,10 +9,10 @@ from __future__ import annotations
 import re as _re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import StrEnum
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo._compat import StrEnum
 from marivo._temporal import Grain as TemporalGrain
 from marivo.datasource.ir import (
     AiContextIR,
@@ -644,10 +644,10 @@ class TimeFoldIR:
         return self.kind
 
 
-type AggregateFoldValue = (
+AggregateFoldValue: TypeAlias = (
     Literal["mean", "min", "max", "first", "last"] | tuple[Literal["percentile"], float]
 )
-type AggregateFoldInput = AggregateFoldValue | None
+AggregateFoldInput: TypeAlias = AggregateFoldValue | None
 
 
 AggKind = (

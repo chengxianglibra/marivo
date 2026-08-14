@@ -7,13 +7,14 @@ import secrets
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
 import duckdb
 import ibis
 
+from marivo._compat import UTC
 from marivo.refs import ref as ref_factory
 
 # ---------------------------------------------------------------------------

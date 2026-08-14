@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo._compat import UTC
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import SemanticKind
@@ -238,7 +239,7 @@ def test_snapshot_latest_when_root_has_no_time_field(tmp_path, monkeypatch):
     _bootstrap_snapshot_latest_no_root_time(tmp_path)
     monkeypatch.setattr(
         "marivo.analysis.intents._observe_planner_versioning._utc_now",
-        lambda: dt.datetime(2026, 7, 1, 12, 0, tzinfo=dt.UTC),
+        lambda: dt.datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
     )
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot_latest_no_root_time(con)

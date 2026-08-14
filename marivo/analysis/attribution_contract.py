@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -12,14 +12,14 @@ from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import AggregateNodeV1, MetricExpressionGraphV1
 from marivo.semantic.metric_graph_canonical import fingerprint, node_fingerprint
 
-type AttributionShape = Literal[
+AttributionShape: TypeAlias = Literal[
     "sum",
     "ratio_mix",
     "weighted_mix",
     "distinct_membership",
     "quantile_replacement",
 ]
-type AttributionMode = Literal["joint", "hierarchy", "multiresolution"]
+AttributionMode: TypeAlias = Literal["joint", "hierarchy", "multiresolution"]
 
 
 class AggregateAttributionAuthorityV1(BaseModel):
@@ -87,7 +87,7 @@ class BlockedDistinctAttributionReproductionV1(BaseModel):
     blocker: Literal["unsupported_key_type"] = "unsupported_key_type"
 
 
-type DistinctAttributionReproductionV1 = Annotated[
+DistinctAttributionReproductionV1: TypeAlias = Annotated[
     ReproducibleDistinctAttributionV1 | BlockedDistinctAttributionReproductionV1,
     Field(discriminator="status"),
 ]
@@ -134,7 +134,7 @@ class BlockedQuantileAttributionReproductionV1(BaseModel):
     ]
 
 
-type QuantileAttributionReproductionV1 = Annotated[
+QuantileAttributionReproductionV1: TypeAlias = Annotated[
     ReproducibleQuantileAttributionV1 | BlockedQuantileAttributionReproductionV1,
     Field(discriminator="status"),
 ]
@@ -167,7 +167,7 @@ class QuantileAttributionBasisV1(BaseModel):
         return 0.5 if agg == "median" else float(agg[1])
 
 
-type AttributionBasisV1 = Annotated[
+AttributionBasisV1: TypeAlias = Annotated[
     DistinctAttributionBasisV1 | QuantileAttributionBasisV1,
     Field(discriminator="kind"),
 ]
@@ -237,7 +237,7 @@ class BlockedAttributeAdmissionV1(BaseModel):
     repair: AnalysisRepair
 
 
-type AttributeAdmissionV1 = Annotated[
+AttributeAdmissionV1: TypeAlias = Annotated[
     SupportedAttributeAdmissionV1 | BlockedAttributeAdmissionV1,
     Field(discriminator="status"),
 ]
@@ -263,7 +263,7 @@ class BlockedCumulativeAttributionRouteV1(BaseModel):
     repair: AnalysisRepair
 
 
-type CumulativeAttributionRouteAdmissionV1 = Annotated[
+CumulativeAttributionRouteAdmissionV1: TypeAlias = Annotated[
     SupportedCumulativeAttributionRouteV1 | BlockedCumulativeAttributionRouteV1,
     Field(discriminator="status"),
 ]

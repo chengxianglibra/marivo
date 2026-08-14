@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-readonly MIN_PYTHON="3.12"
+readonly MIN_PYTHON="3.10"
 readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"
 readonly UV_INSTALL_SH_URL="https://astral.sh/uv/install.sh"
 TARGET_DIR="$(pwd -P)"
@@ -76,7 +76,7 @@ validate_target() {
 python_is_supported() {
     local interpreter=$1
     [ -x "$interpreter" ] && "$interpreter" -c \
-        'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' \
+        'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
         >/dev/null 2>&1
 }
 

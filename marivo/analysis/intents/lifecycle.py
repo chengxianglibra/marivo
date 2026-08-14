@@ -4,12 +4,13 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from typing import Any, cast
 
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AnalysisRepair,

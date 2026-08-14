@@ -79,7 +79,7 @@ Marivo 不调用 LLM，也不生成跨 artifact 判断：综合与下一步选�
 
 ## 快速开始
 
-Marivo 需要 Python 3.12 或更高版本。进入要作为 Marivo 项目的目录，然后运行：
+Marivo 需要 Python 3.10 或更高版本。进入要作为 Marivo 项目的目录，然后运行：
 
 ```bash
 curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
@@ -122,7 +122,7 @@ marivo.help("analysis.observe")
 ## 开发
 
 ```bash
-uv venv --python 3.12 --seed
+uv venv --python 3.10 --seed
 uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 ```
 

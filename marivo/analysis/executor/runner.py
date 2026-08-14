@@ -9,7 +9,7 @@ import os
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic
 from types import MethodType
 from typing import Any
@@ -17,6 +17,7 @@ from typing import Any
 import ibis
 import pandas as pd
 
+from marivo._compat import UTC
 from marivo.analysis.errors import BackendError, SliceInvalidError
 from marivo.analysis.executor.query_record import (
     QueryExecution,

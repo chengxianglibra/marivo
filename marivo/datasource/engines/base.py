@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
@@ -15,9 +15,9 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 if TYPE_CHECKING:
     from marivo.datasource.metadata import MetadataWarning, TableMetadata
 
-type BackendDatetimeDecodePolicy = Literal["local_naive_label", "utc_naive_instant"]
-type PartitionValueSource = Literal["metadata", "system_catalog"]
-type AuthoringTimeout = Callable[[BaseBackend, int], AbstractContextManager[None]]
+BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
+PartitionValueSource: TypeAlias = Literal["metadata", "system_catalog"]
+AuthoringTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextManager[None]]
 
 
 @dataclass(frozen=True)
