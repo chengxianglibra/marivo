@@ -95,6 +95,7 @@ from marivo.analysis.frames.base import (
     _FrameAuxiliaryReceipt,
 )
 from marivo.analysis.frames.lifecycle import LifecycleFrameMetaVariant
+from marivo.analysis.session._layout import _read_parquet_frame
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import (
@@ -312,7 +313,11 @@ def _atomic_write_parquet(df: pd.DataFrame, dest: Path) -> str:
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        df.to_parquet(tmp_path, index=False)
+        df.to_parquet(
+            tmp_path,
+            index=False,
+            use_dictionary=False,
+        )
         content = tmp_path.read_bytes()
         with tmp_path.open("rb") as handle:
             os.fsync(handle.fileno())
@@ -1197,7 +1202,7 @@ def _reuse_committed_result(
                 if getattr(frame.meta, "kind", None) in {"event_frame", "lifecycle_frame"}
                 else type(frame.meta).model_validate(persisted_payload)
             )
-        persisted_df = pd.read_parquet(parquet_path, engine="pyarrow")
+        persisted_df = _read_parquet_frame(parquet_path)
     except FrameMetaInvalidError:
         raise
     except Exception:
@@ -1220,10 +1225,7 @@ def _reuse_committed_result(
         if compute_file_content_hash(trace_path) != manifest.content_hash:
             return None
         try:
-            trace = pd.read_parquet(
-                trace_path,
-                engine="pyarrow",
-            )
+            trace = _read_parquet_frame(trace_path)
         except Exception:
             return None
         if len(trace) != manifest.row_count:

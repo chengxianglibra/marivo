@@ -657,3 +657,58 @@ def test_select_metric_digest_failure_repair_help_target_is_resolvable(
         marivo.help(issue.repair.help_target.display)
     finally:
         evidence_store.close()
+
+
+def test_pipeline_atomic_write_parquet_disables_dictionary_encoding(tmp_path: Path) -> None:
+    """Issue #77 P2: the evidence pipeline writer must not dictionary-encode.
+
+    pyarrow 25.0.0 races when multithreaded readers load dictionary-encoded
+    pages, so every committed frame (including evidence pipeline outputs) must
+    be written with ``use_dictionary=False``.
+    """
+    import pyarrow.parquet as pq
+
+    target = tmp_path / "data.parquet"
+    # Low-cardinality string columns are exactly what pyarrow dictionary-encodes
+    # by default.
+    df = pd.DataFrame({"component": ["a", "b", "c"] * 50, "value": list(range(150))})
+    pipeline_module._atomic_write_parquet(df, target)
+
+    parquet_file = pq.ParquetFile(target)
+    encodings = {
+        str(encoding)
+        for col in range(parquet_file.metadata.num_columns)
+        for encoding in parquet_file.metadata.row_group(0).column(col).encodings
+    }
+    assert not any("DICTIONARY" in encoding for encoding in encodings)
+
+
+def test_reuse_committed_result_reads_through_retrying_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #77 P2: the reuse path must read frames via ``_read_parquet_frame``.
+
+    A bare ``pd.read_parquet`` here would silently swallow the transient
+    dictionary-bounds error (via ``except Exception: return None``) and force a
+    recompute. Guard the wiring so a revert back to ``pd.read_parquet`` fails
+    this test.
+    """
+    first, store = _commit(tmp_path)
+    assert store is not None
+    store.close()
+
+    calls: dict[str, int] = {"n": 0}
+    real = pipeline_module._read_parquet_frame
+
+    def counting_reader(path):
+        calls["n"] += 1
+        return real(path)
+
+    monkeypatch.setattr(pipeline_module, "_read_parquet_frame", counting_reader)
+    repeated, repeated_store = _commit(tmp_path)
+    assert repeated_store is not None
+    try:
+        assert repeated.ref == first.ref
+        assert calls["n"] >= 1
+    finally:
+        repeated_store.close()
