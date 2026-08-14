@@ -523,9 +523,9 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 context={"ref": ref, "data_path": str(data_path)},
             )
         try:
-            import pandas as pd
+            from marivo.analysis.session._layout import _read_parquet_frame
 
-            df = pd.read_parquet(data_path, engine="pyarrow")
+            df = _read_parquet_frame(data_path)
             meta = json.loads(meta_path.read_text())
         except Exception as exc:
             raise FrameCacheCorruptedError(
@@ -1096,12 +1096,9 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 context={"ref": ref, "cause": "auxiliary trace content hash mismatch"},
             )
         try:
-            import pandas as pd
+            from marivo.analysis.session._layout import _read_parquet_frame
 
-            trace = pd.read_parquet(
-                trace_path,
-                engine="pyarrow",
-            )
+            trace = _read_parquet_frame(trace_path)
         except Exception as exc:
             raise FrameCacheCorruptedError(
                 message=f"frame '{ref}' Lifecycle trace cannot be loaded",
