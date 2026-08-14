@@ -72,6 +72,7 @@ from marivo.analysis.intents._metric_axes import (
     metric_dimension_columns,
     metric_time_axis,
 )
+from marivo.analysis.session._layout import _read_parquet_frame
 
 _FREQ = GRAIN_FREQ
 
@@ -937,22 +938,13 @@ def _load_lifecycle_source_history(
             source_meta = LifecycleHistoryFrameMeta.model_validate_json(
                 meta_path.read_text(encoding="utf-8")
             )
-        source_df = pd.read_parquet(
-            data_path,
-            engine="pyarrow",
-        )
+        source_df = _read_parquet_frame(data_path)
         trace_path = frame_dir / source_meta.violation_trace.filename
         if (
             source_meta.violation_trace.content_hash is None
             or not trace_path.is_file()
             or compute_file_content_hash(trace_path) != source_meta.violation_trace.content_hash
-            or len(
-                pd.read_parquet(
-                    trace_path,
-                    engine="pyarrow",
-                )
-            )
-            != source_meta.violation_trace.row_count
+            or len(_read_parquet_frame(trace_path)) != source_meta.violation_trace.row_count
         ):
             return None
     except (OSError, TypeError, ValueError):
@@ -1563,10 +1555,7 @@ def _lifecycle_violations_math_check(
         ):
             invalid_count += 1
         else:
-            trace = pd.read_parquet(
-                trace_path,
-                engine="pyarrow",
-            )
+            trace = _read_parquet_frame(trace_path)
             for column in ("subject_identity", "trigger_event_identity"):
                 trace[column] = trace[column].map(
                     lambda value: (
