@@ -16,10 +16,15 @@ from typing import Literal
 from marivo import __version__
 from marivo._compat import tomllib
 from marivo.config import (
+    AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
+    CLAUDE_SKILLS_DIR,
+    CODEX_SKILLS_DIR,
     DATASOURCES_DIR,
     PROJECT_MANIFEST,
     SEMANTIC_DIR,
+    SKILL_ANALYSIS,
+    SKILL_SEMANTIC,
     load_semantic_layer_paths,
 )
 from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
@@ -480,6 +485,67 @@ def _project_section(root: Path) -> DoctorSection:
             )
         )
     return DoctorSection(id="project", label="Project", checks=tuple(checks))
+
+
+def _skills_section(root: Path) -> DoctorSection:
+    checks: list[DoctorCheck] = []
+    for agent_label, agent_dir in (
+        ("Agents", AGENTS_SKILLS_DIR),
+        ("Claude", CLAUDE_SKILLS_DIR),
+        ("Codex", CODEX_SKILLS_DIR),
+    ):
+        for skill_name in (SKILL_SEMANTIC, SKILL_ANALYSIS):
+            path = root / agent_dir / skill_name
+            check_id = f"skills.{agent_label.lower()}.{skill_name}"
+            details = {"path": str(path)}
+            if not path.exists() and not path.is_symlink():
+                checks.append(
+                    DoctorCheck(
+                        id=check_id,
+                        label=f"{agent_label} {skill_name}",
+                        status="skipped",
+                        summary="skill is not installed",
+                        details=details,
+                        fix=(f"marivo init --project-root {root}",),
+                    )
+                )
+                continue
+            try:
+                resolved = path.resolve(strict=True)
+            except OSError as exc:
+                checks.append(
+                    DoctorCheck(
+                        id=check_id,
+                        label=f"{agent_label} {skill_name}",
+                        status="fail",
+                        summary=f"skill path is broken: {exc}",
+                        details=details,
+                        fix=(f"marivo init --project-root {root}",),
+                    )
+                )
+                continue
+            if not resolved.is_dir() or not (resolved / "SKILL.md").is_file():
+                checks.append(
+                    DoctorCheck(
+                        id=check_id,
+                        label=f"{agent_label} {skill_name}",
+                        status="fail",
+                        summary="skill path does not contain SKILL.md",
+                        details={**details, "resolved_path": str(resolved)},
+                        fix=(f"marivo init --project-root {root}",),
+                    )
+                )
+                continue
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"{agent_label} {skill_name}",
+                    status="ok",
+                    summary="skill is available",
+                    details={**details, "resolved_path": str(resolved)},
+                )
+            )
+    return DoctorSection(id="skills", label="Agent skills", checks=tuple(checks))
 
 
 def _candidate_datasource_files(root: Path, only: str | None) -> tuple[Path, ...]:
@@ -1222,7 +1288,11 @@ def exit_code(report: DoctorReport) -> int:
 def run_doctor(options: DoctorOptions | None = None) -> DoctorReport:
     opts = options or DoctorOptions()
     root = _resolve_project_root(opts.project_root)
-    sections: list[DoctorSection] = [_installation_section(), _project_section(root)]
+    sections: list[DoctorSection] = [
+        _installation_section(),
+        _project_section(root),
+        _skills_section(root),
+    ]
     datasource_section, datasources = _datasource_section(root, opts.datasource)
     sections.append(datasource_section)
     sections.append(_secrets_section(datasources, project_root=root))

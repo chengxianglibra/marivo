@@ -58,12 +58,12 @@ import marivo.semantic as ms
 从命令行开始，先用 `marivo --help` 查看 CLI 入口。要验证选定环境并获取 Python 交接，运行：
 
 ```bash
-python -m marivo help
+marivo doctor
 ```
 
-使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境
-指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。进入分析时只需
-验证一次该指纹。此后优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的
+使用安装了 `marivo` 的 Python 环境。doctor 报告中的版本号、Python 可执行路径、包路径和项目
+状态构成环境指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。进入
+分析时只需验证一次该指纹。此后优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的
 组合操作前读取 `.contract()`。可以用 `marivo.help("analysis")` 打开分析索引，
 用 `marivo.help("analysis.events")` 或 `marivo.help("analysis.lifecycle")` 浏览已注册
 命名空间的真实成员。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询

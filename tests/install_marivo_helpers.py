@@ -13,6 +13,7 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-marivo.sh"
+CN_INSTALLER = ROOT / "site" / "public" / "install-marivo-cn.sh"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -349,9 +350,10 @@ def _run_installer(
     env: dict[str, str],
     *args: str,
     stdin: str | None = None,
+    installer: Path = INSTALLER,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", str(INSTALLER), *args],
+        ["bash", str(installer), *args],
         cwd=target,
         env=env,
         input=stdin,

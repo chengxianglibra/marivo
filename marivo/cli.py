@@ -68,7 +68,8 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
         a per-artifact warning is printed instead. Symlink creation failures
         are non-fatal (warning printed, init continues).
     """
-    project_dir = project_dir or Path.cwd()
+    project_dir = (project_dir or Path.cwd()).resolve()
+    project_dir.mkdir(parents=True, exist_ok=True)
     artifacts = _artifact_paths(project_dir)
     skills_src = _skills_source_dir()
 
@@ -203,6 +204,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Delete existing project artifacts and recreate from scratch",
     )
+    init_parser.add_argument(
+        "--project-root",
+        default=None,
+        help="Project root to initialize instead of the current directory",
+    )
     doctor_parser = subparsers.add_parser("doctor", help="Diagnose Marivo environment setup")
     doctor_parser.add_argument("--project-root", default=None, help="Project root to inspect")
     doctor_parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -232,7 +238,10 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(0)
 
     if args.command == "init":
-        init_project(force=args.force)
+        init_project(
+            force=args.force,
+            project_dir=Path(args.project_root) if args.project_root else None,
+        )
     elif args.command == "doctor":
         from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
 

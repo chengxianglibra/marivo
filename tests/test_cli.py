@@ -66,6 +66,19 @@ def test_prints_initialized_header(tmp_path: Path, capsys: pytest.CaptureFixture
     assert f"Initializing Marivo project in {tmp_path}" in captured.out
 
 
+def test_init_command_accepts_explicit_project_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project_root = tmp_path / "project"
+    main(["init", "--project-root", str(project_root)])
+    captured = capsys.readouterr()
+
+    assert f"Initializing Marivo project in {project_root}" in captured.out
+    assert (project_root / "marivo.toml").is_file()
+    assert (project_root / "models").is_dir()
+    assert (project_root / ".marivo").is_dir()
+
+
 # ---------------------------------------------------------------------------
 # init_project warns but continues when artifacts exist (no --force)
 # ---------------------------------------------------------------------------

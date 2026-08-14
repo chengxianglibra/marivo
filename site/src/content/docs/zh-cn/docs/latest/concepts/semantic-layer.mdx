@@ -30,7 +30,8 @@ description: 用 Python 声明定义智能体可依赖的名称、业务含义�
 `.contract()` 和 structured 错误提供。读取用户数据前，智能体必须先确认 accountable
 领域负责人、目标业务概念等数据本身无法回答的必要输入；sampling 不能回答这些问题。
 
-`python -m marivo help` 只确认当前解释器、已安装包版本和环境指纹，然后交接到 Python。
+`marivo doctor` 会确认当前解释器、已安装包版本、包路径和项目状态，然后交接到 Python。
+环境没有激活时，应使用该环境自己的 `marivo` 可执行文件。
 `marivo.help(...)` 是唯一公开的专项-帮助协调入口；限定后的 `datasource.*`、
 `semantic.*`、`analysis.*` 内容仍由各自原生 registry 拥有。`md` 和 `ms` 只执行所属
 领域能力，不提供独立的 `.help()` 别名。

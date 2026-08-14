@@ -42,9 +42,17 @@ additivity, cardinality, timezone, lifecycle, or event meaning.
 
 ## Environment entry
 
-Use one project interpreter for discovery and execution. Verify the rendered
-Marivo version, Python executable, and package path before connecting, reading
-data, or changing project source.
+The host runtime must provide one concrete project interpreter for this
+persona. Use that interpreter for discovery and execution. This skill does not
+choose among Python installations, create a virtual environment, install
+packages, or invoke a package manager.
+
+Before connecting, reading data, or changing project source, run `marivo doctor`
+once and verify the reported Marivo version, Python executable, package path,
+and project state. If the host provides only the selected interpreter, the
+equivalent `<selected-python> -m marivo doctor` invocation is acceptable. Keep
+the runtime fingerprint as working state; do not expose absolute environment
+paths in the business response.
 
 ```python
 import marivo
@@ -56,8 +64,10 @@ After the decision preflight passes, enter through
 `<selected-python> -m marivo help`, then use
 `marivo.help("authoring")`. It owns the exact current-project catalog reads and
 routes to the focused datasource or semantic target shown by live state. If
-help and execution fingerprints differ, stop for environment repair.
-The CLI owns only environment bootstrap. All target help goes through
+the doctor check, help fingerprint, and execution interpreter differ, stop for
+environment repair. If the host did not provide a runnable interpreter, stop
+and report that environment setup is required; do not guess a Python path.
+The host owns environment bootstrap. All target help goes through
 `marivo.help(...)`; `md` and `ms` execute domain APIs and do not expose separate
 public help aliases.
 

@@ -7,14 +7,17 @@ readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"
 readonly PYPI_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
 readonly UV_PYTHON_INSTALL_MIRROR="https://registry.npmmirror.com/-/binary/python-build-standalone"
 readonly UV_INSTALL_SH_URL="https://astral.sh/uv/install.sh"
-TARGET_DIR="$(pwd -P)"
-readonly TARGET_DIR
-readonly VENV_DIR="$TARGET_DIR/.venv"
+TARGET_DIR=""
+VENV_DIR=""
 PLATFORM=""
 VENV_PYTHON=""
 VENV_MARIVO=""
 VENV_ACTIVATE=""
 ASSUME_YES=0
+EXPLICIT_VENV=0
+PYTHON_SPEC=""
+MARIVO_EXTRAS="$DEFAULT_MARIVO_EXTRAS"
+MARIVO_VERSION=""
 CURRENT_STAGE="startup"
 
 on_error() {
@@ -38,10 +41,49 @@ parse_args() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --yes) ASSUME_YES=1 ;;
-            *) die "unknown argument: $1 (supported: --yes)" ;;
+            --project-root)
+                [ "$#" -ge 2 ] || die "--project-root requires a path"
+                TARGET_DIR="$2"
+                shift
+                ;;
+            --venv)
+                [ "$#" -ge 2 ] || die "--venv requires a path"
+                VENV_DIR="$2"
+                EXPLICIT_VENV=1
+                shift
+                ;;
+            --python)
+                [ "$#" -ge 2 ] || die "--python requires a path or version"
+                PYTHON_SPEC="$2"
+                shift
+                ;;
+            --extras)
+                [ "$#" -ge 2 ] || die "--extras requires a comma-separated list"
+                MARIVO_EXTRAS="$2"
+                shift
+                ;;
+            --version)
+                [ "$#" -ge 2 ] || die "--version requires a Marivo version"
+                MARIVO_VERSION="$2"
+                shift
+                ;;
+            *) die "unknown argument: $1 (supported: --yes, --project-root, --venv, --python, --extras, --version)" ;;
         esac
         shift
     done
+}
+
+resolve_paths() {
+    [ -n "$TARGET_DIR" ] || TARGET_DIR="$(pwd -P)"
+    TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd -P)" || \
+        die "project root does not exist: $TARGET_DIR"
+    if [ -z "$VENV_DIR" ]; then
+        VENV_DIR="$TARGET_DIR/.venv"
+    elif [[ "$VENV_DIR" != /* ]]; then
+        VENV_DIR="$TARGET_DIR/$VENV_DIR"
+    fi
+    mkdir -p "$(dirname "$VENV_DIR")"
+    VENV_DIR="$(cd "$(dirname "$VENV_DIR")" && pwd -P)/$(basename "$VENV_DIR")"
 }
 
 is_windows_bash() {
@@ -111,6 +153,9 @@ prepare_existing_venv() {
     if venv_matches_target; then
         printf 'Reusing valid virtual environment: %s\n' "$VENV_DIR"
         return 0
+    fi
+    if [ "$EXPLICIT_VENV" -eq 1 ]; then
+        die "provided virtual environment is missing or does not use Python >=$MIN_PYTHON: $VENV_DIR; create or repair it outside Marivo"
     fi
     confirm_venv_replacement
     rm -rf -- "$VENV_DIR"
@@ -185,6 +230,27 @@ find_managed_python() {
     printf '%s\n' "$interpreter"
 }
 
+find_requested_python() {
+    local uv_bin=$1
+    local interpreter
+    if [ -n "$PYTHON_SPEC" ]; then
+        if [ -x "$PYTHON_SPEC" ]; then
+            python_is_supported "$PYTHON_SPEC" || \
+                die "provided Python does not satisfy >=$MIN_PYTHON: $PYTHON_SPEC"
+            printf '%s\n' "$PYTHON_SPEC"
+            return
+        fi
+        UV_PYTHON_INSTALL_MIRROR="$UV_PYTHON_INSTALL_MIRROR" "$uv_bin" python install "$PYTHON_SPEC" >&2
+        interpreter="$("$uv_bin" python find --managed-python "$PYTHON_SPEC" 2>/dev/null || true)"
+        [ -n "$interpreter" ] || die "could not resolve requested Python: $PYTHON_SPEC"
+        python_is_supported "$interpreter" || \
+            die "requested Python does not satisfy >=$MIN_PYTHON: $PYTHON_SPEC"
+        printf '%s\n' "$interpreter"
+        return
+    fi
+    find_managed_python "$uv_bin"
+}
+
 create_venv() {
     local uv_bin=$1
     local interpreter=$2
@@ -194,7 +260,11 @@ create_venv() {
 
 install_marivo() {
     local uv_bin=$1
-    UV_INDEX_URL="$PYPI_INDEX_URL" "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "marivo[$DEFAULT_MARIVO_EXTRAS]"
+    local package_spec="marivo[$MARIVO_EXTRAS]"
+    if [ -n "$MARIVO_VERSION" ]; then
+        package_spec="${package_spec}==${MARIVO_VERSION}"
+    fi
+    UV_INDEX_URL="$PYPI_INDEX_URL" "$uv_bin" pip install --python "$VENV_PYTHON" --upgrade "$package_spec"
 }
 
 validate_marivo() {
@@ -220,7 +290,10 @@ warn_missing_skill_links() {
 }
 
 initialize_project() {
-    "$VENV_MARIVO" init
+    (
+        cd "$TARGET_DIR"
+        "$VENV_MARIVO" init
+    )
     [ -f "$TARGET_DIR/marivo.toml" ] || \
         die "missing required init artifact: $TARGET_DIR/marivo.toml; rerun $VENV_MARIVO init"
     [ -d "$TARGET_DIR/models" ] || \
@@ -240,6 +313,7 @@ print_summary() {
 
 main() {
     parse_args "$@"
+    resolve_paths
 
     stage "Validate platform and target"
     validate_platform
@@ -252,13 +326,14 @@ main() {
         has_venv=1
     fi
 
-    stage "Prepare uv and Python >=$MIN_PYTHON"
+    stage "Prepare uv and Marivo installer"
     local uv_bin interpreter
     uv_bin="$(ensure_uv)"
-    interpreter="$(find_managed_python "$uv_bin")"
-    printf 'Using uv-managed Python: %s\n' "$interpreter"
 
     if [ "$has_venv" -eq 0 ]; then
+        stage "Prepare Python >=$MIN_PYTHON"
+        interpreter="$(find_requested_python "$uv_bin")"
+        printf 'Using Python: %s\n' "$interpreter"
         stage "Create virtual environment"
         create_venv "$uv_bin" "$interpreter"
     fi

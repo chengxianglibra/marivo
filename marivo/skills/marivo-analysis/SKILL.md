@@ -37,11 +37,17 @@ state models, artifacts, or help indexes.
 
 ## Enter the environment once
 
-Use the project interpreter for every discovery and execution call. Verify its
-Marivo version, executable, and package path once before analysis. Use
-`<analysis-python> -m marivo help` only when that verification or the global
-entry map is actually needed; do not repeat equivalent environment or index
-checks.
+The host runtime must provide one concrete project interpreter for this
+persona. Use it for every discovery and execution call. This skill does not
+choose among Python installations, create a virtual environment, install
+packages, or invoke a package manager.
+
+Run `marivo doctor` once before analysis and verify the reported Marivo
+version, executable, package path, and project state. If the host provides
+only the selected interpreter, the equivalent
+`<analysis-python> -m marivo doctor` invocation is acceptable. Use
+`<analysis-python> -m marivo help` only when the verified environment or the
+global entry map is actually needed; do not repeat equivalent checks.
 
 Create or resume one question-scoped session:
 
@@ -54,8 +60,9 @@ session = mv.session.get_or_create(
 )
 ```
 
-If the intended interpreter or installed package cannot be verified, stop and
-repair the environment rather than guessing.
+If the intended interpreter, installed package, or project state cannot be
+verified, stop and report that the host environment needs repair rather than
+guessing a Python path or installing dependencies from the skill.
 
 ## Resolve semantic inputs directly
 
