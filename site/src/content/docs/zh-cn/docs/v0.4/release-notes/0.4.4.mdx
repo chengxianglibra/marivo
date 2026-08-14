@@ -1,0 +1,86 @@
+---
+slug: zh-cn/docs/v0.4/release-notes/0.4.4
+title: Marivo 0.4.4
+description: Marivo 0.4.4 发布说明。
+---
+
+Marivo 0.4.4 将运行环境支持范围扩展到 Python 3.10，并简化与现有智能体
+运行时的集成：调用方可以继续管理项目工作区和虚拟环境。同时，嵌套 JSON API
+记录即使缺少部分字段或带有额外字段，也能按声明的结构稳定读取，而不会放宽
+类型校验。
+
+## 重点
+
+- Marivo 现在支持 Python 3.10、3.11、3.12 和 3.13。包元数据、兼容层、
+  CI、安装器、测试与当前文档统一以 Python 3.10 为最低版本。
+- 标准安装器与国内网络安装器现在可以显式指定项目根目录、复用调用方管理的
+  虚拟环境、选择 Python 解释器、配置数据源扩展，并锁定 Marivo 版本；已有
+  环境不会被删除或替换。
+- `marivo init --project-root <目录>` 可以在当前工作目录之外初始化项目；
+  `marivo doctor` 则提供文本化的运行时交接结果，用于确认解释器、Marivo 包、
+  项目状态和内置智能体技能。
+- 通过 `records_path=` 选取的嵌套 JSON 记录现在会按声明结构投影：缺失字段
+  转为带类型的空值，未声明字段被忽略；已提供但类型不兼容的值仍会严格报错。
+
+## 变更
+
+- 安装器会在指定的项目根目录中执行初始化，不再假定 shell 当前目录；显式
+  指定的环境或解释器不满足支持契约时会立即失败。
+- 内置 `marivo-semantic` 和 `marivo-analysis` 技能现在通过 `marivo doctor`
+  校验运行时选定的解释器；环境创建与依赖安装仍由调用方运行时负责。
+- Python 3.10 兼容层使用受支持的类型与标准库回退方案，并让依赖版本边界与
+  支持的运行环境矩阵保持一致。
+- 国内网络安装器发布于 `https://marivo.io/install-marivo-cn.sh`，在不改变
+  标准安装契约的前提下使用国内 Python 和 PyPI 源。
+
+## 修复
+
+- 嵌套 JSON 数组中的有效记录不再因为缺少非必填的已声明字段或包含额外响应
+  字段而被拒绝。已声明值仍执行严格转换，类型不匹配会在执行时明确失败。
+
+## 文档
+
+- 将中文官方文档的普通叙述、标题和说明调整为自然中文，同时保留必要的 API
+  名称、代码、命令和专业术语。
+- 新增中英文设计文章，说明 Analysis DSL 如何约束智能体的操作而不限制推理，
+  并补充本地化示意图与博客导航。
+- 扩展安装与部署指南，说明调用方管理的虚拟环境、显式项目根目录、运行时校验
+  与国内网络安装器的用法。
+
+## 内部改进
+
+- CI 现在覆盖 Python 3.10、3.12 和 3.13，发布分发包使用最低支持的 Python
+  版本构建。
+- 安装器验证覆盖标准与国内网络版本的一致性、显式环境归属、版本锁定、项目
+  根目录初始化，以及不受支持解释器的失败行为。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.4 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.4/installation/)
+- [快速开始](/zh-cn/docs/v0.4/quick-start/)
+- [语义层](/zh-cn/docs/v0.4/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.4/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.4/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/v0.4/concepts/evidence/)

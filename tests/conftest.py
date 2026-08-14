@@ -54,7 +54,7 @@ def installer_toolchain(
 ) -> InstallerToolchain:
     """Reuse a versioned immutable installer toolchain across test runs."""
     cache_root = Path(pytestconfig.cache.mkdir("installer-toolchains"))
-    return InstallerToolchain.load_or_build(cache_root / "v3")
+    return InstallerToolchain.load_or_build(cache_root / "v4")
 
 
 @pytest.fixture
