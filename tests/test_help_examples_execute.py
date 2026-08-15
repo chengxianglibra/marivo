@@ -36,6 +36,7 @@ _SEMANTIC_RUNTIME_EXAMPLES = frozenset(
         "richness",
         "parity_check",
         "SemanticCatalog.require",
+        "SemanticCatalog.items",
     }
 )
 

@@ -58,6 +58,7 @@ INPUT_FAMILIES = frozenset(
         "CatalogEntry | Ref",
         "CatalogEntry | Ref | RuntimeMetricExpression",
         "SemanticCatalog",
+        "SemanticKind",
         "DiscoverySnapshot",
         "HelpTarget",
         "DomainName",
@@ -123,6 +124,7 @@ OUTPUT_FAMILIES = frozenset(
     {
         "SemanticCatalog",
         "CatalogEntry",
+        "CatalogCollection",
         "VerifyResult",
         "PreviewBatchResult",
         "PreviewResult",
@@ -1381,6 +1383,20 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
+            "SemanticCatalog.items",
+            "marivo.semantic.catalog.SemanticCatalog.items",
+            "Return the typed collection for a SemanticKind (kind-keyed traversal).",
+            kind="method",
+            output="CatalogCollection",
+            inputs=_inputs(
+                ("receiver", "SemanticCatalog"),
+                ("subject", "SemanticKind"),
+            ),
+            effects=_LOCAL,
+            example="catalog.items(ms.SemanticKind.METRIC).refs",
+            public_entrypoint="catalog.items",
+        ),
+        _capability(
             "SemanticCatalog.require",
             "marivo.semantic.catalog.SemanticCatalog.require",
             "Require exact membership of one ref in the compiled catalog.",
@@ -1550,6 +1566,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("load",),
         properties=CATALOG_COLLECTION_PROPERTIES,
         methods=(
+            "items",
             "require",
             "verify",
             "preview",
