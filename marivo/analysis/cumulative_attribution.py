@@ -19,8 +19,11 @@ from marivo.analysis.attribution_contract import (
     CumulativeAttributionRouteAdmissionV1,
     SupportedCumulativeAttributionRouteV1,
 )
-from marivo.analysis.errors import AnalysisRepair
-from marivo.analysis.windows.grain import Grain, normalize_legacy_grain
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    SemanticCumulativeBucketCompareUnsupportedError,
+)
+from marivo.analysis.windows.grain import Grain, normalize_legacy_grain, split_semantic_grain_token
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
@@ -277,6 +280,14 @@ def _bridge_grain_for_source(
         if binding is None or binding.grain is None:
             raise ValueError(
                 "time-series and panel cumulative bridges require the observed over-axis grain"
+            )
+        semantic_token = split_semantic_grain_token(binding.grain)
+        if semantic_token is not None:
+            calendar_path, level = semantic_token
+            raise SemanticCumulativeBucketCompareUnsupportedError(
+                calendar_ref=calendar_path,
+                level=level,
+                frame_ref=over_ref.path,
             )
         grain = normalize_legacy_grain(binding.grain)
         if grain is None:

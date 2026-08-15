@@ -1489,6 +1489,48 @@ class CumulativeFrameUnsupportedError(AnalysisError):
         )
 
 
+class SemanticCumulativeBucketCompareUnsupportedError(AnalysisError):
+    """Bucketed (time-series/panel) cumulative compare with a semantic calendar query grain."""
+
+    def __init__(self, *, calendar_ref: str, level: str, frame_ref: str) -> None:
+        super().__init__(
+            message=(
+                "bucketed (time-series/panel) cumulative compare does not support semantic "
+                f"calendar query grains (got {calendar_ref}:{level})."
+            ),
+            location="session.compare",
+            hint=(
+                "Panel/time-series semantic-calendar cumulative compare is not supported. "
+                "Compare the scalar cumulative frames (no query grain) with "
+                "alignment=mv.period_progress(), or decompose the underlying base flow metric."
+            ),
+            context={
+                "kind": "SemanticCumulativeBucketCompareUnsupported",
+                "calendar_ref": calendar_ref,
+                "level": level,
+                "frame_ref": frame_ref,
+            },
+        )
+
+    def _derive_fields(self) -> _DerivedFields:
+        calendar_ref = self._context.get("calendar_ref")
+        level = self._context.get("level")
+        calendar_ref_str = calendar_ref if isinstance(calendar_ref, str) else "<calendar>"
+        level_str = level if isinstance(level, str) else "<level>"
+        return _DerivedFields(
+            location="session.compare",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action=(
+                    f"Semantic-calendar bucketed cumulative compare ({calendar_ref_str}:"
+                    f"{level_str}) is unsupported. Compare scalar cumulative frames with "
+                    "alignment=mv.period_progress(), or attribute the base flow metric directly."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+        )
+
+
 class ComponentFrameUnavailableError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         loaded_kind = self._context.get("loaded_kind")
@@ -1572,6 +1614,19 @@ class AttributionAdditivityError(ComponentDecompositionError):
 
 class AttributionMaterializationError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
+        if self._context.get("recoverability_status") == "semantic_grain_decomposition_unsupported":
+            return _DerivedFields(
+                location="session.attribute cumulative semantic-grain decomposition",
+                repair=AnalysisRepair(
+                    kind="inspect",
+                    action=(
+                        "Semantic-calendar cumulative deltas cannot be decomposed. "
+                        "Attribute the underlying base flow metric directly, or re-observe "
+                        "the metric with a builtin calendar reset grain."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+                ),
+            )
         missing_axes = self._context.get("missing_axes")
         if isinstance(missing_axes, list) and missing_axes:
             axis_text = ", ".join(str(axis) for axis in missing_axes)

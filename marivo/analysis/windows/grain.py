@@ -174,6 +174,21 @@ def parse_grain_token(text: str) -> Grain:
     return Grain(count=count, unit=unit)  # type: ignore[arg-type]
 
 
+def split_semantic_grain_token(text: str) -> tuple[str, str] | None:
+    """Split a semantic ``calendar.path::level`` token, or None when builtin.
+
+    Builtin tokens are matched by :func:`parse_grain_token`; semantic grain
+    tokens use the ``::`` separator and are produced by
+    ``marivo._temporal.Grain.to_token()`` for semantic grains.
+    """
+    if "::" not in text:
+        return None
+    calendar_path, level = text.rsplit("::", 1)
+    if not calendar_path or not level:
+        return None
+    return calendar_path, level
+
+
 def normalize_grain(value: GrainInput) -> Grain | TemporalGrain | None:
     """Normalize one unified public grain value for execution."""
 

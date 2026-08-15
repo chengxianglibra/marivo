@@ -233,6 +233,7 @@ class BlockedAttributeAdmissionV1(BaseModel):
         "over_plus_business_axis_unsupported",
         "missing_additivity_metadata",
         "unsupported_aggregate",
+        "semantic_grain_decomposition_unsupported",
     ]
     repair: AnalysisRepair
 

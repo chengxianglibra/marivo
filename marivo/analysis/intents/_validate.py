@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
     cumulative_compare_anchor,
@@ -228,7 +229,7 @@ def cumulative_compare_issue(
         return _grain_to_date_compare_validations(
             current,
             baseline,
-            cast("str", anchor[1]),
+            anchor[1],
             report_tz=report_tz,
         )
     return CumulativeFrameUnsupportedError(
@@ -242,7 +243,7 @@ def cumulative_compare_issue(
 def _grain_to_date_compare_validations(
     current: MetricFrame,
     baseline: MetricFrame,
-    reset_grain: str,
+    reset_grain: str | TemporalGrain,
     *,
     report_tz: str | None = None,
 ) -> AnalysisError | None:
@@ -255,6 +256,11 @@ def _grain_to_date_compare_validations(
     2. Window starts on a reset boundary (via window meta truncation).
     3. Window spans at most one reset period.
     4. Scalar elapsed-span check: current elapsed span == baseline elapsed span.
+
+    Semantic calendar reset grains cannot use the Gregorian window-bucket
+    boundary checks (validations 2/3); they must be compared via
+    ``alignment=period_progress()``, which already routes through the certified
+    calendar resolver.
     """
     from marivo.analysis.intents._window_pairs import (
         _advance_bucket_date,
@@ -262,6 +268,40 @@ def _grain_to_date_compare_validations(
         _parse_window_datetime,
         _truncate_bucket_date,
     )
+
+    # Semantic reset grain: the window-bucket boundary validations below assume
+    # a fixed Gregorian grain. Reject with an explicit period_progress pointer
+    # instead of surfacing an unrelated ``unsupported grain`` error.
+    if isinstance(reset_grain, TemporalGrain):
+        # Builtin anchors are persisted as string tokens, so only semantic
+        # grains arrive here as objects; guard defensively against any other
+        # object-grain representation.
+        if reset_grain.kind != "semantic":
+            raise TypeError(f"unexpected grain object in grain-to-date anchor: {reset_grain!r}")
+        calendar = reset_grain.calendar
+        level = reset_grain.level
+        assert calendar is not None and isinstance(level, str) and level
+        return AnalysisError(
+            message=(
+                "compare(grain_to_date) with a semantic calendar reset grain "
+                f"({calendar.path}:{level}) requires period_progress alignment."
+            ),
+            hint="Use alignment=mv.period_progress() for semantic-calendar grain-to-date compare.",
+            location="session.compare.alignment",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Re-run compare with an explicit alignment=mv.period_progress() "
+                    "so the certified calendar resolver drives period pairing."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
+            context={
+                "kind": "SemanticGrainToDateAlignmentRequired",
+                "calendar_ref": calendar.path,
+                "level": level,
+            },
+        )
 
     # Validation 1: both frames share reset grain AND query grain.
     base_cum = baseline.meta.cumulative

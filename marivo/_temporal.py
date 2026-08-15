@@ -1305,10 +1305,18 @@ def _require_contiguous_periods(
         if period.level_name not in declared:
             raise ValueError(f"period level {period.level_name!r} is not declared by the calendar")
         by_level.setdefault(period.level_name, []).append(period)
+    for level in declared:
+        # The implicit "day" level is always materialized from the date column
+        # and is intentionally absent from ``periods``; every other declared
+        # level must carry at least one certified period.
+        if level == "day":
+            continue
+        if level not in by_level:
+            raise ValueError(
+                f"calendar level {level!r} declares zero periods and cannot tile coverage"
+            )
     for level, records in by_level.items():
         ordered = sorted(records, key=lambda record: record.start_date)
-        if not ordered:
-            continue
         if ordered[0].start_date != start:
             raise ValueError(
                 f"calendar level {level!r} does not start at coverage start {start.isoformat()}"

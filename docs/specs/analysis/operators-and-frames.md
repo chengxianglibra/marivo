@@ -267,10 +267,15 @@ not an asserted interval flow, and source revision is unverified. `trailing` is
 allowed when both frames have the same fixed-duration span (`7 day` and `1 week`
 are equivalent);
 `grain_to_date` is allowed for a single reset-boundary-anchored period that spans
-at most one reset period and equal elapsed length. Comparable-period deltas use
-paired coordinates only. Ordinal window alignment is supported for both anchors;
-day-of-week, period-progress, and named period-correspondence alignment are
-admitted only through their closed helper contracts.
+at most one reset period and equal elapsed length. A semantic-calendar
+`grain_to_date` reset grain must be compared with
+`alignment=period_progress()` (the default `window_bucket` typed-rejects it);
+only the scalar form is supported — bucketed time-series/panel semantic-calendar
+cumulative compare is rejected at the compare entry with a `period_progress`
+pointer. Comparable-period deltas use paired coordinates only. Ordinal window
+alignment is supported for both anchors; day-of-week, period-progress, and named
+period-correspondence alignment are admitted only through their closed helper
+contracts.
 `transform.rollup`
 re-aggregates with `rollup_fold="last"`, selecting the complete last row so its
 `evaluation_end` is retained. The anchor-specific caveat is surfaced by
