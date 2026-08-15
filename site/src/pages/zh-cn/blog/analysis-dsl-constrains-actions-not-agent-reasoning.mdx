@@ -115,6 +115,8 @@ Agent 想观察收入，就把 `revenue` 交给 `observe`；想量化两个范�
 也可以直接停止；当前结果还能接哪些动作，由结果自身的说明给出，哪个动作对当前问题有意义，仍由
 Agent 判断。**可执行不等于值得执行，候选也不等于结论。**
 
+![语义层提供 revenue、region 和 completed_at 等业务名词，Analysis DSL 用 observe、compare 和 attribute 表达动作，并返回继续保留业务含义的类型化结果；表、列、过滤与连接由运行时解析](../../../assets/blog/analysis-dsl-business-abstraction.png)
+
 ## Analysis DSL 约束的究竟是什么
 
 一套面向 Agent 的 DSL，如果只是给常用查询换几个短名字，价值很有限。它需要把容易影响业务含义、
@@ -137,82 +139,6 @@ Agent 判断。**可执行不等于值得执行，候选也不等于结论。**
 这些约束都针对可执行动作，而不是 Agent 的思考过程。Marivo 不规定问题必须先同比还是先环比，不替
 Agent 选择最重要的地区，不把相关性升级成原因，也不会自动生成业务结论。它负责让相同输入遵循相同
 规则完成计算，并守住每项操作的边界；Agent 负责提出假设、选择下一步、综合多份结果并承担解释。
-
-![Agent 在 read、write、execute 与再次读取之间循环；Marivo 检查每个动作使用的业务对象、执行条件和分析结果，但不替 Agent 选择下一步](../../../assets/blog/analysis-dsl-agent-loop.png)
-
-图里有意把 Agent 放在循环外层。Analysis DSL 不是一个替它自动规划的流程引擎，而是一组可以被自由
-组合、但不能随意改写含义的动作。Agent 每走一步都获得新的事实，再根据问题决定是否修正假设、选择
-另一个动作，或者停止。
-
-## 围绕 Agent 的 read-write-execute loop 设计
-
-Agent 分析不是一次调用，而是连续的小循环。从 Agent 的视角看，它通常经历
-**read → write → execute → read again**；从脚本运行的视角看，中间又是一次
-**write → run → read**。两种说法指向同一件事：每一轮只需要写清楚当前动作，执行后读取确定结果，
-再决定下一轮。
-
-### Read：先读取当前事实，不背诵整个接口
-
-Agent 开始时读取业务问题和语义目录，需要时用 `marivo.help("analysis")` 发现当前环境真实提供的能力。
-拿到结果后，读取也有成本层次：`repr(frame)` 只给出身份提示，`frame.show()` 展示有限但最重要的
-信息，`frame.contract()` 在下一步不明确时说明这个结果还能用于哪些动作。只有问题确实需要逐行查看
-或自定义计算时，才调用 `frame.to_pandas()`，并明确离开 Marivo 可继续追踪的分析链。
-
-这套渐进读取很重要。Agent 不应该为了决定一个局部动作，每轮都把全部文档、历史结果和完整数据塞进
-上下文。运行时先展示最常用、数量有限的事实；需要更多信息时，再到对应的结果或帮助页面继续查看。
-
-### Write：一次调用把这一步分析写清楚
-
-Agent 写的是普通 Python 脚本。metric、范围、粒度、维度、两个时间段怎样对应，以及
-`analysis_purpose` 都明确出现在调用里。脚本可以进入 Git，可以被人审查，也可以在下一轮重新执行。
-
-```python
-baseline = session.observe(
-    revenue,
-    time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
-    grain=mv.grain("month"),
-    dimensions=[region],
-    analysis_purpose="建立去年同期基线",
-)
-
-delta = session.compare(
-    current,
-    baseline,
-    alignment=mv.window_bucket(),
-    analysis_purpose="量化第三季度收入同比变化",
-)
-```
-
-这里没有隐藏的“帮我找原因”总开关。Agent 先明确要比较什么，并选择两个窗口怎样对齐。执行成功后，
-它得到 `DeltaFrame`，而不是一段混合了事实、解释和建议的文字。
-
-### Execute：先确认这一步成立，再执行计算
-
-运行时先检查输入类别、是否属于当前 session、语义对象是否仍然有效，以及当前结果是否适合下一步，
-再规划并执行计算。失败时会保留前面已经算好并保存的结果，同时明确说明哪里不符合要求；Agent 可以
-只修改当前一步，而不必重做整场调查。每个成功结果都有稳定的 `frame.ref` 并保存在项目本地，后续
-脚本可以用这个 ref 找回它。
-
-这让脚本具备两个适合 Agent 的性质：**可以在新一轮任务中恢复，也可以安全重跑。** 上下文被压缩或
-进程结束后，已经保存的分析进度不依赖 Agent 是否还记得某个 Python 变量；相同输入与定义也不会因为
-重新执行就悄悄换一套含义。
-
-### Read again：读取事实，再由 Agent 作判断
-
-```python
-delta.show()
-
-# 只有当还不清楚这个结果能接哪些动作时再读取：
-contract = delta.contract()
-contract.show()
-```
-
-`contract()` 列出输出列、使用过的语义对象、已知问题，以及可以接收当前结果的后续动作，但这些只是
-**可用能力**，不是推荐。它可以说明 `DeltaFrame` 能否进入 `attribute`，不能说明归因是否值得做。
-Agent 需要把当前结果放回业务问题中，决定继续检查 `region`、转向另一个假设，还是证据已经足够。
-
-这也解释了为什么 Marivo 不把整个调查自动编译成一张固定流程图。分析过程中最有价值的部分，恰恰是
-根据新事实改变方向。DSL 应该让每一步更可靠，而不是提前消灭这种判断空间。
 
 ## Analysis DSL 具体提供哪些能力
 
@@ -248,6 +174,14 @@ revenue_by_region.show()
 这条边界会保留给 Agent。
 
 ```python
+baseline = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+    analysis_purpose="建立去年同期基线",
+)
+
 delta = session.compare(
     current,
     baseline,
@@ -370,6 +304,90 @@ state_counts.show()
 这些能力不是越多越好。一个操作只有在能够说清输入是什么、输出是什么、失败时怎样说明，以及会留下
 什么证据时，才值得成为核心 DSL。仅仅节省几行代码，或者把一套常见步骤藏进一个大函数，并不足以
 形成稳定的分析动作。
+
+## 约束需要边界，也需要逃生通道
+
+Analysis DSL 不可能预先覆盖所有分析方法，也不应该把 Agent 困在一个封闭系统里。真实调查会遇到尚未
+定义的业务对象、特殊的统计方法，以及只在某个行业中使用的计算。完全禁止这些需求，只会促使 Agent
+绕开系统；更诚实的做法是保留明确的逃生通道，并让离开类型化分析的时刻清楚可见。
+
+Marivo 提供两条方向不同的终止路径：`md.raw_sql(...)` 从数据源侧处理语义定义尚未覆盖的临时诊断，
+`frame.to_pandas()` 则从已经成立的类型化结果出发，进入更广泛的 Python 生态。它们都提供必要的自由，
+但产出都不能重新接入 Analysis DSL，冒充由同一套约束产生的 frame。
+
+### raw_sql：定义缺失时的有限诊断
+
+如果 Agent 找不到问题需要的 metric、dimension、关系、Event 或 StateModel，类型化分析应该停在缺口
+处，而不是悄悄换一列数据。项目允许临时诊断时，可以使用 `md.raw_sql(...)` 执行一条只读 SQL，并在
+`reason` 中写明缺少什么、这次查询为了什么，以及使用了哪些临时假设。
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+diagnostic = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    """
+    SELECT sales_region, SUM(net_amount) AS provisional_revenue
+    FROM orders
+    WHERE completed_at >= DATE '2026-07-01'
+      AND completed_at < DATE '2026-10-01'
+      AND status = 'completed'
+    GROUP BY sales_region
+    """,
+    reason=(
+        "sales.revenue 与 sales.orders.region 尚未定义；"
+        "临时估算第三季度地区收入，并假设 net_amount 是净收入"
+    ),
+    limit=100,
+)
+diagnostic.show()
+```
+
+`raw_sql` 会拒绝空的 `reason`、多条语句和写操作，并限制返回的行数与执行时间。这里的 `limit` 只限制
+返回结果，不代表底层查询一定便宜，因此 SQL 本身仍应尽量小。它返回的是终止式 `RawSqlResult`，没有
+metric 身份、类型化后续动作和重新进入 Analysis DSL 的资格。由临时假设得到的结果也必须明确标为
+临时结果，不能因为查询成功就被当成正式业务定义。
+
+更重要的是，Agent 使用 `raw_sql` 不只是一次技术选择，也是一个产品信号：**当前语义层不足以回答这个
+问题。** 如果同一个缺口反复出现，正确的后续不是把 SQL 收藏成常用模板，而是补上缺失的业务对象、
+关系或时间定义，让以后相同的问题回到类型化主路径。
+
+### to_pandas：从可靠输入进入 Python 生态
+
+`frame.to_pandas()` 位于另一端。它要求 Agent 先通过 `observe`、`compare` 或其他类型化动作得到 frame，
+因此 metric、范围、粒度和维度已经明确。随后它返回一份独立的 pandas `DataFrame`，让 Agent 使用
+项目环境中可用的 pandas、SciPy、statsmodels、scikit-learn 或行业库，完成 Analysis DSL 尚未提供的
+统计、建模与可视化。
+
+```python
+from scipy.stats import median_abs_deviation
+
+rows = current.to_pandas()
+
+# metric、时间范围和地区已经由 current 固定；
+# 这里使用 Python 生态计算 DSL 尚未提供的稳健离散程度。
+robust_spread = (
+    rows.groupby("region")["revenue"]
+    .apply(median_abs_deviation)
+    .sort_values(ascending=False)
+)
+```
+
+这条通道保留了 Python 最有价值的开放性。Marivo 不需要把每一种统计方法都包装成核心操作，Agent 也
+不必为了使用一个专业库而放弃前面已经确认的业务含义。但边界仍然存在：`robust_spread` 是自定义计算
+结果，不是 Marivo frame，不能再交给 `compare` 或 `attribute`。Agent 应把转换和后续计算放在同一份
+可重跑脚本中，并单独说明所用方法、假设和限制。
+
+调用 `to_pandas()` 本身不等于语义层有错。一次性的专业方法可能只是超出了 DSL 的覆盖范围。但它仍然
+值得被视为信号：如果 Agent 导出数据是为了重新计算收入、补业务筛选或自行连接实体，说明语义定义
+不完整；如果很多调查都重复同一种自定义统计，则说明 Analysis DSL 可能缺少一个值得类型化的动作。
+
+![Marivo 以类型化分析作为主路径，同时保留 raw_sql 与 to_pandas 两条不能重新进入类型化分析的逃生通道；每次使用都会形成补全语义层或 DSL 的反馈](../../../assets/blog/analysis-dsl-agent-loop.png)
+
+逃生通道的价值，不只是让少数问题可以继续完成。它还让系统知道约束在哪里失效、下一步应该补什么。
+偶发的专业计算可以留在 Python 生态；反复出现的业务含义应回到语义层，反复出现的通用分析动作则应
+进入 DSL。这样，开放性不会削弱约束，反而会成为约束持续改进的来源。
 
 ## Analysis DSL 应该产出什么
 

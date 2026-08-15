@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
-  <title id="title">Marivo Analysis DSL 面向 Agent 的 read-write-execute loop</title>
-  <desc id="desc">Agent 读取语义对象和当前结果，写出一个分析动作，由 Marivo 检查并执行，得到含义明确且生成后不再改写的结果，再由 Agent 读取事实并决定下一步。Marivo 约束动作，但不替 Agent 推理。</desc>
+  <title id="title">Marivo Analysis DSL 的类型化主路径与逃生通道</title>
+  <desc id="desc">语义层对象通过 Analysis DSL 产生可以继续组合的类型化结果。语义定义缺失时可以使用 raw_sql 做有限诊断，类型化结果也可以通过 to_pandas 进入 Python 生态，但两个终止式结果都不能重新进入类型化分析。每次使用逃生通道都会形成补全语义层或 DSL 的反馈。</desc>
   <defs>
     <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8f5ed"/>
@@ -14,101 +14,98 @@
       <path d="M32 0H0V32" fill="none" stroke="#147d64" stroke-opacity=".045"/>
     </pattern>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0d4639" flood-opacity=".12"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0d4639" flood-opacity=".11"/>
     </filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0L10 5 0 10Z" fill="#239878"/>
+    </marker>
+    <marker id="escape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5 0 10Z" fill="#cc7655"/>
     </marker>
     <style>
       text { font-family: "Hiragino Sans GB", "PingFang SC", "Microsoft YaHei", sans-serif; }
       .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
       .eyebrow { fill: #147d64; font-size: 15px; font-weight: 700; letter-spacing: 2px; }
       .heading { fill: #102a21; font-size: 34px; font-weight: 700; }
-      .section { fill: #15372d; font-size: 21px; font-weight: 700; }
+      .section { fill: #15372d; font-size: 22px; font-weight: 700; }
       .label { fill: #29473d; font-size: 16px; font-weight: 650; }
-      .muted { fill: #697d75; font-size: 14px; }
+      .body { fill: #526b62; font-size: 14px; }
       .tiny { fill: #71877e; font-size: 12px; }
       .white { fill: #f3fff9; }
       .mint { fill: #b9f4dd; }
+      .warm { fill: #a94f31; }
     </style>
   </defs>
 
   <rect width="1400" height="840" rx="30" fill="url(#paper)"/>
   <rect width="1400" height="840" rx="30" fill="url(#grid)"/>
 
-  <text x="70" y="70" class="eyebrow mono">MARIVO / ANALYSIS DSL</text>
-  <text x="70" y="116" class="heading">约束每一个分析动作，不替 Agent 决定怎样思考</text>
+  <text x="70" y="68" class="eyebrow mono">MARIVO / ANALYSIS DSL</text>
+  <text x="70" y="114" class="heading">类型化分析为主路径，逃生通道守住边界</text>
+
+  <text x="70" y="162" class="eyebrow mono">PRIMARY PATH</text>
 
   <g filter="url(#shadow)">
-    <rect x="70" y="164" width="300" height="496" rx="26" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".22"/>
+    <rect x="70" y="188" width="300" height="212" rx="24" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".25"/>
   </g>
-  <text x="98" y="204" class="eyebrow mono">AGENT OWNS</text>
-  <text x="98" y="242" class="section">判断与选择</text>
+  <text x="98" y="226" class="eyebrow mono">SEMANTIC LAYER</text>
+  <text x="98" y="264" class="section">已定义的业务对象</text>
+  <text x="98" y="302" class="body mono">metric · dimension</text>
+  <text x="98" y="329" class="body mono">Event · StateModel</text>
+  <rect x="98" y="352" width="244" height="28" rx="9" fill="#e4f3ec"/>
+  <text x="220" y="371" text-anchor="middle" class="tiny">身份、范围与规则明确</text>
 
-  <rect x="98" y="276" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="302" class="label">问题与目标</text>
-  <text x="118" y="324" class="tiny">这次调查要回答什么</text>
-  <rect x="98" y="354" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="380" class="label">假设与下一步</text>
-  <text x="118" y="402" class="tiny">哪个动作对问题有意义</text>
-  <rect x="98" y="432" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="458" class="label">解释与边界</text>
-  <text x="118" y="480" class="tiny">事实意味着什么、不能说明什么</text>
-  <rect x="98" y="510" width="244" height="64" rx="15" fill="#dff4ea"/>
-  <text x="118" y="536" class="label">继续或停止</text>
-  <text x="118" y="558" class="tiny">根据新事实调整调查方向</text>
-  <text x="98" y="621" class="tiny">推理与判断仍由 Agent 负责</text>
-
-  <path d="M370 314H433" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <text x="386" y="299" class="tiny mono">WRITE</text>
-  <path d="M433 570H370" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <text x="386" y="596" class="tiny mono">READ</text>
+  <path d="M370 294H430" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
 
   <g filter="url(#shadow)">
-    <rect x="433" y="164" width="897" height="496" rx="28" fill="url(#dark)"/>
+    <rect x="430" y="164" width="500" height="260" rx="28" fill="url(#dark)"/>
   </g>
-  <text x="466" y="204" class="eyebrow mono mint">MARIVO OWNS</text>
-  <text x="466" y="242" class="section white">可检查的动作、可重复的计算与清楚的结果</text>
+  <text x="462" y="206" class="eyebrow mono mint">ANALYSIS DSL</text>
+  <text x="462" y="248" class="section white">受约束的分析动作</text>
+  <text x="462" y="288" class="body mono" fill="#b9d9ce">observe · compare · attribute</text>
+  <text x="462" y="317" class="body mono" fill="#b9d9ce">forecast · events · lifecycle</text>
+  <rect x="462" y="350" width="436" height="44" rx="12" fill="#1c5949" stroke="#72d5b5" stroke-opacity=".25"/>
+  <text x="680" y="377" text-anchor="middle" class="label white">检查输入 · 执行计算 · 产出明确结果</text>
 
-  <rect x="466" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="490" y="310" class="eyebrow mono mint">01 / READ</text>
-  <text x="490" y="345" class="label white">读取当前事实</text>
-  <text x="490" y="380" class="tiny" fill="#b9d9ce">catalog · help</text>
-  <text x="490" y="407" class="tiny" fill="#b9d9ce">frame.show()</text>
-  <text x="490" y="434" class="tiny" fill="#b9d9ce">frame.contract()</text>
-  <text x="490" y="476" class="muted" fill="#91bbae">只展开当前一步</text>
-  <text x="490" y="498" class="muted" fill="#91bbae">真正需要的信息</text>
+  <path d="M930 294H990" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
 
-  <path d="M706 401H752" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="990" y="188" width="340" height="212" rx="24" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
+  </g>
+  <text x="1018" y="226" class="eyebrow mono">TYPED RESULT</text>
+  <text x="1018" y="264" class="section">可以继续组合的结果</text>
+  <text x="1018" y="302" class="body mono">MetricFrame · DeltaFrame</text>
+  <text x="1018" y="329" class="body mono">AttributionFrame …</text>
+  <rect x="1018" y="352" width="284" height="28" rx="9" fill="#ccebdd"/>
+  <text x="1160" y="371" text-anchor="middle" class="tiny">保留已确认的业务含义</text>
 
-  <rect x="752" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="776" y="310" class="eyebrow mono mint">02 / WRITE</text>
-  <text x="776" y="345" class="label white">写一个分析动作</text>
-  <text x="776" y="380" class="tiny" fill="#b9d9ce">observe(metric, scope)</text>
-  <text x="776" y="407" class="tiny" fill="#b9d9ce">compare(frame, frame)</text>
-  <text x="776" y="434" class="tiny" fill="#b9d9ce">attribute(delta, axes)</text>
-  <text x="776" y="476" class="muted" fill="#91bbae">参数清楚、可以检查</text>
-  <text x="776" y="498" class="muted" fill="#91bbae">这一步分析的完整内容</text>
+  <path d="M220 400V468" fill="none" stroke="#cc7655" stroke-width="2.2" stroke-dasharray="7 7" marker-end="url(#escape-arrow)"/>
+  <path d="M1160 400V468" fill="none" stroke="#cc7655" stroke-width="2.2" stroke-dasharray="7 7" marker-end="url(#escape-arrow)"/>
+  <text x="70" y="464" class="eyebrow mono warm">TERMINAL ESCAPES</text>
 
-  <path d="M992 401H1038" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="70" y="486" width="560" height="232" rx="24" fill="#fffaf5" stroke="#cc7655" stroke-opacity=".42"/>
+  </g>
+  <rect x="70" y="486" width="8" height="232" rx="4" fill="#cc7655"/>
+  <text x="102" y="526" class="eyebrow mono warm">RAW SQL / DEFINITION GAP</text>
+  <text x="102" y="565" class="section">定义缺失时的有限诊断</text>
+  <text x="102" y="600" class="body">只读 · 单条语句 · 有限返回 · 必须说明 reason</text>
+  <text x="102" y="633" class="label warm">信号：当前语义层缺少什么？</text>
+  <rect x="102" y="660" width="496" height="34" rx="10" fill="#f7e7de"/>
+  <text x="350" y="682" text-anchor="middle" class="tiny">终止式结果 · 不能重新进入类型化分析</text>
 
-  <rect x="1038" y="276" width="259" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="1062" y="310" class="eyebrow mono mint">03 / EXECUTE</text>
-  <text x="1062" y="345" class="label white">检查、计算、保存</text>
-  <text x="1062" y="380" class="tiny" fill="#b9d9ce">输入是否仍然有效</text>
-  <text x="1062" y="407" class="tiny" fill="#b9d9ce">当前结果能否用于下一步</text>
-  <text x="1062" y="434" class="tiny" fill="#b9d9ce">输出明确结果，失败说明原因</text>
-  <text x="1062" y="476" class="muted" fill="#91bbae">不猜输入，不伪造</text>
-  <text x="1062" y="498" class="muted" fill="#91bbae">“尽量正确”的结果</text>
+  <g filter="url(#shadow)">
+    <rect x="770" y="486" width="560" height="232" rx="24" fill="#fffaf5" stroke="#cc7655" stroke-opacity=".42"/>
+  </g>
+  <rect x="770" y="486" width="8" height="232" rx="4" fill="#cc7655"/>
+  <text x="802" y="526" class="eyebrow mono warm">TO_PANDAS / PYTHON ECOSYSTEM</text>
+  <text x="802" y="565" class="section">从类型化结果进入 Python 生态</text>
+  <text x="802" y="600" class="body mono">pandas · SciPy · statsmodels · scikit-learn</text>
+  <text x="802" y="633" class="label warm">信号：定义不足，还是 DSL 能力缺口？</text>
+  <rect x="802" y="660" width="496" height="34" rx="10" fill="#f7e7de"/>
+  <text x="1050" y="682" text-anchor="middle" class="tiny">终止式结果 · 不能重新进入类型化分析</text>
 
-  <path d="M1168 526V565H586V526" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <rect x="710" y="544" width="338" height="72" rx="18" fill="#dff4ea"/>
-  <text x="879" y="573" text-anchor="middle" class="label">含义明确、生成后不再改写的结果</text>
-  <text x="879" y="597" text-anchor="middle" class="tiny mono">MetricFrame · DeltaFrame · AttributionFrame …</text>
-
-  <text x="70" y="715" class="eyebrow mono">THE BOUNDARY</text>
-  <rect x="70" y="741" width="1260" height="54" rx="17" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
-  <circle cx="103" cy="768" r="13" fill="#147d64"/>
-  <path d="M97 768l4 4 8-9" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="130" y="774" class="label">语义层提供名词，Analysis DSL 约束动词；Agent 读取事实后，自己决定下一步。</text>
+  <text x="70" y="766" class="eyebrow mono">FEEDBACK</text>
+  <rect x="70" y="783" width="1260" height="38" rx="13" fill="#dff4ea" stroke="#42b892" stroke-opacity=".38"/>
+  <text x="700" y="808" text-anchor="middle" class="label">反复出现的业务含义回到语义层；反复出现的通用分析动作回到 DSL。</text>
 </svg>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
-  <title id="title">Marivo Analysis DSL for the agent read-write-execute loop</title>
-  <desc id="desc">The agent reads semantic objects and current results, writes one analytical action, and lets Marivo validate and execute it. Marivo returns a result with a clear meaning for the agent to inspect before deciding what to do next. Marivo constrains actions without dictating reasoning.</desc>
+  <title id="title">The typed path and terminal escape hatches in Marivo Analysis DSL</title>
+  <desc id="desc">Semantic objects pass through the Analysis DSL to produce composable typed results. Raw SQL provides a bounded diagnostic when a semantic definition is missing, while to_pandas opens the Python ecosystem from an established typed result. Neither terminal output can re-enter typed analysis, and every escape provides feedback for improving the semantic layer or DSL.</desc>
   <defs>
     <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8f5ed"/>
@@ -14,102 +14,98 @@
       <path d="M32 0H0V32" fill="none" stroke="#147d64" stroke-opacity=".045"/>
     </pattern>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0d4639" flood-opacity=".12"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0d4639" flood-opacity=".11"/>
     </filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0L10 5 0 10Z" fill="#239878"/>
+    </marker>
+    <marker id="escape-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5 0 10Z" fill="#cc7655"/>
     </marker>
     <style>
       text { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
       .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
       .eyebrow { fill: #147d64; font-size: 15px; font-weight: 700; letter-spacing: 2px; }
       .heading { fill: #102a21; font-size: 34px; font-weight: 700; }
-      .section { fill: #15372d; font-size: 21px; font-weight: 700; }
+      .section { fill: #15372d; font-size: 22px; font-weight: 700; }
       .label { fill: #29473d; font-size: 16px; font-weight: 650; }
-      .muted { fill: #697d75; font-size: 14px; }
+      .body { fill: #526b62; font-size: 14px; }
       .tiny { fill: #71877e; font-size: 12px; }
       .white { fill: #f3fff9; }
       .mint { fill: #b9f4dd; }
+      .warm { fill: #a94f31; }
     </style>
   </defs>
 
   <rect width="1400" height="840" rx="30" fill="url(#paper)"/>
   <rect width="1400" height="840" rx="30" fill="url(#grid)"/>
 
-  <text x="70" y="70" class="eyebrow mono">MARIVO / ANALYSIS DSL</text>
-  <text x="70" y="116" class="heading">Constrain every analytical action without dictating how the agent reasons</text>
+  <text x="70" y="68" class="eyebrow mono">MARIVO / ANALYSIS DSL</text>
+  <text x="70" y="114" class="heading">Typed analysis is the primary path. Escape hatches keep the boundary honest.</text>
+
+  <text x="70" y="162" class="eyebrow mono">PRIMARY PATH</text>
 
   <g filter="url(#shadow)">
-    <rect x="70" y="164" width="300" height="496" rx="26" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".22"/>
+    <rect x="70" y="188" width="300" height="212" rx="24" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".25"/>
   </g>
-  <text x="98" y="204" class="eyebrow mono">AGENT OWNS</text>
-  <text x="98" y="242" class="section">Judgment and choice</text>
+  <text x="98" y="226" class="eyebrow mono">SEMANTIC LAYER</text>
+  <text x="98" y="264" class="section">Approved business objects</text>
+  <text x="98" y="302" class="body mono">metric · dimension</text>
+  <text x="98" y="329" class="body mono">Event · StateModel</text>
+  <rect x="98" y="352" width="244" height="28" rx="9" fill="#e4f3ec"/>
+  <text x="220" y="371" text-anchor="middle" class="tiny">Explicit identity, scope, and rules</text>
 
-  <rect x="98" y="276" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="302" class="label">Question and objective</text>
-  <text x="118" y="324" class="tiny">What must this inquiry answer?</text>
-  <rect x="98" y="354" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="380" class="label">Hypothesis and next move</text>
-  <text x="118" y="402" class="tiny">Which action matters now?</text>
-  <rect x="98" y="432" width="244" height="64" rx="15" fill="#edf5f0"/>
-  <text x="118" y="458" class="label">Interpretation and limits</text>
-  <text x="118" y="480" class="tiny">What does the result not prove?</text>
-  <rect x="98" y="510" width="244" height="64" rx="15" fill="#dff4ea"/>
-  <text x="118" y="536" class="label">Continue or stop</text>
-  <text x="118" y="558" class="tiny">Let new facts redirect the inquiry</text>
-  <text x="98" y="621" class="tiny">Reasoning and judgment remain with the agent</text>
-
-  <path d="M370 314H433" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <text x="386" y="299" class="tiny mono">WRITE</text>
-  <path d="M433 570H370" fill="none" stroke="#239878" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <text x="386" y="596" class="tiny mono">READ</text>
+  <path d="M370 294H430" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
 
   <g filter="url(#shadow)">
-    <rect x="433" y="164" width="897" height="496" rx="28" fill="url(#dark)"/>
+    <rect x="430" y="164" width="500" height="260" rx="28" fill="url(#dark)"/>
   </g>
-  <text x="466" y="204" class="eyebrow mono mint">MARIVO OWNS</text>
-  <text x="466" y="242" class="section white">Inspectable actions, repeatable computation, explicit results</text>
+  <text x="462" y="206" class="eyebrow mono mint">ANALYSIS DSL</text>
+  <text x="462" y="248" class="section white">Constrained analytical actions</text>
+  <text x="462" y="288" class="body mono" fill="#b9d9ce">observe · compare · attribute</text>
+  <text x="462" y="317" class="body mono" fill="#b9d9ce">forecast · events · lifecycle</text>
+  <rect x="462" y="350" width="436" height="44" rx="12" fill="#1c5949" stroke="#72d5b5" stroke-opacity=".25"/>
+  <text x="680" y="377" text-anchor="middle" class="label white">Validate inputs · compute · return an explicit result</text>
 
-  <rect x="466" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="490" y="310" class="eyebrow mono mint">01 / READ</text>
-  <text x="490" y="345" class="label white">Read the current facts</text>
-  <text x="490" y="380" class="tiny" fill="#b9d9ce">catalog · help</text>
-  <text x="490" y="407" class="tiny" fill="#b9d9ce">frame.show()</text>
-  <text x="490" y="434" class="tiny" fill="#b9d9ce">frame.contract()</text>
-  <text x="490" y="476" class="muted" fill="#91bbae">Reveal only what</text>
-  <text x="490" y="498" class="muted" fill="#91bbae">this step needs</text>
+  <path d="M930 294H990" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
 
-  <path d="M706 401H752" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="990" y="188" width="340" height="212" rx="24" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
+  </g>
+  <text x="1018" y="226" class="eyebrow mono">TYPED RESULT</text>
+  <text x="1018" y="264" class="section">Composable typed results</text>
+  <text x="1018" y="302" class="body mono">MetricFrame · DeltaFrame</text>
+  <text x="1018" y="329" class="body mono">AttributionFrame …</text>
+  <rect x="1018" y="352" width="284" height="28" rx="9" fill="#ccebdd"/>
+  <text x="1160" y="371" text-anchor="middle" class="tiny">Preserves approved business meaning</text>
 
-  <rect x="752" y="276" width="240" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="776" y="310" class="eyebrow mono mint">02 / WRITE</text>
-  <text x="776" y="345" class="label white">Specify one action</text>
-  <text x="776" y="380" class="tiny" fill="#b9d9ce">observe(metric, scope)</text>
-  <text x="776" y="407" class="tiny" fill="#b9d9ce">compare(frame, frame)</text>
-  <text x="776" y="434" class="tiny" fill="#b9d9ce">attribute(delta, axes)</text>
-  <text x="776" y="476" class="muted" fill="#91bbae">Keep parameters explicit</text>
-  <text x="776" y="498" class="muted" fill="#91bbae">and reviewable</text>
+  <path d="M220 400V468" fill="none" stroke="#cc7655" stroke-width="2.2" stroke-dasharray="7 7" marker-end="url(#escape-arrow)"/>
+  <path d="M1160 400V468" fill="none" stroke="#cc7655" stroke-width="2.2" stroke-dasharray="7 7" marker-end="url(#escape-arrow)"/>
+  <text x="70" y="464" class="eyebrow mono warm">TERMINAL ESCAPES</text>
 
-  <path d="M992 401H1038" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="70" y="486" width="560" height="232" rx="24" fill="#fffaf5" stroke="#cc7655" stroke-opacity=".42"/>
+  </g>
+  <rect x="70" y="486" width="8" height="232" rx="4" fill="#cc7655"/>
+  <text x="102" y="526" class="eyebrow mono warm">RAW SQL / DEFINITION GAP</text>
+  <text x="102" y="565" class="section">When a definition is missing</text>
+  <text x="102" y="600" class="body">Read-only · one statement · bounded result · reason required</text>
+  <text x="102" y="633" class="label warm">Signal: what is missing from the semantic layer?</text>
+  <rect x="102" y="660" width="496" height="34" rx="10" fill="#f7e7de"/>
+  <text x="350" y="682" text-anchor="middle" class="tiny">Terminal result · no typed re-entry</text>
 
-  <rect x="1038" y="276" width="259" height="250" rx="20" fill="#174d40" stroke="#78d8ba" stroke-opacity=".28"/>
-  <text x="1062" y="310" class="eyebrow mono mint">03 / EXECUTE</text>
-  <text x="1062" y="345" class="label white">Validate, compute, save</text>
-  <text x="1062" y="380" class="tiny" fill="#b9d9ce">Is the input still valid?</text>
-  <text x="1062" y="407" class="tiny" fill="#b9d9ce">Can the result feed this action?</text>
-  <text x="1062" y="434" class="tiny" fill="#b9d9ce">Return a clear result</text>
-  <text x="1062" y="455" class="tiny" fill="#b9d9ce">or explain why it failed</text>
-  <text x="1062" y="486" class="muted" fill="#91bbae">No guessed inputs.</text>
-  <text x="1062" y="508" class="muted" fill="#91bbae">No “close enough” result.</text>
+  <g filter="url(#shadow)">
+    <rect x="770" y="486" width="560" height="232" rx="24" fill="#fffaf5" stroke="#cc7655" stroke-opacity=".42"/>
+  </g>
+  <rect x="770" y="486" width="8" height="232" rx="4" fill="#cc7655"/>
+  <text x="802" y="526" class="eyebrow mono warm">TO_PANDAS / PYTHON ECOSYSTEM</text>
+  <text x="802" y="565" class="section">From a typed result into Python</text>
+  <text x="802" y="600" class="body mono">pandas · SciPy · statsmodels · scikit-learn</text>
+  <text x="802" y="633" class="label warm">Signal: a semantic gap or a missing DSL action?</text>
+  <rect x="802" y="660" width="496" height="34" rx="10" fill="#f7e7de"/>
+  <text x="1050" y="682" text-anchor="middle" class="tiny">Terminal result · no typed re-entry</text>
 
-  <path d="M1168 526V565H586V526" fill="none" stroke="#72d5b5" stroke-width="2.2" marker-end="url(#arrow)"/>
-  <rect x="710" y="544" width="338" height="72" rx="18" fill="#dff4ea"/>
-  <text x="879" y="573" text-anchor="middle" class="label">Explicit results that are never rewritten</text>
-  <text x="879" y="597" text-anchor="middle" class="tiny mono">MetricFrame · DeltaFrame · AttributionFrame …</text>
-
-  <text x="70" y="715" class="eyebrow mono">THE BOUNDARY</text>
-  <rect x="70" y="741" width="1260" height="54" rx="17" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
-  <circle cx="103" cy="768" r="13" fill="#147d64"/>
-  <path d="M97 768l4 4 8-9" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="130" y="774" class="label">The Semantic Layer supplies nouns. The Analysis DSL governs verbs. The agent chooses what comes next.</text>
+  <text x="70" y="766" class="eyebrow mono">FEEDBACK</text>
+  <rect x="70" y="783" width="1260" height="38" rx="13" fill="#dff4ea" stroke="#42b892" stroke-opacity=".38"/>
+  <text x="700" y="808" text-anchor="middle" class="label">Recurring business meaning belongs in semantics. Recurring analytical actions belong in the DSL.</text>
 </svg>

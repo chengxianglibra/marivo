@@ -81,6 +81,8 @@ The first is **translation**. The agent says what to observe, over which period,
 
 Reducing that burden must not turn analysis into a fixed workflow. After `compare`, the agent may attribute the change, search for candidates, check quality, or stop. A result can describe which actions accept it; only the agent can decide which action is relevant to the question. **An action being available does not make it useful, and a candidate is not a conclusion.**
 
+![The semantic layer supplies business nouns such as revenue, region, and completed_at; the Analysis DSL expresses actions through observe, compare, and attribute; typed results retain the business meaning while the runtime resolves tables, columns, filters, and joins](../../assets/blog/analysis-dsl-business-abstraction-en.png)
+
 ## What the Analysis DSL actually constrains
 
 A DSL adds little value if it merely gives shorter names to familiar database operations. It needs to make the parts that can change business meaning both explicit and machine-checkable.
@@ -94,63 +96,6 @@ In Marivo, an analytical action is constrained along at least five practical dim
 5. **What a successful result is allowed to promise.** Each core action produces a result with one clear meaning. If the requirements are not met, the action fails explicitly instead of returning something that merely resembles the expected output.
 
 These constraints apply to executable actions, not to the agent's thought process. Marivo does not insist that a question begin with a year-over-year comparison, choose the most important region on the agent's behalf, turn association into causation, or write the business conclusion. It makes sure the same inputs are computed under the same rules and protects the boundary of each operation. The agent forms hypotheses, chooses the next step, combines results, and takes responsibility for the interpretation.
-
-![An agent loops through read, write, execute, and read again; Marivo checks the business objects, execution conditions, and result of each action without deciding what the agent should do next](../../assets/blog/analysis-dsl-agent-loop-en.png)
-
-The agent deliberately sits outside the inner loop in this diagram. The Analysis DSL is not a workflow engine that plans an investigation on the agent's behalf. It is a set of actions that may be composed freely without allowing their meanings to be rewritten. Each result gives the agent new facts, after which it may revise a hypothesis, choose another action, or stop.
-
-## Designing for the agent's read-write-execute loop
-
-Agent analysis is a sequence of small loops, not one large call. From the agent's perspective, the rhythm is usually **read → write → execute → read again**. From the script's perspective, the middle becomes **write → run → read**. Both describe the same discipline: express one current action, execute it, inspect a definite result, then decide what deserves another round.
-
-### Read: inspect the facts at hand
-
-At the start, the agent reads the business question and the semantic catalog. When necessary, `marivo.help("analysis")` reveals the capabilities provided by the installed version. Results have their own reading levels: `repr(frame)` gives a compact identity, `frame.show()` exposes the most useful bounded view, and `frame.contract()` explains supported next actions when the path is unclear. Only when the question genuinely requires row-level inspection or custom work should the agent call `frame.to_pandas()`—and thereby leave Marivo's continuing analysis chain.
-
-Progressive reading matters. An agent should not have to load the entire API reference, every prior result, and a complete dataset to choose one local action. The runtime exposes a small set of commonly needed facts first, then lets the agent inspect a result or help topic more deeply when needed.
-
-### Write: make one analytical action explicit
-
-The agent writes ordinary Python. The metric, scope, grain, dimensions, alignment between periods, and `analysis_purpose` all remain visible in the call. The script can be reviewed, stored in Git, and run again in a later round.
-
-```python
-baseline = session.observe(
-    revenue,
-    time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
-    grain=mv.grain("month"),
-    dimensions=[region],
-    analysis_purpose="Establish the year-ago baseline",
-)
-
-delta = session.compare(
-    current,
-    baseline,
-    alignment=mv.window_bucket(),
-    analysis_purpose="Measure the year-over-year change in Q3 revenue",
-)
-```
-
-There is no hidden “find the cause” switch. The agent first states what should be compared and how the windows align. A successful execution returns a `DeltaFrame`, not a paragraph that mixes facts, interpretation, and advice.
-
-### Execute: establish that the action is valid, then compute
-
-Before planning and running a calculation, the runtime checks input kinds, session ownership, whether semantic objects are still valid, and whether the current result can be used by the next action. A failed step leaves earlier saved results intact and states which requirement was not met. The agent can repair the current action without restarting the investigation. Every successful result has a stable `frame.ref` and is saved in the project, so another script can recover it later.
-
-That gives an agent two valuable properties: analysis can resume in a later task, and a step can be rerun safely. If context is compressed or a process ends, completed work does not depend on the agent remembering a Python variable. Running the same step again also does not quietly change its business meaning.
-
-### Read again: inspect the result, then exercise judgment
-
-```python
-delta.show()
-
-# Read this only when the supported next actions are unclear.
-contract = delta.contract()
-contract.show()
-```
-
-`contract()` describes output columns, semantic objects used, known concerns, and actions that accept the current result. These are **available capabilities**, not recommendations. It can tell the agent whether a `DeltaFrame` may be passed to `attribute`; it cannot tell the agent whether attribution is worth doing. The agent must return the result to the business question and decide whether to inspect `region`, test another hypothesis, or conclude that the evidence is sufficient.
-
-This is also why Marivo does not compile an investigation into a fixed workflow in advance. The most valuable analytical move is often a change of direction in response to a new fact. The DSL should make each step dependable without removing that freedom.
 
 ## What the Analysis DSL can do
 
@@ -180,6 +125,14 @@ Both `revenue` and `region` come from the semantic layer. The agent specifies th
 `session.compare(...)` accepts two compatible `MetricFrame` results and produces a `DeltaFrame`. It makes the correspondence between periods explicit and checks whether the inputs can be compared fairly before subtracting values. `session.attribute(...)` then calculates contributions along declared business dimensions and requires those contributions to reconcile with the total change. Attribution describes numerical contribution, not causation; interpretation remains the agent's responsibility.
 
 ```python
+baseline = session.observe(
+    revenue,
+    time_scope=mv.time_scope(start="2025-07-01", end="2025-10-01"),
+    grain=mv.grain("month"),
+    dimensions=[region],
+    analysis_purpose="Establish the year-ago baseline",
+)
+
 delta = session.compare(
     current,
     baseline,
@@ -289,6 +242,69 @@ state_counts.show()
 The first result preserves the order in which subjects move through the checkout steps; the second preserves orders moving between lifecycle states. The agent does not have to compress the process into a few temporary numbers and later guess what those numbers represented.
 
 More operations are not automatically better. An operation belongs in the core DSL only when its inputs, output, failure behavior, and evidence can all be stated clearly. Saving a few lines of code or hiding a familiar sequence inside one large function is not enough to create a dependable analytical action.
+
+## Constraints need boundaries—and escape hatches
+
+No Analysis DSL can anticipate every method an investigation may require, nor should it trap an agent inside a closed system. Real work encounters business objects that have not been defined, specialized statistical methods, and calculations used only in a particular industry. Prohibiting all of them would simply push the agent around the system. A more honest design keeps the escape hatches explicit and makes the moment typed analysis ends impossible to miss.
+
+Marivo provides two terminal paths in different directions. `md.raw_sql(...)` handles a temporary datasource-side diagnostic when the semantic layer does not yet cover the question. `frame.to_pandas()` begins with an established typed result and opens the broader Python ecosystem. Both provide necessary freedom; neither result can be passed back into the Analysis DSL and presented as a frame produced under the same constraints.
+
+### raw_sql: a bounded diagnostic for a missing definition
+
+If an agent cannot find the metric, dimension, relationship, Event, or StateModel required by a question, typed analysis should stop at that gap rather than quietly substitute a convenient column. Where project policy permits a temporary diagnostic, `md.raw_sql(...)` can run one read-only statement. Its `reason` must state what is missing, why the query is needed, and which provisional assumptions it makes.
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+diagnostic = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    """
+    SELECT sales_region, SUM(net_amount) AS provisional_revenue
+    FROM orders
+    WHERE completed_at >= DATE '2026-07-01'
+      AND completed_at < DATE '2026-10-01'
+      AND status = 'completed'
+    GROUP BY sales_region
+    """,
+    reason=(
+        "sales.revenue and sales.orders.region are not defined; "
+        "estimate the Q3 regional pattern while assuming net_amount is net revenue"
+    ),
+    limit=100,
+)
+diagnostic.show()
+```
+
+`raw_sql` rejects an empty `reason`, multiple statements, and writes, while bounding returned rows and execution time. The `limit` bounds the result, not necessarily the work performed by the database, so the statement itself must still be narrow. Its terminal `RawSqlResult` has no metric identity, typed next actions, or route back into the Analysis DSL. A result based on provisional assumptions must remain explicitly provisional; a successful query does not turn those assumptions into an approved business definition.
+
+More importantly, an agent's use of `raw_sql` is not merely an implementation detail. It is a product signal: **the semantic layer cannot yet answer this question.** If the same gap recurs, the right response is not to preserve the SQL as a convenient template. It is to define the missing business object, relationship, or timeline so that the next investigation can return to the typed path.
+
+### to_pandas: from dependable inputs into the Python ecosystem
+
+`frame.to_pandas()` sits at the other end of the process. The agent first obtains a frame through `observe`, `compare`, or another typed action, so the metric, scope, grain, and dimensions are already explicit. It then receives an isolated pandas `DataFrame` and can use pandas, SciPy, statsmodels, scikit-learn, or a domain library available in the project environment for statistics, modeling, and visualization that the Analysis DSL does not provide.
+
+```python
+from scipy.stats import median_abs_deviation
+
+rows = current.to_pandas()
+
+# The metric, period, and region are already fixed by current.
+# Use the Python ecosystem for a robust spread measure not offered by the DSL.
+robust_spread = (
+    rows.groupby("region")["revenue"]
+    .apply(median_abs_deviation)
+    .sort_values(ascending=False)
+)
+```
+
+This boundary preserves what is most useful about Python's open ecosystem. Marivo does not need to wrap every statistical method as a core operation, and the agent does not have to discard the business meaning already established simply to use a specialist library. The boundary still matters: `robust_spread` is a custom result, not a Marivo frame, and cannot be passed to `compare` or `attribute`. The conversion and custom calculation should remain in the same rerunnable script, with the method, assumptions, and limitations stated separately.
+
+Calling `to_pandas()` does not automatically mean the semantic layer is wrong. A one-off specialist method may simply be beyond the DSL's scope. It is still a signal worth examining. If the agent exports data to recalculate revenue, add business filters, or join entities by hand, the semantic definition is incomplete. If many investigations repeat the same custom statistical operation, the Analysis DSL may be missing an action worth typing.
+
+![Marivo keeps typed analysis as the primary path and provides raw_sql and to_pandas as terminal escape hatches; every use feeds back into semantic or DSL improvement](../../assets/blog/analysis-dsl-agent-loop-en.png)
+
+Escape hatches do more than allow an unusual question to be completed. They reveal where the current contract stops and what should improve next. Occasional specialist work can remain in the Python ecosystem. Recurring business meaning belongs in the semantic layer; a recurring general-purpose analytical operation belongs in the DSL. Openness then becomes a source of better constraints rather than a way around them.
 
 ## What should the Analysis DSL produce?
 
