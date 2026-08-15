@@ -107,6 +107,7 @@ def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
 
     assert catalog_contract.public_properties == CATALOG_COLLECTION_PROPERTIES
     assert catalog_contract.public_methods == (
+        "items",
         "require",
         "verify",
         "preview",

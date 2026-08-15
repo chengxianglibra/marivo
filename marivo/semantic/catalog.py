@@ -4562,6 +4562,7 @@ class SemanticCatalog(RenderableResult):
         >>> catalog = ms.load()
         >>> catalog.domains.show()
         >>> catalog.metrics.show()  # all metrics across domains
+        >>> catalog.items(ms.SemanticKind.METRIC).refs  # kind-keyed traversal
         >>> revenue = catalog.require(ms.ref.metric("sales.revenue"))
         >>> revenue.details().additivity
 
@@ -4953,6 +4954,39 @@ class SemanticCatalog(RenderableResult):
     @property
     def work_schedules(self) -> CatalogCollection[WorkScheduleKind]:
         return self._collection(WorkScheduleEntry, SemanticKind.WORK_SCHEDULE)
+
+    def items(self, kind: SemanticKind | str) -> CatalogCollection[SemanticKindTag]:
+        """Return the typed collection for the given ``SemanticKind``.
+
+        This is the generic, kind-keyed counterpart to the named collection
+        properties.  Programmatic traversal can iterate the ``SemanticKind``
+        enum instead of hand-writing a kind -> property mapping::
+
+            for kind in SemanticKind:
+                refs = catalog.items(kind).refs
+
+        Args:
+            kind: A ``SemanticKind`` member or its ``str`` value (e.g.
+                ``SemanticKind.METRIC`` or ``"metric"``).
+
+        Returns:
+            The same ``CatalogCollection`` as the matching named property
+            (``catalog.items(SemanticKind.METRIC)`` is ``catalog.metrics``).
+        """
+        kind = SemanticKind(kind)
+        object_type = _OBJECT_TYPE_BY_KIND.get(kind)
+        if object_type is None:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"No catalog collection is registered for semantic kind {kind.value!r}.",
+                cls=SemanticRuntimeError,
+                refs=(kind.value,),
+            )
+        return self._collection(object_type, kind)
+
+    def __getitem__(self, kind: SemanticKind | str) -> CatalogCollection[SemanticKindTag]:
+        """``catalog[kind]`` is ``catalog.items(kind)`` for kind-keyed traversal."""
+        return self.items(kind)
 
     def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
         """Require exact membership of one typed ref in this compiled catalog."""
