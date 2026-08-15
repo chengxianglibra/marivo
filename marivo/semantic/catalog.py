@@ -6181,6 +6181,12 @@ def load(
 ) -> SemanticCatalog:
     """Load a semantic project and return a browseable SemanticCatalog.
 
+    This is the single public entry point for loading the semantic layer.  The
+    lower layers (``SemanticProject.load()`` and
+    ``marivo.semantic.loader.load_project()``) return a raw ``LoadResult``
+    rather than a catalog; they are for inspecting load status/errors or for
+    re-using an already-loaded project, not for agent-facing browsing.
+
     Args:
         workspace_dir: Path to the project root containing ``marivo.toml``.
             Defaults to the current working directory when omitted. The local
@@ -6221,4 +6227,4 @@ def load(
         from marivo.semantic.errors import SemanticLoadFailed
 
         raise SemanticLoadFailed(result.errors)
-    return SemanticCatalog(project)
+    return project.catalog()

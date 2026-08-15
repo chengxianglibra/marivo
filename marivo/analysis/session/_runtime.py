@@ -964,12 +964,11 @@ def _build_connection_runtime(
 
 def _build_semantic_catalog(project_root: Path) -> Any:
     """Build a SemanticCatalog from the project root, preserving not-ready state."""
-    from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=project_root)
     project.load()
-    return SemanticCatalog(project)
+    return project.catalog()
 
 
 # ---------------------------------------------------------------------------

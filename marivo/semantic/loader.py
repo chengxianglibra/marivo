@@ -2,6 +2,12 @@
 
 Implements find_project and the two-pass loader pipeline.  This module
 absorbs the old registry.py LoaderContext management.
+
+This is the **low-level** loader.  Agent-facing loading goes through
+``ms.load(workspace_dir=...)`` which returns a browseable
+``SemanticCatalog``.  The pipeline here (``load_project``) returns a raw
+``LoadResult`` and accepts only the ``models/semantic/`` root; use it when
+you need the unassembled result rather than a catalog.
 """
 
 from __future__ import annotations
@@ -887,6 +893,11 @@ def load_project(
     models_roots: Sequence[Path] | None = None,
 ) -> LoadResult:
     """Load domains from the semantic project root.
+
+    This is the **low-level** two-pass pipeline.  Prefer
+    ``ms.load(workspace_dir=...)``, which returns a ``SemanticCatalog`` and
+    accepts a workspace root.  Use ``load_project`` only when you need the raw
+    ``LoadResult``.
 
     Two-pass pipeline:
     1. Discover domain directories and execute their files.
