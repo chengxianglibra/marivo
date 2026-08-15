@@ -9,7 +9,7 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
@@ -44,6 +44,9 @@ from marivo.semantic.richness import (
     build_richness_report,
 )
 from marivo.semantic.validator import Registry
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticCatalog
 
 __all__ = [
     "ReadinessInputSummary",
@@ -180,6 +183,13 @@ class SemanticProject:
 
     For agent-facing reading, use ms.load() which returns a SemanticCatalog.
 
+    This reader sits one level below ``ms.load()``: ``load()`` returns the raw
+    ``LoadResult``, and ``catalog()`` is the explicit bridge from that result
+    to a browseable ``SemanticCatalog``.  Prefer the one-shot
+    ``ms.load(workspace_dir=...)``; use ``SemanticProject`` directly only when
+    you need to inspect the ``LoadResult`` (status/errors/warnings) or re-use a
+    loaded project.
+
     Usage::
 
         project = SemanticProject()  # uses cwd or MARIVO_PROJECT_ROOT
@@ -187,7 +197,7 @@ class SemanticProject:
         project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
         if project.is_ready():
-            ...
+            catalog = project.catalog()
     """
 
     def __init__(
@@ -314,6 +324,22 @@ class SemanticProject:
     def warnings(self) -> tuple[StructuredWarning, ...]:
         """Return warnings from the last load attempt."""
         return self._warnings
+
+    def catalog(self) -> SemanticCatalog:
+        """Return a browseable ``SemanticCatalog`` over this project.
+
+        This is the explicit bridge from the reader-level ``project.load()``
+        path (which returns a ``LoadResult``) to the agent-facing
+        ``SemanticCatalog``.  It is the same object that ``ms.load()`` returns;
+        prefer ``ms.load(workspace_dir=...)`` for one-shot loading.
+
+        Raises ``SemanticLoadFailed`` if the project is not in the 'ready'
+        state (for example, when ``load()`` has not been called yet or
+        errored).
+        """
+        from marivo.semantic.catalog import SemanticCatalog
+
+        return SemanticCatalog(self)
 
     # -- dependency graph (internal) -----------------------------------------
 
