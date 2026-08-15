@@ -1154,6 +1154,8 @@ fiscal = ms.period_calendar(
     details = calendar.details()
     assert details.coverage == (date(2026, 1, 1), date(2026, 1, 5))
     assert details.source_date == ref.time_dimension("sales.calendar.calendar_date")
+    assert details.snapshot_digest
+    assert details.ref == calendar_ref
     level_details = {item.name: item for item in details.levels}
     assert level_details["week"].period_count == 2
     assert level_details["week"].direct_finer_levels == ("day",)
@@ -1222,6 +1224,7 @@ fiscal = ms.period_calendar(
     changed_catalog = SemanticCatalog(project)
     changed_calendar = changed_catalog.period_calendars.get("sales.fiscal")
     assert changed_calendar.details().snapshot_status == "stale"
+    assert changed_calendar.details().snapshot_digest is None
 
 
 def test_temporal_set_preview_certifies_once_and_navigates_exact_occurrences(

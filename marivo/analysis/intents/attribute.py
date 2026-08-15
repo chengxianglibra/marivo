@@ -12,6 +12,7 @@ from marivo._compat import UTC
 from marivo._temporal import _new_time_scope
 from marivo.analysis._cumulative import (
     GrainToDateAnchorSemanticsV1,
+    SemanticGrainToDateAnchorSemanticsV1,
     TrailingAnchorSemanticsV1,
 )
 from marivo.analysis.attribution_contract import (
@@ -165,6 +166,16 @@ def _cumulative_anchor_evidence(frame: DeltaFrame) -> CumulativeAttributionAncho
     anchor = alignment.canonical_anchor
     if isinstance(anchor, GrainToDateAnchorSemanticsV1 | TrailingAnchorSemanticsV1):
         return anchor
+    if isinstance(anchor, SemanticGrainToDateAnchorSemanticsV1):
+        raise AttributionMaterializationError(
+            message="cumulative decomposition does not support semantic calendar grains",
+            context={
+                "recoverability_status": "semantic_grain_decomposition_unsupported",
+                "delta_ref": frame.ref,
+                "calendar_ref": anchor.calendar_ref,
+                "level": anchor.level,
+            },
+        )
     raise AssertionError("unknown cumulative anchor evidence")
 
 

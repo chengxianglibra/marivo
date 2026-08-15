@@ -92,7 +92,19 @@ class AuthoredGrainToDateAnchorV1(BaseModel):
     reset_grain: Literal["week", "month", "quarter", "year"]
 
 
-AuthoredComparablePeriodAnchorV1: TypeAlias = AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1
+class AuthoredSemanticGrainToDateAnchorV1(BaseModel):
+    """Exact authored semantic-calendar grain-to-date anchor as evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["grain_to_date"]
+    calendar_ref: str
+    level: str
+
+
+AuthoredComparablePeriodAnchorV1: TypeAlias = (
+    AuthoredTrailingAnchorV1 | AuthoredGrainToDateAnchorV1 | AuthoredSemanticGrainToDateAnchorV1
+)
 
 
 class TrailingAnchorSemanticsV1(BaseModel):
@@ -113,8 +125,18 @@ class GrainToDateAnchorSemanticsV1(BaseModel):
     reset_grain: Literal["week", "month", "quarter", "year"]
 
 
+class SemanticGrainToDateAnchorSemanticsV1(BaseModel):
+    """Canonical semantic-calendar reset grain-to-date anchor."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["grain_to_date"]
+    calendar_ref: str
+    level: str
+
+
 ComparablePeriodAnchorSemanticsV1: TypeAlias = (
-    TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1
+    TrailingAnchorSemanticsV1 | GrainToDateAnchorSemanticsV1 | SemanticGrainToDateAnchorSemanticsV1
 )
 
 
@@ -197,6 +219,24 @@ class CumulativeAlignmentV1(BaseModel):
                 raise ValueError("current trailing anchor does not match canonical span")
             if trailing_span_seconds(baseline.count, baseline.unit) != canonical.span_seconds:
                 raise ValueError("baseline trailing anchor does not match canonical span")
+        elif isinstance(current, AuthoredSemanticGrainToDateAnchorV1):
+            if not isinstance(baseline, AuthoredSemanticGrainToDateAnchorV1) or not isinstance(
+                canonical, SemanticGrainToDateAnchorSemanticsV1
+            ):
+                raise ValueError(
+                    "semantic grain-to-date cumulative alignment requires semantic anchors"
+                )
+            if (current.calendar_ref, current.level) != (canonical.calendar_ref, canonical.level):
+                raise ValueError(
+                    "current semantic grain-to-date anchor does not match canonical calendar"
+                )
+            if (baseline.calendar_ref, baseline.level) != (
+                canonical.calendar_ref,
+                canonical.level,
+            ):
+                raise ValueError(
+                    "baseline semantic grain-to-date anchor does not match canonical calendar"
+                )
         else:
             if not isinstance(baseline, AuthoredGrainToDateAnchorV1) or not isinstance(
                 canonical, GrainToDateAnchorSemanticsV1
@@ -346,6 +386,18 @@ def authored_comparable_period_anchor(
     if isinstance(anchor, tuple) and anchor[0] == "grain_to_date":
         reset_grain = anchor[1]
         if isinstance(reset_grain, TemporalGrain):
+            if reset_grain.kind == "semantic":
+                calendar = reset_grain.calendar
+                level = reset_grain.level
+                if calendar is None or not isinstance(level, str) or not level:
+                    raise ValueError(
+                        f"unsupported semantic grain-to-date reset grain: {reset_grain!r}"
+                    )
+                return AuthoredSemanticGrainToDateAnchorV1(
+                    kind="grain_to_date",
+                    calendar_ref=calendar.path,
+                    level=level,
+                )
             if reset_grain.kind != "builtin" or reset_grain.unit is None or reset_grain.count != 1:
                 raise ValueError(f"unsupported grain-to-date reset grain: {reset_grain!r}")
             reset_grain = reset_grain.to_token()
@@ -367,6 +419,12 @@ def canonical_comparable_period_anchor(
     if isinstance(authored, AuthoredTrailingAnchorV1):
         return TrailingAnchorSemanticsV1(
             kind="trailing", span_seconds=trailing_span_seconds(authored.count, authored.unit)
+        )
+    if isinstance(authored, AuthoredSemanticGrainToDateAnchorV1):
+        return SemanticGrainToDateAnchorSemanticsV1(
+            kind="grain_to_date",
+            calendar_ref=authored.calendar_ref,
+            level=authored.level,
         )
     return GrainToDateAnchorSemanticsV1(
         kind="grain_to_date",
