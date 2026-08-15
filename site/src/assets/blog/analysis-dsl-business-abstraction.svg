@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
+  <title id="title">语义对象、Analysis DSL 动作与类型化结果使用同一种业务语言</title>
+  <desc id="desc">Agent 从业务问题出发，直接使用 revenue、region 和 completed_at 等语义对象，通过 observe、compare 和 attribute 等动作得到 MetricFrame、DeltaFrame 与 AttributionFrame。运行时负责解析表、列和连接，Agent 不需要在每一步重新翻译业务含义。</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8f5ed"/>
+      <stop offset="1" stop-color="#eaf4ef"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123f34"/>
+      <stop offset="1" stop-color="#092a23"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#147d64" stroke-opacity=".045"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0d4639" flood-opacity=".11"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5 0 10Z" fill="#239878"/>
+    </marker>
+    <style>
+      text { font-family: "Hiragino Sans GB", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+      .eyebrow { fill: #147d64; font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+      .heading { fill: #102a21; font-size: 34px; font-weight: 700; }
+      .section { fill: #15372d; font-size: 22px; font-weight: 700; }
+      .label { fill: #29473d; font-size: 16px; font-weight: 650; }
+      .body { fill: #587067; font-size: 14px; }
+      .tiny { fill: #71877e; font-size: 12px; }
+      .white { fill: #f3fff9; }
+      .mint { fill: #b9f4dd; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="840" rx="30" fill="url(#paper)"/>
+  <rect width="1400" height="840" rx="30" fill="url(#grid)"/>
+
+  <text x="70" y="68" class="eyebrow mono">MARIVO / SAME BUSINESS ABSTRACTION</text>
+  <text x="70" y="114" class="heading">用同一种业务语言完成分析</text>
+
+  <rect x="70" y="148" width="1260" height="76" rx="20" fill="#dff4ea" stroke="#42b892" stroke-opacity=".38"/>
+  <text x="98" y="178" class="eyebrow mono">BUSINESS QUESTION</text>
+  <text x="98" y="207" class="label">为什么第三季度收入低于去年同期？</text>
+  <text x="1302" y="193" text-anchor="end" class="tiny">Agent 从问题出发，选择下一步</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="270" width="350" height="340" rx="25" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".24"/>
+  </g>
+  <text x="98" y="310" class="eyebrow mono">SEMANTIC NOUNS</text>
+  <text x="98" y="347" class="section">语义层提供业务名词</text>
+  <rect x="98" y="378" width="294" height="57" rx="14" fill="#edf5f0"/>
+  <text x="118" y="402" class="label mono">revenue</text>
+  <text x="118" y="423" class="tiny">已完成订单的净收入</text>
+  <rect x="98" y="447" width="294" height="57" rx="14" fill="#edf5f0"/>
+  <text x="118" y="471" class="label mono">region</text>
+  <text x="118" y="492" class="tiny">已声明的销售地区维度</text>
+  <rect x="98" y="516" width="294" height="57" rx="14" fill="#edf5f0"/>
+  <text x="118" y="540" class="label mono">completed_at</text>
+  <text x="118" y="561" class="tiny">收入确认使用的业务时间</text>
+
+  <path d="M420 440H514" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="467" y="426" text-anchor="middle" class="tiny mono">ACT ON</text>
+
+  <g filter="url(#shadow)">
+    <rect x="514" y="246" width="372" height="388" rx="28" fill="url(#dark)"/>
+  </g>
+  <text x="544" y="288" class="eyebrow mono mint">ANALYSIS VERBS</text>
+  <text x="544" y="328" class="section white">DSL 表达分析动作</text>
+  <rect x="544" y="360" width="312" height="62" rx="15" fill="#1b5849" stroke="#72d5b5" stroke-opacity=".25"/>
+  <text x="566" y="386" class="label white mono">observe(revenue)</text>
+  <text x="566" y="408" class="tiny" fill="#a9cfc2">观察明确范围内的收入</text>
+  <path d="M700 422V445" stroke="#72d5b5" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="544" y="448" width="312" height="62" rx="15" fill="#1b5849" stroke="#72d5b5" stroke-opacity=".25"/>
+  <text x="566" y="474" class="label white mono">compare(current, baseline)</text>
+  <text x="566" y="496" class="tiny" fill="#a9cfc2">量化两个范围之间的变化</text>
+  <path d="M700 510V533" stroke="#72d5b5" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="544" y="536" width="312" height="62" rx="15" fill="#1b5849" stroke="#72d5b5" stroke-opacity=".25"/>
+  <text x="566" y="562" class="label white mono">attribute(delta, region)</text>
+  <text x="566" y="584" class="tiny" fill="#a9cfc2">检查地区对变化的数值贡献</text>
+
+  <path d="M886 440H980" fill="none" stroke="#239878" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="933" y="426" text-anchor="middle" class="tiny mono">RETURN</text>
+
+  <g filter="url(#shadow)">
+    <rect x="980" y="270" width="350" height="340" rx="25" fill="#e0f6ec" stroke="#42b892" stroke-opacity=".42"/>
+  </g>
+  <text x="1008" y="310" class="eyebrow mono">TYPED RESULTS</text>
+  <text x="1008" y="347" class="section">结果继续保留业务含义</text>
+  <rect x="1008" y="378" width="294" height="57" rx="14" fill="#ccebdd"/>
+  <text x="1028" y="402" class="label mono">MetricFrame</text>
+  <text x="1028" y="423" class="tiny">收入事实、范围与维度</text>
+  <rect x="1008" y="447" width="294" height="57" rx="14" fill="#ccebdd"/>
+  <text x="1028" y="471" class="label mono">DeltaFrame</text>
+  <text x="1028" y="492" class="tiny">变化事实与比较方式</text>
+  <rect x="1008" y="516" width="294" height="57" rx="14" fill="#ccebdd"/>
+  <text x="1028" y="540" class="label mono">AttributionFrame</text>
+  <text x="1028" y="561" class="tiny">数值贡献及其使用边界</text>
+
+  <text x="70" y="680" class="eyebrow mono">WHAT THE AGENT NO LONGER REBUILDS</text>
+  <rect x="70" y="704" width="1260" height="80" rx="19" fill="#fffdf8" stroke="#1d6d59" stroke-opacity=".2"/>
+  <text x="98" y="735" class="body mono">orders.net_amount · status filter · completed_at boundary · join sales_region</text>
+  <text x="98" y="763" class="label">表、列、过滤和连接由运行时沿语义定义解析，不再由 Agent 每一步重新实现。</text>
+  <rect x="1084" y="723" width="218" height="42" rx="12" fill="#dff4ea"/>
+  <text x="1193" y="749" text-anchor="middle" class="label">更少翻译 · 记忆 · 纠错</text>
+</svg>

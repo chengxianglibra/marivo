@@ -110,6 +110,8 @@ const requiredFiles = [
   'src/assets/blog/agent-analysis-flow.png',
   'src/assets/blog/analysis-dsl-agent-loop-en.png',
   'src/assets/blog/analysis-dsl-agent-loop.png',
+  'src/assets/blog/analysis-dsl-business-abstraction-en.png',
+  'src/assets/blog/analysis-dsl-business-abstraction.png',
   'src/assets/blog/semantic-layer-contract-en.png',
   'src/assets/blog/semantic-layer-contract.png',
   'src/styles/custom.css',
