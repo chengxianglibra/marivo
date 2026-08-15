@@ -18,6 +18,7 @@ from marivo.analysis._cumulative import (
     AuthoredSemanticGrainToDateAnchorV1,
     AuthoredTrailingAnchorV1,
     CumulativeAlignmentV1,
+    SemanticGrainToDateAnchorSemanticsV1,
     authored_comparable_period_anchor,
     cumulative_compare_anchor,
 )
@@ -119,6 +120,14 @@ def _attribute_repair(
     )
 
 
+def _cumulative_canonical_anchor(meta: CumulativeDeltaFrameMetaV1) -> object:
+    """Return the canonical comparable-period anchor when one is persisted."""
+    alignment = meta.comparable_period_alignment()
+    if alignment is None:
+        return None
+    return alignment.canonical_anchor
+
+
 def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
     """Project the single effective installed-runtime attribution admission."""
     rollup_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "hierarchy"))
@@ -133,6 +142,16 @@ def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
                 attribution_shape=method,
                 blocker=business.blocker,
                 repair=business.repair,
+            )
+        if isinstance(_cumulative_canonical_anchor(meta), SemanticGrainToDateAnchorSemanticsV1):
+            return BlockedAttributeAdmissionV1(
+                attribution_shape="unavailable",
+                blocker="semantic_grain_decomposition_unsupported",
+                repair=_attribute_repair(
+                    "Semantic-calendar cumulative deltas cannot be decomposed. "
+                    "Attribute the underlying base flow metric directly, or re-observe "
+                    "the metric with a builtin calendar reset grain.",
+                ),
             )
         return SupportedAttributeAdmissionV1(
             attribution_shape=method,

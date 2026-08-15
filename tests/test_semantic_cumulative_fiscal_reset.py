@@ -169,6 +169,17 @@ def test_contiguous_periods_rejects_undeclared_level() -> None:
         _require_contiguous_periods(_LEVELS, periods, _COVERAGE)
 
 
+def test_contiguous_periods_rejects_declared_level_with_zero_periods() -> None:
+    """A declared non-day level must carry at least one certified period."""
+    levels = ("day", "fiscal_week", "fiscal_month")
+    periods = (
+        _period("fiscal_week", "W1", date(2026, 1, 1), date(2026, 1, 8), 0),
+        _period("fiscal_week", "W2", date(2026, 1, 8), date(2026, 1, 15), 1),
+    )
+    with pytest.raises(ValueError, match="zero periods"):
+        _require_contiguous_periods(levels, periods, _COVERAGE)
+
+
 def test_snapshot_construction_rejects_gap_even_with_valid_digest() -> None:
     """The digest is only one defense; boundary integrity is enforced by the
     snapshot type itself, so a hand-built (or tampered-but-rehashed) snapshot
