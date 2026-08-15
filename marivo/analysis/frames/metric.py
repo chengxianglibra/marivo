@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo._temporal import FrameTemporalContractV1
 from marivo.analysis._cumulative import (
+    SemanticGrainToDateAnchorSemanticsV1,
     canonical_comparable_period_anchor,
     cumulative_compare_anchor,
     cumulative_compare_blocker,
@@ -184,6 +185,13 @@ def _cumulative_compare_pair_contract(anchor: object) -> ArtifactPrecondition | 
             "baseline must have the same canonical trailing span "
             f"({canonical.span_seconds} seconds); equivalent fixed units are accepted, and "
             "only paired day-of-week/progress/correspondence positions enter the delta"
+        )
+    elif isinstance(canonical, SemanticGrainToDateAnchorSemanticsV1):
+        reason = (
+            f"baseline must use the same {canonical.calendar_ref} / {canonical.level} "
+            "semantic reset and query grain; temporal alignment is allowed only at that "
+            "reset period, and only paired day-of-week/progress/correspondence positions "
+            "enter the delta"
         )
     else:
         reason = (

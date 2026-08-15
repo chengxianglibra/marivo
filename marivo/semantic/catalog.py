@@ -1110,6 +1110,7 @@ class PeriodCalendarDetails(_DetailsBase):
     _correspondence_fields: tuple[tuple[str, str, str], ...]
     _level_bindings: tuple[tuple[str, Ref[DimensionKind]], ...]
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
+    snapshot_digest: str | None = None
 
     @property
     def source_date(self) -> Ref[TimeDimensionKind]:
@@ -1127,6 +1128,7 @@ class PeriodCalendarDetails(_DetailsBase):
         )
         sections.extend(
             (
+                FieldSection(label="calendar_ref", value=self.ref.key),
                 FieldSection(label="source_date", value=self.date.key),
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),
                 FieldSection(
@@ -1139,6 +1141,10 @@ class PeriodCalendarDetails(_DetailsBase):
                     value=", ".join(self.correspondences) or "(none)",
                 ),
                 FieldSection(label="snapshot_status", value=self.snapshot_status),
+                FieldSection(
+                    label="snapshot_digest",
+                    value=self.snapshot_digest or "(unavailable)",
+                ),
             )
         )
         return sections
@@ -1763,6 +1769,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             return replace(
                 details,
                 snapshot_status=status,
+                snapshot_digest=None,
                 levels=_calendar_level_details(
                     details,
                     snapshot=None,
@@ -1771,6 +1778,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         return replace(
             details,
             snapshot_status="current",
+            snapshot_digest=snapshot.snapshot_digest,
             levels=_calendar_level_details(details, snapshot=snapshot),
         )
 

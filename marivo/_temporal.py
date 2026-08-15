@@ -1285,6 +1285,53 @@ class PeriodProgressCoordinate:
             raise ValueError("period progress coordinate is outside one civil day")
 
 
+def _require_contiguous_periods(
+    levels: tuple[str, ...],
+    periods: tuple[PeriodRecord, ...],
+    coverage: tuple[date, date],
+) -> None:
+    """Fail closed on calendar boundary gaps or overlaps.
+
+    Each non-day level's periods must form one contiguous, non-overlapping
+    partition of the declared coverage. The certification builder already
+    guarantees this by walking consecutive days; this guard keeps the invariant
+    true for every construction path (including deserialized or hand-built
+    snapshots) so boundary integrity never depends on data-side convention.
+    """
+    declared = set(levels)
+    start, end = coverage
+    by_level: dict[str, list[PeriodRecord]] = {}
+    for period in periods:
+        if period.level_name not in declared:
+            raise ValueError(f"period level {period.level_name!r} is not declared by the calendar")
+        by_level.setdefault(period.level_name, []).append(period)
+    for level, records in by_level.items():
+        ordered = sorted(records, key=lambda record: record.start_date)
+        if not ordered:
+            continue
+        if ordered[0].start_date != start:
+            raise ValueError(
+                f"calendar level {level!r} does not start at coverage start {start.isoformat()}"
+            )
+        cursor = start
+        for record in ordered:
+            if record.start_date != cursor:
+                raise ValueError(
+                    f"calendar level {level!r} has a gap or overlap at "
+                    f"{record.start_date.isoformat()}"
+                )
+            if record.end_date <= record.start_date or record.end_date > end:
+                raise ValueError(
+                    f"calendar level {level!r} period {record.key!r} escapes certified coverage"
+                )
+            cursor = record.end_date
+        if cursor != end:
+            raise ValueError(
+                f"calendar level {level!r} does not tile coverage; "
+                f"last period ends at {cursor.isoformat()}"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class PeriodCalendarSnapshotV1:
     """Certified compact period authority, normalized before identity hashing."""
@@ -1319,6 +1366,7 @@ class PeriodCalendarSnapshotV1:
         )
         if self.snapshot_digest != expected:
             raise ValueError("snapshot_digest does not match normalized period-calendar content")
+        _require_contiguous_periods(self.levels, self.periods, self.coverage)
 
     def period_scope(self, level: str, key: _JSON_SCALAR) -> TimeScope:
         key = canonical_key(key)

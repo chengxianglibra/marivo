@@ -15,6 +15,7 @@ from marivo.analysis._cumulative import (
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
     AuthoredGrainToDateAnchorV1,
+    AuthoredSemanticGrainToDateAnchorV1,
     AuthoredTrailingAnchorV1,
     CumulativeAlignmentV1,
     authored_comparable_period_anchor,
@@ -740,6 +741,15 @@ class DeltaFrame(BaseFrame):
                 card.field(
                     "caveat",
                     "rolling values overlap and are autocorrelated",
+                )
+            elif isinstance(current_anchor, AuthoredSemanticGrainToDateAnchorV1):
+                assert isinstance(baseline_anchor, AuthoredSemanticGrainToDateAnchorV1)
+                card.field(
+                    "cumulative_alignment",
+                    (
+                        f"semantic grain_to_date calendar={current_anchor.calendar_ref} "
+                        f"level={current_anchor.level} policy={self.meta.alignment.get('kind')}"
+                    ),
                 )
             else:
                 assert isinstance(current_anchor, AuthoredGrainToDateAnchorV1)
