@@ -843,8 +843,10 @@ shared_attempts = session.events.match(
 `coverage_censored`。
 
 后端可以通过 `marivo_event_watermark(request)` 提供权威事件完整性。
-Marivo 不会从最大已观测事件时间、查询时间或 SLA 推导 watermark。没有权威
-覆盖率时，调用方可以携带精确且有界的显式假设：
+Marivo 不会从最大已观测事件时间、查询时间或 SLA 推导 watermark。调用方可以
+通过 `session.observe_watermark(event, through=...)` 读取该权威 watermark，返回
+provider 的 `EventWatermarkReceipt`——没有 provider 或该事件无权威 watermark 时
+返回 `None`。没有权威覆盖率时，调用方可以携带精确且有界的显式假设：
 
 ```python
 coverage = mv.declared_complete_through(

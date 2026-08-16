@@ -962,7 +962,10 @@ known complete through the follow-up bound; otherwise it is
 
 A backend may provide authoritative Event completeness through
 `marivo_event_watermark(request)`. Marivo does not infer that watermark from
-the maximum observed Event time, query time, or an SLA. When authoritative
+the maximum observed Event time, query time, or an SLA. A caller reads that
+authoritative watermark with `session.observe_watermark(event, through=...)`,
+which returns the provider's `EventWatermarkReceipt` — or `None` when no
+provider exists or the Event has no authoritative watermark. When authoritative
 coverage is unavailable, the caller may attach an exact, bounded assumption:
 
 ```python
