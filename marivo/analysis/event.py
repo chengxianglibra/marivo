@@ -359,8 +359,9 @@ def declared_complete_through(
 
     Guidance:
         This is an explicit caller assumption, not an observed fact. It is
-        weaker than an authoritative backend watermark. It requires a rationale
-        that explains the governing reconciliation evidence.
+        weaker than an authoritative backend watermark (obtain one with
+        ``session.observe_watermark(...)``). It requires a rationale that
+        explains the governing reconciliation evidence.
 
     Example:
         >>> coverage = mv.declared_complete_through(
