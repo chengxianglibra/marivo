@@ -1677,6 +1677,22 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         ReadCapability(
+            id="observe_watermark",
+            public_entrypoint="session.observe_watermark(...)",
+            help_target="observe_watermark",
+            summary="Return the authoritative observed completeness watermark for one Event, or None.",
+            root_group="artifact_inspection",
+            root_visibility="grouped",
+            constraint_ids=(),
+            callable_path="marivo.analysis.session.core.Session.observe_watermark",
+            receiver_family="Session",
+            result_kind="immutable_metadata",
+            read_bound="bounded",
+        )
+    )
+
+    descriptors.append(
+        ReadCapability(
             id="BaseFrame.contract",
             public_entrypoint="frame.contract()",
             help_target="BaseFrame.contract",

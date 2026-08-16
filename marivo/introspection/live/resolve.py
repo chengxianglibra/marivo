@@ -438,7 +438,10 @@ def _score_target(
         if best_ratio >= 0.7:
             score += best_ratio * 100.0
     if normalized_query and normalized_target:
-        if normalized_query in normalized_target:
+        if normalized_query == normalized_target:
+            # An exact canonical-id match always outranks fuzzy/prefix matches.
+            score += 1000.0
+        elif normalized_query in normalized_target:
             position = normalized_target.find(normalized_query)
             score += 50.0 + max(0.0, 50.0 - position * 2.0)
         elif normalized_target in normalized_query:
