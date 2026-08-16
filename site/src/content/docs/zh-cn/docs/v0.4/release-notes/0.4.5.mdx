@@ -1,0 +1,82 @@
+---
+slug: zh-cn/docs/v0.4/release-notes/0.4.5
+title: Marivo 0.4.5
+description: Marivo 0.4.5 发布说明。
+---
+
+Marivo 0.4.5 为智能体提供了读取权威事件完整性的受控入口，让语义目录更便于
+程序化遍历，并收紧了语义日历上的累计分析契约。同时，本版本修复了 Frame 与
+证据复用路径中的 PyArrow 并发故障。
+
+## 重点
+
+- `session.observe_watermark(event, through=...)` 会向事件所属后端的完整性
+  provider 请求权威 `EventWatermarkReceipt`。没有可用的权威 watermark 时返回
+  `None`，从而明确区分已观测事实与调用方声明的假设。
+- `SemanticCatalog.items(kind)` 与 `catalog[kind]` 为所有 `SemanticKind`
+  提供统一的按种类遍历入口，并保留 `catalog.metrics`、`catalog.events` 等已有
+  命名集合。
+- 语义日历上的 grain-to-date 分析现在会记录规范化的财务周期重置证据；日历
+  快照存在间断、重叠、越界或未声明层级时，会按照 fail-closed 原则停止分析。
+- Frame 缓存与证据的 Parquet 写入不再使用字典编码；读取已有产物时，会重试
+  PyArrow 偶发的字典边界并发错误。
+
+## 变更
+
+- `ms.load()` 仍是唯一公开的语义加载入口。较低层的 `SemanticProject` reader
+  新增 `catalog()`，作为从加载结果进入可浏览 `SemanticCatalog` 的显式桥梁。
+- 语义日历上的标量累计比较必须使用 `alignment=mv.period_progress()`。带分桶
+  的时间序列与面板形式会在 compare 入口由带修复指引的类型化错误拒绝，不再
+  延迟到后续阶段报出无类型的 grain 错误。
+- 带有理由的完整性声明现在被记录为已披露的受控假设，不再视为质量警告，避免
+  合法声明将事件与生命周期分析的质量状态限制在 `warning`。
+
+## 修复
+
+- Period calendar 校验会在扫描后端之前拒绝边界间断、重叠、覆盖不足，以及没有
+  任何已认证周期的非 day 层级。
+- 语义财务周期重置的身份与恢复路径会保留日历引用、快照摘要和类型化锚点语义；
+  不支持的分解会通过类型化 attribution 错误失败。
+- `session.observe_watermark(...)` 收到空 `through` 值时，会在构造后端请求前
+  明确拒绝。
+- 复用 Frame 与证据产物时，不再因 PyArrow 25 偶发的
+  `ArrowInvalid: Index not in dictionary bounds` 错误随机失败。
+
+## 文档
+
+- 在中英文分析流程指南的后端 provider 契约旁，补充权威事件 watermark 的
+  读取方法。
+- 改进中英文 Analysis DSL 设计文章与示意图，更清楚地说明受约束的分析操作与
+  智能体推理之间的边界。
+- 在仓库规范中明确语义加载层次与累计比较约束。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.5 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.4/installation/)
+- [快速开始](/zh-cn/docs/v0.4/quick-start/)
+- [语义层](/zh-cn/docs/v0.4/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.4/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.4/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/v0.4/concepts/evidence/)
