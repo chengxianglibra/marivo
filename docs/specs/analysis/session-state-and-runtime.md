@@ -84,12 +84,14 @@ materialization, and any nested analysis calls without changing the stable
 semantic project.
 
 ```python
-with session.source_bindings({
-    ms.ref.entity("monitoring.samples"): {
-        "start": "now-3600",
-        "end": "now",
-    },
-}):
+with session.source_bindings(
+    {
+        ms.ref.entity("monitoring.samples"): {
+            "start": "now-3600",
+            "end": "now",
+        },
+    }
+):
     frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
 
