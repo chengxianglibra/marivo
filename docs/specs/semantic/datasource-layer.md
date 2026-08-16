@@ -326,12 +326,14 @@ The binding belongs to the analysis execution scope, not to `observe(...)` and
 not to persisted `md.json(...)`:
 
 ```python
-with session.source_bindings({
-    ms.ref.entity("monitoring.samples"): {
-        "start": "now-3600",
-        "end": "now",
-    },
-}):
+with session.source_bindings(
+    {
+        ms.ref.entity("monitoring.samples"): {
+            "start": "now-3600",
+            "end": "now",
+        },
+    }
+):
     frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
 ```
 
