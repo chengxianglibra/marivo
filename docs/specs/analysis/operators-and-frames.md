@@ -632,9 +632,9 @@ only — it never ranks, recommends, or narrates:
   re-enter typed analysis.
 
 Every public value returned by `.contract()`—currently `AuthoringContract`,
-`ArtifactContract`, and `DigestReadContract`—structurally provides a bounded
-one-line `repr`, deterministic bounded `render()`, and `show()` that prints the
-same card. Typed fields and `model_dump()` remain available; this conformance
+`ArtifactContract`, `DigestReadContract`, and `TimeScopeContractV1`—structurally
+provides a bounded one-line `repr`, deterministic bounded `render()`, and `show()`
+that prints the same card. Typed fields and `model_dump()` remain available; this conformance
 does not introduce a cross-layer contract base class.
 
 A failed artifact precondition remains visible only with a usable repair. The

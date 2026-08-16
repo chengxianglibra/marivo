@@ -152,7 +152,6 @@ class DiscoverySnapshot(RenderableResult):
                     ".measures(columns=(...))",
                     ".relationships(other, left=(...), right=(...))",
                     ".contract()",
-                    ".render()",
                     ".show()",
                 ),
             )

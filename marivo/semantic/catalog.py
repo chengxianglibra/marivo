@@ -1335,7 +1335,6 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
             *(f".{name}" for name in self._navigation_names),
             ".details()",
             ".contract()",
-            ".render()",
             ".show()",
         )
         card = (
@@ -2632,7 +2631,6 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
                 ".items",
                 ".refs",
                 ".get(...)",
-                ".render()",
                 ".show()",
             ),
         ).table(
@@ -4719,7 +4717,6 @@ class SemanticCatalog(RenderableResult):
                 ".preview(...)",
                 ".preview_many(...)",
                 ".contract()",
-                ".render()",
                 ".show()",
             ),
         )

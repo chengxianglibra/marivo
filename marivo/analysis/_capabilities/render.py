@@ -827,7 +827,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         lines.append("")
         lines.append("  After success:")
         lines.append(f"    {result_name}.show()")
-        lines.append(f"    {result_name}.contract()")
+        lines.append(f"    {result_name}.contract().show()")
 
     # Exact Ref path format for the focused semantic-input pages.
     if desc.help_target in _REF_ID_FORMAT_TARGETS:

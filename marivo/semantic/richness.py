@@ -53,7 +53,7 @@ class RichnessReport(RenderableResult):
         return f"RichnessReport gaps={len(self.gaps)}"
 
     def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".render()", ".to_dict()"))
+        card = Card(identity=self._repr_identity(), available=(".show()", ".to_dict()"))
         if self.gaps:
             card = card.listing(
                 label="gaps",

@@ -128,7 +128,7 @@ class OntologyCatalog(RenderableResult):
         card = (
             Card(
                 identity=self._repr_identity(),
-                available=(".configured", ".edge_count", ".contract()", ".render()", ".show()"),
+                available=(".configured", ".edge_count", ".contract()", ".show()"),
             )
             .field("definition_fingerprint", self.definition_fingerprint)
             .field("semantic_catalog_fingerprint", self.semantic_catalog_fingerprint)

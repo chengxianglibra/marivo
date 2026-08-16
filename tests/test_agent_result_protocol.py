@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -11,8 +12,15 @@ import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
 from marivo._authoring.model import AuthoringContract, AuthoringStateRef
 from marivo._compat import UTC
+from marivo._temporal import TimeScopeContractV1
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
-from marivo.analysis.evidence.types import DigestReadContract
+from marivo.analysis.evidence.types import (
+    ArtifactDigest,
+    DigestReadContract,
+    OmissionSummary,
+    OperatorSemantics,
+    RawFallback,
+)
 from marivo.analysis.frames.base import ArtifactContract, BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.session._store import SessionSummary
@@ -36,6 +44,7 @@ from marivo.semantic.dtos import (
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from marivo.semantic.richness import RichnessReport
+from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 datasource_ref = ref_factory.datasource
 
@@ -330,7 +339,6 @@ def test_preview_result_renders_shared_card_shape() -> None:
             "preview:",
             "1 | US",
             "available:",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -343,6 +351,7 @@ def test_preview_result_renders_shared_card_shape() -> None:
             "available:",
             "- .results",
             "- .refs",
+            "- .show()",
             "- .contract()",
         ]
     )
@@ -354,7 +363,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "DatasourceSummary name=wh backend=duckdb",
             "available:",
             "- .contract()",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -367,7 +375,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "available:",
             "- .items",
             "- .ids()",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -377,7 +384,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "columns: catalog | host | auth_env",
             "available:",
             "- .contract()",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -413,7 +419,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "- .failure",
             "- .repair",
             "- .contract()",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -441,7 +446,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "preview:",
             "missing_evidence | warning",
             "available:",
-            "- .render()",
             "- .show()",
         ]
     )
@@ -456,6 +460,8 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "available:",
             "- .issues",
             "- .warnings",
+            "- .show()",
+            "- .contract()",
         ]
     )
     assert _readiness_report().render() == "\n".join(
@@ -465,7 +471,7 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
-            "- .render()",
+            "- .show()",
             "- .to_dict()",
             "- .contract()",
             "- .preview_required_refs",
@@ -478,7 +484,7 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "gaps: none",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
-            "- .render()",
+            "- .show()",
             "- .to_dict()",
         ]
     )
@@ -568,26 +574,36 @@ def _digest_read_contract() -> DigestReadContract:
     )
 
 
-@pytest.mark.parametrize(
-    "builder",
-    [
-        pytest.param(
-            lambda: AuthoringContract(
+def _time_scope_contract() -> TimeScopeContractV1:
+    return TimeScopeContractV1(
+        kind="absolute",
+        start=date(2026, 7, 1),
+        end=date(2026, 8, 1),
+    )
+
+
+def _authoring_contract() -> AuthoringContract:
+    return AuthoringContract(
+        subject_refs=("sales.revenue",),
+        states=(
+            AuthoringStateRef(
+                id="semantic.loaded",
                 subject_refs=("sales.revenue",),
-                states=(
-                    AuthoringStateRef(
-                        id="semantic.loaded",
-                        subject_refs=("sales.revenue",),
-                    ),
-                ),
-                transitions=(),
             ),
-            id="AuthoringContract",
         ),
-        pytest.param(_artifact_contract, id="ArtifactContract"),
-        pytest.param(_digest_read_contract, id="DigestReadContract"),
-    ],
-)
+        transitions=(),
+    )
+
+
+CONTRACT_BUILDERS: list = [
+    pytest.param(_authoring_contract, id="AuthoringContract"),
+    pytest.param(_artifact_contract, id="ArtifactContract"),
+    pytest.param(_digest_read_contract, id="DigestReadContract"),
+    pytest.param(_time_scope_contract, id="TimeScopeContractV1"),
+]
+
+
+@pytest.mark.parametrize("builder", CONTRACT_BUILDERS)
 def test_contract_result_protocol_is_structural_and_side_effect_free(
     builder: Callable[[], object],
     capsys: pytest.CaptureFixture[str],
@@ -650,3 +666,71 @@ def test_public_analysis_frames_expose_two_agent_exits() -> None:
     assert not hasattr(frame, "schema")
     assert not hasattr(frame, "preview")
     assert not hasattr(frame, "next_intents")
+
+
+def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[str]) -> None:
+    scope = ma.time_scope(start="2026-07-01", end="2026-08-01")
+
+    assert scope.render() == "TimeScope(kind=absolute, start=2026-07-01, end=2026-08-01)"
+    assert scope.render(max_output_bytes=None) == scope.render()
+    scope.show()
+    assert capsys.readouterr().out == scope.render() + "\n"
+
+    with pytest.raises(ValueError, match="max_output_bytes is too small"):
+        scope.render(max_output_bytes=1)
+    with pytest.raises(ValueError, match="max_output_bytes is too small"):
+        scope.show(max_output_bytes=1)
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("builder", CONTRACT_BUILDERS)
+def test_contract_str_renders_same_card(builder: Callable[[], object]) -> None:
+    contract = builder()
+    assert str(contract) == contract.render()  # type: ignore[attr-defined]
+
+
+def _artifact_digest() -> ArtifactDigest:
+    return ArtifactDigest(
+        artifact_ref="frame_abc",
+        operator=OperatorSemantics(
+            operator="observe",
+            operator_version="v1",
+            artifact_family="metric_frame",
+            semantic_shape="scalar",
+        ),
+        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
+        scope=make_test_analysis_scope("sales.revenue"),
+        omissions=OmissionSummary(retained_items=0, omitted_items=0, bounded=True),
+        fallback=RawFallback(
+            artifact_ref="frame_abc",
+            findings_available=True,
+            rows_available=True,
+        ),
+        fingerprint="sha256:test",
+    )
+
+
+def test_artifact_digest_repr_uses_shared_result_repr() -> None:
+    digest = _artifact_digest()
+    r = repr(digest)
+    assert "\n" not in r
+    assert r == result_repr("ArtifactDigest ref=frame_abc operator=observe items=0 omitted=0")
+
+
+def _footer_entries(obj: object) -> tuple[str, ...]:
+    lines = obj.render().splitlines()  # type: ignore[attr-defined]
+    index = lines.index("available:")
+    return tuple(line.removeprefix("- ") for line in lines[index + 1 :] if line.startswith("- "))
+
+
+@pytest.mark.parametrize("builder", [*TERMINAL_BUILDERS, *CONTRACT_BUILDERS])
+def test_available_footer_follows_two_exit_rule(builder: Callable[[], object]) -> None:
+    obj = builder()
+    entries = _footer_entries(obj)
+    assert ".show()" in entries, (type(obj).__name__, entries)
+    assert not any(entry.startswith(".render") for entry in entries), (
+        type(obj).__name__,
+        entries,
+    )
+    if callable(getattr(obj, "contract", None)):
+        assert ".contract()" in entries, (type(obj).__name__, entries)

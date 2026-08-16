@@ -378,7 +378,7 @@ base = session.observe(
 
 cur.show()  # observe the current bounded result
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-delta.contract()  # machine-readable compatibility before the next operator
+delta.contract().show()  # machine-readable compatibility before the next operator
 attribution = session.attribute(delta, axes=[created_at])
 attribution.show()
 ```
@@ -388,6 +388,10 @@ operator, read `contract()`; use `to_pandas()` only for terminal custom work.**
 Everything else that used to be a near-peer exit — `summary()`, `schema()`,
 `preview()`, `next_intents()` — was removed from the public frame surface so the
 agent never has to choose a reading order before doing real work.
+
+Card footers follow the same rule: every `available:` footer lists `.show()`, lists
+`.contract()` when the object has one, and never advertises `.render()` — it backs
+`show()` and stays off the taught path.
 
 `RawSqlResult` exposes bounded `shape`, returned `row_count`, ordered columns,
 and isolated pandas export, but no `.contract()` or typed re-entry. Typed

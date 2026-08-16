@@ -1035,7 +1035,7 @@ class DigestReadContract(_FrozenModel):
         return (
             Card(
                 identity=self._repr_identity(),
-                available=(".exact_reads", ".model_dump()", ".render()", ".show()"),
+                available=(".exact_reads", ".model_dump()", ".show()"),
             )
             .listing("exact persisted reads", self.exact_reads)
             .render(max_output_bytes=max_output_bytes)
@@ -1047,6 +1047,9 @@ class DigestReadContract(_FrozenModel):
 
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
+
+    def __str__(self) -> str:
+        return self.render()
 
 
 class ArtifactDigest(_FrozenModel):
@@ -1073,9 +1076,9 @@ class ArtifactDigest(_FrozenModel):
         return self
 
     def __repr__(self) -> str:
-        return (
-            f"ArtifactDigest(ref={self.artifact_ref!r}, version={self.digest_version!r}, "
-            f"items={len(self.items)}, omitted={self.omissions.omitted_items}; use .show())"
+        return result_repr(
+            f"ArtifactDigest ref={self.artifact_ref} operator={self.operator.operator} "
+            f"items={len(self.items)} omitted={self.omissions.omitted_items}"
         )
 
     def render(self, *, max_output_bytes: int | None = 8_000) -> str:

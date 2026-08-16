@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
+import re
 
 import pytest
 
@@ -12,9 +14,10 @@ from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
     ConstructorCapability,
+    HelpExample,
     OperatorCapability,
 )
-from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis._capabilities.registry import REGISTRY, _validate_additional_examples
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -678,7 +681,7 @@ def test_compare_help_explains_cumulative_component_compatibility() -> None:
     assert "current_evaluation_end" in text
     assert "baseline_evaluation_end" in text
     assert "delta.show()" in text
-    assert "delta.contract()" in text
+    assert "delta.contract().show()" in text
     assert "exc.expected" in text
     assert "exc.received" in text
     assert "exc.repair.action" in text
@@ -761,7 +764,7 @@ def test_focused_operator_help_includes_prerequisites_and_postconditions() -> No
     assert 'journeys: acquire via marivo.help("analysis.events.match")' in text
     assert "After success:" in text
     assert "funnel.show()" in text
-    assert "funnel.contract()" in text
+    assert "funnel.contract().show()" in text
 
 
 def test_focused_help_teaches_semantic_and_constructor_prerequisites() -> None:
@@ -829,9 +832,9 @@ def test_focused_operator_postconditions_follow_registered_call_result(
     postconditions = text.split("After success:", 1)[1]
 
     assert f"{result_name}.show()" in postconditions
-    assert f"{result_name}.contract()" in postconditions
+    assert f"{result_name}.contract().show()" in postconditions
     assert f"{preparation_name}.show()" not in postconditions
-    assert f"{preparation_name}.contract()" not in postconditions
+    assert f"{preparation_name}.contract().show()" not in postconditions
 
 
 def test_shape_aware_help_does_not_advertise_invalid_consumers() -> None:
@@ -1375,3 +1378,25 @@ def test_unset_repr_does_not_break_identity_guard() -> None:
     assert _normalize_unset("value") == "value"
     # repr is deterministic and carries no address.
     assert repr(_UNSET) == "<unset>" == str(_UNSET)
+
+
+def test_registered_examples_never_discard_contract_output() -> None:
+    discarded = re.compile(r"\s*[A-Za-z_][\w.]*\.contract\(\)\s*$")
+    for descriptor in REGISTRY.descriptors:
+        for example in descriptor.additional_examples:
+            for line in example.code.splitlines():
+                assert not discarded.fullmatch(line), (
+                    f"{descriptor.id}/{example.label}: discarded contract line {line!r}; "
+                    "use .contract().show() or assign the result"
+                )
+
+
+def test_registry_rejects_examples_that_discard_contract_output() -> None:
+    descriptor = REGISTRY.by_id("compare")
+    bad = HelpExample(
+        label="Discard the contract",
+        code="delta = session.compare(current, baseline)\ndelta.contract()",
+        requires=("current", "baseline"),
+    )
+    with pytest.raises(ValueError, match=r"discards \.contract\(\)"):
+        _validate_additional_examples(dataclasses.replace(descriptor, additional_examples=(bad,)))

@@ -127,7 +127,7 @@ class JobSummary(RenderableResult):
         return f"JobSummary id={self.id} intent={self.intent} status={self.status}"
 
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+        return Card(identity=self._repr_identity(), available=(".show()",)).status(
             f"duration={self.duration_ms}ms frame={self.output_frame_ref}"
         )
 
@@ -152,7 +152,7 @@ class FrameSummaryEntry(RenderableResult):
         return parts
 
     def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
             f"metric={self.metric_id} created={self.created_at}"
         )
         if self.analysis_purpose:
@@ -358,7 +358,7 @@ class Session(RenderableResult):
 
         mode = "read_only" if self.is_read_only else "writable"
         properties, methods = REGISTRY.public_object_members("Session")
-        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        intrinsic_methods = tuple(method for method in methods if method in {"show"})
         registered_calls = tuple(
             call
             for call in REGISTRY.public_member_calls("Session")
@@ -1666,7 +1666,7 @@ class SessionEvents(RenderableResult):
         from marivo.analysis._capabilities.registry import REGISTRY
 
         _properties, methods = REGISTRY.public_object_members("SessionEvents")
-        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        intrinsic_methods = tuple(method for method in methods if method in {"show"})
         registered_calls = tuple(
             call
             for call in REGISTRY.public_member_calls("SessionEvents")
@@ -1911,7 +1911,7 @@ class SessionLifecycle(RenderableResult):
         from marivo.analysis._capabilities.registry import REGISTRY
 
         _properties, methods = REGISTRY.public_object_members("SessionLifecycle")
-        intrinsic_methods = tuple(method for method in methods if method in {"render", "show"})
+        intrinsic_methods = tuple(method for method in methods if method in {"show"})
         registered_calls = tuple(
             call
             for call in REGISTRY.public_member_calls("SessionLifecycle")

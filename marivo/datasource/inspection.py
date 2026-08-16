@@ -96,7 +96,7 @@ class PartitionInspection(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".contract()", ".render()", ".show()"),
+            available=(".contract()", ".show()"),
         ).field(
             label="partition fields",
             value=", ".join(field.name for field in self.partitioning.fields) or "none",
@@ -168,7 +168,6 @@ class SourceInspection(RenderableResult):
             available=(
                 ".contract()",
                 ".partitions()",
-                ".render()",
                 ".sample(...)",
                 ".show()",
             ),

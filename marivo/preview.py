@@ -136,7 +136,7 @@ class PreviewResult(RenderableResult):
             ]
             status_parts.append("; ".join(labels))
         return (
-            Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+            Card(identity=self._repr_identity(), available=(".show()",))
             .status(" ".join(status_parts))
             .table(
                 columns=list(self.columns),

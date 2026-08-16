@@ -274,6 +274,9 @@ class ArtifactContract(BaseModel):
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
 
+    def __str__(self) -> str:
+        return self.render()
+
 
 class ArtifactState(BaseModel):
     """Baseline runtime facts for a materialized artifact."""
@@ -417,7 +420,6 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
                 ".affordances",
                 ".boundary_ports",
                 ".model_dump()",
-                ".render()",
                 ".show()",
             ),
         )

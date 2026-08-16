@@ -60,9 +60,7 @@ class DatasourceSummary(RenderableResult):
         return contract_for_registered(self.name)
 
     def _card(self) -> Card:
-        return Card(
-            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
-        )
+        return Card(identity=self._repr_identity(), available=(".contract()", ".show()"))
 
 
 @dataclass(frozen=True, repr=False)
@@ -96,7 +94,7 @@ class DatasourceList(RenderableResult):
         rows = [[item.name, item.backend_type] for item in self._items]
         return Card(
             identity=self._repr_identity(),
-            available=(".items", ".ids()", ".render()", ".show()"),
+            available=(".items", ".ids()", ".show()"),
         ).table(columns=["name", "backend"], rows=rows, row_count=len(self._items))
 
 
@@ -124,9 +122,7 @@ class DatasourceDescription(RenderableResult):
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = sorted(self.env_refs)
-        return Card(
-            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
-        ).field(
+        return Card(identity=self._repr_identity(), available=(".contract()", ".show()")).field(
             label="columns",
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
@@ -182,7 +178,7 @@ class DatasourceTestResult(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".failure", ".repair", ".contract()", ".render()", ".show()"),
+            available=(".failure", ".repair", ".contract()", ".show()"),
         )
         if self.failure is not None:
             detail = self.failure.exception_type
@@ -262,7 +258,6 @@ class RawSqlResult(RenderableResult):
                     ".shape",
                     ".row_count",
                     ".to_pandas()",
-                    ".render()",
                     ".show()",
                 ),
             )

@@ -112,7 +112,7 @@ class ReadinessReport(RenderableResult):
         card = Card(
             identity=self._repr_identity(),
             available=(
-                ".render()",
+                ".show()",
                 ".to_dict()",
                 ".contract()",
                 ".preview_required_refs",

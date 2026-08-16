@@ -277,7 +277,7 @@ def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | No
             f"ArtifactDigest ref={digest.artifact_ref} operator={digest.operator.operator} "
             f"subject={_subject(digest)}"
         ),
-        available=(".contract()",),
+        available=(".show()", ".contract()"),
     )
     card.field(
         "evidence",

@@ -1077,7 +1077,7 @@ def _build_registry() -> CapabilityRegistry:
                         ")\n"
                         "delta = session.compare(current, baseline)\n"
                         "delta.show()\n"
-                        "delta.contract()\n"
+                        "delta.contract().show()\n"
                         "endpoints = delta.to_pandas()[[\n"
                         '    "current_evaluation_end",\n'
                         '    "baseline_evaluation_end",\n'
@@ -2557,6 +2557,22 @@ def _validate_additional_examples(descriptor: CapabilityDescriptor) -> None:
         if owned_call and len(matching_calls) != 1:
             raise ValueError(
                 f"{descriptor.id}: additional example must call {owned_call!r} exactly once"
+            )
+        discarded_contract = next(
+            (
+                statement
+                for statement in tree.body
+                if isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "contract"
+            ),
+            None,
+        )
+        if discarded_contract is not None:
+            raise ValueError(
+                f"{descriptor.id}: additional example discards .contract() output; "
+                "call .contract().show() or assign the contract to a name"
             )
         assigned_names = {
             node.id
