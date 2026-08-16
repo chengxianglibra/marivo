@@ -184,7 +184,6 @@ def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None
             '- md.inspect(ms.ref.datasource("wh"), md.table("orders")).partitions().show()',
             '- md.partition({"order_date": "<value>"}, max_rows=..., timeout_seconds=...) to scope a snapshot to order_date',
             "available:",
-            "- .render()",
             "- .show()",
         ]
     )

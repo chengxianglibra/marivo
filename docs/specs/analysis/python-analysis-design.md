@@ -167,7 +167,7 @@ baseline = session.observe(
 )
 delta = session.compare(current, baseline, alignment=mv.window_bucket())
 delta.show()  # bounded card; nothing printed unless asked
-delta.contract()  # which operators this delta can feed
+delta.contract().show()  # which operators this delta can feed
 ```
 
 Which operator to reach for follows the artifact in hand: observe a metric first;

@@ -147,7 +147,7 @@ calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
 week_scope = calendar.period("week", "FY2026-W01")
 assert week_scope.kind == "calendar_period"
-week_scope.contract()  # 精确边界和认证快照身份
+week_scope.contract().show()  # 精确边界和认证快照身份
 ```
 
 保留的 `day` 层级由认证覆盖范围推导，不会持久化成每天一条记录。

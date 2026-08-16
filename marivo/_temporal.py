@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKind
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
 _DATE_TYPE = date
 
@@ -517,6 +518,45 @@ class TimeScopeContractV1(BaseModel):
             payload.setdefault("occurrence_category", None)
         return payload
 
+    def _repr_identity(self) -> str:
+        return (
+            f"TimeScopeContractV1 kind={self.kind} "
+            f"start={self.start.isoformat()} end={self.end.isoformat()}"
+        )
+
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Return a bounded versioned scope card without touching any backend."""
+        card = Card(
+            identity=self._repr_identity(),
+            available=(".kind", ".start", ".end", ".model_dump()", ".show()"),
+        ).field("bounds", f"[{self.start.isoformat()}, {self.end.isoformat()})")
+        provenance: tuple[tuple[str, str], ...] = tuple(
+            (label, value)
+            for label, value in (
+                ("calendar_ref", self.calendar_ref),
+                ("temporal_set_ref", self.temporal_set_ref),
+                ("snapshot_digest", self.snapshot_digest),
+                ("boundary_timezone", self.boundary_timezone),
+                ("level", self.level),
+                ("key", None if self.key is None else repr(self.key)),
+                ("occurrence_category", self.occurrence_category),
+            )
+            if value is not None
+        )
+        for label, value in provenance:
+            card = card.field(label, value)
+        return card.render(max_output_bytes=max_output_bytes)
+
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        """Print the bounded versioned scope card."""
+        print(self.render(max_output_bytes=max_output_bytes))
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def __str__(self) -> str:
+        return self.render()
+
 
 class TimeScope(BaseModel):
     """One immutable public selection window shared by semantic and analysis.
@@ -733,10 +773,21 @@ class TimeScope(BaseModel):
             "call .show() for detail)"
         )
 
-    def show(self, *, max_output_bytes: int | None = 8192) -> None:
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Return the bounded exact scope summary without writing stdout."""
+        text = self._render_summary()
+        if max_output_bytes is not None:
+            minimum = len(text.encode())
+            if minimum > max_output_bytes:
+                raise ValueError(
+                    "max_output_bytes is too small to preserve identity and available output; "
+                    f"minimum is {minimum} bytes; pass max_output_bytes=None for full output"
+                )
+        return text
+
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
         """Render a bounded exact scope summary for agents."""
-        del max_output_bytes
-        print(self._render_summary())
+        print(self.render(max_output_bytes=max_output_bytes))
 
     def _render_summary(self) -> str:
         values = [

@@ -296,6 +296,8 @@ def test_verify_result_is_public_result_object() -> None:
             "available:",
             "- .issues",
             "- .warnings",
+            "- .show()",
+            "- .contract()",
         ]
     )
     assert ms.VerifyResult is VerifyResult
@@ -335,6 +337,8 @@ def test_verify_result_render_shows_issue_details() -> None:
             "available:",
             "- .issues",
             "- .warnings",
+            "- .show()",
+            "- .contract()",
         ]
     )
 
@@ -373,6 +377,8 @@ def test_verify_result_render_shows_warning_details() -> None:
             "available:",
             "- .issues",
             "- .warnings",
+            "- .show()",
+            "- .contract()",
         ]
     )
 

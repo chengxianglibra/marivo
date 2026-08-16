@@ -56,7 +56,6 @@ def render_contract(
             ".transitions",
             ".judgment_requirements",
             ".model_dump()",
-            ".render()",
             ".show()",
         ),
     ).field(

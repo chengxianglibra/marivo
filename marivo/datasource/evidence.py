@@ -334,7 +334,6 @@ class DimensionValuesResult(RenderableResult):
                 ".issues",
                 ".repair",
                 ".contract()",
-                ".render(max_output_bytes=...)",
                 ".show(max_output_bytes=...)",
             ),
         ).status(self.status)
@@ -410,7 +409,6 @@ class RelationshipEvidenceResult(RenderableResult):
                 ".issues",
                 ".repair",
                 ".contract()",
-                ".render(max_output_bytes=...)",
                 ".show(max_output_bytes=...)",
             ),
         ).status(self.status)
@@ -511,7 +509,6 @@ def _column_result_card(
             ".issues",
             ".repair",
             ".contract()",
-            ".render(max_output_bytes=...)",
             ".show(max_output_bytes=...)",
         ),
     ).status(status)

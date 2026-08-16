@@ -68,7 +68,7 @@ class _BoundedPage(RenderableResult, Generic[T]):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".items", ".next_cursor", ".render()", ".show()"),
+            available=(".items", ".next_cursor", ".show()"),
         ).listing("items", (repr(item) for item in self.items))
         if self.next_cursor is not None:
             card.field("next_cursor", self.next_cursor)

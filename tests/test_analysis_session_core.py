@@ -275,6 +275,8 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     assert ".catalog" in rendered
     assert ".frame_summaries()" in rendered
     for call in REGISTRY.public_member_calls("Session"):
+        if call == ".render()":
+            continue  # render() backs show() and is never advertised in footers
         assert call in rendered
     for receiver, namespace in (
         ("SessionEvents", session.events),
@@ -282,6 +284,8 @@ def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, caps
     ):
         namespace_rendered = namespace.render()
         for call in REGISTRY.public_member_calls(receiver):
+            if call == ".render()":
+                continue  # render() backs show() and is never advertised in footers
             assert call in namespace_rendered
         assert ".close()" not in namespace_rendered
     assert session.show() is None

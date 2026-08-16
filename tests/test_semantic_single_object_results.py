@@ -86,7 +86,7 @@ def test_readiness_report_render_contains_identity_and_available():
             "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
-            "- .render()",
+            "- .show()",
             "- .to_dict()",
             "- .contract()",
             "- .preview_required_refs",
@@ -147,7 +147,7 @@ def test_richness_report_render_contains_available():
             "gaps: none",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
-            "- .render()",
+            "- .show()",
             "- .to_dict()",
         ]
     )

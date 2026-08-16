@@ -100,7 +100,7 @@ class AuthoringAssessment(RenderableResult):
 
     def _card(self) -> Card:
         issue_rows = [[str(issue.kind), str(issue.severity)] for issue in self.issues]
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).table(
+        return Card(identity=self._repr_identity(), available=(".show()",)).table(
             columns=["issue", "severity"], rows=issue_rows, row_count=len(self.issues)
         )
 
@@ -141,7 +141,7 @@ class VerifyResult(RenderableResult):
             )
         card = Card(
             identity=self._repr_identity(),
-            available=(".issues", ".warnings"),
+            available=(".issues", ".warnings", ".show()", ".contract()"),
         ).status(", ".join(status_parts))
         card = card.field("validation_level", self.validation_level).field(
             "runtime_checked", "false"
@@ -203,7 +203,7 @@ class PreviewBatchResult(RenderableResult):
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),
-            available=(".results", ".refs", ".contract()"),
+            available=(".results", ".refs", ".show()", ".contract()"),
         ).listing(
             label=f"previews ({len(self.results)})",
             items=tuple(

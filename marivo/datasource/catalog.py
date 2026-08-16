@@ -200,7 +200,6 @@ class DatasourceCatalog(RenderableResult):
                 ".describe(name)",
                 ".connect(name)",
                 ".test(name)",
-                ".render()",
                 ".show()",
             ),
         )

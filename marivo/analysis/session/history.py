@@ -36,7 +36,7 @@ class SessionInspection(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".summary", ".frames", ".recent_jobs", ".render()", ".show()"),
+            available=(".summary", ".frames", ".recent_jobs", ".show()"),
         ).status(
             f"frames={self.summary.frame_count} jobs={self.summary.job_count} "
             f"updated={self.summary.updated_at}"

@@ -623,7 +623,7 @@ cum_frame = session.observe(
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
     grain=mv.grain("day"),
 )
-cum_frame.contract()  # 显示锚点特定的注意事项
+cum_frame.contract().show()  # 显示锚点特定的注意事项
 windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # 将累计 frame rollup 到更粗的粒度（周期末语义）：
 monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
@@ -671,7 +671,7 @@ df = result.to_pandas()
 ```python
 repr(delta)          # 廉价单行提示
 delta.show()         # 有界当前状态读取
-delta.contract()     # 接口兼容性与类型化 issues
+delta.contract().show()     # 接口兼容性与类型化 issues
 delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 

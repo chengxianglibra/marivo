@@ -719,7 +719,7 @@ cum_frame = session.observe(
     time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
     grain=mv.grain("day"),
 )
-cum_frame.contract()  # shows the anchor-specific caveat
+cum_frame.contract().show()  # shows the anchor-specific caveat
 windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # Roll up a cumulative frame to a coarser grain (period-end semantics):
 monthly = cum_frame.transform.rollup(grain=mv.grain("month"))
@@ -773,7 +773,7 @@ The agent read path is layered to keep scripts cheap across loops:
 ```python
 repr(delta)          # cheap single-line hint
 delta.show()         # bounded current-state read
-delta.contract()     # mechanical compatibility and typed issues
+delta.contract().show()     # mechanical compatibility and typed issues
 delta.to_pandas()    # terminal export for custom local analysis
 ```
 

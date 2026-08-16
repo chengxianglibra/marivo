@@ -198,7 +198,7 @@ class TableMetadata(RenderableResult):
             parts.append(f"warnings={len(self.warnings)}")
         if self.partitions:
             parts.append(f"partitions={len(self.partitions)}")
-        card = Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+        card = Card(identity=self._repr_identity(), available=(".show()",))
         if parts:
             card.status(" ".join(parts))
         if self.comment:

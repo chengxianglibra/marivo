@@ -83,7 +83,7 @@ class SessionSummary(RenderableResult):
         return f"SessionSummary id={self.id} name={self.name}"
 
     def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
             f"jobs={self.job_count} frames={self.frame_count} updated={self.updated_at}"
         )
         if self.question:
