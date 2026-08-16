@@ -119,6 +119,33 @@ def _event_frame(session: mv.Session) -> EventFrame:
     return EventFrame(_df=rows, meta=meta)
 
 
+def _declared_event_frame(session: mv.Session) -> EventFrame:
+    """Build the journey frame with fully disclosed declared completeness."""
+    frame = _event_frame(session)
+    cart, payment = (step.event for step in frame.meta.pattern.steps)
+    declaration = mv.declared_complete_through(
+        inputs=(cart, payment),
+        through=frame.meta.completion_through,
+        rationale="Fixture events are reconciled through the completion bound.",
+    )
+    declared_meta = frame.meta.model_copy(
+        update={
+            "completeness": (declaration,),
+            "coverage_basis": "declared_complete",
+            "input_coverage": tuple(
+                EventInputCoverage(
+                    event_ref=RefPayloadV1.from_ref(event_ref),
+                    basis="declared_complete",
+                    declaration_fingerprint=declaration.fingerprint,
+                    declaration_rationale=declaration.rationale,
+                )
+                for event_ref in (cart, payment)
+            ),
+        }
+    )
+    return EventFrame(_df=frame._dataframe_copy(), meta=declared_meta)
+
+
 def test_event_value_constructor_repairs_require_truthful_user_choice() -> None:
     with pytest.raises(InvalidEventPatternError) as pattern_error:
         mv.sequence()
@@ -195,6 +222,34 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
     persisted = json.dumps(report.meta.model_dump(mode="json"), sort_keys=True)
     assert "user_1" not in persisted
     assert "cart_1" not in persisted
+
+
+def test_declared_completeness_is_not_a_quality_warning(tmp_path, monkeypatch) -> None:
+    """A disclosed declaration is a governed path, not a defect.
+
+    Pins issue #83: ``declared_completeness_used`` used to warn whenever any
+    input relied on ``mv.declared_complete_through(...)``, so a disclosed,
+    rationale-bearing declaration could never reach ``ok``. The frame meta
+    already guarantees any retained declaration covers the completion bound
+    and carries a matching rationale, so the quality check must be neutral.
+    """
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create(
+        name="event_quality_declared",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    frame = _declared_event_frame(session)
+
+    rows = run_event_journey_checks(frame)
+    declared = next(row for row in rows if row["check_kind"] == "declared_completeness_used")
+    assert declared["severity"] == "ok"
+    assert declared["status"] == "ok"
+    details = json.loads(declared["details_json"])
+    assert details["declared_input_count"] == 2
+
+    report = session.assess_quality(frame)
+    assert "declared_completeness_used" not in {issue.kind for issue in report.meta.issues}
 
 
 def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> None:

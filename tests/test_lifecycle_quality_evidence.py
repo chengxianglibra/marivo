@@ -398,6 +398,60 @@ def test_lifecycle_quality_discloses_unknown_coverage_and_censoring() -> None:
     }
 
 
+def test_lifecycle_declared_completeness_is_not_a_quality_warning() -> None:
+    """A disclosed lifecycle declaration is a governed path, not a defect.
+
+    Pins issue #83 on the Lifecycle surface: ``declared_completeness_used``
+    must not force ``overall_status`` to ``warning`` when every replay Event
+    is covered by a rationale-bearing declaration that covers ``window.end``.
+    """
+    session = mv.session.get_or_create(
+        name="lifecycle_declared_coverage",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    base = _history_frame(session)
+    meta = cast("LifecycleHistoryFrameMeta", base.meta)
+    created = ref.event("commerce.order_created")
+    paid = ref.event("commerce.payment_captured")
+    declaration = mv.declared_complete_through(
+        inputs=(created, paid),
+        through="2026-08-01T00:00:00Z",
+        rationale="Order lifecycle events reconciled through the window bound.",
+    )
+    declared_coverage = tuple(
+        EventInputCoverage(
+            event_ref=_payload(event_ref),
+            basis="declared_complete",
+            declaration_fingerprint=declaration.fingerprint,
+            declaration_rationale=declaration.rationale,
+        )
+        for event_ref in (created, paid)
+    )
+    declared = LifecycleFrame(
+        _df=base.to_pandas(),
+        meta=meta.model_copy(
+            update={
+                "completeness": (declaration,),
+                "input_coverage": declared_coverage,
+                "coverage_basis": "declared_complete",
+            }
+        ),
+        _auxiliary_frames={
+            "violations.parquet": base._auxiliary_frames["violations.parquet"].copy(deep=True)
+        },
+    )
+    declared.meta = persist_frame(session, declared)
+
+    rows = run_lifecycle_checks(declared)
+    row = next(r for r in rows if r["check_kind"] == "declared_completeness_used")
+    assert row["severity"] == "ok"
+
+    report = session.assess_quality(declared)
+    assert report.meta.overall_status == "ok"
+    assert "declared_completeness_used" not in {issue.kind for issue in report.meta.issues}
+
+
 def test_lifecycle_findings_and_digests_are_closed_bounded_and_identity_safe() -> None:
     session = mv.session.get_or_create(name="lifecycle_evidence", use_datasources=False)
     history = _history_frame(session)

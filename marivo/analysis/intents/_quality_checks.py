@@ -377,8 +377,8 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
         _result(
             "declared_completeness_used",
             "declared_completeness_used",
-            "warning" if declarations else "ok",
-            "warning" if declarations else "ok",
+            "ok",
+            "ok",
             (
                 f"{len(declarations)} funnel comparison completeness declaration(s) retained"
                 if declarations
@@ -1152,7 +1152,7 @@ def _lifecycle_declaration_check(frame: LifecycleFrame) -> dict[str, str]:
     meta = cast("LifecycleHistoryFrameMeta", frame.meta)
     declared = [item for item in meta.input_coverage if item.basis == "declared_complete"]
     count = len(declared)
-    severity = "warning" if count else "ok"
+    severity = "ok"
     return _result(
         "declared_completeness_used",
         "declared_completeness_used",
@@ -2603,7 +2603,7 @@ def _event_coverage_checks(frame: EventFrame) -> list[dict[str, str]]:
 def _event_declaration_check(frame: EventFrame) -> dict[str, str]:
     declared = [item for item in frame.meta.input_coverage if item.basis == "declared_complete"]
     count = len(declared)
-    severity = "warning" if count else "ok"
+    severity = "ok"
     return _result(
         "declared_completeness_used",
         "declared_completeness_used",
