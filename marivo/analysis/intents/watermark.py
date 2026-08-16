@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from marivo.analysis.errors import AnalysisRepair, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    InvalidCompletenessDeclarationError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.event import EventWatermarkReceipt, EventWatermarkRequest
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EventKind, Ref, SemanticKind
@@ -116,6 +120,14 @@ def observe_watermark(
         ... else:
         ...     print(watermark.complete_through)
     """
+    if not through.strip():
+        raise InvalidCompletenessDeclarationError(
+            message="observe_watermark requires a non-empty through bound",
+            expected="a non-empty completeness bound",
+            received=repr(through),
+            location="session.observe_watermark.through",
+            repair=_repair(action="Provide a non-empty completeness bound."),
+        )
     event_ref = _resolve_event_ref(session=session, event=event)
     entry = session.catalog.require(event_ref)
     if not isinstance(entry, EventEntry):

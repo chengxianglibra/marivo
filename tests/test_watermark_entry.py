@@ -19,7 +19,10 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo.analysis._capabilities.registry import REGISTRY
-from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis.errors import (
+    InvalidCompletenessDeclarationError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.event import EventWatermarkReceipt
 from tests.shared_fixtures import (
     lifecycle_project_files,
@@ -135,6 +138,23 @@ def test_observe_watermark_rejects_non_event_input(
 
     with pytest.raises(SemanticKindMismatchError):
         session.observe_watermark(ms.ref.metric("sales.not_an_event"), through=_THROUGH)  # type: ignore[arg-type]
+
+
+def test_observe_watermark_rejects_empty_through(
+    semantic_project_factory: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _watermark_session(
+        semantic_project_factory,
+        tmp_path,
+        monkeypatch,
+        watermark_events=frozenset({_EVENT}),
+    )
+
+    for empty in ("", "   "):
+        with pytest.raises(InvalidCompletenessDeclarationError):
+            session.observe_watermark(ms.ref.event(_EVENT), through=empty)
 
 
 def test_observe_watermark_is_registered_as_public_session_read() -> None:
