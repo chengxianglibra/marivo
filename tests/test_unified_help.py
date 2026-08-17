@@ -64,6 +64,12 @@ def test_marivo_help_is_the_only_public_help_callable(
         assert not hasattr(surface, "help_text")
 
 
+def test_domain_help_attribute_raises_guiding_error() -> None:
+    """mv.help raises a friendly AttributeError that points to marivo.help(...)."""
+    with pytest.raises(AttributeError, match=r"marivo\.help"):
+        mv.help("analysis.observe")  # type: ignore[attr-defined]
+
+
 def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
     text = _text()
 

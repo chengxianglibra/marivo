@@ -176,6 +176,11 @@ def __getattr__(name: str) -> _Any:
         from importlib import import_module
 
         return import_module("marivo.analysis.frames")
+    if name == "help":
+        raise AttributeError(
+            "module 'marivo.analysis' has no attribute 'help'; the single public "
+            "help coordinator lives on the top-level namespace — use marivo.help(...)"
+        )
     raise AttributeError(name)
 
 
