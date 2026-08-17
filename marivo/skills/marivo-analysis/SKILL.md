@@ -29,7 +29,7 @@ Within the next five tool calls, batch the minimum environment fingerprint,
 session creation, semantic resolution, and first observation or return a
 structured blocker.
 
-Choose catalog families from the question. Ordinary row-level metric analysis
+Choose catalog families from the question. Ordinary catalog-metric analysis
 needs only `metrics` and `dimensions`, plus `time_dimensions` when time is part
 of the question. If paths are unknown, show those required collections together
 once; do not also enumerate datasources, domains, entities, measures, events,
@@ -83,6 +83,16 @@ known, inspect only the one relevant collection with
 Ref is already available, pass it directly or use `catalog.require(ref)`; do
 not browse first. Treat multiple matches as an ambiguity to resolve, not a
 reason to list other semantic families.
+
+When the requested one-off metric is absent from `catalog.metrics` but can be
+expressed exactly from existing governed metrics or measures, call
+`marivo.help("analysis.runtime_metric")` before treating the absence as a
+semantic-authoring gap. Inspect only the required `catalog.metrics`,
+`catalog.measures`, and dimension families, build one closed runtime expression,
+check it once with `session.catalog.readiness(refs=[runtime_metric])`, and pass
+the ready expression to `session.observe(...)`. The expression remains
+question- and session-scoped; disputed business meaning or a requirement for a
+reusable organizational definition still requires a semantic-authoring handoff.
 
 Do not repeat readiness when the current handoff already attests that the
 selected project and inputs are analysis-ready. Otherwise check readiness once
@@ -210,7 +220,9 @@ definitions.
 
 A missing or disputed business object stops only the affected branch. Record
 the gap and propose the smallest semantic-authoring handoff; do not silently
-substitute a physical column or a different metric.
+substitute a physical column or a different metric. Absence of a reusable
+catalog metric alone is not a blocker when the closed runtime-metric route above
+applies.
 
 ### Typed execution
 
@@ -297,6 +309,10 @@ succeeded job and its artifacts remain recoverable. Re-resolve semantic refs,
 scope, and policies against current state before reuse.
 
 ## Closeout
+
+When a material conclusion depends on a runtime metric expression, read the
+[runtime metric closeout](references/runtime-metric-closeout.md) before writing
+the answer.
 
 Answer the requested questions first. Use compact tables only when they make a
 comparison easier to verify. For every material conclusion:
