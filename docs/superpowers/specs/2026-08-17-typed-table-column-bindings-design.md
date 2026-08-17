@@ -1,6 +1,6 @@
 # Marivo Typed Table Column Bindings Design
 
-Status: implemented through Slice 4; Slice 5 blocked
+Status: implemented, including adapter-backed physical-column discovery
 
 Date: 2026-08-17
 
@@ -106,6 +106,8 @@ binding mechanically inspectable.
   string or expression fragment.
 - Make inspection distinguish catalog-verified bindings from declared-only
   bindings and require runtime evidence for the latter.
+- Let adapters expose type-consistent, parseable physical columns that are
+  absent from the standard catalog without adding a backend-specific public API.
 - Preserve partition scope correctness when a physical partition column is
   renamed in the projected output.
 - Keep ordinary `md.table(name, database=...)` behavior and identity unchanged
@@ -124,7 +126,8 @@ binding mechanically inspectable.
   binding.
 - No MapV2-specific constructor, key syntax, naming convention, or ClickHouse
   setting in the public API.
-- No automatic discovery of catalog-invisible columns.
+- No discovery or governed binding of dynamic values that are not materialized
+  as physical columns; adapter discovery is limited to metadata-backed columns.
 - No implicit type inference for a projected source and no preliminary
   `LIMIT 0` query during `md.inspect(...)`.
 - No implicit cast from the physical value to the declared data type. The type

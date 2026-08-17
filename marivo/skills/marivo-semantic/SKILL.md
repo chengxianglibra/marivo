@@ -117,6 +117,20 @@ explicit unpruned scope only when the live contract classifies metadata as
 unavailable or partition discovery as omitted. Static load, verify, and
 zero-query readiness do not substitute for the required runtime preview.
 
+When inspection exposes `projectable_columns`, use only the exact physical names
+and normalized types it verified in `md.source_column(...)`; a conflicted or
+unparseable physical type is not a safe candidate. For a date/timestamp interval,
+follow `datasource.time_range`; this is also the bounded route for one transformed
+temporal partition. Dynamic keys not materialized as physical columns remain
+outside governed authoring and require upstream materialization, a database view,
+or terminal raw SQL.
+
+If evidence reports `null_semantics`, record the business interpretation of
+`NULL` in `ai_context.guardrails`. Do not infer that a high null rate is a quality
+failure and do not filter nulls implicitly. In readiness, distinguish issue
+severity: advisory-only reports remain ready, and grouped snapshot/preview
+advisories are one evidence-root repair, not one failure per semantic ref.
+
 ### One-object loop
 
 Author exactly one explicit Python object, reload the catalog, acquire that

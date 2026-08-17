@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind
 from tests.shared_fixtures import load_inline_semantic
 
@@ -128,16 +129,17 @@ def test_projected_source_rejects_physical_names_at_semantic_column_boundaries(
     received: str,
 ) -> None:
     with load_inline_semantic(source) as result:
-        matching = [error for error in result.errors if error.semantic_refs[0] == object_id]
+        matching = [error for error in result.errors if object_id in error.semantic_refs]
 
     assert len(matching) == 1
     error = matching[0]
     assert error.kind == ErrorKind.INVALID_REF
-    assert error.expected == "a stable output alias declared by md.table(columns=...)"
+    assert error.expected == "stable output aliases declared by md.table(columns=...)"
     assert error.received == received
     assert error.details["available_output_aliases"] == ["event_id", "event_time", "score"]
-    assert error.details["omitted_output_alias_count"] == 0
-    assert "Set column=" in error.hint or "Set primary_key=" in error.hint
+    assert error.details["omitted_missing_reference_count"] == 0
+    assert error.details["missing_references"][0]["received_column"] == received
+    assert "change each semantic column=" in error.hint
     assert "md.source_column" in error.hint
 
 
@@ -164,14 +166,49 @@ events = ms.entity(
         error = result.errors[0]
 
     assert error.details["available_output_aliases"] == [
-        "alias_00",
-        "alias_01",
-        "alias_02",
-        "alias_03",
-        "alias_04",
-        "alias_05",
-        "alias_06",
-        "alias_07",
+        f"alias_{index:02d}" for index in range(12)
     ]
-    assert error.details["omitted_output_alias_count"] == 4
-    assert "... (+4 more)" in error.message
+    assert error.details["omitted_missing_reference_count"] == 0
+
+
+def test_projected_source_alias_errors_are_aggregated_once_per_entity() -> None:
+    source = _PROJECTED_SOURCE.replace(
+        'primary_key=["event_id"]', 'primary_key=["payload.id"]'
+    ).replace('column="event_time"', 'column="event.timestamp"')
+
+    with load_inline_semantic(source) as result:
+        matching = [
+            error
+            for error in result.errors
+            if error.details.get("entity") == "test.events"
+            and error.constraint_id == ConstraintId.REF_SHAPE
+        ]
+
+    assert len(matching) == 1
+    missing = matching[0].details["missing_references"]
+    assert [item["received_column"] for item in missing] == [
+        "payload.id",
+        "event.timestamp",
+    ]
+    assert matching[0].semantic_refs == ("test.events", "test.events.event_time")
+
+
+def test_projected_source_alias_error_bounds_message_but_keeps_complete_details() -> None:
+    missing = [f"missing_{index:02d}" for index in range(12)]
+    source = _PROJECTED_SOURCE.replace(
+        'primary_key=["event_id"]',
+        f"primary_key={missing!r}",
+    )
+
+    with load_inline_semantic(source) as result:
+        error = next(
+            item
+            for item in result.errors
+            if item.details.get("entity") == "test.events"
+            and item.constraint_id == ConstraintId.REF_SHAPE
+        )
+
+    assert len(error.details["missing_references"]) == 12
+    assert "missing_07" in error.message
+    assert "missing_08" not in error.message
+    assert "(+4 more)" in error.message

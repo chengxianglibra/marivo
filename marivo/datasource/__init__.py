@@ -54,6 +54,7 @@ from marivo.datasource.source import (
     source_column,
     source_param,
     table,
+    time_range,
     unpruned,
 )
 
@@ -103,6 +104,7 @@ __all__ = [
     "sqlite",
     "table",
     "test",
+    "time_range",
     "trino",
     "unpruned",
 ]

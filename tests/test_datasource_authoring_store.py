@@ -69,6 +69,64 @@ def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
     assert first != second
 
 
+def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
+    from marivo.datasource.authoring_store import _scope_payload, snapshot_identity
+
+    source = md.table("events")
+    first_scope = md.time_range(
+        "timestamp",
+        start="2026-08-01T00:00:00",
+        end="2026-08-02T00:00:00",
+        max_rows=100,
+        timeout_seconds=30,
+    )
+    second_scope = md.time_range(
+        "timestamp",
+        start="2026-08-02T00:00:00",
+        end="2026-08-03T00:00:00",
+        max_rows=100,
+        timeout_seconds=30,
+    )
+    utc_scope = md.time_range(
+        "timestamp",
+        start="2026-08-01T00:00:00+00:00",
+        end="2026-08-02T00:00:00+00:00",
+        max_rows=100,
+        timeout_seconds=30,
+    )
+    offset_scope = md.time_range(
+        "timestamp",
+        start="2026-08-01T08:00:00+08:00",
+        end="2026-08-02T08:00:00+08:00",
+        max_rows=100,
+        timeout_seconds=30,
+    )
+
+    common = {
+        "datasource_fingerprint": "sha256:datasource",
+        "source": source,
+        "columns": ("value",),
+        "schema_fingerprint": "sha256:schema",
+        "persist_values": False,
+    }
+    assert snapshot_identity(**common, scope=first_scope) != snapshot_identity(
+        **common, scope=second_scope
+    )
+    assert snapshot_identity(**common, scope=utc_scope) == snapshot_identity(
+        **common, scope=offset_scope
+    )
+    assert _scope_payload(offset_scope)["start"] == "2026-08-01T00:00:00+00:00"
+    assert _scope_payload(first_scope) == {
+        "kind": "time_range",
+        "column": "timestamp",
+        "start": "2026-08-01T00:00:00",
+        "end": "2026-08-02T00:00:00",
+        "bound_kind": "datetime",
+        "max_rows": 100,
+        "timeout_seconds": 30,
+    }
+
+
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
     from ibis.backends.duckdb import Backend
@@ -365,7 +423,7 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     first = inspection.sample(scope=scope, columns=("region",), refresh=True)
     path = _snapshot_path(project_root, first.id)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["evidence_format_version"] = 999
+    payload["evidence_format_version"] = 2
     path.write_text(json.dumps(payload), encoding="utf-8")
     authoring_store._SNAPSHOT_MEMORY.clear()
 
@@ -375,7 +433,7 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     assert repaired.id == first.id
     assert repaired.cache_status == "mismatched"
     repaired_payload = json.loads(path.read_text(encoding="utf-8"))
-    assert repaired_payload["evidence_format_version"] == 2
+    assert repaired_payload["evidence_format_version"] == 3
 
 
 @pytest.mark.parametrize(

@@ -499,7 +499,7 @@ def test_readiness_does_not_require_audit_decisions(
     report = project.readiness()
     blocker_kinds = {b.kind for b in report.blockers}
     assert "missing_business_definition" not in blocker_kinds
-    assert report.status == "ready_with_warnings"
+    assert report.status == "ready"
     assert not blocker_kinds
     assert {warning.kind for warning in report.warnings} == {"snapshot_missing"}
     assert ms.ref.metric("sales.revenue") in report.analysis_ready_refs

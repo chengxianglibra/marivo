@@ -116,6 +116,7 @@ class EntityEvidenceResult(RenderableResult):
                 "type",
                 "sample_rows",
                 "sample_nulls",
+                "null_rate",
                 "sample_distinct",
                 "sample_unique",
                 "name_suffix",
@@ -127,6 +128,7 @@ class EntityEvidenceResult(RenderableResult):
                     evidence.profile.data_type,
                     str(evidence.profile.sample_row_count),
                     str(evidence.profile.sample_null_count),
+                    _null_rate_text(evidence.profile),
                     str(evidence.profile.sample_distinct_count),
                     str(evidence.sample_unique),
                     evidence.name_suffix or "none",
@@ -170,6 +172,7 @@ class DimensionEvidenceResult(RenderableResult):
                 "column",
                 "type",
                 "sample_nulls",
+                "null_rate",
                 "sample_empty",
                 "sample_distinct",
                 "sample_values_complete",
@@ -182,6 +185,7 @@ class DimensionEvidenceResult(RenderableResult):
                     column,
                     evidence.profile.data_type,
                     str(evidence.profile.sample_null_count),
+                    _null_rate_text(evidence.profile),
                     str(evidence.profile.sample_empty_count),
                     str(evidence.profile.sample_distinct_count),
                     str(evidence.sample_values_complete),
@@ -264,6 +268,7 @@ class MeasureEvidenceResult(RenderableResult):
                 "column",
                 "type",
                 "sample_nulls",
+                "null_rate",
                 "sample_distinct",
                 "min",
                 "max",
@@ -276,6 +281,7 @@ class MeasureEvidenceResult(RenderableResult):
                     column,
                     evidence.profile.data_type,
                     str(evidence.profile.sample_null_count),
+                    _null_rate_text(evidence.profile),
                     str(evidence.profile.sample_distinct_count),
                     str(evidence.profile.min_value),
                     str(evidence.profile.max_value),
@@ -367,7 +373,14 @@ class DimensionValuesResult(RenderableResult):
         return _projected_contract(
             (self.column,),
             (self.snapshot_id,),
-            judgment_ids=_DIMENSION_UNRESOLVED,
+            judgment_ids=(
+                *_DIMENSION_UNRESOLVED,
+                *(
+                    ("null_semantics",)
+                    if any(issue.startswith("null_semantics:") for issue in self.issues)
+                    else ()
+                ),
+            ),
         )
 
 
@@ -460,6 +473,15 @@ class RelationshipEvidenceResult(RenderableResult):
 
 def _available_value(value: object | None) -> str:
     return "unavailable" if value is None else str(value)
+
+
+def _null_rate_text(profile: ColumnProfile) -> str:
+    rate = (
+        0.0
+        if profile.sample_row_count == 0
+        else profile.sample_null_count / profile.sample_row_count
+    )
+    return f"{rate:.2%}"
 
 
 def _time_evidence_rows(
@@ -594,6 +616,23 @@ def _reacquire_repair(columns: tuple[str, ...]) -> AuthoringRepair:
     )
 
 
+def _null_semantics_repair(columns: tuple[str, ...]) -> AuthoringRepair:
+    return repair(
+        kind="reauthor",
+        canonical_id="ai_context",
+        action=(
+            "Document what NULL means for the affected dimensions in "
+            "ms.ai_context(guardrails=(...)); do not treat branch-inapplicable NULLs as "
+            "missing data or filter them implicitly."
+        ),
+        snippet=(
+            "ai_context=ms.ai_context(guardrails=("
+            f'"Explain NULL semantics for {", ".join(columns)}.",))'
+        ),
+        preserves_evidence=True,
+    )
+
+
 def _relationship_reacquire_repair(left: str, right: str) -> AuthoringRepair:
     return repair(
         kind="reacquire",
@@ -683,6 +722,11 @@ def _project_dimensions(
     evidence: dict[str, DimensionColumnEvidence] = {}
     for profile in profiles:
         sample_complete = _sample_values_complete(profile)
+        unresolved = (
+            (*_DIMENSION_UNRESOLVED, "null_semantics")
+            if profile.sample_null_count > 0
+            else _DIMENSION_UNRESOLVED
+        )
         evidence[profile.name] = DimensionColumnEvidence(
             column=profile.name,
             profile=profile,
@@ -690,15 +734,22 @@ def _project_dimensions(
             scope_values_complete=(
                 sample_complete and snapshot.coverage.scope_exhaustion == "exhaustive"
             ),
-            unresolved=_DIMENSION_UNRESOLVED,
+            unresolved=unresolved,
         )
+    null_columns = tuple(profile.name for profile in profiles if profile.sample_null_count > 0)
+    null_issues = tuple(
+        f"null_semantics: document the business meaning of NULL for {column!r} in ai_context.guardrails"
+        for column in null_columns
+    )
     return DimensionEvidenceResult(
         status=status,
         snapshot_id=snapshot.id,
         columns=columns,
         evidence_by_column=MappingProxyType(evidence),
-        issues=issues,
-        repair=repair,
+        issues=(*issues, *null_issues),
+        repair=repair
+        if repair is not None
+        else (_null_semantics_repair(null_columns) if null_columns else None),
     )
 
 
@@ -721,6 +772,10 @@ def _project_values(
         issues.append("requested_limit_bounded")
     if snapshot.coverage.scope_exhaustion != "exhaustive":
         issues.append("scope_values_incomplete")
+    if profile.sample_null_count > 0:
+        issues.append(
+            f"null_semantics: document the business meaning of NULL for {column!r} in ai_context.guardrails"
+        )
     return DimensionValuesResult(
         status="complete" if scope_complete else "incomplete",
         snapshot_id=snapshot.id,
@@ -733,7 +788,11 @@ def _project_values(
         frequency_capacity=profile.frequency_capacity,
         values=values,
         issues=tuple(issues),
-        repair=_reacquire_repair((column,)) if values is None else None,
+        repair=(
+            _reacquire_repair((column,))
+            if values is None
+            else (_null_semantics_repair((column,)) if profile.sample_null_count > 0 else None)
+        ),
     )
 
 

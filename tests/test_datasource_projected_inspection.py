@@ -54,6 +54,7 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _metadata(
     *,
     columns: tuple[ColumnMetadata, ...] | None = None,
+    projectable_columns: tuple[ColumnMetadata, ...] = (),
     partitions: tuple[PartitionMetadata, ...] = (),
     partition_state: Literal["known", "none", "unknown"] = "none",
 ) -> TableMetadata:
@@ -72,6 +73,7 @@ def _metadata(
         partitions=partitions,
         partition_state=partition_state,
         warnings=(),
+        projectable_columns=projectable_columns,
         primary_keys=("order_id",),
         unique_constraints=(
             UniqueConstraintMetadata(
@@ -206,6 +208,43 @@ def test_public_inspection_projects_schema_and_blocks_type_mismatch_before_query
     assert "database=None" in error.received
     assert error.repair is not None
     assert error.repair.snippet == "md.source_column('order_id', data_type='string')"
+
+
+def test_projected_metadata_validates_adapter_discovered_physical_column_type() -> None:
+    base = _metadata(
+        projectable_columns=(
+            ColumnMetadata("string_map%2Eregion*ICDS*", "string", True, None, None),
+        )
+    )
+    source = md.table(
+        "orders",
+        columns={
+            "region": md.source_column(
+                "string_map%2Eregion*ICDS*",
+                data_type="string",
+            )
+        },
+    )
+
+    projected = _project_table_metadata(base, source)
+
+    assert projected.columns == (ColumnMetadata("region", "string", True, None, 1),)
+    assert not any(warning.kind == "declared_column_unverified" for warning in projected.warnings)
+
+    mismatched = md.table(
+        "orders",
+        columns={
+            "region": md.source_column(
+                "string_map%2Eregion*ICDS*",
+                data_type="float64",
+            )
+        },
+    )
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        _project_table_metadata(base, mismatched)
+    assert exc_info.value.code == "declared_type_mismatch"
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
 
 
 def test_unknown_partition_warning_is_structured_before_public_rendering() -> None:

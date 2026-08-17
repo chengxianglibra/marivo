@@ -342,6 +342,28 @@ def test_values_separates_dictionary_and_scope_completeness(
     assert result.status == "incomplete"
 
 
+def test_dimension_nulls_add_guardrail_judgment_without_quality_failure() -> None:
+    snapshot = _snapshot(
+        (_profile("region", [None, "east", None, "west"], scope_exhaustion="exhaustive"),),
+        scope_exhaustion="exhaustive",
+    )
+
+    dimensions = snapshot.dimensions(columns=("region",))
+    values = snapshot.values("region", limit=10)
+
+    assert dimensions.status == "complete"
+    assert "null_rate" in dimensions.render()
+    assert "50.00%" in dimensions.render()
+    assert {item.id for item in dimensions.contract().judgment_requirements} >= {"null_semantics"}
+    assert {item.id for item in values.contract().judgment_requirements} >= {"null_semantics"}
+    assert any(issue.startswith("null_semantics:") for issue in dimensions.issues)
+    assert dimensions.repair is not None
+    assert dimensions.repair.help_target.canonical_id == "ai_context"
+    assert "guardrails" in dimensions.repair.action
+    assert values.repair is not None
+    assert "filter" in values.repair.action
+
+
 def test_values_never_represents_unavailable_evidence_as_empty(
     snapshot: DiscoverySnapshot,
 ) -> None:

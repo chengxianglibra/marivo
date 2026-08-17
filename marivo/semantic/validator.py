@@ -1507,97 +1507,105 @@ def _validate_cumulative_metric(
 _PROJECTED_ALIAS_DISPLAY_LIMIT = 8
 
 
-def _projected_source_alias_error(
-    *,
-    object_id: str,
-    entity: EntityIR,
-    field: str,
-    column: str,
-    location: SourceLocation,
-) -> SemanticLoadError | None:
-    source = entity.source
-    if not isinstance(source, TableSourceIR) or not source.columns:
-        return None
-    aliases = tuple(output_name for output_name, _binding in source.columns)
-    if column in aliases:
-        return None
-    visible = aliases[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
-    omitted = len(aliases) - len(visible)
-    available = ", ".join(repr(alias) for alias in visible)
-    if omitted:
-        available += f", ... (+{omitted} more)"
-    return SemanticLoadError(
-        kind=ErrorKind.INVALID_REF,
-        message=(
-            f"Semantic object {object_id!r} references column {column!r}, but projected "
-            f"entity {entity.semantic_id!r} exposes only stable output aliases: {available}."
-        ),
-        refs=(object_id, entity.semantic_id),
-        location=location,
-        constraint_id=ConstraintId.REF_SHAPE,
-        expected="a stable output alias declared by md.table(columns=...)",
-        received=column,
-        hint=(
-            f"Set {field}= to one of the available output aliases, or add a matching "
-            "md.source_column(...) binding to the entity's md.table(columns=...)."
-        ),
-        details={
-            "entity": entity.semantic_id,
-            "object": object_id,
-            "field": field,
-            "received_column": column,
-            "available_output_aliases": list(visible),
-            "omitted_output_alias_count": omitted,
-        },
-    )
-
-
 def _validate_projected_source_aliases(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None,
 ) -> list[SemanticError]:
     """Validate direct semantic column references against projected aliases."""
-    errors: list[SemanticError] = []
+    missing_by_entity: dict[str, list[dict[str, object]]] = {}
+
+    def record(
+        *, object_id: str, entity: EntityIR, field: str, column: str, location: SourceLocation
+    ) -> None:
+        source = entity.source
+        if not isinstance(source, TableSourceIR) or not source.columns:
+            return
+        aliases = {output_name for output_name, _binding in source.columns}
+        if column in aliases:
+            return
+        missing_by_entity.setdefault(entity.semantic_id, []).append(
+            {
+                "object": object_id,
+                "field": field,
+                "received_column": column,
+                "location": {"file": location.file, "line": location.line},
+            }
+        )
+
     for primary_entity in registry.entities.values():
         for column in primary_entity.primary_key:
-            error = _projected_source_alias_error(
+            record(
                 object_id=primary_entity.semantic_id,
                 entity=primary_entity,
                 field="primary_key",
                 column=column,
                 location=primary_entity.location,
             )
-            if error is not None:
-                errors.append(error)
     for dimension in registry.dimensions.values():
         entity = registry.entities.get(dimension.entity)
         if entity is None or dimension.source_column is None:
             continue
-        error = _projected_source_alias_error(
+        record(
             object_id=dimension.semantic_id,
             entity=entity,
             field="column",
             column=dimension.source_column,
             location=dimension.location,
         )
-        if error is not None:
-            errors.append(error)
-    if sidecar is None:
-        return errors
-    for measure in registry.measures.values():
-        entity = registry.entities.get(measure.entity)
-        body = sidecar.bodies.get(ref_factory.measure(measure.semantic_id))
-        if entity is None or body is None or body.source_column is None:
+    if sidecar is not None:
+        for measure in registry.measures.values():
+            entity = registry.entities.get(measure.entity)
+            body = sidecar.bodies.get(ref_factory.measure(measure.semantic_id))
+            if entity is None or body is None or body.source_column is None:
+                continue
+            record(
+                object_id=measure.semantic_id,
+                entity=entity,
+                field="column",
+                column=body.source_column,
+                location=measure.location,
+            )
+
+    errors: list[SemanticError] = []
+    for entity_id, missing in missing_by_entity.items():
+        entity = registry.entities[entity_id]
+        source = entity.source
+        if not isinstance(source, TableSourceIR):
             continue
-        error = _projected_source_alias_error(
-            object_id=measure.semantic_id,
-            entity=entity,
-            field="column",
-            column=body.source_column,
-            location=measure.location,
+        aliases = tuple(output_name for output_name, _binding in source.columns)
+        visible_missing = missing[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
+        rendered_missing = ", ".join(
+            f"{item['object']}.{item['field']}={item['received_column']!r}"
+            for item in visible_missing
         )
-        if error is not None:
-            errors.append(error)
+        omitted_missing = len(missing) - len(visible_missing)
+        if omitted_missing:
+            rendered_missing += f", ... (+{omitted_missing} more)"
+        refs = tuple(dict.fromkeys((entity_id, *(str(item["object"]) for item in missing))))
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_REF,
+                message=(
+                    f"Projected entity {entity_id!r} is missing output aliases required by "
+                    f"semantic references: {rendered_missing}."
+                ),
+                refs=refs,
+                location=entity.location,
+                constraint_id=ConstraintId.REF_SHAPE,
+                expected="stable output aliases declared by md.table(columns=...)",
+                received=", ".join(str(item["received_column"]) for item in visible_missing),
+                hint=(
+                    "Add every missing md.source_column(...) binding to the entity's "
+                    "md.table(columns=...), or change each semantic column= to an exposed alias."
+                ),
+                details={
+                    "entity": entity_id,
+                    "missing_references": missing,
+                    "omitted_missing_reference_count": omitted_missing,
+                    "available_output_aliases": list(aliases),
+                },
+            )
+        )
     return errors
 
 

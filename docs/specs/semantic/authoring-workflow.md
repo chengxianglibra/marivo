@@ -197,6 +197,18 @@ metadata-unavailable or omitted-partition case described by the live contract.
 Static load/verify establishes declaration coherence; preview is the runtime
 authority, and readiness only consumes matching evidence without querying.
 
+For ClickHouse, `inspection.projectable_columns` is the safe list of physical
+columns found in active parts but absent from the normal catalog. Use its exact
+name and normalized type in `md.source_column(...)`; conflicting or unparseable
+part types are omitted with warnings. Use `md.time_range(...)` for a bounded
+half-open date/timestamp sample, including a transformed temporal partition.
+Dynamic, unmaterialized Map keys are not governed columns.
+
+Evidence cards derive null rates from captured counts. A `null_semantics`
+judgment is a prompt to record the business meaning of `NULL` in
+`ai_context.guardrails`, not permission to classify it as missing data or filter
+it automatically.
+
 `Ref[datasource]`, `TableSource`, and the source constructors (`md.table(...)`,
 `md.parquet(...)`, `md.csv(...)`, `md.json(...)`) are datasource-owned. Once an
 entity is registered, do not re-supply `(datasource, source)` tuples for semantic
@@ -328,6 +340,9 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   force a new datasource query. Authoring policy still requires the applicable
   evidence repair before closeout. Refs whose dependency closures have no
   semantic blocker are exposed through `ReadinessReport.analysis_ready_refs`.
+  Snapshot and preview advisories are aggregated by evidence root in the existing
+  `warnings` collection; advisory-only reports remain `ready`, while true warning
+  severity still yields `ready_with_warnings`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
 diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.

@@ -255,6 +255,7 @@ DATASOURCE_PUBLIC = {
     "sqlite",
     "table",
     "test",
+    "time_range",
     "trino",
     "unpruned",
 }
@@ -270,6 +271,20 @@ def test_top_level_help_teaches_supported_surface_imports_and_cli_routes() -> No
     assert "marivo.help(...)" in rendered
     assert "for all focused help" in rendered
     assert "python -m marivo help datasource" not in rendered
+
+
+def test_time_range_does_not_expand_partition_scope_constructor_surface() -> None:
+    import inspect
+
+    import marivo.datasource as md
+
+    assert str(inspect.signature(md.PartitionScope)) == (
+        "(values: 'tuple[tuple[str, str], ...]', max_rows: 'int', timeout_seconds: 'int') -> None"
+    )
+    assert "_time_range" not in md.__all__
+    assert "advisories" not in ms.ReadinessReport.__dataclass_fields__
+    assert "TimeRangeScope" not in md.__all__
+    assert "ColumnBindingCandidate" not in md.__all__
 
 
 def test_top_level_package_does_not_add_public_convenience_exports() -> None:

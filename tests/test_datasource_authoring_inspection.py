@@ -609,7 +609,12 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
     assert ".contract()" in rendered
     assert "value source: none" in rendered
     assert "values complete: False" in rendered
-    assert "md.unpruned(" in rendered
+    assert "md.time_range('dt'" in rendered
+    assert "start=<inclusive ISO boundary>" in rendered
+    assert [
+        transition.help_target.canonical_id
+        for transition in partition_result.contract().transitions
+    ] == ["partition", "time_range"]
 
 
 def test_inspection_contract_exposes_factual_scope_state_without_string_guidance(
@@ -652,6 +657,29 @@ def test_inspection_contract_exposes_factual_scope_state_without_string_guidance
     ] == [
         "unpruned",
     ]
+
+    temporal = md.inspect(
+        ms.ref.datasource("warehouse"),
+        md.csv("events.csv", schema={"occurred_at": "timestamp"}),
+    )
+    assert [
+        transition.help_target.canonical_id for transition in temporal.contract().transitions
+    ] == [
+        "SourceInspection.sample",
+        "time_range",
+        "unpruned",
+    ]
+    predicate_unsupported = replace(
+        temporal,
+        execution_capabilities=replace(
+            temporal.execution_capabilities,
+            partition_predicate_supported=False,
+        ),
+    )
+    assert [
+        transition.help_target.canonical_id
+        for transition in predicate_unsupported.contract().transitions
+    ] == ["SourceInspection.sample", "unpruned"]
     assert not hasattr(inspection, "next_safe_action")
     rendered = inspection.render().lower()
     assert ".contract()" in rendered

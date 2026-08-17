@@ -52,6 +52,8 @@ INPUT_FAMILIES = frozenset(
         "SourceParameters",
         "TypedSchema",
         "PartitionValues",
+        "TemporalColumn",
+        "TemporalBound",
         "PositiveRowGuard",
         "PositiveTimeoutGuard",
         "PositiveLimit",
@@ -417,6 +419,24 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             produced_state="scope.explicit",
         ),
         _capability(
+            "time_range",
+            "marivo.datasource.source.time_range",
+            "Build a half-open temporal scope.",
+            output="PartitionScope",
+            inputs=_inputs(
+                ("subject", "TemporalColumn"),
+                ("scope", "TemporalBound"),
+                ("scope", "PositiveRowGuard"),
+                ("scope", "PositiveTimeoutGuard"),
+            ),
+            example=(
+                'md.time_range("timestamp", start="2026-08-01", end="2026-08-02", '
+                "max_rows=1000, timeout_seconds=30)"
+            ),
+            produced_state="scope.explicit",
+            see_also=(_target("partition"), _target("SourceInspection.sample")),
+        ),
+        _capability(
             "unpruned",
             "marivo.datasource.source.unpruned",
             "Build an explicitly unpruned acquisition scope.",
@@ -727,7 +747,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "source_param",
                 "json",
             ),
-            "inspect_scope": ("inspect", "SourceInspection.partitions", "partition", "unpruned"),
+            "inspect_scope": (
+                "inspect",
+                "SourceInspection.partitions",
+                "partition",
+                "time_range",
+                "unpruned",
+            ),
             "acquire_project": (
                 "SourceInspection.sample",
                 "DiscoverySnapshot.entity",
@@ -939,7 +965,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     add(
         PartitionScope,
         "PartitionScope",
-        ("partition",),
+        ("partition", "time_range"),
         properties=("values", "max_rows", "timeout_seconds"),
         methods=("contract",),
         consumers=("SourceInspection.sample",),
@@ -996,6 +1022,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "partitioning",
             "execution_capabilities",
             "schema",
+            "projectable_columns",
             "warnings",
         ),
         methods=("contract", "partitions", "sample", *show_render),

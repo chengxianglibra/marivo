@@ -2002,7 +2002,7 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
 
     report = catalog.readiness(refs=[revenue_entry, expression])
 
-    assert report.status == "ready_with_warnings"
+    assert report.status == "ready"
     assert report.analysis_ready_refs == (revenue,)
     assert report.analysis_ready_inputs == (revenue, expression)
     assert report.input_summary.refs == (

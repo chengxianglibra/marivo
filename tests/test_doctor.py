@@ -701,6 +701,46 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
     assert "1 warning" in check.summary
 
 
+def test_doctor_semantic_advisories_keep_domain_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_manifest(tmp_path)
+
+    def fake_run_check(
+        *, workspace_dir: str | Path | None, readiness: bool, format: str
+    ) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "errors": [],
+            "warnings": [],
+            "readiness": {"status": "ready", "blockers": [], "warnings": []},
+            "readiness_by_domain": {
+                "sales": {
+                    "status": "ready",
+                    "blockers": [],
+                    "warnings": [
+                        {
+                            "kind": "snapshot_missing",
+                            "severity": "advisory",
+                            "refs": ["sales.revenue"],
+                            "message": "snapshot evidence is optional",
+                            "repair": None,
+                        }
+                    ],
+                }
+            },
+        }
+
+    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
+
+    check = _check(report, "semantic", "semantic.readiness.sales")
+    assert check.status == "ok"
+    assert "1 advisory" in check.summary
+    assert "[semantic] ok 1 advisory" in render_text(report)
+
+
 def test_doctor_semantic_partitions_readiness_by_domain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

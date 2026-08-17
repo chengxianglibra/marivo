@@ -1334,6 +1334,246 @@ def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
     assert any("system.parts" in query and "sum(rows)" in query for query in backend.queries)
 
 
+def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_mapv2", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    physical_rows = [(f"string_map%2Ekey_{index}*ICDS*", "Nullable(String)") for index in range(59)]
+    physical_rows.append(("zz.event.time*ICDS*", "Nullable(DateTime64(3, 'UTC'))"))
+    backend = _FakeBackend(
+        {"timestamp": "timestamp"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "toYYYYMMDD(timestamp)", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime64(3)", 0, "", 1)],
+            ),
+            "system.parts_columns": _FakeQueryResult(
+                ("column", "type"),
+                [
+                    ("timestamp", "DateTime64(3)"),
+                    *physical_rows,
+                    physical_rows[0],
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("ch_mapv2", table="analytics.events")
+
+    assert len(metadata.projectable_columns) == 60
+    assert metadata.projectable_columns[0] == ColumnMetadata(
+        name="string_map%2Ekey_0*ICDS*",
+        type="string",
+        nullable=True,
+        comment=None,
+        ordinal_position=None,
+    )
+    assert next(
+        column for column in metadata.projectable_columns if column.name == "zz.event.time*ICDS*"
+    ) == ColumnMetadata(
+        name="zz.event.time*ICDS*",
+        type="timestamp('UTC', 3)",
+        nullable=True,
+        comment=None,
+        ordinal_position=None,
+    )
+    parts_query = next(query for query in backend.queries if "system.parts_columns" in query)
+    assert "WHERE active" in parts_query
+    assert "GROUP BY column, type" in parts_query
+
+
+def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_empty_parts", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"timestamp": "timestamp"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime64(3)", 0, "", 1)],
+            ),
+            "system.parts_columns": _FakeQueryResult(("column", "type"), []),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    metadata = _inspect_table("ch_empty_parts", table="analytics.events")
+
+    assert metadata.projectable_columns == ()
+    assert all(warning.kind != "projectable_columns_unavailable" for warning in metadata.warnings)
+
+
+def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_drift", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"timestamp": "timestamp"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime64(3)", 0, "", 1)],
+            ),
+            "system.parts_columns": _FakeQueryResult(
+                ("column", "type"),
+                [
+                    ("drifted*ICDS*", "Nullable(String)"),
+                    ("drifted*ICDS*", "Nullable(Float64)"),
+                    ("unknown*ICDS*", "MysteryType"),
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    metadata = _inspect_table("ch_drift", table="analytics.events")
+
+    assert metadata.projectable_columns == ()
+    assert {warning.kind for warning in metadata.warnings} >= {
+        "projectable_column_type_conflict",
+        "projectable_column_type_unparsed",
+    }
+
+
+def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_dist_keys", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"timestamp": "timestamp"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [
+                    (
+                        "Events",
+                        "",
+                        "Distributed",
+                        "Distributed('cluster1', 'local_db', 'events_local', rand())",
+                    )
+                ],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime64(3)", 0, "", 1)],
+            ),
+            "system.parts_columns": _FakeQueryResult(
+                ("column", "type"), [("region*ICDS*", "String")]
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    metadata = _inspect_table("ch_dist_keys", table="analytics.events_dist")
+
+    assert metadata.projectable_columns[0].type == "string"
+    query = next(query for query in backend.queries if "system.parts_columns" in query)
+    assert "database = 'local_db'" in query
+    assert "table = 'events_local'" in query
+
+
+def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_locked", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"timestamp": "timestamp"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime64(3)", 0, "", 1)],
+            ),
+        },
+        raise_on_tokens=["system.parts_columns"],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    metadata = _inspect_table("ch_locked", table="analytics.events")
+
+    assert metadata.projectable_columns == ()
+    assert any(warning.kind == "projectable_columns_unavailable" for warning in metadata.warnings)
+
+
+def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_unavailable(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "ch_partial_catalog", backend_type="clickhouse", host="ch.example", database="analytics"
+        )
+    )
+    backend = _FakeBackend(
+        {"timestamp": "timestamp(3)"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "", "MergeTree", "")],
+            ),
+            "system.parts_columns": _FakeQueryResult(
+                ("column", "type"),
+                [
+                    ("timestamp", "DateTime64(3)"),
+                    ("hidden*ICDS*", "Nullable(String)"),
+                ],
+            ),
+        },
+        raise_on_tokens=["system.columns"],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+    metadata = _inspect_table("ch_partial_catalog", table="analytics.events")
+
+    assert tuple(column.name for column in metadata.columns) == ("timestamp",)
+    assert tuple(column.name for column in metadata.projectable_columns) == ("hidden*ICDS*",)
+
+
 @pytest.mark.parametrize("engine", ["View", "MaterializedView"])
 def test_inspect_table_clickhouse_detects_view_definition(
     project_root: Path,

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
-ReadinessSeverity = Literal["blocker", "warning"]
+ReadinessSeverity = Literal["blocker", "warning", "advisory"]
 ReadinessIssueKind = Literal[
     "load_error",
     "unknown_ref",
@@ -130,25 +130,24 @@ class ReadinessReport(RenderableResult):
                 label=f"blockers ({len(self.blockers)})",
                 items=tuple(blocker_items),
             )
-        if self.warnings:
-            preview_warnings = tuple(
-                issue for issue in self.warnings if issue.kind == "runtime_preview_missing"
-            )
+        actual_warnings = tuple(issue for issue in self.warnings if issue.severity == "warning")
+        advisories = tuple(issue for issue in self.warnings if issue.severity == "advisory")
+        if actual_warnings:
             warning_items = [
                 f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                for i in self.warnings
-                if i.kind != "runtime_preview_missing"
+                for i in actual_warnings
             ]
-            if preview_warnings:
-                warning_items.append(
-                    "runtime_preview_missing: "
-                    f"{len(self.preview_required_refs)} refs are not currently preview-certified; "
-                    "analysis may proceed -> optional fix: "
-                    "catalog.preview_many(report.preview_required_refs, using=...)"
-                )
             card = card.listing(
-                label=f"warnings ({len(self.warnings)})",
+                label=f"warnings ({len(actual_warnings)})",
                 items=tuple(warning_items),
+            )
+        if advisories:
+            card = card.listing(
+                label=f"advisories ({len(advisories)})",
+                items=tuple(
+                    f"{i.kind}: {i.message} -> optional fix: {i.repair.action if i.repair else ''}"
+                    for i in advisories
+                ),
             )
         if self.analysis_ready_refs:
             card = card.field(
@@ -251,7 +250,7 @@ def _checked_at() -> str:
 def _status(blockers: list[ReadinessIssue], warnings: list[ReadinessIssue]) -> ReadinessStatus:
     if blockers:
         return "blocked"
-    if warnings:
+    if any(issue.severity == "warning" for issue in warnings):
         return "ready_with_warnings"
     return "ready"
 
@@ -1133,6 +1132,14 @@ def build_readiness_report(
     if project._registry is not None and project._expression_sidecar is not None:
         from marivo.semantic.preview_checks import preview_evidence_requirement
 
+        evidence_issue_refs: dict[
+            tuple[Literal["snapshot_missing", "runtime_preview_missing"], tuple[str, ...]],
+            list[str],
+        ] = {}
+        evidence_issue_repairs: dict[
+            tuple[Literal["snapshot_missing", "runtime_preview_missing"], tuple[str, ...]],
+            AuthoringRepair,
+        ] = {}
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS or ref in cross_datasource_refs:
                 continue
@@ -1148,28 +1155,48 @@ def build_readiness_report(
             )
             if requirement.status == "matched":
                 continue
+            key = (requirement.status, requirement.evidence_roots)
+            evidence_issue_refs.setdefault(key, []).append(path)
+            evidence_issue_repairs.setdefault(key, requirement.repair)
             if requirement.status == "snapshot_missing":
-                warnings.append(
-                    _issue(
-                        "snapshot_missing",
-                        "warning",
-                        (path,),
-                        f"{path} has no matching datasource snapshot metadata.",
-                        repair=requirement.repair,
-                    )
-                )
                 continue
+            preview_required_keys.append(ref)
+
+        for (issue_kind, evidence_roots), paths in evidence_issue_refs.items():
+            unique_paths = _dedupe(paths)
+            if issue_kind == "snapshot_missing":
+                message = (
+                    f"{len(unique_paths)} semantic refs share an evidence root with no matching "
+                    "datasource snapshot metadata; analysis may proceed."
+                )
+            else:
+                message = (
+                    f"{len(unique_paths)} semantic refs share an evidence root without a current "
+                    "runtime preview; analysis may proceed, but preview remains the optional "
+                    "certification step for authoring changes."
+                )
+            issue_repair = evidence_issue_repairs[(issue_kind, evidence_roots)]
+            if issue_kind == "runtime_preview_missing":
+                issue_repair = repair(
+                    kind="repreview",
+                    canonical_id="preview_many",
+                    action=(
+                        "Run catalog.preview_many(report.preview_required_refs, using=...) "
+                        "to repair the grouped runtime-preview evidence."
+                    ),
+                    snippet="catalog.preview_many(report.preview_required_refs, using=...)",
+                    preserves_evidence=False,
+                )
             warnings.append(
                 _issue(
-                    "runtime_preview_missing",
-                    "warning",
-                    (path,),
-                    f"{path} has no preview check matching its current definition and dependencies; "
-                    "analysis may proceed, but preview is still required to certify an authoring change.",
-                    repair=requirement.repair,
+                    issue_kind,
+                    "advisory",
+                    unique_paths,
+                    message,
+                    repair=issue_repair,
+                    details={"evidence_roots": list(evidence_roots)},
                 )
             )
-            preview_required_keys.append(ref)
 
     # Cross-datasource unfederated metrics.
     if reg is not None:

@@ -71,9 +71,10 @@ def _partition_readiness_by_domain(
         warnings = [
             w for w in report.warnings if any(_domain_of_ref(r) == domain_name for r in w.refs)
         ]
+        status_warnings = [warning for warning in warnings if warning.severity == "warning"]
         if blockers:
             status = "blocked"
-        elif warnings:
+        elif status_warnings:
             status = "ready_with_warnings"
         else:
             status = "ready"
@@ -160,17 +161,35 @@ def _print_text(payload: dict[str, object]) -> None:
             for blocker in blockers:
                 print(f"- [{blocker['kind']}] {blocker['message']}")
         if report_warnings:
-            print("Readiness warnings:")
-            for warning in report_warnings:
+            warnings_only = [
+                warning for warning in report_warnings if warning.get("severity") == "warning"
+            ]
+            advisories = [
+                warning for warning in report_warnings if warning.get("severity") == "advisory"
+            ]
+            if warnings_only:
+                print("Readiness warnings:")
+            for warning in warnings_only:
                 print(f"- [{warning['kind']}] {warning['message']}")
+            if advisories:
+                print("Readiness advisories:")
+            for advisory in advisories:
+                print(f"- [{advisory['kind']}] {advisory['message']}")
     readiness_by_domain = payload.get("readiness_by_domain")
     if isinstance(readiness_by_domain, dict):
         for domain_name, domain_payload in readiness_by_domain.items():
             status = domain_payload.get("status", "ready")
             blocker_list = domain_payload.get("blockers", [])
             warning_list = domain_payload.get("warnings", [])
+            warning_count = sum(
+                1 for warning in warning_list if warning.get("severity") == "warning"
+            )
+            advisory_count = sum(
+                1 for warning in warning_list if warning.get("severity") == "advisory"
+            )
             print(
-                f"  {domain_name}: {status} ({len(blocker_list)} blockers, {len(warning_list)} warnings)"
+                f"  {domain_name}: {status} ({len(blocker_list)} blockers, "
+                f"{warning_count} warnings, {advisory_count} advisories)"
             )
 
 

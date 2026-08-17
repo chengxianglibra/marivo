@@ -246,6 +246,7 @@ def _inspection_contract(
     partition_state: str,
     partition_fields: tuple[str, ...],
     include_acquire: bool,
+    time_range_available: bool,
 ) -> AuthoringContract:
     subject_refs = _inspection_subjects(datasource_id, source)
     registered = _state("datasource.registered", subject_refs)
@@ -279,6 +280,8 @@ def _inspection_contract(
         )
     else:
         transitions.append(_scope_transition("unpruned", subject_refs=subject_refs))
+    if time_range_available:
+        transitions.append(_scope_transition("time_range", subject_refs=subject_refs))
     return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
@@ -294,6 +297,7 @@ def contract_for_source_inspection(
     source: ContractSource,
     partition_state: str,
     partition_fields: tuple[str, ...],
+    time_range_available: bool,
 ) -> AuthoringContract:
     """Return the factual acquisition contract for one inspected source."""
     return _inspection_contract(
@@ -302,6 +306,7 @@ def contract_for_source_inspection(
         partition_state=partition_state,
         partition_fields=partition_fields,
         include_acquire=True,
+        time_range_available=time_range_available,
     )
 
 
@@ -311,6 +316,7 @@ def contract_for_partition_inspection(
     source: ContractSource,
     partition_state: str,
     partition_fields: tuple[str, ...],
+    time_range_available: bool,
 ) -> AuthoringContract:
     """Return factual scope constructors for captured partition evidence."""
     return _inspection_contract(
@@ -319,6 +325,7 @@ def contract_for_partition_inspection(
         partition_state=partition_state,
         partition_fields=partition_fields,
         include_acquire=False,
+        time_range_available=time_range_available,
     )
 
 

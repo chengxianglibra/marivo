@@ -148,7 +148,7 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         ("register and test", ("register", "test")),
         ("physical source", ("table", "parquet", "csv", "json")),
         ("metadata", ("inspect",)),
-        ("explicit scope", ("partition", "unpruned")),
+        ("explicit scope", ("partition", "time_range", "unpruned")),
         ("bounded acquisition", ("SourceInspection.sample",)),
         (
             "query-free projections",

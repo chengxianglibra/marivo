@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, fields, is_dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
@@ -30,13 +30,19 @@ from marivo.datasource.snapshot import (
     JsonScalar,
     SnapshotCoverage,
 )
-from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource, UnprunedScope
+from marivo.datasource.source import (
+    AuthoringScope,
+    PartitionScope,
+    TableSource,
+    UnprunedScope,
+    time_range,
+)
 from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 
 if TYPE_CHECKING:
     from marivo.semantic.preview_checks import PreviewCheckV1
 
-EVIDENCE_FORMAT_VERSION = 2
+EVIDENCE_FORMAT_VERSION = 3
 SNAPSHOT_TTL = timedelta(hours=24)
 
 JsonValue = TypeAliasType(  # type: ignore[misc]
@@ -141,6 +147,17 @@ def datasource_spec_fingerprint(datasource: DatasourceIR) -> str:
 
 
 def _scope_payload(scope: AuthoringScope) -> dict[str, object]:
+    if isinstance(scope, PartitionScope) and scope._time_range is not None:
+        predicate = scope._time_range
+        return {
+            "kind": "time_range",
+            "column": predicate.column,
+            "start": predicate.start.isoformat(),
+            "end": predicate.end.isoformat(),
+            "bound_kind": "datetime" if isinstance(predicate.start, datetime) else "date",
+            "max_rows": scope.max_rows,
+            "timeout_seconds": scope.timeout_seconds,
+        }
     payload: dict[str, object] = {
         "kind": "partition" if isinstance(scope, PartitionScope) else "unpruned",
         "max_rows": scope.max_rows,
@@ -418,17 +435,28 @@ def _coverage(value: object) -> SnapshotCoverage:
         normalized_method = "first_rows_limit"
     else:
         raise ValueError("coverage.sampling_method is invalid")
-    predicates: list[tuple[str, str]] = []
+    predicates: list[tuple[str, ...]] = []
     for item in _sequence(payload.get("pushed_predicate"), field="coverage.pushed_predicate"):
         entry = _sequence(item, field="coverage.pushed_predicate entry")
-        if len(entry) != 2:
-            raise ValueError("coverage.pushed_predicate entries must contain two values")
-        predicates.append(
-            (
-                _string(entry[0], field="coverage.pushed_predicate.column"),
-                _string(entry[1], field="coverage.pushed_predicate.value"),
+        if len(entry) == 3 and entry[0] == "eq":
+            predicates.append(
+                (
+                    "eq",
+                    _string(entry[1], field="coverage.pushed_predicate.column"),
+                    _string(entry[2], field="coverage.pushed_predicate.value"),
+                )
             )
-        )
+        elif len(entry) == 4 and entry[0] == "time_range":
+            predicates.append(
+                (
+                    "time_range",
+                    _string(entry[1], field="coverage.pushed_predicate.column"),
+                    _string(entry[2], field="coverage.pushed_predicate.start"),
+                    _string(entry[3], field="coverage.pushed_predicate.end"),
+                )
+            )
+        else:
+            raise ValueError("coverage.pushed_predicate entry is invalid")
     coverage = SnapshotCoverage(
         observed_row_count=_integer(
             payload.get("observed_row_count"), field="coverage.observed_row_count"
@@ -455,7 +483,21 @@ def _validate_snapshot_consistency(
 ) -> None:
     if tuple(profile.name for profile in profiles) != columns:
         raise ValueError("profile names and order must match selected columns")
-    expected_predicate = scope.values if isinstance(scope, PartitionScope) else ()
+    expected_predicate: tuple[tuple[str, ...], ...]
+    if isinstance(scope, PartitionScope) and scope._time_range is not None:
+        predicate = scope._time_range
+        expected_predicate = (
+            (
+                "time_range",
+                predicate.column,
+                predicate.start.isoformat(),
+                predicate.end.isoformat(),
+            ),
+        )
+    elif isinstance(scope, PartitionScope):
+        expected_predicate = tuple(("eq", column, value) for column, value in scope.values)
+    else:
+        expected_predicate = ()
     if coverage.pushed_predicate != expected_predicate:
         raise ValueError("coverage predicate does not match scope")
     expected_retained = min(coverage.observed_row_count, scope.max_rows)
@@ -546,6 +588,37 @@ def authoring_scope_from_payload(value: object) -> AuthoringScope:
         if set(payload) != {"kind", "max_rows", "timeout_seconds"}:
             raise ValueError("unpruned scope fields are invalid")
         return UnprunedScope(max_rows=max_rows, timeout_seconds=timeout_seconds)
+    if kind == "time_range":
+        expected_fields = {
+            "kind",
+            "column",
+            "start",
+            "end",
+            "bound_kind",
+            "max_rows",
+            "timeout_seconds",
+        }
+        if set(payload) != expected_fields:
+            raise ValueError("time-range scope fields are invalid")
+        column = _string(payload.get("column"), field="scope.column")
+        start = _string(payload.get("start"), field="scope.start")
+        end = _string(payload.get("end"), field="scope.end")
+        bound_kind = _string(payload.get("bound_kind"), field="scope.bound_kind")
+        if bound_kind == "date":
+            parsed_start: date | datetime = date.fromisoformat(start)
+            parsed_end: date | datetime = date.fromisoformat(end)
+        elif bound_kind == "datetime":
+            parsed_start = datetime.fromisoformat(start)
+            parsed_end = datetime.fromisoformat(end)
+        else:
+            raise ValueError("scope.bound_kind is invalid")
+        return time_range(
+            column,
+            start=parsed_start,
+            end=parsed_end,
+            max_rows=max_rows,
+            timeout_seconds=timeout_seconds,
+        )
     if kind != "partition":
         raise ValueError("scope.kind is invalid")
     if set(payload) != {"kind", "partition", "max_rows", "timeout_seconds"}:

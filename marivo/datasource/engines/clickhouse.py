@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -333,6 +333,123 @@ def _clickhouse_physical_profile(
     )
 
 
+def _clickhouse_projectable_columns(
+    *,
+    backend: Any,
+    database: str,
+    table: str,
+    engine: str,
+    engine_full: str,
+    standard_column_names: Collection[str],
+    warnings: list[MetadataWarning],
+) -> tuple[ColumnMetadata, ...]:
+    from ibis.backends.sql.datatypes import ClickHouseType
+    from ibis.expr.datatypes import DataType
+
+    from marivo.datasource.metadata import (
+        ColumnMetadata,
+        MetadataWarning,
+        _query_rows,
+        _quote_literal,
+    )
+
+    target_database = database
+    target_table = table
+    if engine == "Distributed":
+        match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
+        if match is None:
+            warnings.append(
+                MetadataWarning(
+                    kind="projectable_columns_unavailable",
+                    message=(
+                        "clickhouse projectable-column discovery could not resolve the "
+                        "Distributed local table from engine_full"
+                    ),
+                )
+            )
+            return ()
+        target_database = match.group(2)
+        target_table = match.group(3)
+    try:
+        rows = _query_rows(
+            backend,
+            "SELECT column, type FROM system.parts_columns "
+            "WHERE active "
+            f"AND database = {_quote_literal(target_database)} "
+            f"AND table = {_quote_literal(target_table)} "
+            "GROUP BY column, type ORDER BY column, type",
+        )
+    except Exception as exc:
+        from marivo.datasource.errors import _backend_failure_summary
+
+        failure = _backend_failure_summary(exc)
+        warnings.append(
+            MetadataWarning(
+                kind="projectable_columns_unavailable",
+                message=(
+                    "clickhouse projectable-column discovery failed: "
+                    f"{failure.exception_type}: {failure.message}"
+                ),
+            )
+        )
+        return ()
+
+    raw_types_by_column: dict[str, set[str]] = {}
+    for row in rows:
+        name = str(row.get("column") or "")
+        raw_type = str(row.get("type") or "")
+        if not name or not raw_type or name in standard_column_names:
+            continue
+        raw_types_by_column.setdefault(name, set()).add(raw_type)
+
+    discovered: list[ColumnMetadata] = []
+    for name in sorted(raw_types_by_column):
+        raw_types = tuple(sorted(raw_types_by_column[name]))
+        parsed: list[DataType] = []
+        try:
+            parsed = [ClickHouseType.from_string(raw_type) for raw_type in raw_types]
+            if any(bool(dtype.is_unknown()) for dtype in parsed):
+                raise ValueError("ClickHouse type parser returned an unknown data type")
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="projectable_column_type_unparsed",
+                    message=(
+                        f"clickhouse physical column {name!r} has an unparseable type; "
+                        f"observed_types={raw_types!r}; reason={exc}"
+                    ),
+                    columns=(name,),
+                )
+            )
+            continue
+        canonical_types = {
+            str(dtype.copy(nullable=True)) for dtype in parsed if hasattr(dtype, "copy")
+        }
+        if len(canonical_types) != 1 or len(parsed) != len(raw_types):
+            warnings.append(
+                MetadataWarning(
+                    kind="projectable_column_type_conflict",
+                    message=(
+                        f"clickhouse physical column {name!r} has incompatible types across "
+                        f"active parts: {raw_types!r}"
+                    ),
+                    columns=(name,),
+                )
+            )
+            continue
+        canonical_type = next(iter(canonical_types))
+        discovered.append(
+            ColumnMetadata(
+                name=name,
+                type=canonical_type,
+                nullable=any(bool(getattr(dtype, "nullable", True)) for dtype in parsed),
+                comment=None,
+                ordinal_position=None,
+            )
+        )
+    return tuple(discovered)
+
+
 def _inspect_clickhouse(
     *,
     datasource: str,
@@ -511,6 +628,20 @@ def _inspect_clickhouse(
             warnings=warnings,
         )
 
+    projectable_columns = (
+        ()
+        if is_view
+        else _clickhouse_projectable_columns(
+            backend=backend,
+            database=ch_database,
+            table=table,
+            engine=engine,
+            engine_full=engine_full,
+            standard_column_names=tuple(column.name for column in columns),
+            warnings=warnings,
+        )
+    )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -521,6 +652,7 @@ def _inspect_clickhouse(
         partitions=partitions,
         partition_state=partition_state,
         warnings=tuple(warnings),
+        projectable_columns=projectable_columns,
         is_view=is_view,
         view_definition=view_definition,
         physical_profile=physical_profile,

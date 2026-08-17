@@ -33,6 +33,7 @@ PUBLIC_CALLABLE_TARGETS = {
     "source_param",
     "json",
     "partition",
+    "time_range",
     "unpruned",
     "inspect",
     "raw_sql",
@@ -98,6 +99,7 @@ EXPECTED_EFFECTS = {
     "source_param": AuthoringEffects(data_access="none", connection="none"),
     "json": AuthoringEffects(data_access="none", connection="none"),
     "partition": AuthoringEffects(data_access="none", connection="none"),
+    "time_range": AuthoringEffects(data_access="none", connection="none"),
     "unpruned": AuthoringEffects(data_access="none", connection="none"),
     "inspect": AuthoringEffects(data_access="live_metadata_read", connection="opens_connection"),
     "raw_sql": AuthoringEffects(
@@ -195,6 +197,10 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
         "PositiveTimeoutGuard",
     )
     assert tuple(
+        requirement.family
+        for requirement in REGISTRY.by_canonical_id("time_range").input_requirements
+    ) == ("TemporalColumn", "TemporalBound", "PositiveRowGuard", "PositiveTimeoutGuard")
+    assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
     ) == ("Ref[datasource]", "SqlText", "RawSqlReason")
     relationship_requirements = REGISTRY.by_canonical_id(
@@ -242,7 +248,7 @@ def test_registry_closes_required_datasource_state_edges() -> None:
         id="datasource.connection_validated"
     )
 
-    for scope_builder in ("partition", "unpruned"):
+    for scope_builder in ("partition", "time_range", "unpruned"):
         assert REGISTRY.by_canonical_id(scope_builder).produced_state == AuthoringStateRef(
             id="scope.explicit"
         )

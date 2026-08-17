@@ -321,10 +321,18 @@ For an entity backed by `md.table(columns=...)`, assembly also proves that every
 `primary_key` entry and every direct `ms.dimension_column(...)`,
 `ms.time_dimension_column(...)`, or `ms.measure_column(...)` reference names a
 declared stable output alias. A missing alias is `invalid_ref` with the object,
-received column, and a bounded canonical alias list; repair changes `column=` or
-adds the matching `md.source_column(...)` binding. This check is static: it does
-not connect or query. General expression decorators keep their existing runtime
-materialization boundary and do not gain inferred column typing.
+received columns, and a bounded canonical alias list; all missing aliases for one
+entity are aggregated into one `SemanticLoadError`, while structured `details`
+retain every alias, referencing object, field, and source location. Repair changes
+`column=` or adds the matching `md.source_column(...)` binding. This check is
+static: it does not connect or query. General expression decorators keep their
+existing runtime materialization boundary and do not gain inferred column typing.
+
+ClickHouse inspection augments catalog columns with safe adapter-only physical
+columns from active `system.parts_columns`. A projected binding found there must
+match the normalized backend type before any query; type conflicts or unparseable
+types are omitted with inspection warnings, and only genuinely unverifiable
+bindings retain the declared-only warning path.
 
 ### Runtime / materialization-time
 
@@ -416,7 +424,11 @@ Two checks sit at the end of the write loop:
   `snapshot_mapping`) are visible advisories, not analysis blockers; authoring
   policy still requires repairing the applicable evidence before declaring a
   new or changed object complete. Snapshot and preview absence or age never
-  block readiness or trigger implicit reacquisition.
+  block readiness or trigger implicit reacquisition. These issues use
+  `severity="advisory"`, remain in the existing `ReadinessReport.warnings`
+  collection, and are aggregated by evidence root with all affected refs.
+  Advisory-only reports remain `ready`; only true warnings produce
+  `ready_with_warnings`.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session

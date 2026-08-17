@@ -267,6 +267,16 @@ datasource adapter generates one identifier-only inner `SELECT` without a table
 alias and supplies the declared schema to the backend. The binding mapping remains
 part of source, snapshot, semantic dependency, cache, and lineage identity.
 
+For ClickHouse tables, inspection also reads active `system.parts_columns` and
+exposes safe adapter-only physical columns through
+`SourceInspection.projectable_columns`. Each row carries the exact physical
+name accepted by `md.source_column(...)`, its normalized Ibis type, and
+nullability. Columns with conflicting part types or unparseable backend types
+are warned about and omitted. This is physical-column discovery, not Map key
+enumeration: dynamic keys that have not been materialized remain outside the
+governed source contract and require upstream materialization, a database view,
+or terminal `md.raw_sql(...)`.
+
 For a wrapped response, `records_path=` selects the array whose declared fields
 are projected into the output schema. Additional object fields are ignored and
 missing declared fields become typed nulls; present values must be convertible to
@@ -406,7 +416,8 @@ read. Its card includes the exact source descriptor and complete real schema
 column names and types. `inspection.partitions()` is also metadata-only; its
 card identifies the value source, completeness and truncation, shows bounded
 captured values, and derives a copyable `md.partition(...)` scope template from
-those already-captured values without another query.
+those already-captured values without another query. A single transformed
+temporal partition instead produces a copyable `md.time_range(...)` template.
 
 Physical extent always carries provenance and scope. For a ClickHouse
 `Distributed` source, Marivo may inspect the resolved local table through
@@ -444,6 +455,17 @@ snapshot.time_dimensions(columns=("dt",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
+For date or timestamp acquisition, use the same public `PartitionScope` through
+`md.time_range("created_at", start=..., end=..., max_rows=...,
+timeout_seconds=...)`. It applies the half-open `[start, end)` predicate after
+the source relation is built and before column selection and `LIMIT`. The time
+column must be exposed by a projected source, bounds must have matching date or
+datetime kinds and matching timezone awareness, aware datetime bounds are
+canonicalized to UTC, and transformed temporal
+partitions are supported. Snapshot evidence format v3 includes the normalized
+column and bounds in scope identity; older v2 evidence is invalid and must be
+reacquired.
+
 Scope and explicit columns are required. `md.unpruned(max_rows=...,
 timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
 Both guards are positive and enforceable; unsupported timeout blocks before
@@ -471,6 +493,12 @@ Evidence projections expose those unresolved decisions through frozen
 `authority="user_or_business_owner"`. Mechanical `states` and `transitions`
 remain unchanged: a judgment requirement is neither a constructor action nor an
 approval record.
+
+Entity, dimension, measure, and values evidence derives `null_rate` from the
+captured row/null counts. If dimension values contain `NULL`, the existing
+evidence judgment includes `null_semantics` and asks the author to explain the
+business meaning in `ai_context.guardrails`. Marivo does not classify a high
+null rate as a data-quality failure and never filters nulls implicitly.
 
 Reacquire evidence only when a required column or required value evidence was
 not captured, the snapshot is stale for the current decision, or its
