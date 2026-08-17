@@ -22,6 +22,7 @@ class ConstraintId(StrEnum):
     """Stable identifiers for analysis constraints."""
 
     METRIC_EXPRESSION_RESOLVABLE = "metric_expression_resolvable"
+    METRIC_READINESS_VERIFIED = "metric_readiness_verified"
     WINDOW_ABSOLUTE_PARSEABLE = "window_absolute_parseable"
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
     SINGLE_METRIC_INPUT = "single_metric_input"
@@ -105,6 +106,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Catalog metric refs and runtime expressions share one graph planner; unresolved or unready leaves cannot produce a typed frame.",
         "Pass an exact catalog Ref[metric] or build a closed expression with mv.runtime_metric.* from exact Ref[measure]/Ref[metric] operands.",
         help_target="observe",
+    ),
+    ConstraintId.METRIC_READINESS_VERIFIED: _constraint(
+        ConstraintId.METRIC_READINESS_VERIFIED,
+        "SemanticProjectNotReady",
+        "runtime",
+        ("observe",),
+        "Verify refs are ready with session.catalog.readiness(refs=[metric]) before observe; analysis APIs do not invoke readiness automatically.",
+        "Readiness surfaces authoring and evidence blockers up-front as an explicit decision; analysis does not perform this verification on your behalf.",
+        "Run session.catalog.readiness(refs=[metric]) and inspect report.show(); observe only ready refs.",
     ),
     ConstraintId.WINDOW_ABSOLUTE_PARSEABLE: _constraint(
         ConstraintId.WINDOW_ABSOLUTE_PARSEABLE,

@@ -660,7 +660,11 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="artifact_production",
             root_visibility="direct",
-            constraint_ids=("metric_expression_resolvable", "window_absolute_parseable"),
+            constraint_ids=(
+                "metric_expression_resolvable",
+                "metric_readiness_verified",
+                "window_absolute_parseable",
+            ),
             callable_path="marivo.analysis.session.core.Session.observe",
             receiver="Session",
             accepted_inputs={
