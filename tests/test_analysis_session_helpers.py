@@ -7,6 +7,7 @@ from ``attach``, ``active``, or ``persistence``.
 from __future__ import annotations
 
 import json
+import warnings
 from inspect import signature
 from pathlib import Path
 from typing import Any, get_type_hints
@@ -86,9 +87,33 @@ def test_question_only_written_on_first_create(
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
     assert s1.question == "why?"
-    s2 = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+    with pytest.warns(mv.errors.SessionQuestionMismatchWarning, match="different question"):
+        s2 = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
     # question should NOT be overwritten on resume
     assert s2.question == "why?"
+
+
+def test_get_or_create_warns_only_on_cross_question_reuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    mv.session.get_or_create(name="s", question="why?", use_datasources=False)
+
+    # Same question on resume is silent.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        mv.session.get_or_create(name="s", question="why?", use_datasources=False)
+
+    # Omitting question on resume is silent (normal resume path).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        mv.session.get_or_create(name="s", use_datasources=False)
+
+    # A different question on resume warns and preserves the original question.
+    with pytest.warns(mv.errors.SessionQuestionMismatchWarning, match="different question"):
+        resumed = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+    assert resumed.question == "why?"
 
 
 def test_session_has_no_default_calendar_surface(

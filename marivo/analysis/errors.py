@@ -1157,6 +1157,15 @@ class HelpTargetError(AnalysisError):
 class DuplicateSessionNameError(AnalysisError): ...
 
 
+class SessionQuestionMismatchWarning(UserWarning):
+    """Emitted when ``get_or_create`` reuses a session under a different question.
+
+    The existing session's original question is preserved; this warning makes
+    the silent cross-question reuse visible so callers can choose a fresh
+    session name or resume deliberately.
+    """
+
+
 class NoActiveSessionError(AnalysisError): ...
 
 

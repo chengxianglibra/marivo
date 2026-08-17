@@ -22,6 +22,7 @@ import builtins
 import shutil
 import sys
 import types
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -87,7 +88,9 @@ def get_or_create(
     Args:
         name: Session name. Creates if absent, attaches if present.
         question: Guiding question (only used when creating a new session;
-            preserved on resume).
+            preserved on resume). Reusing a session name with a different
+            non-empty question emits ``SessionQuestionMismatchWarning`` and
+            keeps the original question.
         report_timezone: IANA timezone name for the report axis. Persisted on
             first create; conflicting values on reopen raise
             ``SessionTimezoneConflict``. Defaults to the system timezone.
@@ -131,6 +134,18 @@ def get_or_create(
         question=question,
         cwd=Path.cwd(),
     )
+
+    if question is not None and row["question"] is not None and question != row["question"]:
+        from marivo.analysis.errors import SessionQuestionMismatchWarning
+
+        warnings.warn(
+            f"session {name!r} already exists for a different question "
+            f"({row['question']!r}); reusing it while ignoring the new question "
+            f"({question!r}). Pass a new session name to start a fresh analysis, "
+            f"or omit question to resume the existing session.",
+            SessionQuestionMismatchWarning,
+            stacklevel=2,
+        )
 
     # Always touch updated_at on resume
     store.touch_session(row["id"])
