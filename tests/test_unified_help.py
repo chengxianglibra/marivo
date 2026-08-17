@@ -285,8 +285,10 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     assert "metric: sales.revenue" in text
     assert "Details:" in text
     assert "Semantic continuation:" in text
-    assert "Conditional analysis consumers (require readiness first):" in text
+    assert "Analysis handoff (kind-level" in text
+    assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text
+    assert "result.contract().show()" in text
     assert "Readiness is not inferred here" in text
     assert "No datasource connectivity or inspection evidence was queried" in text
 

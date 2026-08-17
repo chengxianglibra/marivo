@@ -128,6 +128,16 @@ set is explicit (`candidate_time_dimensions: none`). Omitted members include an
 omitted count and a concrete full read such as `details().show()`; cards never
 rank axes or recommend an operator.
 
+`marivo.help(entry)` composes that current catalog identity with the analysis
+registry's kind-level handoff. It shows only the first focused analysis target
+or policy choices, their registered call shapes, and the artifact family of an
+operator result. It does not infer readiness, enumerate downstream operators,
+or create a second programmable navigation result. The caller inspects the
+focused target for companion inputs, executes it only after readiness, and then
+uses `result.contract().show()` for state-specific continuation. A bare `Ref`
+does not receive this handoff because project membership and readiness are
+unknown until it is resolved to a current entry.
+
 The ordered catalog-member contract owns the global collection names used by
 the runtime catalog, semantic type help, and analysis catalog help. Adding a
 semantic kind must update that contract and pass the live-property consistency

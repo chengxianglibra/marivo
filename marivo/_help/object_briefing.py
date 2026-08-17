@@ -39,25 +39,33 @@ def semantic_object_path(target: object) -> str:
     raise RuntimeError(f"unsupported semantic object: {type(target).__name__}")
 
 
-def _analysis_consumers(kind: str) -> tuple[str, ...]:
-    from marivo.analysis._capabilities.registry import REGISTRY
+def _analysis_handoff_lines(kind: str) -> tuple[str, ...]:
+    from marivo.analysis._capabilities.model import OperatorCapability, SameAsInputFamily
+    from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 
-    handoff = REGISTRY.semantic_handoff(kind)
-    if handoff is None or handoff.input_family is None:
-        return ()
-    return REGISTRY.constructor_consumers.get(handoff.input_family, ())
-
-
-def _analysis_preparation(kind: str) -> tuple[str, ...]:
-    from marivo.analysis._capabilities.registry import REGISTRY
-
-    handoff = REGISTRY.semantic_handoff(kind)
+    handoff = ANALYSIS_REGISTRY.semantic_handoff(kind)
     if handoff is None:
         return ()
-    return tuple(
-        f'marivo.help("{target.surface}.{target.canonical_id}")'
-        for target in handoff.preparation_targets
-    )
+
+    lines: list[str] = []
+    for target in handoff.handoff_targets:
+        if target.canonical_id is None:
+            continue
+        help_call = f'marivo.help("{target.surface}.{target.canonical_id}")'
+        if target.surface != "analysis":
+            lines.append(help_call)
+            continue
+        output = ""
+        analysis_descriptor = ANALYSIS_REGISTRY.by_id(target.canonical_id)
+        entrypoint = analysis_descriptor.public_entrypoint
+        if isinstance(analysis_descriptor, OperatorCapability):
+            family = analysis_descriptor.output_contract.family
+            if not isinstance(family, SameAsInputFamily):
+                output = f" -> {family}"
+        if "(" not in entrypoint:
+            entrypoint = f"{entrypoint}(...)"
+        lines.append(f"{entrypoint}{output}; help: {help_call}")
+    return tuple(lines)
 
 
 def render_semantic_object(target: object) -> str:
@@ -102,25 +110,15 @@ def render_semantic_object(target: object) -> str:
         "  Semantic continuation:",
         *(f"    {line}" for line in contract_text.splitlines()),
     ]
-    consumers = _analysis_consumers(ref.kind.value)
-    if consumers:
+    handoff_lines = _analysis_handoff_lines(ref.kind.value)
+    if handoff_lines:
         lines.extend(
             (
                 "",
-                "  Conditional analysis consumers (require readiness first):",
-                *(f'    marivo.help("analysis.{consumer}")' for consumer in consumers[:8]),
-            )
-        )
-    preparation = _analysis_preparation(ref.kind.value)
-    if preparation:
-        lines.extend(
-            (
-                "",
-                "  Typed analysis preparation:",
-                '    event_role = ms.participant_role(event=entry.ref, name="<role>")',
-                '    step = mv.step(participant=event_role, key="<step_key>")',
-                "    pattern = mv.sequence(step, ...)",
-                *(f"    {target}" for target in preparation),
+                "  Analysis handoff (kind-level; readiness and companion inputs still apply):",
+                *(f"    {line}" for line in handoff_lines),
+                "  After an analysis operator returns an artifact:",
+                "    result.contract().show()",
             )
         )
     lines.extend(
