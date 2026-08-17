@@ -1688,15 +1688,15 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         ReadCapability(
-            id="observe_watermark",
-            public_entrypoint="session.observe_watermark(...)",
-            help_target="observe_watermark",
+            id="events.watermark",
+            public_entrypoint="session.events.watermark(...)",
+            help_target="events.watermark",
             summary="Return the authoritative observed completeness watermark for one Event, or None.",
             root_group="artifact_inspection",
             root_visibility="grouped",
             constraint_ids=(),
-            callable_path="marivo.analysis.session.core.Session.observe_watermark",
-            receiver_family="Session",
+            callable_path="marivo.analysis.session.core.SessionEvents.watermark",
+            receiver_family="SessionEvents",
             result_kind="immutable_metadata",
             read_bound="bounded",
         )
