@@ -4,10 +4,11 @@
 watermark over ``mv.declared_complete_through(...)``, but historically that
 observed watermark had no public SDK entry — it was only resolved internally by
 ``resolve_event_coverage``.  This module exposes the same catalog-fact
-resolution as a session-bound read: given one exact current-catalog Event, it
-builds the backend ``EventWatermarkRequest`` and returns the provider's
-authoritative ``EventWatermarkReceipt`` (or ``None`` when no provider exists or
-the provider has no authoritative watermark for that Event).
+resolution as a session-bound read under the ``session.events`` namespace: given
+one exact current-catalog Event, it builds the backend
+``EventWatermarkRequest`` and returns the provider's authoritative
+``EventWatermarkReceipt`` (or ``None`` when no provider exists or the provider
+has no authoritative watermark for that Event).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from marivo.semantic.errors import SemanticRuntimeError
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
 
-_HELP_TARGET = "observe_watermark"
+_HELP_TARGET = "events.watermark"
 
 
 def _repair(*, action: str, candidates: tuple[str, ...] = ()) -> AnalysisRepair:
@@ -52,7 +53,7 @@ def _resolve_event_ref(
 ) -> Ref[EventKind]:
     """Normalize one exact current-catalog Event entry or ref."""
     catalog = session.catalog
-    location = "session.observe_watermark.event"
+    location = "session.events.watermark.event"
     candidates = tuple(item.ref.key for item in catalog.events.items[:5])
     try:
         normalized = _normalize_semantic_input(
@@ -64,7 +65,7 @@ def _resolve_event_ref(
     except SemanticRuntimeError as exc:
         received = event.ref if isinstance(event, CatalogEntry) else event
         raise SemanticKindMismatchError(
-            message="observe_watermark requires one exact current-catalog Event",
+            message="events.watermark requires one exact current-catalog Event",
             expected="EventEntry | Ref[event]",
             received=(received.key if type(received) is Ref else type(event).__name__),
             location=location,
@@ -76,7 +77,7 @@ def _resolve_event_ref(
     return cast("Ref[EventKind]", normalized)
 
 
-def observe_watermark(
+def watermark(
     event: _SemanticInput[EventKind],
     *,
     through: str,
@@ -106,7 +107,7 @@ def observe_watermark(
 
     Example:
         >>> order_created = session.catalog.events.get("commerce.order_created")
-        >>> watermark = session.observe_watermark(
+        >>> watermark = session.events.watermark(
         ...     order_created,
         ...     through="2026-08-01T00:00:00Z",
         ... )
@@ -122,10 +123,10 @@ def observe_watermark(
     """
     if not through.strip():
         raise InvalidCompletenessDeclarationError(
-            message="observe_watermark requires a non-empty through bound",
+            message="events.watermark requires a non-empty through bound",
             expected="a non-empty completeness bound",
             received=repr(through),
-            location="session.observe_watermark.through",
+            location="session.events.watermark.through",
             repair=_repair(action="Provide a non-empty completeness bound."),
         )
     event_ref = _resolve_event_ref(session=session, event=event)
@@ -150,4 +151,4 @@ def observe_watermark(
     )
 
 
-__all__ = ["observe_watermark"]
+__all__ = ["watermark"]

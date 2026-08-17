@@ -625,72 +625,6 @@ class Session(RenderableResult):
         """Return replay-based Lifecycle materialization and reducer operators."""
         return SessionLifecycle(self)
 
-    def observe_watermark(
-        self,
-        event: _SemanticInput[EventKind],
-        *,
-        through: str,
-    ) -> EventWatermarkReceipt | None:
-        """Return the authoritative observed completeness watermark for one Event.
-
-        When to use: prefer an observed watermark over a caller declaration.
-
-        Resolves one exact current-catalog Event's catalog facts, asks the
-        session's backend completeness provider for that Event's datasource, and
-        returns the provider's authoritative ``EventWatermarkReceipt`` (or
-        ``None`` when no provider exists, or the provider has no authoritative
-        watermark for this exact Event). ``lifecycle.replay`` and
-        ``events.match`` consume this same receipt through their authoritative
-        coverage resolution, so a non-``None`` receipt here is exactly what
-        makes an observed coverage authoritative downstream.
-
-        Args:
-            event: Current-catalog ``EventEntry`` or exact ``Ref[event]``.
-            through: Inclusive completeness bound the caller requires the Event
-                to be complete through.
-
-        Returns:
-            The provider's authoritative ``EventWatermarkReceipt`` when one
-            exists, otherwise ``None``.
-
-        Raises:
-            SemanticKindMismatchError: ``event`` is not one exact current-catalog
-                Event entry or ref.
-
-        Guidance:
-            This is an observed fact from a backend completeness provider, not a
-            caller assumption. It is strictly stronger than
-            ``mv.declared_complete_through(...)``. A non-``None``
-            ``EventWatermarkReceipt`` is exactly what ``lifecycle.replay`` and
-            ``events.match`` consume through their authoritative coverage
-            resolution. When ``None`` is returned, fall back to an explicit
-            governed declaration only when you can supply a rationale.
-
-        Example:
-            >>> order_created = session.catalog.events.get("commerce.order_created")
-            >>> watermark = session.observe_watermark(
-            ...     order_created,
-            ...     through="2026-08-01T00:00:00Z",
-            ... )
-            >>> if watermark is None:
-            ...     coverage = mv.declared_complete_through(
-            ...         inputs=(order_created.ref,),
-            ...         through="2026-08-01T00:00:00Z",
-            ...         rationale="Reconciled through the follow-up bound.",
-            ...     )
-            ... else:
-            ...     print(watermark.complete_through)
-        """
-        from marivo.analysis.intents.watermark import observe_watermark
-
-        with _track_session_operation(
-            self,
-            "marivo.analysis.observe_watermark",
-            family="core",
-            intent="observe_watermark",
-        ):
-            return observe_watermark(event, through=through, session=self)
-
     def select_subjects(
         self,
         artifact: EventFrame | LifecycleFrame,
@@ -1680,6 +1614,72 @@ class SessionEvents(RenderableResult):
             ),
         ).status("phase=event_reducers")
 
+    def watermark(
+        self,
+        event: _SemanticInput[EventKind],
+        *,
+        through: str,
+    ) -> EventWatermarkReceipt | None:
+        """Return the authoritative observed completeness watermark for one Event.
+
+        When to use: prefer an observed watermark over a caller declaration.
+
+        Resolves one exact current-catalog Event's catalog facts, asks the
+        session's backend completeness provider for that Event's datasource, and
+        returns the provider's authoritative ``EventWatermarkReceipt`` (or
+        ``None`` when no provider exists, or the provider has no authoritative
+        watermark for this exact Event). ``lifecycle.replay`` and
+        ``events.match`` consume this same receipt through their authoritative
+        coverage resolution, so a non-``None`` receipt here is exactly what
+        makes an observed coverage authoritative downstream.
+
+        Args:
+            event: Current-catalog ``EventEntry`` or exact ``Ref[event]``.
+            through: Inclusive completeness bound the caller requires the Event
+                to be complete through.
+
+        Returns:
+            The provider's authoritative ``EventWatermarkReceipt`` when one
+            exists, otherwise ``None``.
+
+        Raises:
+            SemanticKindMismatchError: ``event`` is not one exact current-catalog
+                Event entry or ref.
+
+        Guidance:
+            This is an observed fact from a backend completeness provider, not a
+            caller assumption. It is strictly stronger than
+            ``mv.declared_complete_through(...)``. A non-``None``
+            ``EventWatermarkReceipt`` is exactly what ``lifecycle.replay`` and
+            ``events.match`` consume through their authoritative coverage
+            resolution. When ``None`` is returned, fall back to an explicit
+            governed declaration only when you can supply a rationale.
+
+        Example:
+            >>> order_created = session.catalog.events.get("commerce.order_created")
+            >>> watermark = session.events.watermark(
+            ...     order_created,
+            ...     through="2026-08-01T00:00:00Z",
+            ... )
+            >>> if watermark is None:
+            ...     coverage = mv.declared_complete_through(
+            ...         inputs=(order_created.ref,),
+            ...         through="2026-08-01T00:00:00Z",
+            ...         rationale="Reconciled through the follow-up bound.",
+            ...     )
+            ... else:
+            ...     print(watermark.complete_through)
+        """
+        from marivo.analysis.intents.watermark import watermark
+
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.events.watermark",
+            family="events",
+            intent="events.watermark",
+        ):
+            return watermark(event, through=through, session=self._session)
+
     def match(
         self,
         *,
@@ -1720,7 +1720,7 @@ class SessionEvents(RenderableResult):
             ``completion_through`` requests the latest follow-up instant used
             for matching and coverage checks; it never proves that input data
             is complete through that instant. Prefer an observed backend
-            watermark (obtain one with ``session.observe_watermark(...)``). Use
+            watermark (obtain one with ``session.events.watermark(...)``). Use
             ``mv.declared_complete_through(...)`` only for an explicit governed
             assumption with a rationale.
 
@@ -1967,7 +1967,7 @@ class SessionLifecycle(RenderableResult):
             covering ``window.end``, open intervals are ``coverage_censored``
             and subjects with no observed inception are censored instead of
             failing. Prefer an observed watermark (obtain one with
-            ``session.observe_watermark(...)``); use
+            ``session.events.watermark(...)``); use
             ``mv.declared_complete_through(...)`` only as an explicit governed
             assumption with a rationale.
 

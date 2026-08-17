@@ -1,11 +1,12 @@
-"""Issue #82: public observed-watermark entry for ``Session``.
+"""Issue #99: converge the observed-watermark entry under ``session.events``.
 
-Before this fix, ``lifecycle.replay`` and ``events.match`` guidance told callers
-to "prefer an observed watermark" but exposed no SDK entry to obtain one;
-``marivo.help("analysis.watermark")`` failed with ``MarivoHelpTargetError``.
-These tests lock ``session.observe_watermark(event, through=...)`` as the
-governed entry that resolves one Event's catalog facts, asks the backend
-watermark provider, and returns an ``EventWatermarkReceipt`` (or ``None``).
+``lifecycle.replay`` and ``events.match`` guidance tell callers to "prefer an
+observed watermark". Historically that entry lived on the top-level ``Session``
+as ``session.observe_watermark(event, through=...)``. Issue #99 moves it into
+the ``session.events`` namespace as ``session.events.watermark(event,
+through=...)``, keeping the catalog-fact resolution, backend watermark provider
+call, and ``EventWatermarkReceipt`` (or ``None``) contract unchanged. These
+tests lock the new governed entry and assert the old top-level name is gone.
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ def _watermark_session(
     )
 
 
-def test_observe_watermark_returns_receipt_from_provider(
+def test_events_watermark_returns_receipt_from_provider(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -64,7 +65,7 @@ def test_observe_watermark_returns_receipt_from_provider(
         watermark_events=frozenset({_EVENT}),
     )
 
-    receipt = session.observe_watermark(ms.ref.event(_EVENT), through=_THROUGH)
+    receipt = session.events.watermark(ms.ref.event(_EVENT), through=_THROUGH)
 
     assert isinstance(receipt, EventWatermarkReceipt)
     assert receipt.complete_through == "2026-08-01T00:00:00Z"
@@ -72,7 +73,7 @@ def test_observe_watermark_returns_receipt_from_provider(
     assert receipt.source_revision == "fixture-v1"
 
 
-def test_observe_watermark_accepts_catalog_entry(
+def test_events_watermark_accepts_catalog_entry(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -85,12 +86,12 @@ def test_observe_watermark_accepts_catalog_entry(
     )
     entry = session.catalog.events.get(_EVENT)
 
-    receipt = session.observe_watermark(entry, through=_THROUGH)
+    receipt = session.events.watermark(entry, through=_THROUGH)
 
     assert isinstance(receipt, EventWatermarkReceipt)
 
 
-def test_observe_watermark_returns_none_without_provider(
+def test_events_watermark_returns_none_without_provider(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -102,12 +103,12 @@ def test_observe_watermark_returns_none_without_provider(
         watermark_events=frozenset(),
     )
 
-    receipt = session.observe_watermark(ms.ref.event(_EVENT), through=_THROUGH)
+    receipt = session.events.watermark(ms.ref.event(_EVENT), through=_THROUGH)
 
     assert receipt is None
 
 
-def test_observe_watermark_returns_none_for_uncovered_event(
+def test_events_watermark_returns_none_for_uncovered_event(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -119,12 +120,12 @@ def test_observe_watermark_returns_none_for_uncovered_event(
         watermark_events=frozenset({"commerce.payment_captured"}),
     )
 
-    receipt = session.observe_watermark(ms.ref.event(_EVENT), through=_THROUGH)
+    receipt = session.events.watermark(ms.ref.event(_EVENT), through=_THROUGH)
 
     assert receipt is None
 
 
-def test_observe_watermark_rejects_non_event_input(
+def test_events_watermark_rejects_non_event_input(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -137,10 +138,10 @@ def test_observe_watermark_rejects_non_event_input(
     )
 
     with pytest.raises(SemanticKindMismatchError):
-        session.observe_watermark(ms.ref.metric("sales.not_an_event"), through=_THROUGH)  # type: ignore[arg-type]
+        session.events.watermark(ms.ref.metric("sales.not_an_event"), through=_THROUGH)  # type: ignore[arg-type]
 
 
-def test_observe_watermark_rejects_empty_through(
+def test_events_watermark_rejects_empty_through(
     semantic_project_factory: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -154,28 +155,36 @@ def test_observe_watermark_rejects_empty_through(
 
     for empty in ("", "   "):
         with pytest.raises(InvalidCompletenessDeclarationError):
-            session.observe_watermark(ms.ref.event(_EVENT), through=empty)
+            session.events.watermark(ms.ref.event(_EVENT), through=empty)
 
 
-def test_observe_watermark_is_registered_as_public_session_read() -> None:
-    descriptor = REGISTRY.by_help_target("observe_watermark")
+def test_events_watermark_is_registered_as_public_session_events_read() -> None:
+    descriptor = REGISTRY.by_help_target("events.watermark")
 
-    assert descriptor.public_entrypoint == "session.observe_watermark(...)"
-    assert descriptor.callable_path == "marivo.analysis.session.core.Session.observe_watermark"
-    assert "observe_watermark" in REGISTRY.capability_ids
-    assert "observe_watermark" in REGISTRY.public_member_names("Session")
+    assert descriptor.public_entrypoint == "session.events.watermark(...)"
+    assert descriptor.callable_path == "marivo.analysis.session.core.SessionEvents.watermark"
+    assert "events.watermark" in REGISTRY.capability_ids
+    assert "watermark" in REGISTRY.public_member_names("SessionEvents")
 
 
-def test_observe_watermark_help_resolves_and_points_to_entry() -> None:
-    text = rendered_help("observe_watermark", owner="analysis")
+def test_observe_watermark_is_removed_from_top_level_session() -> None:
+    # Issue #99 is a breaking rename: the top-level Session entry is removed,
+    # not aliased, so exactly one public call path remains.
+    assert "observe_watermark" not in REGISTRY.capability_ids
+    assert "observe_watermark" not in REGISTRY.public_member_names("Session")
+    assert "watermark" not in REGISTRY.public_member_names("Session")
 
-    assert "session.observe_watermark" in text
+
+def test_events_watermark_help_resolves_and_points_to_entry() -> None:
+    text = rendered_help("events.watermark", owner="analysis")
+
+    assert "session.events.watermark" in text
     assert "EventWatermarkReceipt" in text
 
 
-def test_replay_and_match_guidance_points_to_observe_watermark() -> None:
+def test_replay_and_match_guidance_points_to_events_watermark() -> None:
     replay_guidance = " ".join(rendered_help("lifecycle.replay", owner="analysis").split())
     match_guidance = " ".join(rendered_help("events.match", owner="analysis").split())
 
-    assert "session.observe_watermark" in replay_guidance
-    assert "session.observe_watermark" in match_guidance
+    assert "session.events.watermark" in replay_guidance
+    assert "session.events.watermark" in match_guidance
