@@ -29,23 +29,6 @@ Continue directly to
 [Verify the installation](#verify-the-installation);
 do not also follow the manual steps below.
 
-If another runtime, such as claude-pipe, already owns the persona virtual environment,
-pass that environment explicitly so Marivo does not create or replace a second one:
-
-```bash
-curl -fsSL https://marivo.io/install.sh | bash -s -- \
-  --project-root /data/workspaces/sales \
-  --venv /data/workspaces/sales/.venv \
-  --extras trino \
-  --version 0.4.4
-```
-
-When `--venv` points to an existing environment, the installer only installs Marivo
-into it and initializes `--project-root`; it never removes that environment. An
-unsupported Python version or invalid virtual environment fails fast for the owner to
-repair. Run `marivo doctor` afterwards to verify the actual interpreter, Marivo package,
-and project state.
-
 ### Option 2: Install manually
 
 To control the environment and datasource backends, complete these steps in

@@ -23,21 +23,6 @@ curl -fsSL https://marivo.io/install.sh | bash
 Git Bash、MSYS2 或 Cygwin；默认不包含 MySQL，需在准备好本机 client 前置依赖后再手动安装
 `marivo[mysql]`。仅当需要安装 `uv` 时才需要 PowerShell。完成后直接跳到[确认安装结果](#确认安装结果)，不要再执行下面的手动安装步骤。
 
-如果其他运行时（例如 claude-pipe）已经创建并拥有 persona 的虚拟环境，请把它显式传给安装脚本，避免
-Marivo 再创建或替换另一套环境：
-
-```bash
-curl -fsSL https://marivo.io/install-marivo-cn.sh | bash -s -- \
-  --project-root /data/workspaces/sales \
-  --venv /data/workspaces/sales/.venv \
-  --extras trino \
-  --version 0.4.4
-```
-
-`--venv` 指向已有环境时，脚本只会在其中安装 Marivo 并初始化 `--project-root`，不会删除该环境；环境
-不满足 Python 3.10 或不是有效虚拟环境时会直接失败，由环境所有者负责修复。完成安装后运行
-`marivo doctor`，确认实际解释器、Marivo 包和项目状态。
-
 ### 方式二：手动安装
 
 如果需要自行控制虚拟环境和数据源后端，请按顺序完成以下步骤。
