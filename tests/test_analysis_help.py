@@ -806,6 +806,34 @@ def test_every_operator_input_family_has_a_registered_acquisition_path() -> None
                 )
 
 
+def test_semantic_handoffs_choose_one_progressive_entry_path_per_kind() -> None:
+    expected = {
+        SemanticKind.METRIC: ("observe",),
+        SemanticKind.DIMENSION: ("observe",),
+        SemanticKind.TIME_DIMENSION: ("observe",),
+        SemanticKind.EVENT: ("events.match",),
+        SemanticKind.STATE_MODEL: ("lifecycle.replay",),
+        SemanticKind.PERIOD_CALENDAR: ("period_progress", "period_correspondence"),
+        SemanticKind.TEMPORAL_SET: ("occurrence_progress",),
+        SemanticKind.WORK_SCHEDULE: ("working_day_progress",),
+    }
+
+    actual: dict[SemanticKind, tuple[str | None, ...]] = {}
+    for kind in expected:
+        handoff = REGISTRY.semantic_handoff(kind.value)
+        assert handoff is not None
+        assert all(target.surface == "analysis" for target in handoff.handoff_targets)
+        actual[kind] = tuple(target.canonical_id for target in handoff.handoff_targets)
+    assert actual == expected
+    event_handoff = REGISTRY.semantic_handoff(SemanticKind.EVENT.value)
+    assert event_handoff is not None
+    assert tuple(target.canonical_id for target in event_handoff.preparation_targets) == (
+        "participant_role",
+        "step",
+        "sequence",
+    )
+
+
 def test_constructor_descriptors_declare_direct_input_families() -> None:
     expected = {
         "sequence": "EventPattern",
@@ -1079,15 +1107,103 @@ def test_event_and_state_model_briefings_expose_typed_analysis_handoffs(
     catalog = SemanticCatalog(semantic_project_factory(lifecycle_project_files()))
 
     event_text = _text(catalog.events.get("commerce.order_created"))
-    assert "Typed analysis preparation:" in event_text
-    assert "ms.participant_role(event=entry.ref" in event_text
-    assert 'marivo.help("analysis.step")' in event_text
-    assert 'marivo.help("analysis.sequence")' in event_text
+    assert "Analysis handoff (kind-level" in event_text
+    assert "session.events.match(...) -> EventFrame" in event_text
     assert 'marivo.help("analysis.events.match")' in event_text
+    assert "result.contract().show()" in event_text
+    assert "participant_role" not in event_text
 
     model_text = _text(catalog.state_models.get("commerce.order_lifecycle"))
-    assert "Conditional analysis consumers" in model_text
+    assert "session.lifecycle.replay(...) -> LifecycleFrame" in model_text
     assert 'marivo.help("analysis.lifecycle.replay")' in model_text
+    assert "lifecycle.distribution" not in model_text
+
+
+def test_temporal_briefings_route_to_their_own_alignment_handoffs(
+    semantic_project_factory,
+) -> None:
+    from marivo.semantic.catalog import SemanticCatalog
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Data', default=True)\n"
+            ),
+            "sales/calendar.py": """
+import marivo.datasource as md
+import marivo.semantic as ms
+
+calendar = ms.entity(
+    name="calendar",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("calendar"),
+)
+calendar_date = ms.time_dimension_column(
+    name="calendar_date", entity=calendar, column="calendar_date", granularity="day"
+)
+week = ms.dimension_column(name="week", entity=calendar, column="week")
+campaign_id = ms.dimension_column(
+    name="campaign_id", entity=calendar, column="campaign_id"
+)
+campaign_start = ms.time_dimension_column(
+    name="campaign_start", entity=calendar, column="campaign_start", granularity="day"
+)
+campaign_end = ms.time_dimension_column(
+    name="campaign_end", entity=calendar, column="campaign_end", granularity="day"
+)
+is_working = ms.dimension_column(
+    name="is_working", entity=calendar, column="is_working"
+)
+ms.period_calendar(
+    name="fiscal",
+    date=calendar_date,
+    boundary_timezone="UTC",
+    coverage=(
+        __import__("datetime").date(2026, 1, 1),
+        __import__("datetime").date(2027, 1, 1),
+    ),
+    levels={"week": week},
+)
+ms.temporal_set(
+    name="campaigns",
+    occurrence_id=campaign_id,
+    start=campaign_start,
+    end=campaign_end,
+    boundary_timezone="UTC",
+    coverage=(
+        __import__("datetime").date(2026, 1, 1),
+        __import__("datetime").date(2027, 1, 1),
+    ),
+)
+ms.work_schedule(
+    name="schedule",
+    date=calendar_date,
+    is_working=is_working,
+    boundary_timezone="UTC",
+    coverage=(
+        __import__("datetime").date(2026, 1, 1),
+        __import__("datetime").date(2027, 1, 1),
+    ),
+)
+""",
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    calendar_text = _text(catalog.period_calendars.get("sales.fiscal"))
+    assert "mv.period_progress(...)" in calendar_text
+    assert "mv.period_correspondence(...)" in calendar_text
+
+    temporal_set_text = _text(catalog.temporal_sets.get("sales.campaigns"))
+    assert "mv.occurrence_progress(...)" in temporal_set_text
+
+    schedule_text = _text(catalog.work_schedules.get("sales.schedule"))
+    assert "mv.working_day_progress(...)" in schedule_text
+
+    for text in (calendar_text, temporal_set_text, schedule_text):
+        assert "participant_role" not in text
+        assert "session.events.match" not in text
 
 
 # ---------------------------------------------------------------------------

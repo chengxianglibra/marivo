@@ -60,6 +60,7 @@ class SemanticHandoffContract:
     semantic_kind: SemanticKind
     collection_property: str
     input_family: InputFamily | None = None
+    handoff_targets: tuple[LiveHelpTarget, ...] = ()
     preparation_targets: tuple[LiveHelpTarget, ...] = ()
 
 
@@ -73,31 +74,57 @@ SEMANTIC_HANDOFF_CONTRACTS: Mapping[SemanticKind, SemanticHandoffContract] = Map
             SemanticKind.METRIC,
             _catalog_property(SemanticKind.METRIC),
             "MetricSemantic",
+            handoff_targets=(LiveHelpTarget(surface="analysis", canonical_id="observe"),),
         ),
         SemanticKind.DIMENSION: SemanticHandoffContract(
             SemanticKind.DIMENSION,
             _catalog_property(SemanticKind.DIMENSION),
             "DimensionSemantic",
+            handoff_targets=(LiveHelpTarget(surface="analysis", canonical_id="observe"),),
         ),
         SemanticKind.TIME_DIMENSION: SemanticHandoffContract(
             SemanticKind.TIME_DIMENSION,
             _catalog_property(SemanticKind.TIME_DIMENSION),
             "TimeDimensionSemantic",
+            handoff_targets=(LiveHelpTarget(surface="analysis", canonical_id="observe"),),
         ),
         SemanticKind.EVENT: SemanticHandoffContract(
             SemanticKind.EVENT,
             _catalog_property(SemanticKind.EVENT),
+            handoff_targets=(LiveHelpTarget(surface="analysis", canonical_id="events.match"),),
             preparation_targets=(
                 LiveHelpTarget(surface="semantic", canonical_id="participant_role"),
                 LiveHelpTarget(surface="analysis", canonical_id="step"),
                 LiveHelpTarget(surface="analysis", canonical_id="sequence"),
-                LiveHelpTarget(surface="analysis", canonical_id="events.match"),
             ),
         ),
         SemanticKind.STATE_MODEL: SemanticHandoffContract(
             SemanticKind.STATE_MODEL,
             _catalog_property(SemanticKind.STATE_MODEL),
             "StateModelSemantic",
+            handoff_targets=(LiveHelpTarget(surface="analysis", canonical_id="lifecycle.replay"),),
+        ),
+        SemanticKind.PERIOD_CALENDAR: SemanticHandoffContract(
+            SemanticKind.PERIOD_CALENDAR,
+            _catalog_property(SemanticKind.PERIOD_CALENDAR),
+            handoff_targets=(
+                LiveHelpTarget(surface="analysis", canonical_id="period_progress"),
+                LiveHelpTarget(surface="analysis", canonical_id="period_correspondence"),
+            ),
+        ),
+        SemanticKind.TEMPORAL_SET: SemanticHandoffContract(
+            SemanticKind.TEMPORAL_SET,
+            _catalog_property(SemanticKind.TEMPORAL_SET),
+            handoff_targets=(
+                LiveHelpTarget(surface="analysis", canonical_id="occurrence_progress"),
+            ),
+        ),
+        SemanticKind.WORK_SCHEDULE: SemanticHandoffContract(
+            SemanticKind.WORK_SCHEDULE,
+            _catalog_property(SemanticKind.WORK_SCHEDULE),
+            handoff_targets=(
+                LiveHelpTarget(surface="analysis", canonical_id="working_day_progress"),
+            ),
         ),
     }
 )
@@ -478,7 +505,7 @@ class CapabilityRegistry:
                 for target in targets
                 if not (target.surface == "analysis" and target.canonical_id == "sequence")
             ]
-            targets.extend(SEMANTIC_HANDOFF_CONTRACTS[SemanticKind.EVENT].preparation_targets[:-1])
+            targets.extend(SEMANTIC_HANDOFF_CONTRACTS[SemanticKind.EVENT].preparation_targets)
         return tuple(dict.fromkeys(targets))
 
     def semantic_handoff(self, semantic_kind: str) -> SemanticHandoffContract | None:

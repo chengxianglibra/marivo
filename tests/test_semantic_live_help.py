@@ -233,8 +233,10 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert "metric: sales.revenue" in text
     assert "Details:" in text
     assert "Semantic continuation:" in text
-    assert "Conditional analysis consumers (require readiness first):" in text
+    assert "Analysis handoff (kind-level" in text
+    assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text
+    assert "result.contract().show()" in text
     assert "Readiness is not inferred here" in text
 
 
