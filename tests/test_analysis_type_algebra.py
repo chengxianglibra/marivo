@@ -109,6 +109,16 @@ def test_event_funnel_type_algebra_carries_shape_and_matching() -> None:
     assert row.render().endswith("events.funnel -> EventFrame[funnel; matching=first_per_subject]")
 
 
+def test_metric_frame_coverage_type_algebra_renders_nullable_output() -> None:
+    row = next(
+        row for row in REGISTRY.type_algebra_rows() if row.help_target == "MetricFrame.coverage"
+    )
+
+    assert isinstance(row.output_contract, ArtifactOutputContract)
+    assert row.output_family == "CoverageFrame"
+    assert row.render().endswith("MetricFrame.coverage -> CoverageFrame | None")
+
+
 def test_shape_aware_consumers_exclude_invalid_event_and_lifecycle_edges() -> None:
     funnel = REGISTRY.by_id("events.funnel")
     violations = REGISTRY.by_id("lifecycle.violations")

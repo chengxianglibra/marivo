@@ -634,6 +634,7 @@ def _output(
     *,
     shapes: tuple[str, ...] = (),
     matching: tuple[str, ...] = (),
+    nullable: bool = False,
 ) -> ArtifactOutputContract:
     """Build one immutable artifact output contract."""
 
@@ -641,6 +642,7 @@ def _output(
         family=family,
         semantic_shapes=frozenset(shapes),
         matching_kinds=frozenset(matching),
+        nullable=nullable,
     )
 
 
@@ -1561,7 +1563,14 @@ def _build_registry() -> CapabilityRegistry:
             callable_path="marivo.analysis.frames.metric.MetricFrame.coverage",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
-            output_contract=_output("CoverageFrame"),
+            output_contract=_output("CoverageFrame", nullable=True),
+            additional_examples=(
+                HelpExample(
+                    label="Guard nullable coverage",
+                    code="coverage = frame.coverage()",
+                    requires=("frame",),
+                ),
+            ),
         )
     )
 

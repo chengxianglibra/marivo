@@ -101,6 +101,7 @@ class ArtifactOutputContract:
     family: OutputFamily
     semantic_shapes: frozenset[str] = field(default_factory=frozenset)
     matching_kinds: frozenset[str] = field(default_factory=frozenset)
+    nullable: bool = False
 
     def render(self) -> str:
         """Render the bounded output type used by help and type algebra."""
@@ -115,9 +116,8 @@ class ArtifactOutputContract:
             qualifiers.append("|".join(sorted(self.semantic_shapes)))
         if self.matching_kinds:
             qualifiers.append(f"matching={'|'.join(sorted(self.matching_kinds))}")
-        if not qualifiers:
-            return family
-        return f"{family}[{'; '.join(qualifiers)}]"
+        rendered = family if not qualifiers else f"{family}[{'; '.join(qualifiers)}]"
+        return f"{rendered} | None" if self.nullable else rendered
 
 
 @dataclass(frozen=True)

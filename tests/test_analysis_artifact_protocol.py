@@ -453,6 +453,17 @@ def test_every_affordance_output_family_is_non_null() -> None:
             )
 
 
+def test_metric_frame_coverage_affordance_declares_nullable_output() -> None:
+    metric = next(artifact for artifact in _artifact_cases() if isinstance(artifact, MetricFrame))
+    coverage = next(
+        affordance
+        for affordance in metric.contract().affordances
+        if affordance.capability_id == "MetricFrame.coverage"
+    )
+
+    assert coverage.expected_output_family == "CoverageFrame | None"
+
+
 def test_every_affordance_has_public_entrypoint_and_help_target() -> None:
     for artifact in _artifact_cases():
         tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"

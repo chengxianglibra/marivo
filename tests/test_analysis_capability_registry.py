@@ -19,6 +19,7 @@ import pytest
 from marivo.analysis._capabilities import (
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    ArtifactOutputContract,
     BoundaryCapability,
     CapabilityBase,
     CapabilityDescriptor,
@@ -275,6 +276,7 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
         "compare",
         "attribute",
         "correlate",
+        "MetricFrame.coverage",
         "AttributionFrame.at_resolution",
     )
     assert len(owners["observe"]) == 2
@@ -283,6 +285,7 @@ def test_registry_additional_examples_are_owned_by_bounded_capabilities_only() -
     assert len(owners["lifecycle.distribution"]) == 1
     assert len(owners["AttributionFrame.at_resolution"]) == 1
     assert len(owners["correlate"]) == 1
+    assert len(owners["MetricFrame.coverage"]) == 1
 
 
 def test_operator_capability_defaults() -> None:
@@ -297,6 +300,16 @@ def test_operator_capability_defaults() -> None:
     assert cap.receiver == ""
     assert cap.accepted_inputs == {}
     assert cap.output_family == "MetricFrame"
+
+
+def test_artifact_output_contract_nullable_render_preserves_family() -> None:
+    default = ArtifactOutputContract(family="CoverageFrame")
+    nullable = ArtifactOutputContract(family="CoverageFrame", nullable=True)
+
+    assert default.nullable is False
+    assert default.render() == "CoverageFrame"
+    assert nullable.family == "CoverageFrame"
+    assert nullable.render() == "CoverageFrame | None"
 
 
 def test_read_capability_defaults() -> None:
@@ -827,6 +840,28 @@ def test_operator_output_families_are_valid() -> None:
         assert output in _VALID_OUTPUT_FAMILIES, (
             f"descriptor {desc.id} has invalid output family {output}"
         )
+
+
+def test_operator_return_annotations_match_output_contracts() -> None:
+    from marivo.introspection.live.reflect import (
+        import_registered_callable,
+        return_annotation_mismatch,
+    )
+
+    mismatches: list[str] = []
+    for desc in REGISTRY.descriptors:
+        if desc.kind != "operator" or desc.callable_path is None:
+            continue
+        mismatch = return_annotation_mismatch(
+            import_registered_callable(desc.callable_path),
+            expected_family=desc.output_contract.family,
+            nullable=desc.output_contract.nullable,
+        )
+        if mismatch is not None:
+            mismatches.append(f"{desc.id}: {mismatch}")
+    assert not mismatches, "Output contracts disagree with return annotations:\n  " + "\n  ".join(
+        mismatches
+    )
 
 
 # ---------------------------------------------------------------------------
