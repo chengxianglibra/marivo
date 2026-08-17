@@ -263,6 +263,10 @@ class DatasourceBackendTypeUnsupportedError(DatasourceError):
     pass
 
 
+class DatasourceSourceCapabilityError(DatasourceError):
+    """A datasource backend cannot realize the requested physical source."""
+
+
 class DatasourceSchemaVersionError(DatasourceError):
     pass
 
