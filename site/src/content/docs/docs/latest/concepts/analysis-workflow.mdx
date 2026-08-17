@@ -127,6 +127,10 @@ region.details().show()
 creates one, and sets it current. The narrow session API is `get_or_create`,
 `current()`, `recent()`, `inspect(name)`, and `delete(name)`.
 
+Reusing a session name with a different non-empty `question` emits
+`SessionQuestionMismatchWarning` and keeps the original question — pass a fresh
+name to start a new analysis, or omit `question` to resume the existing session.
+
 `repr(session)` points to `session.show()`. Call it for a bounded state card
 with the question, read/write status, report timezone, timestamps, and the
 registered direct operators, namespaces, and catalog/job/frame inspection

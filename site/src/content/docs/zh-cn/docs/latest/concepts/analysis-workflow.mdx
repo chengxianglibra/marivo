@@ -105,6 +105,9 @@ region.details().show()
 会话。
 会话的精简 API 为 `get_or_create`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
 
+复用同名会话但传入不同的非空 `question` 会触发 `SessionQuestionMismatchWarning`，
+并保留原 question——请传入新名称来开始新的分析，或省略 `question` 以恢复现有会话。
+
 `repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
 时间戳、已注册直接操作、命名空间以及目录/job/frame 检查入口的有界
 状态卡片。`session.render()` 返回同一文本，但不写 stdout。
