@@ -1261,3 +1261,146 @@ def test_sql_parity_unverified_repair_mentions_parity_check_and_non_blocking(
         assert issue.repair is not None
         assert "ms.parity_check(" in issue.repair.action
         assert "non-blocking" in issue.repair.action
+
+
+# -- snapshot fold observability blockers ------------------------------------
+
+
+def _snapshot_fold_domain(
+    *,
+    versioning: str = "",
+    fold: str = '"last"',
+    granularity: str = '"day"',
+    parse: str = "",
+) -> str:
+    return textwrap.dedent(f"""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+
+        ms.domain(name="sales", owner='Mina Zhang', default=True)
+
+        snapshots_ref = ms.ref.entity("sales.snapshots")
+
+        snapshot_date = ms.time_dimension_column(
+            name="snapshot_date",
+            entity=snapshots_ref,
+            column="snapshot_date",
+            granularity={granularity},
+            {parse}
+            is_default=True,
+            ai_context=ms.ai_context(
+                business_definition="Date the snapshot was taken.",
+                guardrails=["Dates only."],
+            ),
+        )
+
+        snapshots = ms.entity(
+            name="snapshots",
+            datasource=ms.ref.datasource("warehouse"),
+            source=md.table("snapshots"),
+            primary_key=["snapshot_date", "product_id"],
+            {versioning}
+            ai_context=ms.ai_context(
+                business_definition="One row per product per snapshot date.",
+                guardrails=["Use only for inventory snapshots."],
+            ),
+        )
+
+        product_id = ms.dimension_column(
+            name="product_id",
+            entity=snapshots,
+            column="product_id",
+            ai_context=ms.ai_context(
+                business_definition="Product identifier.",
+                guardrails=["Stable within a warehouse."],
+            ),
+        )
+
+        @ms.measure(
+            entity=snapshots,
+            additivity=ms.semi_additive(over=snapshot_date, fold={fold}),
+            unit="{{item}}",
+            ai_context=ms.ai_context(
+                business_definition="Quantity on hand at the snapshot date.",
+                guardrails=["Use only for on-hand inventory."],
+            ),
+        )
+        def quantity_on_hand(snapshots):
+            return snapshots.quantity_on_hand
+
+        sellable_inventory = ms.aggregate(
+            name="sellable_inventory",
+            measure=quantity_on_hand,
+            agg="sum",
+            fold={fold},
+            ai_context=ms.ai_context(
+                business_definition="Total sellable inventory across products.",
+                guardrails=["Do not mix warehouses."],
+            ),
+        )
+    """)
+
+
+def _snapshot_fold_project(semantic_project_factory, **kwargs):
+    return semantic_project_factory({"sales/_domain.py": _snapshot_fold_domain(**kwargs)})
+
+
+def test_readiness_blocks_snapshot_fold_without_versioning_or_sample_interval(
+    semantic_project_factory,
+) -> None:
+    project = _snapshot_fold_project(semantic_project_factory)
+
+    report = project.readiness(refs=("sales.sellable_inventory",))
+
+    issue = next(issue for issue in report.blockers if issue.kind == "snapshot_fold_unobservable")
+    assert issue.severity == "blocker"
+    assert issue.refs == ("sales.sellable_inventory",)
+    assert issue.details["time_fold"] == "last"
+    assert issue.details["reason"] == "snapshot_versioning_missing"
+    assert issue.repair is not None
+    assert "sample_interval" in issue.repair.action
+    assert "ms.snapshot(" in issue.repair.action
+    assert report.analysis_ready_refs == ()
+
+
+def test_readiness_blocks_unsampled_non_selection_fold(
+    semantic_project_factory,
+) -> None:
+    project = _snapshot_fold_project(semantic_project_factory, fold='"mean"')
+
+    report = project.readiness(refs=("sales.sellable_inventory",))
+
+    issue = next(issue for issue in report.blockers if issue.kind == "snapshot_fold_unobservable")
+    assert issue.details["time_fold"] == "mean"
+    assert issue.details["reason"] == "unsampled_non_selection_fold"
+    assert report.analysis_ready_refs == ()
+
+
+def test_readiness_clears_snapshot_fold_blocker_with_snapshot_versioning(
+    semantic_project_factory,
+) -> None:
+    project = _snapshot_fold_project(
+        semantic_project_factory,
+        versioning="versioning=ms.snapshot(partition_field=snapshot_date, grain='day'),",
+    )
+
+    report = project.readiness(refs=("sales.sellable_inventory",))
+
+    assert "snapshot_fold_unobservable" not in _issue_kinds(report.blockers)
+    assert ms.ref.metric("sales.sellable_inventory") in report.analysis_ready_refs
+
+
+def test_readiness_clears_snapshot_fold_blocker_with_sample_interval(
+    semantic_project_factory,
+) -> None:
+    project = _snapshot_fold_project(
+        semantic_project_factory,
+        fold='"mean"',
+        granularity='"hour"',
+        parse='parse=ms.timestamp(timezone="UTC", sample_interval=(1, "hour")),',
+    )
+
+    report = project.readiness(refs=("sales.sellable_inventory",))
+
+    assert "snapshot_fold_unobservable" not in _issue_kinds(report.blockers)
+    assert ms.ref.metric("sales.sellable_inventory") in report.analysis_ready_refs
