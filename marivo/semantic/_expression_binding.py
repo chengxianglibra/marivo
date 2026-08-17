@@ -71,6 +71,7 @@ class ExpressionBody:
     body_ast_hash: str
     parameter_count: int
     bindings: tuple[ExpressionBindingV1, ...]
+    source_column: str | None = None
 
     def __post_init__(self) -> None:
         if not callable(self.callable):
@@ -79,6 +80,10 @@ class ExpressionBody:
             raise ValueError("expression body hash must be a non-empty string")
         if type(self.parameter_count) is not int or self.parameter_count < 0:
             raise ValueError("expression body parameter_count must be a non-negative int")
+        if self.source_column is not None and (
+            type(self.source_column) is not str or not self.source_column
+        ):
+            raise ValueError("expression body source_column must be non-empty when provided")
         for binding in self.bindings:
             if binding.entity_position >= self.parameter_count:
                 raise ValueError("expression binding entity_position must be below parameter_count")
@@ -106,6 +111,7 @@ class ExpressionBody:
             body_ast_hash=f"sha256:{hashlib.sha256(encoded).hexdigest()}",
             parameter_count=1,
             bindings=(),
+            source_column=column,
         )
 
 

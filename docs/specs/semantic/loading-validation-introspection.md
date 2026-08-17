@@ -261,6 +261,17 @@ Backend resolution rules:
 - Multi-datasource metrics fail closed in compile and parity (federation is a
   separate design).
 
+Entity source provenance is source-aware. An ordinary table is `IBIS_TABLE`; a
+table with typed column bindings is `TABLE_PROJECTION` and never carries a raw
+SQL snippet; a retained Ibis SQL node is `SQL_VIEW`. A projected table still has
+one physical source. Metric-graph physical leaves therefore record one
+`physical_sources` item per entity with the entity, datasource, and the source's
+single canonical `to_dict()` payload. Output aliases remain inside that source's
+`columns` mapping rather than appearing as synthetic physical tables. The same
+source payload participates in the semantic dependency digest, so canonical
+reordering is identity-stable while rebinding, renaming, or changing a declared
+type changes identity.
+
 To inspect a metric's caliber without executing analysis, use typed details and
 static verification. Use `catalog.preview(..., using=...)` for a scoped runtime
 check. Parity is a separate potentially unbounded provenance SQL diagnostic.
@@ -295,6 +306,15 @@ dimension refs, entity membership, or arity. Tier-1 metric filters must resolve
 every local key to a declared dimension on the target entity; failures use
 `invalid_filter` with focused `semantic.where` repair. On failure the registry
 is `errored` and retains `load_errors`.
+
+For an entity backed by `md.table(columns=...)`, assembly also proves that every
+`primary_key` entry and every direct `ms.dimension_column(...)`,
+`ms.time_dimension_column(...)`, or `ms.measure_column(...)` reference names a
+declared stable output alias. A missing alias is `invalid_ref` with the object,
+received column, and a bounded canonical alias list; repair changes `column=` or
+adds the matching `md.source_column(...)` binding. This check is static: it does
+not connect or query. General expression decorators keep their existing runtime
+materialization boundary and do not gain inferred column typing.
 
 ### Runtime / materialization-time
 
@@ -403,6 +423,12 @@ Two checks sit at the end of the write loop:
 runtime prerequisite for preview. The `marivo-semantic` skill enforces
 verify-before-preview as a policy edge; the runtime does not consume a
 `VerifyResult` in `catalog.preview(...)` or `catalog.readiness(...)`.
+For projected tables, these static checks prove declaration coherence only.
+Datasource inspection may classify bindings as declared-only when catalog
+metadata cannot confirm them. Authoring must then obtain one explicitly bounded
+sample, run the scoped preview, and let zero-query readiness consume matching
+evidence; neither load nor static verification proves that a declared physical
+column exists or is queryable.
 `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
 a readiness requirement. All three return silent result objects with `.show()` /
 `.render()`.

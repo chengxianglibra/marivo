@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.introspection._fuzzy import did_you_mean
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
@@ -46,6 +46,7 @@ from marivo.semantic.ir import (
     PeriodCalendarIR,
     RelationshipIR,
     SnapshotVersioningIR,
+    SourceLocation,
     StateInceptionIR,
     StateModelDeclarationIR,
     StateModelIR,
@@ -1503,6 +1504,103 @@ def _validate_cumulative_metric(
     return errors
 
 
+_PROJECTED_ALIAS_DISPLAY_LIMIT = 8
+
+
+def _projected_source_alias_error(
+    *,
+    object_id: str,
+    entity: EntityIR,
+    field: str,
+    column: str,
+    location: SourceLocation,
+) -> SemanticLoadError | None:
+    source = entity.source
+    if not isinstance(source, TableSourceIR) or not source.columns:
+        return None
+    aliases = tuple(output_name for output_name, _binding in source.columns)
+    if column in aliases:
+        return None
+    visible = aliases[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
+    omitted = len(aliases) - len(visible)
+    available = ", ".join(repr(alias) for alias in visible)
+    if omitted:
+        available += f", ... (+{omitted} more)"
+    return SemanticLoadError(
+        kind=ErrorKind.INVALID_REF,
+        message=(
+            f"Semantic object {object_id!r} references column {column!r}, but projected "
+            f"entity {entity.semantic_id!r} exposes only stable output aliases: {available}."
+        ),
+        refs=(object_id, entity.semantic_id),
+        location=location,
+        constraint_id=ConstraintId.REF_SHAPE,
+        expected="a stable output alias declared by md.table(columns=...)",
+        received=column,
+        hint=(
+            f"Set {field}= to one of the available output aliases, or add a matching "
+            "md.source_column(...) binding to the entity's md.table(columns=...)."
+        ),
+        details={
+            "entity": entity.semantic_id,
+            "object": object_id,
+            "field": field,
+            "received_column": column,
+            "available_output_aliases": list(visible),
+            "omitted_output_alias_count": omitted,
+        },
+    )
+
+
+def _validate_projected_source_aliases(
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar | None,
+) -> list[SemanticError]:
+    """Validate direct semantic column references against projected aliases."""
+    errors: list[SemanticError] = []
+    for primary_entity in registry.entities.values():
+        for column in primary_entity.primary_key:
+            error = _projected_source_alias_error(
+                object_id=primary_entity.semantic_id,
+                entity=primary_entity,
+                field="primary_key",
+                column=column,
+                location=primary_entity.location,
+            )
+            if error is not None:
+                errors.append(error)
+    for dimension in registry.dimensions.values():
+        entity = registry.entities.get(dimension.entity)
+        if entity is None or dimension.source_column is None:
+            continue
+        error = _projected_source_alias_error(
+            object_id=dimension.semantic_id,
+            entity=entity,
+            field="column",
+            column=dimension.source_column,
+            location=dimension.location,
+        )
+        if error is not None:
+            errors.append(error)
+    if sidecar is None:
+        return errors
+    for measure in registry.measures.values():
+        entity = registry.entities.get(measure.entity)
+        body = sidecar.bodies.get(ref_factory.measure(measure.semantic_id))
+        if entity is None or body is None or body.source_column is None:
+            continue
+        error = _projected_source_alias_error(
+            object_id=measure.semantic_id,
+            entity=entity,
+            field="column",
+            column=body.source_column,
+            location=measure.location,
+        )
+        if error is not None:
+            errors.append(error)
+    return errors
+
+
 def assembly_validate(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None = None,
@@ -1520,6 +1618,8 @@ def assembly_validate(
     """
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
+
+    errors.extend(_validate_projected_source_aliases(registry, sidecar))
 
     # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.entities.items():

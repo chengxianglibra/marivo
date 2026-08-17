@@ -545,7 +545,7 @@ def test_parity_status_values() -> None:
 
 
 def test_dataset_provenance_values() -> None:
-    expected = {"ibis_table", "sql_view"}
+    expected = {"ibis_table", "sql_view", "table_projection"}
     actual = {k.value for k in EntityProvenance}
     assert actual == expected
 

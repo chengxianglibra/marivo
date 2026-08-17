@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import textwrap
 from collections.abc import Iterator
@@ -773,6 +774,48 @@ def test_readiness_snapshot_missing_emits_only_exact_inspection_call(
     assert report.status == "ready_with_warnings"
     assert report.analysis_ready_refs == (ms.ref.metric("sales.revenue"),)
     assert report.preview_required_refs == ()
+    assert query_spy.user_data_queries == 0
+
+
+def test_projected_snapshot_repair_reconstructs_complete_canonical_source(
+    semantic_project_factory,
+    query_spy: _QuerySpy,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
+            ),
+            "sales/events.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "events = ms.entity(\n"
+                "    name='events',\n"
+                "    datasource=ms.ref.datasource('warehouse'),\n"
+                "    source=md.table('raw.events', database=('lake', 'audit'), columns={\n"
+                "        'score': md.source_column('generated.score', data_type='double'),\n"
+                "        'event_time': md.source_column('event.timestamp', data_type='timestamp'),\n"
+                "    }),\n"
+                ")\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    report = catalog.readiness(refs=[ms.ref.entity("sales.events")])
+
+    warning = next(issue for issue in report.warnings if issue.kind == "snapshot_missing")
+    assert warning.repair is not None
+    snippet = warning.repair.snippet
+    assert snippet is not None
+    ast.parse(snippet)
+    assert snippet == (
+        'md.inspect(ms.ref.datasource("warehouse"), '
+        "md.table(\"raw.events\", database=('lake', 'audit'), columns={"
+        '"event_time": md.source_column("event.timestamp", data_type="timestamp"), '
+        '"score": md.source_column("generated.score", data_type="float64")}))'
+    )
     assert query_spy.user_data_queries == 0
 
 

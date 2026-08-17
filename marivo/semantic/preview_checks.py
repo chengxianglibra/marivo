@@ -355,7 +355,17 @@ def _source_call(source: object) -> str:
         database = ""
         if source.database is not None:
             database = f", database={source.database!r}"
-        return f"md.table({_quoted(source.table)}{database})"
+        columns = ""
+        if source.columns:
+            rendered_bindings = ", ".join(
+                (
+                    f"{_quoted(output_name)}: md.source_column("
+                    f"{_quoted(binding.source)}, data_type={_quoted(binding.data_type)})"
+                )
+                for output_name, binding in source.columns
+            )
+            columns = f", columns={{{rendered_bindings}}}"
+        return f"md.table({_quoted(source.table)}{database}{columns})"
     if isinstance(source, ParquetSourceIR):
         extras = f", hive_partitioning={source.hive_partitioning!r}"
         if source.columns is not None:

@@ -222,6 +222,75 @@ def test_measure_definition_digest_changes_aggregate_graph_identity(
     assert original.graph.roots != changed.graph.roots
 
 
+def test_projected_source_bindings_are_complete_dependency_identity() -> None:
+    template = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+events = ms.entity(
+    name="events",
+    datasource=ms.ref.datasource("wh"),
+    source=md.table("events", database="warehouse", columns={{{bindings}}}),
+)
+score = ms.measure_column(
+    name="score",
+    entity=events,
+    column="score",
+    additivity="additive",
+)
+total = ms.aggregate(name="total", measure=score, agg="sum")
+"""
+    first_source = template.format(
+        bindings=(
+            '"score": md.source_column("generated.score", data_type="double"), '
+            '"event_time": md.source_column("event.timestamp", data_type="timestamp")'
+        )
+    )
+    reordered_source = template.format(
+        bindings=(
+            '"event_time": md.source_column("event.timestamp", data_type="timestamp"), '
+            '"score": md.source_column("generated.score", data_type="float64")'
+        )
+    )
+    changed_source = reordered_source.replace('"generated.score"', '"generated.score.v2"')
+
+    from tests.shared_fixtures import load_inline_semantic
+
+    with load_inline_semantic(first_source) as first_result:
+        assert first_result.registry is not None
+        first = lower_catalog_metric(first_result.registry, "test.total")
+    with load_inline_semantic(reordered_source) as reordered_result:
+        assert reordered_result.registry is not None
+        reordered = lower_catalog_metric(reordered_result.registry, "test.total")
+    with load_inline_semantic(changed_source) as changed_result:
+        assert changed_result.registry is not None
+        changed = lower_catalog_metric(changed_result.registry, "test.total")
+
+    entity_entry = next(
+        entry for entry in first.dependency_digest.entries if entry.ref.path == "test.events"
+    )
+    source_field = dict(entity_entry.fields)["source"]
+    assert source_field == (
+        (
+            "columns",
+            (
+                (
+                    "event_time",
+                    (("data_type", "timestamp"), ("source", "event.timestamp")),
+                ),
+                (
+                    "score",
+                    (("data_type", "float64"), ("source", "generated.score")),
+                ),
+            ),
+        ),
+        ("database", "warehouse"),
+        ("kind", "table"),
+        ("table", "events"),
+    )
+    assert first.dependency_digest == reordered.dependency_digest
+    assert first.dependency_digest.digest != changed.dependency_digest.digest
+
+
 def test_catalog_metric_cycle_reports_responsible_occurrence_path(
     catalog_registry: Registry,
 ) -> None:

@@ -1306,6 +1306,47 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     }
 
 
+def test_projected_source_is_preserved_as_one_physical_lineage_record(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    model_path = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    model_path.write_text(
+        model_path.read_text().replace(
+            "source=md.table('orders')",
+            "source=md.table('orders', columns={"
+            "'amount': md.source_column('amount', data_type='float64'), "
+            "'created_at': md.source_column('created_at', data_type='timestamp')})",
+        )
+    )
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    session = session_attach.get_or_create(name="projected", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        grain=mv.grain("day"),
+        session=session,
+    )
+
+    params = frame.meta.lineage.steps[0].params
+    leaf = params["lineage_metadata"]["physical_leaves"][0]
+    assert leaf["lineage_metadata"]["physical_sources"] == [
+        {
+            "entity": "sales.orders",
+            "datasource": "warehouse",
+            "source": {
+                "kind": "table",
+                "table": "orders",
+                "database": None,
+                "columns": {
+                    "amount": {"source": "amount", "data_type": "float64"},
+                    "created_at": {"source": "created_at", "data_type": "timestamp"},
+                },
+            },
+        }
+    ]
+
+
 def _seed_zero_denominator_orders(con):
     con.raw_sql("CREATE TABLE orders (order_id INTEGER, created_at DATE, state VARCHAR)")
     con.raw_sql(

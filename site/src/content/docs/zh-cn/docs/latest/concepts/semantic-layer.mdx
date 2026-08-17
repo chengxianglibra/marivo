@@ -360,7 +360,7 @@ ms.domain(name="sales", owner="Mina Zhang")
 | `name` | `str` | 是 | — | 实体名称。成为 `<domain>.<name>`。 |
 | `datasource` | `Ref[datasource]` | 是 | — | `ms.ref.datasource("warehouse")`。 |
 | `source` | 来源构建器 | 是 | — | 数据源-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
-| `primary_key` | `list[str]` | 否 | `None` | 构成主键的列名。 |
+| `primary_key` | `list[str]` | 否 | `None` | 构成主键的稳定输出列别名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | 快照或 SCD2 有效性版本控制（见下）。 |
 | `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
@@ -377,20 +377,44 @@ orders = ms.entity(
 )
 ```
 
-##### 来源 builders
+##### 来源构建器
 
 | 构建器 | 必填 | 可选 | 用于 |
 | --- | --- | --- | --- |
-| `md.table(name)` | `name` | `database` | 数据源中的一张表（Trino/MySQL 用 `database="schema"`）。 |
+| `md.table(name)` | `name` | `database`、`columns` | 数据源中的目录表或类型化投影（Trino/MySQL 用 `database="schema"`）。 |
 | `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet 文件来源。 |
 | `md.csv(path, schema=...)` | `path`、类型化 `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV 文件来源。 |
 | `md.json(path, schema=...)` | `path`、类型化 `schema` | `format`、`records_path`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`records_path` 用于选择包装响应中的记录数组。 |
+
+`md.table(...)` 支持两种封闭模式。省略 `columns=` 时使用目录发现；传入
+`columns={alias: md.source_column(...)}` 时声明类型化投影，并为实体提供稳定输出别名：
+
+```python
+events = ms.entity(
+    name="events",
+    datasource=warehouse,
+    source=md.table(
+        "raw.events",
+        columns={
+            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
+            "score": md.source_column("generated.score", data_type="float64"),
+        },
+    ),
+    primary_key=["event_time"],
+)
+```
+
+声明的类型是断言，不是类型转换；该映射也是完整的投影允许列表。对于投影来源，语义层的
+`primary_key` 以及直接字段的 `column=` 必须引用这些稳定别名。若目录元数据无法确认绑定，
+检查结果会给出仅声明警告。此时应选择显式有界样本，获取一次快照，执行限定范围的预览，
+再运行零查询就绪检查。静态加载和校验只证明声明内部一致；预览才是运行时权威。该来源记录为
+`TABLE_PROJECTION`，各别名仍是同一物理表内的绑定，不会被伪装为多个物理来源。
 
 ### 3. 添加字段
 
 #### 维度
 
-维度是用于分组或过滤的分类属性。直接物理列使用 `ms.dimension_column(...)`；需要表达式
+维度是用于分组或过滤的分类属性。直接实体输出列使用 `ms.dimension_column(...)`；需要表达式
 （例如 `table.region.upper()`）时，使用 `@ms.dimension` 装饰器，其请求体返回一个针对
 实体表的 ibis 表达式。
 
@@ -398,7 +422,7 @@ orders = ms.entity(
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 维度名称。成为 `<domain>.<entity>.<name>`。 |
 | `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
 | `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
@@ -420,7 +444,7 @@ region = ms.dimension_column(
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 维度名称。 |
 | `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
 | `granularity` | 粒度字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
 | `parse` | 解析变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断解析变体。 |
 | `is_default` | `bool` | 否 | `False` | 当实体有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
@@ -477,7 +501,7 @@ event_ts = ms.time_dimension_column(
 
 #### 度量
 
-度量是你打算聚合的行级数量事实（例如金额或数量）。直接物理列使用
+度量是你打算聚合的行级数量事实（例如金额或数量）。直接实体输出列使用
 `ms.measure_column(...)`；需要基于一个或多个列的表达式时使用 `@ms.measure`。度量
 携带可加性和可选的单位。
 
@@ -485,7 +509,7 @@ event_ts = ms.time_dimension_column(
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 度量名称。成为 `<domain>.<entity>.<name>`。 |
 | `entity` | `Ref[entity]` | 是 | — | 所属实体。 |
-| `column` | `str` | 是 | — | 实体表上的物理列名。 |
+| `column` | `str` | 是 | — | 实体表上的稳定输出列别名。 |
 | `additivity` | 可加性值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
 | `unit` | `str` | 否 | `None` | UCUM 单位令牌：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
 | `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动领域。 |

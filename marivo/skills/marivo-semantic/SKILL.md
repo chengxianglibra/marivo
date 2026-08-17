@@ -110,6 +110,13 @@ After preflight, collect only evidence needed for the active object. Acquire one
 bounded snapshot and reuse its query-free projections. Do not reacquire merely
 to inspect entity, dimension, value, time, measure, or relationship views.
 
+When table inspection reports declared-only typed bindings, follow the warning's
+focused datasource route and runtime evidence requirement. Choose an explicit
+bounded scope and acquire one matching snapshot before semantic closeout; use an
+explicit unpruned scope only when the live contract classifies metadata as
+unavailable or partition discovery as omitted. Static load, verify, and
+zero-query readiness do not substitute for the required runtime preview.
+
 ### One-object loop
 
 Author exactly one explicit Python object, reload the catalog, acquire that

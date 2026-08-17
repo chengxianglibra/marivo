@@ -185,6 +185,18 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
+`md.table(...)` has two closed authoring modes: catalog-backed discovery without
+`columns=`, and a typed projection whose `columns` map stable output aliases to
+`md.source_column(...)` bindings. Semantic `primary_key` and direct
+`dimension_column`, `time_dimension_column`, and `measure_column` declarations
+always name those stable entity outputs, never the remote physical identifiers.
+If inspection reports a declared-only binding warning, follow its focused help,
+choose an explicit bounded scope, and acquire one sample before authoring or
+closing the object. Use explicit unpruned scope only for the classified
+metadata-unavailable or omitted-partition case described by the live contract.
+Static load/verify establishes declaration coherence; preview is the runtime
+authority, and readiness only consumes matching evidence without querying.
+
 `Ref[datasource]`, `TableSource`, and the source constructors (`md.table(...)`,
 `md.parquet(...)`, `md.csv(...)`, `md.json(...)`) are datasource-owned. Once an
 entity is registered, do not re-supply `(datasource, source)` tuples for semantic

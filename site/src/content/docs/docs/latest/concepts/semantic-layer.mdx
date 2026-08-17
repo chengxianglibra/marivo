@@ -401,7 +401,7 @@ anchor that dimensions, measures, and metrics attach to.
 | `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
 | `datasource` | `Ref[datasource]` | Yes | — | `ms.ref.datasource("warehouse")`. |
 | `source` | source builder | Yes | — | Datasource-owned `md.table(...)`, `md.parquet(...)`, `md.csv(...)`, or `md.json(...)`. |
-| `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
+| `primary_key` | `list[str]` | No | `None` | Stable output column aliases forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
 | `domain` | `Ref[domain]` | No | file default | Override the active domain. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
@@ -422,17 +422,46 @@ orders = ms.entity(
 
 | Builder | Required | Optional | Use for |
 | --- | --- | --- | --- |
-| `md.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
+| `md.table(name)` | `name` | `database`, `columns` | A catalog-backed table or typed projection in the datasource (use `database="schema"` for Trino/MySQL). |
 | `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
 | `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
 | `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array. |
+
+`md.table(...)` supports two closed modes. Omit `columns=` to use catalog-backed
+discovery. Supply `columns={alias: md.source_column(...)}` to declare a typed
+projection with stable entity output aliases:
+
+```python
+events = ms.entity(
+    name="events",
+    datasource=warehouse,
+    source=md.table(
+        "raw.events",
+        columns={
+            "event_time": md.source_column("event.timestamp", data_type="timestamp"),
+            "score": md.source_column("generated.score", data_type="float64"),
+        },
+    ),
+    primary_key=["event_time"],
+)
+```
+
+The declared type is an assertion, not a cast, and the mapping is the complete
+projection allowlist. For a projected source, semantic `primary_key` and direct
+field `column=` values must name these stable aliases. Inspection can report a
+declared-only warning when catalog metadata cannot confirm a binding. In that
+case, choose an explicit bounded sample, acquire one snapshot, run scoped
+preview, and then use zero-query readiness. Static load and verification prove
+declaration coherence; preview is the runtime authority. The source is recorded
+as `TABLE_PROJECTION`, while its aliases remain bindings inside one physical
+table rather than becoming separate sources.
 
 ### 3. Add fields
 
 #### Dimension
 
 A dimension is a categorical attribute you group or filter by. For direct
-physical columns, use `ms.dimension_column(...)`; for expressions (e.g.
+entity output columns, use `ms.dimension_column(...)`; for expressions (e.g.
 `table.region.upper()`), use the `@ms.dimension` decorator whose body returns a
 single ibis expression over the entity table.
 
@@ -440,7 +469,7 @@ single ibis expression over the entity table.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Dimension name. Becomes `<domain>.<entity>.<name>`. |
 | `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Physical column name on the entity table. |
+| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
 | `domain` | `Ref[domain]` | No | file default | Override the active domain. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
@@ -462,7 +491,7 @@ A time dimension is a special dimension that carries grain and parsing metadata.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Dimension name. |
 | `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Physical column name on the entity table. |
+| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
 | `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
 | `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
 | `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
@@ -525,7 +554,7 @@ event_ts = ms.time_dimension_column(
 #### Measure
 
 A measure is a row-level quantitative fact you intend to aggregate (e.g. an
-amount or quantity). For direct physical columns, use `ms.measure_column(...)`;
+amount or quantity). For direct entity output columns, use `ms.measure_column(...)`;
 for expressions over one or more columns, use `@ms.measure`. Measures carry
 additivity and an optional unit.
 
@@ -533,7 +562,7 @@ additivity and an optional unit.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Measure name. Becomes `<domain>.<entity>.<name>`. |
 | `entity` | `Ref[entity]` | Yes | — | The owning entity. |
-| `column` | `str` | Yes | — | Physical column name on the entity table. |
+| `column` | `str` | Yes | — | Stable output column alias on the entity table. |
 | `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
 | `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
 | `domain` | `Ref[domain]` | No | file default | Override the active domain. |

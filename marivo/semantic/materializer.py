@@ -200,8 +200,7 @@ class Materializer:
         # Cache the result
         self._entity_cache[semantic_id] = table
 
-        # Detect SQL view provenance
-        self._detect_and_store_provenance(semantic_id, table)
+        self._detect_and_store_provenance(semantic_id, ds_ir.source, table)
 
         return table
 
@@ -280,12 +279,20 @@ class Materializer:
             refs=(semantic_id,),
         )
 
-    def _detect_and_store_provenance(self, semantic_id: str, table: ibis.Table) -> None:
-        """Walk the ibis expression tree to detect SQL views and store metadata."""
+    def _detect_and_store_provenance(
+        self,
+        semantic_id: str,
+        source: EntitySourceIR,
+        table: ibis.Table,
+    ) -> None:
+        """Classify source-aware runtime provenance and store metadata."""
         op = table.op()
         sql_nodes = op.find(lambda n: isinstance(n, SQLQueryResult))
 
-        if sql_nodes:
+        if isinstance(source, TableSourceIR) and source.columns:
+            provenance = EntityProvenance.TABLE_PROJECTION
+            raw_sql = None
+        elif sql_nodes:
             provenance = EntityProvenance.SQL_VIEW
             raw_sql = sql_nodes[0].query
         else:
