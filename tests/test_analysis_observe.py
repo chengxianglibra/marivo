@@ -1533,6 +1533,24 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
     assert df["revenue"].tolist() == pytest.approx([10.0, 20.0])
 
 
+def test_time_dimension_columns_maps_bucket_column_to_semantic_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    session_attach._reset_process_state()
+    _bootstrap_sales_with_string_timestamp_timezone(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_string_timestamp_timezone_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-05-01", end="2026-05-02"),
+        grain=mv.grain("minute", count=30),
+        time_dimension=make_ref("sales.orders.create_time", SemanticKind.TIME_DIMENSION),
+        session=s,
+    )
+
+    assert frame.time_dimension_columns == {"bucket_start": "sales.orders.create_time"}
+
+
 def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)

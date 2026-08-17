@@ -688,6 +688,26 @@ class MetricFrame(BaseFrame):
             return (self._arity1_exported_column_name(),)
         return tuple(str(entry["column"]) for entry in self.measures_meta())
 
+    @property
+    def time_dimension_columns(self) -> dict[str, str]:
+        """Map each public time-axis column to its time_dimension semantic path.
+
+        A time-series/panel frame buckets one physical time column (``bucket_start``
+        by default). This mapping lets terminal callers resolve the selected time
+        axis behind that column when joining or aligning multiple frames observed
+        over different time dimensions, without memorizing which axis each
+        ``bucket_start`` came from.
+
+        Example:
+            >>> frame.time_dimension_columns
+            {'bucket_start': 'sales.orders.create_time'}
+        """
+        mapping: dict[str, str] = {}
+        for binding in self._semantic_input_bindings():
+            if binding.role == "time_axis" and binding.output_column is not None:
+                mapping[binding.output_column] = binding.semantic_path
+        return mapping
+
     def _arity1_exported_column_name(self) -> str:
         """The public column name used for the single metric value."""
         if self.VALUE_COLUMN not in self._df.columns:
