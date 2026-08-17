@@ -23,6 +23,7 @@ from unittest.mock import patch
 import ibis
 import pytest
 
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.source import PartitionScope
@@ -300,6 +301,33 @@ def test_dataset_projected_table_materializes_output_aliases(
     ]
     compiled = str(duckdb_backend.compile(table))
     assert 'SELECT "order_id" AS "order_key", "amount" AS "value" FROM "orders"' in compiled
+    meta = project._runtime_metadata["sales.orders"]
+    assert meta.entity_provenance == EntityProvenance.TABLE_PROJECTION
+    assert meta.raw_sql_snippet is None
+
+
+def test_sql_query_result_remains_sql_view_provenance(
+    semantic_project_factory,
+    duckdb_backend,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _DATASET_AND_METRIC_PY,
+        }
+    )
+    materializer = Materializer(project, lambda _datasource_id: duckdb_backend)
+    sql_view = duckdb_backend.sql("SELECT 1 AS value")
+
+    materializer._detect_and_store_provenance(
+        "sales.orders",
+        md.table("orders"),
+        sql_view,
+    )
+
+    meta = project._runtime_metadata["sales.orders"]
+    assert meta.entity_provenance == EntityProvenance.SQL_VIEW
+    assert meta.raw_sql_snippet == "SELECT 1 AS value"
 
 
 def test_dataset_projected_table_requires_schema_aware_sql(

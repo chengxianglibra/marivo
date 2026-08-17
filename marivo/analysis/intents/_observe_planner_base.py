@@ -567,6 +567,16 @@ def plan_base_observe(
             "time_dimension": root_time_dimension.name,  # type: ignore[union-attr]
             "ref": root_time_dimension.ref.path,  # type: ignore[union-attr]
         }
+    physical_sources: list[dict[str, object]] = []
+    for entity_id in sorted(required_datasets):
+        entity_details = _entity(catalog, entity_id)
+        physical_sources.append(
+            {
+                "entity": entity_id,
+                "datasource": entity_details.datasource.path,
+                "source": entity_details.source.to_dict(),
+            }
+        )
     return BaseObservePlan(
         root_entity=root,
         additivity=metric_ir.additivity,
@@ -577,6 +587,7 @@ def plan_base_observe(
         axes_metadata=axes_meta,
         lineage_metadata={
             "root_entity": root,
+            "physical_sources": physical_sources,
             "additivity": metric_ir.additivity,
             "fanout_policy": metric_ir.fanout_policy,
             "fanouts": fanout_meta_collector,

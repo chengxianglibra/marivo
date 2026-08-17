@@ -46,6 +46,7 @@ Source constructors
    clickhouse
    trino
    table
+   source_column
 
 Inspection & snapshots
 ----------------------
@@ -124,6 +125,7 @@ Metadata & sources
    :nosignatures:
 
    TableSource
+   TableColumnBindingIR
    PartitionScope
    UnprunedScope
 

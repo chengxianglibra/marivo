@@ -226,7 +226,7 @@ discovery, and `ms.entity(source=...)`.
 
 | Constructor | IR | Meaning |
 |---|---|---|
-| `md.table(name, database=...)` | `TableSourceIR` | An internal table or view inside the datasource (any backend). |
+| `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view or a complete typed projection over one physical table (any SQL backend). |
 | `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
 | `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
 | `md.json(path, schema=..., format=..., records_path=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with required typed physical schema, optional wrapped-record extraction, and runtime-bindable query-string or POST-body values. |
@@ -238,6 +238,34 @@ must carry a non-empty backend-independent typed `schema=` mapping so metadata
 inspection never opens user data merely to infer types. Parquet and CSV paths may
 be local files or globs. JSON additionally supports HTTP(S) GET and JSON-object
 POST requests while retaining the declared physical `format=` and schema.
+
+### Typed table column bindings
+
+`md.table(...)` has two closed modes. Omitting `columns=` keeps the catalog-backed
+path and resolves the complete table through Ibis. Supplying `columns=` declares a
+complete typed interface over the same physical table. Every mapping key is the
+stable output alias used by semantic objects; every value is one
+`md.source_column(physical_name, data_type=...)` binding. Physical identifiers are
+quoted atomically, so dots, spaces, reserved words, and punctuation never become
+qualification or authored SQL:
+
+```python
+events_source = md.table(
+    "raw.events",
+    database="warehouse",
+    columns={
+        "event_time": md.source_column("event.timestamp", data_type="timestamp"),
+        "score": md.source_column("_generated_score", data_type="float64"),
+    },
+)
+```
+
+The declared type is the output Ibis schema assertion; it does not cast the
+physical value. Projected mode is a complete allowlist: catalog inference cannot
+fill omitted columns, and duplicate physical identifiers are rejected. The
+datasource adapter generates one identifier-only inner `SELECT` without a table
+alias and supplies the declared schema to the backend. The binding mapping remains
+part of source, snapshot, semantic dependency, cache, and lineage identity.
 
 For a wrapped response, `records_path=` selects the array whose declared fields
 are projected into the output schema. Additional object fields are ignored and
@@ -387,8 +415,16 @@ bounded local observation appears only in `physical extent notes` with
 `scope=local_node_only`. Marivo does not issue a cluster-wide fanout query.
 
 CSV and JSON descriptors require typed `schema=` mappings so inspection never
-opens data merely to infer types. Tables use catalog schema and Parquet uses
-footer schema.
+opens data merely to infer types. Ordinary tables use catalog schema and Parquet
+uses footer schema. A projected table first compares its declared bindings with
+available base-table metadata, then exposes exactly the stable output aliases.
+Catalog-visible bindings must have the declared canonical type. A missing physical
+identifier becomes a `declared_column_unverified` warning with unknown nullability;
+it is not treated as proof that the identifier exists. If base metadata is
+classified unavailable, inspection remains metadata-only, returns the complete
+declared interface with unknown extent/partition/constraints, and requires an
+explicit bounded `md.unpruned(...)` acquisition. Authentication, connection,
+configuration, timeout, and unclassified metadata failures still fail closed.
 
 ```python
 inspection = md.inspect(warehouse, md.table("orders"))
@@ -442,6 +478,13 @@ datasource/source/scope identity does not match. Asking the same snapshot for
 entity, dimension, time, measure, relationship, or bounded-value projections is
 not a reacquisition reason and never causes data access.
 
+For a declared-only projected binding, a successful bounded sample proves that
+the generated projection executed for the selected output aliases and scope. It
+does not certify business meaning or make static verification a runtime existence
+check. Authoring continues through snapshot projection, `catalog.preview(...,
+using=snapshot)`, and query-free `catalog.readiness(...)` over that exact source
+identity.
+
 ### Raw SQL terminal exit
 
 ```python
@@ -453,6 +496,12 @@ md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="verify pruning").show()
 It returns a `RawSqlResult` that cannot re-enter typed analysis; use
 `RawSqlResult.to_pandas()` for the terminal pandas exit. It is for custom
 analysis that `session.observe(...)` cannot express, not a general query path.
+
+Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
+typed expressions; datasource-adapter SQL generated only from validated source IR
+and quoted identifiers; and user-authored SQL accepted by terminal
+`md.raw_sql(...)`. Only the last category is authored SQL text. Typed table
+bindings never accept expressions, predicates, joins, casts, or SQL fragments.
 
 ## Handoff to semantics
 

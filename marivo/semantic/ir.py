@@ -133,6 +133,7 @@ class EntityProvenance(StrEnum):
     """How an entity's physical table was produced."""
 
     IBIS_TABLE = "ibis_table"
+    TABLE_PROJECTION = "table_projection"
     SQL_VIEW = "sql_view"
 
 
