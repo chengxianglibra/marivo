@@ -24,6 +24,7 @@ import ibis
 import pytest
 
 import marivo.semantic as ms
+from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.source import PartitionScope
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -134,6 +135,22 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     @ms.metric(entities=[orders], additivity='additive', )
     def total_amount(table):
         return table.amount.sum()
+""")
+
+_PROJECTED_DATASET_PY = textwrap.dedent("""\
+    import marivo.datasource as md
+    import marivo.semantic as ms
+    orders = ms.entity(
+        name="orders",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table(
+            "orders",
+            columns={
+                "order_key": md.source_column("order_id", data_type="int64"),
+                "value": md.source_column("amount", data_type="float32"),
+            },
+        ),
+    )
 """)
 
 _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
@@ -260,6 +277,58 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
     with _patch_connection_service(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.get_name() == "sales_mart.orders"
+
+
+def test_dataset_projected_table_materializes_output_aliases(
+    semantic_project_factory,
+    duckdb_backend,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _PROJECTED_DATASET_PY,
+        }
+    )
+
+    with _patch_connection_service(project, lambda _: duckdb_backend):
+        table = _materialize_dataset(project, "sales.orders")
+
+    assert table.columns == ("order_key", "value")
+    assert table.execute().to_dict(orient="records") == [
+        {"order_key": 1, "value": 100.0},
+        {"order_key": 2, "value": 200.0},
+    ]
+    compiled = str(duckdb_backend.compile(table))
+    assert 'SELECT "order_id" AS "order_key", "amount" AS "value" FROM "orders"' in compiled
+
+
+def test_dataset_projected_table_requires_schema_aware_sql(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _PROJECTED_DATASET_PY,
+        }
+    )
+
+    class _LookupOnlyBackend:
+        name = "duckdb"
+
+        def table(self, name, /, *, database=None):
+            return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
+
+    with (
+        _patch_connection_service(project, lambda _: _LookupOnlyBackend()),
+        pytest.raises(DatasourceSourceCapabilityError) as exc_info,
+    ):
+        _materialize_dataset(project, "sales.orders")
+
+    error = exc_info.value
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is False
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "table"
 
 
 def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:

@@ -41,6 +41,7 @@ from marivo.datasource.ir import (
 from marivo.datasource.json_source import normalize_json_source_params, read_json_source
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
+from marivo.datasource.table_source import table_source_expression
 from marivo.preview import normalize_preview_cell
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
@@ -357,12 +358,7 @@ def _source_expression(
     source_params: Mapping[str, QueryParamScalar] | None = None,
 ) -> ir.Table:
     if isinstance(source, TableSourceIR):
-        table = getattr(backend, "table", None)
-        if not callable(table):
-            raise RuntimeError("datasource backend does not expose table()")
-        if source.database is None:
-            return cast("ir.Table", table(source.table))
-        return cast("ir.Table", table(source.table, database=source.database))
+        return table_source_expression(backend, source)
     if isinstance(source, ParquetSourceIR):
         reader = getattr(backend, "read_parquet", None)
         if not callable(reader):

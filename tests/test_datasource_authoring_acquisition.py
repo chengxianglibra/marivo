@@ -17,7 +17,7 @@ import marivo.semantic as ms
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
-from marivo.datasource.metadata import PartitionMetadata
+from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
 from marivo.datasource.snapshot import DeterministicMatch, DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope
 
@@ -67,6 +67,31 @@ def inspection(project_root: Path) -> SourceInspection:
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
     return md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+
+
+def _projected_orders_inspection(inspection: SourceInspection) -> SourceInspection:
+    """Supply Slice 3's future effective schema so Slice 2 acquisition stays isolated."""
+    return replace(
+        inspection,
+        source=md.table(
+            "orders",
+            columns={
+                "event_day": md.source_column("dt", data_type="string"),
+                "order_key": md.source_column("order_id", data_type="string"),
+                "value": md.source_column("amount", data_type="float64"),
+            },
+        ),
+        schema=(
+            ColumnMetadata("event_day", "string", False, None, 1),
+            ColumnMetadata("order_key", "string", False, None, 2),
+            ColumnMetadata("value", "float64", False, None, 3),
+        ),
+        partitioning=replace(
+            inspection.partitioning,
+            state="known",
+            fields=(PartitionMetadata(name="event_day", type="string"),),
+        ),
+    )
 
 
 def test_sample_return_annotation_is_runtime_resolvable() -> None:
@@ -174,6 +199,104 @@ def test_sample_pushes_every_partition_predicate_and_profiles_retained_rows(
     assert by_name["order_id"].scope_distinct_count == 2
     assert by_name["amount"].zero_count == 1
     assert by_name["amount"].negative_count == 0
+
+
+def test_projected_sample_executes_generated_relation_once_with_outer_scope(
+    query_spy: _QuerySpy,
+    inspection: SourceInspection,
+) -> None:
+    projected = _projected_orders_inspection(inspection)
+
+    snapshot = projected.sample(
+        scope=md.partition(
+            {"event_day": "2026-07-10"},
+            max_rows=2,
+            timeout_seconds=30,
+        ),
+        columns=("order_key", "value"),
+        refresh=True,
+    )
+
+    assert query_spy.user_data_queries == 1
+    sql = query_spy.user_data_sql[0]
+    inner_projection = (
+        'SELECT "dt" AS "event_day", "order_id" AS "order_key", "amount" AS "value" FROM "orders"'
+    )
+    assert inner_projection in sql
+    assert sql.index(inner_projection) < sql.index(" WHERE ")
+    assert '"event_day" = ' in sql
+    assert "LIMIT 3" in sql.upper()
+    assert snapshot.columns == ("order_key", "value")
+    assert snapshot.coverage.pushed_predicate == (("event_day", "2026-07-10"),)
+    assert snapshot.coverage.observed_row_count == 2
+
+
+def test_projected_sample_missing_sql_capability_is_structured_before_execution(
+    inspection: SourceInspection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LookupOnlyBackend:
+        name = "duckdb"
+
+        def __init__(self) -> None:
+            self.disconnected = False
+
+        def table(self, name: str, **_kwargs: object) -> object:
+            return ibis.table({"order_id": "string"}, name=name)
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    backend = LookupOnlyBackend()
+    monkeypatch.setattr(
+        "marivo.datasource.snapshot._backends.build_backend",
+        lambda *_args, **_kwargs: backend,
+    )
+
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        _projected_orders_inspection(inspection).sample(
+            scope=md.partition(
+                {"event_day": "2026-07-10"},
+                max_rows=2,
+                timeout_seconds=30,
+            ),
+            columns=("order_key",),
+            refresh=True,
+        )
+
+    error = exc_info.value
+    assert error.code == "acquisition_source_failed"
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is False
+    assert error.received == "DatasourceSourceCapabilityError"
+    assert backend.disconnected is True
+
+
+def test_projected_sample_unknown_physical_identifier_is_execution_failure(
+    query_spy: _QuerySpy,
+    inspection: SourceInspection,
+) -> None:
+    projected = replace(
+        inspection,
+        source=md.table(
+            "orders",
+            columns={"missing_alias": md.source_column("catalog.hidden", data_type="string")},
+        ),
+        schema=(ColumnMetadata("missing_alias", "string", None, None, 1),),
+    )
+
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        projected.sample(
+            scope=md.unpruned(max_rows=2, timeout_seconds=30),
+            columns=("missing_alias",),
+            refresh=True,
+        )
+
+    error = exc_info.value
+    assert error.code == "acquisition_execution_failed"
+    assert error.effect_observed is not None
+    assert error.effect_observed.query_executed is True
+    assert query_spy.user_data_queries == 1
 
 
 def test_unsupported_timeout_blocks_before_execution(

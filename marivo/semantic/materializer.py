@@ -20,6 +20,7 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, PartitionScope
+from marivo.datasource.table_source import table_source_expression
 from marivo.refs import EntityKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
@@ -38,15 +39,13 @@ from marivo.semantic.ir import (
     ParquetSourceIR,
     TableSourceIR,
 )
+from marivo.semantic.typing import IbisBackend
 from marivo.semantic.validator import Registry
 
 __all__ = [
     "EntityRuntimeMetadata",
     "Materializer",
 ]
-
-# Type alias for an ibis backend (duckdb, etc.)
-IbisBackend = Any  # ibis backends don't share a common typing protocol yet
 
 
 @dataclass(frozen=True)
@@ -213,9 +212,7 @@ class Materializer:
         source: EntitySourceIR,
     ) -> ibis.Table:
         if isinstance(source, TableSourceIR):
-            if source.database is None:
-                return backend.table(source.table)
-            return backend.table(source.table, database=source.database)
+            return table_source_expression(backend, source)
 
         if isinstance(source, ParquetSourceIR):
             reader = getattr(backend, "read_parquet", None)
