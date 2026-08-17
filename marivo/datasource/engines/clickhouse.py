@@ -22,6 +22,7 @@ from marivo.datasource.engines.base import (
     identity_str,
     quote_identifier,
     require_field,
+    structured_exception_chain,
 )
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 
@@ -542,6 +543,16 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unavailable"] | None:
+    """Classify ClickHouse catalog access denial from native structured fields."""
+    for candidate in structured_exception_chain(exc):
+        if getattr(candidate, "code", None) == 497:
+            return "metadata_unavailable"
+        if getattr(candidate, "name", None) == "ACCESS_DENIED":
+            return "metadata_unavailable"
+    return None
+
+
 _DATETRUNC_TO_NATIVE: dict[str, str] = {
     "second": "toStartOfSecond",
     "minute": "toStartOfMinute",
@@ -622,7 +633,10 @@ PROFILE = EngineProfile(
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,
     readonly_tx_start=None,
-    metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    metadata=EngineMetadataIntrospection(
+        inspect_table=inspect_table,
+        classify_table_resolution_failure=classify_table_resolution_failure,
+    ),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,

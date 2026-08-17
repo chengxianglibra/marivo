@@ -40,7 +40,13 @@ from marivo._temporal import (
     WorkScheduleSnapshotV1,
 )
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.ir import (
+    AiContextIR,
+    DatasourceIR,
+    DatasourceSourceLocation,
+    TableSourceIR,
+    _format_database_identity,
+)
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope
@@ -77,7 +83,14 @@ from marivo.refs import (
 from marivo.refs import (
     ref as ref_factory,
 )
-from marivo.render import Card, FieldSection, ListSection, RenderableResult, Section
+from marivo.render import (
+    Card,
+    FieldSection,
+    ListSection,
+    RenderableResult,
+    Section,
+    TableSection,
+)
 from marivo.semantic._capabilities.catalog_members import (
     CATALOG_COLLECTION_PROPERTIES,
     CATALOG_MEMBER_CONTRACTS,
@@ -443,6 +456,29 @@ def _source_text(source: DatasetSource) -> str:
     return repr(source)
 
 
+def _entity_source_sections(source: DatasetSource) -> tuple[Section, ...]:
+    if not isinstance(source, TableSourceIR) or not source.columns:
+        return (FieldSection(label="source", value=_source_text(source)),)
+    return (
+        FieldSection(label="source_kind", value="projected table"),
+        FieldSection(label="base_table", value=source.table),
+        FieldSection(label="database", value=_format_database_identity(source.database)),
+        FieldSection(label="projected_columns", value=str(len(source.columns))),
+        FieldSection(label="full_source", value=".source.to_dict()"),
+        TableSection(
+            label="column_bindings",
+            columns=("output alias", "physical source", "declared type"),
+            rows=tuple(
+                (output_name, binding.source, binding.data_type)
+                for output_name, binding in source.columns
+            ),
+            rows_provider=None,
+            row_count=len(source.columns),
+            show_omission_counts=True,
+        ),
+    )
+
+
 def _versioning_text(versioning: EntityVersioning | None) -> str:
     if versioning is None:
         return "(none)"
@@ -592,7 +628,7 @@ class EntityDetails(_DetailsBase):
         sections.extend(
             (
                 FieldSection(label="datasource", value=self.datasource.key),
-                FieldSection(label="source", value=_source_text(self.source)),
+                *_entity_source_sections(self.source),
                 FieldSection(label="primary_key", value=_format_tuple_values(self.primary_key)),
                 FieldSection(label="versioning", value=_versioning_text(self.versioning)),
             )

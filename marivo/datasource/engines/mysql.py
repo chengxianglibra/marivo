@@ -17,6 +17,7 @@ from marivo.datasource.engines.base import (
     identity_read_only_kwargs,
     identity_str,
     require_field,
+    structured_exception_chain,
 )
 
 if TYPE_CHECKING:
@@ -241,6 +242,15 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unavailable"] | None:
+    """Classify MySQL table-metadata permission denial from native errno."""
+    for candidate in structured_exception_chain(exc):
+        args = getattr(candidate, "args", ())
+        if isinstance(args, tuple) and args and args[0] in {1142, 1143}:
+            return "metadata_unavailable"
+    return None
+
+
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     raw_sql = getattr(backend, "raw_sql", None)
@@ -280,7 +290,10 @@ PROFILE = EngineProfile(
     table_name_parts=table_name_parts,
     inspect_partition_values=None,
     readonly_tx_start="START TRANSACTION READ ONLY",
-    metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    metadata=EngineMetadataIntrospection(
+        inspect_table=inspect_table,
+        classify_table_resolution_failure=classify_table_resolution_failure,
+    ),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,

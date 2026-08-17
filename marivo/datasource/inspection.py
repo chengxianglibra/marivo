@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
+
+import ibis
 
 from marivo._authoring.model import AuthoringContract
 from marivo.config import find_project_root
@@ -21,7 +23,12 @@ from marivo.datasource._capabilities.contracts import (
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
-from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
+from marivo.datasource.errors import (
+    DatasourceAuthoringError,
+    DatasourceMetadataError,
+    DatasourceObservedEffects,
+    repair,
+)
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -29,14 +36,18 @@ from marivo.datasource.ir import (
     ParquetSourceIR,
     QueryParamScalar,
     TableSourceIR,
+    _format_database_identity,
 )
 from marivo.datasource.metadata import (
     ColumnMetadata,
+    MetadataWarning,
     PartitionMetadata,
     TableMetadata,
     TablePhysicalProfile,
+    UniqueConstraintMetadata,
     _inspect_source,
     _schema_columns,
+    _TableMetadataUnavailableError,
 )
 from marivo.datasource.snapshot import DiscoverySnapshot, acquire_snapshot
 from marivo.datasource.source import (
@@ -172,10 +183,27 @@ class SourceInspection(RenderableResult):
                 ".show()",
             ),
         )
-        card.field(
-            label="source descriptor",
-            value=json.dumps(self.source.to_dict(), sort_keys=True, separators=(",", ":")),
-        )
+        if isinstance(self.source, TableSourceIR) and self.source.columns:
+            card.field("source kind", "projected table")
+            card.field("base table", self.source.table)
+            card.field("database", _format_database_identity(self.source.database))
+            card.field("projected columns", str(len(self.source.columns)))
+            card.field("full source", ".source.to_dict()")
+            card.table(
+                columns=("output alias", "physical source", "declared type"),
+                rows=(
+                    (output_name, binding.source, binding.data_type)
+                    for output_name, binding in self.source.columns
+                ),
+                row_count=len(self.source.columns),
+                label="column bindings",
+                show_omission_counts=True,
+            )
+        else:
+            card.field(
+                label="source descriptor",
+                value=json.dumps(self.source.to_dict(), sort_keys=True, separators=(",", ":")),
+            )
         card.field(
             label="physical extent",
             value=(
@@ -502,6 +530,271 @@ def _declared_schema(schema: tuple[tuple[str, str], ...]) -> tuple[ColumnMetadat
     )
 
 
+def _unprojected_table(source: TableSourceIR) -> TableSourceIR:
+    return TableSourceIR(table=source.table, database=source.database)
+
+
+def _declared_only_table_metadata(
+    *,
+    datasource_name: str,
+    datasource_ir: DatasourceIR,
+    source: TableSourceIR,
+    failure: _TableMetadataUnavailableError,
+) -> TableMetadata:
+    warnings = [
+        MetadataWarning(
+            kind="base_table_metadata_unavailable",
+            message=(
+                "base table metadata is unavailable for this projected source; "
+                f"backend={failure.identity} reason={failure.message}; use an explicit "
+                "bounded md.unpruned(...) acquisition to prove the table and identifiers"
+            ),
+        )
+    ]
+    columns: list[ColumnMetadata] = []
+    for position, (output_name, binding) in enumerate(source.columns, start=1):
+        columns.append(
+            ColumnMetadata(
+                name=output_name,
+                type=binding.data_type,
+                nullable=None,
+                comment=None,
+                ordinal_position=position,
+            )
+        )
+        warnings.append(
+            MetadataWarning(
+                kind="declared_column_unverified",
+                message=(
+                    f"projected column output={output_name!r} source={binding.source!r} "
+                    f"declared_type={binding.data_type!r} is declared only; bounded runtime "
+                    "acquisition is required to prove queryability"
+                ),
+                columns=(output_name,),
+            )
+        )
+    return TableMetadata(
+        datasource=datasource_name,
+        table=source.table,
+        database=source.database,
+        backend_type=datasource_ir.backend_type,
+        comment=None,
+        columns=tuple(columns),
+        partitions=(),
+        partition_state="unknown",
+        warnings=tuple(warnings),
+    )
+
+
+def _canonical_catalog_type(type_name: str) -> str:
+    try:
+        return str(ibis.dtype(type_name))
+    except (TypeError, ValueError):
+        return type_name
+
+
+def _declared_type_mismatch(
+    *,
+    datasource_name: str,
+    source: TableSourceIR,
+    output_name: str,
+    physical_name: str,
+    declared_type: str,
+    observed_type: str,
+    scope_state: Literal["known", "none", "unknown"],
+) -> DatasourceAuthoringError:
+    snippet = f"md.source_column({physical_name!r}, data_type={observed_type!r})"
+    return DatasourceAuthoringError(
+        code="declared_type_mismatch",
+        stage="inspect",
+        expected=f"catalog type {observed_type!r} for projected output {output_name!r}",
+        received=(
+            f"datasource={datasource_name!r} table={source.table!r} "
+            f"database={source.database!r} output={output_name!r} "
+            f"source={physical_name!r} declared_type={declared_type!r}"
+        ),
+        reason=(
+            f"projected table {datasource_name!r}.{source.table!r} column {output_name!r} "
+            f"declares {declared_type!r}, but catalog metadata reports {observed_type!r} "
+            f"for physical source {physical_name!r}"
+        ),
+        effect_observed=DatasourceObservedEffects(
+            query_executed=False,
+            scope_state=scope_state,
+        ),
+        repair=repair(
+            kind="reauthor",
+            canonical_id="source_column",
+            action=(
+                f"Correct md.table(columns=...)[{output_name!r}] to use the observed "
+                "catalog type, or bind a different physical source."
+            ),
+            snippet=snippet,
+            preserves_evidence=False,
+        ),
+    )
+
+
+def _mapped_constraint_columns(
+    columns: tuple[str, ...],
+    source_to_output: Mapping[str, str],
+) -> tuple[str, ...] | None:
+    if any(column not in source_to_output for column in columns):
+        return None
+    return tuple(source_to_output[column] for column in columns)
+
+
+def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> TableMetadata:
+    catalog_columns = {column.name: column for column in metadata.columns}
+    source_to_output = {binding.source: output for output, binding in source.columns}
+    columns: list[ColumnMetadata] = []
+    warnings = list(metadata.warnings)
+
+    for position, (output_name, binding) in enumerate(source.columns, start=1):
+        catalog_column = catalog_columns.get(binding.source)
+        if catalog_column is None:
+            columns.append(
+                ColumnMetadata(
+                    name=output_name,
+                    type=binding.data_type,
+                    nullable=None,
+                    comment=None,
+                    ordinal_position=position,
+                )
+            )
+            warnings.append(
+                MetadataWarning(
+                    kind="declared_column_unverified",
+                    message=(
+                        f"projected column output={output_name!r} source={binding.source!r} "
+                        f"declared_type={binding.data_type!r} is absent from base metadata; "
+                        "bounded runtime acquisition is required to prove queryability"
+                    ),
+                    columns=(output_name,),
+                )
+            )
+            continue
+
+        observed_type = _canonical_catalog_type(catalog_column.type)
+        if observed_type != binding.data_type:
+            raise _declared_type_mismatch(
+                datasource_name=metadata.datasource,
+                source=source,
+                output_name=output_name,
+                physical_name=binding.source,
+                declared_type=binding.data_type,
+                observed_type=observed_type,
+                scope_state=metadata.partition_state,
+            )
+        columns.append(
+            ColumnMetadata(
+                name=output_name,
+                type=binding.data_type,
+                nullable=catalog_column.nullable,
+                comment=catalog_column.comment,
+                ordinal_position=position,
+            )
+        )
+
+    primary_keys = _mapped_constraint_columns(metadata.primary_keys, source_to_output)
+    if metadata.primary_keys and primary_keys is None:
+        missing = tuple(
+            column for column in metadata.primary_keys if column not in source_to_output
+        )
+        warnings.append(
+            MetadataWarning(
+                kind="projected_constraint_incomplete",
+                message=(
+                    "projected source omits physical primary-key columns "
+                    f"{missing!r}; the effective source does not claim that constraint"
+                ),
+                columns=missing,
+            )
+        )
+
+    unique_constraints: list[UniqueConstraintMetadata] = []
+    for constraint in metadata.unique_constraints:
+        mapped = _mapped_constraint_columns(constraint.columns, source_to_output)
+        if mapped is None:
+            missing = tuple(
+                column for column in constraint.columns if column not in source_to_output
+            )
+            warnings.append(
+                MetadataWarning(
+                    kind="projected_constraint_incomplete",
+                    message=(
+                        f"projected source omits physical {constraint.kind} constraint "
+                        f"columns {missing!r}; constraint={constraint.name!r} is not exposed"
+                    ),
+                    columns=missing,
+                )
+            )
+            continue
+        unique_constraints.append(replace(constraint, columns=mapped))
+
+    partitions: list[PartitionMetadata] = []
+    partition_state = metadata.partition_state
+    if metadata.partition_state == "known":
+        missing_partitions = tuple(
+            field.name for field in metadata.partitions if field.name not in source_to_output
+        )
+        if missing_partitions:
+            partition_state = "unknown"
+            warnings.append(
+                MetadataWarning(
+                    kind="projected_partition_unavailable",
+                    message=(
+                        "base table partition fields are not fully exposed by the projected "
+                        f"source; missing={missing_partitions!r}; add bindings or use explicit "
+                        "bounded md.unpruned(...) acquisition"
+                    ),
+                    columns=missing_partitions,
+                )
+            )
+        else:
+            partitions.extend(
+                replace(field, name=source_to_output[field.name]) for field in metadata.partitions
+            )
+
+    return replace(
+        metadata,
+        columns=tuple(columns),
+        partitions=tuple(partitions),
+        partition_state=partition_state,
+        warnings=tuple(warnings),
+        primary_keys=primary_keys or (),
+        unique_constraints=tuple(unique_constraints),
+    )
+
+
+def _project_partitioning(
+    partitioning: Partitioning,
+    source: TableSourceIR,
+    effective_metadata: TableMetadata,
+) -> Partitioning:
+    if effective_metadata.partition_state == "unknown" and partitioning.state == "known":
+        return Partitioning(
+            state="unknown",
+            fields=(),
+            value_source=None,
+            values=(),
+            values_complete=False,
+            truncated=False,
+        )
+    if partitioning.state != "known":
+        return replace(partitioning, fields=effective_metadata.partitions)
+
+    source_to_output = {binding.source: output for output, binding in source.columns}
+    return replace(
+        partitioning,
+        fields=effective_metadata.partitions,
+        values=tuple(
+            tuple((source_to_output[name], value) for name, value in captured)
+            for captured in partitioning.values
+        ),
+    )
+
+
 def _parquet_metadata(
     datasource_ir: DatasourceIR,
     source: ParquetSourceIR,
@@ -548,7 +841,7 @@ def _captured_partitioning(
     datasource_ir: DatasourceIR,
     source: TableSource,
     profile: EngineProfile,
-) -> tuple[Partitioning, tuple[str, ...]]:
+) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
     state = metadata.partition_state
     fields = metadata.partitions
     if state == "none":
@@ -586,7 +879,13 @@ def _captured_partitioning(
                 values_complete=False,
                 truncated=False,
             ),
-            ("transformed partition values are not safely expressible in V1",),
+            (
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="transformed partition values are not safely expressible in V1",
+                    columns=tuple(field.name for field in fields),
+                ),
+            ),
         )
 
     hook = profile.inspect_partition_values
@@ -600,7 +899,15 @@ def _captured_partitioning(
                 values_complete=False,
                 truncated=False,
             ),
-            ("partition values are unavailable from metadata without scanning user data",),
+            (
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message=(
+                        "partition values are unavailable from metadata without scanning user data"
+                    ),
+                    columns=tuple(field.name for field in fields),
+                ),
+            ),
         )
 
     backend = None
@@ -624,11 +931,15 @@ def _captured_partitioning(
                 omitted_incomplete += 1
                 continue
             complete_values.append(tuple((field.name, str(row[field.name])) for field in fields))
-        warnings = (
-            (f"incomplete partition metadata rows omitted={omitted_incomplete}",)
-            if omitted_incomplete
-            else ()
-        )
+        warnings: tuple[MetadataWarning, ...] = ()
+        if omitted_incomplete:
+            warnings = (
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message=f"incomplete partition metadata rows omitted={omitted_incomplete}",
+                    columns=tuple(field.name for field in fields),
+                ),
+            )
         return (
             Partitioning(
                 state="known",
@@ -650,13 +961,38 @@ def _captured_partitioning(
                 values_complete=False,
                 truncated=False,
             ),
-            (f"partition metadata value hook failed: {exc}",),
+            (
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"partition metadata value hook failed: {exc}",
+                    columns=tuple(field.name for field in fields),
+                ),
+            ),
         )
     finally:
         disconnect = getattr(backend, "disconnect", None)
         if callable(disconnect):
             with suppress(Exception):
                 disconnect()
+
+
+def _structured_inspection_warnings(
+    *,
+    metadata: TableMetadata,
+    partitioning: Partitioning,
+    partition_warnings: tuple[MetadataWarning, ...],
+) -> tuple[MetadataWarning, ...]:
+    warnings = (*metadata.warnings, *partition_warnings)
+    if partitioning.state == "unknown":
+        warnings = (
+            *warnings,
+            MetadataWarning(
+                kind="partition_state_unknown",
+                message="partition state is unknown",
+                columns=tuple(field.name for field in partitioning.fields),
+            ),
+        )
+    return warnings
 
 
 def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspection:
@@ -717,6 +1053,10 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         )
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
 
+    projected_metadata_unavailable = False
+    base_partitioning: Partitioning | None = None
+    partition_warnings: tuple[MetadataWarning, ...] = ()
+
     if isinstance(source, CsvSourceIR | JsonSourceIR):
         if datasource_ir.backend_type != "duckdb":
             raise _authoring_error(
@@ -750,28 +1090,76 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
             )
         metadata = _parquet_metadata(datasource_ir, source)
     else:
-        metadata = _inspect_source(
-            datasource_name,
-            source=source,
-            include_partitions=True,
-            project_root=project_root,
-        )
+        try:
+            base_metadata = _inspect_source(
+                datasource_name,
+                source=_unprojected_table(source),
+                include_partitions=True,
+                project_root=project_root,
+            )
+        except _TableMetadataUnavailableError as exc:
+            if not source.columns:
+                raise DatasourceMetadataError(
+                    message=(
+                        "base table metadata is unavailable and an unprojected source has no "
+                        f"declared schema fallback: {exc.message}"
+                    ),
+                    expected="an inspectable datasource table",
+                    received=exc.identity,
+                    location=f"md.inspect({datasource.path!r}, {source.table!r})",
+                    repair=repair(
+                        kind="reconnect",
+                        canonical_id="inspect",
+                        action="Restore base table metadata access before retrying inspection.",
+                    ),
+                ) from exc
+            projected_metadata_unavailable = True
+            metadata = _declared_only_table_metadata(
+                datasource_name=datasource_name,
+                datasource_ir=datasource_ir,
+                source=source,
+                failure=exc,
+            )
+        else:
+            metadata = (
+                _project_table_metadata(base_metadata, source) if source.columns else base_metadata
+            )
+            base_partitioning, partition_warnings = _captured_partitioning(
+                metadata=base_metadata,
+                datasource_ir=datasource_ir,
+                source=_unprojected_table(source),
+                profile=profile,
+            )
 
-    partitioning, partition_warnings = _captured_partitioning(
+    if base_partitioning is None:
+        partitioning, partition_warnings = _captured_partitioning(
+            metadata=metadata,
+            datasource_ir=datasource_ir,
+            source=source,
+            profile=profile,
+        )
+    elif isinstance(source, TableSourceIR) and source.columns:
+        partitioning = _project_partitioning(base_partitioning, source, metadata)
+    else:
+        partitioning = base_partitioning
+
+    structured_warnings = _structured_inspection_warnings(
         metadata=metadata,
-        datasource_ir=datasource_ir,
-        source=source,
-        profile=profile,
+        partitioning=partitioning,
+        partition_warnings=partition_warnings,
     )
-    warnings = tuple(warning.message for warning in metadata.warnings) + partition_warnings
-    if partitioning.state == "unknown":
-        warnings = (*warnings, "partition state is unknown")
+    warnings = tuple(warning.message for warning in structured_warnings)
+    capabilities = _execution_capabilities(profile)
+    if projected_metadata_unavailable or any(
+        warning.kind == "projected_partition_unavailable" for warning in metadata.warnings
+    ):
+        capabilities = replace(capabilities, partition_predicate_supported=False)
     return SourceInspection(
         datasource=datasource,
         source=source,
         physical_extent=_physical_extent(metadata.physical_profile),
         partitioning=partitioning,
-        execution_capabilities=_execution_capabilities(profile),
+        execution_capabilities=capabilities,
         schema=metadata.columns,
         warnings=warnings,
         _project_root=project_root,

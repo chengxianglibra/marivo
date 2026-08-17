@@ -319,6 +319,34 @@ def test_preview_rejects_stale_or_mismatched_snapshot_before_connection(
     assert exc_info.value.details["query_executed"] is False
 
 
+def test_preview_does_not_reuse_evidence_across_projected_source_identity(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
+    projected_snapshot = replace(
+        orders_snapshot,
+        source=md.table(
+            "orders",
+            columns={
+                "amount": md.source_column("amount", data_type="float64"),
+                "order_id": md.source_column("order_id", data_type="string"),
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="physical source does not match") as exc_info:
+        catalog.preview(revenue, using=projected_snapshot)
+
+    assert exc_info.value.details["query_executed"] is False
+
+
 def test_preview_rejects_mutated_snapshot_timestamp_metadata_before_connection(
     scoped_catalog,
     monkeypatch: pytest.MonkeyPatch,

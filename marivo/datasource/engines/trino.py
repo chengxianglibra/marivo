@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
@@ -24,6 +24,7 @@ from marivo.datasource.engines.base import (
     identity_str,
     quote_identifier,
     require_field,
+    structured_exception_chain,
 )
 
 if TYPE_CHECKING:
@@ -567,6 +568,14 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unavailable"] | None:
+    """Classify Trino metadata permission denial from the server error name."""
+    for candidate in structured_exception_chain(exc):
+        if getattr(candidate, "error_name", None) == "PERMISSION_DENIED":
+            return "metadata_unavailable"
+    return None
+
+
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     raw_sql = getattr(backend, "raw_sql", None)
@@ -601,7 +610,10 @@ PROFILE = EngineProfile(
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,
     readonly_tx_start=None,
-    metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    metadata=EngineMetadataIntrospection(
+        inspect_table=inspect_table,
+        classify_table_resolution_failure=classify_table_resolution_failure,
+    ),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,
