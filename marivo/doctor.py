@@ -153,6 +153,25 @@ def _section_summary(section: DoctorSection) -> str:
         return f"{failures} failure" if failures == 1 else f"{failures} failures"
     if warnings:
         return f"{warnings} warning" if warnings == 1 else f"{warnings} warnings"
+    advisories = 0
+    for check in section.checks:
+        details = check.details
+        if not isinstance(details, Mapping):
+            continue
+        readiness_details = details.get("readiness")
+        containers = (details, readiness_details)
+        for container in containers:
+            if not isinstance(container, Mapping):
+                continue
+            issues = container.get("warnings")
+            if isinstance(issues, Sequence) and not isinstance(issues, str | bytes | bytearray):
+                advisories += sum(
+                    1
+                    for issue in issues
+                    if isinstance(issue, Mapping) and issue.get("severity") == "advisory"
+                )
+    if advisories:
+        return _count_summary(advisories, "advisory")
     if skipped and skipped == len(section.checks):
         return "skipped"
     return "ok"
@@ -1012,7 +1031,24 @@ def _semantic_section(root: Path) -> DoctorSection:
                     else []
                 )
                 blocker_count = len(domain_blockers) if isinstance(domain_blockers, list) else 0
-                warning_count = len(domain_warnings) if isinstance(domain_warnings, list) else 0
+                warning_count = (
+                    sum(
+                        1
+                        for issue in domain_warnings
+                        if isinstance(issue, dict) and issue.get("severity") == "warning"
+                    )
+                    if isinstance(domain_warnings, list)
+                    else 0
+                )
+                advisory_count = (
+                    sum(
+                        1
+                        for issue in domain_warnings
+                        if isinstance(issue, dict) and issue.get("severity") == "advisory"
+                    )
+                    if isinstance(domain_warnings, list)
+                    else 0
+                )
 
                 if domain_status == "blocked":
                     doctor_status: DoctorStatus = "fail"
@@ -1026,6 +1062,8 @@ def _semantic_section(root: Path) -> DoctorSection:
                     summary_parts.append(_count_summary(blocker_count, "blocker"))
                 if warning_count:
                     summary_parts.append(_count_summary(warning_count, "warning"))
+                if advisory_count:
+                    summary_parts.append(_count_summary(advisory_count, "advisory"))
                 summary = ", ".join(summary_parts)
 
                 domain_fix: Sequence[str] = ()
@@ -1091,7 +1129,22 @@ def _semantic_section(root: Path) -> DoctorSection:
         warning_count = len(warning_details) if isinstance(warning_details, list) else 0
         blocker_count = len(readiness_blockers) if isinstance(readiness_blockers, list) else 0
         readiness_warning_count = (
-            len(readiness_warnings) if isinstance(readiness_warnings, list) else 0
+            sum(
+                1
+                for issue in readiness_warnings
+                if isinstance(issue, dict) and issue.get("severity") == "warning"
+            )
+            if isinstance(readiness_warnings, list)
+            else 0
+        )
+        readiness_advisory_count = (
+            sum(
+                1
+                for issue in readiness_warnings
+                if isinstance(issue, dict) and issue.get("severity") == "advisory"
+            )
+            if isinstance(readiness_warnings, list)
+            else 0
         )
         if error_count or blocker_count or status in {"blocked", "errored"}:
             doctor_status = "fail"
@@ -1108,6 +1161,8 @@ def _semantic_section(root: Path) -> DoctorSection:
             summary_parts.append(_count_summary(blocker_count, "readiness blocker"))
         if readiness_warning_count:
             summary_parts.append(_count_summary(readiness_warning_count, "readiness warning"))
+        if readiness_advisory_count:
+            summary_parts.append(_count_summary(readiness_advisory_count, "readiness advisory"))
         summary = f"semantic status is {status}"
         if summary_parts:
             summary = f"{summary} ({', '.join(summary_parts)})"

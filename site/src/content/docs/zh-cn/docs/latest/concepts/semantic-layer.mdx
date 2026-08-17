@@ -819,8 +819,8 @@ if report.status == "blocked":
 项目可以在就绪检查仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。分析 API
 会加载、解析、规划并在运行时检查输入，但不会自动调用就绪检查。阻塞报告需要在声明
 语义变更完成之前修复；日常分析复用未变化的对象时，不必在每次调用前重跑
-就绪检查。缺失或不匹配的运行时预览认证会显示为警告而不是阻塞项：
-日常分析先披露再继续，编写收尾前完成修复。
+就绪检查。缺失或不匹配的运行时预览认证会显示为 advisory，而不是 blocker 或
+真正的 warning：日常分析先披露再继续，编写收尾前完成修复。
 :::
 
 另外两个检查支持编写：
@@ -1073,6 +1073,23 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
+日期或时间戳窗口继续复用同一个有界范围类型：
+
+```python
+scope = md.time_range(
+    "created_at",
+    start="2026-07-10T00:00:00+00:00",
+    end="2026-07-11T00:00:00+00:00",
+    max_rows=1000,
+    timeout_seconds=30,
+)
+```
+
+谓词采用半开区间 `[start, end)`。两个边界必须同为日期或同为时间戳，并保持
+时区感知方式一致；带时区的时间戳会统一规范化为 UTC。projected source 必须暴露该
+时间列。与等值分区范围不同，
+`time_range` 可以限定经过转换的时间分区。
+
 `md.duckdb(...)` 声明数据源。`md.table(...)` 选择该数据源内部的
 表或 view。`md.parquet(...)` 和 `md.csv(...)` 是 DuckDB 文件来源
 descriptor；`md.json(...)` 是 DuckDB-backed JSON 文件或 HTTP API 来源
@@ -1168,9 +1185,20 @@ with session.source_bindings({
 对于 ClickHouse `Distributed` 来源，本地 `system.parts` 观察只会作为
 `scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
 不会默认发起 cluster-wide 扩散查询。
+
+ClickHouse 检查还会在 `projectable_columns` 中列出安全的 adapter-only
+物理列。该表有界展示，每一项都给出可复制的 `md.source_column(...)` 声明，
+保留精确物理名与规范化类型。active parts 间类型冲突或无法解析的后端类型只会
+产生 warning，并且不会列为可投影列。这并不枚举动态 MapV2 key：未物化 key
+必须在上游物化、通过数据库 view 暴露，或仅在终端 `md.raw_sql(...)` 中使用。
 只有接受有界值证据明文写入项目本地 cache 时才使用 `persist_values=True`。
 非常见格式、键、时区、聚合、单位、可加性、关系 cardinality
 和业务含义仍由智能体负责。
+
+证据卡片会从有界 row/null count 推导 null rate。维度或 values 样本出现
+`NULL` 时，现有证据判断会要求在 `ai_context.guardrails` 中说明
+`null_semantics`，例如它表示“不适用于该事件分支”还是“值未知”。Marivo 不会把
+高 null rate 自动判为数据质量故障，也不会隐式过滤 `NULL`。
 
 检查卡片会显示精确来源 descriptor，以及真实结构的列名和类型。分区
 卡片会显示已捕获值的来源、完整性、截断状态、有界值和无需新查询即可使用的范围

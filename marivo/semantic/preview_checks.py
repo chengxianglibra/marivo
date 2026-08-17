@@ -145,6 +145,23 @@ class PreviewEvidenceRequirement:
 
     status: Literal["matched", "snapshot_missing", "runtime_preview_missing"]
     repair: AuthoringRepair
+    evidence_roots: tuple[str, ...] = ()
+
+
+def _evidence_roots(entity_ids: tuple[str, ...], registry: Registry) -> tuple[str, ...]:
+    roots: list[str] = []
+    for entity_id in entity_ids:
+        entity = registry.entities[entity_id]
+        datasource = registry.datasources[entity.datasource]
+        roots.append(
+            fingerprint(
+                {
+                    "datasource_fingerprint": datasource_spec_fingerprint(datasource),
+                    "source": entity.source.to_dict(),
+                }
+            )
+        )
+    return tuple(dict.fromkeys(roots))
 
 
 def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
@@ -261,9 +278,16 @@ def _validate_scope(scope: AuthoringScope, *, preview_ref: str) -> None:
             "Bound discovery snapshot has an invalid scope timeout_seconds.",
             details={},
         )
-    if isinstance(scope, PartitionScope) and (
-        not scope.values
-        or any(
+    if isinstance(scope, PartitionScope) and scope._time_range is not None:
+        predicate = scope._time_range
+        invalid_partition_scope = (
+            bool(scope.values)
+            or not predicate.column
+            or type(predicate.start) is not type(predicate.end)
+            or predicate.start >= predicate.end
+        )
+    elif isinstance(scope, PartitionScope):
+        invalid_partition_scope = not scope.values or any(
             type(entry) is not tuple
             or len(entry) != 2
             or not isinstance(entry[0], str)
@@ -272,7 +296,9 @@ def _validate_scope(scope: AuthoringScope, *, preview_ref: str) -> None:
             or not entry[1]
             for entry in scope.values
         )
-    ):
+    else:
+        invalid_partition_scope = False
+    if invalid_partition_scope:
         _blocked(
             preview_ref,
             "Bound discovery snapshot has an invalid partition scope.",
@@ -438,7 +464,15 @@ def _inspect_call(entity: EntityIR) -> str:
 
 def _snapshot_sample_call(entity: EntityIR, snapshot: DiscoverySnapshot) -> str:
     scope = snapshot.scope
-    if isinstance(scope, PartitionScope):
+    if isinstance(scope, PartitionScope) and scope._time_range is not None:
+        predicate = scope._time_range
+        scope_call = (
+            f"md.time_range({_quoted(predicate.column)}, "
+            f"start={_quoted(predicate.start.isoformat())}, "
+            f"end={_quoted(predicate.end.isoformat())}, max_rows={scope.max_rows}, "
+            f"timeout_seconds={scope.timeout_seconds})"
+        )
+    elif isinstance(scope, PartitionScope):
         scope_call = (
             "md.partition({"
             + ", ".join(f"{_quoted(key)}: {_quoted(value)}" for key, value in scope.values)
@@ -500,6 +534,7 @@ def preview_evidence_requirement(
     checked_ref = _exact_semantic_ref(ref, kind)
     checked_payload = RefPayloadV1.from_ref(checked_ref)
     entity_ids = _dependency_entities(ref, kind, registry)
+    evidence_roots = _evidence_roots(entity_ids, registry)
     current_dependency_digest = dependency_digest(
         registry,
         sidecar=sidecar,
@@ -614,6 +649,7 @@ def preview_evidence_requirement(
                         canonical_id="readiness",
                         action="Matching preview evidence is available; readiness may proceed.",
                     ),
+                    evidence_roots=evidence_roots,
                 )
     missing_entities = tuple(entity_id for entity_id in entity_ids if entity_id not in snapshots)
     if missing_entities:
@@ -632,6 +668,7 @@ def preview_evidence_requirement(
                 snippet="\n".join(calls),
                 preserves_evidence=False,
             ),
+            evidence_roots=evidence_roots,
         )
 
     sample_calls = {
@@ -656,6 +693,7 @@ def preview_evidence_requirement(
             snippet=f"catalog.preview(\n    {typed_ref},\n    using={using},\n)",
             preserves_evidence=False,
         ),
+        evidence_roots=evidence_roots,
     )
 
 

@@ -23,7 +23,14 @@ def _text(target: object | None = None) -> str:
 def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> None:
     text = _text()
 
-    for target in ("inspect", "SourceInspection.sample", "raw_sql", "partition", "unpruned"):
+    for target in (
+        "inspect",
+        "SourceInspection.sample",
+        "raw_sql",
+        "partition",
+        "time_range",
+        "unpruned",
+    ):
         assert target in text
     assert "output:" in text
     assert "effects:" in text
@@ -90,6 +97,16 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
         (
             "SourceInspection.sample",
             ("source_params", "SourceParameters optional", "json_source_params_exact"),
+        ),
+        (
+            "time_range",
+            (
+                "Entrypoint: md.time_range",
+                "half-open",
+                "start",
+                "end",
+                "Output family: PartitionScope",
+            ),
         ),
     ],
 )
@@ -182,6 +199,7 @@ def test_help_keeps_public_callable_signatures_authoritative() -> None:
         md.source_column,
         md.table,
         md.partition,
+        md.time_range,
         md.SourceInspection.sample,
     ):
         assert str(inspect.signature(callable_target)) in _text(callable_target)

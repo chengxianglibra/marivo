@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Literal, TypeAlias
 
 from marivo._authoring.model import AuthoringContract
+from marivo._compat import UTC
 from marivo.datasource.ir import (
     CsvSourceIR,
     JsonBodyParam,
@@ -24,18 +26,39 @@ TableSource: TypeAlias = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSou
 
 
 @dataclass(frozen=True)
+class _TimeRangePredicate:
+    column: str
+    start: date | datetime
+    end: date | datetime
+
+
+@dataclass(frozen=True)
 class PartitionScope:
-    """Explicit partition selection and positive acquisition guards."""
+    """Explicit pruned selection and positive acquisition guards."""
 
     values: tuple[tuple[str, str], ...]
     max_rows: int
     timeout_seconds: int
+    _time_range: _TimeRangePredicate | None = field(default=None, init=False, repr=False)
+
+    def __repr__(self) -> str:
+        if self._time_range is None:
+            return (
+                f"PartitionScope(values={self.values!r}, max_rows={self.max_rows!r}, "
+                f"timeout_seconds={self.timeout_seconds!r})"
+            )
+        predicate = self._time_range
+        return (
+            f"PartitionScope(time_range=({predicate.column!r}, {predicate.start!r}, "
+            f"{predicate.end!r}), max_rows={self.max_rows!r}, "
+            f"timeout_seconds={self.timeout_seconds!r})"
+        )
 
     def contract(self) -> AuthoringContract:
         """Return the blocked acquisition contract for this explicit scope."""
         from marivo.datasource._capabilities.contracts import contract_for_scope
 
-        return contract_for_scope("partition")
+        return contract_for_scope("time_range" if self._time_range is not None else "partition")
 
 
 @dataclass(frozen=True)
@@ -83,6 +106,92 @@ def partition(values: Mapping[str, str], *, max_rows: int, timeout_seconds: int)
     _require_positive(max_rows, field="max_rows")
     _require_positive(timeout_seconds, field="timeout_seconds")
     return PartitionScope(normalized, max_rows, timeout_seconds)
+
+
+def _normalize_time_bound(value: date | datetime | str, *, field_name: str) -> date | datetime:
+    if type(value) is date or isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be an ISO date, datetime, or string.")
+    if not value:
+        raise ValueError(f"{field_name} must be non-empty.")
+    if "T" not in value and " " not in value:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO date or datetime.") from exc
+
+
+def time_range(
+    column: str,
+    /,
+    *,
+    start: date | datetime | str,
+    end: date | datetime | str,
+    max_rows: int,
+    timeout_seconds: int,
+) -> PartitionScope:
+    """Build a bounded half-open temporal acquisition scope.
+
+    Args:
+        column: One inspected date or timestamp column.
+        start: Inclusive ISO date or datetime boundary.
+        end: Exclusive ISO date or datetime boundary.
+        max_rows: Positive maximum number of rows to acquire.
+        timeout_seconds: Positive acquisition timeout in seconds.
+
+    Returns:
+        A frozen ``PartitionScope`` carrying the half-open temporal predicate.
+
+    Example:
+        ``md.time_range("timestamp", start="2026-08-01", end="2026-08-02", max_rows=1000, timeout_seconds=30)``
+
+    Constraints:
+        Boundaries must have the same date/datetime kind, datetime awareness,
+        and satisfy ``start < end``. Aware datetimes are normalized to UTC. The
+        column must be temporal at inspection.
+    """
+    if not isinstance(column, str):
+        raise TypeError("column must be str.")
+    if not column:
+        raise ValueError("column must be non-empty.")
+    normalized_start = _normalize_time_bound(start, field_name="start")
+    normalized_end = _normalize_time_bound(end, field_name="end")
+    if type(normalized_start) is not type(normalized_end):
+        raise ValueError("start and end must both be dates or both be datetimes.")
+    if isinstance(normalized_start, datetime) and isinstance(normalized_end, datetime):
+        start_aware = (
+            normalized_start.tzinfo is not None and normalized_start.utcoffset() is not None
+        )
+        end_aware = normalized_end.tzinfo is not None and normalized_end.utcoffset() is not None
+        if start_aware != end_aware:
+            raise ValueError("start and end datetimes must use matching timezone awareness.")
+        if start_aware:
+            normalized_start = normalized_start.astimezone(UTC)
+            normalized_end = normalized_end.astimezone(UTC)
+    if normalized_start >= normalized_end:
+        raise ValueError("start must be earlier than end.")
+    _require_positive(max_rows, field="max_rows")
+    _require_positive(timeout_seconds, field="timeout_seconds")
+    scope = PartitionScope(
+        values=(),
+        max_rows=max_rows,
+        timeout_seconds=timeout_seconds,
+    )
+    object.__setattr__(
+        scope,
+        "_time_range",
+        _TimeRangePredicate(
+            column=column,
+            start=normalized_start,
+            end=normalized_end,
+        ),
+    )
+    return scope
 
 
 def unpruned(*, max_rows: int, timeout_seconds: int) -> UnprunedScope:

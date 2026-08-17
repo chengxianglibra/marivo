@@ -56,13 +56,13 @@ def inspection(project_root: Path) -> SourceInspection:
     path = project_root / "warehouse.duckdb"
     backend = ibis.duckdb.connect(str(path))
     backend.raw_sql(
-        "CREATE TABLE orders (order_id VARCHAR, amount DOUBLE, dt VARCHAR, ignored VARCHAR)"
+        "CREATE TABLE orders (order_id VARCHAR, amount DOUBLE, dt VARCHAR, ts TIMESTAMP, ignored VARCHAR)"
     )
     backend.raw_sql(
         "INSERT INTO orders VALUES "
-        "('o-1', 10.0, '2026-07-10', 'x'), "
-        "('o-2', 0.0, '2026-07-10', 'y'), "
-        "('o-3', -5.0, '2026-07-11', 'z')"
+        "('o-1', 10.0, '2026-07-10', TIMESTAMP '2026-07-10 01:00:00', 'x'), "
+        "('o-2', 0.0, '2026-07-10', TIMESTAMP '2026-07-10 12:00:00', 'y'), "
+        "('o-3', -5.0, '2026-07-11', TIMESTAMP '2026-07-11 01:00:00', 'z')"
     )
     backend.disconnect()
     md.register(md.duckdb(name="warehouse", path=str(path)), project_root=project_root)
@@ -186,7 +186,7 @@ def test_sample_pushes_every_partition_predicate_and_profiles_retained_rows(
     assert '"dt" = ' in sql
     assert "2026-07-10" in sql
     assert "LIMIT 3" in sql.upper()
-    assert snapshot.coverage.pushed_predicate == (("dt", "2026-07-10"),)
+    assert snapshot.coverage.pushed_predicate == (("eq", "dt", "2026-07-10"),)
     assert snapshot.coverage.observed_row_count == 2
     assert snapshot.coverage.retained_row_count == 2
     assert snapshot.coverage.scope_exhaustion == "exhaustive"
@@ -225,7 +225,7 @@ def test_projected_sample_executes_generated_relation_once_with_outer_scope(
     assert '"event_day" = ' in sql
     assert "LIMIT 3" in sql.upper()
     assert snapshot.columns == ("order_key", "value")
-    assert snapshot.coverage.pushed_predicate == (("event_day", "2026-07-10"),)
+    assert snapshot.coverage.pushed_predicate == (("eq", "event_day", "2026-07-10"),)
     assert snapshot.coverage.observed_row_count == 2
 
 
@@ -438,6 +438,101 @@ def test_any_transformed_partition_blocks_even_when_capability_claims_support(
     assert exc_info.value.repair.kind == "configure"
     assert exc_info.value.repair.help_target.canonical_id == "inspect"
     assert exc_info.value.repair.preserves_evidence is False
+
+
+def test_time_range_allows_transformed_temporal_partition_and_pushes_half_open_filter(
+    query_spy: _QuerySpy,
+    inspection: SourceInspection,
+) -> None:
+    transformed = replace(
+        inspection,
+        partitioning=replace(
+            inspection.partitioning,
+            state="known",
+            fields=(PartitionMetadata(name="ts", type="timestamp", transform="toYYYYMMDD"),),
+        ),
+    )
+
+    snapshot = transformed.sample(
+        scope=md.time_range(
+            "ts",
+            start="2026-07-10T00:00:00",
+            end="2026-07-11T00:00:00",
+            max_rows=10,
+            timeout_seconds=30,
+        ),
+        columns=("order_id",),
+        refresh=True,
+    )
+
+    sql = query_spy.user_data_sql[0]
+    assert '"ts" >= ' in sql
+    assert '"ts" < ' in sql
+    assert sql.index("WHERE") < sql.index("LIMIT")
+    assert snapshot.coverage.pushed_predicate == (
+        ("time_range", "ts", "2026-07-10T00:00:00", "2026-07-11T00:00:00"),
+    )
+    assert snapshot.coverage.observed_row_count == 2
+
+
+def test_time_range_uses_projected_temporal_alias(
+    query_spy: _QuerySpy,
+    inspection: SourceInspection,
+) -> None:
+    projected = md.inspect(
+        inspection.datasource,
+        md.table(
+            "orders",
+            columns={
+                "event_time": md.source_column("ts", data_type="timestamp"),
+                "order_key": md.source_column("order_id", data_type="string"),
+            },
+        ),
+    )
+
+    snapshot = projected.sample(
+        scope=md.time_range(
+            "event_time",
+            start="2026-07-10T00:00:00",
+            end="2026-07-11T00:00:00",
+            max_rows=10,
+            timeout_seconds=30,
+        ),
+        columns=("order_key",),
+        refresh=True,
+    )
+
+    sql = query_spy.user_data_sql[0]
+    assert 'SELECT "ts" AS "event_time", "order_id" AS "order_key" FROM "orders"' in sql
+    assert '"event_time" >= ' in sql
+    assert '"event_time" < ' in sql
+    assert snapshot.coverage.observed_row_count == 2
+
+
+def test_time_range_rejects_non_temporal_or_unexposed_column_before_connection(
+    inspection: SourceInspection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "marivo.datasource.snapshot._backends.build_backend",
+        lambda *_args, **_kwargs: pytest.fail("backend opened"),
+    )
+
+    for column in ("dt", "missing"):
+        with pytest.raises(DatasourceAuthoringError) as exc_info:
+            inspection.sample(
+                scope=md.time_range(
+                    column,
+                    start="2026-07-10",
+                    end="2026-07-11",
+                    max_rows=10,
+                    timeout_seconds=30,
+                ),
+                columns=("order_id",),
+            )
+        assert exc_info.value.code == "unknown_source_column"
+        assert exc_info.value.effect_observed is not None
+        assert exc_info.value.effect_observed.query_executed is False
 
 
 def test_timeout_setup_failure_reports_no_query_executed(

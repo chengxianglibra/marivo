@@ -17,7 +17,7 @@ definition or make it unavailable to analysis.
 
 A blocked report does not mean the analysis question is invalid. It means the
 selected objects have a semantic or technical blocker. Missing snapshot or
-runtime preview certification is reported as a warning instead: disclose it,
+runtime preview certification is reported as an advisory instead: disclose it,
 continue routine analysis when no blocker remains, and repair it before
 declaring a new or changed semantic object complete.
 
@@ -39,9 +39,11 @@ individually.
 
 ## What ready means
 
-`ready` means the selected semantic objects have no readiness blocker.
-`ready_with_warnings` may include missing datasource snapshot or stale preview
-evidence, while `analysis_ready_inputs` identifies the directly requested refs
+`ready` means the selected semantic objects have no blocker or true warning;
+advisories may still be present.
+`ready_with_warnings` means at least one true warning remains. Missing datasource
+snapshot or stale preview evidence is advisory-only and therefore keeps the
+report `ready`, while `analysis_ready_inputs` identifies the directly requested refs
 and runtime metric expressions whose dependency closures have no blocker.
 `analysis_ready_refs` remains the refs-only projection. Neither status is a runtime
 authorization token: readiness does not record the user's approval, guarantee
@@ -88,7 +90,7 @@ required for readiness.
 | `scope` | `"semantic_static"` | The report certifies semantic dependency closures, not operation-specific executability. |
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
 | `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
-| `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
+| `warnings` | `tuple[ReadinessIssue, ...]` | Non-blocking warning and advisory issues, distinguished by `severity`. |
 | `analysis_ready_inputs` | `tuple[Ref | RuntimeMetricExpr, ...]` | Ordered directly requested roots whose governed dependency closures contain no blocker. |
 | `analysis_ready_refs` | `tuple[Ref, ...]` | Directly requested refs whose dependency closures contain no blocker. |
 | `preview_required_refs` | `tuple[Ref, ...]` | Typed executable refs with missing or stale preview certification. |
@@ -96,8 +98,8 @@ required for readiness.
 | `checked_at` | `str` | ISO-8601 timestamp of the check. |
 | `catalog_definition_fingerprint` | `str` | Exact compiled catalog graph used by this report. |
 
-`status` is derived from severity: any blocker ⇒ `blocked`; warnings only ⇒
-`ready_with_warnings`; otherwise `ready`.
+`status` is derived from severity: any blocker ⇒ `blocked`; any true warning ⇒
+`ready_with_warnings`; advisory-only or no issue ⇒ `ready`.
 
 Snapshot identity, temporal-fold, grain, and artifact-shape requirements are
 checked by the consuming analysis operation. A ready report therefore does not
@@ -110,17 +112,19 @@ target:
 | Attribute | Meaning |
 | --- | --- |
 | `kind` | The issue kind (see table below). |
-| `severity` | `"blocker"` or `"warning"`. |
+| `severity` | `"blocker"`, `"warning"`, or `"advisory"`. |
 | `refs` | The semantic refs the issue applies to. |
 | `catalog_definition_fingerprint` | The same compiled catalog graph fingerprint carried by the report. |
 | `message` | What was expected and what was found. |
 | `repair` | A typed `AuthoringRepair \| None` carrying `action`, `help_target`, optional `snippet`, and `candidates` — the concrete next step and where to read its contract. |
 
-`report.show()` groups multiple `runtime_preview_missing` warnings into one batch
-repair hint while `report.warnings` retains per-ref detail. `report.to_dict()`
-returns the full machine list; `report.contract()` exposes one batch `preview`
-transition when preview evidence is missing. Certified roots remain available
-through `analysis_ready_inputs`; `analysis_ready_refs` is the refs-only projection.
+`report.show()` renders true warnings and advisories separately. Missing snapshot
+and runtime-preview evidence is aggregated by evidence root: one issue carries
+all affected semantic refs and one repair hint, preventing per-ref warning floods.
+`report.to_dict()` returns the same grouped machine list; `report.contract()`
+exposes one batch `preview` transition when preview evidence is missing.
+Certified roots remain available through `analysis_ready_inputs`;
+`analysis_ready_refs` is the refs-only projection.
 
 Optional `guardrails` enrichment is reported by readiness and richness; it does
 not block certification.
@@ -138,8 +142,8 @@ not block certification.
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
-| `snapshot_missing` | warning | No structurally matching datasource snapshot metadata exists for an executable ref. The semantic definition remains analysis-ready when no blocker exists; expiration alone never triggers this issue. | This warning does not require another read. Acquire a matching scoped snapshot only when the caller's remaining data-access budget permits and no acquisition blocker has reached its stop boundary; otherwise report runtime evidence as unavailable. |
-| `runtime_preview_missing` | warning | No v1 preview check matches the exact ref payload, catalog definition fingerprint, semantic dependency digest, entity-snapshot bindings, and backend. Expiration alone never triggers this issue. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
+| `snapshot_missing` | advisory | One evidence root has no structurally matching datasource snapshot metadata; one issue includes every affected semantic ref. The definition remains analysis-ready when no blocker exists. | This advisory does not require another read. Acquire a matching scoped snapshot only when the caller's remaining data-access budget permits and no acquisition blocker has reached its stop boundary; otherwise report runtime evidence as unavailable. |
+| `runtime_preview_missing` | advisory | One evidence root has no matching preview check for the exact ref payload, catalog definition fingerprint, semantic dependency digest, entity-snapshot bindings, and backend. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
 
 ## Scope the check
 
@@ -169,10 +173,10 @@ how analysis records what it concludes, see [Evidence](/docs/latest/concepts/evi
 
 When readiness is not blocked, `analysis_ready_inputs` contains the directly
 requested refs and runtime expressions whose dependency closures have no
-blocker. `analysis_ready_refs` remains the refs-only projection. Warnings remain
-visible on the same report and must be disclosed before the caller chooses to
-proceed. `snapshot_missing` and `runtime_preview_missing` warnings do not stop
-routine analysis. There is no second transfer object.
+blocker. `analysis_ready_refs` remains the refs-only projection. Warnings and
+advisories remain visible on the same report and should be disclosed before the
+caller chooses to proceed. `snapshot_missing` and `runtime_preview_missing`
+advisories do not stop routine analysis. There is no second transfer object.
 
 ```python
 import marivo.semantic as ms
@@ -187,4 +191,5 @@ ready_inputs = report.analysis_ready_inputs
 ```
 
 Readiness remains explicit: analysis operators do not run it automatically.
-Pass only the listed inputs to the ordinary analysis APIs after handling warnings.
+Pass only the listed inputs to the ordinary analysis APIs after handling warnings
+and acknowledging advisories.

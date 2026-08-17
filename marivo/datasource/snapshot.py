@@ -57,6 +57,11 @@ _DISPLAY_SAMPLE_CAPACITY = 10
 JsonScalar: TypeAlias = str | int | float | bool | None
 
 
+def _null_rate_text(null_count: int, row_count: int) -> str:
+    rate = 0.0 if row_count == 0 else null_count / row_count
+    return f"{rate:.2%}"
+
+
 @dataclass(frozen=True)
 class SnapshotCoverage:
     observed_row_count: int
@@ -64,7 +69,7 @@ class SnapshotCoverage:
     scope_exhaustion: Literal["exhaustive", "truncated"]
     scope_exactness: Literal["scope_exact", "sample_only"]
     sampling_method: Literal["first_rows_limit"]
-    pushed_predicate: tuple[tuple[str, str], ...]
+    pushed_predicate: tuple[tuple[str, ...], ...]
 
 
 @dataclass(frozen=True)
@@ -190,12 +195,13 @@ class DiscoverySnapshot(RenderableResult):
                 "only missing columns, missing retained values, stale evidence, or identity mismatch",
             )
             .table(
-                columns=("column", "type", "nulls", "distinct"),
+                columns=("column", "type", "nulls", "null_rate", "distinct"),
                 rows=(
                     (
                         profile.name,
                         profile.data_type,
                         str(profile.sample_null_count),
+                        _null_rate_text(profile.sample_null_count, profile.sample_row_count),
                         str(profile.sample_distinct_count),
                     )
                     for profile in self.profiles
@@ -694,9 +700,27 @@ def acquire_snapshot(
                 received=failure.identity,
                 scope_state=inspection.partitioning.state,
             ) from exc
-        pushed_predicate = scope.values if isinstance(scope, PartitionScope) else ()
-        for column, value in pushed_predicate:
-            expression = expression.filter(expression[column] == value)
+        pushed_predicate: tuple[tuple[str, ...], ...]
+        if isinstance(scope, PartitionScope) and scope._time_range is not None:
+            time_predicate = scope._time_range
+            expression = expression.filter(
+                (expression[time_predicate.column] >= time_predicate.start)
+                & (expression[time_predicate.column] < time_predicate.end)
+            )
+            pushed_predicate = (
+                (
+                    "time_range",
+                    time_predicate.column,
+                    time_predicate.start.isoformat(),
+                    time_predicate.end.isoformat(),
+                ),
+            )
+        elif isinstance(scope, PartitionScope):
+            pushed_predicate = tuple(("eq", column, value) for column, value in scope.values)
+            for column, value in scope.values:
+                expression = expression.filter(expression[column] == value)
+        else:
+            pushed_predicate = ()
         expression = expression.select(*columns).limit(scope.max_rows + 1)
         try:
             with timeout(backend, scope.timeout_seconds):

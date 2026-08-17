@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from datetime import datetime
 
 import ibis
 import ibis.expr.types as ir
@@ -224,3 +225,29 @@ def test_real_duckdb_executes_projected_aliases_and_outer_filter() -> None:
         assert math.isnan(rows[0]["nullable_value"])
     finally:
         backend.disconnect()
+
+
+def test_clickhouse_compiles_half_open_range_outside_projected_source() -> None:
+    backend = _RecordingBackend("clickhouse")
+    source = md.table(
+        "events",
+        columns={
+            "ts": md.source_column("event.ts", data_type="timestamp"),
+            "value": md.source_column("payload.value", data_type="string"),
+        },
+    )
+
+    table = table_source_expression(backend, source)
+    expression = (
+        table.filter((table.ts >= datetime(2026, 8, 1)) & (table.ts < datetime(2026, 8, 2)))
+        .select("value")
+        .limit(10)
+    )
+    compiled = ibis.to_sql(expression, dialect="clickhouse")
+
+    assert backend.sql_calls[0][0] == (
+        "SELECT `event.ts` AS `ts`, `payload.value` AS `value` FROM `events`"
+    )
+    assert '"t0"."ts" >= parseDateTimeBestEffort' in compiled
+    assert '"t0"."ts" < parseDateTimeBestEffort' in compiled
+    assert compiled.index("WHERE") < compiled.index("LIMIT")

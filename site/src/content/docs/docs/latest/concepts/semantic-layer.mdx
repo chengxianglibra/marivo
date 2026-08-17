@@ -900,9 +900,9 @@ loading and certification answer different questions. Analysis APIs load,
 resolve, plan, and runtime-check their inputs without invoking readiness
 automatically. Repair a blocked report before declaring the semantic change
 complete; routine analysis of unchanged objects does not rerun readiness before
-every call. Missing or stale runtime preview certification appears as a warning,
-not a blocker: disclose it for routine analysis and repair it before authoring
-closeout.
+every call. Missing or stale runtime preview certification appears as an
+advisory, not a blocker or true warning: disclose it for routine analysis and
+repair it before authoring closeout.
 :::
 
 Two more checks support authoring:
@@ -1171,12 +1171,37 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
+For a date or timestamp window, reuse the same bounded scope type:
+
+```python
+scope = md.time_range(
+    "created_at",
+    start="2026-07-10T00:00:00+00:00",
+    end="2026-07-11T00:00:00+00:00",
+    max_rows=1000,
+    timeout_seconds=30,
+)
+```
+
+The predicate is half-open (`[start, end)`). Bounds must use the same date or
+datetime kind and the same timezone awareness; aware datetimes are canonicalized
+to UTC. A projected source must expose the range column. Unlike equality
+partition scopes, time ranges can bound a transformed temporal partition.
+
 Inspection is metadata-only and reports schema, physical extent, partition state,
 and enforceable capabilities before sampling. Scope requires positive row and
 timeout guards plus explicit columns. `LIMIT` does not guarantee bytes scanned.
 For a ClickHouse `Distributed` source, local `system.parts` observations are
 shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 `unknown`, and Marivo does not issue a cluster-wide fanout query.
+
+ClickHouse inspection also lists safe adapter-only physical columns under
+`projectable_columns`. The table is bounded and each row includes a copyable
+`md.source_column(...)` declaration using the exact physical name and normalized
+type. Columns whose active parts disagree on type, or whose backend type cannot
+be parsed, are warned about and omitted. This does not enumerate dynamic MapV2
+keys: an unmaterialized key must be materialized upstream, exposed through a
+database view, or used only through terminal `md.raw_sql(...)`.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)` and `md.csv(...)` are
@@ -1277,6 +1302,12 @@ when rendering is bounded. Values are memory-only by default; use
 `persist_values=True` only when bounded plaintext project-local caching is
 acceptable. Uncommon formats, keys, timezone, aggregation, unit, additivity,
 relationship cardinality, and business meaning remain agent-owned.
+
+Evidence cards derive null rates from the bounded row and null counts. If a
+dimension or values sample contains `NULL`, the existing evidence judgment asks
+for `null_semantics` in `ai_context.guardrails`. Explain whether `NULL` means an
+inapplicable event branch, an unknown value, or something else. Marivo neither
+labels a high null rate as a quality failure nor filters nulls automatically.
 
 Inspection cards include the exact source descriptor and real schema names and
 types. Partition cards report the captured value source, completeness,

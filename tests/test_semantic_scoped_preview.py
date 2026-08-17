@@ -690,7 +690,7 @@ def test_readiness_reports_preview_advisory_only_for_direct_executable_refs(
         issue for issue in report.warnings if issue.kind == "runtime_preview_missing"
     ]
     assert [issue.refs for issue in preview_warnings] == [("sales.revenue",)]
-    assert preview_warnings[0].severity == "warning"
+    assert preview_warnings[0].severity == "advisory"
     assert preview_warnings[0].repair is not None
     assert preview_warnings[0].repair.kind == "repreview"
     assert report.catalog_definition_fingerprint == catalog.definition_fingerprint
@@ -764,14 +764,14 @@ def test_readiness_snapshot_missing_emits_only_exact_inspection_call(
     report = catalog.readiness(refs=[catalog.require(ms.ref.metric("sales.revenue")).ref])
 
     warning = next(issue for issue in report.warnings if issue.kind == "snapshot_missing")
-    assert warning.severity == "warning"
+    assert warning.severity == "advisory"
     assert warning.refs == ("sales.revenue",)
     assert warning.repair is not None
     assert warning.repair.kind == "reacquire"
     assert "does not require another read" in warning.repair.action
     assert "remaining data-access budget" in warning.repair.action
     assert "stop boundary" in warning.repair.action
-    assert report.status == "ready_with_warnings"
+    assert report.status == "ready"
     assert report.analysis_ready_refs == (ms.ref.metric("sales.revenue"),)
     assert report.preview_required_refs == ()
     assert query_spy.user_data_queries == 0
@@ -929,7 +929,7 @@ def test_readiness_rejects_tampered_persisted_evidence_without_query(
         if issue.kind in {"snapshot_missing", "runtime_preview_missing"}
     ]
     assert evidence_issues
-    assert all(issue.severity == "warning" for issue in evidence_issues)
+    assert all(issue.severity == "advisory" for issue in evidence_issues)
     assert query_spy.user_data_queries == 0
 
 
@@ -974,7 +974,7 @@ def test_readiness_rejects_tampered_evidence_timestamps_without_query(
         if issue.kind in {"snapshot_missing", "runtime_preview_missing"}
     ]
     assert evidence_issues
-    assert all(issue.severity == "warning" for issue in evidence_issues)
+    assert all(issue.severity == "advisory" for issue in evidence_issues)
     assert query_spy.user_data_queries == 0
 
 
@@ -1020,9 +1020,11 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
     missing = catalog.readiness(refs=refs)
 
     assert [ref.path for ref in missing.preview_required_refs] == [ref.path for ref in refs]
-    assert len(
-        [issue for issue in missing.warnings if issue.kind == "runtime_preview_missing"]
-    ) == len(refs)
+    preview_advisories = [
+        issue for issue in missing.warnings if issue.kind == "runtime_preview_missing"
+    ]
+    assert len(preview_advisories) == 1
+    assert preview_advisories[0].refs == tuple(ref.path for ref in refs)
     assert missing.render().count("runtime_preview_missing:") == 1
     preview_transitions = [
         transition for transition in missing.contract().transitions if transition.kind == "preview"

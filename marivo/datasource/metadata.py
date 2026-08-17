@@ -38,6 +38,9 @@ MetadataWarningKind = Literal[
     "projected_partition_unavailable",
     "projected_constraint_incomplete",
     "partition_state_unknown",
+    "projectable_columns_unavailable",
+    "projectable_column_type_conflict",
+    "projectable_column_type_unparsed",
 ]
 
 RowCountKind = Literal["estimate", "metadata", "unknown"]
@@ -168,6 +171,7 @@ class TableMetadata(RenderableResult):
     columns: tuple[ColumnMetadata, ...]
     partitions: tuple[PartitionMetadata, ...]
     warnings: tuple[MetadataWarning, ...]
+    projectable_columns: tuple[ColumnMetadata, ...] = ()
     partition_state: Literal["known", "none", "unknown"] = "unknown"
     is_view: bool = False
     view_definition: str | None = None
@@ -224,6 +228,20 @@ class TableMetadata(RenderableResult):
             rows_provider=column_rows,
             row_count=len(self.columns),
         )
+        if self.projectable_columns:
+            card.lazy_table(
+                columns=["physical column", "ibis type", "nullable"],
+                rows_provider=lambda: (
+                    (
+                        column.name,
+                        column.type,
+                        "Y" if column.nullable else ("N" if column.nullable is False else "?"),
+                    )
+                    for column in self.projectable_columns
+                ),
+                row_count=len(self.projectable_columns),
+                label="projectable physical columns",
+            )
         if self.partitions:
             partition_columns = ", ".join(partition.name for partition in self.partitions)
             partition_values = ", ".join(
@@ -251,6 +269,7 @@ class TableMetadata(RenderableResult):
             "backend_type": self.backend_type,
             "comment": self.comment,
             "columns": [column.to_dict() for column in self.columns],
+            "projectable_columns": [column.to_dict() for column in self.projectable_columns],
             "partitions": [partition.to_dict() for partition in self.partitions],
             "partition_state": self.partition_state,
             "warnings": [warning.to_dict() for warning in self.warnings],

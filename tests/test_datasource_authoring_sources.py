@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 import pytest
 
 import marivo.datasource as md
@@ -133,6 +135,51 @@ def test_authoring_scopes_require_explicit_positive_guards() -> None:
     ):
         with pytest.raises((TypeError, ValueError)):
             factory()
+
+
+def test_time_range_reuses_partition_scope_and_normalizes_iso_boundaries() -> None:
+    date_scope = md.time_range(
+        "event_date",
+        start="2026-08-01",
+        end="2026-08-02",
+        max_rows=1000,
+        timeout_seconds=30,
+    )
+    aware_scope = md.time_range(
+        "occurred_at",
+        start="2026-08-01T08:00:00+08:00",
+        end="2026-08-02T08:00:00+08:00",
+        max_rows=1000,
+        timeout_seconds=30,
+    )
+
+    assert isinstance(date_scope, md.PartitionScope)
+    assert date_scope.values == ()
+    assert date_scope._time_range is not None
+    assert date_scope._time_range.start == date(2026, 8, 1)
+    assert aware_scope._time_range is not None
+    assert aware_scope._time_range.start == datetime(2026, 8, 1, tzinfo=UTC)
+    assert aware_scope._time_range.end == datetime(2026, 8, 2, tzinfo=UTC)
+    assert "time_range" in repr(date_scope)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ("2026-08-02", "2026-08-01"),
+        ("2026-08-01", "2026-08-01T01:00:00"),
+        ("2026-08-01T00:00:00", "2026-08-02T00:00:00Z"),
+    ],
+)
+def test_time_range_rejects_invalid_or_mixed_boundaries(start: str, end: str) -> None:
+    with pytest.raises(ValueError):
+        md.time_range(
+            "timestamp",
+            start=start,
+            end=end,
+            max_rows=1000,
+            timeout_seconds=30,
+        )
 
 
 def test_source_module_owns_concrete_scope_types() -> None:

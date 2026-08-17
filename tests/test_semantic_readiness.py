@@ -795,10 +795,58 @@ def test_readiness_does_not_require_internal_audit_decisions(semantic_project_fa
     )
 
     report = project.readiness()
-    assert report.status == "ready_with_warnings"
+    assert report.status == "ready"
     assert not report.blockers
     assert "snapshot_missing" in _issue_kinds(report.warnings)
+    assert all(issue.severity == "advisory" for issue in report.warnings)
     assert ms.ref.metric("sales.revenue") in report.analysis_ready_refs
+
+
+def test_snapshot_missing_is_one_advisory_per_shared_evidence_root(
+    semantic_project_factory,
+) -> None:
+    dimensions = "\n".join(
+        (
+            f'dimension_{index} = ms.dimension_column(name="dimension_{index}", '
+            'entity=orders, column="payload", '
+            'ai_context=ms.ai_context(business_definition="Governed payload label.", '
+            'guardrails=["Interpret NULL according to the documented source branch."]))'
+        )
+        for index in range(399)
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": textwrap.dedent(
+                """\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                ms.domain(name="sales", owner="Mina Zhang")
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                    ai_context=ms.ai_context(
+                        business_definition="One row per governed event.",
+                        guardrails=["Exclude test events."],
+                    ),
+                )
+                """
+            )
+            + dimensions,
+        }
+    )
+    refs = tuple(f"sales.orders.dimension_{index}" for index in range(399))
+
+    report = project.readiness(refs=refs)
+
+    snapshot_issues = [issue for issue in report.warnings if issue.kind == "snapshot_missing"]
+    assert report.status == "ready"
+    assert len(snapshot_issues) == 1
+    assert snapshot_issues[0].severity == "advisory"
+    assert len(snapshot_issues[0].refs) == 399
+    assert len(snapshot_issues[0].details["evidence_roots"]) == 1
+    assert len(report.analysis_ready_refs) == 399
 
 
 # -- enrichment predicates ---------------------------------------------------

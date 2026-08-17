@@ -72,6 +72,7 @@ Scope helpers
    :nosignatures:
 
    partition
+   time_range
    unpruned
 
 Description

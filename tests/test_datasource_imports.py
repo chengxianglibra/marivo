@@ -148,6 +148,7 @@ def test_datasource_public_exports() -> None:
         "inspect",
         "raw_sql",
         "partition",
+        "time_range",
         "unpruned",
         "load",
         "table",

@@ -115,7 +115,17 @@ class PartitionInspection(RenderableResult):
         card.field("value source", self.partitioning.value_source or "none")
         card.field("values complete", str(self.partitioning.values_complete))
         card.field("values truncated", str(self.partitioning.truncated))
-        if self.partitioning.values:
+        range_field = _time_range_partition_field(self.partitioning)
+        if range_field is not None:
+            card.field(
+                "scope template",
+                (
+                    f"md.time_range({range_field.name!r}, start=<inclusive ISO boundary>, "
+                    "end=<exclusive ISO boundary>, max_rows=<positive int>, "
+                    "timeout_seconds=<positive int>)"
+                ),
+            )
+        elif self.partitioning.values:
             card.table(
                 columns=("captured partition",),
                 rows=((repr(dict(value)),) for value in self.partitioning.values),
@@ -153,6 +163,10 @@ class PartitionInspection(RenderableResult):
             source=self.source,
             partition_state=self.partitioning.state,
             partition_fields=tuple(field.name for field in self.partitioning.fields),
+            time_range_available=any(
+                field.type is not None and _is_temporal_type(field.type)
+                for field in self.partitioning.fields
+            ),
         )
 
 
@@ -166,11 +180,13 @@ class SourceInspection(RenderableResult):
     schema: tuple[ColumnMetadata, ...]
     warnings: tuple[str, ...]
     _project_root: Path
+    projectable_columns: tuple[ColumnMetadata, ...] = ()
 
     def _repr_identity(self) -> str:
         return (
             f"SourceInspection datasource={self.datasource.path} source={self.source.kind} "
-            f"columns={len(self.schema)} partition_state={self.partitioning.state}"
+            f"columns={len(self.schema)} projectable={len(self.projectable_columns)} "
+            f"partition_state={self.partitioning.state}"
         )
 
     def _card(self) -> Card:
@@ -252,6 +268,22 @@ class SourceInspection(RenderableResult):
             row_count=len(self.schema),
             label="schema",
         )
+        if self.projectable_columns:
+            card.table(
+                columns=("physical column", "ibis type", "nullable", "binding"),
+                rows=(
+                    (
+                        column.name,
+                        column.type,
+                        "?" if column.nullable is None else ("Y" if column.nullable else "N"),
+                        f"md.source_column({column.name!r}, data_type={column.type!r})",
+                    )
+                    for column in self.projectable_columns
+                ),
+                row_count=len(self.projectable_columns),
+                label="projectable physical columns",
+                show_omission_counts=True,
+            )
         if self.warnings:
             card.listing("warnings", self.warnings)
         return card
@@ -263,6 +295,10 @@ class SourceInspection(RenderableResult):
             source=self.source,
             partition_state=self.partitioning.state,
             partition_fields=tuple(field.name for field in self.partitioning.fields),
+            time_range_available=(
+                self.execution_capabilities.partition_predicate_supported
+                and any(_is_temporal_type(column.type) for column in self.schema)
+            ),
         )
 
     def partitions(self) -> PartitionInspection:
@@ -358,7 +394,7 @@ def _preflight_sample(
         raise TypeError("scope must be md.PartitionScope or md.UnprunedScope.")
     _validate_scope_values(scope)
 
-    if state == "unknown" and isinstance(scope, PartitionScope):
+    if state == "unknown" and isinstance(scope, PartitionScope) and scope._time_range is None:
         raise _authoring_error(
             code="partition_state_unknown",
             stage="preflight",
@@ -371,7 +407,8 @@ def _preflight_sample(
     transformed = tuple(
         field.name for field in inspection.partitioning.fields if field.transform is not None
     )
-    if transformed:
+    time_predicate = scope._time_range if isinstance(scope, PartitionScope) else None
+    if transformed and time_predicate is None:
         raise _authoring_error(
             code="transformed_partition_unsupported",
             stage="preflight",
@@ -381,7 +418,42 @@ def _preflight_sample(
             scope_state=state,
         )
 
-    if isinstance(scope, PartitionScope):
+    if time_predicate is not None:
+        time_column = next(
+            (column for column in inspection.schema if column.name == time_predicate.column),
+            None,
+        )
+        if time_column is None:
+            raise _authoring_error(
+                code="unknown_source_column",
+                stage="preflight",
+                expected="a temporal output column from the inspected source schema",
+                received=time_predicate.column,
+                reason=(
+                    f"time-range column {time_predicate.column!r} is not exposed by the "
+                    "inspected source; add its projected output binding before acquisition"
+                ),
+                scope_state=state,
+            )
+        if not _is_temporal_type(time_column.type):
+            raise _authoring_error(
+                code="unknown_source_column",
+                stage="preflight",
+                expected="an inspected date or timestamp column",
+                received=f"{time_predicate.column}: {time_column.type}",
+                reason="md.time_range(...) can only filter a date or timestamp column",
+                scope_state=state,
+            )
+        if not inspection.execution_capabilities.partition_predicate_supported:
+            raise _authoring_error(
+                code="partition_predicate_unsupported",
+                stage="preflight",
+                expected="an adapter with predicate pushdown",
+                received="range predicate unsupported",
+                reason="the adapter cannot push down the requested time-range predicate",
+                scope_state=state,
+            )
+    elif isinstance(scope, PartitionScope):
         expected_fields = tuple(field.name for field in inspection.partitioning.fields)
         received_fields = tuple(name for name, _value in scope.values)
         if (
@@ -439,6 +511,15 @@ def _validate_scope_values(scope: AuthoringScope) -> None:
             raise ValueError(f"{field} must be a positive integer.")
     if not isinstance(scope, PartitionScope):
         return
+    if scope._time_range is not None:
+        if scope.values:
+            raise ValueError("PartitionScope cannot combine partition values and a time range.")
+        predicate = scope._time_range
+        if not predicate.column:
+            raise ValueError("PartitionScope time-range column must be non-empty.")
+        if type(predicate.start) is not type(predicate.end) or predicate.start >= predicate.end:
+            raise ValueError("PartitionScope time-range boundaries are invalid.")
+        return
     if type(scope.values) is not tuple:
         raise TypeError("PartitionScope.values must be tuple[tuple[str, str], ...].")
     if not scope.values:
@@ -459,9 +540,34 @@ def _partition_issues(partitioning: Partitioning) -> tuple[str, ...]:
         issues.append("partition state is unknown")
     if partitioning.state == "known" and not partitioning.values_complete:
         issues.append("partition values are incomplete")
-    if any(field.transform is not None for field in partitioning.fields):
+    if (
+        any(field.transform is not None for field in partitioning.fields)
+        and _time_range_partition_field(partitioning) is None
+    ):
         issues.append("transformed partition fields are not expressible in V1")
     return tuple(issues)
+
+
+def _is_temporal_type(type_name: str) -> bool:
+    try:
+        dtype = ibis.dtype(type_name)
+    except (TypeError, ValueError):
+        try:
+            from ibis.backends.sql.datatypes import ClickHouseType
+
+            dtype = ClickHouseType.from_string(type_name)
+        except (TypeError, ValueError):
+            return False
+    return bool(dtype.is_date() or dtype.is_timestamp())
+
+
+def _time_range_partition_field(partitioning: Partitioning) -> PartitionMetadata | None:
+    transformed = tuple(
+        field
+        for field in partitioning.fields
+        if field.transform is not None and field.type is not None and _is_temporal_type(field.type)
+    )
+    return transformed[0] if len(transformed) == 1 and len(partitioning.fields) == 1 else None
 
 
 def _physical_extent(profile: TablePhysicalProfile | None) -> PhysicalExtent:
@@ -645,7 +751,9 @@ def _mapped_constraint_columns(
 
 
 def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> TableMetadata:
-    catalog_columns = {column.name: column for column in metadata.columns}
+    catalog_columns = {
+        column.name: column for column in (*metadata.columns, *metadata.projectable_columns)
+    }
     source_to_output = {binding.source: output for output, binding in source.columns}
     columns: list[ColumnMetadata] = []
     warnings = list(metadata.warnings)
@@ -1163,4 +1271,5 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         schema=metadata.columns,
         warnings=warnings,
         _project_root=project_root,
+        projectable_columns=metadata.projectable_columns,
     )

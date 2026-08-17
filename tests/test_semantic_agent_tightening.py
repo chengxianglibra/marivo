@@ -16,6 +16,7 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
         "UnprunedScope",
         "SourceInspection",
         "DiscoverySnapshot",
+        "time_range",
         "raw_sql",
     ):
         assert name in datasource_text, f"datasource help missing {name}"
