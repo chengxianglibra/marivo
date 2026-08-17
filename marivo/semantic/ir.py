@@ -25,6 +25,7 @@ from marivo.datasource.ir import (
     JsonSourceIR,
     ParquetSourceIR,
     SourceParamIR,
+    TableColumnBindingIR,
     TableSourceIR,
     json_body_to_string,
     source_name,
@@ -217,6 +218,50 @@ def _source_schema_from_dict(value: object, *, field_name: str) -> tuple[tuple[s
     return tuple(normalized)
 
 
+def _table_columns_from_dict(
+    value: object,
+) -> tuple[tuple[str, TableColumnBindingIR], ...]:
+    if not isinstance(value, Mapping):
+        raise TypeError("TableSourceIR.columns must be a mapping.")
+    if not value:
+        raise ValueError("TableSourceIR.columns must contain at least one binding.")
+
+    normalized: list[tuple[str, TableColumnBindingIR]] = []
+    expected_keys = {"source", "data_type"}
+    for output_name, raw_binding in value.items():
+        if not isinstance(output_name, str):
+            raise TypeError("TableSourceIR.columns output names must be strings.")
+        if not isinstance(raw_binding, Mapping):
+            raise TypeError(
+                "TableSourceIR.columns values must be mappings with source and data_type."
+            )
+        received_keys = set(raw_binding)
+        if received_keys != expected_keys:
+            missing = sorted(expected_keys - received_keys)
+            unknown = sorted(str(key) for key in received_keys - expected_keys)
+            details = []
+            if missing:
+                details.append(f"missing keys {missing!r}")
+            if unknown:
+                details.append(f"unknown keys {unknown!r}")
+            raise ValueError(
+                f"TableSourceIR.columns binding for {output_name!r} has "
+                + " and ".join(details)
+                + "."
+            )
+        source = raw_binding["source"]
+        data_type = raw_binding["data_type"]
+        if not isinstance(source, str) or not isinstance(data_type, str):
+            raise TypeError("TableSourceIR.columns binding source and data_type must be strings.")
+        normalized.append(
+            (
+                output_name,
+                TableColumnBindingIR(source=source, data_type=data_type),
+            )
+        )
+    return tuple(normalized)
+
+
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
@@ -228,7 +273,12 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             database = None
         else:
             database = str(raw_database)
-        return TableSourceIR(table=str(data["table"]), database=database)
+        table_columns = _table_columns_from_dict(data["columns"]) if "columns" in data else ()
+        return TableSourceIR(
+            table=str(data["table"]),
+            database=database,
+            columns=table_columns,
+        )
     if kind == "parquet":
         raw_columns = data.get("columns")
         columns = tuple(str(col) for col in raw_columns) if isinstance(raw_columns, list) else None

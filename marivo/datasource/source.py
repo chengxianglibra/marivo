@@ -15,6 +15,7 @@ from marivo.datasource.ir import (
     JsonSourceIR,
     ParquetSourceIR,
     SourceParamIR,
+    TableColumnBindingIR,
     TableSourceIR,
     normalize_json_body,
 )
@@ -148,7 +149,33 @@ def source_param(name: str, /) -> SourceParamIR:
     return SourceParamIR(name=name)
 
 
-def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
+def source_column(name: str, /, *, data_type: str) -> TableColumnBindingIR:
+    """Declare one typed physical identifier for a table column binding.
+
+    Args:
+        name: One complete physical identifier, quoted atomically at runtime.
+        data_type: Non-empty Ibis type string asserted for the projected output.
+
+    Returns:
+        A frozen ``TableColumnBindingIR`` for use in ``md.table(columns=...)``.
+
+    Example:
+        ``md.source_column("event.timestamp", data_type="timestamp(3)")``
+
+    Constraints:
+        The name is an identifier, not an SQL expression. The declared type
+        supplies the output schema and does not cast the physical value.
+    """
+    return TableColumnBindingIR(source=name, data_type=data_type)
+
+
+def table(
+    name: str,
+    /,
+    *,
+    database: str | tuple[str, ...] | None = None,
+    columns: Mapping[str, TableColumnBindingIR] | None = None,
+) -> TableSourceIR:
     """Build a physical table source descriptor.
 
     This descriptor identifies an internal table or view; it is not a datasource declaration.
@@ -156,17 +183,32 @@ def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> Tab
     Args:
         name: Table or view name inside the datasource.
         database: Optional database/catalog name or namespace tuple.
+        columns: Optional complete output-name to typed physical-column mapping.
 
     Returns:
         A validated ``TableSourceIR``.
 
     Example:
-        ``md.table("orders", database="sales")``
+        ``md.table("orders", database="sales")`` or
+        ``md.table("events", columns={"event_time": md.source_column("event.timestamp", data_type="timestamp")})``
 
     Constraints:
-        The name and any database namespace parts must be non-empty.
+        The name and any database namespace parts must be non-empty. When
+        ``columns`` is supplied, it must be non-empty and every output must use
+        one unique ``TableColumnBindingIR`` physical source.
     """
-    return TableSourceIR(table=name, database=database)
+    if columns is None:
+        normalized_columns: tuple[tuple[str, TableColumnBindingIR], ...] = ()
+    else:
+        if not isinstance(columns, Mapping):
+            raise TypeError(
+                "md.table(columns=...) must be a mapping of output names to "
+                f"TableColumnBindingIR values, got {type(columns).__name__}."
+            )
+        if not columns:
+            raise ValueError("md.table(columns=...) must contain at least one binding.")
+        normalized_columns = tuple(columns.items())
+    return TableSourceIR(table=name, database=database, columns=normalized_columns)
 
 
 def parquet(

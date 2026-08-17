@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import PurePath
 
+from marivo.datasource.ir import TableSourceIR
 from marivo.refs import Ref, RefPayloadV1, SemanticKindTag
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 
@@ -25,6 +26,8 @@ def _canonical(value: object) -> object:
         return value.value
     if isinstance(value, PurePath):
         raise TypeError("absolute filesystem paths are not semantic definition identity")
+    if type(value) is TableSourceIR:
+        return _canonical(value.to_dict())
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {
             field.name: _canonical(getattr(value, field.name))
