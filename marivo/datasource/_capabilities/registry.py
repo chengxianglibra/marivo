@@ -35,6 +35,9 @@ INPUT_FAMILIES = frozenset(
         "DatasourceCatalog",
         "DatasourceConnection",
         "TableSource",
+        "TableColumnBindings",
+        "PhysicalColumnName",
+        "IbisDataType",
         "PartitionScope",
         "UnprunedScope",
         "AuthoringScope",
@@ -69,6 +72,7 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceConnection",
         "DatasourceTestResult",
         "TableSource",
+        "TableColumnBinding",
         "SourceParameter",
         "PartitionScope",
         "UnprunedScope",
@@ -321,12 +325,43 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             produced_state="datasource.connection_validated",
         ),
         _capability(
+            "source_column",
+            "marivo.datasource.source.source_column",
+            "Declare one typed identifier-only physical table column; the type asserts schema without casting.",
+            output="TableColumnBinding",
+            inputs=_inputs(
+                ("subject", "PhysicalColumnName"),
+                ("dependency", "IbisDataType"),
+            ),
+            constraints=(
+                "table_column_bindings_closed",
+                "table_column_type_assertion",
+                "projected_source_runtime_evidence",
+            ),
+            example='md.source_column("event.timestamp", data_type="timestamp(3)")',
+            see_also=(_target("table"), _target("inspect"), _target("raw_sql")),
+        ),
+        _capability(
             "table",
             "marivo.datasource.source.table",
-            "Build a physical table source descriptor.",
+            "Build either a catalog-backed table or a complete typed column-binding table source.",
             output="TableSource",
-            inputs=_inputs(("subject", "TableName")),
-            example='md.table("orders")',
+            inputs=(
+                *_inputs(("subject", "TableName")),
+                _optional_input("dependency", "TableColumnBindings"),
+            ),
+            constraints=(
+                "table_column_bindings_closed",
+                "table_column_type_assertion",
+                "projected_source_runtime_evidence",
+            ),
+            example=(
+                'catalog_source = md.table("orders")\n'
+                'projected_source = md.table("events", columns={\n'
+                '    "event_time": md.source_column("event.timestamp", data_type="timestamp"),\n'
+                "})"
+            ),
+            see_also=(_target("source_column"), _target("inspect"), _target("raw_sql")),
         ),
         _capability(
             "parquet",
@@ -683,7 +718,14 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "connect",
                 "test",
             ),
-            "physical_sources": ("table", "parquet", "csv", "source_param", "json"),
+            "physical_sources": (
+                "source_column",
+                "table",
+                "parquet",
+                "csv",
+                "source_param",
+                "json",
+            ),
             "inspect_scope": ("inspect", "SourceInspection.partitions", "partition", "unpruned"),
             "acquire_project": (
                 "SourceInspection.sample",
@@ -742,6 +784,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         JsonSourceIR,
         ParquetSourceIR,
         SourceParamIR,
+        TableColumnBindingIR,
         TableSourceIR,
     )
     from marivo.datasource.manage import (
@@ -871,9 +914,20 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             source_type,
             source_type.__name__,
             (source_type.__name__.removesuffix("SourceIR").lower(),),
-            properties=("kind",),
+            properties=(
+                ("kind", "table", "database", "columns")
+                if source_type is TableSourceIR
+                else ("kind",)
+            ),
             consumers=("inspect",),
         )
+    add(
+        TableColumnBindingIR,
+        "TableColumnBindingIR",
+        ("source_column",),
+        properties=("source", "data_type"),
+        consumers=("table",),
+    )
     add(
         SourceParamIR,
         "SourceParamIR",

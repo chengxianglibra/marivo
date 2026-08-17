@@ -52,6 +52,26 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
             ("Entrypoint: md.source_param", "Signature:", "Output family: SourceParameter"),
         ),
         (
+            "source_column",
+            (
+                "Entrypoint: md.source_column",
+                "identifier-only",
+                "asserts schema without casting",
+                "arbitrary SQL remains terminal through md.raw_sql",
+                "inspection is metadata-only",
+                "bounded runtime evidence",
+            ),
+        ),
+        (
+            "table",
+            (
+                "columns: 'Mapping[str, TableColumnBindingIR] | None'",
+                'catalog_source = md.table("orders")',
+                'md.source_column("event.timestamp"',
+                "complete identifier-only bindings",
+            ),
+        ),
+        (
             "json",
             (
                 "query_params",
@@ -156,7 +176,13 @@ def test_help_accepts_registered_receiver_path_and_rejects_private_names() -> No
 
 
 def test_help_keeps_public_callable_signatures_authoritative() -> None:
-    for callable_target in (md.duckdb, md.partition, md.SourceInspection.sample):
+    for callable_target in (
+        md.duckdb,
+        md.source_column,
+        md.table,
+        md.partition,
+        md.SourceInspection.sample,
+    ):
         assert str(inspect.signature(callable_target)) in _text(callable_target)
 
 

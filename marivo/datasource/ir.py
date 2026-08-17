@@ -10,6 +10,8 @@ from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 
+import ibis
+
 __all__ = [
     "AiContextIR",
     "CsvSourceIR",
@@ -25,6 +27,7 @@ __all__ = [
     "ParquetSourceIR",
     "QueryParamScalar",
     "SourceParamIR",
+    "TableColumnBindingIR",
     "TableSourceIR",
     "json_body_to_string",
     "normalize_json_body",
@@ -277,24 +280,111 @@ def _validate_schema(value: object, field_name: str) -> None:
         _require_non_empty_str(type_name, f"{field_name} type name")
 
 
+def _require_no_nul(value: str, field_name: str) -> None:
+    if "\x00" in value:
+        raise ValueError(f"{field_name} must not contain NUL.")
+
+
+@dataclass(frozen=True)
+class TableColumnBindingIR:
+    """One typed physical identifier in a projected table source."""
+
+    source: str
+    data_type: str
+
+    def __post_init__(self) -> None:
+        source = _require_non_empty_str(self.source, "TableColumnBindingIR.source")
+        _require_no_nul(source, "TableColumnBindingIR.source")
+        data_type = _require_non_empty_str(
+            self.data_type,
+            "TableColumnBindingIR.data_type",
+        )
+        _require_no_nul(data_type, "TableColumnBindingIR.data_type")
+        try:
+            canonical_data_type = str(ibis.dtype(data_type))
+        except (TypeError, ValueError, RuntimeError):
+            raise ValueError(
+                "TableColumnBindingIR.data_type must be a valid Ibis type string, "
+                f"got {data_type!r}."
+            ) from None
+        object.__setattr__(self, "data_type", canonical_data_type)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"source": self.source, "data_type": self.data_type}
+
+
+def _normalize_table_column_bindings(
+    value: object,
+) -> tuple[tuple[str, TableColumnBindingIR], ...]:
+    if not isinstance(value, tuple):
+        raise TypeError(
+            "TableSourceIR.columns must be "
+            "tuple[tuple[str, TableColumnBindingIR], ...], "
+            f"got {type(value).__name__}."
+        )
+
+    normalized: list[tuple[str, TableColumnBindingIR]] = []
+    output_names: set[str] = set()
+    physical_sources: set[str] = set()
+    for entry in value:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise TypeError(
+                "TableSourceIR.columns entries must be tuple[str, TableColumnBindingIR]."
+            )
+        output_name, binding = entry
+        output_name = _require_non_empty_str(
+            output_name,
+            "TableSourceIR.columns output name",
+        )
+        _require_no_nul(output_name, "TableSourceIR.columns output name")
+        if type(binding) is not TableColumnBindingIR:
+            raise TypeError(
+                "TableSourceIR.columns values must be TableColumnBindingIR, "
+                f"got {type(binding).__name__} for output {output_name!r}."
+            )
+        if output_name in output_names:
+            raise ValueError(
+                f"TableSourceIR.columns contains duplicate output name {output_name!r}."
+            )
+        if binding.source in physical_sources:
+            raise ValueError(
+                f"TableSourceIR.columns contains duplicate physical source {binding.source!r}."
+            )
+        output_names.add(output_name)
+        physical_sources.add(binding.source)
+        normalized.append((output_name, binding))
+    return tuple(sorted(normalized, key=lambda item: item[0]))
+
+
 @dataclass(frozen=True)
 class TableSourceIR:
     """Physical table source for a dataset."""
 
     table: str
     database: str | tuple[str, ...] | None = None
+    columns: tuple[tuple[str, TableColumnBindingIR], ...] = ()
     kind: Literal["table"] = "table"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.table, "TableSourceIR.table")
         _validate_database(self.database)
+        object.__setattr__(self, "columns", _normalize_table_column_bindings(self.columns))
         _require_kind(self.kind, field_name="TableSourceIR.kind", expected="table")
 
     def to_dict(self) -> dict[str, object]:
         database: str | list[str] | None = (
             list(self.database) if isinstance(self.database, tuple) else self.database
         )
-        return {"kind": self.kind, "table": self.table, "database": database}
+        result: dict[str, object] = {
+            "kind": self.kind,
+            "table": self.table,
+            "database": database,
+        }
+        if self.columns:
+            result["columns"] = {
+                output_name: binding.to_dict() for output_name, binding in self.columns
+            }
+        return result
 
     def to_ir(self) -> TableSourceIR:
         return self
@@ -496,10 +586,7 @@ def source_name(source: EntitySourceIR) -> str:
 
 def source_to_dict(source: EntitySourceIR) -> dict[str, object]:
     if isinstance(source, TableSourceIR):
-        database: str | list[str] | None = (
-            list(source.database) if isinstance(source.database, tuple) else source.database
-        )
-        return {"kind": "table", "table": source.table, "database": database}
+        return source.to_dict()
     return source.to_dict()
 
 

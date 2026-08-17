@@ -26,6 +26,7 @@ from marivo.datasource.inspection import (
     SourceInspection,
     inspect,
 )
+from marivo.datasource.ir import TableColumnBindingIR
 from marivo.datasource.manage import (
     DatasourceConnection,
     DatasourceDescription,
@@ -50,6 +51,7 @@ from marivo.datasource.source import (
     json,
     parquet,
     partition,
+    source_column,
     source_param,
     table,
     unpruned,
@@ -76,6 +78,7 @@ __all__ = [
     "PostgresSpec",
     "SQLiteSpec",
     "SourceInspection",
+    "TableColumnBindingIR",
     "TableSource",
     "TrinoSpec",
     "UnprunedScope",
@@ -95,6 +98,7 @@ __all__ = [
     "raw_sql",
     "register",
     "remove",
+    "source_column",
     "source_param",
     "sqlite",
     "table",
