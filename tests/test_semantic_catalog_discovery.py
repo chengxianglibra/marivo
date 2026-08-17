@@ -13,6 +13,7 @@ import textwrap
 
 import pytest
 
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic.catalog import (
@@ -412,6 +413,45 @@ def test_discovery_entity_details_render():
     rendered = d.render()
     assert isinstance(rendered, str)
     assert "orders" in rendered
+
+
+def test_projected_entity_details_render_is_bounded_and_recoverable():
+    source = md.table(
+        "wide_events",
+        database=("analytics", "with.dot"),
+        columns={
+            f"alias_{index:03d}": md.source_column(
+                f"physical_{index:03d}",
+                data_type="string",
+            )
+            for index in range(80)
+        },
+    )
+    details = EntityDetails(
+        ref=_make_ref("sales.wide_events", SemanticKind.ENTITY),
+        kind=SemanticKind.ENTITY,
+        name="wide_events",
+        domain="sales",
+        context=_make_ctx(),
+        source_location=_make_loc(),
+        parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
+        children=(),
+        dependents=(),
+        **_common_details_kwargs(python_symbol="wide_events"),
+        datasource=_make_ref("warehouse", SemanticKind.DATASOURCE),
+        source=source,
+        primary_key=("alias_000",),
+        versioning=None,
+    )
+
+    rendered = details.render(max_output_bytes=1500)
+
+    assert "projected_columns: 80" in rendered
+    assert "database: segments=('analytics', 'with.dot')" in rendered
+    assert "full_source: .source.to_dict()" in rendered
+    assert "column_bindings" in rendered
+    assert "total=80" in rendered
+    assert '"columns":' not in rendered
 
 
 def test_discovery_dimension_details_render():

@@ -70,10 +70,10 @@ def inspection(project_root: Path) -> SourceInspection:
 
 
 def _projected_orders_inspection(inspection: SourceInspection) -> SourceInspection:
-    """Supply Slice 3's future effective schema so Slice 2 acquisition stays isolated."""
-    return replace(
-        inspection,
-        source=md.table(
+    """Inspect the real projected schema and supply captured partition evidence."""
+    projected = md.inspect(
+        inspection.datasource,
+        md.table(
             "orders",
             columns={
                 "event_day": md.source_column("dt", data_type="string"),
@@ -81,13 +81,11 @@ def _projected_orders_inspection(inspection: SourceInspection) -> SourceInspecti
                 "value": md.source_column("amount", data_type="float64"),
             },
         ),
-        schema=(
-            ColumnMetadata("event_day", "string", False, None, 1),
-            ColumnMetadata("order_key", "string", False, None, 2),
-            ColumnMetadata("value", "float64", False, None, 3),
-        ),
+    )
+    return replace(
+        projected,
         partitioning=replace(
-            inspection.partitioning,
+            projected.partitioning,
             state="known",
             fields=(PartitionMetadata(name="event_day", type="string"),),
         ),

@@ -13,7 +13,7 @@ import ibis
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
-from marivo.datasource.errors import DatasourceMetadataError, repair
+from marivo.datasource.errors import DatasourceMetadataError, _backend_failure_summary, repair
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -33,6 +33,11 @@ MetadataWarningKind = Literal[
     "primary_keys_unavailable",
     "metadata_query_failed",
     "schema_only_fallback",
+    "base_table_metadata_unavailable",
+    "declared_column_unverified",
+    "projected_partition_unavailable",
+    "projected_constraint_incomplete",
+    "partition_state_unknown",
 ]
 
 RowCountKind = Literal["estimate", "metadata", "unknown"]
@@ -51,6 +56,15 @@ class MetadataWarning:
             "message": self.message,
             "columns": list(self.columns),
         }
+
+
+class _TableMetadataUnavailableError(Exception):
+    """Internal classified table-resolution failure for projected inspection."""
+
+    def __init__(self, *, identity: str, message: str) -> None:
+        self.identity = identity
+        self.message = message
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -515,20 +529,23 @@ def inspect_table(
             ),
         )
 
+    from marivo.datasource.engines import require_profile_for_backend_type
+    from marivo.datasource.engines.base import MetadataInspectRequest
+
+    profile = require_profile_for_backend_type(datasource_ir.backend_type)
     backend: Any = None
     try:
         try:
             backend = _backends.build_backend(datasource_ir)
-            table_expr = (
-                backend.table(table)
-                if database is None
-                else backend.table(table, database=database)
-            )
         except Exception as exc:
+            failure = _backend_failure_summary(exc)
             raise DatasourceMetadataError(
-                message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
+                message=(
+                    f"failed to connect while inspecting datasource table "
+                    f"{datasource!r}.{table!r}: {failure.message}"
+                ),
                 expected="an inspectable datasource table",
-                received=str(exc),
+                received=failure.identity,
                 location=f"md.inspect({datasource!r}, {table!r})",
                 repair=repair(
                     kind="reconnect",
@@ -538,10 +555,34 @@ def inspect_table(
             ) from exc
 
         try:
-            from marivo.datasource.engines import require_profile_for_backend_type
-            from marivo.datasource.engines.base import MetadataInspectRequest
+            table_expr = (
+                backend.table(table)
+                if database is None
+                else backend.table(table, database=database)
+            )
+        except Exception as exc:
+            failure = _backend_failure_summary(exc)
+            if profile.metadata.classify_table_resolution_failure(exc) == "metadata_unavailable":
+                raise _TableMetadataUnavailableError(
+                    identity=failure.identity,
+                    message=failure.message,
+                ) from exc
+            raise DatasourceMetadataError(
+                message=(
+                    f"failed to resolve datasource table {datasource!r}.{table!r}: "
+                    f"{failure.message}"
+                ),
+                expected="an inspectable datasource table",
+                received=failure.identity,
+                location=f"md.inspect({datasource!r}, {table!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and table name before retrying.",
+                ),
+            ) from exc
 
-            profile = require_profile_for_backend_type(datasource_ir.backend_type)
+        try:
             metadata = profile.metadata.inspect_table(
                 MetadataInspectRequest(
                     datasource=datasource,

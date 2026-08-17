@@ -18,6 +18,34 @@ if TYPE_CHECKING:
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
 PartitionValueSource: TypeAlias = Literal["metadata", "system_catalog"]
 AuthoringTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextManager[None]]
+MetadataResolutionFailure: TypeAlias = Literal["metadata_unavailable"]
+
+
+def fail_closed_metadata_resolution(_exc: Exception) -> MetadataResolutionFailure | None:
+    """Keep table-resolution failures closed unless a profile classifies one."""
+    return None
+
+
+def structured_exception_chain(exc: Exception) -> tuple[BaseException, ...]:
+    """Return structured wrapper/original exceptions without parsing messages."""
+    pending: list[BaseException] = [exc]
+    seen: set[int] = set()
+    resolved: list[BaseException] = []
+    while pending and len(resolved) < 8:
+        current = pending.pop(0)
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        resolved.append(current)
+        for candidate in (
+            getattr(current, "orig", None),
+            current.__cause__,
+            current.__context__,
+        ):
+            if isinstance(candidate, BaseException):
+                pending.append(candidate)
+    return tuple(resolved)
 
 
 @dataclass(frozen=True)
@@ -69,6 +97,9 @@ class MetadataInspectRequest:
 class EngineMetadataIntrospection:
     inspect_table: Callable[[MetadataInspectRequest], TableMetadata]
     schema_only_warnings: tuple[MetadataWarning, ...] = ()
+    classify_table_resolution_failure: Callable[[Exception], MetadataResolutionFailure | None] = (
+        fail_closed_metadata_resolution
+    )
 
 
 @dataclass(frozen=True)

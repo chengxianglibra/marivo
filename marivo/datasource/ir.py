@@ -94,6 +94,15 @@ _JSON_RECORDS_PATH = re.compile(r"^\$(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 QueryParamScalar: TypeAlias = str | int | float | bool
 
 
+def _format_database_identity(database: str | tuple[str, ...] | None) -> str:
+    """Render a table database identity without collapsing distinct source forms."""
+    if database is None:
+        return "unspecified (datasource default)"
+    if isinstance(database, tuple):
+        return f"segments={database!r}"
+    return f"name={database!r}"
+
+
 @dataclass(frozen=True)
 class SourceParamIR:
     """Required runtime parameter referenced by one physical source."""
