@@ -28,4 +28,4 @@ jobs:
           .venv/bin/python -m pip install -e ".[dev,duckdb,trino,docs]"
 
       - name: Run checks
-        run: make check
+        run: make check MYPY_PYTHON_VERSION="${{ matrix.python-version }}"

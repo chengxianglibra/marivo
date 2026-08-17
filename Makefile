@@ -15,6 +15,7 @@ VENV_MYPY := $(VENV_BIN)/mypy$(EXE_SUFFIX)
 VENV_RUFF := $(VENV_BIN)/ruff$(EXE_SUFFIX)
 VENV_LINT_IMPORTS := $(VENV_BIN)/lint-imports$(EXE_SUFFIX)
 VENV_TWINE := $(VENV_BIN)/twine$(EXE_SUFFIX)
+MYPY_PYTHON_VERSION ?= 3.10
 
 PYPI_DIST_DIR := dist/pypi
 
@@ -30,7 +31,7 @@ release-test:
 
 typecheck:
 	@./scripts/require-venv.sh mypy
-	@$(VENV_MYPY) marivo tests/typing
+	@$(VENV_MYPY) --python-version $(MYPY_PYTHON_VERSION) marivo tests/typing
 
 lint:
 	@./scripts/require-venv.sh ruff
