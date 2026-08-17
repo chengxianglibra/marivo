@@ -1,6 +1,6 @@
 # Marivo Typed Table Column Bindings Design
 
-Status: proposed
+Status: implemented through Slice 4; Slice 5 blocked
 
 Date: 2026-08-17
 
@@ -1314,6 +1314,61 @@ server build.
 - No MapV2-specific symbol or backend setting enters the public API.
 - The motivating MapV2 entity can restore all six governed dimensions and
   dependent metrics only after exact live runtime and partition-pruning proof.
+
+## Slice 5 acceptance record
+
+Acceptance date: 2026-08-17
+
+Reviewed revision: `eb9045a4..6296b4e8`
+
+Overall status: local framework contract passed; Slice 5 and release acceptance
+remain blocked.
+
+### Locally proven
+
+- The generated identifier-only projection is covered for DuckDB, SQLite,
+  Postgres, Trino, MySQL, and ClickHouse engine profiles. The tests prove atomic
+  identifier quoting, explicit output schemas, no source-table alias, no
+  qualified physical selections, no wildcard, and unchanged unprojected table
+  lookup.
+- A real DuckDB execution probe proves projected aliases, an outer time filter,
+  nullable-value preservation, reserved names, dotted identifiers, and escaped
+  quote characters.
+- IR validation and round trips prove canonical binding order, canonical Ibis
+  types, unchanged unprojected serialization, and binding-sensitive semantic,
+  snapshot, and evidence identities.
+- Metadata, semantic materialization, provenance, static alias validation,
+  metric graph lowering, scoped preview identity, bounded rendering, public
+  exports, live help, English and Chinese site content, and packaged skill
+  routing have deterministic coverage.
+- The focused typed-binding suite passed 96 tests. The full repository suite
+  passed 4,854 tests; lint, Python 3.10 type checking, API documentation, site
+  content verification, site build, and whitespace validation also passed.
+
+### Exact backend acceptance blocked
+
+- A metadata-only connection attempt against the configured
+  `billions_ch` datasource timed out while opening `10.154.200.108:8123`.
+  Acceptance `query_executed` is therefore `False`: no generated projection or
+  user-data query ran, and no claim is made about the current internal server.
+- The current authoring preflight rejects every scope when inspection reports a
+  transformed partition field. For this acceptance fixture the documented
+  partition key is `toYYYYMMDD(timestamp)`, so `SourceInspection.sample(...)`
+  cannot currently acquire the exact projected snapshot required by
+  `catalog.preview(...)`.
+- `md.unpruned(...)` supplies row and timeout guards but no timestamp predicate.
+  It therefore cannot establish the documented `force_index_by_date`
+  requirement or substitute for the unavailable transformed-partition scope.
+- The six ICDS identifiers, nullable missing-key behavior, `float64` average and
+  comparison behavior, `served_by == "MCDN"` filtering, outer timestamp
+  predicate pushdown, bounded preview, readiness evidence, and real
+  `session.observe(...)` execution remain unverified.
+
+The `cdn.vod_playurl_log` source and its dependent semantic objects must not be
+restored from their raw-SQL fallback until the exact backend journey passes.
+This record does not authorize a hand-built snapshot, a disabled pruning
+setting, broader datasource privileges, a new authoring time-window API, or a
+weaker acceptance criterion.
 
 ## Final decision
 
