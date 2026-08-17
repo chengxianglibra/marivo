@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -128,6 +129,67 @@ def test_frame_is_immutable_and_to_pandas_returns_a_copy():
     assert frame["value"].iloc[0] == 1.0
     with pytest.raises(FrameMutationError):
         frame["other"] = 1
+
+
+def test_to_pandas_coerces_decimal_columns_to_float64() -> None:
+    frame = BaseFrame(
+        _df=pd.DataFrame(
+            {
+                "value": [Decimal("1.50"), Decimal("2.25")],
+                "region": ["US", "CA"],
+                "count": [3, 4],
+                "ratio": [0.5, 0.75],
+                "when": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+            }
+        ),
+        meta=_meta(row_count=2),
+    )
+    exported = frame.to_pandas()
+
+    # Decimal columns are coerced to float64 for terminal pandas arithmetic.
+    assert exported["value"].dtype == "float64"
+    assert exported["value"].tolist() == [1.5, 2.25]
+
+    # Non-decimal columns keep their native dtype and values.
+    assert exported["region"].tolist() == ["US", "CA"]
+    assert exported["count"].dtype == "int64"
+    assert exported["ratio"].dtype == "float64"
+    assert pd.api.types.is_datetime64_any_dtype(exported["when"])
+
+    # The export remains a defensive copy isolated from the internal frame.
+    exported.loc[0, "value"] = 99.0
+    assert frame.to_pandas()["value"].iloc[0] == 1.5
+
+
+def test_to_pandas_coerces_nullable_decimal_column() -> None:
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": [Decimal("1.50"), None, Decimal("3.00")]}),
+        meta=_meta(row_count=3),
+    )
+    exported = frame.to_pandas()
+    assert exported["value"].dtype == "float64"
+    assert exported["value"].iloc[0] == 1.5
+    assert pd.isna(exported["value"].iloc[1])
+    assert exported["value"].iloc[2] == 3.0
+
+
+def test_contract_schema_declares_export_dtype_for_decimal_columns() -> None:
+    frame = BaseFrame(
+        _df=pd.DataFrame(
+            {
+                "value": [Decimal("1.50"), Decimal("2.25")],
+                "region": ["US", "CA"],
+                "count": [3, 4],
+            }
+        ),
+        meta=_meta(row_count=2),
+    )
+    schema = {column.name: column.dtype for column in frame.contract().artifact_schema.columns}
+
+    # The contract must describe the exported dtype, matching to_pandas().
+    assert schema["value"] == "float64"
+    assert schema["region"] == "object"
+    assert schema["count"] == "int64"
 
 
 def test_frame_row_count_matches_materialized_shape() -> None:

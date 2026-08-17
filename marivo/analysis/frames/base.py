@@ -7,6 +7,7 @@ import importlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import PurePath
 from typing import Any, Literal
 
@@ -52,6 +53,30 @@ def _display_column_names(columns: pd.Index) -> list[str]:
         used_columns.add(display_name)
         display_columns.append(display_name)
     return display_columns
+
+
+def _is_decimal_column(series: pd.Series) -> bool:
+    """Return True for object-dtype columns whose non-null values are all Decimal."""
+    if not pd.api.types.is_object_dtype(series.dtype):
+        return False
+    non_null = series.dropna()
+    return bool(len(non_null)) and all(isinstance(value, Decimal) for value in non_null)
+
+
+def _coerce_decimal_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Cast object columns whose values are ``decimal.Decimal`` to ``float64``.
+
+    Some backends (e.g. DuckDB) materialize DECIMAL columns as object-dtype
+    ``decimal.Decimal`` values. Once a frame exits the typed boundary, terminal
+    pandas arithmetic over such columns (``float - Decimal``) raises
+    ``TypeError``, and Decimal precision is meaningless downstream. Coerce those
+    columns to ``float64`` while leaving genuine string, integer, float, and
+    temporal columns untouched.
+    """
+    for column in df.columns:
+        if _is_decimal_column(df[column]):
+            df[column] = df[column].astype("float64")
+    return df
 
 
 def _is_missing(value: Any) -> bool:
@@ -666,7 +691,7 @@ class BaseFrame(RenderableResult):
         columns = [
             ArtifactColumn(
                 name=name,
-                dtype=str(dtype),
+                dtype=("float64" if _is_decimal_column(self._df.iloc[:, idx]) else str(dtype)),
                 nullable=bool(self._df.iloc[:, idx].isna().any()) if len(self._df) else True,
                 role=_column_role(str(self._df.columns[idx])),
             )
@@ -826,11 +851,19 @@ class BaseFrame(RenderableResult):
         return df
 
     def _export_dataframe(self) -> pd.DataFrame:
-        """Return the DataFrame shape exposed by the terminal pandas boundary."""
-        return self._public_dataframe_view().copy()
+        """Return the DataFrame shape exposed by the terminal pandas boundary.
+
+        Decimal-valued columns are coerced to ``float64`` so terminal pandas
+        arithmetic works out of the box; every other dtype is preserved.
+        """
+        return _coerce_decimal_columns(self._public_dataframe_view().copy())
 
     def to_pandas(self) -> pd.DataFrame:
-        """Return a defensive copy shaped for terminal pandas consumption."""
+        """Return a defensive copy shaped for terminal pandas consumption.
+
+        Numeric columns surfaced as ``decimal.Decimal`` are returned as
+        ``float64``; see :meth:`_export_dataframe`.
+        """
         return self._export_dataframe()
 
     def __getitem__(self, key: Any) -> Any:
