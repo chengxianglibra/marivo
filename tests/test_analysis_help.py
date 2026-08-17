@@ -565,6 +565,15 @@ def test_focused_help_includes_invocation_critical_constraints() -> None:
         assert constraint_id in text, f"missing constraint: {constraint_id}"
 
 
+def test_observe_help_documents_ref_readiness_gate() -> None:
+    """Observe must surface the ref-level readiness entry point so analysts
+    following the help chain can verify refs before materializing a frame.
+    """
+    text = _text("observe")
+    assert "session.catalog.readiness(refs=[metric])" in text
+    assert "analysis APIs do not invoke readiness automatically" in text
+
+
 def test_correlate_help_explains_signed_lag_semantics() -> None:
     text = _text("correlate")
 
