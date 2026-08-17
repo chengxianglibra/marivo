@@ -40,6 +40,15 @@ def test_analysis_skill_package_layout() -> None:
     assert sorted(path.name for path in references.iterdir()) == ["runtime-metric-closeout.md"]
 
 
+def test_analysis_skill_routes_runtime_metric_discovery_and_closeout() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    assert 'marivo.help("analysis.runtime_metric")' in text
+    assert "catalog.measures" in text
+    assert "session.catalog.readiness(refs=[runtime_metric])" in text
+    assert "references/runtime-metric-closeout.md" in text
+
+
 def test_semantic_skill_package_layout() -> None:
     assert sorted(path.name for path in SEMANTIC_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
