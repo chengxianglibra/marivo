@@ -934,23 +934,59 @@ def _preflight_observe_temporal_suitability(
         if incompatible_roots:
             exact_candidates = tuple(
                 f"{metric_id} -> {candidate}"
-                for metric_id in incompatible_roots
+                + ("" if metric_id not in incompatible_roots else " [incompatible]")
+                for metric_id in candidates_by_metric
                 for candidate in candidates_by_metric[metric_id]
             )
+            shared_candidates = set.intersection(
+                *(set(candidates) for candidates in candidates_by_metric.values())
+            )
+            if shared_candidates:
+                # A non-empty candidate intersection is necessary but not sufficient
+                # for "omit time_dimension" to auto-select a shared axis: the omit
+                # only converges when every root's implicit selection resolves to the
+                # same axis. Reuse the implicit branch's selection rule to decide
+                # whether the omit suggestion is actually executable.
+                selected_by_metric = {
+                    metric_id: _selected_candidate(
+                        catalog,
+                        candidates=candidates,
+                        preferred=preferred_by_metric[metric_id],
+                    )
+                    for metric_id, candidates in candidates_by_metric.items()
+                }
+                selections = set(selected_by_metric.values())
+                converged = None not in selections and len(selections) == 1
+                if converged:
+                    action = (
+                        "Inspect the per-root candidate time dimensions listed below, "
+                        "then choose an explicit axis valid for the complete metric "
+                        "forest or omit time_dimension to auto-select a shared axis."
+                    )
+                else:
+                    action = (
+                        "Inspect the per-root candidate time dimensions listed below "
+                        "and choose an explicit axis valid for the complete metric "
+                        "forest."
+                    )
+            else:
+                action = (
+                    "Inspect the per-root candidate time dimensions listed below; no "
+                    "single time dimension is valid for the complete metric forest, so "
+                    "split the metrics into separate observe() calls grouped by a "
+                    "shared time dimension."
+                )
             raise TemporalSuitabilityError(
                 message=(
-                    f"time dimension {explicit_axis!r} is not a candidate for metric roots "
-                    f"{list(incompatible_roots)!r}"
+                    f"time dimension {explicit_axis!r} is not a valid candidate for all "
+                    f"metric roots; incompatible roots: {list(incompatible_roots)!r}"
                 ),
                 expected="an exact candidate time dimension for every metric root",
                 received=f"time_dimension:{explicit_axis}",
                 location="session.observe time_dimension",
                 repair=AnalysisRepair(
                     kind="inspect",
-                    action=(
-                        "Inspect the per-root candidate time dimensions and choose an "
-                        "explicit axis only when it is valid for the complete metric forest."
-                    ),
+                    action=action,
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     candidates=exact_candidates,
                 ),

@@ -264,6 +264,156 @@ def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
     assert sales_session.frame_summaries().items == ()
 
 
+def test_explicit_axis_incompatible_with_one_root_lists_all_root_candidates(
+    sales_session,
+    monkeypatch,
+):
+    calls: list[int] = []
+
+    def unexpected_query_capture() -> None:
+        calls.append(1)
+        raise AssertionError("temporal preflight must fail before query capture")
+
+    monkeypatch.setattr(
+        sales_session._connection_runtime,
+        "begin_query_capture",
+        unexpected_query_capture,
+    )
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain=mv.grain("day"),
+            time_dimension=catalog.time_dimensions.get("sales.orders.order_date"),
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.kind == "inspect"
+    assert error.repair.snippet is None
+    # Every root's candidate axis is listed at once, with the incompatible root
+    # marked, instead of only the failing root's candidates.
+    assert error.repair.candidates == (
+        "sales.revenue -> sales.orders.order_date",
+        "sales.user_count -> sales.users.signup_date [incompatible]",
+    )
+    assert error._context["candidate_time_dimensions"] == {
+        "sales.revenue": ("sales.orders.order_date",),
+        "sales.user_count": ("sales.users.signup_date",),
+    }
+    # Message wording is unambiguous (P3-2).
+    assert "not a valid candidate for all metric roots" in error.message
+    # No shared candidate axis: the repair must point to per-root splitting,
+    # not to "omit time_dimension" (which would fail again downstream).
+    assert "split the metrics into separate observe() calls" in error.repair.action
+    assert "omit time_dimension" not in error.repair.action
+    assert calls == []
+
+
+def test_explicit_axis_conflict_with_shared_candidate_but_ambiguous_rejects_omit(
+    sales_session,
+    monkeypatch,
+):
+    """A shared candidate alone does not make "omit time_dimension" executable.
+
+    When one root has multiple candidates (so its implicit selection is ambiguous
+    without a preferred/default axis), omitting time_dimension would re-enter the
+    ambiguous branch. The repair must not suggest that dead end (issue #87 P3).
+    """
+    import marivo.analysis.intents._observe_inputs as observe_inputs
+
+    monkeypatch.setattr(
+        observe_inputs,
+        "_temporal_candidates",
+        lambda catalog, metric_inputs: (
+            {
+                "sales.revenue": (
+                    "sales.orders.order_date",
+                    "sales.users.signup_date",
+                ),
+                "sales.user_count": ("sales.users.signup_date",),
+            },
+            {"sales.revenue": (), "sales.user_count": ()},
+        ),
+    )
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain=mv.grain("day"),
+            time_dimension=catalog.time_dimensions.get("sales.orders.order_date"),
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.candidates == (
+        "sales.revenue -> sales.orders.order_date",
+        "sales.revenue -> sales.users.signup_date",
+        "sales.user_count -> sales.users.signup_date [incompatible]",
+    )
+    # The roots share signup_date, but revenue's implicit selection is ambiguous
+    # (two candidates, no preferred/default), so omit would fail downstream.
+    assert "choose an explicit axis valid for the complete metric forest" in error.repair.action
+    assert "omit time_dimension" not in error.repair.action
+    assert "split the metrics" not in error.repair.action
+
+
+def test_explicit_axis_conflict_with_convergent_shared_candidate_suggests_omit(
+    sales_session,
+    monkeypatch,
+):
+    """When every root's implicit selection converges on the same shared axis,
+    repair may suggest omitting time_dimension to auto-select it (issue #87 P3)."""
+    import marivo.analysis.intents._observe_inputs as observe_inputs
+
+    monkeypatch.setattr(
+        observe_inputs,
+        "_temporal_candidates",
+        lambda catalog, metric_inputs: (
+            {
+                "sales.revenue": ("sales.users.signup_date",),
+                "sales.user_count": ("sales.users.signup_date",),
+            },
+            {"sales.revenue": (), "sales.user_count": ()},
+        ),
+    )
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain=mv.grain("day"),
+            time_dimension=catalog.time_dimensions.get("sales.orders.order_date"),
+            session=sales_session,
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.candidates == (
+        "sales.revenue -> sales.users.signup_date [incompatible]",
+        "sales.user_count -> sales.users.signup_date [incompatible]",
+    )
+    # Both roots select signup_date implicitly, so omit actually converges.
+    assert "omit time_dimension to auto-select a shared axis" in error.repair.action
+    assert "split the metrics" not in error.repair.action
+
+
 def test_cross_entity_subday_grain_reports_axis_conflict_without_partial_retry(
     sales_session,
     monkeypatch,
