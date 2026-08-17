@@ -446,7 +446,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
             "Run bounded read-only terminal analysis, including semantic-gap escape; "
-            "results cannot become canonical metrics.",
+            "results cannot become canonical metrics. Results may be truncated — always "
+            "check is_truncated before terminal computation.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "Ref[datasource]"),
