@@ -155,3 +155,8 @@ class SemanticResolver:
         """Materialize one Event occurrence relation for participant roles."""
         ref = _require_kind(self.catalog, event_ref, expected=(SemanticKind.EVENT,))
         return self._materializer.event(ref, participants=participants)
+
+    def event_occurrences(self, event_ref: Ref[EventKind]) -> ibis.Table:
+        """Materialize one Event's exact source occurrences without participant joins."""
+        ref = _require_kind(self.catalog, event_ref, expected=(SemanticKind.EVENT,))
+        return self._materializer.event_occurrences(ref)

@@ -171,6 +171,9 @@ selection used by ``session.select_subjects(...)``; a resulting ready
 ``SubjectSet`` may scope later metric, Event, or Lifecycle materialization.
 Use focused ``marivo.help("analysis.lifecycle.replay")`` and the returned
 artifact ``contract()`` for the current mechanical contract and continuations.
+Before selecting a window, ``session.events.occurrence_bounds(...)`` returns
+the observed earliest/latest occurrences of one exact Event or StateModel as
+``EventOccurrenceBounds``; it does not establish completeness.
 
 .. autosummary::
    :toctree: api/
@@ -181,6 +184,7 @@ artifact ``contract()`` for the current mechanical contract and continuations.
    FirstPerSubject
    EveryStart
    CompletenessDeclaration
+   EventOccurrenceBounds
    DroppedBefore
    FromInception
    InState

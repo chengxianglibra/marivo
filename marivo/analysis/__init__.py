@@ -13,6 +13,7 @@ from marivo.analysis import session
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
 from marivo.analysis.event import (
     CompletenessDeclaration,
+    EventOccurrenceBounds,
     EventPattern,
     EventWatermarkReceipt,
     EventWatermarkRequest,
@@ -214,6 +215,7 @@ __all__ = [
     "DriverAxisSelection",
     "DroppedBefore",
     "EventFrame",
+    "EventOccurrenceBounds",
     "EventPattern",
     "EventWatermarkReceipt",
     "EventWatermarkRequest",

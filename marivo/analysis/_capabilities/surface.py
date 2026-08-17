@@ -22,6 +22,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
     from marivo.analysis.event import (
         CompletenessDeclaration,
+        EventOccurrenceBounds,
         EventPattern,
         EventWatermarkReceipt,
         EventWatermarkRequest,
@@ -139,6 +140,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             FirstPerSubject: "FirstPerSubject",
             EveryStart: "EveryStart",
             CompletenessDeclaration: "CompletenessDeclaration",
+            EventOccurrenceBounds: "EventOccurrenceBounds",
             DroppedBefore: "DroppedBefore",
             FromInception: "FromInception",
             InState: "InState",

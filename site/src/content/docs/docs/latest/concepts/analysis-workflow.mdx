@@ -964,6 +964,21 @@ time, and elapsed values. It is `incomplete` only when every required Event is
 known complete through the follow-up bound; otherwise it is
 `coverage_censored`.
 
+Inspect the exact Event range before choosing a replay or matching window:
+
+```python
+lifecycle = session.catalog.state_models.get("commerce.order_lifecycle")
+bounds = session.events.occurrence_bounds(lifecycle)
+print(bounds.earliest_occurrence_at, bounds.latest_occurrence_at)
+```
+
+For a StateModel, Marivo infers its distinct inception and transition Events
+and aggregates only occurrences matching those Event predicates. The
+`EventOccurrenceBounds` result is not a Datasource-wide maximum and does not
+prove that the source is complete through its latest occurrence. Use it to
+choose a candidate window, then resolve completeness separately. A StateModel
+with no Event triggers returns `event_refs=()` and `None` for both bounds.
+
 A backend may provide authoritative Event completeness through
 `marivo_event_watermark(request)`. Marivo does not infer that watermark from
 the maximum observed Event time, query time, or an SLA. A caller reads that

@@ -845,6 +845,20 @@ shared_attempts = session.events.match(
 事件都已知完整覆盖到后续项 bound 时，缺失步骤才是 `incomplete`；否则为
 `coverage_censored`。
 
+在确定 replay 或 matching 窗口前，可以先检查精确的事件时间范围：
+
+```python
+lifecycle = session.catalog.state_models.get("commerce.order_lifecycle")
+bounds = session.events.occurrence_bounds(lifecycle)
+print(bounds.earliest_occurrence_at, bounds.latest_occurrence_at)
+```
+
+传入 StateModel 时，Marivo 会自动推导其 inception 和 transition 使用的去重
+Event，并且只聚合符合这些 Event 谓词的 occurrence。返回的
+`EventOccurrenceBounds` 不是 Datasource 全局最大时间，也不能证明数据完整
+覆盖到最新 occurrence。它只用于选择候选窗口；完整性仍需单独核实。没有
+Event trigger 的 StateModel 会返回 `event_refs=()`，两个时间边界均为 `None`。
+
 后端可以通过 `marivo_event_watermark(request)` 提供权威事件完整性。
 Marivo 不会从最大已观测事件时间、查询时间或 SLA 推导 watermark。调用方可以
 通过 `session.events.watermark(event, through=...)` 读取该权威 watermark，返回

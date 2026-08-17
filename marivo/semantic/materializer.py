@@ -358,6 +358,49 @@ class Materializer:
             (table,),
         )
 
+    def event_occurrences(self, semantic_id: str) -> ibis.Table:
+        """Materialize one Event's exact source occurrences without participant joins."""
+        registry, _sidecar = self._get_registry_and_sidecar()
+        event_ir = registry.events.get(semantic_id)
+        if event_ir is None:
+            _raise(
+                ErrorKind.NOT_FOUND,
+                f"Event {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        source_ref = ref_factory.entity(event_ir.source_entity)
+        source = self.entity(event_ir.source_entity)
+        predicate = self._evaluate_expression(
+            ref_factory.event(semantic_id),
+            (source_ref,),
+            (source,),
+        )
+        if not isinstance(predicate, ir.BooleanValue):
+            _raise(
+                ErrorKind.BINDING_RESULT_INVALID,
+                f"Event {semantic_id!r} body did not return an Ibis boolean value.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                expected="ibis BooleanValue",
+                received=type(predicate).__name__,
+            )
+        filtered = source.filter(predicate)
+        projected = []
+        for index, identity_ref in enumerate(event_ir.identity):
+            name = f"__event_identity_{index}"
+            projected.append(self.dimension_on(identity_ref, filtered).name(name))
+        projected.append(self.dimension_on(event_ir.occurred_at, filtered).name("__occurred_at"))
+        base = filtered.select(filtered, *projected)
+        base = base.mutate(
+            __source_identity_count=base.count().over(
+                group_by=[
+                    base[f"__event_identity_{index}"] for index in range(len(event_ir.identity))
+                ]
+            )
+        )
+        return base
+
     def event(
         self,
         semantic_id: str,
@@ -400,40 +443,12 @@ class Materializer:
                     received=participant,
                 )
             roles.append(role)
-        source_ref = ref_factory.entity(event_ir.source_entity)
-        source = self.entity(event_ir.source_entity)
-        predicate = self._evaluate_expression(
-            ref_factory.event(semantic_id),
-            (source_ref,),
-            (source,),
-        )
-        if not isinstance(predicate, ir.BooleanValue):
-            _raise(
-                ErrorKind.BINDING_RESULT_INVALID,
-                f"Event {semantic_id!r} body did not return an Ibis boolean value.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-                expected="ibis BooleanValue",
-                received=type(predicate).__name__,
-            )
-        filtered = source.filter(predicate)
-        special_names: list[str] = []
-        projected = []
-        for index, identity_ref in enumerate(event_ir.identity):
-            name = f"__event_identity_{index}"
-            special_names.append(name)
-            projected.append(self.dimension_on(identity_ref, filtered).name(name))
-        special_names.append("__occurred_at")
-        projected.append(self.dimension_on(event_ir.occurred_at, filtered).name("__occurred_at"))
-        base = filtered.select(filtered, *projected)
-        base = base.mutate(
-            __source_identity_count=base.count().over(
-                group_by=[
-                    base[f"__event_identity_{index}"] for index in range(len(event_ir.identity))
-                ]
-            )
-        )
-        special_names.append("__source_identity_count")
+        base = self.event_occurrences(semantic_id)
+        special_names = [
+            *(f"__event_identity_{index}" for index in range(len(event_ir.identity))),
+            "__occurred_at",
+            "__source_identity_count",
+        ]
         role_tables: list[ibis.Table] = []
         for role in roles:
             current = base
