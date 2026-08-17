@@ -2641,7 +2641,7 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
 
 
 # Preserve the introspection surface exposed by the original PEP 695 class.
-CatalogCollection.__type_params__ = (KindT,)  # type: ignore[attr-defined]
+type.__setattr__(CatalogCollection, "__type_params__", (KindT,))
 
 
 # ---------------------------------------------------------------------------
