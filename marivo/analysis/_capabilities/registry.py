@@ -1731,6 +1731,25 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         ReadCapability(
+            id="events.occurrence_bounds",
+            public_entrypoint="session.events.occurrence_bounds(...)",
+            help_target="events.occurrence_bounds",
+            summary=(
+                "Return EventOccurrenceBounds for one exact Event or "
+                "StateModel's observed occurrences."
+            ),
+            root_group="artifact_inspection",
+            root_visibility="grouped",
+            constraint_ids=(),
+            callable_path=("marivo.analysis.session.core.SessionEvents.occurrence_bounds"),
+            receiver_family="SessionEvents",
+            result_kind="immutable_metadata",
+            read_bound="bounded",
+        )
+    )
+
+    descriptors.append(
+        ReadCapability(
             id="BaseFrame.contract",
             public_entrypoint="frame.contract()",
             help_target="BaseFrame.contract",

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,7 +19,8 @@ from marivo.analysis.errors import (
     RepairKind,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind
+from marivo.refs import EventKind, Ref, RefPayloadV1, SemanticKind, StateModelKind
+from marivo.render import Card, RenderableResult
 from marivo.semantic.event import ParticipantRoleHandle
 
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -209,6 +212,83 @@ class EventWatermarkReceipt(BaseModel):
         return self
 
 
+@dataclass(frozen=True, repr=False)
+class EventOccurrenceBounds(RenderableResult):
+    """Observed occurrence-time bounds for one exact Event or StateModel.
+
+    ``event_refs`` records the exact Event inputs; ``earliest_occurrence_at``
+    and ``latest_occurrence_at`` are UTC-normalized observed bounds, and
+    ``observed_at`` records query time. The bounds are computed from the
+    target's exact Event predicates. A StateModel with no Event triggers has
+    empty ``event_refs`` and absent bounds. The result is a data-range
+    observation, not evidence that the source is complete through either
+    bound. Use ``session.events.watermark(...)`` for authoritative
+    completeness evidence.
+    """
+
+    target_ref: Ref[EventKind | StateModelKind]
+    event_refs: tuple[Ref[EventKind], ...]
+    earliest_occurrence_at: datetime | None
+    latest_occurrence_at: datetime | None
+    observed_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.target_ref.kind not in (SemanticKind.EVENT, SemanticKind.STATE_MODEL):
+            raise ValueError("EventOccurrenceBounds target_ref must be an Event or StateModel ref")
+        if any(ref.kind is not SemanticKind.EVENT for ref in self.event_refs):
+            raise ValueError("EventOccurrenceBounds event_refs must contain exact Event refs")
+        if not self.event_refs and self.target_ref.kind is SemanticKind.EVENT:
+            raise ValueError(
+                "EventOccurrenceBounds Event target must contribute its exact Event ref"
+            )
+        if len(set(self.event_refs)) != len(self.event_refs):
+            raise ValueError("EventOccurrenceBounds event_refs must be unique")
+        if (self.earliest_occurrence_at is None) != (self.latest_occurrence_at is None):
+            raise ValueError("EventOccurrenceBounds bounds must both be present or both be absent")
+        if (
+            self.earliest_occurrence_at is not None
+            and self.latest_occurrence_at is not None
+            and self.earliest_occurrence_at > self.latest_occurrence_at
+        ):
+            raise ValueError("EventOccurrenceBounds earliest bound must not exceed latest bound")
+        timestamps = (
+            self.earliest_occurrence_at,
+            self.latest_occurrence_at,
+            self.observed_at,
+        )
+        if any(value is not None and value.tzinfo is None for value in timestamps):
+            raise ValueError("EventOccurrenceBounds timestamps must be timezone-aware")
+
+    def _repr_identity(self) -> str:
+        latest = (
+            self.latest_occurrence_at.isoformat()
+            if self.latest_occurrence_at is not None
+            else "empty"
+        )
+        return f"EventOccurrenceBounds target={self.target_ref.key} latest={latest}"
+
+    def _card(self) -> Card:
+        card = Card(
+            identity=(
+                f"EventOccurrenceBounds target={self.target_ref.key} events={len(self.event_refs)}"
+            ),
+            available=(
+                ".show()",
+                "session.events.watermark(event, through=...)",
+            ),
+        )
+        earliest = self.earliest_occurrence_at
+        latest = self.latest_occurrence_at
+        if not self.event_refs:
+            card.status("empty: StateModel declares no Event triggers")
+        elif earliest is None or latest is None:
+            card.status("empty: no matching Event occurrences")
+        else:
+            card.status(f"observed_bounds={earliest.isoformat()} .. {latest.isoformat()}")
+        card.field("observed_at", self.observed_at.isoformat())
+        return card.listing("events", (ref.key for ref in self.event_refs))
+
+
 def step(*, participant: ParticipantRoleHandle, key: str) -> PatternStep:
     """Build one typed Event Journey step.
 
@@ -398,6 +478,7 @@ def declared_complete_through(
 __all__ = [
     "CompletenessDeclaration",
     "EventMatchingPolicy",
+    "EventOccurrenceBounds",
     "EventPattern",
     "EventWatermarkReceipt",
     "EventWatermarkRequest",

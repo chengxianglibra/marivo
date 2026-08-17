@@ -148,6 +148,7 @@ ANALYSIS_PUBLIC = {
     "DroppedBefore",
     "EvidenceAvailabilityIssue",
     "EvidenceDerivationTrace",
+    "EventOccurrenceBounds",
     "EventFrame",
     "EventPattern",
     "EventWatermarkReceipt",

@@ -1697,7 +1697,7 @@ or failed reconciliation reject the operation.
 
 ## Runtime Completeness and Censoring
 
-Analysis distinguishes requested read range, observed source extent, observed
+Analysis distinguishes requested read range, observed occurrence bounds, observed
 completeness evidence, and declared completeness assumptions. Datasource or
 snapshot execution evidence is the only authoritative observed basis. An Event,
 change-log, or validity-history input is observed complete through instant `t`
@@ -1707,6 +1707,22 @@ one actual capture or partition instant only when source execution evidence
 establishes the complete subject population for that exact snapshot; successful
 query execution alone does not. A configured lateness SLA is advisory and
 proves neither kind of completeness.
+
+`session.events.occurrence_bounds(event_or_model)` exposes observed Event
+boundaries without claiming completeness. `event_or_model` is one exact current
+Event or StateModel entry/ref. An Event contributes only occurrences satisfying
+its governed predicate; a StateModel contributes the distinct Events named by
+its inception and transition triggers. The `EventOccurrenceBounds` result
+carries those exact Event refs plus the UTC-normalized earliest and latest
+occurrence instants. It is computed by bounded-result aggregates and never asks
+a Datasource for one global “latest event” value. Empty inputs return typed
+bounds with both instants absent.
+
+Observed maximum time is useful for selecting a candidate window end, but it
+does not prove that earlier or later records are complete. Known fixture gaps
+or generation cutoffs must become exact Event watermark evidence through the
+existing provider contract; fixture-specific fields such as `incomplete_day`
+do not become public analysis types or Datasource-wide completeness facts.
 
 Therefore:
 
@@ -1816,7 +1832,7 @@ Every artifact carries:
   inferred/requested/actual projection scope;
 - exact subject axes, paths, temporal anchors, and grouped reconciliation when
   present;
-- read extent, observed watermark evidence, declared completeness assumptions,
+- requested read range, observed occurrence bounds, observed watermark evidence,
   per-input/aggregate coverage basis, quality, and censoring;
 - artifact family, closed shape, row-contract version, and lineage;
 - evidence status and the bounded `ArtifactDigest` snapshot.

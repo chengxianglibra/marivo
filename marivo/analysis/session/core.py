@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from marivo.analysis.event import (
         CompletenessDeclaration,
         EventMatchingPolicy,
+        EventOccurrenceBounds,
         EventPattern,
         EventWatermarkReceipt,
         PatternStep,
@@ -1589,7 +1590,7 @@ def ensure_session_can_execute(session: Session) -> None:
 
 @dataclass(frozen=True, repr=False)
 class SessionEvents(RenderableResult):
-    """Session-bound Event Journey materialization and reducer operators."""
+    """Session-bound Event inspection, Journey materialization, and reducers."""
 
     _session: Session
 
@@ -1679,6 +1680,54 @@ class SessionEvents(RenderableResult):
             intent="events.watermark",
         ):
             return watermark(event, through=through, session=self._session)
+
+    def occurrence_bounds(
+        self,
+        event_or_model: _SemanticInput[EventKind | StateModelKind],
+    ) -> EventOccurrenceBounds:
+        """Return observed occurrence-time bounds for one Event or StateModel.
+
+        When to use: inspect exact Event occurrence boundaries before choosing a
+        replay or matching window.
+
+        Args:
+            event_or_model: Current-catalog ``EventEntry`` / ``Ref[event]`` or
+                ``StateModelEntry`` / ``Ref[state_model]``. A StateModel
+                automatically contributes its exact inception and transition
+                Events.
+
+        Returns:
+            ``EventOccurrenceBounds`` with the exact Event refs and
+            UTC-normalized earliest/latest occurrence instants. Both bounds are
+            ``None`` when none of the target's Events has an occurrence. A
+            StateModel with no Event triggers returns an empty ``event_refs``
+            tuple and both bounds absent.
+
+        Raises:
+            SemanticKindMismatchError: ``event_or_model`` is not one exact
+                current-catalog Event or StateModel entry/ref.
+
+        Guidance:
+            This performs bounded-result scalar aggregation over exact Event
+            predicates. It never reports a Datasource-wide maximum and does not
+            prove completeness. After choosing a candidate upper bound, use
+            ``session.events.watermark(event, through=...)`` or the consuming
+            operation's coverage result to establish completeness.
+
+        Example:
+            >>> lifecycle = session.catalog.state_models.get("commerce.order_lifecycle")
+            >>> bounds = session.events.occurrence_bounds(lifecycle)
+            >>> print(bounds.latest_occurrence_at)
+        """
+        from marivo.analysis.intents.event_occurrence_bounds import occurrence_bounds
+
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.events.occurrence_bounds",
+            family="events",
+            intent="events.occurrence_bounds",
+        ):
+            return occurrence_bounds(event_or_model, session=self._session)
 
     def match(
         self,
@@ -1958,7 +2007,9 @@ class SessionLifecycle(RenderableResult):
             state interval, bound to a private fixed-contract violation trace.
 
         Guidance:
-            Violation handling is the fixed v1 replay contract rather than a
+            Use ``session.events.occurrence_bounds(model)`` to inspect the exact
+            modeled Event range before choosing ``window``. Violation handling
+            is the fixed v1 replay contract rather than a
             policy slot: an occurrence that no modeled transition admits
             records a violation-trace row and leaves state unchanged, and
             modeled occurrences before inception are ignored rather than

@@ -346,6 +346,17 @@ same subject Entity and identity signature. Each distinct trigger Event is
 queried at most once. Event predicate, participant, ordering, watermark, and
 declaration semantics reuse the Event core.
 
+Before choosing a replay window, callers may inspect
+`session.events.occurrence_bounds(event_or_model)`, where `event_or_model` is
+one exact Event or StateModel entry/ref. A StateModel supplies its own distinct
+inception and transition Events; Marivo evaluates those exact Event predicates
+and returns one bounded `EventOccurrenceBounds` with UTC-normalized
+earliest/latest occurrences. A StateModel with no Event triggers returns an
+empty `event_refs` tuple with both bounds absent. The operation never collapses
+data at Datasource scope. Its result is observed data range only: it does not
+establish a completeness watermark, replace the operation's coverage
+resolution, or turn fixture generation metadata into runtime evidence.
+
 Replay evaluates modeled occurrences before the requested window end, then
 emits only clipped intervals that overlap the window. Legal triggers change
 state. A modeled trigger that is illegal in the current state leaves the state

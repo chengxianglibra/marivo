@@ -1374,6 +1374,7 @@ def test_analysis_all_is_pinned() -> None:
         "DroppedBefore",
         "EvidenceAvailabilityIssue",
         "EvidenceDerivationTrace",
+        "EventOccurrenceBounds",
         "EventFrame",
         "EventPattern",
         "EventWatermarkReceipt",

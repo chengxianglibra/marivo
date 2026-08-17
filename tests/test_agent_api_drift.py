@@ -325,6 +325,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "DroppedBefore",
         "EvidenceAvailabilityIssue",
         "EvidenceDerivationTrace",
+        "EventOccurrenceBounds",
         "EventFrame",
         "EventPattern",
         "EventWatermarkReceipt",
