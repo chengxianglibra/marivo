@@ -23,6 +23,8 @@ def _bootstrap_snapshot_project(
     *,
     identity: bool = True,
     duplicate_latest: bool = False,
+    versioning: bool = True,
+    granularity: str = "day",
 ):
     semantic_dir = tmp_path / "models" / "semantic" / "inventory"
     semantic_dir.mkdir(parents=True)
@@ -33,6 +35,11 @@ def _bootstrap_snapshot_project(
     )
     (semantic_dir / "__init__.py").write_text("")
     primary_key = "['snapshot_date', 'product_id']" if identity else "['snapshot_date']"
+    versioning_line = (
+        "    versioning=ms.snapshot(partition_field=snapshot_date, grain='day'),\n"
+        if versioning
+        else ""
+    )
     (semantic_dir / "_domain.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
@@ -40,13 +47,13 @@ def _bootstrap_snapshot_project(
         "snapshots_ref = ms.ref.entity('inventory.snapshots')\n"
         "snapshot_date = ms.time_dimension_column(\n"
         "    name='snapshot_date', entity=snapshots_ref, column='snapshot_date',\n"
-        "    granularity='day', is_default=True,\n"
+        f"    granularity='{granularity}', is_default=True,\n"
         ")\n"
         "snapshots = ms.entity(\n"
         "    name='snapshots', datasource=ms.ref.datasource('warehouse'),\n"
         "    source=md.table('snapshots'),\n"
         f"    primary_key={primary_key},\n"
-        "    versioning=ms.snapshot(partition_field=snapshot_date, grain='day'),\n"
+        f"{versioning_line}"
         ")\n"
         "product_id = ms.dimension_column(\n"
         "    name='product_id', entity=snapshots, column='product_id',\n"
@@ -203,7 +210,12 @@ def test_unsampled_non_selection_fold_fails_with_structured_error(tmp_path) -> N
     with pytest.raises(ObservePlanningError) as captured:
         session.observe(ms.ref.metric("inventory.average_inventory"))
 
-    assert captured.value._context["code"] == "unsampled-time-fold-unsupported"
+    context = captured.value._context
+    assert context["code"] == "unsampled-time-fold-unsupported"
+    # At day grain no sample_interval can be declared, so the only repair is the
+    # selection-fold switch (versioning is already bound).
+    assert [repair["action"] for repair in context["repair"]] == ["use_first_last_fold"]
+    assert all(repair["safety"] == "modeling_decision" for repair in context["repair"])
 
 
 def test_snapshot_fold_requires_business_entity_identity(tmp_path) -> None:
@@ -212,4 +224,84 @@ def test_snapshot_fold_requires_business_entity_identity(tmp_path) -> None:
     with pytest.raises(ObservePlanningError) as captured:
         session.observe(ms.ref.metric("inventory.end_inventory"))
 
-    assert captured.value._context["code"] == "snapshot-fold-identity-missing"
+    context = captured.value._context
+    assert context["code"] == "snapshot-fold-identity-missing"
+    assert [repair["action"] for repair in context["repair"]] == ["declare_entity_identity"]
+    assert context["repair"][0]["target"] == "inventory.snapshots"
+    assert context["repair"][0]["value"] == "<business_identity_columns>"
+    assert context["candidates"]["available_identity_columns"] == ["category", "product_id"]
+
+
+def test_snapshot_fold_deadlock_when_no_versioning_and_no_sample_interval(tmp_path) -> None:
+    """At day grain no sample_interval can be declared, so the first/last deadlock
+    carries only the snapshot-versioning declaration."""
+    session = _bootstrap_snapshot_project(tmp_path, versioning=False)
+
+    with pytest.raises(ObservePlanningError) as captured:
+        session.observe(ms.ref.metric("inventory.end_inventory"))
+
+    context = captured.value._context
+    assert context["code"] == "snapshot-fold-deadlock"
+    assert [repair["action"] for repair in context["repair"]] == ["add_snapshot_versioning"]
+    assert context["repair"][0]["target"] == "inventory.snapshots"
+    assert context["repair"][0]["arg"] == "versioning"
+    # The versioning value must be pasteable in the domain-authoring namespace
+    # (local symbol, grain='day' is the only supported snapshot grain).
+    assert (
+        context["repair"][0]["value"] == "ms.snapshot(partition_field=snapshot_date, grain='day')"
+    )
+
+
+def test_snapshot_fold_deadlock_covers_non_selection_fold(tmp_path) -> None:
+    """At day grain no sample_interval can be declared, so a non-selection fold
+    deadlocks with the only path: switch to a selection fold (which then needs
+    snapshot versioning)."""
+    session = _bootstrap_snapshot_project(tmp_path, versioning=False)
+
+    with pytest.raises(ObservePlanningError) as captured:
+        session.observe(ms.ref.metric("inventory.average_inventory"))
+
+    context = captured.value._context
+    assert context["code"] == "snapshot-fold-deadlock"
+    assert [repair["action"] for repair in context["repair"]] == [
+        "use_first_last_fold",
+        "add_snapshot_versioning",
+    ]
+    assert context["repair"][0]["value"] == "last"
+    assert (
+        context["repair"][1]["value"] == "ms.snapshot(partition_field=snapshot_date, grain='day')"
+    )
+
+
+def test_snapshot_fold_deadlock_non_day_grain_has_no_versioning_path(tmp_path) -> None:
+    """Snapshot versioning only supports grain='day'; a non-day status time
+    dimension cannot use the versioning repair, so the deadlock surfaces only
+    add_sample_interval and drops the versioning clause from the message."""
+    session = _bootstrap_snapshot_project(tmp_path, versioning=False, granularity="hour")
+
+    with pytest.raises(ObservePlanningError) as captured:
+        session.observe(ms.ref.metric("inventory.end_inventory"))
+
+    context = captured.value._context
+    assert context["code"] == "snapshot-fold-deadlock"
+    assert [repair["action"] for repair in context["repair"]] == ["add_sample_interval"]
+    assert context["repair"][0]["target"] == "inventory.snapshots.snapshot_date"
+    assert context["repair"][0]["arg"] == "sample_interval"
+    assert "either one" not in captured.value.message
+    assert "only supports grain='day'" in captured.value.message
+
+
+def test_snapshot_fold_deadlock_sub_day_non_selection_fold(tmp_path) -> None:
+    """A sub-day non-selection fold deadlock surfaces only add_sample_interval; the
+    message attributes the missing versioning path to the fold kind (versioning
+    only legalizes first/last), not to the grain."""
+    session = _bootstrap_snapshot_project(tmp_path, versioning=False, granularity="hour")
+
+    with pytest.raises(ObservePlanningError) as captured:
+        session.observe(ms.ref.metric("inventory.average_inventory"))
+
+    context = captured.value._context
+    assert context["code"] == "snapshot-fold-deadlock"
+    assert [repair["action"] for repair in context["repair"]] == ["add_sample_interval"]
+    assert "legalizes first/last folds" in captured.value.message
+    assert "no versioning path" not in captured.value.message

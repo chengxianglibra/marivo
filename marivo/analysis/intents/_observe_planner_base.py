@@ -18,6 +18,7 @@ from marivo.analysis.executor.windowing import (
 from marivo.analysis.intents._observe_planner_catalog import (
     _entity,
     _entity_id,
+    _fields_for_entity,
     _from_entity_id,
     _input_ref_id,
     _relationship_id,
@@ -102,7 +103,152 @@ def _plan_temporal_fold(
         )
 
     fold_kind = getattr(time_fold, "kind", None)
+    grain_token = time_details.granularity or "day"
+    # A sample_interval's unit is minute/hour, so it is only declarable when the
+    # status-time grain is at least as fine as hour; day and coarser grains have
+    # no legal sample_interval. Snapshot versioning, by contrast, only supports
+    # grain='day'.
+    interval_declarable = grain_token in {"hour", "minute", "second"}
+
+    root_details = _entity(catalog, root_entity)
+    versioning = root_details.versioning
+    partition_field = (
+        versioning.partition_field if isinstance(versioning, SnapshotVersioningIR) else None
+    )
+    has_snapshot_identity = partition_field == status_time_dimension
+
+    if not has_snapshot_identity:
+        # Deadlock: without a sample_interval, first/last folds require snapshot
+        # versioning and every other fold requires a sample_interval. Neither is
+        # declared, so no single fold choice escapes. Surface the missing
+        # declarations at once rather than ping-ponging between two errors. The
+        # available repair paths depend on the status-time grain: snapshot
+        # versioning only supports grain='day', while a sample_interval unit is
+        # minute/hour and cannot be declared on a day-or-coarser grain.
+        local_status_time = status_time_dimension.rsplit(".", 1)[-1]
+        versioning_repair = RepairAction(
+            action="add_snapshot_versioning",
+            target=root_entity,
+            arg="versioning",
+            value=f"ms.snapshot(partition_field={local_status_time}, grain='day')",
+            safety=RepairSafety.MODELING_DECISION,
+            why=(
+                "binds the root entity's snapshot identity to the status time "
+                "dimension so first/last selection becomes legal"
+            ),
+        )
+        if not interval_declarable:
+            # day or coarser: no legal sample_interval, so snapshot versioning is
+            # the only declaration that breaks a first/last deadlock; a
+            # non-selection fold must switch to a selection fold first.
+            if fold_kind in {"first", "last"}:
+                message = (
+                    f"Metric {metric_ir.semantic_id!r} cannot be observed as-is: its status "
+                    f"time dimension {status_time_dimension!r} has no sample_interval, and its "
+                    f"root entity {root_entity!r} declares no snapshot versioning bound to that "
+                    f"dimension. At {grain_token!r} grain no sample_interval can be declared "
+                    "(sample_interval units are minute/hour), so first/last selection needs "
+                    "snapshot versioning. Declare snapshot versioning bound to the status time "
+                    "dimension to break the deadlock."
+                )
+                repair = [versioning_repair]
+            else:
+                message = (
+                    f"Metric {metric_ir.semantic_id!r} cannot be observed as-is: its status "
+                    f"time dimension {status_time_dimension!r} has no sample_interval, and the "
+                    f"{fold_kind!r} fold is unsupported without one. At {grain_token!r} grain "
+                    "no sample_interval can be declared (sample_interval units are minute/hour), "
+                    "so the only path is a first/last selection fold, which requires snapshot "
+                    "versioning. Switch to a selection fold and declare snapshot versioning."
+                )
+                repair = [
+                    RepairAction(
+                        action="use_first_last_fold",
+                        target=metric_ir.semantic_id,
+                        arg="fold",
+                        value="last",
+                        safety=RepairSafety.MODELING_DECISION,
+                        why=(
+                            "this grain cannot declare a sample_interval, so the only "
+                            "observable strategy is snapshot first/last selection"
+                        ),
+                    ),
+                    versioning_repair,
+                ]
+        else:
+            # sub-day: sample_interval is declarable; snapshot versioning only
+            # supports grain='day' and only legalizes first/last folds.
+            sample_interval_repair = RepairAction(
+                action="add_sample_interval",
+                target=status_time_dimension,
+                arg="sample_interval",
+                value=(1, "hour"),
+                safety=RepairSafety.MODELING_DECISION,
+                why=(
+                    "declares a periodic sampling floor so any fold "
+                    "(mean/min/max/first/last) can be observed"
+                ),
+            )
+            if fold_kind in {"first", "last"}:
+                message = (
+                    f"Metric {metric_ir.semantic_id!r} cannot be observed as-is: its status "
+                    f"time dimension {status_time_dimension!r} has no sample_interval, and the "
+                    f"root entity {root_entity!r} declares no snapshot versioning bound to that "
+                    f"dimension. Snapshot versioning only supports grain='day' (this dimension "
+                    f"is {grain_token!r}), so a first/last fold has no versioning path here. "
+                    "Declare a sample_interval to break the deadlock."
+                )
+            else:
+                message = (
+                    f"Metric {metric_ir.semantic_id!r} cannot be observed as-is: its status "
+                    f"time dimension {status_time_dimension!r} has no sample_interval, and the "
+                    f"{fold_kind!r} fold is unsupported without one. Snapshot versioning only "
+                    "legalizes first/last folds, so declare a sample_interval to break the "
+                    "deadlock."
+                )
+            repair = [sample_interval_repair]
+        raise_observe_planning_error(
+            code="snapshot-fold-deadlock",
+            message=message,
+            candidates={
+                "metric": metric_ir.semantic_id,
+                "fold_kind": fold_kind,
+                "status_time_dimension": status_time_dimension,
+                "root_entity": root_entity,
+                "snapshot_partition_field": partition_field,
+            },
+            repair=repair,
+        )
+
     if fold_kind not in {"first", "last"}:
+        repair = [
+            RepairAction(
+                action="use_first_last_fold",
+                target=metric_ir.semantic_id,
+                arg="fold",
+                value="last",
+                safety=RepairSafety.MODELING_DECISION,
+                why=(
+                    "snapshot versioning is already bound to the status time "
+                    "dimension, so first/last selection is legal without a "
+                    "sample_interval"
+                ),
+            ),
+        ]
+        if interval_declarable:
+            repair.append(
+                RepairAction(
+                    action="add_sample_interval",
+                    target=status_time_dimension,
+                    arg="sample_interval",
+                    value=(1, "hour"),
+                    safety=RepairSafety.MODELING_DECISION,
+                    why=(
+                        f"declares a periodic sampling floor so the {fold_kind} fold "
+                        "can be observed"
+                    ),
+                ),
+            )
         raise_observe_planning_error(
             code="unsampled-time-fold-unsupported",
             message=(
@@ -114,39 +260,44 @@ def _plan_temporal_fold(
                 "fold_kind": fold_kind,
                 "status_time_dimension": status_time_dimension,
             },
-            repair=[],
+            repair=repair,
         )
 
-    root_details = _entity(catalog, root_entity)
-    versioning = root_details.versioning
-    partition_field = (
-        versioning.partition_field if isinstance(versioning, SnapshotVersioningIR) else None
-    )
-    if partition_field != status_time_dimension:
+    identity_columns = _effective_key(catalog, root_entity)
+    if not identity_columns:
+        partition_name = partition_field.rsplit(".", 1)[-1] if partition_field else None
+        available_identity_columns = sorted(
+            field.name
+            for field in _fields_for_entity(catalog, root_entity)
+            if field.name != partition_name
+        )
         raise_observe_planning_error(
             code="snapshot-fold-identity-missing",
             message=(
-                "An unsampled first/last fold requires root snapshot versioning "
-                "bound to the status time dimension."
+                "Snapshot fold requires a non-empty business entity identity beyond the "
+                "snapshot partition."
             ),
-            candidates={
-                "root_entity": root_entity,
-                "status_time_dimension": status_time_dimension,
-                "snapshot_partition_field": partition_field,
-            },
-            repair=[],
-        )
-    identity_columns = _effective_key(catalog, root_entity)
-    if not identity_columns:
-        raise_observe_planning_error(
-            code="snapshot-fold-identity-missing",
-            message="Snapshot fold requires a non-empty business entity identity.",
             candidates={
                 "root_entity": root_entity,
                 "primary_key": list(root_details.primary_key),
                 "partition_field": partition_field,
+                "available_identity_columns": available_identity_columns,
             },
-            repair=[],
+            repair=[
+                RepairAction(
+                    action="declare_entity_identity",
+                    target=root_entity,
+                    arg="primary_key",
+                    value="<business_identity_columns>",
+                    safety=RepairSafety.MODELING_DECISION,
+                    why=(
+                        "snapshot selection needs a non-empty business identity to "
+                        "deduplicate rows per status-time partition; add one or more "
+                        "non-partition columns (see available_identity_columns) to "
+                        "primary_key"
+                    ),
+                ),
+            ],
         )
     return SnapshotSelectionFoldPlan(
         strategy="snapshot_selection",

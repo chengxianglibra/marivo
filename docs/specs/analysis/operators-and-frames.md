@@ -249,10 +249,17 @@ business identity remains non-empty after removing the partition key. Marivo
 selects the first/last raw row per business identity inside each current
 observation bucket, then applies the metric's original spatial aggregation.
 It never sums snapshot dates and does not carry rows across windows or buckets.
-Other unsampled folds fail with `unsampled-time-fold-unsupported`; an unresolved
-snapshot identity fails with `snapshot-fold-identity-missing`. Snapshot
-selection records `fold_strategy="snapshot_selection"` and `identity_keys`,
-keeps `sample_interval=None`, and does not fabricate expected-slot coverage.
+Without snapshot versioning bound to the status axis, every fold deadlocks in a
+single `snapshot-fold-deadlock` error whose repair paths depend on the status-time
+grain: a day-or-coarser grain cannot declare a `sample_interval` (its units are
+minute/hour) and resolves via snapshot versioning — or, for a non-selection fold,
+by switching to a selection fold — while a sub-day grain (hour/minute/second)
+cannot use snapshot versioning and resolves via a `sample_interval`. With versioning
+bound, a non-selection fold still fails with `unsampled-time-fold-unsupported`,
+and a business identity that is empty after removing the partition key fails with
+`snapshot-fold-identity-missing`. Snapshot selection records
+`fold_strategy="snapshot_selection"` and `identity_keys`, keeps
+`sample_interval=None`, and does not fabricate expected-slot coverage.
 
 **Cumulative frames.** Cumulative `MetricFrame`s store running totals whose
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,

@@ -696,9 +696,9 @@ def _snapshot_fold_unobservable_issues(
     (a) its status time dimension declares a ``sample_interval`` (sampled fold),
     or (b) the fold is first/last and the root entity binds snapshot versioning
     to the same status time dimension (snapshot selection). Any other
-    combination deadlocks the observe planner between
-    ``unsampled-time-fold-unsupported`` and ``snapshot-fold-identity-missing``
-    and must be surfaced at readiness time rather than reported analysis_ready.
+    combination deadlocks the observe planner (reported as a single
+    ``snapshot-fold-deadlock`` error) and must be surfaced at readiness time
+    rather than reported analysis_ready.
     """
     from marivo.semantic.ir import SnapshotVersioningIR
 

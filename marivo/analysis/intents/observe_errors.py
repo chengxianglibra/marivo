@@ -50,6 +50,7 @@ ObserveErrorCode = Literal[
     "status-time-dimension-unsupported-type",
     "unsampled-time-fold-unsupported",
     "snapshot-fold-identity-missing",
+    "snapshot-fold-deadlock",
 ]
 
 
