@@ -361,6 +361,7 @@ def test_raw_sql_trino_select_uses_subquery_wrap_without_transaction(
     result = md.raw_sql(
         ms.ref.datasource("trino_wh"),
         "SELECT count(*) AS n FROM orders",
+        limit=100,
         reason="diagnose row count",
         project_root=tmp_path,
     )
@@ -479,6 +480,72 @@ def test_raw_sql_extra_row_reports_truncated(tmp_path: Path) -> None:
     )
     assert result.returned_row_count == 1
     assert result.is_truncated is True
+
+
+def test_raw_sql_truncated_result_injects_truncation_warning(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=1,
+        reason="truncation warning check",
+        project_root=tmp_path,
+    )
+    assert result.is_truncated is True
+    truncation_warnings = [w for w in result.warnings if "truncated" in w.lower()]
+    assert truncation_warnings
+    assert "is_truncated" in truncation_warnings[0]
+
+
+def test_raw_sql_untruncated_result_has_no_truncation_warning(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=2,
+        reason="no truncation warning check",
+        project_root=tmp_path,
+    )
+    assert result.is_truncated is False
+    assert not any("truncated" in w.lower() for w in result.warnings)
+
+
+def test_raw_sql_truncated_result_render_flags_truncation_prominently(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=1,
+        reason="prominent truncation check",
+        project_root=tmp_path,
+    )
+    rendered = result.render()
+    assert "TRUNCATED" in rendered
+    assert "is_truncated" in rendered
+
+
+def test_raw_sql_default_limit_is_100(tmp_path: Path) -> None:
+    from marivo.datasource.manage import RAW_SQL_DEFAULT_LIMIT
+
+    assert RAW_SQL_DEFAULT_LIMIT == 100
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        reason="default limit check",
+        project_root=tmp_path,
+    )
+    assert result.requested_limit == RAW_SQL_DEFAULT_LIMIT
+
+    # The explicit limit argument still overrides the default.
+    explicit = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        reason="explicit limit override",
+        limit=5,
+        project_root=tmp_path,
+    )
+    assert explicit.requested_limit == 5
 
 
 def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path) -> None:

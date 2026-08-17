@@ -45,6 +45,7 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
                 "requires_positive_row_guard",
                 "semantic-gap escape",
                 "cannot become canonical metrics",
+                "check is_truncated before terminal computation",
             ),
         ),
         (

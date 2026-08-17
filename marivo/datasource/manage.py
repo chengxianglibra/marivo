@@ -37,6 +37,18 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
 
+RAW_SQL_DEFAULT_LIMIT = 100
+"""Default row bound for ``md.raw_sql`` when the caller omits ``limit``."""
+
+
+def _truncation_warning(limit: int) -> str:
+    """Return the actionable warning emitted when a raw-SQL result is truncated."""
+    return (
+        f"result truncated at requested_limit={limit}: returned_row_count == "
+        "requested_limit; additional rows exist beyond the bound. Check is_truncated "
+        "before using these rows for terminal computation, or raise limit to retrieve more."
+    )
+
 
 @dataclass(frozen=True, repr=False)
 class DatasourceSummary(RenderableResult):
@@ -261,7 +273,10 @@ class RawSqlResult(RenderableResult):
                     ".show()",
                 ),
             )
-            .status(f"terminal bounded result warnings={len(self.warnings)}")
+            .status(
+                f"terminal bounded result{' TRUNCATED' if self.is_truncated else ''} "
+                f"warnings={len(self.warnings)}"
+            )
             .field("terminal_only", "true")
             .field("typed_reentry", "false")
             .field("row_count_semantics", "returned_bounded_rows")
@@ -766,7 +781,7 @@ def raw_sql(
     sql: str,
     *,
     reason: str,
-    limit: int = 100,
+    limit: int = RAW_SQL_DEFAULT_LIMIT,
     timeout_seconds: int = 30,
     include_types: bool = True,
     project_root: Path | None = None,
@@ -782,7 +797,11 @@ def raw_sql(
         reason: Required terminal-analysis reason; shown in the result. For a
             semantic-gap escape, name the gap, temporary analysis purpose, and
             inferred assumptions that make the statement provisional.
-        limit: Maximum rows to return.
+        limit: Maximum rows to return. Defaults to ``RAW_SQL_DEFAULT_LIMIT``
+            (100); pass an explicit ``limit`` for larger result sets. Truncation
+            is reported actively — see the ``is_truncated`` field, the
+            ``TRUNCATED`` card status, and the truncation warning injected into
+            ``warnings``.
         timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
         include_types: Whether to include returned column type labels when available.
         project_root: Optional project root for tests and embedded callers.
@@ -809,6 +828,11 @@ def raw_sql(
         The result cannot become a canonical metric or re-enter typed analysis.
         Returned rows are bounded, but the backend diagnostic itself can still be
         expensive; callers must inspect query plans and supply a narrow statement.
+        Truncation is reported actively: when the result is truncated the
+        ``warnings`` tuple carries an explicit truncation warning and the rendered
+        card flags ``TRUNCATED``. Callers MUST check ``is_truncated`` before using
+        returned rows for terminal computation — a truncated result can silently
+        mislead downstream aggregates (e.g. zero rates, NaN correlations).
         Any execution failure (including a write attempt) surfaces as a
         ``DatasourceRawSqlError``; the backend is always disconnected. The result
         is terminal custom analysis — it carries no metric, time-scope, slice,
@@ -888,6 +912,12 @@ def raw_sql(
         duration_ms = int((time.monotonic() - start) * 1000)
         rows = extracted_rows[:limit]
         is_truncated = len(extracted_rows) > limit
+        warnings = [
+            "raw SQL diagnostics can be expensive even when returned rows are bounded",
+            "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
+        ]
+        if is_truncated:
+            warnings.append(_truncation_warning(limit))
         return RawSqlResult(
             datasource=datasource,
             backend_type=backend_type,
@@ -901,8 +931,5 @@ def raw_sql(
             is_truncated=is_truncated,
             timeout_seconds=timeout_seconds,
             duration_ms=duration_ms,
-            warnings=(
-                "raw SQL diagnostics can be expensive even when returned rows are bounded",
-                "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
-            ),
+            warnings=tuple(warnings),
         )
