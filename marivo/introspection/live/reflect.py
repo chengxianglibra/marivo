@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 from collections.abc import Callable
 from importlib import import_module
@@ -42,6 +43,91 @@ def import_registered_callable(path: str) -> object:
 def installed_signature(value: Callable[..., object]) -> inspect.Signature:
     """Return the signature of an installed registered callable."""
     return inspect.signature(value)
+
+
+def return_annotation_text(value: Callable[..., object]) -> str | None:
+    """Return one stable source-like spelling of a callable's return annotation."""
+
+    annotation = inspect.signature(value).return_annotation
+    if annotation is inspect.Signature.empty:
+        return None
+    if isinstance(annotation, str):
+        return annotation.strip()
+    if annotation is None:
+        return "None"
+    return inspect.formatannotation(annotation).strip()
+
+
+def _annotation_members_from_node(node: ast.expr) -> frozenset[str] | None:
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left = _annotation_members_from_node(node.left)
+        right = _annotation_members_from_node(node.right)
+        if left is None or right is None:
+            return None
+        return left | right
+    if isinstance(node, ast.Name):
+        return frozenset({"None" if node.id == "NoneType" else node.id})
+    if isinstance(node, ast.Attribute):
+        return frozenset({"None" if node.attr == "NoneType" else node.attr})
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return frozenset({"None"})
+        if isinstance(node.value, str):
+            return _annotation_members(node.value)
+        return None
+    if isinstance(node, ast.Subscript):
+        wrapper = _annotation_members_from_node(node.value)
+        if wrapper == frozenset({"Optional"}):
+            optional_members = _annotation_members_from_node(node.slice)
+            return None if optional_members is None else optional_members | {"None"}
+        if wrapper == frozenset({"Union"}):
+            elements = node.slice.elts if isinstance(node.slice, ast.Tuple) else (node.slice,)
+            union_members: frozenset[str] = frozenset()
+            for element in elements:
+                parsed = _annotation_members_from_node(element)
+                if parsed is None:
+                    return None
+                union_members |= parsed
+            return union_members
+    return None
+
+
+def _annotation_members(annotation: str) -> frozenset[str] | None:
+    try:
+        expression = ast.parse(annotation, mode="eval").body
+    except SyntaxError:
+        return None
+    return _annotation_members_from_node(expression)
+
+
+def return_annotation_mismatch(
+    value: Callable[..., object],
+    *,
+    expected_family: object,
+    nullable: bool,
+) -> str | None:
+    """Compare a concrete family contract with a callable return annotation.
+
+    Non-string families represent receiver-dependent outputs such as
+    ``SameAsInputFamily`` and are intentionally skipped.
+    """
+
+    if not isinstance(expected_family, str):
+        return None
+    try:
+        annotation_text = return_annotation_text(value)
+    except (TypeError, ValueError) as error:
+        return f"cannot inspect return annotation: {type(error).__name__}: {error}"
+    expected = f"{expected_family} | None" if nullable else expected_family
+    if annotation_text is None:
+        return f"descriptor expects {expected}, callable has no return annotation"
+    actual_members = _annotation_members(annotation_text)
+    expected_members = (
+        frozenset({expected_family, "None"}) if nullable else frozenset({expected_family})
+    )
+    if actual_members != expected_members:
+        return f"descriptor expects {expected}, callable annotation is {annotation_text}"
+    return None
 
 
 def owned_docstring(value: object) -> str:

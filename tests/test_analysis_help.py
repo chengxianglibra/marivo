@@ -518,6 +518,18 @@ def test_focused_help_includes_runnable_example() -> None:
     assert "..." not in example_section
 
 
+def test_metric_frame_coverage_help_declares_nullable_output_and_guard() -> None:
+    text = _text("MetricFrame.coverage")
+
+    assert "Output family: CoverageFrame | None" in text
+    assert "coverage = frame.coverage()" in text
+    assert "if coverage is not None:" in text
+    assert "        coverage.show()" in text
+    assert "        coverage.contract().show()" in text
+    assert "\n    coverage.show()" not in text
+    assert "\n    coverage.contract().show()" not in text
+
+
 def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     """The observe example must show filtering by a dimension combination."""
     text = _text("observe")
