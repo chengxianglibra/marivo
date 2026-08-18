@@ -57,12 +57,13 @@ def _metadata(
     projectable_columns: tuple[ColumnMetadata, ...] = (),
     partitions: tuple[PartitionMetadata, ...] = (),
     partition_state: Literal["known", "none", "unknown"] = "none",
+    backend_type: str = "duckdb",
 ) -> TableMetadata:
     return TableMetadata(
         datasource="warehouse",
         table="orders",
         database=None,
-        backend_type="duckdb",
+        backend_type=backend_type,
         comment="orders table",
         columns=columns
         or (
@@ -245,6 +246,34 @@ def test_projected_metadata_validates_adapter_discovered_physical_column_type() 
     assert exc_info.value.code == "declared_type_mismatch"
     assert exc_info.value.effect_observed is not None
     assert exc_info.value.effect_observed.query_executed is False
+
+
+@pytest.mark.parametrize(
+    ("catalog_type", "declared_type"),
+    [
+        ("DateTime64(3)", "timestamp(3)"),
+        ("DateTime64(3, 'UTC')", "timestamp('UTC', 3)"),
+        ("Nullable(DateTime64(3))", "timestamp(3)"),
+    ],
+)
+def test_projected_metadata_compares_clickhouse_types_in_canonical_ibis_form(
+    catalog_type: str,
+    declared_type: str,
+) -> None:
+    base = _metadata(
+        columns=(ColumnMetadata("timestamp", catalog_type, True, None, 1),),
+        backend_type="clickhouse",
+    )
+    source = md.table(
+        "orders",
+        columns={
+            "event_time": md.source_column("timestamp", data_type=declared_type),
+        },
+    )
+
+    projected = _project_table_metadata(base, source)
+
+    assert projected.columns == (ColumnMetadata("event_time", declared_type, True, None, 1),)
 
 
 def test_unknown_partition_warning_is_structured_before_public_rendering() -> None:

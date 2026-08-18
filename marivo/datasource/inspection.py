@@ -551,12 +551,12 @@ def _partition_issues(partitioning: Partitioning) -> tuple[str, ...]:
 def _is_temporal_type(type_name: str) -> bool:
     try:
         dtype = ibis.dtype(type_name)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RuntimeError):
         try:
             from ibis.backends.sql.datatypes import ClickHouseType
 
             dtype = ClickHouseType.from_string(type_name)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RuntimeError):
             return False
     return bool(dtype.is_date() or dtype.is_timestamp())
 
@@ -692,10 +692,17 @@ def _declared_only_table_metadata(
     )
 
 
-def _canonical_catalog_type(type_name: str) -> str:
+def _canonical_catalog_type(type_name: str, *, backend_type: str) -> str:
     try:
         return str(ibis.dtype(type_name))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RuntimeError):
+        if backend_type == "clickhouse":
+            try:
+                from ibis.backends.sql.datatypes import ClickHouseType
+
+                return str(ClickHouseType.from_string(type_name).copy(nullable=True))
+            except (TypeError, ValueError, RuntimeError):
+                pass
         return type_name
 
 
@@ -783,7 +790,10 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
             )
             continue
 
-        observed_type = _canonical_catalog_type(catalog_column.type)
+        observed_type = _canonical_catalog_type(
+            catalog_column.type,
+            backend_type=metadata.backend_type,
+        )
         if observed_type != binding.data_type:
             raise _declared_type_mismatch(
                 datasource_name=metadata.datasource,
