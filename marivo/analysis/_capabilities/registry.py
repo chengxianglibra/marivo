@@ -337,6 +337,8 @@ def _make_grouping_descriptor(
     topic: str,
     summary: str,
     root_group: RootGroup,
+    *,
+    root_summary: str | None = None,
 ) -> ConstructorCapability:
     """Create a non-invokable grouping descriptor for a collapsed topic."""
     return ConstructorCapability(
@@ -346,6 +348,7 @@ def _make_grouping_descriptor(
         summary=summary,
         root_group=root_group,
         root_visibility="grouped",
+        root_summary=root_summary,
         callable_path=None,
         output_type="",
     )
@@ -696,6 +699,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="artifact_production",
             root_visibility="direct",
+            root_summary="Materialize governed metric inputs into a typed MetricFrame.",
             constraint_ids=(
                 "metric_expression_resolvable",
                 "metric_readiness_verified",
@@ -1008,6 +1012,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
+            root_summary="Project persisted journeys into elapsed-time rows.",
             constraint_ids=(
                 "event_reducer_source_valid",
                 "event_step_pair_valid",
@@ -1073,6 +1078,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
+            root_summary="Compare compatible metric or funnel artifacts into a DeltaFrame.",
             constraint_ids=(
                 "frame_kind_compatible",
                 "single_metric_input",
@@ -1174,6 +1180,9 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
+            root_summary=(
+                "Attribute a DeltaFrame over explicit axes with reconciled contributions."
+            ),
             constraint_ids=(
                 "frame_kind_compatible",
                 "attribution_additivity_compatible",
@@ -1306,6 +1315,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
+            root_summary="Forecast a time-series or panel MetricFrame.",
             constraint_ids=("forecast_input_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.forecast",
             receiver="Session",
@@ -1327,6 +1337,7 @@ def _build_registry() -> CapabilityRegistry:
             ),
             root_group="typed_analysis",
             root_visibility="direct",
+            root_summary="Run fixed quality checks over supported analysis artifacts.",
             constraint_ids=("quality_target_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
@@ -2009,6 +2020,11 @@ def _build_registry() -> CapabilityRegistry:
                     }
                     else "direct"
                 ),
+                root_summary=(
+                    "Construct a half-open [start, end) analysis window."
+                    if cap_id == "time_scope"
+                    else None
+                ),
                 constraint_ids=(
                     ("window_absolute_parseable",)
                     if cap_id in {"time_scope", "AbsoluteWindow"}
@@ -2170,7 +2186,7 @@ def _build_registry() -> CapabilityRegistry:
                 help_target=target,
                 summary=summary,
                 root_group=group,  # type: ignore[arg-type]  # group is a str from a tuple; validated at runtime
-                root_visibility="direct",
+                root_visibility="direct" if cap_id == "session.get_or_create" else "grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.{cap_id.split('.', 1)[1]}",
                 identity_input=identity,
@@ -2441,6 +2457,7 @@ def _build_registry() -> CapabilityRegistry:
                 "custom work."
             ),
             "artifact_inspection",
+            root_summary="Inspect bounded state, valid continuations, and terminal exits.",
         )
     )
 

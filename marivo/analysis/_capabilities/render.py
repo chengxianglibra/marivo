@@ -210,7 +210,7 @@ _GROUP_LABELS: dict[str, str] = {
 
 
 def render_root_help() -> str:
-    """Render the root help page with fingerprint, groups, and type algebra.
+    """Render the root help page with fingerprint and first-observation guidance.
 
     ``root_visibility="direct"`` descriptors appear as individual entries.
     ``root_visibility="grouped"`` descriptors collapse to their grouping
@@ -221,7 +221,29 @@ def render_root_help() -> str:
     # Fingerprint (exact paths shown: root help uses reveal=True).
     fp = environment_fingerprint()
     lines.extend(render_fingerprint(fp, reveal=True).split("\n"))
-    lines.extend(("", "Python imports:", f"  {_ANALYSIS_IMPORT}", ""))
+    lines.extend(
+        (
+            "",
+            "Python imports:",
+            f"  {_MARIVO_IMPORT}",
+            f"  {_ANALYSIS_IMPORT}",
+            "",
+            "First observation:",
+            '  session = mv.session.get_or_create("analysis", question="<business question>")',
+            '  metric = session.catalog.metrics.get("<full semantic path or typed key>")',
+            "  marivo.help(metric)",
+            "  readiness = session.catalog.readiness(refs=[metric])",
+            '  if readiness.status == "blocked":',
+            "      readiness.show()",
+            "      raise SystemExit",
+            "  frame = session.observe(metric)",
+            "  frame.show()",
+            "",
+            "Focused contract:",
+            '  marivo.help("analysis.observe")',
+            "",
+        )
+    )
 
     # Capability groups
     lines.append("Capabilities:")
@@ -252,19 +274,13 @@ def render_root_help() -> str:
 
         # Direct entries get their own line.
         for desc in direct_descs:
-            lines.append(f"    {desc.public_entrypoint:<44} {desc.summary}")
+            lines.append(f"    {desc.public_entrypoint:<44} {desc.root_summary or desc.summary}")
 
         # Grouped entries with a topic collapse to the topic.
         for desc in topic_descs:
-            lines.append(f"    {desc.public_entrypoint:<44} {desc.summary}")
+            lines.append(f"    {desc.public_entrypoint:<44} {desc.root_summary or desc.summary}")
 
         lines.append("")
-
-    # Type algebra
-    lines.append("Type algebra:")
-    for row in REGISTRY.type_algebra_rows():
-        lines.append(f"  {row.render()}")
-    lines.append("")
 
     # Drill-down instruction
     lines.append('Call marivo.help("analysis.<target>") for detail on any capability.')

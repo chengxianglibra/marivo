@@ -81,10 +81,13 @@ state; these form the environment fingerprint — a bare
 `marivo` resolved from `PATH` is not authoritative unless its fingerprint
 matches the analysis interpreter. Verify this fingerprint once at analysis
 entry. After that, use the public object already in hand: read `.show()` for
-current state and `.contract()` before an unfamiliar composition. Open a
-surface index with `marivo.help("analysis")`, a registered namespace such as
-`marivo.help("analysis.events")` or `marivo.help("analysis.lifecycle")`, or a
-focused topic such as `marivo.help("analysis.observe")`,
+current state and `.contract()` before an unfamiliar composition. Open the
+analysis index with `marivo.help("analysis")`; it includes one guarded first
+observation from session acquisition through `marivo.help(metric)`, scoped
+readiness, `session.observe(...)`, and `frame.show()`. Use a registered
+namespace such as `marivo.help("analysis.events")` or
+`marivo.help("analysis.lifecycle")`, or a focused topic such as
+`marivo.help("analysis.observe")`,
 `marivo.help("analysis.compare")`, or
 `marivo.help("analysis.MetricFrame")` only when the object contract is
 insufficient or before first use of an unfamiliar capability. After a failure,
