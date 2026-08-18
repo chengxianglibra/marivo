@@ -85,7 +85,7 @@ entry type, and its current object count.
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
 | `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by exact typed ref; this global lookup remains ref-only. |
-| `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, or exact same-kind ref within that collection's scope. |
+| `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, displayed same-kind typed key, or exact same-kind ref within that collection's scope. |
 | `catalog.verify(entry_or_ref)` | Static, zero-query validation of one exact current entry or ref. |
 | `catalog.preview(entry_or_ref, using=snapshot_or_mapping)` | Scoped runtime preview for one current entry or ref, bound to matching snapshot evidence. |
 | `catalog.preview_many(entries_or_refs, using=snapshot_or_mapping)` | Normalize an ordered batch before execution, then persist an independent preview check for every canonical ref. |
@@ -145,13 +145,14 @@ check; parallel hand-maintained discovery lists are not allowed.
 
 ### Lookup rules
 
-`CatalogCollection.get(key)` accepts a local name, a full semantic path, or an
-exact same-kind `Ref`. A local name must be unique in the current collection
-view; a full path or ref must still be visible within that view. A scoped
-collection therefore cannot be escaped by passing a global path or ref. If a
-local name is ambiguous, lookup raises a structured error listing bounded exact
-full-path calls. Wrong-kind refs point to the owning global collection without
-being resolved implicitly.
+`CatalogCollection.get(key)` accepts a local name, a full semantic path, a
+displayed same-kind typed key such as `metric:sales.revenue`, or an exact
+same-kind `Ref`. A local name must be unique in the current collection view; a
+full path, typed key, or ref must still be visible within that view. A scoped
+collection therefore cannot be escaped by passing a global identity. If a local
+name is ambiguous, lookup raises a structured error listing bounded exact
+full-path calls. Wrong-kind typed keys and refs point to the owning global
+collection without being resolved implicitly.
 
 `catalog.require(ref)` remains the strict cross-kind global membership operation
 and accepts only exact typed refs. It does not share the collection string

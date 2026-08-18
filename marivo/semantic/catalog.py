@@ -79,6 +79,7 @@ from marivo.refs import (
     TemporalSetKind,
     TimeDimensionKind,
     WorkScheduleKind,
+    _decode_ref_key,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -2625,22 +2626,24 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
     # Overloads encode the closed KindT-to-entry mapping that Python's generic
     # syntax cannot otherwise express while the runtime signature stays CatalogEntry[K].
     def get(self, key: str | Ref[KindT]) -> CatalogEntry[KindT]:  # type: ignore[misc]
-        """Return one visible member by local name, full path, or same-kind ref.
+        """Return one visible member by local name, full path, typed key, or ref.
 
         Args:
-            key: A local name, an exact full semantic path, or an exact Ref
-                whose kind matches this collection.
+            key: A local name, an exact full semantic path, a displayed typed
+                key such as ``metric:sales.revenue``, or an exact Ref whose
+                kind matches this collection.
 
         Returns:
             The current catalog entry visible within this collection's scope.
 
         Example:
             >>> revenue = catalog.metrics.get("sales.revenue")
-            >>> same = catalog.metrics.get(revenue.ref)
+            >>> same = catalog.metrics.get(revenue.key)
+            >>> same_ref = catalog.metrics.get(revenue.ref)
 
         Constraints:
-            Full paths and refs do not widen a scoped collection. Ambiguous
-            local names require an explicit full path.
+            Full paths, typed keys, and refs do not widen a scoped collection.
+            Ambiguous local names require an explicit full path or typed key.
         """
         return self._catalog._get_from_collection(self, key)
 
@@ -4779,9 +4782,40 @@ class SemanticCatalog(RenderableResult):
     def _get_from_collection(
         self,
         collection: CatalogCollection[KindT],
-        key: str | Ref[KindT],
+        key: str | Ref[SemanticKindTag],
     ) -> CatalogEntry[KindT]:
         items = collection.items
+        if type(key) is str and ":" in key:
+            typed_key = key
+            try:
+                key = _decode_ref_key(typed_key)
+            except (TypeError, ValueError) as exc:
+                candidates = tuple(item.ref for item in items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
+                scope = (
+                    collection._scope_ref.key if collection._scope_ref is not None else "catalog"
+                )
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"CatalogCollection.get(...) received an invalid typed ref key. {exc}",
+                    cls=SemanticRuntimeError,
+                    refs=(typed_key,),
+                    expected=f"{collection._kind.value}:<path>",
+                    received=typed_key,
+                    constraint_id=ConstraintId.REF_SHAPE,
+                    repair_value=_semantic_input_inspection_repair(
+                        action=(
+                            "Inspect current same-kind collection members and retry with "
+                            "one displayed typed ref key."
+                        ),
+                        candidates=candidates,
+                    ),
+                    details={
+                        "operation": "CatalogCollection.get",
+                        "collection_kind": collection._kind.value,
+                        "scope": scope,
+                        "candidates": tuple(candidate.key for candidate in candidates),
+                    },
+                )
         if type(key) is Ref:
             ref_key = key
             if ref_key.kind is not collection._kind:
@@ -4807,7 +4841,7 @@ class SemanticCatalog(RenderableResult):
             match = next((item for item in items if item.ref == ref_key), None)
             if match is not None:
                 return match
-            global_match = self._require_index().require(cast("Ref[SemanticKindTag]", ref_key))
+            global_match = self._require_index().require(ref_key)
             if global_match is not None:
                 scope = (
                     collection._scope_ref.key if collection._scope_ref is not None else "catalog"
@@ -4848,14 +4882,6 @@ class SemanticCatalog(RenderableResult):
                 "CatalogCollection.get(...) expected a local/full path string or an "
                 f"exact same-kind Ref; received {type(key).__name__}.",
                 cls=SemanticRuntimeError,
-            )
-        if ":" in key:
-            _raise(
-                ErrorKind.INVALID_REF,
-                "CatalogCollection.get(...) string inputs use local names or full paths, "
-                "not typed ref keys containing ':'. Pass the exact Ref instead.",
-                cls=SemanticRuntimeError,
-                refs=(key,),
             )
         if "." in key:
             try:
