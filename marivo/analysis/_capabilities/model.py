@@ -167,6 +167,9 @@ class CapabilityBase:
     root_visibility:
         ``"direct"`` for standalone root entries, ``"grouped"`` for entries
         rendered under a grouping topic.
+    root_summary:
+        Optional shorter orientation text used only by root help. Focused help
+        always renders ``summary``.
     constraint_ids:
         Links into the live constraint catalog.
     callable_path:
@@ -179,6 +182,7 @@ class CapabilityBase:
     summary: str
     root_group: RootGroup
     root_visibility: RootVisibility
+    root_summary: str | None = None
     constraint_ids: tuple[str, ...] = ()
     callable_path: str | None = None
     additional_examples: tuple[HelpExample, ...] = ()

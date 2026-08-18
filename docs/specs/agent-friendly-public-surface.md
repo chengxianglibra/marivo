@@ -271,17 +271,24 @@ There are three disclosure ladders, and they compose:
    (~2–3 KB), not a 70 KB manual
    ([help progressive disclosure](../superpowers/plans/2026-06-02-help-progressive-disclosure.md)).
    The agent drills from the index into a symbol, and only then sees full
-   parameters, constraints, and a runnable example.
+   parameters and constraints. The analysis index additionally carries one
+   guarded first-observation path so an agent can acquire a session, inspect a
+   current metric entry, check readiness, and materialize its first artifact
+   without Python reflection.
 
    ```python
    import marivo
 
    marivo.help()  # compact global index, grouped by family
-   marivo.help("analysis")  # bounded native index, including session acquisition
+   marivo.help("analysis")  # bounded index plus one guarded first observation
    marivo.help("analysis.events")  # registered namespace members
    marivo.help("semantic.time_dimension_column")  # one constructor contract
    marivo.help("analysis.observe")  # one analysis operator contract
    ```
+
+   The analysis root does not duplicate the complete registry type algebra.
+   Focused help, artifact contracts, and the registry retain those typed
+   producer and consumer relationships.
 
    `marivo.help()` prints bounded text and returns `None`. It has exactly one
    output shape — it does not accept `format=` or emit JSON-as-a-payload;

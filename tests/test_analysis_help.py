@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import re
+import textwrap
 
 import pytest
 
@@ -71,15 +72,37 @@ def test_root_help_fingerprint_uses_resolved_paths() -> None:
     assert str(Path(marivo.__file__).resolve()) in lines[2]
 
 
-def test_root_help_documents_mv_namespace_import() -> None:
-    """Root help uses ``mv.`` throughout but must state how to obtain it, so
-    examples are runnable from a cold start. See issue #22.
-    """
+def test_root_help_documents_cold_start_imports() -> None:
+    """Root help must import both the coordinator and analysis namespace."""
     text = _text()
     assert "Python imports:" in text
+    assert "import marivo" in text
     assert "import marivo.analysis as mv" in text
     # The import hint precedes the capability index.
     assert text.index("import marivo.analysis as mv") < text.index("Capabilities:")
+
+
+def test_root_help_teaches_one_guarded_first_observation() -> None:
+    text = _text()
+    example = text.split("First observation:\n", 1)[1].split("\n\nFocused contract:", 1)[0]
+    compile(textwrap.dedent(example), "<analysis-root-help>", "exec")
+
+    steps = (
+        'session = mv.session.get_or_create("analysis", question="<business question>")',
+        'metric = session.catalog.metrics.get("<full semantic path or typed key>")',
+        "marivo.help(metric)",
+        "readiness = session.catalog.readiness(refs=[metric])",
+        'if readiness.status == "blocked":',
+        "readiness.show()",
+        "raise SystemExit",
+        "frame = session.observe(metric)",
+        "frame.show()",
+    )
+    positions = [example.index(step) for step in steps]
+    assert positions == sorted(positions)
+    assert 'marivo.help("analysis.observe")' in text
+    assert "dir(" not in text
+    assert "help(session" not in text
 
 
 def test_focused_help_documents_mv_namespace_import() -> None:
@@ -121,7 +144,8 @@ def test_root_help_contains_all_direct_capabilities() -> None:
     direct = [d for d in REGISTRY.descriptors if d.root_visibility == "direct"]
     assert len(direct) > 0
     for desc in direct:
-        assert desc.help_target in text, f"missing direct capability: {desc.help_target}"
+        rendered = f"{desc.public_entrypoint:<44} {desc.root_summary or desc.summary}"
+        assert rendered in text, f"missing direct capability: {desc.help_target}"
 
 
 def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
@@ -135,6 +159,21 @@ def test_root_help_never_advertises_grouping_topics_as_session_members() -> None
         assert fake_entrypoint not in text
     assert 'marivo.help("analysis.recovery")' in text
     assert 'marivo.help("analysis.artifacts")' in text
+
+
+def test_root_recovery_keeps_only_acquisition_and_grouped_drill_down() -> None:
+    root = _text()
+    recovery = _text("recovery")
+
+    assert "mv.session.get_or_create(...)" in root
+    for entrypoint in (
+        "mv.session.current()",
+        "mv.session.recent()",
+        "mv.session.inspect(name)",
+        "mv.session.delete(name)",
+    ):
+        assert entrypoint not in root
+        assert entrypoint in recovery
 
 
 def test_focused_grouping_help_lists_real_members() -> None:
@@ -224,12 +263,12 @@ def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> 
     root = _text()
     artifacts = _text("artifacts")
 
-    for text in (root, artifacts):
-        assert "Read artifacts progressively" in text
-        assert "inspect bounded state" in text
-        assert "check mechanical compatibility" in text
-        assert "terminal boundary" in text
-        assert "intentionally custom work" in text
+    assert "Inspect bounded state, valid continuations, and terminal exits." in root
+    assert "Read artifacts progressively" in artifacts
+    assert "inspect bounded state" in artifacts
+    assert "check mechanical compatibility" in artifacts
+    assert "terminal boundary" in artifacts
+    assert "intentionally custom work" in artifacts
 
     assert artifacts.index("frame.show()") < artifacts.index("frame.contract()")
     assert artifacts.index("frame.contract()") < artifacts.index("frame.to_pandas()")
@@ -237,20 +276,30 @@ def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> 
     assert "attribute" not in artifacts
 
 
-def test_root_help_contains_type_algebra_rows() -> None:
-    text = _text()
+def test_type_algebra_remains_registered_but_is_not_rendered_in_root_help() -> None:
+    root = _text()
     rows = REGISTRY.type_algebra_rows()
     assert len(rows) > 0
-    for row in rows:
-        rendered = row.render()
-        assert rendered in text, f"missing algebra row: {rendered}"
+    assert "Type algebra:" not in root
+    assert rows[-1].render() not in root
 
 
 def test_root_help_contains_terminal_boundary_row() -> None:
     text = _text()
-    assert "boundary.to_pandas" in text
-    assert "pandas.DataFrame" in text
-    assert "(terminal)" in text
+    assert "frame.to_pandas()" in text
+    assert "pandas DataFrame" in text
+    assert "Terminal exit" in text
+
+
+def test_root_only_summaries_do_not_narrow_focused_help() -> None:
+    root = _text()
+    observe = _text("observe")
+    descriptor = REGISTRY.by_id("observe")
+
+    assert descriptor.root_summary == "Materialize governed metric inputs into a typed MetricFrame."
+    assert descriptor.root_summary in root
+    assert descriptor.summary in observe
+    assert descriptor.summary not in root
 
 
 def test_root_help_contains_drill_down_instruction() -> None:
@@ -287,11 +336,13 @@ def test_root_help_has_no_default_operator_label() -> None:
 
 def test_root_help_within_line_budget() -> None:
     text = _text()
+    assert len(text.splitlines()) <= 80
     assert len(text.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
 
 
 def test_root_help_within_codepoint_budget() -> None:
     text = _text()
+    assert len(text) <= 6_000
     assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
 
 
@@ -1511,6 +1562,8 @@ def test_root_help_does_not_silently_exceed_budget() -> None:
     """Root help must stay within SURFACE_LIMITS; overflow is a build failure."""
     text = _text()
     lines = text.replace("\r\n", "\n").splitlines()
+    assert len(lines) <= 80
+    assert len(text) <= 6_000
     assert len(lines) <= SURFACE_LIMITS.root_help_max_lines
     assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
 

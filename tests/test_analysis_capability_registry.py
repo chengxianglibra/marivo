@@ -213,6 +213,7 @@ def test_capability_base_required_fields() -> None:
     assert "summary" in field_names
     assert "root_group" in field_names
     assert "root_visibility" in field_names
+    assert "root_summary" in field_names
     assert "constraint_ids" in field_names
     assert "callable_path" in field_names
     assert "additional_examples" in field_names
@@ -227,6 +228,7 @@ def test_capability_base_defaults() -> None:
         root_group="recovery",
         root_visibility="direct",
     )
+    assert base.root_summary is None
     assert base.constraint_ids == ()
     assert base.callable_path is None
     assert base.additional_examples == ()
