@@ -20,6 +20,8 @@ from marivo.datasource.ir import (
     CsvSourceIR,
     JsonSourceIR,
     ParquetSourceIR,
+    QueryParamScalar,
+    QueryParamScalarList,
     SourceParamIR,
     TableSourceIR,
 )
@@ -131,7 +133,9 @@ class NormalizedPreviewBindings:
         return dict(self.scopes)
 
     @property
-    def source_bindings(self) -> Mapping[str, Mapping[str, str | int | float | bool]]:
+    def source_bindings(
+        self,
+    ) -> Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]:
         return {
             ref.path: dict(snapshot.source_params)
             for ref, snapshot in zip(self.entity_refs, self.snapshots, strict=True)

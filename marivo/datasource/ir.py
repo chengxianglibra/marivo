@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import PurePosixPath
@@ -26,6 +26,7 @@ __all__ = [
     "JsonSourceIR",
     "ParquetSourceIR",
     "QueryParamScalar",
+    "QueryParamScalarList",
     "SourceParamIR",
     "TableColumnBindingIR",
     "TableSourceIR",
@@ -92,6 +93,7 @@ _JSON_FORMATS = ("auto", "newline_delimited", "array")
 _JSON_RECORDS_PATH = re.compile(r"^\$(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 QueryParamScalar: TypeAlias = str | int | float | bool
+QueryParamScalarList: TypeAlias = Sequence[QueryParamScalar]
 
 
 def _format_database_identity(database: str | tuple[str, ...] | None) -> str:
@@ -121,7 +123,9 @@ class SourceParamIR:
         return {"kind": "source_param", "name": self.name}
 
 
-JsonQueryParamValue: TypeAlias = QueryParamScalar | SourceParamIR
+JsonQueryParamValue: TypeAlias = (
+    QueryParamScalar | SourceParamIR | Sequence[QueryParamScalar | SourceParamIR]
+)
 JsonBodyPathPart: TypeAlias = str | int
 JsonBodyParam: TypeAlias = tuple[tuple[JsonBodyPathPart, ...], SourceParamIR]
 JsonBodyValue: TypeAlias = (
@@ -221,6 +225,40 @@ def _validate_json_records_path(value: object) -> None:
         )
 
 
+def _validate_json_query_param_value(item: object, *, name: str) -> None:
+    """Validate one query parameter value: scalar, source param, or a flat list of them."""
+    if isinstance(item, SourceParamIR):
+        return
+    if isinstance(item, Sequence) and not isinstance(item, str | bytes | bytearray):
+        if not item:
+            raise ValueError(
+                f"JsonSourceIR.query_params value for {name!r} must not be an empty list."
+            )
+        for element in item:
+            if not isinstance(element, str | int | float | bool | SourceParamIR):
+                raise TypeError(
+                    "JsonSourceIR.query_params list values must contain str, int, float, "
+                    f"bool, or SourceParamIR; got {type(element).__name__} for {name!r}."
+                )
+            if isinstance(element, float) and not isfinite(element):
+                raise ValueError(
+                    f"JsonSourceIR.query_params value for {name!r} must be a finite float."
+                )
+        return
+    if isinstance(item, str | int | bool):
+        return
+    if isinstance(item, float):
+        if not isfinite(item):
+            raise ValueError(
+                f"JsonSourceIR.query_params value for {name!r} must be a finite float."
+            )
+        return
+    raise TypeError(
+        "JsonSourceIR.query_params values must be str, int, float, bool, SourceParamIR, "
+        f"or a list of these; got {type(item).__name__} for {name!r}."
+    )
+
+
 def _validate_json_query_params(value: object) -> None:
     if not isinstance(value, tuple):
         raise TypeError(
@@ -236,15 +274,7 @@ def _validate_json_query_params(value: object) -> None:
         if name in seen:
             raise ValueError(f"JsonSourceIR.query_params contains duplicate name {name!r}.")
         seen.add(name)
-        if not isinstance(item, str | int | float | bool | SourceParamIR):
-            raise TypeError(
-                "JsonSourceIR.query_params values must be str, int, float, bool, or "
-                f"SourceParamIR; got {type(item).__name__} for {name!r}."
-            )
-        if isinstance(item, float) and not isfinite(item):
-            raise ValueError(
-                f"JsonSourceIR.query_params value for {name!r} must be a finite float."
-            )
+        _validate_json_query_param_value(item, name=name)
 
 
 def _validate_database(value: object) -> None:
@@ -287,6 +317,125 @@ def _validate_schema(value: object, field_name: str) -> None:
         name, type_name = entry
         _require_non_empty_str(name, f"{field_name} column name")
         _require_non_empty_str(type_name, f"{field_name} type name")
+
+
+def _validate_ibis_schema_types(
+    schema: tuple[tuple[str, str], ...],
+    field_name: str,
+) -> None:
+    for _name, type_name in schema:
+        try:
+            ibis.dtype(type_name)
+        except (TypeError, ValueError, RuntimeError):
+            raise ValueError(
+                f"{field_name} type name {type_name!r} must be a valid Ibis type string "
+                "(e.g. 'int64', 'string', 'float64'), not a SQL/DuckDB name such as "
+                "'BIGINT'."
+            ) from None
+
+
+_JSON_PATH_MEMBER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _parse_json_path(name: str) -> tuple[tuple[str, object], ...]:
+    """Parse one JSON field path into member/index/traverse segments.
+
+    A column path selects a nested value relative to each record object:
+    ``a`` (top-level member), ``a.b`` (nested object member), ``a[0].b``
+    (array index), or ``a[].b`` (array traversal, expanding one row per element).
+    """
+    segments: list[tuple[str, object]] = []
+    for part in name.split("."):
+        if not part:
+            raise ValueError(f"JSON field path {name!r} must not contain empty segments.")
+        match = _JSON_PATH_MEMBER.match(part)
+        if match is None:
+            raise ValueError(
+                f"JSON field path {name!r} segment {part!r} must start with a field name."
+            )
+        segments.append(("member", match.group(0)))
+        rest = part[match.end() :]
+        while rest:
+            if not rest.startswith("["):
+                raise ValueError(
+                    f"JSON field path {name!r} has invalid syntax in segment {part!r}."
+                )
+            close = rest.find("]")
+            if close == -1:
+                raise ValueError(f"JSON field path {name!r} has an unclosed '['.")
+            inner = rest[1:close]
+            if inner == "":
+                segments.append(("traverse", None))
+            elif inner.isdigit():
+                segments.append(("index", int(inner)))
+            else:
+                raise ValueError(f"JSON field path {name!r} has an invalid index {inner!r}.")
+            rest = rest[close + 1 :]
+    if not segments:
+        raise ValueError("JSON field path must not be empty.")
+    return tuple(segments)
+
+
+def _validate_json_field_paths(
+    schema: tuple[tuple[str, str], ...],
+    field_paths: object,
+) -> None:
+    if not isinstance(field_paths, tuple):
+        raise TypeError(
+            "JsonSourceIR.field_paths must be tuple[tuple[str, str], ...], "
+            f"got {type(field_paths).__name__}."
+        )
+
+    schema_names = {name for name, _ in schema}
+    seen: set[str] = set()
+    traversal_prefix: tuple[tuple[str, object], ...] | None = None
+    for entry in field_paths:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise TypeError("JsonSourceIR.field_paths entries must be (output, path) tuples.")
+        raw_output_name, raw_path = entry
+        output_name = _require_non_empty_str(
+            raw_output_name, "JsonSourceIR.field_paths output name"
+        )
+        path = _require_non_empty_str(raw_path, "JsonSourceIR.field_paths path")
+        if output_name not in schema_names:
+            raise ValueError(
+                f"JsonSourceIR.field_paths output {output_name!r} is not declared in schema."
+            )
+        if output_name in seen:
+            raise ValueError(f"JsonSourceIR.field_paths contains duplicate output {output_name!r}.")
+        seen.add(output_name)
+
+        segments = _parse_json_path(path)
+        traversal_positions = [
+            index for index, (kind, _arg) in enumerate(segments) if kind == "traverse"
+        ]
+        if len(traversal_positions) > 1:
+            raise ValueError(
+                f"JsonSourceIR.field_paths path {path!r} contains more than one array traversal."
+            )
+        if not traversal_positions:
+            continue
+        prefix = segments[: traversal_positions[0]]
+        if traversal_prefix is None:
+            traversal_prefix = prefix
+        elif traversal_prefix != prefix:
+            raise ValueError(
+                "JsonSourceIR.field_paths may traverse only one shared array path; "
+                f"got both {_format_json_path(traversal_prefix)!r} and "
+                f"{_format_json_path(prefix)!r}."
+            )
+
+
+def _format_json_path(segments: tuple[tuple[str, object], ...]) -> str:
+    rendered = ""
+    for kind, arg in segments:
+        if kind == "member":
+            rendered += ("." if rendered else "") + str(arg)
+        elif kind == "index":
+            rendered += f"[{arg}]"
+        else:
+            rendered += "[]"
+    return rendered
 
 
 def _require_no_nul(value: str, field_name: str) -> None:
@@ -469,6 +618,7 @@ class JsonSourceIR:
     schema: tuple[tuple[str, str], ...]
     format: Literal["auto", "newline_delimited", "array"] = "auto"
     records_path: str | None = None
+    field_paths: tuple[tuple[str, str], ...] = ()
     query_params: tuple[tuple[str, JsonQueryParamValue], ...] = ()
     method: Literal["GET", "POST"] = "GET"
     body_json: str | None = None
@@ -478,6 +628,20 @@ class JsonSourceIR:
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "JsonSourceIR.path")
         _validate_schema(self.schema, "JsonSourceIR.schema")
+        _validate_ibis_schema_types(self.schema, "JsonSourceIR.schema")
+        _validate_json_field_paths(self.schema, self.field_paths)
+        paths_by_output = dict(self.field_paths)
+        object.__setattr__(
+            self,
+            "field_paths",
+            tuple(
+                (output_name, paths_by_output[output_name])
+                for output_name, _type_name in self.schema
+                if output_name in paths_by_output
+            ),
+        )
+        if self.field_paths and self.records_path is None:
+            raise ValueError("JsonSourceIR.field_paths requires records_path.")
         _require_json_format(self.format, "JsonSourceIR.format")
         _validate_json_records_path(self.records_path)
         _validate_json_query_params(self.query_params)
@@ -543,7 +707,7 @@ class JsonSourceIR:
         _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "kind": self.kind,
             "path": self.path,
             "schema": dict(self.schema),
@@ -559,14 +723,27 @@ class JsonSourceIR:
                 {"path": list(path), "name": param.name} for path, param in self.body_params
             ],
         }
+        if self.field_paths:
+            result["field_paths"] = dict(self.field_paths)
+        return result
 
     def to_ir(self) -> JsonSourceIR:
         return self
 
 
+def _iter_source_param_names(value: object) -> Iterator[str]:
+    if isinstance(value, SourceParamIR):
+        yield value.name
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        for element in value:
+            yield from _iter_source_param_names(element)
+
+
 def json_source_param_names(source: JsonSourceIR) -> tuple[str, ...]:
     """Return unique runtime parameter names in request declaration order."""
-    declared = [value.name for _, value in source.query_params if isinstance(value, SourceParamIR)]
+    declared: list[str] = []
+    for _, value in source.query_params:
+        declared.extend(_iter_source_param_names(value))
     declared.extend(param.name for _, param in source.body_params)
     return tuple(dict.fromkeys(declared))
 

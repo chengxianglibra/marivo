@@ -229,7 +229,7 @@ discovery, and `ms.entity(source=...)`.
 | `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view or a complete typed projection over one physical table (any SQL backend). |
 | `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
 | `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
-| `md.json(path, schema=..., format=..., records_path=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with required typed physical schema, optional wrapped-record extraction, and runtime-bindable query-string or POST-body values. |
+| `md.json(path, schema=..., format=..., records_path=..., field_paths=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with stable typed output aliases, optional correlated nested-field extraction, and runtime-bindable query-string or POST-body values. |
 
 `TableSource` is the public union of these four IRs. File sources
 (`parquet`/`csv`/`json`) are read by the DuckDB engine, so they attach to a
@@ -287,6 +287,28 @@ materializes as zero rows. A missing path or a non-array value fails at executio
 instead of being treated as an empty result; verify the response envelope and API
 authentication before retrying.
 
+`schema=` maps stable output aliases to Ibis type strings. For a field nested
+inside each selected record, `field_paths=` maps that output alias to a relative
+JSON path: `a.b` selects an object member, `a[0].b` selects a fixed array index,
+and `a[].b` traverses an array. Traversed sibling fields must share one array
+prefix and are projected from the same element, so their values remain
+correlated. Independent traversal roots and more than one traversal in a path
+fail at declaration instead of creating a Cartesian product. A record whose
+traversed array is missing, empty, or null produces no rows. Literal top-level
+field names remain schema keys and may contain punctuation or spaces.
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    schema={"change_id": "int64", "app_id": "int64", "app_name": "string"},
+    records_path="$.data.change_infos",
+    field_paths={
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
+)
+```
+
 Parameterized API URLs keep their stable request shape in the semantic project
 and bind request-specific values at analysis time:
 
@@ -304,17 +326,20 @@ samples = md.json(
 )
 ```
 
-`query_params` values are scalar. `md.source_param(name)` declares a required,
-non-secret runtime value and must occupy one complete query parameter value;
-Marivo URL-encodes names and values and does not interpret substring templates.
-The URL may already contain unrelated fixed parameters, but declaring the same
-name in both the URL and `query_params` fails closed.
+`query_params` values are scalars or flat, non-empty scalar lists. Lists encode
+as repeated query keys. `md.source_param(name)` declares a required, non-secret
+runtime value and may resolve to either shape while occupying one complete query
+parameter value; it may also appear inside a fixed list. Marivo URL-encodes names
+and values and does not interpret substring templates. The URL may already
+contain unrelated fixed parameters, but declaring the same name in both the URL
+and `query_params` fails closed.
 
 A JSON-object body enables the minimal POST API case. The request remains lazy:
 it is sent when the DuckDB-backed table executes, not while the project is
 loaded or inspected. `POST` requires an HTTP(S) URL and `format="auto"`.
 `md.source_param(...)` may occupy a complete value anywhere in the body,
-including inside an object or array; it does not interpolate string fragments.
+including inside an object or array, and may resolve to a scalar or flat,
+non-empty scalar list. It does not interpolate string fragments.
 
 ```python
 gpu_servers = md.json(
@@ -378,7 +403,8 @@ with session.source_bindings(
 Bindings use exact `Ref[entity]` keys and must provide exactly the declared
 parameter names. They are nested, context-local, and keyed by the owning Session
 runtime, so concurrent agents and another Session in the same task cannot consume
-the values. Non-secret bindings participate in analysis and snapshot identity.
+the values. Each binding is a scalar or a flat, non-empty scalar list. Non-secret
+bindings participate in analysis and snapshot identity.
 Discovery uses the same contract through
 `inspection.sample(..., source_params={...})`.
 

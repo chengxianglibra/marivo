@@ -51,6 +51,7 @@ INPUT_FAMILIES = frozenset(
         "SourceParameter",
         "SourceParameters",
         "TypedSchema",
+        "JsonFieldPaths",
         "PartitionValues",
         "TemporalColumn",
         "TemporalBound",
@@ -392,17 +393,20 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a typed JSON source descriptor with GET or parameterized-body POST acquisition, optional runtime request parameters, and wrapped-record extraction.",
+            "Build a typed JSON source with stable output aliases, correlated nested-field extraction, and scalar-or-list request bindings.",
             output="TableSource",
             inputs=(
                 *_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
+                _optional_input("dependency", "JsonFieldPaths"),
                 _optional_input("dependency", "SourceParameter"),
             ),
             constraints=("json_request_shape",),
             example=(
                 'md.json("https://api.example/orders", '
-                'schema={"order_id": "string"}, records_path="$.data", '
-                'method="POST", body={"app_id": md.source_param("app_id")})'
+                'schema={"order_id": "string", "app_name": "string"}, '
+                'records_path="$.data", '
+                'field_paths={"app_name": "apps[].name"}, '
+                'query_params={"app": md.source_param("apps")})'
             ),
         ),
         _capability(
@@ -601,7 +605,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "snapshot.show()\n"
                 "snapshot.contract().show()\n"
                 'snapshot.dimensions(columns=("status",)).show()\n'
-                '# For md.source_param("page"), add source_params={"page": 1}.'
+                '# For md.source_param("apps"), add '
+                'source_params={"apps": ["app-1", "app-2"]}.'
             ),
             preconditions=("source.inspected", "scope.explicit"),
             produced_state="evidence.acquired",

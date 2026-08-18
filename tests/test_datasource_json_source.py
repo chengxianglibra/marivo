@@ -152,7 +152,103 @@ def test_json_source_url_requires_exact_declared_runtime_bindings() -> None:
     with pytest.raises(ValueError, match=r"extra=\('end',\)"):
         json_source_url(source, {"start": 1, "end": 2})
     with pytest.raises(TypeError, match="must be str, int, float, or bool"):
-        json_source_url(source, {"start": [1]})  # type: ignore[dict-item]
+        json_source_url(source, {"start": [1, {"nested": True}]})  # type: ignore[dict-item]
+
+
+def test_json_source_url_encodes_list_query_value() -> None:
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": ["app-1", "app-2"], "page": 1},
+    )
+
+    assert json_source_url(source) == (
+        "https://api.example/query?specificsource=app-1&specificsource=app-2&page=1"
+    )
+
+
+def test_json_source_url_binds_list_source_param() -> None:
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": md.source_param("apps")},
+    )
+
+    assert json_source_url(source, {"apps": ["app-1", "app-2"]}) == (
+        "https://api.example/query?specificsource=app-1&specificsource=app-2"
+    )
+
+
+def test_json_source_url_resolves_source_params_inside_list() -> None:
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": ["app-1", md.source_param("second")]},
+    )
+
+    assert json_source_url(source, {"second": "app-2"}) == (
+        "https://api.example/query?specificsource=app-1&specificsource=app-2"
+    )
+
+
+def test_json_source_url_rejects_non_scalar_list_items() -> None:
+    with pytest.raises(TypeError, match="must contain str, int, float, bool"):
+        md.json(
+            "https://api.example/query",
+            schema={"value": "float64"},
+            query_params={"specificsource": ["app-1", ["nested"]]},  # type: ignore[dict-item]
+        )
+
+
+def test_json_source_url_rejects_nested_list_binding() -> None:
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": md.source_param("apps")},
+    )
+    with pytest.raises(TypeError, match="must be flat"):
+        json_source_url(source, {"apps": [["app-1", "app-2"]]})
+
+
+def test_json_source_url_rejects_empty_list_binding() -> None:
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": md.source_param("apps")},
+    )
+    with pytest.raises(ValueError, match="empty list"):
+        json_source_url(source, {"apps": []})
+
+
+def test_post_json_source_binds_array_body_value() -> None:
+    response = {"data": {"change_infos": [{"change_id": 101}]}}
+    with _post_json_server(response) as (url, requests):
+        backend = ibis.duckdb.connect(":memory:")
+        source = md.json(
+            url,
+            schema={"change_id": "int64"},
+            method="POST",
+            body={
+                "specific_source": md.source_param("apps"),
+                "page_num": 1,
+            },
+            records_path="$.data.change_infos",
+        )
+
+        try:
+            table = read_json_source(
+                backend,
+                source,
+                source_params={"apps": ["app-1", "app-2"]},
+            )
+            assert table.execute().to_dict(orient="records") == [{"change_id": 101}]
+        finally:
+            backend.disconnect()
+
+    assert requests[0]["body"] == {
+        "specific_source": ["app-1", "app-2"],
+        "page_num": 1,
+    }
 
 
 def test_json_source_url_validates_parameters_declared_only_in_post_body() -> None:
@@ -425,6 +521,218 @@ def test_loaded_wrapped_json_project_materializes_records(tmp_path: Path) -> Non
         {"event_id": 1, "amount": 10, "status": "paid"},
         {"event_id": 2, "amount": 20, "status": "void"},
     ]
+
+
+def _write_nested_json(root: Path) -> str:
+    path = root / "events.json"
+    path.write_text(
+        '{"result": {"items": ['
+        '{"id": 1, "user": {"name": "alice"}, "tags": ["a", "b"]},'
+        '{"id": 2, "user": {"name": "bob"}, "tags": ["c"]}'
+        "]}}"
+    )
+    return str(path)
+
+
+def _write_traversal_json(root: Path) -> str:
+    path = root / "events.json"
+    path.write_text(
+        '{"result": {"items": ['
+        '{"id": 1, "specificsource": [{"appid": 10, "name": "app-1"}, '
+        '{"appid": 20, "name": "app-2"}]},'
+        '{"id": 2, "specificsource": [{"appid": 30, "name": "app-3"}]}'
+        "]}}"
+    )
+    return str(path)
+
+
+def test_unpack_nested_object_member_path(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_nested_json(tmp_path),
+        schema={"id": "int64", "user_name": "string"},
+        records_path="$.result.items",
+        field_paths={"user_name": "user.name"},
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute().sort_values("id")
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "user_name": "alice"},
+            {"id": 2, "user_name": "bob"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def test_unpack_array_index_path(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_nested_json(tmp_path),
+        schema={"id": "int64", "first_tag": "string"},
+        records_path="$.result.items",
+        field_paths={"first_tag": "tags[0]"},
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute().sort_values("id")
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "first_tag": "a"},
+            {"id": 2, "first_tag": "c"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def test_unpack_array_traversal_path(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_nested_json(tmp_path),
+        schema={"id": "int64", "tag": "string"},
+        records_path="$.result.items",
+        field_paths={"tag": "tags[]"},
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute().sort_values(["id", "tag"])
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "tag": "a"},
+            {"id": 1, "tag": "b"},
+            {"id": 2, "tag": "c"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def test_unpack_array_traversal_nested_member(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_traversal_json(tmp_path),
+        schema={"id": "int64", "app_name": "string"},
+        records_path="$.result.items",
+        field_paths={"app_name": "specificsource[].name"},
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute().sort_values(["id", "app_name"])
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "app_name": "app-1"},
+            {"id": 1, "app_name": "app-2"},
+            {"id": 2, "app_name": "app-3"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def _write_traversal_gaps_json(root: Path) -> str:
+    path = root / "events.json"
+    path.write_text(
+        '{"result": {"items": ['
+        '{"id": 1, "specificsource": [{"name": "app-1"}]},'
+        '{"id": 2, "specificsource": []},'
+        '{"id": 3, "specificsource": null},'
+        '{"id": 4}'
+        "]}}"
+    )
+    return str(path)
+
+
+def test_unpack_array_traversal_drops_missing_empty_and_null(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_traversal_gaps_json(tmp_path),
+        schema={"id": "int64", "app_name": "string"},
+        records_path="$.result.items",
+        field_paths={"app_name": "specificsource[].name"},
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute()
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "app_name": "app-1"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def test_unpack_sibling_fields_share_one_array_traversal(tmp_path: Path) -> None:
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        _write_traversal_json(tmp_path),
+        schema={"id": "int64", "app_id": "int64", "app_name": "string"},
+        records_path="$.result.items",
+        field_paths={
+            "app_id": "specificsource[].appid",
+            "app_name": "specificsource[].name",
+        },
+    )
+    try:
+        table = read_json_source(backend, source)
+        result = table.execute().sort_values(["id", "app_id"])
+        assert result.to_dict(orient="records") == [
+            {"id": 1, "app_id": 10, "app_name": "app-1"},
+            {"id": 1, "app_id": 20, "app_name": "app-2"},
+            {"id": 2, "app_id": 30, "app_name": "app-3"},
+        ]
+    finally:
+        backend.disconnect()
+
+
+def test_json_field_paths_reject_invalid_nested_path() -> None:
+    with pytest.raises(ValueError, match="must start with a field name"):
+        md.json(
+            "https://api.example/query",
+            schema={"name": "string"},
+            records_path="$.items",
+            field_paths={"name": "[0].name"},
+        )
+
+
+def test_json_field_paths_require_records_path() -> None:
+    with pytest.raises(ValueError, match="requires records_path"):
+        md.json(
+            "events.json",
+            schema={"user_name": "string"},
+            field_paths={"user_name": "user.name"},
+        )
+
+
+def test_json_field_paths_reject_independent_array_traversals() -> None:
+    with pytest.raises(ValueError, match="only one shared array path"):
+        md.json(
+            "events.json",
+            schema={"tag": "string", "app": "string"},
+            records_path="$.items",
+            field_paths={"tag": "tags[]", "app": "apps[].name"},
+        )
+
+
+def test_json_field_paths_reject_multiple_traversals_in_one_path() -> None:
+    with pytest.raises(ValueError, match="more than one array traversal"):
+        md.json(
+            "events.json",
+            schema={"name": "string"},
+            records_path="$.items",
+            field_paths={"name": "groups[].apps[].name"},
+        )
+
+
+def test_wrapped_json_keeps_literal_output_field_names(tmp_path: Path) -> None:
+    source_path = tmp_path / "events.json"
+    source_path.write_text('{"result": {"items": [{"x-y": "literal", "display name": "shown"}]}}')
+    backend = ibis.duckdb.connect(":memory:")
+    source = md.json(
+        str(source_path),
+        schema={"x-y": "string", "display name": "string"},
+        records_path="$.result.items",
+    )
+
+    try:
+        assert read_json_source(backend, source).execute().to_dict(orient="records") == [
+            {"x-y": "literal", "display name": "shown"}
+        ]
+    finally:
+        backend.disconnect()
 
 
 def test_wrapped_json_records_fill_missing_fields_and_ignore_extra_fields(tmp_path: Path) -> None:

@@ -455,14 +455,20 @@ class Session(RenderableResult):
         self,
         bindings: Mapping[
             Ref[EntityKind],
-            Mapping[str, str | int | float | bool],
+            Mapping[
+                str,
+                str | int | float | bool | Sequence[str | int | float | bool],
+            ],
         ],
         /,
     ) -> AbstractContextManager[None]:
         """Bind parameterized JSON sources for one analysis execution scope.
 
         Args:
-            bindings: Exact entity refs mapped to all required scalar source parameters.
+            bindings: Exact entity refs mapped to their required source
+                parameters. A value is a scalar (``str | int | float | bool``) or
+                a flat, non-empty list of scalars; list values are URL-encoded as
+                repeated query keys or serialized as a JSON array in a POST body.
 
         Returns:
             A context manager that installs bindings only for its dynamic scope.
@@ -470,12 +476,14 @@ class Session(RenderableResult):
         Example:
             >>> with session.source_bindings({
             ...     ms.ref.entity("monitoring.samples"): {"start": 1, "end": 2},
+            ...     ms.ref.entity("monitoring.apps"): {"app": ["app-1", "app-2"]},
             ... }):
             ...     frame = session.observe(ms.ref.metric("monitoring.value"))
 
         Constraints:
             Keys must be current ``Ref[entity]`` values using parameterized
-            ``md.json(...)`` sources. Missing and extra values fail before execution.
+            ``md.json(...)`` sources. Missing and extra values fail before
+            execution. Nested or empty lists are rejected.
         """
         from marivo.analysis.session._source_bindings import source_binding_scope
 

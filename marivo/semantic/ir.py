@@ -263,6 +263,14 @@ def _table_columns_from_dict(
     return tuple(normalized)
 
 
+def _deserialize_query_param_value(raw_value: object) -> object:
+    if isinstance(raw_value, Mapping) and raw_value.get("kind") == "source_param":
+        return SourceParamIR(name=str(raw_value.get("name", "")))
+    if isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes | bytearray):
+        return [_deserialize_query_param_value(item) for item in raw_value]
+    return raw_value
+
+
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
@@ -298,20 +306,25 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     if kind == "json":
         raw_format = str(data.get("format", "auto"))
         raw_records_path = data.get("records_path")
+        raw_field_paths = data.get("field_paths", {})
         raw_query_params = data.get("query_params", {})
         raw_method = str(data.get("method", "GET"))
         raw_body = data.get("body")
         raw_body_params = data.get("body_params", [])
         if not isinstance(raw_query_params, Mapping):
             raise TypeError("JsonSourceIR.query_params must be a mapping.")
+        if not isinstance(raw_field_paths, Mapping):
+            raise TypeError("JsonSourceIR.field_paths must be a mapping.")
+        field_paths: list[tuple[str, str]] = []
+        for output_name, field_path in raw_field_paths.items():
+            if not isinstance(output_name, str) or not isinstance(field_path, str):
+                raise TypeError("JsonSourceIR.field_paths names and paths must be strings.")
+            field_paths.append((output_name, field_path))
         query_params: list[tuple[str, object]] = []
         for name, raw_value in raw_query_params.items():
             if not isinstance(name, str):
                 raise TypeError("JsonSourceIR.query_params names must be strings.")
-            value: object = raw_value
-            if isinstance(raw_value, Mapping) and raw_value.get("kind") == "source_param":
-                value = SourceParamIR(name=str(raw_value.get("name", "")))
-            query_params.append((name, value))
+            query_params.append((name, _deserialize_query_param_value(raw_value)))
         if not isinstance(raw_body_params, Sequence) or isinstance(raw_body_params, str | bytes):
             raise TypeError("JsonSourceIR.body_params must be a sequence.")
         body_params: list[JsonBodyParam] = []
@@ -338,6 +351,7 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             schema=_source_schema_from_dict(data.get("schema"), field_name="JsonSourceIR.schema"),
             format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
             records_path=cast("str | None", raw_records_path),
+            field_paths=tuple(field_paths),
             query_params=cast("tuple[tuple[str, JsonQueryParamValue], ...]", tuple(query_params)),
             method=cast('Literal["GET", "POST"]', raw_method),
             body_json=json_body_to_string(raw_body) if raw_body is not None else None,

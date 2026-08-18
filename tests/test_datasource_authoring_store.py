@@ -69,6 +69,49 @@ def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
     assert first != second
 
 
+def test_snapshot_identity_list_source_params_deterministic_and_order_sensitive() -> None:
+    from marivo.datasource.authoring_store import snapshot_identity
+
+    source = md.json(
+        "https://api.example/query",
+        schema={"value": "float64"},
+        query_params={"specificsource": md.source_param("apps")},
+    )
+    scope = md.unpruned(max_rows=100, timeout_seconds=30)
+    common = {
+        "datasource_fingerprint": "sha256:datasource",
+        "source": source,
+        "scope": scope,
+        "columns": ("value",),
+        "schema_fingerprint": "sha256:schema",
+        "persist_values": False,
+    }
+
+    ab = snapshot_identity(**common, source_params=(("apps", ["a", "b"]),))
+    ab_again = snapshot_identity(**common, source_params=(("apps", ["a", "b"]),))
+    ba = snapshot_identity(**common, source_params=(("apps", ["b", "a"]),))
+    a_only = snapshot_identity(**common, source_params=(("apps", ["a"]),))
+
+    assert ab == ab_again
+    assert ab != ba
+    assert ab != a_only
+
+
+def test_source_param_value_round_trips_flat_list_and_rejects_invalid() -> None:
+    from marivo.datasource.authoring_store import _source_param_value
+
+    assert _source_param_value(["a", "b"]) == ["a", "b"]
+    assert _source_param_value([1, 2.5, True, "x"]) == [1, 2.5, True, "x"]
+    assert _source_param_value("scalar") == "scalar"
+    assert _source_param_value(42) == 42
+    assert _source_param_value(1.5) == 1.5
+    assert _source_param_value(True) is True
+    assert _source_param_value([["nested"]]) is None
+    assert _source_param_value([{"x": 1}]) is None
+    assert _source_param_value([float("nan")]) is None
+    assert _source_param_value(float("inf")) is None
+
+
 def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
     from marivo.datasource.authoring_store import _scope_payload, snapshot_identity
 

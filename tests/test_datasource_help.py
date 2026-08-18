@@ -84,10 +84,14 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
             (
                 "query_params",
                 "records_path",
+                "field_paths",
                 "method",
                 "body",
                 "md.source_param",
                 "json_request_shape",
+                "stable output aliases",
+                "one shared array traversal",
+                'field_paths={"app_name": "apps[].name"}',
             ),
         ),
         (
@@ -135,7 +139,7 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "snapshot.show()" in sample_text
     assert "snapshot.contract().show()" in sample_text
     assert 'snapshot.dimensions(columns=("status",)).show()' in sample_text
-    assert 'source_params={"page": 1}' in sample_text
+    assert 'source_params={"apps": ["app-1", "app-2"]}' in sample_text
 
 
 def test_connection_test_help_teaches_result_and_contract_reads() -> None:

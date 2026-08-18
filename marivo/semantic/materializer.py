@@ -18,6 +18,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 from marivo._compat import UTC
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
+from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.datasource.table_source import table_source_expression
@@ -74,7 +75,9 @@ class Materializer:
         *,
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
-        source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None,
+        source_bindings: (
+            Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] | None
+        ) = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory

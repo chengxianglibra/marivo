@@ -384,7 +384,7 @@ orders = ms.entity(
 | `md.table(name)` | `name` | `database`、`columns` | 数据源中的目录表或类型化投影（Trino/MySQL 用 `database="schema"`）。 |
 | `md.parquet(path)` | `path` | `hive_partitioning` | 通过 DuckDB 读取的 self-describing Parquet 文件来源。 |
 | `md.csv(path, schema=...)` | `path`、类型化 `schema` | `header`、`delimiter` | 通过 DuckDB 读取的 CSV 文件来源。 |
-| `md.json(path, schema=...)` | `path`、类型化 `schema` | `format`、`records_path`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`records_path` 用于选择包装响应中的记录数组。 |
+| `md.json(path, schema=...)` | `path`、类型化 `schema` | `format`、`records_path`、`field_paths`、`query_params`、`method`、`body` | JSON 文件、glob、GET URL 或参数化请求体的 POST URL；`records_path` 选择包装响应中的记录数组，`field_paths` 把稳定输出别名映射到嵌套值。 |
 
 `md.table(...)` 支持两种封闭模式。省略 `columns=` 时使用目录发现；传入
 `columns={alias: md.source_column(...)}` 时声明类型化投影，并为实体提供稳定输出别名：
@@ -1163,9 +1163,19 @@ schema 顺序投影：缺少字段会变成带类型的 `NULL`，额外字段会
 必须能够转换为声明的类型。路径缺失或值不是数组时则在执行阶段失败，避免把认证
 错误或响应包装变化误判成空数据。
 
+`schema` 把稳定输出别名映射到 Ibis 类型名，例如 `int64`、`string`、
+`float64`、`timestamp`；诸如 `BIGINT` 的 SQL/DuckDB 名称会在 JSON 声明时被
+拒绝，而不是拖到执行阶段。嵌套 JSON 值通过 `field_paths` 从输出别名映射到
+物理路径：`a.b` 读取嵌套对象成员，`a[0].b` 读取固定数组下标，`a[].b` 遍历
+对象数组，每个元素物化为一行。同一数组下的多个字段共享一次遍历，并从同一个
+元素投影，避免字段错配。不同遍历根或单个路径中的多次遍历会在声明期失败，而
+不会生成笛卡尔积。数组缺失、为空或为 `null` 的记录不产生行。嵌套路径需要
+`records_path`；顶层 schema 名仍按字面值处理，可以包含标点或空格。
+
 最小 POST API 场景使用 `method="POST"`，并通过 `body=` 提供一个 JSON
 对象。`md.source_param(...)` 可以出现在对象或数组中的任意完整 JSON 值
-位置。请求只会在结果表执行时发出。POST 要求 HTTP(S) URL 和
+位置，其绑定的运行时值可以是标量或标量列表。请求只会在结果表执行时发出。
+POST 要求 HTTP(S) URL 和
 `format="auto"`；自动分页、重试与增量采集不在这一契约内。数据源中
 声明的 bearer 或自定义请求头只会在 `http_scope` 范围内发送，凭据不会进入
 来源 descriptor。
@@ -1173,7 +1183,16 @@ schema 顺序投影：缺少字段会变成带类型的 `NULL`，额外字段会
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "title": "string"},
+    schema={
+        "change_id": "int64",
+        "title": "string",
+        "app_id": "int64",
+        "app_name": "string",
+    },
+    field_paths={
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
     method="POST",
     body={
         "platform_id": 1,
@@ -1187,9 +1206,12 @@ changes = md.json(
 )
 ```
 
-`query_params` 把固定请求参数留在来源 descriptor 中；`md.source_param(name)`
-声明一个必填、非密钥的运行时值，并且只能占据完整的查询参数值。
-Marivo 负责 URL 编码，不支持字符串片段模板。分析时通过执行范围绑定，
+`query_params` 把固定请求参数留在来源 descriptor 中。查询参数值可以是单个
+标量，也可以是标量列表；列表会 URL 编码为重复键，例如
+`specificsource=app-1&specificsource=app-2`。`md.source_param(name)` 声明一个
+必填、非密钥的运行时值，占据完整的查询参数值（标量或标量列表），也可以
+出现在固定值列表内部。Marivo 负责 URL 编码，不支持字符串片段模板。分析时
+通过执行范围绑定，
 而不是给 `observe` 增加 API 专用参数：
 
 ```python

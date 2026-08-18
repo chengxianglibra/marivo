@@ -44,6 +44,8 @@ from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
+    QueryParamScalar,
+    QueryParamScalarList,
     TableSourceIR,
     _format_database_identity,
 )
@@ -5353,7 +5355,9 @@ class SemanticCatalog(RenderableResult):
         connections: object | None = None,
         sample_size: int | None = None,
         entity_scopes: Mapping[str, AuthoringScope] | None = None,
-        source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None,
+        source_bindings: (
+            Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] | None
+        ) = None,
     ) -> SemanticResolver:
         """Return an internal resolver backed by Materializer."""
         self._require_ready()
