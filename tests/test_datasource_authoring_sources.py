@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 import pytest
 
 import marivo.datasource as md
+from marivo._compat import UTC
 
 
 def test_csv_and_json_require_typed_schema() -> None:
