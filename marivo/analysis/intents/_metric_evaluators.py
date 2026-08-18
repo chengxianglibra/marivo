@@ -8,7 +8,11 @@ expressions cannot drift by using different pandas/SQL implementations.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from numbers import Number
 from typing import Any, Literal
+
+from marivo.analysis.errors import AnalysisRepair, DataTypeMismatchError
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,68 @@ def _value_column(role: str) -> str:
     return f"__marivo_value_{role}"
 
 
+def _normalize_composition_value(value: Any, *, role: str) -> Any:
+    """Return one nullable float64 value series for metric composition."""
+    pandas = __import__("pandas")
+    non_null = value.dropna()
+    non_numeric_types = tuple(
+        sorted(
+            {
+                type(item).__qualname__
+                for item in non_null
+                if isinstance(item, (bool, complex)) or not isinstance(item, Number)
+            }
+        )
+    )
+    expected = "int, float, or Decimal values coercible to float64"
+    location = f"metric composition child role {role!r} 'value' column"
+    repair = AnalysisRepair(
+        kind="semantic_authoring",
+        action=(
+            "Update the child metric or measure definition so it materializes only "
+            "numeric values, then observe again."
+        ),
+        help_target=LiveHelpTarget(surface="semantic"),
+    )
+    if non_numeric_types:
+        raise DataTypeMismatchError(
+            message=(
+                f"metric child role {role!r} has non-numeric 'value' dtype "
+                f"{str(value.dtype)!r}; metric composition requires numeric values"
+            ),
+            expected=expected,
+            received=(f"dtype {str(value.dtype)!r} containing value types {non_numeric_types!r}"),
+            location=location,
+            repair=repair,
+            context={
+                "kind": "MetricCompositionValueTypeMismatch",
+                "role": role,
+                "value_dtype": str(value.dtype),
+                "value_types": non_numeric_types,
+            },
+        )
+    try:
+        normalized = value.to_numpy(dtype="float64", na_value=float("nan"))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise DataTypeMismatchError(
+            message=(
+                f"metric child role {role!r} has unsupported numeric 'value' dtype "
+                f"{str(value.dtype)!r}"
+            ),
+            expected=expected,
+            received=f"dtype {str(value.dtype)!r} rejected by float64 conversion",
+            location=location,
+            repair=repair,
+            context={
+                "kind": "MetricCompositionValueConversionFailed",
+                "role": role,
+                "value_dtype": str(value.dtype),
+                "cause_type": type(exc).__qualname__,
+            },
+        ) from exc
+    return pandas.Series(normalized, index=value.index, name=value.name, dtype="float64")
+
+
 def _normalize_child(frame: Any, *, role: str, key_columns: tuple[str, ...]) -> Any:
     _require_value_frame(frame, role=role)
     actual_keys = tuple(column for column in frame.columns if column != "value")
@@ -64,6 +130,7 @@ def _normalize_child(frame: Any, *, role: str, key_columns: tuple[str, ...]) -> 
             f"metric child role {role!r} has key schema {actual_keys!r}; expected {key_columns!r}"
         )
     normalized = frame.copy()
+    normalized["value"] = _normalize_composition_value(normalized["value"], role=role)
     normalized[_presence_column(role)] = True
     return normalized.rename(columns={"value": _value_column(role)})
 

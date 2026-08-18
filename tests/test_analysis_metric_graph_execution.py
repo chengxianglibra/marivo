@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pandas as pd
 import pytest
 
+from marivo.analysis.errors import DataTypeMismatchError
 from marivo.analysis.intents._metric_evaluators import (
     MetricEvaluationError,
     RatioEvaluationV1,
@@ -40,6 +43,61 @@ def test_ratio_error_policy_counts_only_present_zero() -> None:
         RatioEvaluationV1().evaluate(numerator, denominator, zero_division="error")
 
 
+@pytest.mark.parametrize(
+    ("numerator", "denominator", "expected"),
+    [
+        (5.0, Decimal("20.00"), 0.25),
+        (Decimal("5.00"), Decimal("20.00"), 0.25),
+    ],
+)
+def test_ratio_normalizes_numeric_children_to_float64(
+    numerator: float | Decimal,
+    denominator: Decimal,
+    expected: float,
+) -> None:
+    result = RatioEvaluationV1().evaluate(
+        pd.DataFrame({"value": [numerator]}),
+        pd.DataFrame({"value": [denominator]}),
+        zero_division="null",
+    )
+
+    assert result.frame["value"].dtype == "float64"
+    assert result.frame.loc[0, "value"] == pytest.approx(expected)
+
+
+def test_metric_composition_rejects_non_numeric_value_with_structured_error() -> None:
+    with pytest.raises(DataTypeMismatchError) as exc_info:
+        RatioEvaluationV1().evaluate(
+            pd.DataFrame({"value": ["5.00"]}),
+            pd.DataFrame({"value": [20.0]}),
+            zero_division="null",
+        )
+
+    error = exc_info.value
+    assert error.expected == "int, float, or Decimal values coercible to float64"
+    assert error.received == "dtype 'object' containing value types ('str',)"
+    assert error.location == "metric composition child role 'numerator' 'value' column"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert error.repair.help_target.surface == "semantic"
+
+
+def test_metric_composition_wraps_float64_conversion_failure() -> None:
+    with pytest.raises(DataTypeMismatchError) as exc_info:
+        RatioEvaluationV1().evaluate(
+            pd.DataFrame({"value": pd.Series([10**10000], dtype="object")}),
+            pd.DataFrame({"value": [20.0]}),
+            zero_division="null",
+        )
+
+    error = exc_info.value
+    assert error.expected == "int, float, or Decimal values coercible to float64"
+    assert error.received == "dtype 'object' rejected by float64 conversion"
+    assert error.location == "metric composition child role 'numerator' 'value' column"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+
+
 def test_linear_e0_keeps_asymmetric_key_with_null_result() -> None:
     left = pd.DataFrame({"key": [1, 2], "value": [10.0, 20.0]})
     right = pd.DataFrame({"key": [1, 3], "value": [1.0, 3.0]})
@@ -50,6 +108,16 @@ def test_linear_e0_keeps_asymmetric_key_with_null_result() -> None:
     assert result.frame.loc[0, "value"] == 9.0
     assert result.frame.loc[1:, "value"].isna().all()
     assert result.quality.affected_result_rows == 2
+
+
+def test_linear_normalizes_decimal_children_before_float_coefficients() -> None:
+    left = pd.DataFrame({"value": [Decimal("10.00")]})
+    right = pd.DataFrame({"value": [Decimal("3.00")]})
+
+    result = evaluate_linear_v1((("term0", 1.0, left), ("term1", -1.0, right)))
+
+    assert result.frame["value"].dtype == "float64"
+    assert result.frame.loc[0, "value"] == pytest.approx(7.0)
 
 
 def test_alignment_rejects_key_schema_order_mismatch() -> None:
