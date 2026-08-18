@@ -1,0 +1,47 @@
+---
+slug: zh-cn/docs/v0.4/release-notes/0.4.7
+title: Marivo 0.4.7
+description: Marivo 0.4.7 热修复版本发布说明。
+---
+
+Marivo 0.4.7 是一个聚焦 ClickHouse `DateTime64` 元数据处理的热修复版本。
+
+## 修复
+
+- 数据源检查现在可以把带精度、时区或 nullable 包装的 ClickHouse
+  `DateTime64` 列正确识别为时间列，使这些列可以继续用于受限的
+  `md.time_range(...)` 取证。
+- 投影表校验会先把 ClickHouse 原生时间类型转换为规范形式，再与
+  `md.source_column(...)` 中声明的类型比较，避免兼容的 timestamp 声明被误报为
+  类型不匹配。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.7 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.4/installation/)
+- [快速开始](/zh-cn/docs/v0.4/quick-start/)
+- [语义层](/zh-cn/docs/v0.4/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.4/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.4/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/v0.4/concepts/evidence/)
