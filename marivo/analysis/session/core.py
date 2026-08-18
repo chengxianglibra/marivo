@@ -1461,11 +1461,16 @@ class Session(RenderableResult):
 
         Metric DeltaFrame checks validate the result row contract. Comparable-period
         cumulative deltas additionally surface matched-null, unpaired, and fallback
-        counts from their authoritative typed alignment evidence.
+        counts from their authoritative typed alignment evidence. Metric attribution
+        checks validate a non-empty registered row contract, finite contributions,
+        and typed reconciliation receipts for scalar, time-series, segmented, and
+        panel shapes, including one receipt per additive panel bucket.
 
         Args:
             frame: A supported MetricFrame, EventFrame, LifecycleFrame, DeltaFrame,
-                or AttributionFrame to inspect.
+                or AttributionFrame to inspect. Multi-metric MetricFrames must first be
+                projected with ``frame.metric(...)``; call ``frame.contract()`` to read
+                the exact admitted shapes and runnable projection options.
 
         Raises:
             QualityShapeUnsupportedError: ``frame`` is not a supported frame.

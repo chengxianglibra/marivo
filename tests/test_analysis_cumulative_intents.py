@@ -1548,6 +1548,9 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     assert "cumulative_route" not in drivers.meta.params
     assert drivers.meta.method_evidence is not None
     assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
+    quality = session.assess_quality(drivers)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.overall_status == "ok"
 
 
 def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, monkeypatch) -> None:
@@ -1578,6 +1581,15 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-04T00:00:00Z")]
     reloaded = session.get_frame(flow.ref)
     assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
+    quality = session.assess_quality(flow)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.overall_status == "ok"
+    assert set(quality.to_pandas()["check_id"]) == {
+        "attribution_row_count",
+        "attribution_row_contract",
+        "attribution_contribution_values",
+        "attribution_reconciliation",
+    }
 
 
 def test_cumulative_flow_validator_rejects_semantic_evidence_corruption(
@@ -1675,6 +1687,9 @@ def test_cumulative_delta_attributes_comparable_period_flow(
     assert flow.meta.reconciliation is not None
     assert flow.meta.reconciliation.max_abs_residual <= 1e-9
     assert len(flow.meta.method_evidence.partitions) == len(delta.to_pandas())
+    quality = session.assess_quality(flow)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.overall_status == "ok"
 
 
 def test_grain_to_date_flow_uses_period_owning_exclusive_boundary(tmp_path, monkeypatch) -> None:

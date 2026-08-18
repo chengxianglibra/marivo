@@ -362,6 +362,15 @@ def _format_output_family(desc: OperatorCapability) -> str:
     return desc.output_contract.render()
 
 
+def _format_artifact_shape_admission(desc: OperatorCapability) -> list[str]:
+    """Render exact family-to-shape admission from the capability registry."""
+    rows: list[str] = []
+    for parameter, admission in desc.artifact_admission.items():
+        for family, shapes in sorted(admission.semantic_shapes.items()):
+            rows.append(f"    {parameter}.{family}: {' | '.join(sorted(shapes))}")
+    return rows
+
+
 def _resolve_callable(desc: CapabilityDescriptor) -> object | None:
     """Resolve the callable_path to a live callable object."""
     if desc.callable_path is None:
@@ -806,6 +815,12 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         lines.append("")
         lines.append("  Accepted inputs:")
         lines.extend(_format_input_families(desc))
+        shape_admission = (
+            _format_artifact_shape_admission(desc) if desc.id == "assess_quality" else []
+        )
+        if shape_admission:
+            lines.append("  Accepted artifact shapes:")
+            lines.extend(shape_admission)
         lines.append(f"  Output family: {_format_output_family(desc)}")
 
     if isinstance(desc, BoundaryCapability):

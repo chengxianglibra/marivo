@@ -16,6 +16,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.intents._quality_checks import run_attribution_checks
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
@@ -126,6 +127,151 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     loaded = session.get_frame(out.ref)
     assert loaded.meta.driver_field == "region"
     assert list(loaded.to_pandas().columns) == list(result.columns)
+
+    contract = out.contract()
+    quality_affordance = next(
+        item for item in contract.affordances if item.capability_id == "assess_quality"
+    )
+    frame_requirement = next(
+        item for item in quality_affordance.input_requirements if item.parameter == "frame"
+    )
+    assert "segmented" in frame_requirement.accepted_semantic_shapes
+
+    quality = session.assess_quality(out)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.target_metric_id == "sales.revenue"
+    assert quality.meta.target_semantic_kind == "segmented"
+    assert quality.meta.overall_status == "ok"
+    assert set(quality.to_pandas()["check_id"]) == {
+        "attribution_row_count",
+        "attribution_row_contract",
+        "attribution_contribution_values",
+        "attribution_reconciliation",
+    }
+    recovered_quality = session.get_frame(quality.ref)
+    assert recovered_quality.meta.report_shape == "attribution"
+    quality_job = session.job(quality.meta.produced_by_job)
+    assert quality_job["subject"]["kind"] == "delta_metric"
+
+
+def test_generic_attribution_quality_reports_row_and_reconciliation_corruption() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "CN"],
+                "delta": [10.0, -2.0],
+            }
+        ),
+    )
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    missing_share = out._dataframe_copy().drop(columns=["share_of_total_delta"])
+    missing_share_frame = AttributionFrame(_df=missing_share, meta=out.meta)
+    missing_status = {
+        row["check_id"]: row["severity"] for row in run_attribution_checks(missing_share_frame)
+    }
+    assert missing_status["attribution_row_contract"] == "blocking"
+
+    non_finite = out._dataframe_copy()
+    non_finite.loc[0, "contribution"] = float("inf")
+    non_finite_frame = AttributionFrame(_df=non_finite, meta=out.meta)
+    non_finite_status = {
+        row["check_id"]: row["severity"] for row in run_attribution_checks(non_finite_frame)
+    }
+    assert non_finite_status["attribution_contribution_values"] == "blocking"
+    assert non_finite_status["attribution_reconciliation"] == "blocking"
+
+    wrong_rank = out._dataframe_copy()
+    wrong_rank["rank"] = 2
+    wrong_rank_frame = AttributionFrame(_df=wrong_rank, meta=out.meta)
+    wrong_rank_status = {
+        row["check_id"]: row["severity"] for row in run_attribution_checks(wrong_rank_frame)
+    }
+    assert wrong_rank_status["attribution_row_contract"] == "blocking"
+
+
+def test_panel_attribution_quality_validates_each_bucket_reconciliation() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-07-01", "2026-07-01", "2026-07-02", "2026-07-02"],
+                    utc=True,
+                ),
+                "region": ["US", "CN", "US", "CN"],
+                "delta": [10.0, -2.0, 8.0, -1.0],
+            }
+        ),
+        semantic_kind="panel",
+    )
+    alignment = dict(frame.meta.alignment)
+    alignment["axes"] = {
+        **alignment["axes"],
+        "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+    }
+    frame.meta = frame.meta.model_copy(update={"alignment": alignment})
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    assert out.meta.reconciliation is not None
+    assert len(out.meta.reconciliation.bucket_reconciliations) == 2
+    reloaded = session.get_frame(out.ref)
+    assert reloaded.meta.reconciliation == out.meta.reconciliation
+
+    corrupted = out._dataframe_copy()
+    corrupted.loc[0, "contribution"] += 1_000.0
+    corrupted_frame = AttributionFrame(_df=corrupted, meta=out.meta)
+    quality = session.assess_quality(corrupted_frame)
+    corrupted_status = dict(
+        zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
+    )
+    issue_kinds = {issue.kind for issue in quality.meta.issues}
+
+    assert quality.meta.overall_status == "blocking"
+    assert corrupted_status["attribution_row_contract"] == "blocking"
+    assert corrupted_status["attribution_reconciliation"] == "blocking"
+    assert "attribution_row_contract_invalid" in issue_kinds
+    assert "attribution_reconciliation_invalid" in issue_kinds
+
+
+def test_empty_attribution_quality_blocks_on_row_count_not_reconciliation() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": pd.Series(dtype="object"),
+                "delta": pd.Series(dtype="float64"),
+            }
+        ),
+    )
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    quality = session.assess_quality(out)
+    status = dict(
+        zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
+    )
+
+    assert quality.meta.overall_status == "blocking"
+    assert status["attribution_row_count"] == "blocking"
+    assert status["attribution_row_contract"] == "ok"
+    assert status["attribution_reconciliation"] == "ok"
+    issue_kinds = {issue.kind for issue in quality.meta.issues}
+    assert "sample_size_low" in issue_kinds
+    assert "attribution_reconciliation_invalid" not in issue_kinds
 
 
 def test_attribute_accepts_current_catalog_axis_entry() -> None:

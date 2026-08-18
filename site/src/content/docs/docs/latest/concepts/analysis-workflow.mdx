@@ -575,13 +575,27 @@ Read `report.overall_status`, `report.blocking_issue_count`, and
 quality status.
 For a cumulative comparable-period `DeltaFrame`, the report reads the typed
 pairing evidence and surfaces matched-null, unpaired, and fallback counts.
+Metric `AttributionFrame` shapes (`scalar`, `time_series`, `segmented`, and
+`panel`) are also accepted, including generic-v2 and cumulative-flow rows. Their
+fixed checks cover the row contract, finite contribution values, and typed
+reconciliation, including one persisted receipt per additive panel bucket. Empty
+attribution results are blocked by a dedicated row-count check rather than being
+misreported as reconciliation failures. Funnel loss-rate attribution retains its
+funnel-specific checks.
+
+Inspect `artifact.contract()` before calling the operator: the
+`assess_quality` affordance lists the exact shapes admitted for that artifact
+family. `marivo.help("assess_quality")` prints the complete family-to-shape
+table. Multi-metric `MetricFrame`s are intentionally not guessed or silently
+reduced; choose a metric with one of the contract's runnable
+`frame.metric("<metric_id>")` repair options first.
 The report's `contract().issues` contains typed data-quality failures. Do not
 report a window as a complete period fact when its report contains a blocking
 `time_coverage_incomplete` issue.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `frame` | supported analysis artifact | Yes | — | The frame to inspect, including metric DeltaFrames. |
+| `frame` | supported analysis artifact | Yes | — | The frame to inspect; exact admitted shapes are exposed by `frame.contract()` and focused help. |
 
 ### `hypothesis_test` → `HypothesisTestResult`
 

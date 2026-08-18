@@ -244,6 +244,7 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "lifecycle_dwell",
             "lifecycle_violations",
             "funnel_delta",
+            "attribution",
             "funnel_attribution",
         ),
     }
@@ -1333,7 +1334,7 @@ def _build_registry() -> CapabilityRegistry:
             help_target="assess_quality",
             summary=(
                 "Run fixed quality checks over supported MetricFrame, EventFrame, "
-                "LifecycleFrame, metric/funnel DeltaFrame, and funnel AttributionFrame shapes."
+                "LifecycleFrame, DeltaFrame, and AttributionFrame shapes."
             ),
             root_group="typed_analysis",
             root_visibility="direct",
@@ -1347,6 +1348,7 @@ def _build_registry() -> CapabilityRegistry:
             artifact_admission={
                 "frame": ArtifactAdmissionRule(
                     semantic_shapes={
+                        "MetricFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
                         "EventFrame": frozenset({"journey", "funnel", "time_to_event"}),
                         "LifecycleFrame": frozenset(
                             {"history", "distribution", "transitions", "dwell", "violations"}
@@ -1354,7 +1356,9 @@ def _build_registry() -> CapabilityRegistry:
                         "DeltaFrame": frozenset(
                             {"scalar", "time_series", "segmented", "panel", "funnel"}
                         ),
-                        "AttributionFrame": frozenset({"funnel_loss_rate"}),
+                        "AttributionFrame": frozenset(
+                            {"scalar", "time_series", "segmented", "panel", "funnel_loss_rate"}
+                        ),
                     },
                 ),
             },

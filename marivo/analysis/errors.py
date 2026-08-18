@@ -964,8 +964,8 @@ class QualityShapeUnsupportedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action=(
-                    "assess_quality accepts MetricFrame or registered EventFrame "
-                    "journey, funnel, and time-to-event shapes."
+                    "assess_quality accepts registered MetricFrame, EventFrame, "
+                    "LifecycleFrame, DeltaFrame, and AttributionFrame shapes."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="assess_quality"),
                 snippet="report = session.assess_quality(frame)",

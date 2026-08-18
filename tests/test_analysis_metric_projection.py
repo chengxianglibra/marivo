@@ -203,6 +203,22 @@ def test_require_single_metric_error_carries_structured_repair_fields():
     assert "Help: marivo.help('analysis.MetricFrame.metric')" in str(err)
 
 
+def test_assess_quality_rejects_multi_metric_frame_with_executable_projection() -> None:
+    from marivo.analysis.errors import MetricArityError
+    from marivo.analysis.intents.assess_quality import assess_quality
+
+    session = mv.session.get_or_create(name="demo")
+    with pytest.raises(MetricArityError) as excinfo:
+        assess_quality(make_multi_frame(), session=session)
+
+    err = excinfo.value
+    assert err._context["intent"] == "assess_quality"
+    assert err.location == "session.assess_quality"
+    assert err.repair is not None
+    assert err.repair.snippet == 'frame.metric("sales.revenue")'
+    assert err.repair.candidates == ("sales.revenue", "sales.order_count")
+
+
 # ---------------------------------------------------------------------------
 # Task 7: frame.metric(id) projection — committed select_metric step.
 # ---------------------------------------------------------------------------
@@ -485,15 +501,36 @@ def test_multi_frame_render_lists_measures():
 def test_multi_frame_contract_marks_single_metric_gate():
     frame = make_multi_frame()
     contract = frame.contract()
-    compare_affordance = next(a for a in contract.affordances if a.capability_id == "compare")
-    checks = {p.check for p in compare_affordance.preconditions}
-    assert "single_metric" in checks
-    unmet = next(p for p in compare_affordance.preconditions if p.check == "single_metric")
-    assert unmet.status == "fail"
-    assert unmet.repair is None
-    assert tuple(repair.snippet for repair in unmet.repair_options) == (
-        'frame.metric("sales.revenue")',
-        'frame.metric("sales.order_count")',
+    for capability_id in ("compare", "assess_quality"):
+        affordance = next(
+            item for item in contract.affordances if item.capability_id == capability_id
+        )
+        checks = {precondition.check for precondition in affordance.preconditions}
+        assert "single_metric" in checks
+        unmet = next(
+            precondition
+            for precondition in affordance.preconditions
+            if precondition.check == "single_metric"
+        )
+        assert unmet.status == "fail"
+        assert unmet.repair is None
+        assert tuple(repair.snippet for repair in unmet.repair_options) == (
+            'frame.metric("sales.revenue")',
+            'frame.metric("sales.order_count")',
+        )
+
+    quality_requirement = next(
+        requirement
+        for requirement in next(
+            item for item in contract.affordances if item.capability_id == "assess_quality"
+        ).input_requirements
+        if requirement.parameter == "frame"
+    )
+    assert quality_requirement.accepted_semantic_shapes == (
+        "panel",
+        "scalar",
+        "segmented",
+        "time_series",
     )
 
 
