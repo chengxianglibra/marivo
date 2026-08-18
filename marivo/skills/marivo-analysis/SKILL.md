@@ -26,8 +26,10 @@ After invoking this skill, do not create task or todo objects, inspect the
 working directory, reread this file, or open project semantic files. Keep the
 question coverage checklist as comments or working state in the main script.
 Within the next five tool calls, batch the minimum environment fingerprint,
-session creation, semantic resolution, and first observation or return a
-structured blocker.
+the relevant focused live help, session entry, semantic resolution, and first
+observation or return a structured blocker. The live help surface owns the
+exact session, catalog, and operator calls; this skill does not reproduce
+those API recipes.
 
 Choose catalog families from the question. Ordinary catalog-metric analysis
 needs only `metrics` and `dimensions`, plus `time_dimensions` when time is part
@@ -49,55 +51,39 @@ only the selected interpreter, the equivalent
 `<analysis-python> -m marivo help` only when the verified environment or the
 global entry map is actually needed; do not repeat equivalent checks.
 
-Create or resume one question-scoped session:
-
-```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create(
-    "investigation",
-    question="<business question>",
-)
-```
+Create or resume one question-scoped session by following the exact session
+entry and call shape in the focused analysis help selected for the question.
+Do not reconstruct session or operator signatures from this skill.
 
 If the intended interpreter, installed package, or project state cannot be
 verified, stop and report that the host environment needs repair rather than
 guessing a Python path or installing dependencies from the skill.
 
-## Resolve semantic inputs directly
+## Resolve semantic inputs through live help
 
-Use the question and any semantic handoff to identify the required families.
-When a full semantic path is known, retrieve it directly from the typed
-collection and move on:
+Use the question and any semantic handoff to identify the required object
+families. Start with the relevant focused analysis help when the operator or
+input family is known; use the analysis catalog help only when the required
+semantic identity or collection is not already known. The focused live help
+owns the collection names, lookup grammar, entry details, reference handoff,
+readiness call, and operator signature.
 
-```python
-catalog = session.catalog
-metric = catalog.metrics.get("<full metric path>")
-dimension = catalog.dimensions.get("<full dimension path>")
-time_dimension = catalog.time_dimensions.get("<full time-dimension path>")
-```
+Resolve all required inputs together in the main script. Browse only the
+question-relevant collection when an identity is unknown, and treat multiple
+matches as an ambiguity to resolve rather than a reason to enumerate unrelated
+semantic families. If an exact typed identity is already available, follow the
+live help handoff directly without exploratory browsing.
 
-Resolve all required inputs together in the main script. If a full path is not
-known, inspect only the one relevant collection with
-`catalog.<family>.show()` once, then select with `.get(...)`. If an exact typed
-Ref is already available, pass it directly or use `catalog.require(ref)`; do
-not browse first. Treat multiple matches as an ambiguity to resolve, not a
-reason to list other semantic families.
-
-When the requested one-off metric is absent from `catalog.metrics` but can be
-expressed exactly from existing governed metrics or measures, call
+When the requested one-off metric is absent, consult
 `marivo.help("analysis.runtime_metric")` before treating the absence as a
-semantic-authoring gap. Inspect only the required `catalog.metrics`,
-`catalog.measures`, and dimension families, build one closed runtime expression,
-check it once with `session.catalog.readiness(refs=[runtime_metric])`, and pass
-the ready expression to `session.observe(...)`. The expression remains
-question- and session-scoped; disputed business meaning or a requirement for a
-reusable organizational definition still requires a semantic-authoring handoff.
+semantic-authoring gap. Follow that focused contract for a closed,
+question-scoped expression. Disputed business meaning or a requirement for a
+reusable organizational definition still requires a semantic-authoring
+handoff.
 
 Do not repeat readiness when the current handoff already attests that the
-selected project and inputs are analysis-ready. Otherwise check readiness once
-for only the selected refs. Focused live help owns the current collection and
-entry contracts.
+selected project and inputs are analysis-ready. Otherwise follow the focused
+live help contract for one readiness check over only the selected inputs.
 
 ## Plan from the question
 

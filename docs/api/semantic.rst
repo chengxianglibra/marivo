@@ -173,6 +173,13 @@ current compiled catalog or its exact ref. Entries normalize immediately to
 refs; readiness results, preview evidence, persistence, and recovery remain
 ref-based.
 
+For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the
+focused ``analysis.catalog.<family>`` pages for the bounded collection,
+exact lookup, entry-detail, and handoff contracts. ``CatalogCollection`` owns
+lookup grammar, ``CatalogEntry`` owns detail and continuation inspection, and
+``Ref`` owns exact identity. The packaged ``marivo-analysis`` skill provides
+routing and boundaries only; it does not duplicate these API recipes.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:

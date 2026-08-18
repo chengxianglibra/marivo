@@ -147,6 +147,8 @@ def test_catalog_collection_help_teaches_displayed_typed_key_lookup() -> None:
 
     assert "displayed same-kind typed key" in text
     assert "catalog.metrics.get('metric:sales.revenue')" in text
+    assert "marivo.help(entry)" in text
+    assert "entry or entry.ref" in text
 
 
 def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> None:
@@ -159,8 +161,13 @@ def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> No
     assert "ms.ref.<kind>(path)" in root
     assert "entry = catalog.metrics.get('sales.revenue')" in focused
     assert "metric_ref = entry.ref" in focused
+    assert "catalog.require(ref) resolves the exact ref" in focused
+    assert "marivo.help(ref) reports identity only" in focused
     assert "ms.bind(field_ref, entity_alias)" in focused
     assert "bind" in root
+
+    entry_help = _text(ms.CatalogEntry)
+    assert "marivo.help(entry) combines current details" in entry_help
 
     factory = _text(ms.ref)
     assert factory.startswith("ref\n")

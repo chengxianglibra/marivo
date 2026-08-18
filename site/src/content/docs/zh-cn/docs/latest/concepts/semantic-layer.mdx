@@ -773,6 +773,31 @@ revenue_entry.详情().show()
 中有证据支撑的调查的第一个产物。新建或修改的对象把限定范围的就绪检查作为
 编写收尾的一部分。
 
+### 通过 live help 发现并交接对象
+
+`marivo-analysis` skill 只负责调查路由和语义边界，不复制语义对象 API。
+当前集合、条目和消费型分析 API 的契约由 live help 提供：
+
+```python
+import marivo
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+collection = session.catalog.metrics
+collection.show()                              # 不知道身份时先查看有界列表
+entry = collection.get("metric:sales.revenue")  # 完整路径或展示出的 typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)                             # 当前详情和分析 handoff
+current = session.observe(entry, grain=mv.grain("month"))
+```
+
+使用 `marivo.help("semantic.CatalogCollection")` 查看查找语法，使用
+`marivo.help("semantic.CatalogEntry")` 查看详情和 continuation，使用
+`marivo.help("semantic.Ref")` 查看精确身份及目录成员关系边界。如果已经有精确
+`Ref`，应遵循消费型分析 API 的 focused help，不要浏览无关集合。
+
 ### 加载模型并认证变更
 
 声明完成后，加载目录并检查它：
@@ -798,9 +823,10 @@ region = orders.dimensions.get("region")  # one dimension object
 被省略的成员会指向 `details().show()`。
 
 全局集合为 `domains`、`datasources`、`entities`、`dimensions`、
-`time_dimensions`、`measures`、`metrics`、`relationships`、`events` 和
-`state_models`。`repr(catalog)` 会指向 `catalog.show()` 打印的同一个有界、
-零查询目录卡片。集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、
+`time_dimensions`、`measures`、`metrics`、`relationships`、`events`、
+`state_models`、`period_calendars`、`temporal_sets` 和 `work_schedules`。
+`repr(catalog)` 会指向 `catalog.show()` 打印的同一个有界、零查询目录卡片。
+集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、
 `.render()` 与 `.show()`；lookup 仍是精确查找，不提供 fuzzy search。
 
 新建或修改对象后，运行**就绪检查**，认证所选定义及其限定范围的运行时证据仍然有效：

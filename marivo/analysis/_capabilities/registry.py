@@ -2363,7 +2363,7 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         _make_grouping_descriptor(
             "catalog",
-            "Browse semantic catalog domains, metrics, and dimensions.",
+            "Browse the typed semantic catalog and all registered object collections.",
             "semantic_inputs",
         )
     )

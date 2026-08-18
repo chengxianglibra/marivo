@@ -847,6 +847,33 @@ return to semantic authoring. Otherwise the observation becomes the first artifa
 in the session's evidence-backed investigation. Newly authored or changed objects
 complete scoped readiness as part of their authoring closeout.
 
+### Discover and hand off objects through live help
+
+The `marivo-analysis` skill routes the investigation and semantic boundary. It
+does not duplicate the semantic object API. Use live help for the current
+collection, entry, and consuming-operator contracts:
+
+```python
+import marivo
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+collection = session.catalog.metrics
+collection.show()                              # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)                             # current details and analysis handoff
+current = session.observe(entry, grain=mv.grain("month"))
+```
+
+Use `marivo.help("semantic.CatalogCollection")` for lookup grammar,
+`marivo.help("semantic.CatalogEntry")` for detail and continuation behavior,
+and `marivo.help("semantic.Ref")` for exact identity and membership rules.
+When an exact `Ref` is already available, follow the consuming operator's
+focused help instead of browsing unrelated collections.
+
 ### Load the model and certify changes
 
 Once declarations are in place, load the catalog and inspect it:
@@ -874,9 +901,10 @@ logs. Entry cards show the exact kind, full path, `.ref`, and bounded current
 axes; omitted members point to `details().show()`.
 
 The global collections are `domains`, `datasources`, `entities`, `dimensions`,
-`time_dimensions`, `measures`, `metrics`, `relationships`, `events`, and
-`state_models`. `repr(catalog)` points to the same bounded, zero-query catalog
-card that `catalog.show()` prints. Collection help exposes the exact
+`time_dimensions`, `measures`, `metrics`, `relationships`, `events`,
+`state_models`, `period_calendars`, `temporal_sets`, and `work_schedules`.
+`repr(catalog)` points to the same bounded, zero-query catalog card that
+`catalog.show()` prints. Collection help exposes the exact
 `.items`, `.refs`, `.get(...)`, `.render()`, and `.show()` surface; lookup
 remains exact and does not use fuzzy search.
 

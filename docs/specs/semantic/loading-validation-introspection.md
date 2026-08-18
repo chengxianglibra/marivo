@@ -72,8 +72,9 @@ revenue.details().show()
 `SemanticCatalog` exposes one global collection per object type:
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
-`catalog.metrics`, `catalog.relationships`, `catalog.events`, and
-`catalog.state_models`. Each is a
+`catalog.metrics`, `catalog.relationships`, `catalog.events`,
+`catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
+and `catalog.work_schedules`. Each is a
 `CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`,
 `.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
 exact lookup entry point for IDs obtained from errors, logs, or persisted state.
@@ -142,6 +143,44 @@ The ordered catalog-member contract owns the global collection names used by
 the runtime catalog, semantic type help, and analysis catalog help. Adding a
 semantic kind must update that contract and pass the live-property consistency
 check; parallel hand-maintained discovery lists are not allowed.
+
+### Analysis-agent discovery and handoff
+
+The analysis agent uses the question-scoped session catalog. The packaged
+`marivo-analysis` skill owns only routing and boundary decisions; it does not
+duplicate collection or entry API recipes. The live help surface owns the
+mechanical loop:
+
+```python
+import marivo
+import marivo.analysis as mv
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+session = mv.session.get_or_create(
+    "investigation",
+    question="Why did revenue decline?",
+)
+collection = session.catalog.metrics
+collection.show()                              # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)                             # current details and kind handoff
+frame = session.observe(
+    entry,
+    time_scope=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+```
+
+When an exact ref comes from configuration, persistence, or logs, the agent
+uses the exact-ref contract instead of browsing. `CatalogEntry` help owns the
+choice between passing the current entry and passing `entry.ref`; `Ref` help
+owns the distinction between typed identity and current catalog membership.
+The analysis operator's focused help remains authoritative for accepted input
+families, readiness, and the consuming call shape.
 
 ### Lookup rules
 

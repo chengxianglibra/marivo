@@ -44,9 +44,21 @@ def test_analysis_skill_routes_runtime_metric_discovery_and_closeout() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
 
     assert 'marivo.help("analysis.runtime_metric")' in text
-    assert "catalog.measures" in text
-    assert "session.catalog.readiness(refs=[runtime_metric])" in text
+    assert "question-scoped expression" in text
+    assert "semantic-authoring handoff" in text
     assert "references/runtime-metric-closeout.md" in text
+
+
+def test_analysis_skill_keeps_semantic_api_contract_in_live_help() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    assert "focused live help" in text
+    assert "does not reproduce" in text
+    assert 'marivo.help("analysis.runtime_metric")' in text
+    assert "catalog.metrics.get(" not in text
+    assert "catalog.<family>.show()" not in text
+    assert "entry.details().show()" not in text
+    assert "entry.ref" not in text
 
 
 def test_semantic_skill_package_layout() -> None:
