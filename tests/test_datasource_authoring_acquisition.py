@@ -475,6 +475,62 @@ def test_time_range_allows_transformed_temporal_partition_and_pushes_half_open_f
     assert snapshot.coverage.observed_row_count == 2
 
 
+@pytest.mark.parametrize(
+    "clickhouse_type",
+    [
+        "DateTime64(3)",
+        "DateTime64(3, 'UTC')",
+        "Nullable(DateTime64(3))",
+    ],
+)
+def test_time_range_accepts_raw_clickhouse_temporal_type_spellings(
+    inspection: SourceInspection,
+    clickhouse_type: str,
+) -> None:
+    transformed = replace(
+        inspection,
+        partitioning=replace(
+            inspection.partitioning,
+            state="known",
+            fields=(
+                PartitionMetadata(
+                    name="ts",
+                    type=clickhouse_type,
+                    transform="toYYYYMMDD",
+                ),
+            ),
+        ),
+        schema=tuple(
+            replace(column, type=clickhouse_type) if column.name == "ts" else column
+            for column in inspection.schema
+        ),
+    )
+
+    inspection_transitions = {
+        transition.help_target.canonical_id for transition in transformed.contract().transitions
+    }
+    partition_transitions = {
+        transition.help_target.canonical_id
+        for transition in transformed.partitions().contract().transitions
+    }
+    assert "time_range" in inspection_transitions
+    assert "time_range" in partition_transitions
+
+    snapshot = transformed.sample(
+        scope=md.time_range(
+            "ts",
+            start="2026-07-10T00:00:00",
+            end="2026-07-11T00:00:00",
+            max_rows=10,
+            timeout_seconds=30,
+        ),
+        columns=("order_id",),
+        refresh=True,
+    )
+
+    assert snapshot.coverage.observed_row_count == 2
+
+
 def test_time_range_uses_projected_temporal_alias(
     query_spy: _QuerySpy,
     inspection: SourceInspection,
