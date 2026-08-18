@@ -27,9 +27,11 @@ from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_PATH_COLUMN,
 )
 from marivo.analysis.frames.attribution import (
+    AttributionBucketReconciliationV1,
     AttributionFrame,
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
+    _reconciliation_bucket_scalar,
 )
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.component import (
@@ -740,14 +742,14 @@ def _finalize_attribution_output(
         checked = checked[
             checked[ATTRIBUTION_LEVEL_COLUMN] == checked[ATTRIBUTION_LEVEL_COLUMN].max()
         ]
-    grouped: list[pd.DataFrame]
+    grouped: list[tuple[object | None, pd.DataFrame]]
     if bucket_column is None:
-        grouped = [checked]
+        grouped = [(None, checked)]
     else:
-        grouped = [group for _, group in checked.groupby(bucket_column, dropna=False, sort=True)]
+        grouped = list(checked.groupby(bucket_column, dropna=False, sort=True))
 
-    facts: list[tuple[float, float, float, float, float]] = []
-    for group in grouped:
+    facts: list[tuple[object | None, int, float, float, float, float, float]] = []
+    for bucket_value, group in grouped:
         total_values = pd.to_numeric(
             group[_ATTRIBUTION_TOTAL_DELTA_COLUMN], errors="coerce"
         ).dropna()
@@ -776,10 +778,43 @@ def _finalize_attribution_output(
             one_sided_sum = float(
                 pd.to_numeric(group.loc[one_sided, "contribution"], errors="coerce").sum()
             )
-        facts.append((total_delta, contribution_sum, one_sided_sum, 0.0, abs(residual)))
+        facts.append(
+            (
+                bucket_value,
+                len(group),
+                total_delta,
+                contribution_sum,
+                one_sided_sum,
+                residual,
+                tolerance,
+            )
+        )
 
     single_partition = len(facts) == 1
-    total_delta, contribution_sum, one_sided_sum, residual, _abs_residual = facts[0]
+    _, _, total_delta, contribution_sum, one_sided_sum, residual, _tolerance = facts[0]
+    bucket_reconciliations = (
+        tuple(
+            AttributionBucketReconciliationV1(
+                bucket_key=((bucket_column, _reconciliation_bucket_scalar(bucket_value)),),
+                row_count=row_count,
+                total_delta=partition_total,
+                contribution_sum=partition_sum,
+                residual=partition_residual,
+                tolerance=partition_tolerance,
+            )
+            for (
+                bucket_value,
+                row_count,
+                partition_total,
+                partition_sum,
+                _one_sided_sum,
+                partition_residual,
+                partition_tolerance,
+            ) in facts
+        )
+        if bucket_column is not None
+        else ()
+    )
     reconciliation = AttributionReconciliation(
         partition_count=len(facts),
         total_delta=total_delta if single_partition else None,
@@ -787,7 +822,8 @@ def _finalize_attribution_output(
         one_sided_contribution_sum=one_sided_sum if single_partition else None,
         unattributed_contribution_sum=residual if single_partition else None,
         residual=residual if single_partition else None,
-        max_abs_residual=max(item[4] for item in facts),
+        max_abs_residual=max(abs(item[5]) for item in facts),
+        bucket_reconciliations=bucket_reconciliations,
     )
     cleaned = output.drop(
         columns=[_ATTRIBUTION_TOTAL_DELTA_COLUMN, _ATTRIBUTION_ONE_SIDED_COLUMN],

@@ -29,6 +29,7 @@ class QualityReportMeta(BaseFrameMeta):
         "lifecycle_dwell",
         "lifecycle_violations",
         "funnel_delta",
+        "attribution",
         "funnel_attribution",
     ]
     target_kind: Literal[
@@ -90,6 +91,26 @@ class QualityReportMeta(BaseFrameMeta):
                 )
             if self.target_event_pattern_fingerprint is not None:
                 raise ValueError("funnel_attribution target step is retained in source metadata")
+            return self
+        if self.report_shape == "attribution":
+            if self.target_kind != "attribution_frame" or self.target_semantic_kind not in {
+                "scalar",
+                "time_series",
+                "segmented",
+                "panel",
+            }:
+                raise ValueError("attribution quality requires a metric AttributionFrame target")
+            if not self.target_metric_id or self.target_semantic_model is None:
+                raise ValueError("attribution quality requires metric target identity")
+            if self.target_event_pattern_fingerprint is not None:
+                raise ValueError("metric attribution quality cannot carry an Event pattern")
+            if self.target_coverage_basis is not None:
+                raise ValueError("metric attribution quality cannot carry Event coverage")
+            if (
+                self.target_state_model_ref is not None
+                or self.target_state_model_fingerprint is not None
+            ):
+                raise ValueError("metric attribution quality cannot carry a StateModel")
             return self
         if self.report_shape == "metric":
             if self.target_kind != "metric_frame" or self.target_semantic_kind not in {

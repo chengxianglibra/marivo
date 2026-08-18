@@ -12,7 +12,11 @@ import pandas as pd
 
 from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
-from marivo.analysis.errors import AnalysisRepair, QualityShapeUnsupportedError
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    FrameMetaInvalidError,
+    QualityShapeUnsupportedError,
+)
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -49,6 +53,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._quality_checks import (
+    run_attribution_checks,
     run_delta_checks,
     run_event_checks,
     run_funnel_attribution_checks,
@@ -84,13 +89,62 @@ def assess_quality(
                 "journey/funnel/time-to-event shapes, and registered LifecycleFrame "
                 "history/distribution/transitions/dwell/violations shapes, "
                 "metric DeltaFrame shapes, DeltaFrame[funnel], and "
-                "AttributionFrame[funnel_loss_rate]"
+                "registered metric/funnel AttributionFrame shapes"
             ),
             context={"frame_kind": frame.meta.kind},
         )
     if isinstance(frame, MetricFrame):
         require_single_metric(frame, intent="assess_quality")
     ensure_frame_in_session(frame, session=session, label="assess_quality frame")
+
+    attribution_metric_id: str | None = None
+    if isinstance(frame, AttributionFrame) and not isinstance(
+        frame.meta, FunnelAttributionFrameMeta
+    ):
+        if len(frame.meta.metric_ids) != 1:
+            raise FrameMetaInvalidError(
+                message="metric attribution quality requires exactly one target metric",
+                expected="one metric id",
+                received=f"metric_ids={frame.meta.metric_ids!r}",
+                location="session.assess_quality frame.meta.metric_ids",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        "Re-run session.attribute(...) from a canonical single-metric DeltaFrame."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+                    snippet="drivers = session.attribute(delta, axes=[axis])",
+                ),
+            )
+        attribution_metric_id = frame.meta.metric_ids[0]
+        if frame.meta.produced_by_job is None:
+            raise FrameMetaInvalidError(
+                message="metric attribution quality requires its producing job",
+                expected="a persisted producer job ref",
+                received="produced_by_job=None",
+                location="session.assess_quality frame.meta.produced_by_job",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action="Re-run session.attribute(...) from the source DeltaFrame.",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+                    snippet="drivers = session.attribute(delta, axes=[axis])",
+                ),
+            )
+        producer_job = session.job(frame.meta.produced_by_job)
+        semantic_keys = (
+            "catalog_definition_fingerprint",
+            "dimension_refs",
+            "slice_predicates",
+            "time_dimension_ref",
+            "semantic_dependency_digest",
+            "semantic_dependency_digests",
+            "subject",
+            "subjects",
+            "cohort",
+        )
+        job_semantics = {key: producer_job[key] for key in semantic_keys if key in producer_job}
+    else:
+        job_semantics = job_semantics_from_frames(frame)
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -109,6 +163,8 @@ def assess_quality(
         rows = run_delta_checks(frame)
     elif isinstance(frame, AttributionFrame) and frame.meta.semantic_kind == "funnel_loss_rate":
         rows = run_funnel_attribution_checks(frame)
+    elif isinstance(frame, AttributionFrame):
+        rows = run_attribution_checks(frame)
     else:
         raise QualityShapeUnsupportedError(
             message="assess_quality received an unregistered family/shape",
@@ -129,8 +185,14 @@ def assess_quality(
         report_shape = f"lifecycle_{frame.meta.semantic_kind}"
     elif isinstance(frame, DeltaFrame):
         report_shape = "funnel_delta" if frame.meta.semantic_kind == "funnel" else "delta"
+    elif isinstance(frame, AttributionFrame):
+        report_shape = (
+            "funnel_attribution"
+            if isinstance(frame.meta, FunnelAttributionFrameMeta)
+            else "attribution"
+        )
     else:
-        report_shape = "funnel_attribution"
+        raise AssertionError("quality report shape dispatch is not exhaustive")
     params = {
         "source_ref": frame.ref,
         "report_shape": report_shape,
@@ -193,6 +255,9 @@ def assess_quality(
             if isinstance(frame, MetricFrame)
             else frame.meta.metric_id
             if isinstance(frame, DeltaFrame) and not isinstance(frame.meta, FunnelDeltaFrameMeta)
+            else attribution_metric_id
+            if isinstance(frame, AttributionFrame)
+            and not isinstance(frame.meta, FunnelAttributionFrameMeta)
             else None
         ),
         target_semantic_model=(
@@ -200,6 +265,9 @@ def assess_quality(
             if isinstance(frame, MetricFrame)
             else frame.meta.semantic_model
             if isinstance(frame, DeltaFrame) and not isinstance(frame.meta, FunnelDeltaFrameMeta)
+            else frame.meta.semantic_model
+            if isinstance(frame, AttributionFrame)
+            and not isinstance(frame.meta, FunnelAttributionFrameMeta)
             else None
         ),
         target_semantic_kind=cast("Any", frame.meta.semantic_kind),
@@ -241,7 +309,7 @@ def assess_quality(
             "id": job_ref,
             "session_id": session.id,
             "intent": "assess_quality",
-            **job_semantics_from_frames(frame),
+            **job_semantics,
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [frame.ref],
@@ -328,6 +396,18 @@ def _quality_issues(
             expectation = "coverage_censored_count == 0"
         elif row["check_kind"] == "delta_row_contract":
             kind = "delta_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "attribution_row_contract":
+            kind = "attribution_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "attribution_contribution_values":
+            kind = "attribution_contribution_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "attribution_reconciliation":
+            kind = "attribution_reconciliation_invalid"
             observed = int(details["invalid_count"])
             expectation = "invalid_count == 0"
         elif row["check_kind"] in {

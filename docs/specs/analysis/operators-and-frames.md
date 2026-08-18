@@ -546,6 +546,20 @@ a terminal report. A source artifact records at most a
 For a metric `DeltaFrame`, assessment validates the delta row contract. When the
 delta carries `CumulativeAlignmentV1`, the report reads that typed field directly
 and surfaces matched-null, unpaired, and fallback counts as explicit caveats.
+For a metric `AttributionFrame` (`scalar`, `time_series`, `segmented`, or
+`panel`), assessment validates the registered generic-v2 or cumulative-flow row
+contract, requires a non-empty result, validates finite contribution values, and
+checks every additive panel bucket against its persisted typed reconciliation
+receipt.
+`AttributionFrame[funnel_loss_rate]` keeps its funnel-specific component, pool,
+residual, and reconciliation checks.
+
+Admission is discoverable before execution. `artifact.contract()` records the
+exact accepted semantic shapes for every artifact input on the `assess_quality`
+affordance, while `marivo.help("assess_quality")` prints the complete
+family-to-shape table. A multi-metric `MetricFrame` is not silently reduced:
+its contract fails the `single_metric` precondition and returns one runnable
+`frame.metric("<metric_id>")` repair option per metric.
 
 `QualityReport.overall_status`, `.blocking_issue_count`, and `.warning_count`
 are read-only projections of the authoritative report metadata for programmatic
@@ -723,7 +737,7 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 | `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
 | `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses`, `assess_quality` |
 | `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
-| `AttributionFrame` | `transform`, `select`, `assess_quality` |
+| `AttributionFrame[scalar \| time_series \| segmented \| panel \| funnel_loss_rate]` | `transform`, `select`, `assess_quality` |
 | Scored `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
 | `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `OntologyMetricCandidate` → exact-scope `session.observe` |
 | `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |

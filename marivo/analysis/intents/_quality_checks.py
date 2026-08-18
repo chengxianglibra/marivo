@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
+import math
 from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -29,7 +30,10 @@ from marivo.analysis.frames._meta_defaults import (
 from marivo.analysis.frames.attribution import (
     FUNNEL_ATTRIBUTION_COLUMNS,
     AttributionFrame,
+    AttributionFrameMeta,
     FunnelAttributionFrameMeta,
+    validate_cumulative_flow_attribution_rows,
+    validate_generic_attribution_rows,
 )
 from marivo.analysis.frames.delta import (
     FUNNEL_DELTA_COLUMNS,
@@ -532,6 +536,144 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
                 "row_contribution_sum": contribution_sum,
                 "receipt_contribution_sum": receipt.contribution_sum,
                 "target_loss_rate_delta": receipt.target_loss_rate_delta,
+            },
+        ),
+    ]
+
+
+def run_attribution_checks(frame: AttributionFrame) -> list[dict[str, str]]:
+    """Return deterministic checks for every generic attribution row contract."""
+    if not isinstance(frame.meta, AttributionFrameMeta):
+        raise ValueError("generic attribution quality requires a metric AttributionFrame")
+    df = frame._dataframe_copy()
+    meta = frame.meta
+
+    contract_error: str | None = None
+    try:
+        validate_generic_attribution_rows(meta, df)
+        validate_cumulative_flow_attribution_rows(meta, df)
+    except (TypeError, ValueError) as exc:
+        contract_error = str(exc)
+    contract_invalid = int(contract_error is not None)
+
+    contribution_column = meta.contribution_column or "contribution"
+    if contribution_column not in df.columns:
+        invalid_contribution_count = max(len(df), 1)
+    else:
+        contributions = pd.to_numeric(df[contribution_column], errors="coerce")
+        invalid_contribution_count = int(
+            contributions.map(lambda value: pd.isna(value) or not math.isfinite(float(value))).sum()
+        )
+
+    reconciliation = meta.reconciliation
+    reconciliation_invalid = 0
+    row_contribution_sum: float | None = None
+    if reconciliation is None or contribution_column not in df.columns:
+        reconciliation_invalid = 1
+    else:
+        reconciled_rows = df
+        if meta.attribution_mode in {"hierarchy", "multiresolution"}:
+            if ATTRIBUTION_LEVEL_COLUMN not in df.columns or df.empty:
+                reconciliation_invalid += 1
+                reconciled_rows = df.iloc[0:0]
+            else:
+                levels = pd.to_numeric(df[ATTRIBUTION_LEVEL_COLUMN], errors="coerce")
+                if levels.isna().any():
+                    reconciliation_invalid += int(levels.isna().sum())
+                    reconciled_rows = df.iloc[0:0]
+                else:
+                    reconciled_rows = df.loc[levels == levels.max()]
+        values = pd.to_numeric(reconciled_rows[contribution_column], errors="coerce")
+        if values.isna().any() or any(not math.isfinite(float(value)) for value in values):
+            reconciliation_invalid += 1
+        else:
+            row_contribution_sum = float(values.sum())
+            if reconciliation.contribution_sum is not None:
+                reconciliation_invalid += int(
+                    not math.isclose(
+                        row_contribution_sum,
+                        reconciliation.contribution_sum,
+                        rel_tol=0.0,
+                        abs_tol=1e-9,
+                    )
+                )
+            elif reconciliation.partition_count == 1:
+                reconciliation_invalid += 1
+            if reconciliation.total_delta is not None:
+                if reconciliation.residual is None:
+                    reconciliation_invalid += 1
+                else:
+                    reconciliation_invalid += int(
+                        not math.isclose(
+                            reconciliation.total_delta - row_contribution_sum,
+                            reconciliation.residual,
+                            rel_tol=0.0,
+                            abs_tol=1e-9,
+                        )
+                    )
+        reconciliation_invalid += int(reconciliation.max_abs_residual > 1e-9)
+    if contract_error is not None and "reconciliation" in contract_error:
+        reconciliation_invalid += 1
+
+    return [
+        _result(
+            "attribution_row_count",
+            "row_count",
+            "blocking" if df.empty else "ok",
+            "blocking" if df.empty else "ok",
+            ("Attribution result contains rows" if not df.empty else "Attribution result is empty"),
+            {"row_count": len(df), "threshold_blocking": 0},
+        ),
+        _result(
+            "attribution_row_contract",
+            "attribution_row_contract",
+            "blocking" if contract_invalid else "ok",
+            "blocking" if contract_invalid else "ok",
+            (
+                "Attribution rows match the persisted row contract"
+                if not contract_invalid
+                else "Attribution rows violate the persisted row contract"
+            ),
+            {
+                "invalid_count": contract_invalid,
+                "row_contract_version": meta.row_contract_version,
+                "violation": contract_error,
+            },
+        ),
+        _result(
+            "attribution_contribution_values",
+            "attribution_contribution_values",
+            "blocking" if invalid_contribution_count else "ok",
+            "blocking" if invalid_contribution_count else "ok",
+            (
+                "Attribution contributions are finite numeric values"
+                if not invalid_contribution_count
+                else "Attribution contributions contain invalid values"
+            ),
+            {
+                "invalid_count": invalid_contribution_count,
+                "contribution_column": contribution_column,
+            },
+        ),
+        _result(
+            "attribution_reconciliation",
+            "attribution_reconciliation",
+            "blocking" if reconciliation_invalid else "ok",
+            "blocking" if reconciliation_invalid else "ok",
+            (
+                "Attribution rows reconcile to their typed receipt"
+                if not reconciliation_invalid
+                else "Attribution rows do not reconcile to their typed receipt"
+            ),
+            {
+                "invalid_count": reconciliation_invalid,
+                "row_contribution_sum": row_contribution_sum,
+                "receipt_contribution_sum": (
+                    reconciliation.contribution_sum if reconciliation is not None else None
+                ),
+                "receipt_max_abs_residual": (
+                    reconciliation.max_abs_residual if reconciliation is not None else None
+                ),
             },
         ),
     ]

@@ -838,6 +838,18 @@ def test_single_metric_gated_intent_help_declares_arity_precondition(target: str
     assert "arity=1" in text
 
 
+def test_assess_quality_help_declares_exact_artifact_shapes() -> None:
+    text = _text("assess_quality")
+
+    assert "Accepted artifact shapes:" in text
+    assert "frame.MetricFrame: panel | scalar | segmented | time_series" in text
+    assert (
+        "frame.AttributionFrame: funnel_loss_rate | panel | scalar | segmented | time_series"
+        in text
+    )
+    assert "frame.DeltaFrame: funnel | panel | scalar | segmented | time_series" in text
+
+
 @pytest.mark.parametrize("target", ["discover.period_shifts", "discover.driver_axes"])
 def test_delta_frame_only_discover_objectives_do_not_declare_single_metric(target: str) -> None:
     """Issue #74: DeltaFrame-only discover objectives are rejected by family

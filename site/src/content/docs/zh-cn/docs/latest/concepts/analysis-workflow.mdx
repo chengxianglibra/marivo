@@ -494,12 +494,23 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 物化的 `ArtifactState` 元数据，不是质量状态。
 对于累计 comparable-周期 `DeltaFrame`，报告直接读取类型化 pairing
 证据，并呈现 matched-null、unpaired 和回退计数。
+指标归因的 `scalar`、`time_series`、`segmented` 与 `panel` 形状也可直接
+检查，包括 generic-v2 和 cumulative-flow 行契约。固定检查覆盖行契约、结果
+是否为空、贡献值是否为有限数，以及类型化 reconciliation receipt；additive
+panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门的行数检查阻断，
+不会被误报为对账失败；漏斗损失率归因仍使用其专属组件、符号池、residual 与
+对账检查。
+
+调用前先查看 `artifact.contract()`：其中 `assess_quality` affordance 会列出
+当前产物家族允许的精确形状；`marivo.help("assess_quality")` 则给出完整的
+家族到形状映射。多指标 `MetricFrame` 不会被猜测或静默缩减；必须先采用
+contract 提供的可运行 `frame.metric("<metric_id>")` 修复选项选择一个指标。
 报告的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
 `time_coverage_incomplete` 问题时，不得把该窗口作为完整周期事实报告。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `frame` | 支持的分析产物 | 是 | — | 要检查的 frame，包括指标 DeltaFrame。 |
+| `frame` | 支持的分析产物 | 是 | — | 要检查的 frame；`frame.contract()` 与 focused help 会给出允许的精确形状。 |
 
 ### `hypothesis_test` → `HypothesisTestResult`
 

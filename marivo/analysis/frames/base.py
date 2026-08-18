@@ -214,6 +214,7 @@ class ArtifactInputRequirement(BaseModel):
     parameter: str
     accepted_families: tuple[str, ...]
     bindable_from_current_artifact: bool
+    accepted_semantic_shapes: tuple[str, ...] = ()
 
 
 class ArtifactCallOption(BaseModel):
@@ -544,7 +545,13 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
     bindings = "; ".join(
         (
             f"{requirement.parameter}={','.join(requirement.accepted_families)} "
-            f"(current_artifact={str(requirement.bindable_from_current_artifact).lower()})"
+            f"(current_artifact={str(requirement.bindable_from_current_artifact).lower()}"
+            + (
+                f"; semantic_shapes={','.join(requirement.accepted_semantic_shapes)}"
+                if requirement.accepted_semantic_shapes
+                else ""
+            )
+            + ")"
         )
         for requirement in affordance.input_requirements
     )
@@ -787,6 +794,18 @@ class BaseFrame(RenderableResult):
                     parameter=parameter,
                     accepted_families=tuple(sorted(str(item) for item in families)),
                     bindable_from_current_artifact=family in {str(item) for item in families},
+                    accepted_semantic_shapes=(
+                        tuple(
+                            sorted(
+                                desc.artifact_admission[parameter].semantic_shapes.get(
+                                    family,
+                                    (),
+                                )
+                            )
+                        )
+                        if parameter in desc.artifact_admission
+                        else ()
+                    ),
                 )
                 for parameter, families in sorted(desc.accepted_inputs.items())
                 if parameter not in hidden_parameters

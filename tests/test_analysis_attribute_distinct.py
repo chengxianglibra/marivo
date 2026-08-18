@@ -93,6 +93,9 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
     assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx(
         {1: 0.0, 2: 0.0}
     )
+    quality = session.assess_quality(result)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.overall_status == "ok"
     contract = result.contract()
     assert contract.row_arithmetic == "not_additive_across_resolutions"
     resolution_affordance = next(
@@ -257,3 +260,8 @@ def test_count_distinct_panel_source_reconciles_each_comparison_bucket(
     assert current.meta.semantic_kind == "panel"
     assert rows.groupby("bucket_start")["contribution"].sum().tolist() == pytest.approx([0.0, 1.0])
     assert result.meta.bucket_column == "bucket_start"
+    reloaded = session.get_frame(result.ref)
+    assert reloaded.meta.semantic_kind == "panel"
+    quality = session.assess_quality(result)
+    assert quality.meta.report_shape == "attribution"
+    assert quality.meta.overall_status == "ok"

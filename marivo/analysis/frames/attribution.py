@@ -47,6 +47,34 @@ from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_PATH_COLUMN,
 )
 
+JsonScalar: TypeAlias = str | int | float | bool | None
+
+
+class AttributionBucketReconciliationV1(BaseModel):
+    """Closed reconciliation facts for one additive attribution bucket."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bucket_key: tuple[tuple[str, JsonScalar], ...] = Field(min_length=1)
+    row_count: int = Field(ge=0)
+    total_delta: float
+    contribution_sum: float
+    residual: float
+    tolerance: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_reconciliation(self) -> AttributionBucketReconciliationV1:
+        if abs(self.residual) > self.tolerance:
+            raise ValueError("attribution bucket residual exceeds tolerance")
+        if not math.isclose(
+            self.total_delta - self.contribution_sum,
+            self.residual,
+            rel_tol=0.0,
+            abs_tol=self.tolerance,
+        ):
+            raise ValueError("attribution bucket arithmetic is inconsistent")
+        return self
+
 
 class AttributionReconciliation(BaseModel):
     """Closed reconciliation facts for an attribution result."""
@@ -61,9 +89,7 @@ class AttributionReconciliation(BaseModel):
     unattributed_contribution_sum: float | None = None
     residual: float | None = None
     max_abs_residual: float
-
-
-JsonScalar: TypeAlias = str | int | float | bool | None
+    bucket_reconciliations: tuple[AttributionBucketReconciliationV1, ...] = ()
 
 
 class QuantileResolutionExecutionV1(BaseModel):
@@ -961,25 +987,86 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     if meta.attribution_mode in {"hierarchy", "multiresolution"}:
         reconciled_level = int(dataframe[ATTRIBUTION_LEVEL_COLUMN].max())
         reconciled_rows = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == reconciled_level]
+    nonadditive = meta.method in {"distinct_membership", "quantile_replacement"}
+    observed_partition_count = (
+        len(reconciled_rows)
+        if nonadditive
+        else 0
+        if reconciled_rows.empty
+        else 1
+        if meta.bucket_column is None
+        else reconciled_rows.groupby(meta.bucket_column, dropna=False, sort=False).ngroups
+    )
+    if reconciliation.partition_count != observed_partition_count:
+        raise ValueError("generic attribution reconciliation partition count is inconsistent")
+    bucket_reconciliations = reconciliation.bucket_reconciliations
+    if nonadditive or meta.bucket_column is None:
+        if bucket_reconciliations:
+            raise ValueError("generic attribution unexpectedly carries bucket reconciliations")
+    else:
+        bucket_column = meta.bucket_column
+        if len(bucket_reconciliations) != observed_partition_count:
+            raise ValueError("generic attribution bucket reconciliation count is inconsistent")
+        expected_keys = {item.bucket_key for item in bucket_reconciliations}
+        observed_keys = {
+            ((bucket_column, _reconciliation_bucket_scalar(value)),)
+            for value in reconciled_rows[bucket_column].drop_duplicates()
+        }
+        if expected_keys != observed_keys:
+            raise ValueError("generic attribution bucket reconciliation keys are inconsistent")
+        for receipt in bucket_reconciliations:
+            if len(receipt.bucket_key) != 1 or receipt.bucket_key[0][0] != bucket_column:
+                raise ValueError("generic attribution bucket reconciliation key is invalid")
+            bucket_value = receipt.bucket_key[0][1]
+            rows = reconciled_rows[
+                reconciled_rows[bucket_column].map(_reconciliation_bucket_scalar) == bucket_value
+            ]
+            if len(rows) != receipt.row_count:
+                raise ValueError("generic attribution bucket reconciliation row count mismatch")
+            bucket_sum = float(pd.to_numeric(rows["contribution"], errors="raise").sum())
+            if not math.isclose(
+                bucket_sum,
+                receipt.contribution_sum,
+                rel_tol=0.0,
+                abs_tol=receipt.tolerance,
+            ):
+                raise ValueError("generic attribution bucket reconciliation sum mismatch")
+        expected_max_residual = max(
+            (abs(item.residual) for item in bucket_reconciliations),
+            default=0.0,
+        )
+        if not math.isclose(
+            reconciliation.max_abs_residual,
+            expected_max_residual,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError("generic attribution bucket reconciliation bound mismatch")
     contribution_sum = float(reconciled_rows["contribution"].sum())
-    if reconciliation.contribution_sum is None or not math.isclose(
-        contribution_sum,
+    scalar_fields = (
+        reconciliation.total_delta,
         reconciliation.contribution_sum,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        raise ValueError("generic attribution rows do not match typed contribution reconciliation")
-    if (
-        reconciliation.total_delta is not None
-        and reconciliation.residual is not None
-        and not math.isclose(
-            reconciliation.total_delta - reconciliation.contribution_sum,
-            reconciliation.residual,
+        reconciliation.residual,
+    )
+    if nonadditive or observed_partition_count == 1:
+        if any(value is None for value in scalar_fields) or not math.isclose(
+            contribution_sum,
+            cast("float", reconciliation.contribution_sum),
             rel_tol=0.0,
             abs_tol=1e-9,
-        )
-    ):
-        raise ValueError("generic attribution reconciliation arithmetic is inconsistent")
+        ):
+            raise ValueError(
+                "generic attribution rows do not match typed contribution reconciliation"
+            )
+        if not math.isclose(
+            cast("float", reconciliation.total_delta) - contribution_sum,
+            cast("float", reconciliation.residual),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise ValueError("generic attribution reconciliation arithmetic is inconsistent")
+    elif any(value is not None for value in scalar_fields):
+        raise ValueError("multi-partition generic attribution must omit scalar totals")
     if reconciliation.max_abs_residual > 1e-9:
         raise ValueError("generic attribution reconciliation exceeds tolerance")
 
