@@ -17,6 +17,8 @@ from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     ExpressionOccurrenceV1,
     ExpressionPresentationV1,
+    LinearNodeV1,
+    LinearTermV1,
     MetricExpressionGraphV1,
     MetricGraphNodeV1,
     MetricIdentity,
@@ -42,10 +44,17 @@ from marivo.semantic.runtime_metric import (
     FrozenSlicePredicateV1,
     FrozenSliceValue,
     RuntimeAggregateExpr,
+    RuntimeLinearExpr,
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
     RuntimeWeightedMeanExpr,
+)
+from marivo.semantic.unit_algebra import (
+    linear_unit,
+    linear_units_conflict,
+    ratio_unit,
+    tier1_unit,
 )
 from marivo.semantic.validator import Registry
 
@@ -91,6 +100,7 @@ class _RuntimeGraphBuilder:
         self.labels: list[PresentationLabelV1] = []
         self.root_dependencies: list[set[RefPayloadV1]] = []
         self._active_root_dependencies: set[RefPayloadV1] | None = None
+        self.node_units: dict[str, str | None] = {}
 
     def begin_root(self) -> None:
         dependencies: set[RefPayloadV1] = set()
@@ -106,6 +116,9 @@ class _RuntimeGraphBuilder:
         node_id = node_fingerprint(node)
         self.nodes.setdefault(node_id, node)
         return node_id
+
+    def _remember_unit(self, node_id: str, unit: str | None) -> None:
+        self.node_units.setdefault(node_id, unit)
 
     def _slice_node(self, child_id: str, by: FrozenSliceMap) -> SliceNodeV1:
         predicates: list[CanonicalSliceEntryV1] = []
@@ -157,6 +170,7 @@ class _RuntimeGraphBuilder:
         lowered = lower_catalog_metric(self.registry, metric_id, sidecar=self.sidecar)
         for record in lowered.graph.nodes:
             self.nodes.setdefault(record.node_id, record.node)
+        self._remember_unit(lowered.graph.roots[0], self.registry.metrics[metric_id].unit)
 
         def remap(source: str) -> str:
             if source == "root[0]":
@@ -201,11 +215,16 @@ class _RuntimeGraphBuilder:
                 unit_override=None,
             )
             aggregate_id = self._intern(aggregate)
+            aggregate_name = (
+                expression.agg[0] if isinstance(expression.agg, tuple) else expression.agg
+            )
+            self._remember_unit(aggregate_id, tier1_unit(aggregate_name, measure.unit))
             if not expression.slice_by:
                 return aggregate_id, (ExpressionOccurrenceV1(path=path, node_id=aggregate_id),)
             child_path = f"{path}.child"
             sliced = self._slice_node(aggregate_id, expression.slice_by)
             slice_id = self._intern(sliced)
+            self._remember_unit(slice_id, self.node_units[aggregate_id])
             return slice_id, (
                 ExpressionOccurrenceV1(
                     path=path,
@@ -347,6 +366,7 @@ class _RuntimeGraphBuilder:
                 unit_override=None,
             )
             weighted_mean_id = self._intern(weighted_mean)
+            self._remember_unit(weighted_mean_id, value.unit)
             if not expression.slice_by:
                 return weighted_mean_id, (
                     ExpressionOccurrenceV1(path=path, node_id=weighted_mean_id),
@@ -354,6 +374,7 @@ class _RuntimeGraphBuilder:
             child_path = f"{path}.child"
             sliced = self._slice_node(weighted_mean_id, expression.slice_by)
             slice_id = self._intern(sliced)
+            self._remember_unit(slice_id, self.node_units[weighted_mean_id])
             return slice_id, (
                 ExpressionOccurrenceV1(
                     path=path,
@@ -367,6 +388,7 @@ class _RuntimeGraphBuilder:
             child_id, child_occurrences = self.lower(expression.metric, path=child_path)
             node = self._slice_node(child_id, expression.by)
             node_id = self._intern(node)
+            self._remember_unit(node_id, self.node_units[child_id])
             return node_id, (
                 ExpressionOccurrenceV1(
                     path=path,
@@ -392,6 +414,13 @@ class _RuntimeGraphBuilder:
                 unit_override=None,
             )
             node_id = self._intern(ratio_node)
+            self._remember_unit(
+                node_id,
+                ratio_unit(
+                    self.node_units[numerator_id],
+                    self.node_units[denominator_id],
+                ),
+            )
             return node_id, (
                 ExpressionOccurrenceV1(
                     path=path,
@@ -400,6 +429,59 @@ class _RuntimeGraphBuilder:
                 ),
                 *numerator_occurrences,
                 *denominator_occurrences,
+            )
+        if isinstance(expression, RuntimeLinearExpr):
+            inputs = (*expression.add, *expression.subtract)
+            signs = ("+",) * len(expression.add) + ("-",) * len(expression.subtract)
+            child_paths = tuple(f"{path}.term[{index}]" for index in range(len(inputs)))
+            terms: list[LinearTermV1] = []
+            linear_occurrences: list[ExpressionOccurrenceV1] = []
+            child_units: list[str | None] = []
+            for child, sign, child_path in zip(inputs, signs, child_paths, strict=True):
+                child_id, occurrences = self.lower(child, path=child_path)
+                terms.append(
+                    LinearTermV1(
+                        child_id=child_id,
+                        coefficient=1.0 if sign == "+" else -1.0,
+                    )
+                )
+                linear_occurrences.extend(occurrences)
+                child_units.append(self.node_units[child_id])
+            if linear_units_conflict(child_units):
+                raise RuntimeMetricLoweringError(
+                    code="runtime-linear-unit-mismatch",
+                    message="Runtime linear terms must have commensurable units.",
+                    candidates={
+                        "terms": [
+                            {
+                                "path": child_path,
+                                "sign": sign,
+                                "unit": unit,
+                            }
+                            for child_path, sign, unit in zip(
+                                child_paths,
+                                signs,
+                                child_units,
+                                strict=True,
+                            )
+                        ],
+                        "known_units": sorted({unit for unit in child_units if unit is not None}),
+                    },
+                )
+            linear_node = LinearNodeV1(
+                kind="linear",
+                terms=tuple(terms),
+                unit_override=None,
+            )
+            node_id = self._intern(linear_node)
+            self._remember_unit(node_id, linear_unit(child_units))
+            return node_id, (
+                ExpressionOccurrenceV1(
+                    path=path,
+                    node_id=node_id,
+                    child_paths=child_paths,
+                ),
+                *linear_occurrences,
             )
         raise TypeError(f"unsupported runtime metric expression {type(expression).__name__}")
 

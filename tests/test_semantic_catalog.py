@@ -2302,6 +2302,7 @@ def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
     assert exc_info.value.kind == ErrorKind.INVALID_REF
     assert "RuntimeMetricExpr" in str(exc_info.value)
     assert "mv.runtime_metric.aggregate" in str(exc_info.value)
+    assert "linear(...)" in str(exc_info.value)
 
 
 def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(

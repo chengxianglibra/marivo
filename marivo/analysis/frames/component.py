@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -171,6 +172,32 @@ class ComponentFrameMeta(BaseFrameMeta):
                     raise ValueError(f"component_graph.nodes[{index}] has duplicate child roles")
                 child_roles.add(child["role"])
                 child_ids.append(child["node_id"])
+            linear_terms = node.get("linear_terms")
+            if node["node_kind"] == "linear":
+                if not isinstance(linear_terms, list) or len(linear_terms) != len(ordered_children):
+                    raise ValueError(
+                        f"component_graph.nodes[{index}].linear_terms must match ordered_children"
+                    )
+                for term_index, (term, child) in enumerate(
+                    zip(linear_terms, ordered_children, strict=True)
+                ):
+                    coefficient = term.get("coefficient") if isinstance(term, dict) else None
+                    if (
+                        not isinstance(term, dict)
+                        or set(term) != {"role", "node_id", "coefficient"}
+                        or term.get("role") != child["role"]
+                        or term.get("node_id") != child["node_id"]
+                        or isinstance(coefficient, bool)
+                        or not isinstance(coefficient, int | float)
+                        or not math.isfinite(float(coefficient))
+                    ):
+                        raise ValueError(
+                            f"component_graph.nodes[{index}].linear_terms[{term_index}] is invalid"
+                        )
+            elif linear_terms is not None:
+                raise ValueError(
+                    f"component_graph.nodes[{index}].linear_terms requires a linear node"
+                )
             occurrences = node["occurrence_paths"]
             if not isinstance(occurrences, list) or not all(
                 isinstance(path, str) and path for path in occurrences

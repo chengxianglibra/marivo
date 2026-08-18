@@ -48,6 +48,7 @@ from marivo.analysis.intents._observe_planner_types import (
 )
 from marivo.analysis.intents.observe_planner import _validate_field_expr
 from marivo.analysis.windows.grain import ensure_grain_supported
+from marivo.semantic.ir import linear_additivity_bucket
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CatalogBodyLeafV1,
@@ -556,11 +557,7 @@ def execute_metric_graph_observe(
                         None,
                     )
                 ),
-                additivity=(
-                    first.additivity
-                    if all(child.additivity == first.additivity for child in children)
-                    else "non_additive"
-                ),
+                additivity=linear_additivity_bucket(tuple(child.additivity for child in children)),
                 fold=None,
                 coverage_df=_merge_coverage(children),
                 quality=evaluation.quality,
@@ -717,30 +714,38 @@ def component_graph_payload_v1(
                 f"metric graph node {record.node_id!r} has no materialized or absorbed state"
             )
         ordered_children = child_roles(record.node)
-        records.append(
-            {
-                "node_id": record.node_id,
-                "node_fingerprint": record.node_id,
-                "node_kind": record.node.kind,
-                "evaluator_contract": evaluator_contract(record.node),
-                "ordered_children": [
-                    {"role": role, "node_id": child_id} for role, child_id in ordered_children
-                ],
-                "occurrence_paths": sorted(occurrence_paths.get(record.node_id, ())),
-                "value_semantics": {
-                    "unit": semantic_unit,
-                    "unit_state": canonical_value(semantic_unit_state),
-                    "unit_capability_issue": unit_capability_issue,
-                    "additivity": semantic_additivity,
-                    "fold": semantic_fold,
-                    "semantic_shape": semantic_shape,
-                    "key_columns": semantic_keys,
-                },
-                "quality": quality,
-                "coverage_ref": coverage_ref,
-                "governed_leaf_lineage": canonical_value(governed_lineage(record.node_id)),
-            }
-        )
+        node_payload = {
+            "node_id": record.node_id,
+            "node_fingerprint": record.node_id,
+            "node_kind": record.node.kind,
+            "evaluator_contract": evaluator_contract(record.node),
+            "ordered_children": [
+                {"role": role, "node_id": child_id} for role, child_id in ordered_children
+            ],
+            "occurrence_paths": sorted(occurrence_paths.get(record.node_id, ())),
+            "value_semantics": {
+                "unit": semantic_unit,
+                "unit_state": canonical_value(semantic_unit_state),
+                "unit_capability_issue": unit_capability_issue,
+                "additivity": semantic_additivity,
+                "fold": semantic_fold,
+                "semantic_shape": semantic_shape,
+                "key_columns": semantic_keys,
+            },
+            "quality": quality,
+            "coverage_ref": coverage_ref,
+            "governed_leaf_lineage": canonical_value(governed_lineage(record.node_id)),
+        }
+        if isinstance(record.node, LinearNodeV1):
+            node_payload["linear_terms"] = [
+                {
+                    "role": f"term{index}",
+                    "node_id": term.child_id,
+                    "coefficient": term.coefficient,
+                }
+                for index, term in enumerate(record.node.terms)
+            ]
+        records.append(node_payload)
     return {
         "schema": "metric-component-graph/v1",
         "root_node_ids": list(plan.graph.roots),

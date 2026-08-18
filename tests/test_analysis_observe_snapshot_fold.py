@@ -192,6 +192,37 @@ def test_snapshot_fold_derived_metric_leaf_uses_same_strategy(tmp_path) -> None:
     assert "expected_sample_coverage: not_applicable" in rendered
 
 
+def test_runtime_linear_does_not_inherit_semi_additive_bucket(tmp_path) -> None:
+    session = _bootstrap_snapshot_project(tmp_path)
+    end_inventory = session.catalog.require(ms.ref.metric("inventory.end_inventory")).ref
+    start_inventory = session.catalog.require(ms.ref.metric("inventory.start_inventory")).ref
+
+    frame = session.observe(
+        mv.runtime_metric.linear(
+            add=[end_inventory],
+            subtract=[start_inventory],
+            label="Inventory change",
+        )
+    )
+
+    assert frame.to_pandas()["Inventory change"].item() == pytest.approx(10.0)
+    assert frame.meta.additivity == "non_additive"
+    assert frame.meta.status_time_dimension is None
+    assert frame.meta.lineage.steps[0].params["metric_semantics"] == {
+        "additivity": "non_additive",
+        "aggregation": None,
+        "status_time_dimension_ref": None,
+    }
+    component_graph = frame.components().meta.component_graph
+    assert component_graph is not None
+    root = next(
+        node
+        for node in component_graph["nodes"]
+        if node["node_id"] == frame.meta.expression_graph.roots[0]
+    )
+    assert root["value_semantics"]["additivity"] == "non_additive"
+
+
 def test_snapshot_fold_empty_window_returns_empty_frame_without_assertion(tmp_path) -> None:
     session = _bootstrap_snapshot_project(tmp_path)
 

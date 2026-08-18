@@ -148,6 +148,7 @@ from marivo.semantic.preview_checks import (
 )
 from marivo.semantic.runtime_metric import (
     RuntimeAggregateExpr,
+    RuntimeLinearExpr,
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
@@ -2948,7 +2949,13 @@ def _require_readiness_input(
 ) -> Ref[SemanticKindTag] | RuntimeMetricExpr:
     if isinstance(
         value,
-        (RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr, RuntimeWeightedMeanExpr),
+        (
+            RuntimeAggregateExpr,
+            RuntimeSliceExpr,
+            RuntimeRatioExpr,
+            RuntimeWeightedMeanExpr,
+            RuntimeLinearExpr,
+        ),
     ):
         return value
     if type(value) is Ref or isinstance(value, CatalogEntry):
@@ -2968,7 +2975,7 @@ def _require_readiness_input(
             "Pass a current catalog entry or exact ms.ref.<kind>(path). For "
             "session-scoped metrics, "
             "pass the closed value returned by mv.runtime_metric.aggregate(...), "
-            "weighted_mean(...), slice(...), or ratio(...)."
+            "weighted_mean(...), slice(...), ratio(...), or linear(...)."
         ),
         details={
             "operation": "catalog.readiness(refs=...)",

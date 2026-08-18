@@ -64,6 +64,7 @@ class ConstraintId(StrEnum):
     CUMULATIVE_ATTRIBUTION_ROUTE_COMPATIBLE = "cumulative_attribution_route_compatible"
     RUNTIME_METRIC_CLOSED_ALGEBRA = "runtime_metric_closed_algebra"
     RUNTIME_WEIGHTED_MEAN_VALID = "runtime_weighted_mean_valid"
+    RUNTIME_LINEAR_UNITS_COMMENSURABLE = "runtime_linear_units_commensurable"
 
 
 _DATASOURCE_DOC = "site/src/content/docs/docs/latest/concepts/semantic-layer.mdx"
@@ -620,6 +621,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "runtime_metric.slice",
             "runtime_metric.weighted_mean",
             "runtime_metric.ratio",
+            "runtime_metric.linear",
             "RuntimeMetricExpression",
         ),
         "Runtime metrics use a closed recursive algebra over governed refs.",
@@ -635,6 +637,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Runtime weighted means require same-entity measures and an additive weight.",
         "The value and weight must be evaluated on the same physical rows so null pairing and row-level multiplication remain exact.",
         "Pass exact loaded Ref[measure] values from the same entity and choose an additive measure for weight.",
+        help_target="runtime_metric",
+    ),
+    ConstraintId.RUNTIME_LINEAR_UNITS_COMMENSURABLE: _constraint(
+        ConstraintId.RUNTIME_LINEAR_UNITS_COMMENSURABLE,
+        "MetricShapeUnsupported",
+        "runtime",
+        ("runtime_metric.linear", "RuntimeLinearExpr"),
+        "Runtime linear terms require commensurable units.",
+        "Addition and subtraction preserve business meaning only when every known term unit agrees.",
+        "Use exact governed metric refs or runtime expressions with commensurable units; author a durable semantic metric when the business conversion requires an explicit modeling decision.",
         help_target="runtime_metric",
     ),
 }

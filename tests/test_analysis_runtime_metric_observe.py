@@ -15,7 +15,8 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.intents._replay import recover_observe_replay
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.semantic.metric_graph import RuntimeExpressionIdentity
+from marivo.analysis.session._load import load_frame
+from marivo.semantic.metric_graph import LinearNodeV1, RuntimeExpressionIdentity
 from marivo.semantic.unit_algebra import UnknownUnitV2
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
@@ -67,6 +68,21 @@ def runtime_session(tmp_path):
         + "\nmeasure_count = ms.aggregate(\n"
         + "    name='measure_count', measure=amount_measure, agg='count'\n"
         + ")\n"
+        + "\nrequest_total = ms.aggregate(\n"
+        + "    name='request_total', measure=request_weight_measure, agg='sum'\n"
+        + ")\n"
+        + "\n@ms.metric(entities=[orders], additivity='additive', unit='USD', name='cogs')\n"
+        + "def cogs(orders):\n"
+        + "    return (orders.amount * 0.50).sum()\n"
+        + "\n@ms.metric(entities=[orders], additivity='additive', unit='USD', name='discounts')\n"
+        + "def discounts(orders):\n"
+        + "    return (orders.amount * 0.10).sum()\n"
+        + "\n@ms.metric(entities=[orders], additivity='additive', unit='USD', name='shipping')\n"
+        + "def shipping(orders):\n"
+        + "    return (orders.amount * 0.05).sum()\n"
+        + "\n@ms.metric(entities=[orders], additivity='additive', unit='USD', name='payment')\n"
+        + "def payment(orders):\n"
+        + "    return (orders.amount * 0.02).sum()\n"
         + "\nmeasure_average = ms.ratio(\n"
         + "    name='measure_average', numerator=measure_revenue, denominator=measure_count\n"
         + ")\n"
@@ -101,6 +117,10 @@ def _named_measure_ref(session, name: str):
         if measure.name == name
     )
     return session.catalog.require(ms.ref.measure(measure_id)).ref
+
+
+def _metric_ref(session, name: str):
+    return session.catalog.require(ms.ref.metric(f"sales.{name}")).ref
 
 
 def _region_ref(session):
@@ -397,6 +417,180 @@ def test_runtime_weighted_mean_can_feed_runtime_ratio(runtime_session) -> None:
     )
 
     assert frame.to_pandas()[frame.value_columns[0]].iloc[0] == pytest.approx(1.0)
+
+
+def test_runtime_linear_gross_margin_can_feed_ratio_and_replay(runtime_session) -> None:
+    revenue = _metric_ref(runtime_session, "measure_revenue")
+    cogs = _metric_ref(runtime_session, "cogs")
+    discounts = _metric_ref(runtime_session, "discounts")
+    shipping = _metric_ref(runtime_session, "shipping")
+    payment = _metric_ref(runtime_session, "payment")
+    gross_margin = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=[cogs, discounts, shipping, payment],
+        label="Gross margin",
+    )
+    expression = mv.runtime_metric.ratio(
+        gross_margin,
+        revenue,
+        label="Gross margin rate",
+    )
+
+    source = runtime_session.observe(expression)
+    replay = recover_observe_replay(source, session=runtime_session)
+    repeated = replay.call_observe(runtime_session)
+
+    assert source.value_columns == ("Gross margin rate",)
+    assert source.to_pandas()["Gross margin rate"].iloc[0] == pytest.approx(0.33)
+    assert repeated.to_pandas().equals(source.to_pandas())
+    assert repeated.meta.expression_graph == source.meta.expression_graph
+    linear_graph_node = next(
+        record.node for record in source.meta.expression_graph.nodes if record.node.kind == "linear"
+    )
+    assert isinstance(linear_graph_node, LinearNodeV1)
+    assert tuple(term.coefficient for term in linear_graph_node.terms) == (
+        1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+    )
+    component = source.components()
+    component_graph = component.meta.component_graph
+    assert component_graph is not None
+    assert {node["node_kind"] for node in component_graph["nodes"]} >= {
+        "linear",
+        "ratio",
+    }
+    linear_node = next(node for node in component_graph["nodes"] if node["node_kind"] == "linear")
+    assert [child["role"] for child in linear_node["ordered_children"]] == [
+        "term0",
+        "term1",
+        "term2",
+        "term3",
+        "term4",
+    ]
+    assert [term["coefficient"] for term in linear_node["linear_terms"]] == [
+        1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+    ]
+    loaded_component = load_frame(component.ref, session=runtime_session)
+    loaded_graph = loaded_component.meta.component_graph
+    assert loaded_graph is not None
+    loaded_linear = next(node for node in loaded_graph["nodes"] if node["node_kind"] == "linear")
+    assert loaded_linear["linear_terms"] == linear_node["linear_terms"]
+
+
+def test_runtime_linear_ratio_keeps_missing_group_key_null(runtime_session) -> None:
+    revenue = _metric_ref(runtime_session, "measure_revenue")
+    region = _region_ref(runtime_session)
+    north_only_costs = tuple(
+        mv.runtime_metric.slice(
+            _metric_ref(runtime_session, name),
+            by={region: "NORTH"},
+            label=f"North {name}",
+        )
+        for name in ("cogs", "discounts", "shipping", "payment")
+    )
+    gross_margin = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=list(north_only_costs),
+        label="Gross margin",
+    )
+
+    frame = runtime_session.observe(
+        mv.runtime_metric.ratio(
+            gross_margin,
+            revenue,
+            label="Gross margin rate",
+        ),
+        dimensions=[region],
+    )
+    result = frame.to_pandas().set_index("region")["Gross margin rate"]
+
+    assert result["NORTH"] == pytest.approx(0.33)
+    assert result[["SOUTH"]].isna().all()
+
+
+def test_runtime_linear_ratio_uses_ratio_zero_division_policy(runtime_session) -> None:
+    revenue = _metric_ref(runtime_session, "measure_revenue")
+    gross_margin = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=[
+            _metric_ref(runtime_session, name)
+            for name in ("cogs", "discounts", "shipping", "payment")
+        ],
+        label="Gross margin",
+    )
+    expression = mv.runtime_metric.ratio(
+        gross_margin,
+        revenue,
+        label="Gross margin rate",
+    )
+    backend = runtime_session._connection_runtime.get_or_create("warehouse")
+    backend.raw_sql("UPDATE orders SET amount = 0")
+
+    frame = runtime_session.observe(expression)
+
+    assert frame.to_pandas()["Gross margin rate"].isna().all()
+    assert frame.meta.zero_denominator_rows == 1
+
+
+def test_runtime_linear_root_persists_signed_component_contract(runtime_session) -> None:
+    revenue = _metric_ref(runtime_session, "measure_revenue")
+    cogs = _metric_ref(runtime_session, "cogs")
+    expression = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=[cogs],
+        label="Gross margin",
+    )
+
+    frame = runtime_session.observe(expression)
+    component = frame.components()
+
+    assert frame.to_pandas()["Gross margin"].iloc[0] == pytest.approx(50.0)
+    assert frame.meta.unit == "USD"
+    assert frame.meta.additivity == "additive"
+    assert frame.meta.lineage.steps[0].params["metric_semantics"]["additivity"] == "additive"
+    assert component.meta.composition_kind == "linear"
+    assert tuple(sign for sign, _target in component.meta.linear_terms) == ("+", "-")
+    assert component.meta.component_graph is not None
+    root = next(
+        record.node
+        for record in frame.meta.expression_graph.nodes
+        if record.node_id == frame.meta.expression_graph.roots[0]
+    )
+    assert isinstance(root, LinearNodeV1)
+    assert tuple(binding.expression_node_id for binding in component.meta.component_bindings) == (
+        root.terms[0].child_id,
+        root.terms[1].child_id,
+    )
+    loaded = load_frame(frame.ref, session=runtime_session)
+    assert loaded.meta.expression_graph == frame.meta.expression_graph
+    assert loaded.components().meta.linear_terms == component.meta.linear_terms
+
+
+def test_runtime_linear_unit_mismatch_fails_before_execution(runtime_session) -> None:
+    revenue = _metric_ref(runtime_session, "measure_revenue")
+    requests = _metric_ref(runtime_session, "request_total")
+    expression = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=[requests],
+        label="Invalid mixed units",
+    )
+
+    readiness = runtime_session.catalog.readiness(refs=[expression])
+    issue = next(item for item in readiness.blockers if item.kind == "metric_graph_invalid")
+    assert issue.details["lowering_error_kind"] == "runtime-linear-unit-mismatch"
+
+    with pytest.raises(ObservePlanningError, match="commensurable units") as exc_info:
+        runtime_session.observe(expression)
+
+    assert exc_info.value._context["code"] == "runtime-linear-unit-mismatch"
+    assert exc_info.value._context["candidates"]["known_units"] == ["USD", "request"]
 
 
 def test_observe_reexecutes_before_reusing_a_materialized_snapshot(runtime_session) -> None:
@@ -927,6 +1121,28 @@ def test_current_component_graph_rejects_missing_child_reference(runtime_session
     with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation") as exc_info:
         runtime_session.get_frame(component.ref)
     assert "missing-node" in str(exc_info.value._context["validation_errors"])
+
+
+def test_current_component_graph_rejects_invalid_linear_coefficient(runtime_session) -> None:
+    frame = runtime_session.observe(
+        mv.runtime_metric.linear(
+            add=[_metric_ref(runtime_session, "measure_revenue")],
+            subtract=[_metric_ref(runtime_session, "cogs")],
+            label="Gross margin",
+        )
+    )
+    component = frame.components()
+    meta_path = runtime_session._layout.frames_dir / component.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    linear_node = next(
+        node for node in payload["component_graph"]["nodes"] if node["node_kind"] == "linear"
+    )
+    linear_node["linear_terms"][1]["coefficient"] = "-1"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError, match=r"fails .* validation") as exc_info:
+        runtime_session.get_frame(component.ref)
+    assert "linear_terms" in str(exc_info.value._context["validation_errors"])
 
 
 def test_current_delta_rejects_omitted_comparison_identity(runtime_session) -> None:

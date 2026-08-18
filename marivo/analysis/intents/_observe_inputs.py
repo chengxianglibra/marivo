@@ -67,6 +67,7 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.runtime_metric import (
     RuntimeAggregateExpr,
+    RuntimeLinearExpr,
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
@@ -393,7 +394,11 @@ def _bind_metric_forest_temporal_context(
             refs = (metric_input,)
         elif isinstance(
             metric_input,
-            RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+            RuntimeAggregateExpr
+            | RuntimeSliceExpr
+            | RuntimeRatioExpr
+            | RuntimeWeightedMeanExpr
+            | RuntimeLinearExpr,
         ):
             refs = tuple(
                 ref

@@ -121,6 +121,7 @@ def _classify_semantic_ref(value: object) -> str | None:
 def _classify_runtime_metric(value: object) -> str | None:
     from marivo.analysis.runtime_metric import (
         RuntimeAggregateExpr,
+        RuntimeLinearExpr,
         RuntimeRatioExpr,
         RuntimeSliceExpr,
         RuntimeWeightedMeanExpr,
@@ -128,7 +129,11 @@ def _classify_runtime_metric(value: object) -> str | None:
 
     if isinstance(
         value,
-        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+        RuntimeAggregateExpr
+        | RuntimeSliceExpr
+        | RuntimeRatioExpr
+        | RuntimeWeightedMeanExpr
+        | RuntimeLinearExpr,
     ):
         return "RuntimeMetricExpression"
     return None

@@ -273,7 +273,17 @@ failure_rate = mv.runtime_metric.ratio(
     zero_division="null",
     label="Runtime failure rate",
 )
-frame = session.observe(failure_rate, time_scope=window, grain=mv.grain("day"))
+gross_margin = mv.runtime_metric.linear(
+    add=[revenue],
+    subtract=[cogs, discounts, shipping, payment],
+    label="Gross margin",
+)
+gross_margin_rate = mv.runtime_metric.ratio(
+    gross_margin,
+    gmv,
+    label="Gross margin rate",
+)
+frame = session.observe(gross_margin_rate, time_scope=window, grain=mv.grain("day"))
 ```
 
 运行时表达式可以递归包含运行时表达式与目录 `Ref[metric]`。
@@ -289,9 +299,17 @@ frame = session.observe(failure_rate, time_scope=window, grain=mv.grain("day"))
 两个度量必须属于同一实体和物理行粒度，权重必须为可加；无需预先
 定义 `SUM(value * weight)` 度量。
 
+`runtime_metric.linear(add=[...], subtract=[...])` 使用固定的 `+1` 与 `-1`
+系数，按顺序加减目录/运行时指标表达式。它要求总项数至少为 2，且所有
+已知单位必须可通约；不接受字面量、任意系数、单位覆盖、callback 或公式字符串。
+只有所有子项均为 additive 时，结果才是 additive；semi-additive 或混合子项
+会保守地得到 non-additive，因为运行时描述符没有证明共享的状态时间 fold 契约。
+
 每个已观测根与 mixed forest 都会持久化递归组件图。可通过
 `frame.components()` 检查 node 角色、evaluator 契约、质量、覆盖率引用
-与受治理的 leaf 血缘；只有同时支持数值分解的根才会另外带有 `component_ref`。
+与受治理的 leaf 血缘。linear node 即使嵌套在其他 operator 下，也会保留
+有序 child id 和带符号 coefficient；只有同时支持数值分解的根才会另外带有
+`component_ref`。
 
 对于 single、派生、累计和多指标 frame，观测时得到的可加性、
 聚合与状态-时间语义都会参与产物身份。升级后重新执行
