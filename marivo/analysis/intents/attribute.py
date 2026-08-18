@@ -1343,7 +1343,7 @@ def attribute(
         assert admission.status == "supported"
         validated_mode = validate_attribution_mode(
             axis_ids,
-            mode,
+            mode if mode is not None else admission.mode.multiple_axes_default,
             intent="attribute",
             legal_modes=admission.mode.multiple_axes,
         )
@@ -1397,7 +1397,7 @@ def attribute(
         )
     validated_mode = validate_attribution_mode(
         axis_ids,
-        mode,
+        mode if mode is not None else admission.mode.multiple_axes_default,
         intent="attribute",
         legal_modes=admission.mode.multiple_axes,
     )

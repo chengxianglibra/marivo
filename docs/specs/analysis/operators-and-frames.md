@@ -351,12 +351,13 @@ Missing or mismatched source semantics produce an unknown gate on the
 axes and returns an `AttributionFrame`. It is not a planner: with no axes or
 search policy it fails closed. `DeltaFrame.contract().attribute_admission` is
 the sole typed mechanical admission state; `show()` and `attribute()` project
-that same state. A rollup-safe multi-axis call explicitly chooses
-`mode="joint"` for one additive row per full axis combination, or
-`mode="hierarchy"` for flattened prefix rows. Hierarchy parent rows repeat
-their descendants' totals, so only the deepest level is additive. Candidate
-axes, coverage warnings, and budget stops go to metadata/blocking
-issues/lineage, never a next-step recommendation or narrative.
+that same state. Its `mode.multiple_axes_default` field is `"joint"` for
+supported metric deltas. A rollup-safe multi-axis `attribute` call therefore
+returns one additive row per full axis combination when `mode` is omitted;
+callers explicitly choose `mode="hierarchy"` for flattened prefix rows.
+Hierarchy parent rows repeat their descendants' totals, so only the deepest
+level is additive. Candidate axes, coverage warnings, and budget stops go to
+metadata/blocking issues/lineage, never a next-step recommendation or narrative.
 
 For a cumulative delta, inspect
 `DeltaFrame.contract().cumulative_attribution`. Business dimensions replay the
@@ -373,10 +374,12 @@ is independent for every parent comparison row. Mixed time/business axes,
 count-distinct bases, bridge mismatch, and derived component time bridges fail
 closed with the exact route blocker.
 
-There is no default for a multi-axis call; a single-axis call omits `mode`, and
-supplying one there has no effect. A single-axis result preserves the resolved
-dimension column (for example, `cluster`) and sets `driver_field` to that name,
-so its pandas rows join directly to the source `DeltaFrame`. Namespaced
+Metric `attribute` defaults to `mode="joint"` for multiple axes. The internal
+`decompose` primitive still requires an explicit multi-axis mode. A single-axis
+call omits `mode`, and supplying one there has no effect. A single-axis result
+preserves the resolved dimension column (for example, `cluster`) and sets
+`driver_field` to that name, so its pandas rows join directly to the source
+`DeltaFrame`. Namespaced
 `attribution_level` / `attribution_axis` / `attribution_driver` /
 `attribution_path` columns are reserved for multi-axis hierarchy output.
 Additive single-axis results report `method="sum"`.
@@ -407,7 +410,8 @@ target delta. Non-additive multi-axis calls allow only `mode="joint"` or
 `mode="multiresolution"`. Multiresolution is **independent multiresolution
 attribution**: each exact ordered semantic-ref prefix is recomputed, ranked,
 and reconciled as a separate game. Complete rows must never be summed across
-resolutions. Select one query-free immutable view with
+resolutions. Omitting `mode` selects `joint`; `multiresolution` remains an
+explicit choice. Select one query-free immutable view with
 `frame.at_resolution(axes=[...])`; the selected rows may be summed once per
 comparison bucket. Empty intermediate quantile coalitions, endpoint mismatch,
 more than 64 partitions, or oversized distribution evidence fail closed.
@@ -461,7 +465,6 @@ drivers = session.attribute(
         session.catalog.require(ms.ref.dimension("analytics.events.country")).ref,
         session.catalog.require(ms.ref.dimension("analytics.events.platform")).ref,
     ],
-    mode="joint",
 )
 ```
 

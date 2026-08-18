@@ -68,7 +68,10 @@ def test_observe_compare_persist_graph_owned_distinct_basis(
     assert current.meta.attribution_basis.reproduction.status == "reproducible"
     delta = session.compare(current, baseline)
     assert delta.meta.attribution_basis == current.meta.attribution_basis
-    assert delta.contract().attribute_admission.status == "supported"
+    admission = delta.contract().attribute_admission
+    assert admission.status == "supported"
+    assert admission.mode.multiple_axes == ("joint", "multiresolution")
+    assert admission.mode.multiple_axes_default == "joint"
     assert delta.predicted_attribution_shape() == "distinct_membership"
 
     basis = delta.meta.attribution_basis

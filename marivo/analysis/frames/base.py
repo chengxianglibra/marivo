@@ -492,6 +492,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             admission_text += f" blocker={admission.blocker}"
         else:
             admission_text += " multiple_axes=" + "|".join(admission.mode.multiple_axes)
+            admission_text += f" multiple_axes_default={admission.mode.multiple_axes_default}"
         card.field("attribute_admission", admission_text)
     if contract.cumulative_attribution is not None:
         capability = contract.cumulative_attribution

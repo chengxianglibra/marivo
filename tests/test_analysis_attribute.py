@@ -180,6 +180,40 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
     assert df.loc[df["attribution_level"] == 1, "platform"].isna().all()
 
 
+def test_attribute_multi_axis_defaults_to_joint() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN", "CN"],
+                "platform": ["ios", "android", "ios", "android"],
+                "delta": [6.0, 4.0, -3.0, 1.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+    )
+
+    df = out.to_pandas()
+    assert out.attribution_mode == "joint"
+    assert out.meta.params["mode"] == "joint"
+    assert {"region", "platform"}.issubset(df.columns)
+    assert {
+        "attribution_level",
+        "attribution_axis",
+        "attribution_driver",
+        "attribution_path",
+    }.isdisjoint(df.columns)
+    assert df["contribution"].sum() == pytest.approx(8.0)
+
+
 def test_attribute_requires_explicit_axes() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [10.0]}))

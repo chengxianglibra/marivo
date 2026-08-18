@@ -434,10 +434,10 @@ by its repair.
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
 | `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
-| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | Multi-axis only | — | Additive/component methods allow `joint` or `hierarchy`; non-additive methods allow `joint` or independent `multiresolution`. Read the delta admission for the legal pair. |
+| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | No | `"joint"` for multiple axes | Additive/component methods allow `joint` or `hierarchy`; non-additive methods allow `joint` or independent `multiresolution`. Single-axis calls ignore it. Read the delta admission for the legal pair and default. |
 
 ```python
-attribution = session.attribute(delta, axes=[region, platform], mode="joint")
+attribution = session.attribute(delta, axes=[region, platform])
 attribution.show()
 ```
 
@@ -451,10 +451,14 @@ For `joint`, contribution rows are additive and sum to the overall change. For
 `hierarchy`, parent rows repeat their descendants' total; sum only the deepest
 level when reconciling the change. Component-aware ratio and weighted-mean
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
-Multi-axis calls have no default mode; omit `mode` for a single axis, where a
-supplied value has no effect. Single-axis output keeps the resolved dimension
-column name, such as `cluster`, and can be joined directly to the source
-`DeltaFrame` on that column. The namespaced `attribution_level`,
+Metric multi-axis calls default to `mode="joint"`; choose `hierarchy` or
+`multiresolution` explicitly when that layout is required. Omit `mode` for a
+single axis, where a supplied value has no effect. The effective multi-axis
+default is also available at
+`DeltaFrame.contract().attribute_admission.mode.multiple_axes_default`.
+Single-axis output keeps the resolved dimension column name, such as `cluster`,
+and can be joined directly to the source `DeltaFrame` on that column. The
+namespaced `attribution_level`,
 `attribution_axis`, `attribution_driver`, and `attribution_path` columns appear
 only in multi-axis hierarchy output. Additive single-axis attribution reports
 `attribution_shape="sum"`.
