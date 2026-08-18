@@ -19,6 +19,30 @@ def test_csv_and_json_require_typed_schema() -> None:
         md.json("events.json")
 
 
+def test_json_schema_type_names_require_ibis_names() -> None:
+    with pytest.raises(ValueError, match="Ibis type string"):
+        md.json("events.json", schema={"event_id": "BIGINT"})
+
+
+def test_csv_schema_keeps_backend_type_names() -> None:
+    source = md.csv("events.csv", schema={"event_id": "BIGINT"})
+
+    assert source.schema == (("event_id", "BIGINT"),)
+
+
+def test_json_declares_stable_output_aliases_for_nested_field_paths() -> None:
+    source = md.json(
+        "events.json",
+        schema={"event_id": "int64", "app_name": "string"},
+        records_path="$.result.items",
+        field_paths={"app_name": "specificsource[].name"},
+    )
+
+    assert source.schema == (("event_id", "int64"), ("app_name", "string"))
+    assert source.field_paths == (("app_name", "specificsource[].name"),)
+    assert source.to_dict()["field_paths"] == {"app_name": "specificsource[].name"}
+
+
 def test_json_accepts_a_wrapped_records_path() -> None:
     source = md.json(
         "events.json",
@@ -59,18 +83,27 @@ def test_source_param_requires_a_stable_ascii_identifier(name: str) -> None:
         md.source_param(name)
 
 
-def test_json_query_parameters_reject_non_scalar_and_nonfinite_values() -> None:
-    with pytest.raises(TypeError, match="query_params values"):
+def test_json_query_parameters_reject_nested_list_and_nonfinite_values() -> None:
+    with pytest.raises(TypeError, match="list values"):
         md.json(
             "https://api.example/query",
             schema={"value": "float64"},
-            query_params={"start": [1]},  # type: ignore[dict-item]
+            query_params={"start": [1, [2]]},  # type: ignore[dict-item]
         )
     with pytest.raises(ValueError, match="finite float"):
         md.json(
             "https://api.example/query",
             schema={"value": "float64"},
             query_params={"start": float("nan")},
+        )
+
+
+def test_json_query_parameters_reject_fixed_empty_list() -> None:
+    with pytest.raises(ValueError, match="empty list"):
+        md.json(
+            "https://api.example/query",
+            schema={"value": "float64"},
+            query_params={"apps": []},
         )
 
 

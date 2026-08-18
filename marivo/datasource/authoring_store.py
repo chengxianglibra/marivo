@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import date, datetime, timedelta
 from math import isfinite
@@ -22,7 +23,7 @@ from marivo.config import (
     STATE_DIR,
 )
 from marivo.datasource.evidence import TIME_RULE_IDS
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.snapshot import (
     ColumnProfile,
     DeterministicMatch,
@@ -115,6 +116,27 @@ def _normalize_json(value: object) -> JsonValue:
     raise TypeError(f"unsupported authoring evidence value: {type(value).__name__}")
 
 
+def _source_param_value(value: object) -> QueryParamScalar | QueryParamScalarList | None:
+    """Normalize one persisted source-param value; return None when invalid."""
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        items: list[QueryParamScalar] = []
+        for item in value:
+            scalar = _source_param_value(item)
+            if scalar is None:
+                return None
+            if isinstance(scalar, Sequence) and not isinstance(scalar, str | bytes | bytearray):
+                return None
+            items.append(cast("QueryParamScalar", scalar))
+        return items
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str | int):
+        return value
+    if isinstance(value, float):
+        return value if isfinite(value) else None
+    return None
+
+
 def _encoded(value: object) -> bytes:
     return json.dumps(
         _normalize_json(value),
@@ -176,7 +198,7 @@ def snapshot_identity(
     columns: tuple[str, ...],
     schema_fingerprint: str,
     persist_values: bool,
-    source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
+    source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = (),
 ) -> str:
     """Return the stable SHA-256 identity for one snapshot evidence policy."""
     payload = {
@@ -687,7 +709,7 @@ class AuthoringStore:
         columns: tuple[str, ...],
         schema_fingerprint: str,
         persist_values: bool,
-        source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
+        source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = (),
     ) -> dict[str, object]:
         return {
             "evidence_format_version": EVIDENCE_FORMAT_VERSION,
@@ -756,13 +778,12 @@ class AuthoringStore:
             )
             persist_values = _boolean(payload.get("persist_values"), field="persist_values")
             raw_source_params = _mapping(payload.get("source_params"), field="source_params")
-            source_params: list[tuple[str, str | int | float | bool]] = []
+            source_params: list[tuple[str, QueryParamScalar | QueryParamScalarList]] = []
             for name, value in raw_source_params.items():
-                if not isinstance(value, str | int | float | bool):
+                normalized_value = _source_param_value(value)
+                if normalized_value is None:
                     return None
-                if isinstance(value, float) and not isfinite(value):
-                    return None
-                source_params.append((name, value))
+                source_params.append((name, normalized_value))
             source_param_items = tuple(source_params)
             expected_id = snapshot_identity(
                 datasource_fingerprint=datasource_fingerprint,
@@ -874,7 +895,7 @@ class AuthoringStore:
         columns: tuple[str, ...],
         schema_fingerprint: str,
         persist_values: bool,
-        source_params: tuple[tuple[str, str | int | float | bool], ...] = (),
+        source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = (),
         refresh: bool,
     ) -> SnapshotCacheLookup:
         """Return a matching cache hit or why one acquisition is required.

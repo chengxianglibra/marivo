@@ -123,6 +123,8 @@ def test_source_bindings_has_focused_help_and_session_type_member() -> None:
     assert "Mapping[Ref[EntityKind]" in text
     assert "non-secret" in text
     assert "one Session runtime" in text
+    assert "Sequence[str | int | float | bool]" in text
+    assert "flat non-empty scalar-list" in text
     assert "source_bindings_exact" in text
     assert ".source_bindings()" in session_type
     assert REGISTRY.by_callable(Session.source_bindings).id == "Session.source_bindings"

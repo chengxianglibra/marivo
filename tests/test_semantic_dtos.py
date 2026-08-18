@@ -119,18 +119,24 @@ def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
 
     src = JsonSourceIR(
         path="/data/events.json",
-        schema=(("event_id", "string"), ("occurred_at", "timestamp")),
+        schema=(("event_id", "string"), ("occurred_at", "timestamp"), ("app_name", "string")),
         format="newline_delimited",
         records_path="$.data",
+        field_paths=(("app_name", "specificsource[].name"),),
     )
 
     restored = source_from_dict(src.to_dict())
 
     assert isinstance(restored, JsonSourceIR)
     assert restored.path == "/data/events.json"
-    assert restored.schema == (("event_id", "string"), ("occurred_at", "timestamp"))
+    assert restored.schema == (
+        ("event_id", "string"),
+        ("occurred_at", "timestamp"),
+        ("app_name", "string"),
+    )
     assert restored.format == "newline_delimited"
     assert restored.records_path == "$.data"
+    assert restored.field_paths == (("app_name", "specificsource[].name"),)
 
 
 def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> None:

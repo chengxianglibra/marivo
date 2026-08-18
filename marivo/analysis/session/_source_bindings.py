@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from math import isfinite
 from typing import NoReturn, TypeAlias
 
 from marivo.analysis.errors import AnalysisRepair, SourceBindingError
-from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, json_source_param_names
+from marivo.datasource.ir import (
+    JsonSourceIR,
+    QueryParamScalar,
+    QueryParamScalarList,
+    json_source_param_names,
+)
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EntityKind, Ref, SemanticKind
 
-SourceBindingMap: TypeAlias = Mapping[Ref[EntityKind], Mapping[str, QueryParamScalar]]
-NormalizedSourceBindings: TypeAlias = dict[str, dict[str, QueryParamScalar]]
+SourceBindingMap: TypeAlias = Mapping[
+    Ref[EntityKind], Mapping[str, QueryParamScalar | QueryParamScalarList]
+]
+NormalizedSourceBindings: TypeAlias = dict[str, dict[str, QueryParamScalar | QueryParamScalarList]]
 SourceBindingScopes: TypeAlias = dict[object, NormalizedSourceBindings]
 
 _ACTIVE_SOURCE_BINDINGS: ContextVar[SourceBindingScopes | None] = ContextVar(
@@ -50,6 +57,60 @@ def _binding_error(
             ),
         ),
     )
+
+
+def _check_binding_scalar(
+    value: object,
+    *,
+    ref: Ref[EntityKind],
+    name: str,
+) -> None:
+    """Validate one runtime binding scalar (not a list)."""
+    if isinstance(value, str | int | bool):
+        return
+    if isinstance(value, float):
+        if not isfinite(value):
+            _binding_error(
+                f"source binding value {ref.path!r}.{name} must be a finite float",
+                expected="a finite float",
+                received=repr(value),
+                location=f"session.source_bindings[{ref.path!r}][{name!r}]",
+            )
+        return
+    _binding_error(
+        f"source binding value {ref.path!r}.{name} has unsupported type",
+        expected="str | int | float | bool | list of these",
+        received=type(value).__name__,
+        location=f"session.source_bindings[{ref.path!r}][{name!r}]",
+    )
+
+
+def _check_binding_value(
+    value: object,
+    *,
+    ref: Ref[EntityKind],
+    name: str,
+) -> None:
+    """Validate one runtime binding value: a scalar or a flat, non-empty scalar list."""
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        if not value:
+            _binding_error(
+                f"source binding value {ref.path!r}.{name} must not be an empty list",
+                expected="a non-empty flat list of str | int | float | bool",
+                received="an empty list",
+                location=f"session.source_bindings[{ref.path!r}][{name!r}]",
+            )
+        for element in value:
+            if isinstance(element, Sequence) and not isinstance(element, str | bytes | bytearray):
+                _binding_error(
+                    f"source binding value {ref.path!r}.{name} list values must be flat",
+                    expected="a flat list of str | int | float | bool",
+                    received="a nested list",
+                    location=f"session.source_bindings[{ref.path!r}][{name!r}]",
+                )
+            _check_binding_scalar(element, ref=ref, name=name)
+        return
+    _check_binding_scalar(value, ref=ref, name=name)
 
 
 def _normalize_source_bindings(
@@ -116,7 +177,7 @@ def _normalize_source_bindings(
                 received=type(values).__name__,
                 location=f"session.source_bindings[{ref.path!r}]",
             )
-        entity_values: dict[str, QueryParamScalar] = {}
+        entity_values: dict[str, QueryParamScalar | QueryParamScalarList] = {}
         for name, value in values.items():
             if not isinstance(name, str):
                 _binding_error(
@@ -125,20 +186,7 @@ def _normalize_source_bindings(
                     received=repr(name),
                     location=f"session.source_bindings[{ref.path!r}]",
                 )
-            if not isinstance(value, str | int | float | bool):
-                _binding_error(
-                    f"source binding value {ref.path!r}.{name} has unsupported type",
-                    expected="str | int | float | bool",
-                    received=type(value).__name__,
-                    location=f"session.source_bindings[{ref.path!r}][{name!r}]",
-                )
-            if isinstance(value, float) and not isfinite(value):
-                _binding_error(
-                    f"source binding value {ref.path!r}.{name} must be a finite float",
-                    expected="a finite float",
-                    received=repr(value),
-                    location=f"session.source_bindings[{ref.path!r}][{name!r}]",
-                )
+            _check_binding_value(value, ref=ref, name=name)
             entity_values[name] = value
         supplied = set(entity_values)
         missing = tuple(sorted(required - supplied))

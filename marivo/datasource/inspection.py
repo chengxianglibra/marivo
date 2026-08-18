@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -34,7 +34,6 @@ from marivo.datasource.ir import (
     DatasourceIR,
     JsonSourceIR,
     ParquetSourceIR,
-    QueryParamScalar,
     TableSourceIR,
     _format_database_identity,
 )
@@ -319,7 +318,13 @@ class SourceInspection(RenderableResult):
         columns: tuple[str, ...],
         persist_values: bool = False,
         refresh: bool = False,
-        source_params: Mapping[str, QueryParamScalar] | None = None,
+        source_params: (
+            Mapping[
+                str,
+                str | int | float | bool | Sequence[str | int | float | bool],
+            ]
+            | None
+        ) = None,
     ) -> DiscoverySnapshot:
         """Acquire a bounded snapshot after metadata preflight.
 

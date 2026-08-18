@@ -234,9 +234,19 @@ def _normalize_query_params(
     if not isinstance(query_params, Mapping):
         raise TypeError(
             "md.json(query_params=...) must be a mapping of query parameter names to "
-            "scalar values or md.source_param(...)."
+            "scalar values, lists of scalar values, or md.source_param(...)."
         )
     return tuple(query_params.items())
+
+
+def _normalize_field_paths(
+    field_paths: Mapping[str, str] | None,
+) -> tuple[tuple[str, str], ...]:
+    if field_paths is None:
+        return ()
+    if not isinstance(field_paths, Mapping):
+        raise TypeError("md.json(field_paths=...) must be a mapping of output names to JSON paths.")
+    return tuple(field_paths.items())
 
 
 def source_param(name: str, /) -> SourceParamIR:
@@ -393,6 +403,7 @@ def json(
     schema: Mapping[str, str],
     format: Literal["auto", "newline_delimited", "array"] = "auto",
     records_path: str | None = None,
+    field_paths: Mapping[str, str] | None = None,
     query_params: Mapping[str, JsonQueryParamValue] | None = None,
     method: Literal["GET", "POST"] = "GET",
     body: Mapping[str, JsonBodyValue] | None = None,
@@ -403,15 +414,21 @@ def json(
 
     Args:
         path: File path, glob pattern, or supported URL.
-        schema: Non-empty insertion-ordered column-to-type mapping.
+        schema: Non-empty insertion-ordered output-column-to-type mapping. Type
+            names use Ibis type strings (e.g. ``"int64"``).
         format: JSON layout.
         records_path: Optional object-member path to the array of records inside
             a wrapped response, for example ``"$.data"`` or ``"$.result.items"``.
+        field_paths: Optional output-column-to-JSON-path mapping for fields nested
+            inside each selected record. Paths support object members, fixed array
+            indexes, and one shared array traversal such as ``"apps[].name"``.
         query_params: Optional query-string mapping. Values are fixed scalars or
-            required runtime parameters from ``md.source_param(...)``.
+            lists of scalars, or required runtime parameters from
+            ``md.source_param(...)``. List values URL-encode as repeated keys.
         method: HTTP method. ``POST`` sends the JSON object in ``body``.
         body: JSON object for a ``POST`` request. Values may contain required
-            runtime parameters from ``md.source_param(...)``.
+            runtime parameters from ``md.source_param(...)``, whose bound value
+            may be a scalar or a flat scalar list.
 
     Returns:
         A validated ``JsonSourceIR``.
@@ -425,14 +442,24 @@ def json(
         method="POST", body={"query": "{ items { id } }"}, records_path="$.data.items")``
 
     Constraints:
-        Schema column names and type names must be non-empty strings.
+        Schema output names and type names must be non-empty strings. Type names
+        must be valid Ibis type strings (e.g. ``"string"``, ``"int64"``,
+        ``"float64"``, ``"timestamp"``); SQL or DuckDB names such as ``"BIGINT"``
+        are rejected. ``field_paths`` requires ``records_path`` and may only name
+        declared schema outputs. Multiple traversed fields must share one array
+        path and are projected from the same array element; independent traversal
+        roots and multiple traversals in one path are rejected.
         A declared records path must resolve to an array at execution; a missing
         path or non-array value fails instead of materializing zero rows.
         For wrapped records, declared fields are projected in schema order;
         missing fields become typed nulls and additional object fields are
         ignored. Present fields must be convertible to their declared types.
+        A traversal path (``"a[].b"``) expands one row per element; a record
+        whose traversal array is missing, empty, or null produces no rows, and
+        sibling fields from that array remain correlated.
         A body is only supported for ``POST`` and must be a JSON object. Runtime
-        parameters occupy complete JSON values; substring templates are unsupported.
+        parameters occupy complete JSON values — a scalar or a flat, non-empty
+        scalar list — and substring templates are unsupported.
     """
     body_json: str | None = None
     body_params: tuple[JsonBodyParam, ...] = ()
@@ -443,6 +470,7 @@ def json(
         schema=_normalize_schema(schema, field="md.json(schema=...)"),
         format=format,
         records_path=records_path,
+        field_paths=_normalize_field_paths(field_paths),
         query_params=_normalize_query_params(query_params),
         method=method,
         body_json=body_json,

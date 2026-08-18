@@ -261,6 +261,47 @@ def test_session_source_bindings_require_exact_declared_nonsecret_values(tmp_pat
         pass
 
 
+def test_session_source_bindings_accept_array_values(tmp_path) -> None:
+    _write_parameterized_source_project(tmp_path)
+    session = _session(tmp_path)
+    samples = ms.ref.entity("monitoring.samples")
+
+    with session.source_bindings({samples: {"start": ["a", "b"], "end": 1}}):
+        assert session._connection_runtime.source_bindings()["monitoring.samples"] == {
+            "start": ["a", "b"],
+            "end": 1,
+        }
+
+
+def test_session_source_bindings_reject_non_scalar_list_elements(tmp_path) -> None:
+    _write_parameterized_source_project(tmp_path)
+    session = _session(tmp_path)
+    samples = ms.ref.entity("monitoring.samples")
+
+    with (
+        pytest.raises(SourceBindingError, match="has unsupported type"),
+        session.source_bindings({samples: {"start": [1, {"nested": True}], "end": 2}}),
+    ):
+        pass
+
+
+def test_session_source_bindings_reject_nested_and_empty_lists(tmp_path) -> None:
+    _write_parameterized_source_project(tmp_path)
+    session = _session(tmp_path)
+    samples = ms.ref.entity("monitoring.samples")
+
+    with (
+        pytest.raises(SourceBindingError, match="must be flat"),
+        session.source_bindings({samples: {"start": [["a", "b"]], "end": 2}}),
+    ):
+        pass
+    with (
+        pytest.raises(SourceBindingError, match="empty list"),
+        session.source_bindings({samples: {"start": [], "end": 2}}),
+    ):
+        pass
+
+
 def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, capsys):
     from marivo.analysis._capabilities.registry import REGISTRY
 

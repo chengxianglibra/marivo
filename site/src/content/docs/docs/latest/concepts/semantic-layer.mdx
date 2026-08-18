@@ -425,7 +425,7 @@ orders = ms.entity(
 | `md.table(name)` | `name` | `database`, `columns` | A catalog-backed table or typed projection in the datasource (use `database="schema"` for Trino/MySQL). |
 | `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
 | `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
-| `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array. |
+| `md.json(path, schema=...)` | `path`, typed `schema` | `format`, `records_path`, `field_paths`, `query_params`, `method`, `body` | JSON file, glob, GET URL, or parameterized-body POST URL; `records_path` selects a wrapped record array and `field_paths` maps stable output aliases to nested values. |
 
 `md.table(...)` supports two closed modes. Omit `columns=` to use catalog-backed
 discovery. Supply `columns={alias: md.source_column(...)}` to declare a typed
@@ -1281,10 +1281,24 @@ additional object fields are ignored. Present values must be convertible to
 their declared types. A missing path or non-array value fails at execution so
 an authentication or response-envelope error is not mistaken for empty data.
 
+`schema` maps stable output aliases to Ibis type names such as `int64`,
+`string`, `float64`, and `timestamp`. SQL or DuckDB names such as `BIGINT` are
+rejected at JSON declaration rather than at execution. To select a nested JSON
+value, map the output alias through `field_paths`: `a.b` reads a nested object
+member, `a[0].b` reads a fixed array index, and `a[].b` traverses an array of
+objects, materializing one row per element. Traversed sibling fields must share
+one array prefix and are projected from the same element, so their values stay
+correlated. Independent traversal roots and multiple traversals within one path
+fail at declaration rather than producing a Cartesian product. A record whose
+traversed array is missing, empty, or `null` produces no rows. Nested paths
+require `records_path`; literal top-level schema names remain supported,
+including names with punctuation or spaces.
+
 For the minimal POST API case, set `method="POST"` and provide one JSON object
 through `body=`. A `md.source_param(...)` may occupy any complete JSON value,
-including a value inside an object or array. The request is issued only when the
-resulting table is executed. POST requires an HTTP(S) URL and `format="auto"`;
+including a value inside an object or array, and its bound runtime value may be
+a scalar or a list of scalars. The request is issued only when the resulting
+table is executed. POST requires an HTTP(S) URL and `format="auto"`;
 automatic pagination, retry, and incremental ingestion remain outside this
 contract. Datasource-owned bearer or custom headers are applied only within
 `http_scope`, so credentials remain outside the source descriptor.
@@ -1292,7 +1306,16 @@ contract. Datasource-owned bearer or custom headers are applied only within
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "title": "string"},
+    schema={
+        "change_id": "int64",
+        "title": "string",
+        "app_id": "int64",
+        "app_name": "string",
+    },
+    field_paths={
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
     method="POST",
     body={
         "platform_id": 1,
@@ -1306,11 +1329,14 @@ changes = md.json(
 )
 ```
 
-`query_params` keeps fixed request parameters in the source descriptor.
+`query_params` keeps fixed request parameters in the source descriptor. A query
+parameter value may be a single scalar or a list of scalars; a list URL-encodes
+as repeated keys, for example `specificsource=app-1&specificsource=app-2`.
 `md.source_param(name)` declares a required non-secret runtime value occupying
-one complete query parameter value; Marivo URL-encodes it and does not support
-substring templates. Bind exact values around analysis rather than adding an
-API-specific argument to `observe`:
+one complete query parameter value — a scalar or a list of scalars — and may
+itself appear inside a list of fixed values. Marivo URL-encodes values and does
+not support substring templates. Bind exact values around analysis rather than
+adding an API-specific argument to `observe`:
 
 ```python
 with session.source_bindings({

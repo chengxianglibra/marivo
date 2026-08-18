@@ -194,6 +194,7 @@ from marivo.analysis.session._runtime import (
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows.spec import dump_window
+from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import (
     DimensionKind,
@@ -406,7 +407,9 @@ def _observe_artifact_cache_key(
     )
 
 
-def _source_binding_params(session: Session) -> dict[str, dict[str, str | int | float | bool]]:
+def _source_binding_params(
+    session: Session,
+) -> dict[str, dict[str, QueryParamScalar | QueryParamScalarList]]:
     """Return a deterministic, non-secret source-binding identity payload."""
 
     bindings = session._connection_runtime.source_bindings()

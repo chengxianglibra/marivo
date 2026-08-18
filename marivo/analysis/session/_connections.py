@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from marivo.analysis.event import EventWatermarkReceipt, EventWatermarkRequest
+from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.timezone import DatasourceEngineTimezone
 
@@ -22,7 +23,9 @@ class AnalysisConnectionRuntime:
     def session_backend(self, datasource_name: str) -> Any:
         return self.service.session_backend(datasource_name)
 
-    def source_bindings(self) -> dict[str, dict[str, str | int | float | bool]]:
+    def source_bindings(
+        self,
+    ) -> dict[str, dict[str, QueryParamScalar | QueryParamScalarList]]:
         """Return current execution-scoped physical source parameter bindings."""
         from marivo.analysis.session._source_bindings import current_source_bindings
 

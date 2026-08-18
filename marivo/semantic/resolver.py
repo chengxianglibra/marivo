@@ -9,6 +9,7 @@ from typing import Any, TypeVar
 import ibis
 import ibis.expr.types as ir
 
+from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.datasource.source import AuthoringScope
 from marivo.refs import (
     EntityKind,
@@ -62,7 +63,9 @@ class SemanticResolver:
     connections: Any
     sample_size: int | None = None
     entity_scopes: Mapping[str, AuthoringScope] | None = None
-    source_bindings: Mapping[str, Mapping[str, str | int | float | bool]] | None = None
+    source_bindings: Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] | None = (
+        None
+    )
 
     def __post_init__(self) -> None:
         self._materializer = Materializer(

@@ -174,13 +174,13 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("json", "source_param"),
-        "JSON sources declare one fixed-schema GET or JSON-object POST request.",
+        "JSON sources keep stable output aliases and correlate one shared array traversal.",
         "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
-        "Use method='POST' only with an HTTP(S) path, body={...}, and format='auto'; records_path selects an object-member array and md.source_param(...) occupies one complete query or body value.",
+        "Use schema for output names and Ibis types, field_paths for nested selectors, and one flat non-empty scalar list when a request parameter needs repeated values.",
         example=(
-            'md.json("https://api.example/items", schema={"id": "string"}, '
-            'method="POST", body={"app_id": md.source_param("app_id")}, '
-            'records_path="$.data")'
+            'md.json("https://api.example/items", '
+            'schema={"id": "string", "app_name": "string"}, '
+            'records_path="$.data", field_paths={"app_name": "apps[].name"})'
         ),
     ),
     ConstraintId.JSON_SOURCE_PARAMS_EXACT: _constraint(
@@ -188,9 +188,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "runtime",
         ("SourceInspection.sample",),
-        "Parameterized JSON reads require the exact declared non-secret values.",
+        "Parameterized JSON reads require exact scalar or flat non-empty scalar-list values.",
         "Missing or extra values would make snapshot identity differ from the physical request that produced it.",
-        "Pass source_params={...} with exactly every md.source_param(...) name declared by the inspected JSON source.",
+        "Pass source_params={...} with exactly every md.source_param(...) name; use a flat non-empty list for repeated query keys or a JSON array body value.",
     ),
     ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED: _constraint(
         ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED,

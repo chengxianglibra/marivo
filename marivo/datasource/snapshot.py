@@ -36,6 +36,7 @@ from marivo.datasource.ir import (
     JsonSourceIR,
     ParquetSourceIR,
     QueryParamScalar,
+    QueryParamScalarList,
     TableSourceIR,
 )
 from marivo.datasource.json_source import normalize_json_source_params, read_json_source
@@ -134,7 +135,7 @@ class DiscoverySnapshot(RenderableResult):
     created_at: datetime
     expires_at: datetime
     _project_root: Path
-    source_params: tuple[tuple[str, QueryParamScalar], ...] = ()
+    source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = ()
     retained_values: tuple[tuple[JsonScalar, ...], ...] = ()
 
     def _repr_identity(self) -> str:
@@ -361,7 +362,7 @@ def _source_expression(
     backend: object,
     source: TableSource,
     *,
-    source_params: Mapping[str, QueryParamScalar] | None = None,
+    source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
 ) -> ir.Table:
     if isinstance(source, TableSourceIR):
         return table_source_expression(backend, source)
@@ -605,7 +606,7 @@ def acquire_snapshot(
     columns: tuple[str, ...],
     persist_values: bool,
     refresh: bool,
-    source_params: Mapping[str, QueryParamScalar] | None = None,
+    source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
 ) -> DiscoverySnapshot:
     """Acquire and locally profile one selected-column, limit-plus-one sample."""
     from marivo.datasource.authoring_store import (
