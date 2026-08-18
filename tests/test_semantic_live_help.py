@@ -142,6 +142,13 @@ def test_help_resolves_type_target() -> None:
     assert "SemanticCatalog" in text
 
 
+def test_catalog_collection_help_teaches_displayed_typed_key_lookup() -> None:
+    text = _text(ms.CatalogCollection)
+
+    assert "displayed same-kind typed key" in text
+    assert "catalog.metrics.get('metric:sales.revenue')" in text
+
+
 def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> None:
     root = _text()
     focused = _text(ms.Ref)

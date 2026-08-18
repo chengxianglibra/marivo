@@ -173,6 +173,17 @@ def test_catalog_collection_implements_shared_result_and_consumption_protocol(
     assert "metric:sales.revenue" in capsys.readouterr().out
 
 
+def test_every_displayed_collection_key_round_trips_through_get(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    for member in CATALOG_MEMBER_CONTRACTS:
+        collection = getattr(catalog, member.property_name)
+        for entry in collection.items:
+            assert collection.get(entry.key) is entry
+
+
 def test_semantic_catalog_is_a_bounded_self_describing_result(
     semantic_project_factory,
     capsys,
@@ -303,6 +314,53 @@ def test_collection_get_accepts_exact_full_path(semantic_project_factory) -> Non
     assert metric.key == "metric:sales.revenue"
 
 
+def test_collection_get_accepts_displayed_typed_key_in_scope(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    metric = catalog.domains.get("sales").metrics.get("metric:sales.revenue")
+
+    assert metric is catalog.metrics.get("sales.revenue")
+
+
+def test_collection_get_reports_missing_displayed_typed_key(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.metrics.get("metric:sales.missing")
+
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
+    assert exc_info.value.semantic_refs == ("metric:sales.missing",)
+    assert "metric:sales.revenue" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        "unknown:sales.revenue",
+        "metric:sales",
+    ),
+)
+def test_collection_get_rejects_malformed_typed_key_with_current_candidates(
+    semantic_project_factory,
+    key: str,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.metrics.get(key)
+
+    error = exc_info.value
+    assert error.kind == ErrorKind.INVALID_REF
+    assert error.expected == "metric:<path>"
+    assert error.received == key
+    assert error.repair is not None
+    assert error.repair.candidates == ("metric:sales.revenue",)
+
+
 def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
     semantic_project_factory,
 ) -> None:
@@ -348,6 +406,7 @@ def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> 
     "key",
     (
         "ops.events.region",
+        "dimension:ops.events.region",
         ms.ref.dimension("ops.events.region"),
     ),
 )
@@ -376,6 +435,20 @@ def test_collection_get_wrong_kind_ref_names_correct_collection(
         catalog.metrics.get(ms.ref.entity("sales.orders"))  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "Expected metric, received entity" in str(exc_info.value)
+    assert "catalog.entities" in str(exc_info.value)
+
+
+def test_collection_get_wrong_kind_typed_key_names_correct_collection(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.metrics.get("entity:sales.orders")
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.semantic_refs == ("entity:sales.orders",)
     assert "Expected metric, received entity" in str(exc_info.value)
     assert "catalog.entities" in str(exc_info.value)
 

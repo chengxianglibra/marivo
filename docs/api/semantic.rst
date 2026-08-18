@@ -160,10 +160,11 @@ Details types
 Catalog & objects
 -----------------
 
-Typed collections resolve a local name, a full semantic path, or an exact
-same-kind ``Ref`` within the collection's current scope. Scoped collections do
-not widen to out-of-scope objects. ``catalog.require(ref)`` remains the strict,
-global, ref-only lookup for configured, persisted, or logged identity.
+Typed collections resolve a local name, a full semantic path, a displayed
+same-kind typed key such as ``metric:sales.revenue``, or an exact same-kind
+``Ref`` within the collection's current scope. Scoped collections do not widen
+to out-of-scope objects. ``catalog.require(ref)`` remains the strict, global,
+ref-only lookup for configured, persisted, or logged identity.
 
 ``catalog.verify(...)``, ``catalog.preview(...)``,
 ``catalog.preview_many(...)``, and catalog-leaf

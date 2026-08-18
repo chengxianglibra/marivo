@@ -861,13 +861,14 @@ catalog.metrics.show()                    # just metrics across all domains
 
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")   # one metric object
+revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
 region = orders.dimensions.get("region")  # one dimension object
 ```
 
-Each typed collection accepts a local name, an exact full path, or a same-kind
-ref within that collection's current scope. Scoped collections never return an
-out-of-scope object through a path or ref. Use the strict ref-only
+Each typed collection accepts a local name, an exact full path, a displayed
+same-kind typed key such as `metric:sales.revenue`, or a same-kind ref within
+that collection's current scope. Scoped collections never return an
+out-of-scope object through any of these forms. Use the strict ref-only
 `catalog.require(ref)` when identity comes from configuration, persistence, or
 logs. Entry cards show the exact kind, full path, `.ref`, and bounded current
 axes; omitted members point to `details().show()`.
@@ -985,8 +986,10 @@ All refs expose these read-only attributes:
 | `.name` | `str` | Final local-name segment. |
 
 `str(ref)` returns `.key`; equality and hashing use `(kind, path)`. `Ref(...)`
-cannot be called directly and `Ref` cannot be subclassed. Public boundaries do
-not accept strings or catalog entries as substitutes for refs.
+cannot be called directly and `Ref` cannot be subclassed. Public boundaries
+documented as requiring refs do not accept strings or catalog entries as
+substitutes; typed catalog collections separately accept displayed keys for
+lookup.
 
 | Kind | Factory | Typical authoring producer | Expression binding? |
 | --- | --- | --- | --- |
@@ -1024,9 +1027,9 @@ frame = session.observe(
 ```
 
 `catalog.require(ref)` is the exact global lookup. Catalog collections provide
-browsing plus local/full-path lookup. Frozen analysis consumers accept a current
-catalog entry or its exact ref; authoring and persisted/configuration boundaries
-remain ref-based. Persisted payloads encode refs as the versioned
+browsing plus local-name, full-path, and displayed typed-key lookup. Frozen
+analysis consumers accept a current catalog entry or its exact ref; authoring
+and persisted/configuration boundaries remain ref-based. Persisted payloads encode refs as the versioned
 `{schema, kind, path}` record; raw identity strings are not a public interchange
 format.
 

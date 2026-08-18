@@ -787,14 +787,15 @@ catalog.metrics.show()                    # just metrics across all domains
 
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")   # one metric object
+revenue = orders.metrics.get("metric:sales.revenue")  # 从 .show() 复制的规范键
 region = orders.dimensions.get("region")  # one dimension object
 ```
 
-每个类型化集合都接受当前范围内的本地名称、精确 full 路径或同类型引用。
-限定范围的集合不会通过路径或引用返回范围外的对象。当身份来自配置、
-持久化状态或日志时，使用严格且只接受引用的 `catalog.require(ref)`。条目卡片会显示精确
-类型、full 路径、`.ref` 和有界的当前候选轴；被省略的成员会指向 `details().show()`。
+每个类型化集合都接受当前范围内的本地名称、精确完整路径、展示出的同类型规范键
+（如 `metric:sales.revenue`）或同类型引用。限定范围的集合不会通过其中任何一种形式
+返回范围外的对象。当身份来自配置、持久化状态或日志时，使用严格且只接受引用的
+`catalog.require(ref)`。条目卡片会显示精确类型、完整路径、`.ref` 和有界的当前候选轴；
+被省略的成员会指向 `details().show()`。
 
 全局集合为 `domains`、`datasources`、`entities`、`dimensions`、
 `time_dimensions`、`measures`、`metrics`、`relationships`、`events` 和
@@ -898,7 +899,8 @@ Marivo 会先加载中央项目的 `models/`，再按配置顺序加载外部 `m
 | `.name` | `str` | 最后的本地名称分段。 |
 
 `str(ref)` 返回 `.key`，相等性和哈希基于 `(kind, path)`。不能直接调用
-`Ref(...)`，也不能继承 `Ref`。公开边界不会把字符串或目录条目当作引用。
+`Ref(...)`，也不能继承 `Ref`。声明为接收引用的公开边界不会把字符串或目录条目
+当作引用；类型化目录集合则单独支持使用展示出的规范键进行查找。
 
 | 类型 | Factory | 常见编写 producer | 表达式绑定 |
 | --- | --- | --- | --- |
@@ -933,8 +935,8 @@ frame = session.observe(
 )
 ```
 
-`catalog.require(ref)` 是精确的全局查找；目录集合负责浏览和本地名称查找，
-也支持完整路径查找。已冻结的分析 consumer 接受当前目录条目或其精确引用；
+`catalog.require(ref)` 是精确的全局查找；目录集合负责浏览，并支持本地名称、
+完整路径和展示出的类型化规范键查找。已冻结的分析 consumer 接受当前目录条目或其精确引用；
 编写、持久化和配置边界仍以引用为准。持久化负载使用带版本的
 `{schema, kind, path}` 记录，裸字符串不是公开 interchange 格式。
 

@@ -353,6 +353,14 @@ def _render_type(type_name: str, original: object | None) -> str:
             "catalog.preview, catalog.readiness, or qualifying analysis APIs; use "
             "entry.ref only when a stable configured or persisted identity is needed."
         )
+    if type_name == "CatalogCollection":
+        lines.extend(
+            (
+                "  Lookup: pass a local name, full semantic path, displayed same-kind "
+                "typed key, or exact same-kind Ref.",
+                "  Copyable key example: catalog.metrics.get('metric:sales.revenue').",
+            )
+        )
     if "details" in contract.public_methods:
         lines.append(
             "  Inspection: call .details() for structured semantic metadata; "
