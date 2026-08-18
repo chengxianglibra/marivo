@@ -410,6 +410,10 @@ the outer `slice_by=` remains a distinct global scope. Every root is limited to
 depth 10 and the submitted pre-CSE forest to 256 occurrences. One forest must
 resolve within one semantic model and datasource compatibility domain. Missing
 aligned keys are retained with null values rather than filled with zero.
+After physical aggregation, composition evaluators normalize numeric child
+values to `float64` before ratio or linear arithmetic while preserving typed
+key columns. A non-numeric metric value fails with a structured evaluation
+error rather than leaking a backend or pandas type error.
 
 Runtime expressions are session-scoped analysis values, not catalog authority.
 Every `mv.runtime_metric.*` constructor requires a non-empty label, including
