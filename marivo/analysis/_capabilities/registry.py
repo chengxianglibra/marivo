@@ -2098,9 +2098,11 @@ def _build_registry() -> CapabilityRegistry:
                 "Multi-axis row layout: joint emits one additive row per complete axis "
                 "combination; hierarchy emits rollup-safe prefix rows; multiresolution "
                 "independently recomputes each ordered prefix for non-additive methods. "
-                "Multi-axis calls have no default. Omit mode for one axis, "
-                "where a supplied value has no effect. Mode is distinct from attribution "
-                "method. DeltaFrame.contract().attribute_admission lists the exact legal pair."
+                "Metric session.attribute calls default to joint for multiple axes. "
+                "Funnel attribution and decompose still require an explicit multi-axis mode. "
+                "Omit mode for one axis, where a supplied value has no effect. Mode is "
+                "distinct from attribution method. DeltaFrame.contract().attribute_admission "
+                "lists the exact legal pair and multiple-axes default."
             ),
             root_group="policies_builders",
             root_visibility="grouped",

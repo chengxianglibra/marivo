@@ -373,10 +373,10 @@ mean 展开使用度量的非空计数，而不是实体行数。对于被拒绝
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | 是 | — | 要归因的差值。 |
 | `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
-| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | 仅多轴必填 | — | 可加/组件允许 `joint` 或 `hierarchy`；不可加允许 `joint` 或独立 `multiresolution`。合法组合以差值 admission 为准。 |
+| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | 否 | 多轴默认为 `"joint"` | 可加/组件允许 `joint` 或 `hierarchy`；不可加允许 `joint` 或独立 `multiresolution`。单轴调用会忽略该参数。合法组合与默认值以差值 admission 为准。 |
 
 ```python
-attribution = session.attribute(delta, axes=[region, platform], mode="joint")
+attribution = session.attribute(delta, axes=[region, platform])
 attribution.show()
 ```
 
@@ -389,7 +389,10 @@ attribution = session.attribute(delta, axes=[region])
 `joint` 的贡献行可直接求和并与总变化对齐。`hierarchy` 的父级行会重复
 子级总量，核对总变化时只对最深层求和。组件-感知的比率和加权平均
 在两种模式下都会保留 `value_effect`、`mix_effect` 与 `residual`。
-多轴调用没有默认 mode；单轴应省略 `mode`，即使传入也不会改变输出。
+指标多轴调用默认采用 `mode="joint"`；需要 `hierarchy` 或 `multiresolution`
+布局时再显式指定。单轴应省略 `mode`，即使传入也不会改变输出。多轴的有效
+默认值也可从
+`DeltaFrame.contract().attribute_admission.mode.multiple_axes_default` 读取。
 单轴输出会保留解析后的维度列名（例如 `cluster`），因此可以直接按该列与来源
 `DeltaFrame` 连接。带命名空间的 `attribution_level`、`attribution_axis`、
 `attribution_driver` 与 `attribution_path` 列仅用于多轴 hierarchy 输出；可加

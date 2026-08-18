@@ -130,8 +130,14 @@ def _cumulative_canonical_anchor(meta: CumulativeDeltaFrameMetaV1) -> object:
 
 def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
     """Project the single effective installed-runtime attribution admission."""
-    rollup_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "hierarchy"))
-    nonadditive_modes = AttributeModeAdmissionV1(multiple_axes=("joint", "multiresolution"))
+    rollup_modes = AttributeModeAdmissionV1(
+        multiple_axes=("joint", "hierarchy"),
+        multiple_axes_default="joint",
+    )
+    nonadditive_modes = AttributeModeAdmissionV1(
+        multiple_axes=("joint", "multiresolution"),
+        multiple_axes_default="joint",
+    )
     basis = meta.attribution_basis
     if isinstance(meta, CumulativeDeltaFrameMetaV1):
         method = cumulative_attribution_method(meta.cumulative_attribution.structure)

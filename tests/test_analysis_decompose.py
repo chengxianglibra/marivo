@@ -266,15 +266,20 @@ def test_decompose_multi_axis_requires_an_explicit_mode():
 def test_delta_contract_describes_multi_axis_attribution_mode():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [6.0]}))
+    contract = frame.contract()
 
-    affordance = next(
-        item for item in frame.contract().affordances if item.capability_id == "attribute"
-    )
+    affordance = next(item for item in contract.affordances if item.capability_id == "attribute")
 
     assert [
         (item.parameter, item.bindable_from_current_artifact)
         for item in affordance.input_requirements
     ] == [("axes", False), ("frame", True)]
+    admission = contract.attribute_admission
+    assert admission is not None
+    assert admission.status == "supported"
+    assert admission.mode.multiple_axes == ("joint", "hierarchy")
+    assert admission.mode.multiple_axes_default == "joint"
+    assert "multiple_axes_default=joint" in contract.render()
 
 
 def test_decompose_multi_axis_joint_returns_each_axis_combination_once():

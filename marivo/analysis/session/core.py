@@ -1113,10 +1113,10 @@ class Session(RenderableResult):
         reconciliation. Mixing the ``over`` axis with business dimensions is
         blocked; derived component time bridges and cumulative count-distinct
         bases are also blocked by the persisted route map.
-        For multiple axes, choose ``mode="joint"`` for one row per complete
-        axis combination, or ``mode="hierarchy"`` for prefix-level drill-down
-        rows. Joint rows are additive; hierarchy rows repeat parent totals, so
-        only the deepest level is additive.
+        For multiple axes on a metric delta, omitting ``mode`` defaults to
+        ``"joint"`` and returns one additive row per complete axis combination.
+        Choose ``mode="hierarchy"`` for prefix-level drill-down rows; hierarchy
+        rows repeat parent totals, so only the deepest level is additive.
         A single-axis result preserves the concrete dimension column name, so
         its pandas rows can join directly to the source DeltaFrame on that
         dimension. Generic ``driver`` and ``path`` columns are reserved for
@@ -1150,9 +1150,11 @@ class Session(RenderableResult):
             frame: A DeltaFrame produced by ``session.compare``.
             axes: One or more exact current-catalog dimension/time-dimension
                 entries or refs to attribute over.
-            mode: Required for multiple axes. ``"joint"`` returns one row per
-                axis combination; ``"hierarchy"`` returns ordered prefix rows.
-                Omit for a single axis.
+            mode: For metric deltas, defaults to ``"joint"`` when multiple axes
+                are supplied. ``"hierarchy"`` returns ordered prefix rows, and
+                supported non-additive methods also accept ``"multiresolution"``.
+                Omit for a single axis. Funnel deltas still require an explicit
+                ``"joint"`` or ``"hierarchy"`` mode for multiple axes.
             target: Required only for ``DeltaFrame[funnel]``; pass one exact
                 ``mv.funnel_loss_rate(step=...)`` target.
             analysis_purpose: Optional durable label explaining why this
@@ -1185,7 +1187,6 @@ class Session(RenderableResult):
             >>> attribution = session.attribute(
             ...     delta,
             ...     axes=[country, channel],
-            ...     mode="joint",
             ...     analysis_purpose="按国家归因收入变化",
             ... )
         """
@@ -1240,8 +1241,11 @@ class Session(RenderableResult):
         attrs: dict[str, str | int | float | bool] = {"marivo.analysis.axis_count": len(axes)}
         if isinstance(semantic_kind, str):
             attrs["marivo.analysis.semantic_kind"] = semantic_kind
-        if mode is not None:
-            attrs["marivo.analysis.attribution_mode"] = mode
+        effective_mode = mode
+        if effective_mode is None and len(axes) > 1:
+            effective_mode = "joint"
+        if effective_mode is not None:
+            attrs["marivo.analysis.attribution_mode"] = effective_mode
         with _track_session_operation(
             self,
             "marivo.analysis.attribute",
@@ -1253,7 +1257,7 @@ class Session(RenderableResult):
             return attribute(
                 frame,
                 axes=axes,
-                mode=mode,
+                mode=effective_mode,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )

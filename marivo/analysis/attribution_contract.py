@@ -205,6 +205,13 @@ class AttributeModeAdmissionV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     single_axis: Literal["omit"] = "omit"
     multiple_axes: tuple[AttributionMode, ...] = Field(min_length=1)
+    multiple_axes_default: AttributionMode
+
+    @model_validator(mode="after")
+    def _validate_multiple_axes_default(self) -> AttributeModeAdmissionV1:
+        if self.multiple_axes_default not in self.multiple_axes:
+            raise ValueError("multiple_axes_default must be one of multiple_axes")
+        return self
 
 
 class SupportedAttributeAdmissionV1(BaseModel):
