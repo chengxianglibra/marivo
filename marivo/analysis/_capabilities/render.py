@@ -40,6 +40,10 @@ from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 from marivo.refs import SemanticKind
+from marivo.semantic._capabilities.catalog_members import (
+    CATALOG_MEMBER_CONTRACTS,
+    CatalogMemberContract,
+)
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -622,6 +626,77 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     return sorted(members, key=lambda item: item.help_target)
 
 
+def _catalog_member_for_descriptor(desc: CapabilityDescriptor) -> CatalogMemberContract | None:
+    """Return the closed catalog contract represented by one analysis member."""
+
+    if not desc.id.startswith("catalog."):
+        return None
+    property_name = desc.id.removeprefix("catalog.")
+    return next(
+        (member for member in CATALOG_MEMBER_CONTRACTS if member.property_name == property_name),
+        None,
+    )
+
+
+def _catalog_collection_guidance(
+    desc: CapabilityDescriptor,
+    member: CatalogMemberContract,
+) -> list[str]:
+    """Render the live-help loop from a catalog collection to one entry."""
+
+    collection = desc.public_entrypoint
+    return [
+        "",
+        "  Semantic object loop:",
+        f"    1. Unknown identity: {collection}.show()",
+        "    2. Exact selection accepts a full path, displayed same-kind typed key, or Ref:",
+        f'       entry = {collection}.get("<full semantic path or typed key>")',
+        f"       entry = {collection}.get(ref)",
+        "    3. Inspect: entry.show(); entry.details().show(); marivo.help(entry)",
+        "    4. Handoff: pass entry to the focused analysis API; use entry.ref for stable identity.",
+        '  Type contracts: marivo.help("semantic.CatalogCollection"), '
+        'marivo.help("semantic.CatalogEntry"), marivo.help("semantic.Ref").',
+        f"  Object kind: {member.kind.value}; entry type: {member.entry_type_name}.",
+    ]
+
+
+def _catalog_group_guidance() -> list[str]:
+    """Render bounded discovery guidance for the catalog grouping topic."""
+
+    properties = tuple(member.property_name for member in CATALOG_MEMBER_CONTRACTS)
+    midpoint = (len(properties) + 1) // 2
+    return [
+        "  Object families:",
+        "    " + ", ".join(properties[:midpoint]),
+        "    " + ", ".join(properties[midpoint:]),
+        "  Discovery rule: select only the collection relevant to the question.",
+        '  Focused collection contract: marivo.help("analysis.catalog.<family>").',
+        "  Object-level continuation: inspect the selected entry with marivo.help(entry).",
+    ]
+
+
+def _catalog_exact_ref_guidance() -> list[str]:
+    """Render exact-ref handoff guidance for ``catalog.require`` help."""
+
+    return [
+        "  Exact identity handoff:",
+        "    entry = session.catalog.require(ref)",
+        "    entry.show(); entry.details().show(); marivo.help(entry)",
+        "    Use session.catalog.require only for an exact Ref from configuration, logs, or persistence.",
+        '  Entry contract: marivo.help("semantic.CatalogEntry").',
+    ]
+
+
+def _has_semantic_object_handoff(desc: OperatorCapability) -> bool:
+    """Return whether an operator consumes a governed semantic object family."""
+
+    return any(
+        REGISTRY.semantic_handoffs_for_input_family(family)
+        for families in desc.accepted_inputs.values()
+        for family in families
+    )
+
+
 def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     """Render focused help for a single capability descriptor."""
     lines: list[str] = []
@@ -662,6 +737,14 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         if return_type is not None:
             lines.append(f"  Returns: {return_type}")
         lines.append(f"  Inspect: {desc.public_entrypoint}.show()")
+        catalog_member = _catalog_member_for_descriptor(desc)
+        if catalog_member is not None:
+            lines.extend(_catalog_collection_guidance(desc, catalog_member))
+
+    if desc.id == "catalog":
+        lines.extend(_catalog_group_guidance())
+    elif desc.id == "catalog.require":
+        lines.extend(_catalog_exact_ref_guidance())
 
     # Live signature (for invokable capabilities)
     if callable_obj is not None and callable(callable_obj):
@@ -772,6 +855,16 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             lines.append("")
             lines.append("  Prerequisites:")
             lines.extend(f"    {line}" for line in prerequisite_lines)
+        if _has_semantic_object_handoff(desc):
+            lines.extend(
+                (
+                    "",
+                    "  Semantic object handoff:",
+                    "    A current CatalogEntry or exact Ref can satisfy the semantic input.",
+                    "    Inspect object-specific details and continuation with marivo.help(entry).",
+                    '    Contract: marivo.help("semantic.CatalogEntry") and marivo.help("semantic.Ref").',
+                )
+            )
 
     result_names: list[str] = []
 

@@ -337,6 +337,8 @@ def _render_type(type_name: str, original: object | None) -> str:
                 "ms.ref.dimension('sales.orders.region').",
                 "  Persisted/config identity: "
                 "entry = catalog.metrics.get('sales.revenue'); metric_ref = entry.ref.",
+                "  Membership: catalog.require(ref) resolves the exact ref to the current "
+                "catalog; marivo.help(ref) reports identity only.",
                 "  Field application: Ref values are never callable; use "
                 "ms.bind(field_ref, entity_alias) inside a registered semantic "
                 "expression body.",
@@ -353,12 +355,18 @@ def _render_type(type_name: str, original: object | None) -> str:
             "catalog.preview, catalog.readiness, or qualifying analysis APIs; use "
             "entry.ref only when a stable configured or persisted identity is needed."
         )
+        lines.append(
+            "  Agent briefing: marivo.help(entry) combines current details, semantic "
+            "continuation, and the kind-level analysis handoff."
+        )
     if type_name == "CatalogCollection":
         lines.extend(
             (
                 "  Lookup: pass a local name, full semantic path, displayed same-kind "
                 "typed key, or exact same-kind Ref.",
                 "  Copyable key example: catalog.metrics.get('metric:sales.revenue').",
+                "  Handoff: inspect the selected entry with marivo.help(entry), then "
+                "pass the entry or entry.ref to its consuming capability.",
             )
         )
     if "details" in contract.public_methods:

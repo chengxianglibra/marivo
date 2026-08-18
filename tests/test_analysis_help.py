@@ -678,6 +678,41 @@ def test_analysis_catalog_help_covers_the_closed_semantic_collections() -> None:
         assert f"session.catalog.{member.property_name}" in text
 
 
+def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> None:
+    from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+
+    group = _text("catalog")
+    assert "Object families:" in group
+    assert 'marivo.help("analysis.catalog.<family>")' in group
+    assert "marivo.help(entry)" in group
+
+    for member in CATALOG_MEMBER_CONTRACTS:
+        text = _text(f"catalog.{member.property_name}")
+        collection = f"session.catalog.{member.property_name}"
+
+        assert f"{collection}.show()" in text
+        assert f'{collection}.get("<full semantic path or typed key>")' in text
+        assert f"{collection}.get(ref)" in text
+        assert "entry.show(); entry.details().show(); marivo.help(entry)" in text
+        assert "entry.ref" in text
+        assert 'marivo.help("semantic.CatalogEntry")' in text
+
+        show_index = text.index(f"{collection}.show()")
+        get_index = text.index(f'{collection}.get("<full semantic path or typed key>")')
+        details_index = text.index("entry.details().show()")
+        assert show_index < get_index < details_index
+
+
+def test_analysis_consumers_advertise_catalog_entry_and_ref_handoff() -> None:
+    text = _text("observe")
+
+    assert "Semantic object handoff:" in text
+    assert "A current CatalogEntry or exact Ref can satisfy the semantic input." in text
+    assert "marivo.help(entry)" in text
+    assert 'marivo.help("semantic.CatalogEntry")' in text
+    assert 'marivo.help("semantic.Ref")' in text
+
+
 def test_period_calendar_period_help_teaches_exact_scope_navigation() -> None:
     text = _text("calendar.period")
 
