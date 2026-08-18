@@ -493,6 +493,7 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
         LinearComposition,
         RatioComposition,
         additivity_bucket,
+        linear_additivity_bucket,
     )
 
     comp = metric.composition
@@ -505,7 +506,7 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
         if dep is None or dep.additivity is None:
             return None  # dep not resolved yet (retry) or missing (validator reports)
         buckets.append(additivity_bucket(dep.additivity))
-    return "additive" if all(b == "additive" for b in buckets) else "non_additive"
+    return linear_additivity_bucket(buckets)
 
 
 def _resolve_metric_additivity(registry: Registry) -> None:

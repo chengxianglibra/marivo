@@ -677,7 +677,7 @@ def _build_registry() -> CapabilityRegistry:
         window_bucket,
         working_day_progress,
     )
-    from marivo.analysis.runtime_metric import aggregate, ratio, slice, weighted_mean
+    from marivo.analysis.runtime_metric import aggregate, linear, ratio, slice, weighted_mean
     from marivo.analysis.subject import dropped_before
     from marivo.analysis.windows.spec import AbsoluteWindow
 
@@ -2085,6 +2085,12 @@ def _build_registry() -> CapabilityRegistry:
             ratio,
             "RuntimeRatioExpr",
         ),
+        (
+            "runtime_metric.linear",
+            "mv.runtime_metric.linear(...) ",
+            linear,
+            "RuntimeLinearExpr",
+        ),
     )
     for cap_id, entrypoint, callable_obj, output_type in runtime_metric_specs:
         descriptors.append(
@@ -2100,7 +2106,11 @@ def _build_registry() -> CapabilityRegistry:
                     *(
                         ("runtime_weighted_mean_valid",)
                         if cap_id == "runtime_metric.weighted_mean"
-                        else ()
+                        else (
+                            ("runtime_linear_units_commensurable",)
+                            if cap_id == "runtime_metric.linear"
+                            else ()
+                        )
                     ),
                 ),
                 callable_path=_module_path_for(callable_obj),

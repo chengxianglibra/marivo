@@ -321,7 +321,17 @@ failure_rate = mv.runtime_metric.ratio(
     zero_division="null",
     label="Runtime failure rate",
 )
-frame = session.observe(failure_rate, time_scope=window, grain=mv.grain("day"))
+gross_margin = mv.runtime_metric.linear(
+    add=[revenue],
+    subtract=[cogs, discounts, shipping, payment],
+    label="Gross margin",
+)
+gross_margin_rate = mv.runtime_metric.ratio(
+    gross_margin,
+    gmv,
+    label="Gross margin rate",
+)
+frame = session.observe(gross_margin_rate, time_scope=window, grain=mv.grain("day"))
 ```
 
 Runtime expressions may recursively contain runtime expressions and catalog
@@ -340,10 +350,20 @@ and paired aggregation automatically. Both measures must have the same entity
 and physical row grain, and the weight must be additive; no precomputed
 `SUM(value * weight)` measure is required.
 
+`runtime_metric.linear(add=[...], subtract=[...])` adds or subtracts ordered
+catalog/runtime metric expressions with fixed `+1` and `-1` coefficients. It
+requires at least two total terms and every known term unit must be
+commensurable. It does not accept literals, arbitrary coefficients, unit
+overrides, callbacks, or formula strings. Its result is additive only when
+every term is additive; semi-additive and mixed terms produce a non-additive
+result because no shared status-time fold has been proven.
+
 Every observed root and mixed forest persists a recursive component graph.
 Use `frame.components()` to inspect node roles, evaluator contracts, quality,
-coverage references, and governed leaf lineage. A separate `component_ref`
-exists only when the root also supports numerical decomposition.
+coverage references, and governed leaf lineage. Linear nodes retain their
+ordered child ids and signed coefficients even when nested below another
+operator. A separate `component_ref` exists only when the root also supports
+numerical decomposition.
 
 Observed additivity, aggregation, and status-time semantics participate in the
 artifact identity for single, derived, cumulative, and multi-metric frames.

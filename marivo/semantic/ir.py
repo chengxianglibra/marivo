@@ -901,6 +901,18 @@ def additivity_bucket(
     return additivity
 
 
+def linear_additivity_bucket(
+    additivities: Sequence[str | None],
+) -> Literal["additive", "non_additive"]:
+    """Return the only reaggregation claim closed under bounded linear algebra."""
+
+    return (
+        "additive"
+        if additivities and all(value == "additive" for value in additivities)
+        else "non_additive"
+    )
+
+
 def composition_components(composition: Composition) -> dict[str, str]:
     """Role-keyed component refs for a derived metric composition."""
     if isinstance(composition, RatioComposition):

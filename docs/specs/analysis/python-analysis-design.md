@@ -392,9 +392,9 @@ later `observe`, `events.match`, or `lifecycle.replay` calls.
 `Session.observe(...)` is the only public initial `MetricFrame` materializer.
 Its catalog roots are exact current `MetricEntry` values or exact
 `Ref[metric]` values; it also accepts closed values built with
-`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, and `.ratio`.
+`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, `.ratio`, and `.linear`.
 Generic refs, stale/cross-catalog entries, bare ids, frame arithmetic, and
-arbitrary formula nodes do not cross this boundary. A non-empty list or tuple
+generic formula nodes do not cross this boundary. A non-empty list or tuple
 forms one ordered mixed forest with one outer scope.
 
 The same ordered catalog/runtime roots may be passed to
@@ -428,9 +428,19 @@ match, while retaining ordered current/baseline identities in the delta.
 Runtime weighted means accept two governed same-entity measures, require an
 additive weight, and lower to the same paired numerator/weight leaf as catalog
 `ms.weighted_mean`; they do not require a precomputed weighted-sum measure.
+Runtime linear expressions accept ordered metric refs or runtime expressions,
+require at least two total terms, and expose only fixed `+1` add and `-1`
+subtract coefficients. Known term units must be commensurable; literals,
+arbitrary coefficients, unit overrides, callbacks, and formula strings remain
+outside the runtime algebra. A linear result is additive only when every term
+is additive; semi-additive and mixed inputs conservatively produce a
+non-additive result because the runtime descriptor does not prove a shared
+status-time fold contract.
 Every observed root and mixed forest persists a recursive component graph;
-`frame.components()` loads it for inspection. `component_ref` remains the
-narrower signal that the root also supports numerical decomposition.
+`frame.components()` loads it for inspection. Every linear node in that graph,
+including a linear expression nested below another operator, retains ordered
+child ids and exact signed coefficients. `component_ref` remains the narrower
+signal that the root also supports numerical decomposition.
 
 ## Non-goals
 

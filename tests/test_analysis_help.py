@@ -19,6 +19,7 @@ from marivo.analysis._capabilities.model import (
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY, _validate_additional_examples
+from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -398,7 +399,7 @@ def test_time_scope_help_states_half_open_end_contract() -> None:
     assert "includes all of July and excludes August 1" in time_scope
 
 
-@pytest.mark.parametrize("name", ["aggregate", "slice", "weighted_mean", "ratio"])
+@pytest.mark.parametrize("name", ["aggregate", "slice", "weighted_mean", "ratio", "linear"])
 def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
     target = f"runtime_metric.{name}"
     callable_obj = getattr(mv.runtime_metric, name)
@@ -419,6 +420,7 @@ def test_runtime_metric_group_help_lists_all_constructors() -> None:
     assert "mv.runtime_metric.slice(...)" in text
     assert "mv.runtime_metric.weighted_mean(...)" in text
     assert "mv.runtime_metric.ratio(...)" in text
+    assert "mv.runtime_metric.linear(...)" in text
 
 
 def test_runtime_weighted_mean_help_exposes_grain_and_additivity_contract() -> None:
@@ -427,6 +429,19 @@ def test_runtime_weighted_mean_help_exposes_grain_and_additivity_contract() -> N
     assert "runtime_weighted_mean_valid" in text
     assert "same-entity measures" in text
     assert "additive weight" in text
+
+
+def test_runtime_linear_help_exposes_commensurable_unit_contract() -> None:
+    text = _text("runtime_metric.linear")
+
+    assert "runtime_linear_units_commensurable" in text
+    assert "commensurable units" in text
+
+
+def test_runtime_linear_is_owned_by_closed_algebra_constraint() -> None:
+    constraint = CONSTRAINTS[ConstraintId.RUNTIME_METRIC_CLOSED_ALGEBRA]
+
+    assert "runtime_metric.linear" in constraint.applies_to
 
 
 def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:

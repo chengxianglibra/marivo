@@ -8,6 +8,7 @@ import marivo.analysis as mv
 from marivo.analysis.runtime_metric import (
     FrozenSliceMap,
     RuntimeAggregateExpr,
+    RuntimeLinearExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
     RuntimeWeightedMeanExpr,
@@ -21,11 +22,13 @@ def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
     assert mv.runtime_metric.__all__ == [
         "FrozenSliceMap",
         "RuntimeAggregateExpr",
+        "RuntimeLinearExpr",
         "RuntimeMetricExpr",
         "RuntimeRatioExpr",
         "RuntimeSliceExpr",
         "RuntimeWeightedMeanExpr",
         "aggregate",
+        "linear",
         "ratio",
         "slice",
         "weighted_mean",
@@ -85,6 +88,47 @@ def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
     assert isinstance(first.numerator, RuntimeRatioExpr)
     assert first == second
     assert hash(first) == hash(second)
+
+
+def test_runtime_linear_freezes_ordered_terms_and_round_trips_replay() -> None:
+    revenue = ref_factory.metric("sales.revenue")
+    cogs = ref_factory.metric("sales.cogs")
+    discounts = ref_factory.metric("sales.discounts")
+    add = [revenue]
+    subtract = [cogs, discounts]
+
+    expression = mv.runtime_metric.linear(
+        add=add,
+        subtract=subtract,
+        label="  Gross margin  ",
+    )
+    add.append(ref_factory.metric("sales.other_revenue"))
+    subtract.reverse()
+
+    assert isinstance(expression, RuntimeLinearExpr)
+    assert expression.kind == "linear"
+    assert expression.add == (revenue,)
+    assert expression.subtract == (cogs, discounts)
+    assert expression.label == "Gross margin"
+    assert from_replay_payload(replay_payload(expression)) == expression
+
+
+def test_runtime_linear_accepts_nested_runtime_expressions() -> None:
+    revenue = ref_factory.metric("sales.revenue")
+    discounts = ref_factory.metric("sales.discounts")
+    net = mv.runtime_metric.linear(
+        add=[revenue],
+        subtract=[discounts],
+        label="Net revenue",
+    )
+    rate = mv.runtime_metric.ratio(
+        net,
+        revenue,
+        label="Net revenue rate",
+    )
+
+    assert isinstance(rate.numerator, RuntimeLinearExpr)
+    assert rate.numerator == net
 
 
 def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
@@ -158,12 +202,15 @@ def test_runtime_constructors_require_nonempty_labels() -> None:
         mv.runtime_metric.slice(metric, by={dimension: "CN"})  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
         mv.runtime_metric.ratio(metric, metric)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
+        mv.runtime_metric.linear(add=[metric, metric])  # type: ignore[call-arg]
 
     for constructor in (
         lambda: mv.runtime_metric.aggregate(measure, agg="sum", label=""),
         lambda: mv.runtime_metric.weighted_mean(measure, measure, label=" "),
         lambda: mv.runtime_metric.slice(metric, by={dimension: "CN"}, label=""),
         lambda: mv.runtime_metric.ratio(metric, metric, label=" "),
+        lambda: mv.runtime_metric.linear(add=[metric, metric], label=" "),
     ):
         with pytest.raises(ValueError, match="label must not be empty"):
             constructor()
@@ -202,6 +249,12 @@ def test_public_runtime_descriptor_classes_enforce_label_invariant() -> None:
             numerator=metric,
             denominator=metric,
             zero_division="null",
+            label=label,
+        ),
+        lambda label: RuntimeLinearExpr(
+            kind="linear",
+            add=(metric,),
+            subtract=(metric,),
             label=label,
         ),
     )
@@ -247,6 +300,38 @@ def test_runtime_constructors_reject_wrong_ref_and_operand_kinds() -> None:
             ref_factory.measure("sales.orders.latency"),
             ref_factory.metric("sales.requests"),
             label="wrong weighted mean",
+        )
+    with pytest.raises(TypeError, match=r"exact Ref\[metric\]"):
+        mv.runtime_metric.linear(
+            add=[
+                ref_factory.metric("sales.revenue"),
+                ref_factory.measure("sales.orders.amount"),
+            ],
+            label="wrong linear",
+        )  # type: ignore[list-item]
+
+
+@pytest.mark.parametrize(
+    ("add", "subtract"),
+    [([], []), ([ref_factory.metric("sales.revenue")], [])],
+)
+def test_runtime_linear_requires_at_least_two_terms(add, subtract) -> None:
+    with pytest.raises(ValueError, match="at least two metric terms"):
+        mv.runtime_metric.linear(
+            add=add,
+            subtract=subtract,
+            label="invalid linear",
+        )
+
+
+def test_runtime_linear_requires_list_or_tuple_inputs() -> None:
+    revenue = ref_factory.metric("sales.revenue")
+
+    with pytest.raises(TypeError, match="add requires list or tuple"):
+        mv.runtime_metric.linear(
+            add={revenue},  # type: ignore[arg-type]
+            subtract=[revenue],
+            label="invalid linear",
         )
 
 

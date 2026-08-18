@@ -75,6 +75,11 @@ def _persist_metric_component_frame(
     root_node_ids = tuple(
         str(node_id) for node_id in (component_graph or {}).get("root_node_ids", ())
     )
+    graph_node_ids = {
+        str(node["node_id"])
+        for node in (component_graph or {}).get("nodes", ())
+        if isinstance(node, dict) and isinstance(node.get("node_id"), str)
+    }
     registry = session.catalog._require_index().registry
     component_bindings: list[ComponentBindingV1] = []
     for role, target in resolved_components.items():
@@ -97,7 +102,7 @@ def _persist_metric_component_frame(
                 ComponentBindingV1(
                     role=role,
                     column=column,
-                    expression_node_id=root_node_ids[0],
+                    expression_node_id=(target if target in graph_node_ids else root_node_ids[0]),
                 )
             )
     frame_ref = make_component_artifact_id(parent.ref)

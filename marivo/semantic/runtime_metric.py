@@ -213,8 +213,31 @@ class RuntimeWeightedMeanExpr:
         object.__setattr__(self, "label", _normalize_label(self.label))
 
 
+@dataclass(frozen=True)
+class RuntimeLinearExpr:
+    kind: Literal["linear"]
+    add: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+    subtract: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+    label: str = field(compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "add", _freeze_metric_inputs(self.add, parameter="add"))
+        object.__setattr__(
+            self,
+            "subtract",
+            _freeze_metric_inputs(self.subtract, parameter="subtract"),
+        )
+        if len(self.add) + len(self.subtract) < 2:
+            raise ValueError("runtime metric linear requires at least two metric terms")
+        object.__setattr__(self, "label", _normalize_label(self.label))
+
+
 RuntimeMetricExpr: TypeAlias = (
-    RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr
+    RuntimeAggregateExpr
+    | RuntimeSliceExpr
+    | RuntimeRatioExpr
+    | RuntimeWeightedMeanExpr
+    | RuntimeLinearExpr
 )
 
 
@@ -335,6 +358,14 @@ def replay_payload(expression: Ref[MetricKind] | RuntimeMetricExpr) -> dict[str,
             "slice_by": _slice_map_payload(expression.slice_by),
             "label": expression.label,
         }
+    if isinstance(expression, RuntimeLinearExpr):
+        return {
+            "schema": "marivo.runtime_metric_expr/v1",
+            "kind": "linear",
+            "add": [replay_payload(item) for item in expression.add],
+            "subtract": [replay_payload(item) for item in expression.subtract],
+            "label": expression.label,
+        }
     raise TypeError(f"unsupported runtime replay expression {type(expression).__name__}")
 
 
@@ -420,6 +451,11 @@ def runtime_metric_leaf_refs(expression: RuntimeMetricExpr) -> tuple[Ref[Semanti
         if isinstance(value, RuntimeRatioExpr):
             stack.append((value.denominator, depth + 1, f"{path}.denominator", None))
             stack.append((value.numerator, depth + 1, f"{path}.numerator", None))
+            continue
+        if isinstance(value, RuntimeLinearExpr):
+            terms = (*value.add, *value.subtract)
+            for index in range(len(terms) - 1, -1, -1):
+                stack.append((terms[index], depth + 1, f"{path}.term[{index}]", None))
             continue
         raise TypeError(f"unsupported runtime metric expression {type(value).__name__}")
 
@@ -520,6 +556,18 @@ def from_replay_payload(payload: object) -> Ref[MetricKind] | RuntimeMetricExpr:
             slice_by=_slice_map_from_payload(payload.get("slice_by")),
             label=label,
         )
+    if kind == "linear":
+        if set(payload) != {"schema", "kind", "add", "subtract", "label"}:
+            raise ValueError("runtime replay linear fields are invalid")
+        raw_add = payload.get("add")
+        raw_subtract = payload.get("subtract")
+        if not isinstance(raw_add, list) or not isinstance(raw_subtract, list):
+            raise ValueError("runtime replay linear terms must be arrays")
+        return linear(
+            add=[from_replay_payload(item) for item in raw_add],
+            subtract=[from_replay_payload(item) for item in raw_subtract],
+            label=label,
+        )
     raise ValueError(f"unknown runtime replay expression kind {kind!r}")
 
 
@@ -537,12 +585,33 @@ def _require_metric_expr(
         )
     if isinstance(
         value,
-        (RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr, RuntimeWeightedMeanExpr),
+        (
+            RuntimeAggregateExpr,
+            RuntimeSliceExpr,
+            RuntimeRatioExpr,
+            RuntimeWeightedMeanExpr,
+            RuntimeLinearExpr,
+        ),
     ):
         return value
     raise TypeError(
         f"runtime metric {parameter} requires exact Ref[metric] or RuntimeMetricExpr, "
         f"got {type(value).__name__}"
+    )
+
+
+def _freeze_metric_inputs(
+    values: object,
+    *,
+    parameter: str,
+) -> tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]:
+    if not isinstance(values, list | tuple):
+        raise TypeError(
+            f"runtime metric linear {parameter} requires list or tuple, got {type(values).__name__}"
+        )
+    return tuple(
+        _require_metric_expr(value, parameter=f"{parameter}[{index}]")
+        for index, value in enumerate(values)
     )
 
 
@@ -713,7 +782,7 @@ def ratio(
         ... )
 
     Constraints:
-        Only the closed aggregate, weighted_mean, slice, ratio, and catalog
+        Only the closed aggregate, weighted_mean, slice, ratio, linear, and catalog
         metric-ref algebra is admitted. SQL, callbacks, literals, and
         user-authored units are rejected.
     """
@@ -729,14 +798,62 @@ def ratio(
     )
 
 
+def linear(
+    *,
+    add: list[Ref[MetricKind] | RuntimeMetricExpr]
+    | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
+    subtract: list[Ref[MetricKind] | RuntimeMetricExpr]
+    | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...] = (),
+    label: str,
+) -> RuntimeLinearExpr:
+    """Construct one frozen sum/difference over governed metric expressions.
+
+    Args:
+        add: Ordered exact ``Ref[metric]`` or runtime metric expressions added
+            with coefficient ``+1``.
+        subtract: Ordered exact ``Ref[metric]`` or runtime metric expressions
+            subtracted with coefficient ``-1``.
+        label: Required presentation-only label and stable public value-column handle.
+
+    Returns:
+        A frozen ``RuntimeLinearExpr`` that can be nested recursively or observed.
+
+    Example:
+        >>> gross_margin = mv.runtime_metric.linear(
+        ...     add=[revenue],
+        ...     subtract=[cogs, discounts, shipping, payment],
+        ...     label="Gross margin",
+        ... )
+        >>> gross_margin_rate = mv.runtime_metric.ratio(
+        ...     gross_margin,
+        ...     gmv,
+        ...     label="Gross margin rate",
+        ... )
+
+    Constraints:
+        At least two total terms are required. Terms must be commensurable and
+        resolve within the same datasource compatibility domain. Literals,
+        arbitrary coefficients, unit overrides, SQL, and callbacks are rejected.
+    """
+
+    return RuntimeLinearExpr(
+        kind="linear",
+        add=_freeze_metric_inputs(add, parameter="add"),
+        subtract=_freeze_metric_inputs(subtract, parameter="subtract"),
+        label=_normalize_label(label),
+    )
+
+
 __all__ = [
     "FrozenSliceMap",
     "RuntimeAggregateExpr",
+    "RuntimeLinearExpr",
     "RuntimeMetricExpr",
     "RuntimeRatioExpr",
     "RuntimeSliceExpr",
     "RuntimeWeightedMeanExpr",
     "aggregate",
+    "linear",
     "ratio",
     "slice",
     "weighted_mean",

@@ -175,6 +175,7 @@ from marivo.analysis.intents.sampled_fold import (
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.runtime_metric import (
     RuntimeAggregateExpr,
+    RuntimeLinearExpr,
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
@@ -214,6 +215,7 @@ from marivo.semantic.ir import (
     CumulativeComposition,
     LinearComposition,
     RatioComposition,
+    linear_additivity_bucket,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -475,6 +477,39 @@ def _evaluator_contracts(graph_plan: Any) -> tuple[str, ...]:
         elif isinstance(node, LinearNodeV1):
             contracts.add("linear-evaluation/v1")
     return tuple(sorted(contracts))
+
+
+def _root_graph_additivity(graph_plan: Any) -> str:
+    """Resolve the root additivity without executing physical metric leaves."""
+
+    leaf_additivity = {
+        leaf.node_id: getattr(leaf.metric_ir, "additivity", "non_additive")
+        for leaf in graph_plan.leaves
+    }
+    nodes = {record.node_id: record.node for record in graph_plan.graph.nodes}
+    resolved: dict[str, str] = {}
+
+    def visit(node_id: str) -> str:
+        cached = resolved.get(node_id)
+        if cached is not None:
+            return cached
+        if node_id in leaf_additivity:
+            value = str(leaf_additivity[node_id])
+        else:
+            node = nodes[node_id]
+            if isinstance(node, SliceNodeV1 | CumulativeNodeV1):
+                value = visit(node.child_id)
+            elif isinstance(node, RatioNodeV1):
+                value = "non_additive"
+            elif isinstance(node, LinearNodeV1):
+                children = tuple(visit(term.child_id) for term in node.terms)
+                value = linear_additivity_bucket(children)
+            else:
+                value = "non_additive"
+        resolved[node_id] = value
+        return value
+
+    return visit(graph_plan.graph.roots[0])
 
 
 def _catalog_cumulative_marker(catalog: Any, metric_id: str) -> dict[str, Any] | None:
@@ -1020,7 +1055,11 @@ def observe(
     normalized_metric: Ref[MetricKind] | RuntimeMetricExpr
     if isinstance(
         single_metric,
-        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+        RuntimeAggregateExpr
+        | RuntimeSliceExpr
+        | RuntimeRatioExpr
+        | RuntimeWeightedMeanExpr
+        | RuntimeLinearExpr,
     ):
         normalized_metric = single_metric
         is_catalog_root = False
@@ -1198,6 +1237,34 @@ def observe(
                                 "numerator": root_node_for_ir.numerator_id,
                                 "denominator": root_node_for_ir.denominator_id,
                             },
+                        ),
+                    )
+                elif isinstance(root_node_for_ir, LinearNodeV1):
+                    components = {
+                        f"term{index}": term.child_id
+                        for index, term in enumerate(root_node_for_ir.terms)
+                    }
+                    metric_ir = SimpleNamespace(
+                        semantic_id=metric_id,
+                        name=metric_name,
+                        domain=model_name,
+                        metric_type="runtime",
+                        entities=(),
+                        aggregation=None,
+                        additivity=_root_graph_additivity(graph_plan),
+                        status_time_dimension=None,
+                        time_fold=None,
+                        unit=None,
+                        composition=SimpleNamespace(
+                            kind="linear",
+                            components=components,
+                        ),
+                        linear_terms=tuple(
+                            (
+                                "+" if term.coefficient == 1.0 else "-",
+                                term.child_id,
+                            )
+                            for term in root_node_for_ir.terms
                         ),
                     )
             graph_nodes = {record.node_id: record.node for record in graph_plan.graph.nodes}
@@ -1854,7 +1921,8 @@ def _forest_output_columns(
                 RuntimeAggregateExpr
                 | RuntimeSliceExpr
                 | RuntimeRatioExpr
-                | RuntimeWeightedMeanExpr,
+                | RuntimeWeightedMeanExpr
+                | RuntimeLinearExpr,
             ):
                 raise AssertionError(f"runtime metric identity at index {index} has no expression")
             requested.append(metric_input.label)
@@ -1909,7 +1977,11 @@ def _preferred_status_time_dimension_for_metric(
     """
     if isinstance(
         metric_input,
-        RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+        RuntimeAggregateExpr
+        | RuntimeSliceExpr
+        | RuntimeRatioExpr
+        | RuntimeWeightedMeanExpr
+        | RuntimeLinearExpr,
     ):
         return None
     if metric_ir is None:
@@ -2010,7 +2082,11 @@ def _observe_metric_forest(
     for metric_input in metric_inputs:
         if isinstance(
             metric_input,
-            RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr | RuntimeWeightedMeanExpr,
+            RuntimeAggregateExpr
+            | RuntimeSliceExpr
+            | RuntimeRatioExpr
+            | RuntimeWeightedMeanExpr
+            | RuntimeLinearExpr,
         ):
             normalized_metric_inputs.append(metric_input)
         else:
