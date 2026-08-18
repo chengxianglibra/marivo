@@ -1,0 +1,93 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.6
+title: Marivo 0.4.6
+description: Marivo 0.4.6 发布说明。
+---
+
+Marivo 0.4.6 打通了从物理数据源发现到类型化表投影的受控路径，为 Event 分析
+增加精确的已观测发生区间，并在不削弱 blocker 的前提下降低 readiness 输出噪声。
+本版本还改善了 Frame 互操作性，并会在持久化分析 Session 被用于不同问题时提醒
+调用方。
+
+## 重点
+
+- `md.table(..., columns={alias: md.source_column(...)})` 可以在单张物理表上
+  声明封闭的类型化投影。稳定别名会贯穿检查、取证、语义物化、血缘和 preview；
+  声明类型是断言，不会把物理值强制转换成另一种类型。
+- ClickHouse 检查会通过 `projectable_columns` 暴露适合安全投影的 adapter-only
+  物理列，并给出可直接复制的 `md.source_column(...)` 声明。类型冲突或暂不支持的
+  物理列会被省略并附带结构化警告，不会被猜测性处理。
+- `session.events.occurrence_bounds(event_or_model)` 会返回单个 Event，或
+  StateModel 中不同 Event trigger 的精确 UTC 发生时间上下界。该结果只表示已观测
+  范围，刻意与完整性证据保持分离。
+- `md.time_range(...)` 为 date 或 timestamp 窗口提供受限的半开区间取证范围，
+  同样适用于投影后的时间列。
+
+## 变更
+
+- 权威 Event watermark 的读取入口现在是
+  `session.events.watermark(event, through=...)`，与其他 Event 专属操作位于同一
+  namespace。0.4.5 用户需要把 `session.observe_watermark(...)` 更新为这个入口。
+- Readiness 现在会区分 `advisory` 与真正的 `warning`。缺失 snapshot 或 preview
+  证据仍会显示，但不会再把原本干净的报告从 `ready` 改为
+  `ready_with_warnings`；同一证据根上的重复缺口会被合并。
+- `MetricFrame.time_dimension_columns` 会把公开时间轴列映射回对应的语义时间维度
+  路径，让跨 Frame 对齐更明确。
+- 结果指引统一采用 `.contract().show()`；聚焦的语义帮助会给出第一个已注册的
+  分析调用，并把依赖当前状态的后续动作交给返回产物的 contract。
+- `md.raw_sql(...)` 的受限默认值保持为 100 行；窄范围诊断仍可显式传入更大的
+  `limit`。
+
+## 修复
+
+- `MetricFrame.to_pandas()` 会把 Decimal 值组成的 object 列转换为 `float64`，
+  普通 pandas 运算不再因混用 `float` 和 `Decimal` 失败；产物 contract 也会报告
+  同一输出类型。
+- Readiness 会提前阻止没有可执行 observe 路径的半可加 snapshot fold，并且只在
+  小于一天的粒度上建议合法的 `sample_interval` 修复。
+- 多指标 `observe` 只会在每个根都收敛到同一隐式时间轴时建议省略
+  `time_dimension`；其他情况会引导调用方显式选择共同时间轴。
+- 使用不同的非空问题重新打开同名 Session 时，会发出
+  `SessionQuestionMismatchWarning` 并保留原问题，避免静默混用不同分析问题的
+  上下文。
+- Live contract 现在会正确描述 `MetricFrame.coverage` 的
+  `CoverageFrame | None` 类型；旧的 `marivo.analysis.help` 调用也会指向唯一的
+  顶层 `marivo.help(...)` 协调入口。
+
+## 文档
+
+- 在中英文语义层指南中补充类型化表投影、受限时间范围取证、物理列发现、NULL
+  语义以及 advisory readiness 行为。
+- 在双语分析流程中加入 Event 发生区间与 namespace 化 watermark 入口的说明。
+- 从公开站点移除已废弃的 claude-pipe 安装路径。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.6 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)

@@ -1,0 +1,104 @@
+---
+slug: docs/v0.4/release-notes/0.4.6
+title: Marivo 0.4.6
+description: Release notes for Marivo 0.4.6.
+---
+
+Marivo 0.4.6 adds a governed path from physical datasource discovery to typed
+table projections, gives Event analysis exact observed occurrence bounds, and
+makes readiness output quieter without weakening its blockers. It also improves
+frame interoperability and warns when a persisted analysis session is reused
+for a different question.
+
+## Highlights
+
+- `md.table(..., columns={alias: md.source_column(...)})` declares a closed,
+  typed projection over one physical table. Stable aliases flow through
+  inspection, acquisition, semantic materialization, lineage, and preview;
+  declared types are assertions rather than casts.
+- ClickHouse inspection exposes safe adapter-only physical columns through
+  `projectable_columns`, including copyable `md.source_column(...)`
+  declarations. Conflicting or unsupported physical types are omitted with
+  structured warnings instead of being guessed.
+- `session.events.occurrence_bounds(event_or_model)` returns exact,
+  UTC-normalized earliest and latest occurrence times for an Event or the
+  distinct Event triggers of a StateModel. The result is an observed range,
+  deliberately separate from completeness evidence.
+- `md.time_range(...)` adds a bounded half-open temporal acquisition scope for
+  date or timestamp windows, including projected temporal columns.
+
+## Changed
+
+- The authoritative Event watermark read now lives at
+  `session.events.watermark(event, through=...)`, alongside the other
+  Event-specific operations. Replace the 0.4.5
+  `session.observe_watermark(...)` call with this namespaced entry.
+- Readiness now distinguishes `advisory` from a true `warning`. Missing
+  snapshot and preview evidence remains visible but no longer changes an
+  otherwise clean report from `ready` to `ready_with_warnings`; repeated
+  evidence gaps are grouped by evidence root.
+- `MetricFrame.time_dimension_columns` maps public time-axis columns back to
+  their semantic time-dimension paths, making cross-frame alignment explicit.
+- Result guidance consistently teaches `.contract().show()`, while focused
+  semantic help points to the first registered analysis call and leaves
+  state-specific continuation to the returned artifact contract.
+- `md.raw_sql(...)` keeps its bounded default at 100 rows; callers can still
+  request a larger explicit `limit` for a narrow diagnostic.
+
+## Fixed
+
+- `MetricFrame.to_pandas()` converts Decimal-valued object columns to
+  `float64`, so ordinary pandas arithmetic no longer fails with mixed
+  `float`/`Decimal` operands. The published artifact contract reports the same
+  output type.
+- Readiness now blocks semi-additive snapshot folds that have no executable
+  observe path, and only suggests `sample_interval` repairs for sub-day grains
+  where that declaration is legal.
+- Multi-metric `observe` only suggests omitting `time_dimension` when every
+  root converges on the same implicit axis; otherwise it points to an explicit
+  shared axis.
+- Reopening a named session with a different non-empty question emits
+  `SessionQuestionMismatchWarning` and preserves the original question,
+  avoiding silent cross-question analysis reuse.
+- `MetricFrame.coverage` is correctly described as `CoverageFrame | None` in
+  live contracts, and stale `marivo.analysis.help` calls now point to the
+  single top-level `marivo.help(...)` coordinator.
+
+## Documentation
+
+- Expanded the English and Chinese semantic-layer guides with typed table
+  projection, bounded temporal acquisition, physical-column discovery, NULL
+  semantics, and advisory readiness behavior.
+- Added Event occurrence-bound guidance and the namespaced watermark entry to
+  the bilingual analysis workflow.
+- Removed the obsolete claude-pipe installation path from the public site.
+
+## Installation
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+In mainland China, use:
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+For manual installation:
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.6
+requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)
