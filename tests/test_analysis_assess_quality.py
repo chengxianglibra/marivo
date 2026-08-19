@@ -48,7 +48,7 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
 
     assert report.meta.kind == "quality_report"
     assert report.meta.overall_status == "ok"
-    assert set(df["check_kind"]) == {"row_count", "null_ratio", "time_coverage"}
+    assert set(df["check_kind"]) == {"row_count", "null_ratio", "time_coverage", "value_density"}
     assert report.meta.blocking_issue_count == 0
     assert report.overall_status == report.meta.overall_status
     assert report.blocking_issue_count == report.meta.blocking_issue_count
@@ -199,7 +199,14 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
     # Closed-set: any new check row on this shape must be disclosed explicitly.
-    assert ids == {"null_ratio:value", "null_ratio:value2", "row_count", "time_coverage"}
+    assert ids == {
+        "null_ratio:value",
+        "null_ratio:value2",
+        "value_density:value",
+        "value_density:value2",
+        "row_count",
+        "time_coverage",
+    }
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = session.assess_quality(empty)
@@ -237,7 +244,116 @@ def test_observe_frame_runs_null_ratio_checks(tmp_path):
     )
     report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
-    assert ids == {"null_ratio:value", "row_count", "time_coverage"}
+    assert ids == {"null_ratio:value", "value_density:value", "row_count", "time_coverage"}
+
+
+def test_metric_time_series_near_constant_empty_warning(tmp_path):
+    """A long span with nearly all-zero values must flag value_density_low.
+
+    Issue #104: a managed funnel metric that is 0 in 12 of 13 months (and 6 in
+    one) is indistinguishable from a healthy metric by the current quality
+    surface, so an authoring/join defect (or a data-generation bug) sails
+    through ``analysis_ready`` with no diagnostic.  The value_density check
+    must surface a warning + typed issue over a sufficiently long span.
+    """
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": pd.Timestamp("2026-01-01") + pd.DateOffset(months=i), "value": 0.0}
+        for i in range(12)
+    ]
+    rows.append({"time": pd.Timestamp("2027-01-01"), "value": 6.0})
+    frame = _metric(
+        session,
+        rows,
+        axes={"time": {"field": "time", "grain": "month"}},
+        window={
+            "start": "2026-01-01",
+            "end": "2027-02-01",
+            "grain": "month",
+            "time_dimension": "time",
+        },
+    )
+
+    report = session.assess_quality(frame)
+    density = report.to_pandas().set_index("check_kind").loc["value_density"]
+    details = json.loads(density["details_json"])
+
+    assert density["severity"] == "warning"
+    assert details["nonzero_count"] == 1
+    assert details["cell_count"] == 13
+    assert details["time_bucket_count"] == 13
+    assert details["value_density"] == pytest.approx(1 / 13)
+    assert details["empty_ratio"] == pytest.approx(12 / 13)
+    issues = [issue for issue in report.meta.issues if issue.kind == "value_density_low"]
+    assert len(issues) == 1
+    assert issues[0].severity == "warning"
+    assert issues[0].observed_value == pytest.approx(1 / 13)
+    assert issues[0].expectation == "value_density >= 0.1"
+    assert issues[0].repair is not None
+    assert report.meta.overall_status == "warning"
+
+
+def test_metric_time_series_nonzero_values_have_full_value_density(tmp_path):
+    """A span whose values are all non-zero must not flag value_density."""
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": pd.Timestamp("2026-01-01") + pd.DateOffset(months=i), "value": 1.0}
+        for i in range(13)
+    ]
+    frame = _metric(
+        session,
+        rows,
+        axes={"time": {"field": "time", "grain": "month"}},
+        window={
+            "start": "2026-01-01",
+            "end": "2027-02-01",
+            "grain": "month",
+            "time_dimension": "time",
+        },
+    )
+
+    report = session.assess_quality(frame)
+    density = report.to_pandas().set_index("check_kind").loc["value_density"]
+    details = json.loads(density["details_json"])
+
+    assert density["severity"] == "ok"
+    assert details["value_density"] == pytest.approx(1.0)
+    assert report.meta.overall_status == "ok"
+
+
+def test_metric_panel_span_guard_counts_time_buckets_not_cells(tmp_path):
+    """A short-but-wide panel must not read as a long span.
+
+    Issue #104 P3: the value_density span guard counted rows (time × segment
+    cells) rather than distinct time buckets, so a 4-month × 4-segment panel
+    (16 cells, all empty) would falsely warn.  The guard must key off the time
+    axis's distinct bucket count, so a 4-bucket span stays green even though
+    it has 16 cells.
+    """
+    session = session_attach.get_or_create(name="demo")
+    regions = ["north", "south", "east", "west"]
+    months = [pd.Timestamp("2026-01-01") + pd.DateOffset(months=i) for i in range(4)]
+    rows = [{"time": t, "region": r, "value": 0.0} for t in months for r in regions]
+    frame = _metric(
+        session,
+        rows,
+        semantic_kind="panel",
+        axes={"time": {"field": "time", "grain": "month"}, "region": {"field": "region"}},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-05-01",
+            "grain": "month",
+            "time_dimension": "time",
+        },
+    )
+
+    report = session.assess_quality(frame)
+    density = report.to_pandas().set_index("check_kind").loc["value_density"]
+    details = json.loads(density["details_json"])
+
+    assert details["cell_count"] == 16
+    assert details["time_bucket_count"] == 4
+    assert density["severity"] == "ok"
 
 
 def test_null_rate_high_blocking_issue_carries_repair(tmp_path):
@@ -385,7 +501,7 @@ def test_repr_contains_identity_and_show_hint(tmp_path):
     assert f"ref={report.ref}" in r
     assert "status=ok" in r
     assert "blocking=0" in r
-    assert "rows=3" in r
+    assert "rows=4" in r
     assert "call .show() to inspect" in r
 
 
