@@ -387,6 +387,7 @@ def _strict_enrichment_issues(
     }
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
+    guardrails_missing: list[str] = []
     for ref in checked_refs:
         kind = kinds.get(ref)
         if kind not in analyzable:
@@ -413,19 +414,26 @@ def _strict_enrichment_issues(
             # the single most fundamental issue rather than stacking findings.
             continue
         if _missing_guardrails(obj):
-            warnings.append(
-                _issue(
-                    "missing_guardrails",
-                    "warning",
-                    (path,),
-                    f"{path} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
-                    repair(
-                        kind="reauthor",
-                        canonical_id="metric",
-                        action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
-                    ),
-                )
+            guardrails_missing.append(path)
+    if guardrails_missing:
+        missing_paths = _dedupe(guardrails_missing)
+        noun = "ref" if len(missing_paths) == 1 else "refs"
+        verb = "has" if len(missing_paths) == 1 else "have"
+        warnings.append(
+            _issue(
+                "missing_guardrails",
+                "warning",
+                missing_paths,
+                f"{len(missing_paths)} analyzable {noun} {verb} no ai_context.guardrails; "
+                "analysis may proceed but the agent lacks usage constraints.",
+                repair(
+                    kind="reauthor",
+                    canonical_id="metric",
+                    action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
+                ),
+                details={"missing_refs": list(missing_paths)},
             )
+        )
     return blockers, warnings
 
 

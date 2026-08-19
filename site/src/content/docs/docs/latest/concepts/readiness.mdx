@@ -138,7 +138,7 @@ not block certification.
 | `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
 | `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
 | `metric_graph_invalid` | blocker | A catalog/runtime graph violates a governed-leaf, weighted-mean, datasource-domain, depth, or occurrence constraint. | Repair the reported leaf or rebuild the closed expression within the graph limits. |
-| `missing_guardrails` | warning | A checked metric, entity, dimension, measure, or time dimension has no `ai_context.guardrails`. Guardrails are recommended enrichment, not a certification requirement. | Add `guardrails` when explicit usage constraints would help. |
+| `missing_guardrails` | warning | A checked metric, entity, dimension, measure, or time dimension has no `ai_context.guardrails`; one warning aggregates every affected semantic ref (per-ref detail in `refs`/`details`). Guardrails are recommended enrichment, not a certification requirement. | Add `guardrails` when explicit usage constraints would help. |
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
