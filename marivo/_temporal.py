@@ -1012,6 +1012,7 @@ class FrameTemporalContractV1(BaseModel):
     cumulative_reset_period: PeriodBindingV1 | None = None
     actual_start: date | datetime | None = None
     actual_end: date | datetime | None = None
+    data_extent_end: date | datetime | None = None
     output_period_keys: tuple[_JSON_SCALAR, ...] = ()
     period_key_absence_reason: str | None = None
     display_timezone: str

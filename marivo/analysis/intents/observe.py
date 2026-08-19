@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime
 from time import monotonic
 from types import SimpleNamespace
 from typing import Any, Literal, cast
@@ -983,12 +983,18 @@ def _build_frame_temporal_contract(
             "semantic observation grain active but frame has no period_key column; "
             "certified period labels were not attached"
         )
+    data_extent_end: date | datetime | None = None
+    if "data_extent_end" in frame.columns and len(frame) > 0:
+        candidate = frame["data_extent_end"].iloc[0]
+        if candidate is not None and not pd.isna(candidate):
+            data_extent_end = candidate
     return FrameTemporalContractV1(
         time_scope=scope_contract,
         observation_period=observation_period,
         cumulative_reset_period=reset_period,
         actual_start=scope_contract.start,
         actual_end=scope_contract.end,
+        data_extent_end=data_extent_end,
         output_period_keys=output_keys,
         period_key_absence_reason=period_key_absence_reason,
         display_timezone=report_timezone,

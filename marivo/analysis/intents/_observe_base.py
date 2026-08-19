@@ -6,10 +6,12 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe``.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date, datetime
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 import ibis
+import pandas as pd
 from ibis.expr.operations.relations import Field
 
 from marivo._temporal import Grain as TemporalGrain
@@ -20,6 +22,7 @@ from marivo.analysis.executor.bucketing import (
     bucket_start_expr,
     ensure_bucket_start_timestamp,
     materialize_semantic_period_columns,
+    semantic_period_civil_date_expr,
 )
 from marivo.analysis.executor.runner import execute
 from marivo.analysis.executor.windowing import (
@@ -612,6 +615,56 @@ def _execute_snapshot_base(
     )
 
 
+def _semantic_data_end(
+    table: Any,
+    *,
+    time_dimension_ir: Any,
+    resolved_window: AbsoluteWindow,
+    read_tz: ZoneInfo,
+    profile: Any,
+    dataset_ir: Any,
+    session: Session,
+    primary_datasource: str,
+) -> date | None:
+    """Return the last observed civil date for a semantic grain, or None.
+
+    Symmetric to the leading-edge ``data_start`` query used by cumulative
+    observe: it computes ``max(civil_date)`` over the window-filtered table so
+    a tail period whose data stops short of its certified end can be flagged as
+    data-incomplete.
+    """
+    snapshot = resolved_window.temporal_snapshot
+    if snapshot is None:
+        return None
+    raw = time_dimension_ir.fn(table)
+    civil_date = semantic_period_civil_date_expr(
+        table,
+        raw=raw,
+        field_ir=time_dimension_ir,
+        window=resolved_window,
+        snapshot=snapshot,
+        datasource_read_tz=read_tz,
+        dataset_ir=dataset_ir,
+        profile=profile,
+    )
+    data_end_result = execute(
+        table.aggregate(value=civil_date.max()),
+        datasource_name=primary_datasource,
+        cache=session._connection_runtime,
+        session_id=session.id,
+    )
+    if data_end_result.df.empty:
+        return None
+    value = data_end_result.df.iloc[0]["value"]
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
 def _execute_base(
     plan: BaseObservePlan,
     metric_ir: Any,
@@ -737,6 +790,16 @@ def _execute_base(
             and resolved_window.grain.kind == "semantic"
             and resolved_window.temporal_snapshot is not None
         ):
+            data_end = _semantic_data_end(
+                plan.table,
+                time_dimension_ir=time_dimension_ir,
+                resolved_window=resolved_window,
+                read_tz=read_tz,
+                profile=profile,
+                dataset_ir=root_adapter,
+                session=session,
+                primary_datasource=primary_datasource,
+            )
             result = replace(
                 result,
                 df=materialize_semantic_period_columns(
@@ -744,6 +807,7 @@ def _execute_base(
                     snapshot=resolved_window.temporal_snapshot,
                     grain=resolved_window.grain,
                     window=resolved_window,
+                    data_end=data_end,
                 ),
             )
         if "bucket_start" in result.df and not (
@@ -824,6 +888,16 @@ def _execute_base(
             and resolved_window.grain.kind == "semantic"
             and resolved_window.temporal_snapshot is not None
         ):
+            data_end = _semantic_data_end(
+                plan.table,
+                time_dimension_ir=time_dimension_ir,
+                resolved_window=resolved_window,
+                read_tz=read_tz,
+                profile=profile,
+                dataset_ir=root_adapter,
+                session=session,
+                primary_datasource=primary_datasource,
+            )
             result = replace(
                 result,
                 df=materialize_semantic_period_columns(
@@ -831,6 +905,7 @@ def _execute_base(
                     snapshot=resolved_window.temporal_snapshot,
                     grain=resolved_window.grain,
                     window=resolved_window,
+                    data_end=data_end,
                 ),
             )
         if "bucket_start" in result.df and not (

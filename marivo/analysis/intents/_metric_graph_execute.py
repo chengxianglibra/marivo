@@ -33,6 +33,7 @@ from marivo.analysis.intents._observe_base import (
     _aggregate_component_contract,
     _execute_base,
     _is_component_aggregate,
+    _semantic_data_end,
 )
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
@@ -258,6 +259,19 @@ def _execute_fused_base_group(
         and resolved_window.grain.kind == "semantic"
         and resolved_window.temporal_snapshot is not None
     ):
+        assert resolved_window is not None
+        assert time_dimension_ir is not None
+        assert root_adapter is not None
+        data_end = _semantic_data_end(
+            plan.table,
+            time_dimension_ir=time_dimension_ir,
+            resolved_window=resolved_window,
+            read_tz=datasource_read_timezone(session._connection_runtime, plan.datasource_name),
+            profile=datasource_engine_profile(session._connection_runtime, plan.datasource_name),
+            dataset_ir=root_adapter,
+            session=session,
+            primary_datasource=plan.datasource_name,
+        )
         result = replace(
             result,
             df=materialize_semantic_period_columns(
@@ -265,6 +279,7 @@ def _execute_fused_base_group(
                 snapshot=resolved_window.temporal_snapshot,
                 grain=resolved_window.grain,
                 window=resolved_window,
+                data_end=data_end,
             ),
         )
     if (

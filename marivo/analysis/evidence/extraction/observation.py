@@ -207,6 +207,20 @@ def _scalar_digest(df: pd.DataFrame, measure_column: str) -> ScalarObservationVa
     return ScalarObservationValue(value=_clean_float(df.iloc[0][measure_column]))
 
 
+def _tail_bucket_partial(ordered: pd.DataFrame) -> bool:
+    """True when the last bucket in a time-ordered frame is data-truncated.
+
+    Only the data-arrival signal (``has_full_data``) is consulted; the scope
+    coverage signal (``is_complete``) keeps its existing meaning and does not
+    gate direction here.  When the frame carries no ``has_full_data`` column
+    (e.g. non-semantic grains) the tail is treated as complete.
+    """
+    if ordered.empty or "has_full_data" not in ordered.columns:
+        return False
+    tail = ordered.iloc[-1]["has_full_data"]
+    return tail is not None and not bool(tail)
+
+
 def _time_series_digest(
     df: pd.DataFrame, measure_column: str, time_column: str | None
 ) -> TimeSeriesObservationValue:
@@ -221,6 +235,8 @@ def _time_series_digest(
     present = [v for v in values if v is not None]
     first_value = values[0] if values else None
     last_value = values[-1] if values else None
+    partial_tail = _tail_bucket_partial(ordered)
+    direction = "undefined" if partial_tail else _direction(first_value, last_value)
     return TimeSeriesObservationValue(
         bucket_count=len(ordered),
         first_bucket=_bucket_key(ordered.iloc[0][time_column]),
@@ -230,7 +246,8 @@ def _time_series_digest(
         min_value=min(present) if present else None,
         max_value=max(present) if present else None,
         mean_value=sum(present) / len(present) if present else None,
-        endpoint_change_direction=_direction(first_value, last_value),
+        partial_tail_bucket=partial_tail,
+        endpoint_change_direction=direction,
     )
 
 

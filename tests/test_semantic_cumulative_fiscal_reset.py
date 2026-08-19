@@ -258,9 +258,10 @@ def test_semantic_period_columns_constant_matches_materializer_output() -> None:
     materializer; this pin makes drift fail at test time.
 
     The materializer emits ``period_key``/``period_start``/``period_end``/
-    ``period_ordinal`` always, and appends ``observed_start``/``observed_end``/
-    ``is_complete`` only when a window bounds the observation.  The constant's
-    canonical order must match the emitted column order exactly.
+    ``period_ordinal`` always, appends ``observed_start``/``observed_end``/
+    ``is_complete`` only when a window bounds the observation, and appends
+    ``data_extent_end``/``has_full_data`` only when ``data_end`` is supplied.
+    The constant's canonical order must match the emitted column order exactly.
     """
     snapshot = _fiscal_week_snapshot()
     grain = _fiscal_grain(level="fiscal_week")
@@ -281,4 +282,16 @@ def test_semantic_period_columns_constant_matches_materializer_output() -> None:
         window=AbsoluteWindow(start="2026-01-01", end="2026-01-15"),
     )
     emitted = [column for column in with_window.columns if column not in ("bucket_start", "value")]
+    assert emitted == list(SEMANTIC_PERIOD_COLUMNS[:7])
+
+    with_data_end = materialize_semantic_period_columns(
+        frame,
+        snapshot=snapshot,
+        grain=grain,
+        window=AbsoluteWindow(start="2026-01-01", end="2026-01-15"),
+        data_end="2026-01-10",
+    )
+    emitted = [
+        column for column in with_data_end.columns if column not in ("bucket_start", "value")
+    ]
     assert emitted == list(SEMANTIC_PERIOD_COLUMNS)

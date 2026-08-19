@@ -1884,10 +1884,16 @@ FrameTemporalContractV1:
   cumulative_reset_period: PeriodBindingV1 | null
   actual_start
   actual_end
+  data_extent_end: date | null
   output_period_keys[]
   period_key_absence_reason: str | null
   display_timezone
 ```
+
+`data_extent_end` records the last observed civil date within the window
+(inclusive); it is independent of scope coverage — a period may be fully
+scope-covered yet data-incomplete, and `data_extent_end` (together with the
+frame's `has_full_data` arrival column) is what separates the two.
 
 `TimeScopeContractV1` is the closed tagged serialization of the three `TimeScope`
 variants already defined in this document. An absolute scope stores normalized

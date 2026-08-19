@@ -5,6 +5,7 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe``.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,7 @@ from marivo.analysis.executor.windowing import (
     datasource_read_timezone,
     resolve_window_time_field,
 )
+from marivo.analysis.intents._observe_base import _semantic_data_end
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
     _catalog_object,
@@ -57,6 +59,7 @@ def _materialize_semantic_cumulative_result(
     result: tuple[Any, dict[str, Any], Any, Any | None, Any | None],
     *,
     window: AbsoluteWindow | None,
+    data_end: date | None = None,
 ) -> tuple[Any, dict[str, Any], Any, Any | None, Any | None]:
     """Attach certified period keys to every dense cumulative output path."""
     if (
@@ -72,6 +75,7 @@ def _materialize_semantic_cumulative_result(
         snapshot=window.temporal_snapshot,
         grain=window.grain,
         window=window,
+        data_end=data_end,
     )
     if component_df is not None and "bucket_start" in component_df.columns:
         component_df = materialize_semantic_period_columns(
@@ -79,6 +83,7 @@ def _materialize_semantic_cumulative_result(
             snapshot=window.temporal_snapshot,
             grain=window.grain,
             window=window,
+            data_end=data_end,
         )
     return output, axes, semantic_kind, coverage_df, component_df
 
@@ -946,6 +951,27 @@ def _execute_cumulative(
     ) or "day"
     ensure_grain_supported(resolved_window.grain, base)
 
+    # Symmetric to the base observe path: expose the last observed civil date
+    # so cumulative semantic-grain frames carry the same data-arrival columns
+    # (data_extent_end / has_full_data) and stay axis-compatible with base
+    # metric roots in a mixed forest.
+    data_end: date | None = None
+    if (
+        isinstance(resolved_window.grain, TemporalGrain)
+        and resolved_window.grain.kind == "semantic"
+        and resolved_window.temporal_snapshot is not None
+    ):
+        data_end = _semantic_data_end(
+            base_plan.table,
+            time_dimension_ir=time_dimension_ir,
+            resolved_window=resolved_window,
+            read_tz=read_tz,
+            profile=profile,
+            dataset_ir=root_adapter,
+            session=session,
+            primary_datasource=primary_datasource,
+        )
+
     # grain_to_date grain-compatibility guard (teaching error): week query
     # grain under month/quarter/year reset is illegal because week buckets
     # straddle reset boundaries. Applies to sum/count and count_distinct.
@@ -990,6 +1016,7 @@ def _execute_cumulative(
                 agg=agg,
             ),
             window=resolved_window,
+            data_end=data_end,
         )
 
     # Build the bucketed table from the window-filtered table (base_plan.table)
@@ -1489,6 +1516,7 @@ def _execute_cumulative(
     return _materialize_semantic_cumulative_result(
         (_Result(dense_df), axes, semantic_kind, None, component_df),
         window=resolved_window,
+        data_end=data_end,
     )
 
 

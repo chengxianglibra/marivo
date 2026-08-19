@@ -599,6 +599,186 @@ def test_semantic_reset_binds_derived_forest_and_recovers(
     assert recovered.meta.cumulative["compare_blocker"] == "non_cumulative_component"
 
 
+def test_semantic_tail_bucket_distinguishes_scope_complete_from_data_arrival(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    # Data stops at 2026-02-08, short of the Feb fiscal month (M2, through 02-28).
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = mv.session.get_or_create(
+        name="fiscal-tail-arrival",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
+    gmv = session.catalog.require(ms.ref.metric("sales.gmv")).ref
+    frame = session.observe(
+        gmv,
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_month,
+    )
+    df = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert df["period_key"].tolist() == ["M1", "M2"]
+    # Both months are fully inside the requested scope (scope coverage), but only
+    # M1 has data through its certified end (data arrival).  M2 is truncated at
+    # 2026-02-08, so it must be flagged data-incomplete.
+    assert df["is_complete"].tolist() == [True, True]
+    assert df["has_full_data"].tolist() == [True, False]
+    assert df["data_extent_end"].iloc[0] == date(2026, 2, 8)
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.data_extent_end == date(2026, 2, 8)
+
+
+def test_semantic_fused_frame_carries_arrival_columns(
+    semantic_project_factory, monkeypatch
+) -> None:
+    """Fused (multi-metric) observation must keep the data-arrival columns.
+
+    Issue #102 P2: the fused per-leaf projection dropped the arrival columns
+    after materialization, so multi-metric frames never exposed
+    ``has_full_data``/``data_extent_end``.  Pin that a semantic-grain fused
+    frame carries them (and the contract reads ``data_extent_end``) exactly as
+    the single-metric path does.
+    """
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = mv.session.get_or_create(
+        name="fiscal-fused-arrival",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
+    gmv = session.catalog.require(ms.ref.metric("sales.gmv")).ref
+    active_users = session.catalog.require(ms.ref.metric("sales.active_users")).ref
+    frame = session.observe(
+        [gmv, active_users],
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_month,
+    )
+    df = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert "has_full_data" in df.columns
+    assert "data_extent_end" in df.columns
+    assert df["has_full_data"].tolist() == [True, False]
+    assert df["data_extent_end"].iloc[0] == date(2026, 2, 8)
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.data_extent_end == date(2026, 2, 8)
+    assert frame.meta.temporal_contract.output_period_keys == ("M1", "M2")
+
+
+def test_semantic_fused_truncated_digest_suppresses_direction(
+    semantic_project_factory, monkeypatch
+) -> None:
+    """A truncated fused observation must suppress its endpoint direction.
+
+    Issue #102 P2: without the arrival columns, a truncated fused tail bucket
+    was read as complete and its endpoint direction derived (the exact
+    "quarter truncated read as a decline" misjudgment the issue targets).  Pin
+    that the digest flags ``partial_tail_bucket`` and leaves direction
+    undefined.
+    """
+    from marivo.analysis.evidence.extraction.observation import build_observation_digest
+
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    session = mv.session.get_or_create(
+        name="fiscal-fused-truncated-digest",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    semantic_month = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_month")
+    gmv = session.catalog.require(ms.ref.metric("sales.gmv")).ref
+    active_users = session.catalog.require(ms.ref.metric("sales.active_users")).ref
+    frame = session.observe(
+        [gmv, active_users],
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_month,
+    )
+    df = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    digest = build_observation_digest(
+        df=df,
+        semantic_kind="time_series",
+        measure_column="gmv",
+        time_column="bucket_start",
+    )
+    assert digest.partial_tail_bucket is True
+    assert digest.endpoint_change_direction == "undefined"
+
+
 def test_semantic_membership_uses_calendar_boundary_timezone(
     semantic_project_factory, monkeypatch
 ) -> None:

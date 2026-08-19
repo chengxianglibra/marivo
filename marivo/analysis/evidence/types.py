@@ -342,6 +342,7 @@ class TimeSeriesObservationValue(_FrozenModel):
     min_value: float | None = None
     max_value: float | None = None
     mean_value: float | None = None
+    partial_tail_bucket: bool = False
     endpoint_change_direction: Direction = "undefined"
     unit: str | None = None
 

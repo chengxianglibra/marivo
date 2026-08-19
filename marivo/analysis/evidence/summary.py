@@ -128,6 +128,7 @@ def render_digest_item(item: DigestItem) -> str:
             return (
                 f"observation buckets={value.bucket_count} first={_number(value.first_value)} "
                 f"last={_number(value.last_value)} "
+                f"partial_tail_bucket={str(value.partial_tail_bucket).lower()} "
                 f"endpoint_change_direction={value.endpoint_change_direction}"
             )
         if isinstance(value, SegmentedObservationValue):
