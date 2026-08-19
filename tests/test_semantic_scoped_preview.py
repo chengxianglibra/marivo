@@ -1216,6 +1216,14 @@ fiscal = ms.period_calendar(
     before = catalog.readiness(refs=[calendar_ref])
     assert any(issue.kind == "period_calendar_snapshot_missing" for issue in before.blockers)
 
+    missing_snapshot_calendar = catalog.period_calendars.get(calendar_ref)
+    with pytest.raises(SemanticRuntimeError) as missing_snapshot:
+        missing_snapshot_calendar.period("week", "W1")
+    assert missing_snapshot.value.details["operation"] == "snapshot"
+    assert missing_snapshot.value.repair is not None
+    assert missing_snapshot.value.repair.candidates == ()
+    assert "catalog.readiness(refs=" in missing_snapshot.value.repair.action
+
     verified = catalog.verify(calendar_ref)
     assert verified.status == "passed"
     assert verified.kind == "period_calendar"
@@ -1248,6 +1256,24 @@ fiscal = ms.period_calendar(
     assert missing_period.value.kind == "not_found"
     assert missing_period.value.details["operation"] == "period"
     assert missing_period.value.repair is not None
+    assert missing_period.value.repair.candidates == ()
+    assert "periods(level)" in missing_period.value.repair.action
+    assert "catalog.domains.show()" not in (missing_period.value.hint or "")
+    assert "periods(level)" in (missing_period.value.hint or "")
+    assert "details()" in (missing_period.value.hint or "")
+
+    with pytest.raises(SemanticRuntimeError) as missing_date:
+        calendar.period_on("week", date(2026, 2, 1))
+    assert missing_date.value.kind == "not_found"
+    assert missing_date.value.details["operation"] == "period_on"
+    assert missing_date.value.repair is not None
+    assert missing_date.value.repair.candidates == ()
+
+    with pytest.raises(SemanticRuntimeError) as missing_level:
+        calendar.grain("quarter")
+    assert missing_level.value.kind == "not_found"
+    assert missing_level.value.details["operation"] == "grain"
+    assert "catalog.domains.show()" not in (missing_level.value.hint or "")
 
     with pytest.raises(SemanticRuntimeError) as bad_cursor:
         calendar.periods("week", cursor="not-a-cursor")
