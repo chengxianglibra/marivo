@@ -135,10 +135,12 @@ one instead of a single monolithic manual:
   `analysis.compare`, or `analysis.recover`) owns signatures, artifact
   families, constraints, return types, errors, and runnable examples. Frames
   and results own dynamic guidance:
-  `show()` describes an artifact's current state; `contract()` describes the
-  mechanically valid next actions from where it is now. Structured errors own
-  repair guidance with typed `AnalysisRepair` instructions. Judgment stays with
-  the agent.
+  `show()` describes an artifact's current state and only state-dependent
+  continuation hints; `contract()` describes the complete mechanically valid
+  next actions from where it is now. Readable operation labels use registry-owned
+  public entry points such as `session.compare(...)`; stable capability ids stay
+  in the structured contract. Structured errors own repair guidance with typed
+  `AnalysisRepair` instructions. Judgment stays with the agent.
 - **The `marivo-analysis` skill — hard boundaries, handoffs, evidence continuity,
   and closeout obligations.** It is a one-file boundary kernel. It does not
   duplicate the help contract, frame/result guidance, or error repair guidance.

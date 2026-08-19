@@ -431,6 +431,47 @@ def _affordance_visible(affordance: ArtifactAffordance) -> bool:
     )
 
 
+def _capability_public_entrypoint(capability_id: str) -> str:
+    """Return the registry-owned public entrypoint for one capability."""
+    registry_module = importlib.import_module("marivo.analysis._capabilities.registry")
+    return str(registry_module.REGISTRY.by_id(capability_id).public_entrypoint)
+
+
+def _analysis_help_call(help_target: str) -> str:
+    """Render one analysis help target as a directly callable public path."""
+    return f'marivo.help("analysis.{help_target}")'
+
+
+def _repair_help_call(repair: AnalysisRepair) -> str:
+    """Render a structured repair help target as a public marivo.help call."""
+    target = repair.help_target
+    qualified = (
+        f"{target.surface}.{target.canonical_id}"
+        if target.canonical_id is not None
+        else str(target.surface)
+    )
+    return f'marivo.help("{qualified}")'
+
+
+def _affordance_group(
+    affordance: ArtifactAffordance,
+) -> Literal["session", "discover", "frame", "transform", "candidates"]:
+    entrypoint = affordance.public_entrypoint
+    if entrypoint.startswith("session.discover."):
+        return "discover"
+    if entrypoint.startswith("session."):
+        return "session"
+    if entrypoint.startswith("frame.transform."):
+        return "transform"
+    if entrypoint.startswith("candidates."):
+        return "candidates"
+    return "frame"
+
+
+def _contract_receiver(contract: ArtifactContract) -> str:
+    return "candidates" if contract.kind == "candidate_set" else "frame"
+
+
 def _artifact_contract_card(contract: ArtifactContract) -> Card:
     """Build the bounded contract card from already-materialized typed facts."""
     semantic_shape = contract.artifact_schema.semantic_shape or "unspecified"
@@ -450,7 +491,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             ),
         )
         .field("canonical_state", "canonical" if contract.is_canonical else "non_canonical")
-        .field("receiver", "frame")
+        .field("receiver", _contract_receiver(contract))
         .field("semantic_shape", semantic_shape)
         .field("output_columns", repr(list(contract.output_columns)))
         .listing(
@@ -468,7 +509,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
             (
                 f"{item.role}: {item.semantic_kind.value}:{item.semantic_path}"
                 + (f" output_column={item.output_column}" if item.output_column is not None else "")
-                + f"; acquire={item.acquisition}; help={item.help_target}"
+                + f"; acquire={item.acquisition}; help={_analysis_help_call(item.help_target.removeprefix('analysis.'))}"
                 for item in contract.semantic_inputs
             ),
         )
@@ -494,7 +535,7 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
         else:
             admission_text += " multiple_axes=" + "|".join(admission.mode.multiple_axes)
             admission_text += f" multiple_axes_default={admission.mode.multiple_axes_default}"
-        card.field("attribute_admission", admission_text)
+        card.field(f"{_capability_public_entrypoint('attribute')} admission", admission_text)
     if contract.cumulative_attribution is not None:
         capability = contract.cumulative_attribution
         for route_name, route in (
@@ -507,7 +548,10 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
                 if route.status == "supported"
                 else f"blocked blocker={route.blocker}"
             )
-            card.field(f"attribute.{route_name}", route_text)
+            card.field(
+                f"{_capability_public_entrypoint('attribute')} [{route_name}]",
+                route_text,
+            )
     if contract.row_arithmetic is not None:
         card.field("row_arithmetic", contract.row_arithmetic)
     if contract.temporal_contract is not None:
@@ -519,20 +563,27 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
     affordances = tuple(
         affordance for affordance in contract.affordances if _affordance_visible(affordance)
     )
-    card.listing("typed affordances", (_render_affordance(item) for item in affordances))
+    if not affordances:
+        card.field("continuations", "none")
+    else:
+        card.field("continuations", "mechanical, unranked")
+        for group in ("session", "discover", "frame", "transform", "candidates"):
+            grouped = tuple(item for item in affordances if _affordance_group(item) == group)
+            if grouped:
+                card.listing(group, (_render_affordance(item) for item in grouped))
     precondition_lines = tuple(
         line
         for affordance in affordances
         for precondition in affordance.preconditions
         if _visible_precondition(precondition)
-        for line in _render_precondition(affordance.capability_id, precondition)
+        for line in _render_precondition(affordance, precondition)
     )
     if precondition_lines:
         card.listing("preconditions and repairs", precondition_lines)
     card.listing(
-        "terminal boundary ports",
+        "terminal exits",
         (
-            f"{port.capability_id}: {port.public_entrypoint}; help={port.help_target}; "
+            f"{port.public_entrypoint}; help={_analysis_help_call(port.help_target)}; "
             f"preserves={', '.join(port.preserves)}; "
             f"does_not_preserve={', '.join(port.does_not_preserve)}"
             for port in contract.boundary_ports
@@ -556,9 +607,8 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
         for requirement in affordance.input_requirements
     )
     base = (
-        f"{affordance.capability_id}: {affordance.public_entrypoint}; "
-        f"help={affordance.help_target}; inputs={bindings or 'none'}; "
-        f"output={affordance.expected_output_family or 'none'}"
+        f"{affordance.public_entrypoint} -> {affordance.expected_output_family or 'none'}; "
+        f"inputs={bindings or 'none'}; help={_analysis_help_call(affordance.help_target)}"
     )
     if not affordance.call_options:
         return base
@@ -567,26 +617,21 @@ def _render_affordance(affordance: ArtifactAffordance) -> str:
 
 
 def _render_precondition(
-    capability_id: str,
+    affordance: ArtifactAffordance,
     precondition: ArtifactPrecondition,
 ) -> tuple[str, ...]:
     reason = precondition.reason or "none"
-    lines = [f"{capability_id}.{precondition.check}: status={precondition.status}; reason={reason}"]
+    label = f"{affordance.public_entrypoint} [{precondition.check}]"
+    lines = [f"{label}: status={precondition.status}; reason={reason}"]
     repairs = (
         (precondition.repair,) if precondition.repair is not None else precondition.repair_options
     )
     for index, repair in enumerate(repairs, start=1):
         snippet = repair.snippet.replace("\n", "\\n") if repair.snippet is not None else "none"
-        target = repair.help_target
-        help_target = (
-            f"{target.surface}:{target.canonical_id}"
-            if target.canonical_id is not None
-            else target.surface
-        )
         option = f" option={index}" if len(repairs) > 1 else ""
         lines.append(
-            f"{capability_id}.{precondition.check}{option}: repair={repair.kind}; "
-            f"action={repair.action}; help={help_target}; snippet={snippet}"
+            f"{label}{option}: repair={repair.kind}; "
+            f"action={repair.action}; help={_repair_help_call(repair)}; snippet={snippet}"
         )
     return tuple(lines)
 
@@ -818,6 +863,14 @@ class BaseFrame(RenderableResult):
                 input_requirements=input_requirements,
                 expected_output_family=output_family,
             )
+            if desc.id in {"MetricFrame.components", "DeltaFrame.components"}:
+                from marivo.analysis.frames._component_contract import (
+                    _component_frame_contract_precondition,
+                )
+
+                affordance = affordance.model_copy(
+                    update={"preconditions": (_component_frame_contract_precondition(self),)}
+                )
             # Suppress affordances with failed preconditions that lack visible repair.
             if _affordance_visible(affordance):
                 affordances.append(affordance)

@@ -251,6 +251,16 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     rendered = candidates.render()
     assert "Order volume may help explain revenue movement." in rendered
     assert "candidates.select(item_id=" in rendered
+    select_continuation = next(
+        item
+        for item in candidates.contract().affordances
+        if item.capability_id == "CandidateSet.select"
+    )
+    assert select_continuation.expected_output_family == "OntologyMetricCandidate"
+    assert (
+        "candidates.select(item_id=...) -> OntologyMetricCandidate"
+        in candidates.contract().render()
+    )
 
     recovered = session.get_frame(candidates.ref)
     selected = recovered.select(item_id=str(row["item_id"]))

@@ -1608,7 +1608,7 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         ReadCapability(
             id="CandidateSet.select",
-            public_entrypoint="cands.select(...)",
+            public_entrypoint="candidates.select(item_id=...)",
             help_target="CandidateSet.select",
             summary="Return one closed shape-specific selection by its stable item_id.",
             root_group="family_operations",

@@ -827,14 +827,24 @@ digest before the result preview. The same value is available as
 `artifact.evidence_digest`; check `artifact.evidence_status` for degradation.
 Use `session.evidence` for exact findings and derivation traces.
 
+`artifact.show()` adds only continuation hints that depend on the current
+artifact state, using public calls such as `session.compare(...)` or
+`session.attribute(...)`. It does not repeat the generic capability matrix on
+every frame. `artifact.contract().show()` is the complete readable continuation
+surface: entries are grouped by public receiver, use copyable public entry
+points, and link to callable `marivo.help("analysis.<target>")` references.
+
 Use `artifact.contract().affordances` to inspect mechanical compatibility. Each
 affordance carries a `capability_id` (stable registry id), `public_entrypoint`,
 `help_target`, role-preserving `inputs`, `preconditions`, and
 `expected_output_family`. Every input records its exact parameter name,
 accepted artifact families, and whether the current artifact can bind it. The
-contract does not rank, recommend, enumerate calls, or decide the next step.
+contract does not rank, recommend, or decide the next step. Readable labels omit
+`capability_id`; the stable id remains available through the structured contract
+and `model_dump()`.
 `artifact.contract().boundary_ports` lists typed terminal-exit ports
-(e.g. `boundary.to_pandas`) with `preserves` and `does_not_preserve` guarantees.
+(e.g. structured id `boundary.to_pandas`) with `preserves` and
+`does_not_preserve` guarantees; the readable label is `frame.to_pandas()`.
 
 ### Structured errors
 

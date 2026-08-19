@@ -208,6 +208,14 @@ def test_select_dispatches_all_six_shapes(shape, row, expected_type):
     assert not hasattr(selection, "rank")
     assert not hasattr(selection, "affordances")
     assert not hasattr(selection, "constraints")
+    continuation = next(
+        item
+        for item in candidates.contract().affordances
+        if item.capability_id == "CandidateSet.select"
+    )
+    assert continuation.public_entrypoint == "candidates.select(item_id=...)"
+    assert continuation.expected_output_family == expected_type.__name__
+    assert "candidates.select(item_id=...) ->" in candidates.contract().render()
 
 
 def test_select_has_no_attribute_route_and_returns_complete_point_value():

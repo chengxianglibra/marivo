@@ -381,14 +381,20 @@ def test_artifact_contract_renders_structured_sections_in_contract_order() -> No
         "semantic_shape:",
         "output_columns:",
         "columns:",
-        "typed affordances:",
+        "continuations: mechanical, unranked",
+        "session:",
         "preconditions and repairs:",
-        "terminal boundary ports:",
+        "terminal exits:",
     )
     positions = tuple(rendered.index(label) for label in labels)
     assert positions == tuple(sorted(positions))
     assert "receiver: frame" in rendered
     assert contract.output_columns == ()
+    assert "session.compare(...) -> DeltaFrame" in rendered
+    assert "compare: session.compare" not in rendered
+    assert 'help=marivo.help("analysis.compare")' in rendered
+    assert "compare.single_metric" not in rendered
+    assert "session.compare(...) [single_metric]" in rendered
     assert 'frame.metric("sales.revenue")' in rendered
     assert 'frame.metric("sales.order_count")' in rendered
     assert contract.model_dump()["affordances"][0]["preconditions"][0]["repair_options"]
@@ -428,7 +434,7 @@ def test_every_artifact_has_one_terminal_boundary_port() -> None:
 
 
 def test_affordances_match_registry_edges() -> None:
-    """Every affordance capability_id is a registered consumer of this family."""
+    """Every affordance is a registered operator consumer or receiver-owned read."""
     for artifact in _artifact_cases():
         tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
         family = type(artifact).__name__
@@ -436,11 +442,17 @@ def test_affordances_match_registry_edges() -> None:
         registered = set(REGISTRY.constructor_consumers.get(family, ()))
         # boundary.to_pandas is in boundary_ports, not affordances.
         affordance_ids = {a.capability_id for a in contract.affordances}
-        # All affordance ids must be registered consumers (excluding boundary).
         non_boundary = affordance_ids - {"boundary.to_pandas"}
-        assert non_boundary <= registered, (
-            f"{tag}: affordance ids {non_boundary - registered} not in registry consumers"
-        )
+        for capability_id in non_boundary:
+            if capability_id in registered:
+                continue
+            descriptor = REGISTRY.by_id(capability_id)
+            assert descriptor.kind == "read", (
+                f"{tag}: affordance {capability_id!r} is not an operator consumer or read"
+            )
+            assert descriptor.receiver_family == family, (
+                f"{tag}: read {capability_id!r} belongs to {descriptor.receiver_family!r}"
+            )
 
 
 def test_every_affordance_output_family_is_non_null() -> None:
@@ -511,7 +523,7 @@ def test_unsafe_failed_precondition_without_repair_is_suppressed_from_render() -
     )
 
     rendered = contract.render()
-    assert "typed affordances: none" in rendered
+    assert "continuations: none" in rendered
     assert "session.compare" not in rendered
 
 
@@ -682,7 +694,8 @@ def test_delta_show_surfaces_direct_component_attribution() -> None:
 
     rendered = frame.render()
 
-    assert "attribute: direct attribute is supported" in rendered
+    assert "session.attribute(...): supported; attribution_shape=weighted_mix" in rendered
+    assert "\nattribute:" not in rendered
     assert "attribution_shape=weighted_mix" in rendered
     assert "lowered_from=mean" in rendered
 
@@ -692,8 +705,9 @@ def test_delta_show_surfaces_blocked_non_additive_attribution() -> None:
 
     rendered = frame.render()
 
-    assert "attribute: blocked:" in rendered
-    assert "inspect .contract() for repair" in rendered
+    assert "session.attribute(...): blocked; reason=unsupported_aggregate" in rendered
+    assert "\nattribute:" not in rendered
+    assert "inspect frame.contract().show()" in rendered
 
 
 def test_delta_show_keeps_attribution_guidance_before_bounded_preview() -> None:
@@ -715,8 +729,69 @@ def test_delta_show_keeps_attribution_guidance_before_bounded_preview() -> None:
 
     rendered = frame.render()
 
-    assert "attribute: direct attribute is supported" in rendered
-    assert rendered.index("attribute:") < rendered.index("preview:")
+    assert "session.attribute(...): supported; attribution_shape=ratio_mix" in rendered
+    assert rendered.index("session.attribute(...):") < rendered.index("preview:")
+
+
+def test_metric_show_does_not_duplicate_static_contract_affordances() -> None:
+    rendered = next(_artifact_cases()).render()
+
+    assert "session.compare(...)" not in rendered
+    assert "session.forecast(...)" not in rendered
+    assert "session.discover." not in rendered
+    assert "frame.transform." not in rendered
+
+
+def test_terminal_result_contract_renders_explicit_no_continuations() -> None:
+    association = next(
+        artifact for artifact in _artifact_cases() if isinstance(artifact, AssociationResult)
+    )
+
+    rendered = association.contract().render()
+
+    assert "continuations: none" in rendered
+    assert "typed affordances" not in rendered
+    assert "boundary.to_pandas:" not in rendered
+    assert 'frame.to_pandas(); help=marivo.help("analysis.boundary.to_pandas")' in rendered
+
+
+@pytest.mark.parametrize(
+    ("artifact_type", "capability_id"),
+    [
+        (MetricFrame, "MetricFrame.components"),
+        (DeltaFrame, "DeltaFrame.components"),
+    ],
+)
+def test_unavailable_component_reads_render_blocker_and_repair(
+    artifact_type: type[MetricFrame] | type[DeltaFrame],
+    capability_id: str,
+) -> None:
+    artifact = next(item for item in _artifact_cases() if isinstance(item, artifact_type))
+    affordance = next(
+        item for item in artifact.contract().affordances if item.capability_id == capability_id
+    )
+    precondition = next(
+        item for item in affordance.preconditions if item.check == "component_frame_available"
+    )
+
+    assert precondition.status == "fail"
+    assert precondition.repair is not None
+    rendered = artifact.contract().render(max_output_bytes=None)
+    assert f"{affordance.public_entrypoint} [component_frame_available]: status=fail" in rendered
+    expected_producer = "compare" if artifact_type is DeltaFrame else "observe"
+    assert expected_producer in (precondition.repair.snippet or precondition.repair.action)
+
+
+def test_candidate_contract_uses_candidate_receiver_group() -> None:
+    candidate_set = next(
+        artifact for artifact in _artifact_cases() if isinstance(artifact, CandidateSet)
+    )
+
+    rendered = candidate_set.contract().render(max_output_bytes=None)
+
+    assert "receiver: candidates" in rendered
+    assert "candidates:\n- candidates.select(item_id=...)" in rendered
+    assert "frame:\n- candidates.select(item_id=...)" not in rendered
 
 
 def test_delta_contract_keeps_additive_attribution_unblocked() -> None:

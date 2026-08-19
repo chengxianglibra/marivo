@@ -95,11 +95,13 @@ These rules govern every public surface change:
   single-line repr carrying kind and identity, pointing to `.show()` for
   detail. Default dataclass reprs are not acceptable on public result types.
 - Terminal results (objects an agent stops to read) implement bounded
-  `.show()` output with deterministic ordering and closing affordance hints
-  generated from real state. Typed artifacts and state-bearing datasource and
-  semantic objects/results additionally expose `.contract()` for mechanically
-  valid next actions. Explicit terminal boundaries such as `RawSqlResult`
-  remain contract-free when no typed continuation is valid.
+  `.show()` output with deterministic ordering. Artifact cards include only
+  continuation hints that depend on the artifact's current state, rendered
+  through the registry-owned public entry point; they do not repeat the full
+  capability matrix. Typed artifacts and state-bearing datasource and semantic
+  objects/results additionally expose `.contract()` for the complete set of
+  mechanically valid next actions. Explicit terminal boundaries such as
+  `RawSqlResult` remain contract-free when no typed continuation is valid.
 - Surface growth is gated: public `__all__` sets are pinned by a snapshot
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
@@ -146,10 +148,12 @@ Environment-verified live surfaces own capabilities and runtime guidance.
 `marivo.help("analysis.<target>")`, which owns the static analysis contract —
 signatures, artifact families, constraints, return types, errors, and runnable
 examples. Frames and results own dynamic guidance — `show()` describes current
-state, `contract()` describes mechanically valid next actions, and structured
-errors own repair guidance. The `marivo-analysis` skill owns hard boundaries,
-handoffs, evidence continuity, and closeout obligations. The agent owns
-planning and judgment.
+state and only state-dependent continuation hints, while `contract()` describes
+the complete set of mechanically valid next actions. Human-readable operation
+labels use registry-owned public entry points such as `session.compare(...)`;
+structured errors own repair guidance. The `marivo-analysis` skill owns hard
+boundaries, handoffs, evidence continuity, and closeout obligations. The agent
+owns planning and judgment.
 
 The skill is a one-file boundary kernel. It does not duplicate the help
 contract, frame/result guidance, or error repair guidance. It does not

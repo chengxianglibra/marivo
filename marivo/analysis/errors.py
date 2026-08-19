@@ -494,7 +494,8 @@ class SemanticKindMismatchError(AnalysisError):
                     action="Copy one exact item_id rendered by CandidateSet.show().",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
-                        'cands.show()\nselection = cands.select(item_id="candidate_<full sha256>")'
+                        "candidates.show()\n"
+                        'selection = candidates.select(item_id="candidate_<full sha256>")'
                     ),
                 ),
             )
@@ -650,9 +651,9 @@ class SemanticKindMismatchError(AnalysisError):
                     action="CandidateSet.select only operates on CandidateSet artifacts.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
-                        "cands = session.discover.point_anomalies(metric)\n"
-                        "cands.show()\n"
-                        'selection = cands.select(item_id="candidate_<full sha256>")'
+                        "candidates = session.discover.point_anomalies(metric)\n"
+                        "candidates.show()\n"
+                        'selection = candidates.select(item_id="candidate_<full sha256>")'
                     ),
                 ),
             )
@@ -1545,6 +1546,16 @@ class ComponentFrameUnavailableError(AnalysisError):
         loaded_kind = self._context.get("loaded_kind")
         component_ref = self._context.get("component_ref")
         composition = self._context.get("composition")
+        parent_kind = self._context.get("parent_kind")
+        producer = "compare" if parent_kind == "delta_frame" else "observe"
+        regeneration_snippet = (
+            "delta = session.compare(current, baseline)\ncomponents = delta.components()"
+            if parent_kind == "delta_frame"
+            else (
+                "frame = session.observe(session.catalog.require("
+                'ms.ref.metric("model.derived_ratio")))\ncomponents = frame.components()'
+            )
+        )
         if isinstance(loaded_kind, str):
             # A ref that resolves to a non-ComponentFrame: the parent's saved
             # pointer and the on-disk frame disagree — the artifact relationship
@@ -1556,10 +1567,11 @@ class ComponentFrameUnavailableError(AnalysisError):
                     action=(
                         "component_ref resolved to the wrong frame kind; the "
                         "metric/component artifact relationship is damaged. Re-run "
-                        "observe() to regenerate the metric frame and its component "
+                        f"{producer}() to regenerate the frame and its component "
                         "sidecar together."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    snippet=regeneration_snippet,
                 ),
             )
         if component_ref is not None:
@@ -1571,10 +1583,11 @@ class ComponentFrameUnavailableError(AnalysisError):
                     kind="retry",
                     action=(
                         "component_ref points at a sidecar that is missing on "
-                        "disk. Re-run observe() to regenerate the metric frame "
+                        f"disk. Re-run {producer}() to regenerate the frame "
                         "and its component sidecar."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
+                    snippet=regeneration_snippet,
                 ),
             )
         if isinstance(composition, dict):
@@ -1587,24 +1600,26 @@ class ComponentFrameUnavailableError(AnalysisError):
                     action=(
                         "The frame declares a component composition but no "
                         "component sidecar was persisted — an incomplete write. "
-                        "Re-run observe() to regenerate the frame and its sidecar."
+                        f"Re-run {producer}() to regenerate the frame and its sidecar."
                     ),
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                 ),
             )
+        action = (
+            "Component frames are only available for component-aware deltas produced by compare."
+            if parent_kind == "delta_frame"
+            else (
+                "Component frames are only available for derived ratio or weighted-mean "
+                "frames produced by component-aware observe/compare."
+            )
+        )
         return _DerivedFields(
             location="frame.components()",
             repair=AnalysisRepair(
                 kind="inspect",
-                action=(
-                    "Component frames are only available for derived ratio or "
-                    "weighted-mean frames produced by component-aware observe/compare."
-                ),
+                action=action,
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
-                snippet=(
-                    'frame = session.observe(session.catalog.require(ms.ref.metric("model.derived_ratio")))\n'
-                    "components = frame.components()"
-                ),
+                snippet=regeneration_snippet,
             ),
         )
 

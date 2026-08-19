@@ -50,6 +50,7 @@ from marivo.analysis.frames.base import (
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
+    _capability_public_entrypoint,
     _display_column_names,
     assert_semantic_shape,
 )
@@ -255,10 +256,14 @@ def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
 def _attribute_admission_text(meta: DeltaFrameMeta, admission: AttributeAdmissionV1) -> str:
     """Render the effective admission with bounded persisted source diagnostics."""
     status = (
-        f"supported attribution_shape={admission.attribution_shape}"
+        f"supported; attribution_shape={admission.attribution_shape}"
         if admission.status == "supported"
-        else f"blocked: {admission.blocker}"
+        else f"blocked; reason={admission.blocker}"
     )
+    if _supports_component_attribution(meta):
+        lowered_from = meta.composition.get("lowered_from") if meta.composition else None
+        if isinstance(lowered_from, str):
+            status += f"; lowered_from={lowered_from}"
     basis = meta.attribution_basis
     if basis is None:
         return status
@@ -797,30 +802,24 @@ class DeltaFrame(BaseFrame):
             )
         admission = _attribute_admission(self.meta)
         precondition = _attribution_contract_precondition(self.meta)
+        attribute_entrypoint = _capability_public_entrypoint("attribute")
         if isinstance(self.meta, CumulativeDeltaFrameMetaV1):
             capability = cumulative_attribution_capability(self.meta.cumulative_attribution)
             card.field(
-                "attribute.business_axes",
+                f"{attribute_entrypoint} [business_axes]",
                 _cumulative_route_text(capability.business_axes),
             )
             card.field(
-                "attribute.accumulation_time",
+                f"{attribute_entrypoint} [accumulation_time]",
                 _cumulative_route_text(capability.accumulation_time),
             )
             card.field(
-                "attribute.mixed_axes",
+                f"{attribute_entrypoint} [mixed_axes]",
                 _cumulative_route_text(capability.mixed_axes),
             )
-        if admission.status == "supported" and _supports_component_attribution(self.meta):
+        if admission.status == "supported":
             card.field(
-                "attribute",
-                precondition.reason or "direct attribute is supported"
-                if precondition is not None
-                else "direct attribute is supported",
-            )
-        elif admission.status == "supported":
-            card.field(
-                "attribute",
+                attribute_entrypoint,
                 _attribute_admission_text(self.meta, admission),
             )
         elif (
@@ -828,14 +827,14 @@ class DeltaFrame(BaseFrame):
             and precondition.check == "attribution_status_time_axis_excluded"
         ):
             card.field(
-                "attribute",
-                f"conditional: {precondition.reason}; inspect .contract() for repair",
+                attribute_entrypoint,
+                f"conditional: {precondition.reason}; inspect frame.contract().show()",
             )
         else:
             card.field(
-                "attribute",
+                attribute_entrypoint,
                 _attribute_admission_text(self.meta, admission)
-                + "; inspect .contract() for repair",
+                + "; inspect frame.contract().show()",
             )
         return card.lazy_table(
             columns=_display_column_names(self._df.columns),

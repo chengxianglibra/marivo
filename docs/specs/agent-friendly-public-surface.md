@@ -396,6 +396,12 @@ Everything else that used to be a near-peer exit — `summary()`, `schema()`,
 `preview()`, `next_intents()` — was removed from the public frame surface so the
 agent never has to choose a reading order before doing real work.
 
+`show()` does not repeat the full continuation matrix on every artifact. It
+adds only hints whose availability or route depends on the current artifact,
+using registry-owned public calls such as `session.compare(...)` and
+`session.attribute(...)`. `contract().show()` is the single complete readable
+continuation surface.
+
 Card footers follow the same rule: every `available:` footer lists `.show()`, lists
 `.contract()` when the object has one, and never advertises `.render()` — it backs
 `show()` and stays off the taught path.
@@ -406,11 +412,14 @@ regression remains unsupported; when required, it is terminal custom analysis
 rather than a hidden typed capability.
 
 Crucially, `contract().affordances` are **neutral mechanical compatibility
-facts**, not ranked recommendations. They say "this operator *can* be wired to
-this frame," never "this is what you *should* do." The choice of which valid
-action matters for the user's question stays with the agent — the boundary from
-[the first section](#who-the-reader-is) holds all the way down to the last
-method call.
+facts**, not ranked recommendations. The readable projection groups them by
+public receiver and leads with copyable public entry points; stable
+`capability_id` values remain available in the structured contract and
+`model_dump()`, not in readable continuation labels. They say "this operator
+*can* be wired to this frame," never "this is what you *should* do." The choice
+of which valid action matters for the user's question stays with the agent —
+the boundary from [the first section](#who-the-reader-is) holds all the way down
+to the last method call.
 
 ## The result vocabulary
 
