@@ -1476,9 +1476,10 @@ class Session(RenderableResult):
 
         Args:
             frame: A supported MetricFrame, EventFrame, LifecycleFrame, DeltaFrame,
-                or AttributionFrame to inspect. Multi-metric MetricFrames must first be
-                projected with ``frame.metric(...)``; call ``frame.contract()`` to read
-                the exact admitted shapes and runnable projection options.
+                or AttributionFrame to inspect. Multi-metric MetricFrames produce one
+                joint report: frame-level checks run once, measure-level checks run once
+                per metric, and any blocking check blocks the report. Call
+                ``frame.contract()`` to read the exact admitted shapes.
 
         Raises:
             QualityShapeUnsupportedError: ``frame`` is not a supported frame.

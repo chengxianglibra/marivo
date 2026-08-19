@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from marivo.analysis.evidence.types import (
+    AnalysisScope,
     AnomalyCandidate,
     ArtifactDigest,
     ArtifactIssue,
@@ -98,8 +99,14 @@ def _quality(digest: ArtifactDigest) -> str | None:
 def render_artifact_issue(issue: ArtifactIssue) -> str:
     """Render one closed issue variant; prose is never canonical issue data."""
     if isinstance(issue, DataQualityIssue):
+        metric_ids = (
+            issue.evaluated_scope.metric_ids
+            if isinstance(issue.evaluated_scope, AnalysisScope)
+            else ()
+        )
+        metric = f" metric={metric_ids[0]}" if len(metric_ids) == 1 else ""
         return (
-            f"check={issue.check_id} observed={issue.observed_value!r} "
+            f"check={issue.check_id}{metric} observed={issue.observed_value!r} "
             f"expectation={issue.expectation}"
         )
     if isinstance(issue, ComparabilityIssue):

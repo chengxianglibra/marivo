@@ -52,3 +52,27 @@ def test_assess_quality_persists_findings_and_bounded_digest() -> None:
         "value_density:value",
     }
     assert legacy_tables == []
+
+
+def test_quality_finding_extraction_rejects_unbound_metric_identity() -> None:
+    from marivo.analysis.evidence.extraction.quality import extract_quality_check_findings
+    from marivo.analysis.evidence.types import AnalysisScope, Subject
+
+    session = session_attach.get_or_create(name="quality_identity_guard")
+    frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
+    quality = session.assess_quality(frame)
+    scope = quality.meta.analysis_scope
+    assert isinstance(scope, AnalysisScope)
+    rows = quality._dataframe_copy()
+    rows.loc[rows["check_kind"] == "null_ratio", "metric_id"] = "sales.not_assessed"
+
+    with pytest.raises(ValueError, match="must match exactly one assessed MetricIdentity"):
+        extract_quality_check_findings(
+            df=rows,
+            artifact_id=quality.ref,
+            session_id=session.id,
+            subject=Subject(grain="day", analysis_axis="quality"),
+            committed_at=quality.meta.created_at,
+            evaluated_scope=scope,
+            source_refs=(frame.ref,),
+        )

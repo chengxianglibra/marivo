@@ -1339,7 +1339,7 @@ def _build_registry() -> CapabilityRegistry:
             root_group="typed_analysis",
             root_visibility="direct",
             root_summary="Run fixed quality checks over supported analysis artifacts.",
-            constraint_ids=("quality_target_shape", "single_metric_input"),
+            constraint_ids=("quality_target_shape",),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             receiver="Session",
             accepted_inputs={

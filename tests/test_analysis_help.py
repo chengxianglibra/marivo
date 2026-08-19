@@ -833,7 +833,6 @@ def test_compare_help_declares_single_metric_precondition() -> None:
 @pytest.mark.parametrize(
     "target",
     [
-        "assess_quality",
         "correlate",
         "forecast",
         "hypothesis_test",
@@ -859,6 +858,7 @@ def test_single_metric_gated_intent_help_declares_arity_precondition(target: str
 def test_assess_quality_help_declares_exact_artifact_shapes() -> None:
     text = _text("assess_quality")
 
+    assert "single_metric_input" not in text
     assert "Accepted artifact shapes:" in text
     assert "frame.MetricFrame: panel | scalar | segmented | time_series" in text
     assert (

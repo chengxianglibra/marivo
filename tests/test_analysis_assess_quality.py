@@ -247,6 +247,129 @@ def test_observe_frame_runs_null_ratio_checks(tmp_path):
     assert ids == {"null_ratio:value", "value_density:value", "row_count", "time_coverage"}
 
 
+def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tmp_path):
+    """Joint quality runs frame checks once and binds measure checks to exact metrics."""
+    import ibis
+
+    import marivo.semantic as ms
+    from marivo.analysis.evidence.types import QualityCheckResult
+    from tests.shared_fixtures import bootstrap_multi_metric_sales_project
+
+    bootstrap_multi_metric_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    months = pd.date_range("2026-01-01", periods=13, freq="MS")
+    con.create_table(
+        "orders",
+        pd.DataFrame(
+            {
+                "order_id": range(1, 14),
+                "created_at": months,
+                "amount": [None] * 8 + [10.0] * 5,
+                "region": ["north"] * 13,
+                "user_id": [100] * 13,
+            }
+        ),
+    )
+    con.create_table(
+        "users",
+        pd.DataFrame({"user_id": [100], "signed_up_at": [pd.Timestamp("2026-01-01")]}),
+    )
+    session = session_attach.get_or_create(
+        name="multi_quality",
+        backends={"warehouse": lambda: con},
+    )
+    revenue = session.catalog.require(ms.ref.metric("sales.revenue")).ref
+    order_count = session.catalog.require(ms.ref.metric("sales.order_count")).ref
+    frame = session.observe(
+        metrics=[revenue, order_count],
+        time_scope=mv.time_scope(start="2026-01-01", end="2027-02-01"),
+        grain=mv.grain("month"),
+    )
+
+    report = session.assess_quality(frame)
+    rows = report.to_pandas()
+
+    assert rows["check_id"].tolist() == [
+        "row_count",
+        "null_ratio:revenue",
+        "null_ratio:order_count",
+        "time_coverage",
+        "value_density:revenue",
+        "value_density:order_count",
+    ]
+    assert rows["metric_id"].tolist() == [
+        None,
+        "sales.revenue",
+        "sales.order_count",
+        None,
+        "sales.revenue",
+        "sales.order_count",
+    ]
+    assert report.overall_status == "blocking"
+    assert report.blocking_issue_count == 1
+    assert report.meta.target_metric_id is None
+
+    issue = next(item for item in report.meta.issues if item.kind == "null_rate_high")
+    assert issue.evaluated_scope.metric_ids == ("sales.revenue",)
+    assert issue.repair is not None
+    assert "sales.revenue" in issue.repair.action
+    assert "metric=sales.revenue" in report.contract().render()
+
+    assert report.evidence_digest is not None
+    assert report.evidence_digest.quality is not None
+    assert report.evidence_digest.quality.evaluated_check_count == 6
+    revenue_null = next(
+        item
+        for item in report.evidence_digest.items
+        if isinstance(item, QualityCheckResult) and item.check_id == "null_ratio:revenue"
+    )
+    assert revenue_null.subject.metric == "sales.revenue"
+    assert revenue_null.scope.metric_ids == ("sales.revenue",)
+    frame_level = next(
+        item
+        for item in report.evidence_digest.items
+        if isinstance(item, QualityCheckResult) and item.check_id == "row_count"
+    )
+    assert frame_level.subject.metric is None
+    assert frame_level.scope.metric_ids == ("sales.revenue", "sales.order_count")
+
+    loaded = load_frame(report.ref, session=session)
+    assert loaded.to_pandas()["metric_id"].tolist() == rows["metric_id"].tolist()
+    assert loaded.evidence_digest == report.evidence_digest
+
+    region = session.catalog.require(ms.ref.dimension("sales.orders.region")).ref
+    shape_cases = (
+        ("scalar", {}),
+        ("segmented", {"dimensions": [region]}),
+        (
+            "panel",
+            {
+                "time_scope": mv.time_scope(start="2026-01-01", end="2027-02-01"),
+                "grain": mv.grain("month"),
+                "dimensions": [region],
+            },
+        ),
+    )
+    for expected_shape, observe_kwargs in shape_cases:
+        shaped = session.observe(metrics=[revenue, order_count], **observe_kwargs)
+        shaped_report = session.assess_quality(shaped)
+        shaped_rows = shaped_report.to_pandas()
+        assert shaped.semantic_shape == expected_shape
+        assert (
+            shaped_rows.loc[
+                shaped_rows["check_kind"].isin({"row_count", "time_coverage", "duplicate_keys"}),
+                "metric_id",
+            ]
+            .isna()
+            .all()
+        )
+        assert set(
+            shaped_rows.loc[
+                shaped_rows["check_kind"].isin({"null_ratio", "value_density"}), "metric_id"
+            ]
+        ) == {"sales.revenue", "sales.order_count"}
+
+
 def test_metric_time_series_near_constant_empty_warning(tmp_path):
     """A long span with nearly all-zero values must flag value_density_low.
 
@@ -464,6 +587,7 @@ def test_metric_delta_quality_validates_row_contract(tmp_path):
     recovered = session.get_frame(report.ref)
 
     assert report.meta.report_shape == "delta"
+    assert report.to_pandas()["metric_id"].isna().all()
     assert set(report.to_pandas()["check_kind"]) == {"row_count", "delta_row_contract"}
     assert recovered.meta.report_shape == "delta"
 

@@ -142,6 +142,7 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert quality.meta.target_metric_id == "sales.revenue"
     assert quality.meta.target_semantic_kind == "segmented"
     assert quality.meta.overall_status == "ok"
+    assert quality.to_pandas()["metric_id"].isna().all()
     assert set(quality.to_pandas()["check_id"]) == {
         "attribution_row_count",
         "attribution_row_contract",

@@ -9,15 +9,71 @@ from typing import Any
 
 import pandas as pd
 
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.identity import make_finding_id, make_scope_fingerprint
 from marivo.analysis.evidence.types import (
+    AnalysisScope,
     DerivationRule,
     EvidenceScope,
     EvidenceSubject,
     Finding,
     JsonScalar,
     QualityCheckFindingValue,
+    Subject,
 )
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    CatalogMetricSubjectV1,
+    RuntimeExpressionIdentity,
+    RuntimeExpressionSubjectV1,
+)
+
+
+def _metric_id(identity: CatalogMetricIdentity | RuntimeExpressionIdentity) -> str:
+    if isinstance(identity, CatalogMetricIdentity):
+        return identity.metric_ref.path
+    return f"runtime:{identity.expression_fingerprint}"
+
+
+def _metric_context(
+    *,
+    metric_id: str | None,
+    subject: EvidenceSubject,
+    scope: EvidenceScope,
+    artifact_id: str,
+    session_id: str,
+) -> tuple[EvidenceSubject, EvidenceScope]:
+    if metric_id is None:
+        return subject, scope
+    if not isinstance(subject, Subject) or not isinstance(scope, AnalysisScope):
+        raise TypeError("metric-specific quality checks require a metric subject and scope")
+    matches = tuple(
+        identity for identity in scope.metric_identities if _metric_id(identity) == metric_id
+    )
+    if len(matches) != 1:
+        raise ValueError(
+            f"quality check metric_id {metric_id!r} must match exactly one assessed MetricIdentity"
+        )
+    identity = matches[0]
+    metric_scope = scope.model_copy(update={"metric_identities": (identity,)})
+    scope_fingerprint = make_scope_fingerprint(metric_scope)
+    typed_subject: CatalogMetricSubjectV1 | RuntimeExpressionSubjectV1
+    if isinstance(identity, CatalogMetricIdentity):
+        typed_subject = CatalogMetricSubjectV1(
+            kind="catalog_metric",
+            session_id=session_id,
+            metric_ref=identity.metric_ref,
+            artifact_id=artifact_id,
+            scope_fingerprint=scope_fingerprint,
+        )
+    else:
+        typed_subject = RuntimeExpressionSubjectV1(
+            kind="runtime_expression",
+            session_id=session_id,
+            expression_fingerprint=identity.expression_fingerprint,
+            artifact_id=artifact_id,
+            scope_fingerprint=scope_fingerprint,
+        )
+    return subject.model_copy(update={"typed_metric_subject": typed_subject}), metric_scope
 
 
 def _predicate(
@@ -162,6 +218,15 @@ def extract_quality_check_findings(
     for _, row in df.sort_values("check_id", kind="stable").iterrows():
         check_id = str(row["check_id"])
         check_kind = str(row["check_kind"])
+        raw_metric_id = row.get("metric_id")
+        metric_id = raw_metric_id if isinstance(raw_metric_id, str) and raw_metric_id else None
+        finding_subject, finding_scope = _metric_context(
+            metric_id=metric_id,
+            subject=subject,
+            scope=evaluated_scope,
+            artifact_id=artifact_id,
+            session_id=session_id,
+        )
         details = json.loads(str(row["details_json"]))
         measured, predicate, parameters, passed = _predicate(check_kind, details)
         findings.append(
@@ -171,7 +236,7 @@ def extract_quality_check_findings(
                 epistemic_kind="tested",
                 artifact_id=artifact_id,
                 session_id=session_id,
-                subject=subject,
+                subject=finding_subject,
                 canonical_item_key=check_id,
                 value=QualityCheckFindingValue(
                     check_id=check_id,
@@ -179,14 +244,14 @@ def extract_quality_check_findings(
                     expectation_predicate=predicate,
                     expectation_parameters=parameters,
                     expectation_condition_passed=passed,
-                    evaluated_scope=evaluated_scope,
+                    evaluated_scope=finding_scope,
                     source_refs=source_refs,
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.quality_check",
-                    rule_version="v2",
+                    rule_version="v3",
                     operator="assess_quality",
-                    source_fields=("check_id", "check_kind", "details_json"),
+                    source_fields=("check_id", "check_kind", "metric_id", "details_json"),
                     source_finding_refs=(),
                 ),
                 source_refs=source_refs,
