@@ -606,9 +606,11 @@ funnel-specific checks.
 Inspect `artifact.contract()` before calling the operator: the
 `assess_quality` affordance lists the exact shapes admitted for that artifact
 family. `marivo.help("assess_quality")` prints the complete family-to-shape
-table. Multi-metric `MetricFrame`s are intentionally not guessed or silently
-reduced; choose a metric with one of the contract's runnable
-`frame.metric("<metric_id>")` repair options first.
+table. A multi-metric `MetricFrame` produces one joint report. Frame-level
+checks run once, measure-level checks run once per authoritative measure
+binding, and any blocking check blocks the report. Metric-level report rows
+carry the canonical `metric_id`; frame-level rows carry no metric id. Typed
+issues and findings preserve the exact metric identity.
 The report's `contract().issues` contains typed data-quality failures. Do not
 report a window as a complete period fact when its report contains a blocking
 `time_coverage_incomplete` issue.

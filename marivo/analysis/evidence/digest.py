@@ -346,7 +346,8 @@ def _common(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> _Commo
 
 def _build_item(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> DigestItem | None:
     value = finding.value
-    common = _common(entry, finding, scope)
+    item_scope = value.evaluated_scope if isinstance(value, QualityCheckFindingValue) else scope
+    common = _common(entry, finding, item_scope)
     if isinstance(value, ObservationFindingValue):
         return ObservationFact(**common, row_count=value.row_count, value=value.value)
     if isinstance(value, MetricValueFindingValue):

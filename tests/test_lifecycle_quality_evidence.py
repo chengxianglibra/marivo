@@ -311,6 +311,7 @@ def test_lifecycle_quality_dispatches_every_shape_and_recomputes_source() -> Non
         assert report.meta.report_shape == f"lifecycle_{frame.semantic_shape}"
         assert report.meta.overall_status == "ok"
         assert report.evidence_status == "complete"
+        assert report.to_pandas()["metric_id"].isna().all()
 
     reducers[0]._df.loc[0, "subject_count"] = 99
     tampered = {row["check_kind"]: row["severity"] for row in run_lifecycle_checks(reducers[0])}

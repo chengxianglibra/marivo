@@ -557,9 +557,11 @@ residual, and reconciliation checks.
 Admission is discoverable before execution. `artifact.contract()` records the
 exact accepted semantic shapes for every artifact input on the `assess_quality`
 affordance, while `marivo.help("assess_quality")` prints the complete
-family-to-shape table. A multi-metric `MetricFrame` is not silently reduced:
-its contract fails the `single_metric` precondition and returns one runnable
-`frame.metric("<metric_id>")` repair option per metric.
+family-to-shape table. A multi-metric `MetricFrame` produces one joint report:
+frame-level checks run once, measure-level checks run once per authoritative
+measure binding, and any blocking check blocks the report. Metric-level rows
+carry their canonical `metric_id`; frame-level rows carry no metric id. Typed
+issues and findings retain the exact metric identity for metric-level failures.
 
 `QualityReport.overall_status`, `.blocking_issue_count`, and `.warning_count`
 are read-only projections of the authoritative report metadata for programmatic

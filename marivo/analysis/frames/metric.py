@@ -815,10 +815,16 @@ class MetricFrame(BaseFrame):
                 )
         return tuple(bindings)
 
-    # Every next-intent is gated at arity > 1; derive from _NEXT_INTENTS so
-    # the two cannot drift.  These are capability-id prefixes: any
-    # capability whose id starts with one of these prefixes is gated.
-    _GATED_CAPABILITY_PREFIXES: tuple[str, ...] = _NEXT_INTENTS
+    # assess_quality is arity-aware; these capability-id prefixes identify the
+    # remaining analytical continuations that require one projected metric.
+    _GATED_CAPABILITY_PREFIXES: tuple[str, ...] = (
+        "compare",
+        "discover",
+        "correlate",
+        "transform",
+        "hypothesis_test",
+        "forecast",
+    )
 
     def _card(self) -> Card:
         card = super()._card()
@@ -851,14 +857,15 @@ class MetricFrame(BaseFrame):
         """Return the mechanical consumption contract, gating multi-metric frames.
 
         At arity > 1, gated affordances (compare, correlate, transform,
-        assess_quality, hypothesis_test, forecast, discover) carry a
+        hypothesis_test, forecast, discover) carry a
         ``single_metric`` precondition teaching the agent to project to one
-        metric first. Cumulative pair-dependent checks are evaluated only by
-        ``session.compare(...)`` once both frames and the selected alignment
-        are available. Other statistical continuations retain their local
-        running-total caveat. Derived wrappers surface either their common
-        anchor or their exact local compare blocker. A rollup transform affordance appears iff
-        ``meta.rollup_fold`` is set.
+        metric first. ``assess_quality`` remains available and evaluates the
+        full multi-metric frame. Cumulative pair-dependent checks are evaluated
+        only by ``session.compare(...)`` once both frames and the selected
+        alignment are available. Other statistical continuations retain their
+        local running-total caveat. Derived wrappers surface either their common
+        anchor or their exact local compare blocker. A rollup transform
+        affordance appears iff ``meta.rollup_fold`` is set.
         """
         contract = super().contract()
         from marivo.analysis.ontology_contract import attach_ontology_discovery_preconditions

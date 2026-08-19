@@ -206,6 +206,7 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
     assert report.evidence_status == "complete"
     assert report.meta.analysis_scope is not None
     assert report.meta.analysis_scope.kind == "event"
+    assert report.to_pandas()["metric_id"].isna().all()
     assert set(report.to_pandas()["check_kind"]) == {
         "event_row_contract",
         "event_identity",

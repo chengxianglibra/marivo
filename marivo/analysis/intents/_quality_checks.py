@@ -1741,6 +1741,8 @@ def _result(
     severity: str,
     message: str,
     details: dict[str, Any],
+    *,
+    metric_id: str | None = None,
 ) -> dict[str, str]:
     return {
         "check_id": check_id,
@@ -1749,6 +1751,9 @@ def _result(
         "severity": severity,
         "message": message,
         "details_json": json.dumps(details, sort_keys=True, default=str),
+        # Empty string is an internal row-builder sentinel. assess_quality()
+        # normalizes it to a persisted null before constructing QualityReport.
+        "metric_id": metric_id or "",
     }
 
 
@@ -1774,20 +1779,34 @@ def _row_count_check(
     )
 
 
-def _measure_columns(frame: MetricFrame) -> list[str]:
-    columns = [binding.value_column for binding in frame.meta.measure_bindings]
+def _measure_targets(frame: MetricFrame) -> list[tuple[str, str | None]]:
+    bindings = frame.meta.measure_bindings
+    targets: list[tuple[str, str | None]] = [
+        (binding.value_column, metric_id)
+        for binding, metric_id in zip(bindings, frame.metrics, strict=True)
+    ]
+    if bindings and frame.arity > 1:
+        return targets
+
+    columns: list[str] = []
     measure = frame.meta.measure
     if isinstance(measure.get("field"), str):
         columns.append(str(measure["field"]))
     if isinstance(measure.get("fields"), list):
         columns.extend(str(column) for column in measure["fields"])
-    return list(dict.fromkeys(columns))
+    occupied = {column for column, _metric_id in targets}
+    targets.extend(
+        (column, frame.meta.metric_id)
+        for column in dict.fromkeys(columns)
+        if column not in occupied
+    )
+    return targets
 
 
 def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, str]]:
     rows = []
     denominator = len(df)
-    for column in _measure_columns(frame):
+    for column, metric_id in _measure_targets(frame):
         null_count = int(df[column].isna().sum()) if column in df else denominator
         ratio = 0.0 if denominator == 0 else null_count / denominator
         severity = "blocking" if ratio > 0.5 else "warning" if ratio > 0.1 else "ok"
@@ -1805,6 +1824,7 @@ def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, s
                     "threshold_warning": 0.1,
                     "threshold_blocking": 0.5,
                 },
+                metric_id=metric_id,
             )
         )
     return rows
@@ -1833,7 +1853,7 @@ def _value_density_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str
     cell_count = len(df)
     time_col, _grain = _time_axis(frame)
     time_bucket_count = int(df[time_col].nunique()) if time_col in df else 0
-    for column in _measure_columns(frame):
+    for column, metric_id in _measure_targets(frame):
         if column in df:
             numeric = pd.to_numeric(df[column], errors="coerce")
         else:
@@ -1865,6 +1885,7 @@ def _value_density_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str
                     "threshold_warning": _VALUE_DENSITY_WARNING_THRESHOLD,
                     "min_buckets": _VALUE_DENSITY_MIN_BUCKETS,
                 },
+                metric_id=metric_id,
             )
         )
     return rows

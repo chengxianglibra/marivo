@@ -174,6 +174,36 @@ def test_observe_uses_runtime_expression_labels_as_output_columns(
     assert list(mixed.to_pandas().columns) == ["runtime_total", "measure_revenue"]
 
 
+def test_multi_metric_quality_preserves_runtime_expression_identity(runtime_session) -> None:
+    from marivo.analysis.evidence.types import QualityCheckResult
+
+    amount = _measure_ref(runtime_session)
+    runtime_total = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
+    catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
+    frame = runtime_session.observe([runtime_total, catalog_metric])
+
+    report = runtime_session.assess_quality(frame)
+    rows = report.to_pandas()
+    runtime_id = frame.metrics[0]
+
+    assert runtime_id.startswith("runtime:")
+    assert rows["check_id"].tolist() == [
+        "row_count",
+        "null_ratio:runtime_total",
+        "null_ratio:measure_revenue",
+    ]
+    assert rows["metric_id"].tolist() == [None, runtime_id, "sales.measure_revenue"]
+    assert report.meta.target_metric_id is None
+    assert report.evidence_digest is not None
+    runtime_check = next(
+        item
+        for item in report.evidence_digest.items
+        if isinstance(item, QualityCheckResult) and item.check_id == "null_ratio:runtime_total"
+    )
+    assert runtime_check.subject.metric == runtime_id
+    assert runtime_check.scope.metric_ids == (runtime_id,)
+
+
 def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) -> None:
     amount = _measure_ref(runtime_session)
     expression = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime revenue")

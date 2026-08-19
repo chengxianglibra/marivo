@@ -521,8 +521,10 @@ panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门�
 
 调用前先查看 `artifact.contract()`：其中 `assess_quality` affordance 会列出
 当前产物家族允许的精确形状；`marivo.help("assess_quality")` 则给出完整的
-家族到形状映射。多指标 `MetricFrame` 不会被猜测或静默缩减；必须先采用
-contract 提供的可运行 `frame.metric("<metric_id>")` 修复选项选择一个指标。
+家族到形状映射。多指标 `MetricFrame` 会生成一份联合报告：Frame 级检查只执行
+一次，measure 级检查按权威 measure binding 逐指标执行；任一检查为 blocking，
+整份报告即为 blocking。指标级报告行携带规范 `metric_id`，Frame 级报告行不携带
+指标 ID；类型化 issue 和 finding 保留精确的指标身份。
 报告的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
 `time_coverage_incomplete` 问题时，不得把该窗口作为完整周期事实报告。
 
