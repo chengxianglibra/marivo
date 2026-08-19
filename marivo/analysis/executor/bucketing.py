@@ -612,10 +612,44 @@ def semantic_period_bucket_expr(
     return ibis.cases(*cases, else_=ibis.literal(-1)).name("bucket_start")
 
 
+def semantic_period_civil_date_expr(
+    table: ibis.Table,
+    *,
+    raw: Any,
+    field_ir: Any,
+    window: AbsoluteWindow,
+    snapshot: PeriodCalendarSnapshotV1,
+    datasource_read_tz: ZoneInfo,
+    dataset_ir: Any | None,
+    profile: EngineProfile,
+) -> Any:
+    """Lower a fact time field to the calendar authority's civil date.
+
+    Mirrors the civil-date derivation used by :func:`semantic_period_bucket_expr`
+    so callers can compute the data extent (``max(civil_date)``) on the exact
+    calendar that produced the buckets.
+    """
+    boundary_tz = ZoneInfo(snapshot.boundary_timezone)
+    return _semantic_civil_date_expr(
+        raw,
+        field_ir=field_ir,
+        table=table,
+        window=window,
+        boundary_tz=boundary_tz,
+        datasource_read_tz=datasource_read_tz,
+        dataset_ir=dataset_ir,
+        profile=profile,
+    )
+
+
 # Canonical order of the certified period metadata columns attached by
 # ``materialize_semantic_period_columns``.  ``observed_start``/``observed_end``/
-# ``is_complete`` are only present when a window is supplied; callers must still
-# tolerate their absence (e.g. when no time scope bound the observation).
+# ``is_complete`` are only present when a window is supplied, and
+# ``data_extent_end``/``has_full_data`` only when ``data_end`` is supplied;
+# callers must still tolerate their absence (e.g. when no time scope or no
+# arrival signal bound the observation).  Fused metric execution keeps exactly
+# these columns on each leaf so multi-metric frames expose the same
+# scope/arrival separation as single-metric and cumulative frames.
 SEMANTIC_PERIOD_COLUMNS: tuple[str, ...] = (
     "period_key",
     "period_start",
@@ -624,6 +658,8 @@ SEMANTIC_PERIOD_COLUMNS: tuple[str, ...] = (
     "observed_start",
     "observed_end",
     "is_complete",
+    "data_extent_end",
+    "has_full_data",
 )
 
 
@@ -633,6 +669,7 @@ def materialize_semantic_period_columns(
     snapshot: PeriodCalendarSnapshotV1,
     grain: TemporalGrain,
     window: AbsoluteWindow | None = None,
+    data_end: date | datetime | None = None,
 ) -> pd.DataFrame:
     """Replace ordinal buckets with exact certified key and clipped bounds."""
     if grain.kind != "semantic" or grain.level is None:
@@ -711,6 +748,14 @@ def materialize_semantic_period_columns(
         output["observed_start"] = observed_starts
         output["observed_end"] = observed_ends
         output["is_complete"] = complete
+    if data_end is not None:
+        # data_end is the last observed civil date (inclusive).  A period is
+        # data-complete when its half-open end does not extend past that date,
+        # i.e. its end falls within (last observed date + 1 day].
+        data_end_ts = pd.Timestamp(data_end)
+        output["data_extent_end"] = [data_end_ts.date()] * len(output)
+        full_end = data_end_ts + pd.Timedelta(days=1)
+        output["has_full_data"] = [pd.Timestamp(record.end_date) <= full_end for record in records]
     output["bucket_start"] = output["period_start"]
     return output
 

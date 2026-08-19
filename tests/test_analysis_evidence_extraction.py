@@ -110,6 +110,52 @@ def test_time_series_uses_endpoint_direction_not_generic_trend() -> None:
     assert not hasattr(value, "trend")
 
 
+def test_time_series_partial_tail_bucket_suppresses_direction() -> None:
+    finding = extract_observation_digest_finding(
+        df=pd.DataFrame(
+            {
+                "bucket_start": ["2026-01-01", "2026-02-01"],
+                "value": [10.0, 5.0],
+                "has_full_data": [True, False],
+            }
+        ),
+        artifact_id="art_partial_tail",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="time"),
+        semantic_kind="time_series",
+        measure_column="value",
+        time_column="bucket_start",
+        committed_at=_now(),
+    )
+    value = finding.value.value
+    assert value.shape == "time_series"
+    assert value.partial_tail_bucket is True
+    assert value.endpoint_change_direction == "undefined"
+
+
+def test_time_series_complete_tail_bucket_derives_direction() -> None:
+    finding = extract_observation_digest_finding(
+        df=pd.DataFrame(
+            {
+                "bucket_start": ["2026-01-01", "2026-02-01"],
+                "value": [10.0, 5.0],
+                "has_full_data": [True, True],
+            }
+        ),
+        artifact_id="art_complete_tail",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="time"),
+        semantic_kind="time_series",
+        measure_column="value",
+        time_column="bucket_start",
+        committed_at=_now(),
+    )
+    value = finding.value.value
+    assert value.shape == "time_series"
+    assert value.partial_tail_bucket is False
+    assert value.endpoint_change_direction == "decrease"
+
+
 def test_delta_preserves_undefined_relative_delta_reason_and_unit() -> None:
     finding = extract_delta_findings(
         df=pd.DataFrame(
