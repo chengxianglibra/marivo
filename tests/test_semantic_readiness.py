@@ -627,6 +627,93 @@ def test_readiness_warns_for_metric_missing_guardrails(semantic_project_factory)
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
 
 
+def test_readiness_aggregates_missing_guardrails_into_one_issue(semantic_project_factory):
+    """Many refs missing guardrails collapse into one aggregated warning that
+    keeps the per-ref list in refs/details for audit."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                ms.domain(name="sales", owner='Mina Zhang')
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                    ai_context=ms.ai_context(business_definition="One row per paid order."),
+                )
+
+                @ms.dimension(
+                    entity=orders,
+                    ai_context=ms.ai_context(business_definition="Gross order amount in USD."),
+                )
+                def amount(table):
+                    return table.amount
+
+                @ms.metric(
+                    entities=[orders],
+                    additivity="additive",
+                    ai_context=ms.ai_context(business_definition="Sum of order amount."),
+                )
+                def total_amount(table):
+                    return table.amount.sum()
+            """),
+        }
+    )
+
+    report = project.readiness(
+        refs=("sales.orders", "sales.orders.amount", "sales.total_amount"),
+    )
+
+    guardrail_issues = [i for i in report.warnings if i.kind == "missing_guardrails"]
+    assert len(guardrail_issues) == 1
+    issue = guardrail_issues[0]
+    assert issue.severity == "warning"
+    assert set(issue.refs) == {
+        "sales.orders",
+        "sales.orders.amount",
+        "sales.total_amount",
+    }
+    assert "3 analyzable refs have no ai_context.guardrails" in issue.message
+    assert set(issue.to_dict()["refs"]) == {
+        "sales.orders",
+        "sales.orders.amount",
+        "sales.total_amount",
+    }
+    assert "missing_guardrails" not in _issue_kinds(report.blockers)
+
+
+def test_readiness_missing_guardrails_singular_message(semantic_project_factory):
+    """A single analyzable ref missing guardrails uses singular agreement."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                ms.domain(name="sales", owner='Mina Zhang')
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                    ai_context=ms.ai_context(business_definition="One row per paid order."),
+                )
+            """),
+        }
+    )
+
+    report = project.readiness(refs=("sales.orders",))
+
+    guardrail_issues = [i for i in report.warnings if i.kind == "missing_guardrails"]
+    assert len(guardrail_issues) == 1
+    issue = guardrail_issues[0]
+    assert issue.refs == ("sales.orders",)
+    assert "1 analyzable ref has no ai_context.guardrails" in issue.message
+
+
 _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms

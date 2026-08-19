@@ -117,7 +117,7 @@ description: 对新建或修改的语义对象进行显式技术认证。
 | `missing_business_definition` | 阻塞项 | 被检查的对象没有 `ai_context.business_definition`。 | 补充 `business_definition`。 |
 | `cross_datasource_unfederated` | 阻塞项 | 某个指标在没有联邦的情况下跨越多个数据源。 | 把集成移到上游、启用联邦后端，或拆分指标。 |
 | `metric_graph_invalid` | 阻塞项 | 目录/运行时图违反受治理的叶节点、加权平均、数据源领域、深度或发生项约束。 | 修复报告中的 leaf，或在图限制内重建封闭表达式。 |
-| `missing_guardrails` | 警告 | 被检查的指标、实体、维度、度量或时间维度没有 `ai_context.guardrails`。约束是建议性的丰富化，不是认证必需项。 | 当显式使用约束有帮助时补充 `guardrails`。 |
+| `missing_guardrails` | 警告 | 被检查的指标、实体、维度、度量或时间维度没有 `ai_context.guardrails`；一条 warning 聚合全部受影响语义引用（逐条明细见 `refs`/`details`）。约束是建议性的丰富化，不是认证必需项。 | 当显式使用约束有帮助时补充 `guardrails`。 |
 | `sql_parity_unverified` | 警告 | 某个指标有 `provenance` SQL 但一致性未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | 警告 | 某个对象使用了脆弱的字符串引用。 | 用稳定的对象引用替换它。 |
 | `time_dimension_pushdown_advisory` | 警告 | 某个时间维度可能无法下推到分区。 | 当业务时间轴与分区一致时，保留原始分区列并声明其解析。 |
