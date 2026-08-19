@@ -50,6 +50,15 @@ def _predicate(
             {"threshold": blocking_coverage},
             coverage_ratio >= blocking_coverage,
         )
+    if check_kind == "value_density":
+        value_density = float(details.get("value_density", 0.0))
+        warning_threshold = float(details.get("threshold_warning", 0.1))
+        return (
+            value_density,
+            "value_density_at_or_above_warning_threshold",
+            {"threshold": warning_threshold},
+            value_density >= warning_threshold,
+        )
     if check_kind == "duplicate_keys":
         duplicate_count = int(details.get("duplicate_count", 0))
         return (

@@ -87,6 +87,7 @@ def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict
     rows.extend(_null_ratio_checks(df, frame))
     if frame.meta.semantic_kind in {"time_series", "panel"}:
         rows.append(_time_coverage_check(df, frame, tz=tz))
+        rows.extend(_value_density_checks(df, frame))
     if frame.meta.semantic_kind in {"segmented", "panel"}:
         rows.append(_duplicate_keys_check(df, frame))
     return rows
@@ -1803,6 +1804,66 @@ def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, s
                     "null_ratio": ratio,
                     "threshold_warning": 0.1,
                     "threshold_blocking": 0.5,
+                },
+            )
+        )
+    return rows
+
+
+_VALUE_DENSITY_MIN_BUCKETS = 12
+_VALUE_DENSITY_WARNING_THRESHOLD = 0.1
+
+
+def _value_density_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, str]]:
+    """Flag a long span whose measure values are (nearly) constantly empty.
+
+    "Empty" means null or zero: a managed funnel/conversion metric that is 0 in
+    12 of 13 months is indistinguishable from a healthy metric by null_ratio or
+    time_coverage alone, so an authoring/join defect or a data-generation bug
+    sails through with no diagnostic.  The check measures the density of
+    non-empty values and warns only over a sufficiently long span so short
+    slices and legitimately sparse-but-present metrics stay green.
+
+    ``cell_count`` counts observations in ``df`` — for a panel this is
+    time-bucket × segment cells — and is the density denominator.  The span
+    guard instead uses ``time_bucket_count`` (distinct values on the frame's
+    time axis) so a short-but-wide panel does not read as a long span.
+    """
+    rows = []
+    cell_count = len(df)
+    time_col, _grain = _time_axis(frame)
+    time_bucket_count = int(df[time_col].nunique()) if time_col in df else 0
+    for column in _measure_columns(frame):
+        if column in df:
+            numeric = pd.to_numeric(df[column], errors="coerce")
+        else:
+            numeric = pd.Series([None] * cell_count, dtype="float64")
+        nonzero = numeric.notna() & (numeric != 0.0)
+        nonzero_count = int(nonzero.sum())
+        density = 0.0 if cell_count == 0 else nonzero_count / cell_count
+        empty_ratio = 1.0 - density
+        severity = (
+            "warning"
+            if time_bucket_count >= _VALUE_DENSITY_MIN_BUCKETS
+            and density < _VALUE_DENSITY_WARNING_THRESHOLD
+            else "ok"
+        )
+        rows.append(
+            _result(
+                f"value_density:{column}",
+                "value_density",
+                severity,
+                severity,
+                f"value density for {column} is {density:.3f}",
+                {
+                    "column": column,
+                    "nonzero_count": nonzero_count,
+                    "cell_count": cell_count,
+                    "time_bucket_count": time_bucket_count,
+                    "value_density": density,
+                    "empty_ratio": empty_ratio,
+                    "threshold_warning": _VALUE_DENSITY_WARNING_THRESHOLD,
+                    "min_buckets": _VALUE_DENSITY_MIN_BUCKETS,
                 },
             )
         )

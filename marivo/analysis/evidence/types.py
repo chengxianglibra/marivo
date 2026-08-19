@@ -949,6 +949,7 @@ DataQualityIssueKind = Literal[
     "null_rate_high",
     "sample_size_low",
     "time_coverage_incomplete",
+    "value_density_low",
     "outlier_sensitivity_detected",
     "duplicate_keys_detected",
     "delta_row_contract_invalid",

@@ -53,6 +53,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._quality_checks import (
+    _VALUE_DENSITY_WARNING_THRESHOLD,
     run_attribution_checks,
     run_delta_checks,
     run_event_checks,
@@ -342,8 +343,22 @@ def _quality_issues(
     scope = frame.meta.analysis_scope or compute_analysis_scope(frame)
     for row in output.to_dict("records"):
         severity = str(row["severity"])
-        if severity != "blocking" and not (
-            isinstance(frame, (EventFrame, LifecycleFrame, DeltaFrame)) and severity == "warning"
+        # MetricFrame quality surfaces a typed DataQualityIssue for the
+        # near-constant-empty signal even though its severity is "warning":
+        # this is the only non-blocking metric check whose whole point is to
+        # diagnose a suspicious-but-not-dead metric (issue #104).
+        metric_density_warning = (
+            isinstance(frame, MetricFrame)
+            and severity == "warning"
+            and row["check_kind"] == "value_density"
+        )
+        if (
+            severity != "blocking"
+            and not (
+                isinstance(frame, (EventFrame, LifecycleFrame, DeltaFrame))
+                and severity == "warning"
+            )
+            and not metric_density_warning
         ):
             continue
         details = json.loads(str(row["details_json"]))
@@ -366,6 +381,10 @@ def _quality_issues(
             kind = "null_rate_high"
             observed = float(details["null_ratio"])
             expectation = "null_ratio <= 0.5"
+        elif row["check_kind"] == "value_density":
+            kind = "value_density_low"
+            observed = float(details["value_density"])
+            expectation = f"value_density >= {_VALUE_DENSITY_WARNING_THRESHOLD}"
         elif row["check_kind"] == "event_row_contract":
             kind = "event_row_contract_invalid"
             observed = int(details["invalid_count"])
@@ -501,6 +520,17 @@ def _quality_repair(kind: str) -> AnalysisRepair | None:
             action=(
                 "Widen the observed window or slice to bring the null ratio "
                 "under 0.5 before continuing."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+        )
+    if kind == "value_density_low":
+        return AnalysisRepair(
+            kind="inspect",
+            action=(
+                "Confirm the near-constant-empty values reflect business reality "
+                "rather than an authoring or join defect: widen the window, or "
+                "review the metric's association/gating definition and the "
+                "underlying join conditions."
             ),
             help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         )
