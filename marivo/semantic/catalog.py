@@ -2323,12 +2323,24 @@ def _raise_period_lookup(
         cls=SemanticRuntimeError,
         refs=(calendar_ref.key,),
         details={"operation": operation, **dict(details)},
+        hint=(
+            f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
+            "coverage, declared levels, and snapshot status. When the snapshot is current, "
+            f"catalog.period_calendars.get({calendar_ref.key!r}).periods(level) enumerates "
+            "the exact certified periods and keys. Otherwise run "
+            f"catalog.readiness(refs=[catalog.period_calendars.get({calendar_ref.key!r}).ref]) "
+            "and follow its repair."
+        ),
         repair_value=repair(
             kind="retry",
             canonical_id="period_calendar",
             action=(
-                "Inspect the calendar card for a certified level/key and retry the lookup "
-                "with the exact current period snapshot."
+                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(). If its "
+                "snapshot is current, enumerate the requested level with "
+                f"catalog.period_calendars.get({calendar_ref.key!r}).periods(level) and retry "
+                "with an exact returned key. Otherwise run "
+                f"catalog.readiness(refs=[catalog.period_calendars.get({calendar_ref.key!r}).ref]) "
+                "and follow its repair."
             ),
         ),
     )
