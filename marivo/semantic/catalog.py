@@ -1372,7 +1372,6 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
     def _card(self) -> Card:
         available = (
             ".ref",
-            *(f".{name}" for name in self._navigation_names),
             ".details()",
             ".contract()",
             ".show()",
@@ -1395,12 +1394,24 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         owner = getattr(self._details, "owner", None)
         if isinstance(owner, str) and owner:
             card = card.field(label="owner", value=owner)
+        empty_collections: list[str] = []
         for name in self._navigation_names:
             collection = cast(
                 "CatalogCollection[SemanticKindTag]",
                 getattr(self, name),
             )
-            card = card.field(label=name, value=f"{len(collection)} -> .{name}")
+            if len(collection):
+                card = card.field(
+                    label=f"entry.{name}.show()",
+                    value=f"count={len(collection)}",
+                )
+            else:
+                empty_collections.append(name)
+        if empty_collections:
+            card = card.field(
+                label="empty_collections",
+                value=", ".join(empty_collections),
+            )
         return card
 
     def contract(self) -> AuthoringContract:
@@ -2182,7 +2193,6 @@ class WorkScheduleEntry(CatalogEntry[WorkScheduleKind]):
                     ".details()",
                     ".contract()",
                     ".show()",
-                    "mv.working_day_progress(schedule=entry, unmatched='fail')",
                 ),
             )
             .field(label="kind", value=self.kind.value)
@@ -2677,20 +2687,64 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
             f"CatalogCollection type={self._object_type.__name__} scope={scope} count={len(self)}"
         )
 
+    def _public_get_entrypoint(self) -> str:
+        if self._scope_ref is None:
+            return f"catalog.{_COLLECTION_PROPERTY_BY_KIND[self._kind]}.get"
+        return "collection.get"
+
     def _card(self) -> Card:
         rows = [(item.key, item.name) for item in self.items]
-        return Card(
+        card = Card(
             identity=self._repr_identity(),
             available=(
                 ".items",
                 ".refs",
-                ".get(...)",
+                ".contract()",
                 ".show()",
             ),
         ).table(
             columns=("ref", "name"),
             rows=rows,
             row_count=len(rows),
+        )
+        entrypoint = self._public_get_entrypoint()
+        if rows:
+            return card.field(
+                "selection",
+                f"{entrypoint}(<displayed ref>) -> {self._object_type.__name__}",
+            )
+        contract_entrypoint = entrypoint.removesuffix(".get") + ".contract().show()"
+        return card.field(
+            f"{entrypoint}(...)",
+            f"blocked; reason=empty_collection; inspect {contract_entrypoint}",
+        )
+
+    def contract(self) -> AuthoringContract:
+        """Return the exact typed selection contract for this collection.
+
+        Returns:
+            An authoring contract with one ``get`` continuation whose output
+            family matches this collection's concrete entry type.
+
+        Example:
+            >>> collection = catalog.metrics
+            >>> collection.contract().show()
+
+        Constraints:
+            Empty collections retain a blocked selection transition. The
+            contract does not rank or choose any displayed entry.
+        """
+        from marivo.semantic._capabilities.contracts import (
+            contract_for_catalog_collection,
+        )
+
+        scope = self._scope_ref.key if self._scope_ref is not None else "catalog"
+        return contract_for_catalog_collection(
+            kind=self._kind.value,
+            scope=scope,
+            public_entrypoint=f"{self._public_get_entrypoint()}(...)",
+            expected_output_family=self._object_type.__name__,
+            available=bool(self.items),
         )
 
 
@@ -4757,25 +4811,23 @@ class SemanticCatalog(RenderableResult):
 
     def _card(self) -> Card:
         rows: list[tuple[str, str, str, str]] = []
+        empty_collections: list[str] = []
         for member in CATALOG_MEMBER_CONTRACTS:
             collection = getattr(self, member.property_name)
-            rows.append(
-                (
-                    member.property_name,
-                    member.kind.value,
-                    member.entry_type_name,
-                    str(len(collection)),
+            if len(collection):
+                rows.append(
+                    (
+                        f"catalog.{member.property_name}.show()",
+                        member.kind.value,
+                        member.entry_type_name,
+                        str(len(collection)),
+                    )
                 )
-            )
+            else:
+                empty_collections.append(member.property_name)
         card = Card(
             identity=self._repr_identity(),
             available=(
-                *(f".{name}" for name in CATALOG_COLLECTION_PROPERTIES),
-                ".require(...)",
-                ".readiness(...)",
-                ".verify(...)",
-                ".preview(...)",
-                ".preview_many(...)",
                 ".contract()",
                 ".show()",
             ),
@@ -4783,12 +4835,16 @@ class SemanticCatalog(RenderableResult):
         card.field("definition_fingerprint", self.definition_fingerprint)
         card.field("semantic_root", str(self.semantic_root))
         card.field("workspace_dir", str(self.workspace_dir))
-        return card.table(
-            label="collections",
-            columns=("property", "kind", "entry_type", "count"),
-            rows=rows,
-            row_count=len(rows),
-        )
+        if rows:
+            card = card.table(
+                label="collections",
+                columns=("inspect", "kind", "entry_type", "count"),
+                rows=rows,
+                row_count=len(rows),
+            )
+        if empty_collections:
+            card = card.field("empty_collections", ", ".join(empty_collections))
+        return card
 
     def _collection(
         self,
@@ -5353,7 +5409,7 @@ class SemanticCatalog(RenderableResult):
     def contract(self) -> AuthoringContract:
         """Return the mechanical continuation contract for this catalog.
 
-        The contract exposes catalog-level browse and load affordances, not
+        The contract exposes catalog-level browse and exact-membership affordances, not
         per-object transitions. Use ``CatalogEntry.contract()`` for
         object-scoped verify, preview, and readiness transitions.
         """

@@ -2326,7 +2326,7 @@ def _build_registry() -> CapabilityRegistry:
         *(
             (
                 f"catalog.{member.property_name}",
-                f"session.catalog.{member.property_name}",
+                f"catalog.{member.property_name}",
                 f"catalog.{member.property_name}",
                 f"Browse catalog {member.property_name}.",
             )
@@ -2334,13 +2334,13 @@ def _build_registry() -> CapabilityRegistry:
         ),
         (
             "catalog.require",
-            "session.catalog.require(ref)",
+            "catalog.require(ref)",
             "catalog.require",
             "Require one exact ref in the compiled catalog.",
         ),
         (
             "catalog.readiness",
-            "session.catalog.readiness(refs=...)",
+            "catalog.readiness(refs=...)",
             "catalog.readiness",
             "Check semantic readiness for refs.",
         ),

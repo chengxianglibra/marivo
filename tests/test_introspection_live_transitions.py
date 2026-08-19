@@ -18,6 +18,8 @@ from marivo.introspection.live.model import LiveHelpTarget
 def _preview_transition(available: bool) -> AuthoringTransition:
     return AuthoringTransition(
         kind="preview",
+        public_entrypoint="catalog.preview(...)",
+        expected_output_family="PreviewResult",
         help_target=LiveHelpTarget(surface="semantic", canonical_id="preview"),
         subject_refs=("metric:sales",),
         required_states=(AuthoringStateRef(id="semantic.loaded", subject_refs=("metric:sales",)),),
@@ -48,6 +50,8 @@ def test_authoring_transition_carries_effects_and_inputs():
     t = _preview_transition(available=True)
     assert t.kind == "preview"
     assert t.available is True
+    assert t.public_entrypoint == "catalog.preview(...)"
+    assert t.expected_output_family == "PreviewResult"
     assert t.effects.data_access == "scoped_data_read"
     assert t.input_requirements[1].exact_keys == ("snapshot:sales",)
     assert t.blocked_by == ()
@@ -56,6 +60,8 @@ def test_authoring_transition_carries_effects_and_inputs():
 def test_authoring_transition_blocked_carries_blocker_ids():
     t = AuthoringTransition(
         kind="readiness",
+        public_entrypoint="catalog.readiness(...)",
+        expected_output_family="ReadinessReport",
         help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
         subject_refs=("metric:sales",),
         effects=AuthoringEffects(data_access="none", connection="none"),

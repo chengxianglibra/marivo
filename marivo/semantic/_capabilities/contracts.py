@@ -54,13 +54,21 @@ def _transition(
     blocked_by: tuple[str, ...] = (),
     help_target: LiveHelpTarget | None = None,
     effects: AuthoringEffects | None = None,
+    public_entrypoint: str | None = None,
+    expected_output_family: str | None = None,
 ) -> AuthoringTransition:
     descriptor = REGISTRY.by_canonical_id(canonical_id)
+    resolved_entrypoint = public_entrypoint or descriptor.public_entrypoint
+    assert resolved_entrypoint is not None
+    if "(" not in resolved_entrypoint:
+        resolved_entrypoint = f"{resolved_entrypoint}(...)"
     resolved_target = help_target or LiveHelpTarget(
         surface="semantic", canonical_id=descriptor.canonical_id
     )
     return AuthoringTransition(
         kind=kind,
+        public_entrypoint=resolved_entrypoint,
+        expected_output_family=expected_output_family or descriptor.output_family,
         help_target=resolved_target,
         subject_refs=subject_refs,
         required_states=required_states,
@@ -226,6 +234,8 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
                     surface="analysis",
                     canonical_id="working_day_progress",
                 ),
+                public_entrypoint="mv.working_day_progress(...)",
+                expected_output_family="AlignmentPolicy",
                 effects=AuthoringEffects(data_access="none", connection="none"),
                 input_requirements=(
                     AuthoringInputRequirement(
@@ -262,27 +272,79 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
 
 
 def contract_for_semantic_catalog() -> AuthoringContract:
-    """Expose bounded catalog-level browse/load affordances.
+    """Expose bounded catalog-level browse and exact-membership affordances.
 
     Returns
     -------
     AuthoringContract
-        A normalized contract with a single ``load`` transition and no
-        per-object state.
+        A normalized contract for an already-loaded catalog. Per-object
+        verify, preview, and readiness transitions belong to ``CatalogEntry``.
     """
+    subject_refs = ("semantic.catalog",)
+    loaded = _state("semantic.loaded", subject_refs)
     return _normalize_contract(
         AuthoringContract(
-            subject_refs=("semantic.catalog",),
-            states=(),
+            subject_refs=subject_refs,
+            states=(loaded,),
             transitions=(
                 _transition(
-                    "load",
-                    kind="load",
-                    subject_refs=("semantic.catalog",),
-                    produced_state=_state("semantic.loaded", ("semantic.catalog",)),
+                    "SemanticCatalog.items",
+                    kind="browse",
+                    subject_refs=subject_refs,
+                    required_states=(loaded,),
                     available=True,
                     input_requirements=(
                         AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                        AuthoringInputRequirement(role="subject", family="SemanticKind"),
+                    ),
+                ),
+                _transition(
+                    "SemanticCatalog.require",
+                    kind="select",
+                    subject_refs=subject_refs,
+                    required_states=(loaded,),
+                    available=True,
+                    input_requirements=(
+                        AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                        AuthoringInputRequirement(role="subject", family="Ref"),
+                    ),
+                ),
+            ),
+        )
+    )
+
+
+def contract_for_catalog_collection(
+    *,
+    kind: str,
+    scope: str,
+    public_entrypoint: str,
+    expected_output_family: str,
+    available: bool,
+) -> AuthoringContract:
+    """Expose one typed selection continuation for a catalog collection."""
+    subject_refs = (f"catalog.collection:{kind}@{scope}",)
+    loaded = _state("semantic.loaded", subject_refs)
+    return _normalize_contract(
+        AuthoringContract(
+            subject_refs=subject_refs,
+            states=(loaded,),
+            transitions=(
+                _transition(
+                    "CatalogCollection.get",
+                    kind="select",
+                    subject_refs=subject_refs,
+                    required_states=(loaded,),
+                    available=available,
+                    blocked_by=() if available else ("empty_collection",),
+                    public_entrypoint=public_entrypoint,
+                    expected_output_family=expected_output_family,
+                    input_requirements=(
+                        AuthoringInputRequirement(role="receiver", family="CatalogCollection"),
+                        AuthoringInputRequirement(
+                            role="subject",
+                            family="CatalogLookupKey | Ref",
+                        ),
                     ),
                 ),
             ),

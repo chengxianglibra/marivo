@@ -724,13 +724,14 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
     focused = _text("catalog.dimensions")
 
     assert (
-        "session.catalog.dimensions  "
-        "(property -> CatalogCollection[DimensionKind]; inspect with .show())"
+        "catalog.dimensions  (property -> CatalogCollection[DimensionKind]; inspect with .show())"
     ) in group
-    assert "Property: session.catalog.dimensions" in focused
+    assert "catalog = session.catalog" in group
+    assert "catalog.show()" in group
+    assert "Property: catalog.dimensions" in focused
     assert "Returns: CatalogCollection[DimensionKind]" in focused
-    assert "Inspect: session.catalog.dimensions.show()" in focused
-    assert "Entrypoint: session.catalog.dimensions" not in focused
+    assert "Inspect: catalog.dimensions.show()" in focused
+    assert "Entrypoint: catalog.dimensions" not in focused
 
 
 def test_analysis_catalog_help_covers_the_closed_semantic_collections() -> None:
@@ -743,7 +744,7 @@ def test_analysis_catalog_help_covers_the_closed_semantic_collections() -> None:
     for member in CATALOG_MEMBER_CONTRACTS:
         capability_id = f"catalog.{member.property_name}"
         assert capability_id in registered
-        assert f"session.catalog.{member.property_name}" in text
+        assert f"catalog.{member.property_name}" in text
 
 
 def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> None:
@@ -756,7 +757,7 @@ def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> N
 
     for member in CATALOG_MEMBER_CONTRACTS:
         text = _text(f"catalog.{member.property_name}")
-        collection = f"session.catalog.{member.property_name}"
+        collection = f"catalog.{member.property_name}"
 
         assert f"{collection}.show()" in text
         assert f'{collection}.get("<full semantic path or typed key>")' in text

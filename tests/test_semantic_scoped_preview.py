@@ -1495,7 +1495,9 @@ schedule = ms.work_schedule(
     )
     assert schedule_use.kind == "use"
     assert schedule_use.available is True
-    assert "mv.working_day_progress(schedule=entry" in entry.render()
+    assert schedule_use.public_entrypoint == "mv.working_day_progress(...)"
+    assert "mv.working_day_progress(...)" in schedule_contract.render()
+    assert "mv.working_day_progress" not in entry.render()
     assert not any(
         issue.kind == "work_schedule_snapshot_missing"
         for issue in catalog.readiness(refs=[schedule_ref]).blockers

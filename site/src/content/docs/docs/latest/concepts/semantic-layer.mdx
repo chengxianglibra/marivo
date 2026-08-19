@@ -859,7 +859,9 @@ import marivo
 marivo.help("analysis.catalog")
 marivo.help("analysis.catalog.metrics")
 
-collection = session.catalog.metrics
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
 collection.show()                              # bounded list when identity is unknown
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
@@ -882,7 +884,7 @@ Once declarations are in place, load the catalog and inspect it:
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.show()                            # all typed collections and counts
+catalog.show()                            # non-empty collections plus one empty summary
 catalog.domains.show()                    # top-level domains
 catalog.metrics.show()                    # just metrics across all domains
 
@@ -900,12 +902,20 @@ out-of-scope object through any of these forms. Use the strict ref-only
 logs. Entry cards show the exact kind, full path, `.ref`, and bounded current
 axes; omitted members point to `details().show()`.
 
+`ms.load()` and `session.catalog` create separate immutable snapshots over the
+same semantic project. Their browse protocol is identical, and unchanged project
+state yields the same definition fingerprint, but entries remain owned by the
+catalog instance that returned them. Analysis therefore reacquires an entry from
+the current `session.catalog` instead of passing an Entry returned by `ms.load()`.
+
 The global collections are `domains`, `datasources`, `entities`, `dimensions`,
 `time_dimensions`, `measures`, `metrics`, `relationships`, `events`,
 `state_models`, `period_calendars`, `temporal_sets`, and `work_schedules`.
 `repr(catalog)` points to the same bounded, zero-query catalog card that
-`catalog.show()` prints. Collection help exposes the exact
-`.items`, `.refs`, `.get(...)`, `.render()`, and `.show()` surface; lookup
+`catalog.show()` prints. The card lists only non-empty collections as
+`catalog.<collection>.show()` calls and compresses empty collections into one
+summary. Collection help exposes the exact `.items`, `.refs`, `.get(...)`,
+`.contract()`, `.render()`, and `.show()` surface; lookup
 remains exact and does not use fuzzy search.
 
 After authoring or changing an object, run **readiness** to certify that the

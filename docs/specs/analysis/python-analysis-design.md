@@ -159,7 +159,8 @@ results to decide the next step:
 import marivo.analysis as mv
 
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
-dau = session.catalog.metrics.get("analytics.dau")
+catalog = session.catalog
+dau = catalog.metrics.get("analytics.dau")
 
 current = session.observe(
     metrics=dau,

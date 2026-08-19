@@ -784,7 +784,9 @@ import marivo
 marivo.help("analysis.catalog")
 marivo.help("analysis.catalog.metrics")
 
-collection = session.catalog.metrics
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
 collection.show()                              # 不知道身份时先查看有界列表
 entry = collection.get("metric:sales.revenue")  # 完整路径或展示出的 typed key
 entry.show()
@@ -806,7 +808,7 @@ current = session.observe(entry, grain=mv.grain("month"))
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.show()                            # 全部 typed collections 与数量
+catalog.show()                            # 非空集合及一行空集合摘要
 catalog.domains.show()                    # top-level domains
 catalog.metrics.show()                    # just metrics across all domains
 
@@ -822,12 +824,18 @@ region = orders.dimensions.get("region")  # one dimension object
 `catalog.require(ref)`。条目卡片会显示精确类型、完整路径、`.ref` 和有界的当前候选轴；
 被省略的成员会指向 `details().show()`。
 
+`ms.load()` 与 `session.catalog` 会基于同一语义项目创建彼此独立的不可变快照。
+它们使用相同的浏览协议；项目状态未变化时 definition fingerprint 相同，但 Entry 始终
+归属于返回它的 Catalog 实例。因此分析必须从当前 `session.catalog` 重新获取 Entry，
+不能直接传入 `ms.load()` 返回的 Entry。
+
 全局集合为 `domains`、`datasources`、`entities`、`dimensions`、
 `time_dimensions`、`measures`、`metrics`、`relationships`、`events`、
 `state_models`、`period_calendars`、`temporal_sets` 和 `work_schedules`。
 `repr(catalog)` 会指向 `catalog.show()` 打印的同一个有界、零查询目录卡片。
-集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、
-`.render()` 与 `.show()`；lookup 仍是精确查找，不提供 fuzzy search。
+卡片只把非空集合显示为 `catalog.<collection>.show()` 调用，并把空集合压缩为一行摘要。
+集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、`.contract()`、`.render()` 与
+`.show()`；lookup 仍是精确查找，不提供 fuzzy search。
 
 新建或修改对象后，运行**就绪检查**，认证所选定义及其限定范围的运行时证据仍然有效：
 

@@ -70,6 +70,8 @@ def test_enforce_budget_raises_on_codepoint_overflow():
 def _transition(available: bool) -> AuthoringTransition:
     return AuthoringTransition(
         kind="preview",
+        public_entrypoint="catalog.preview(...)",
+        expected_output_family="PreviewResult",
         help_target=LiveHelpTarget(surface="semantic", canonical_id="preview"),
         subject_refs=("metric:sales",),
         effects=AuthoringEffects(
@@ -94,8 +96,9 @@ def test_render_contract_lists_available_and_blocked_transitions():
         max_lines=SURFACE_LIMITS.object_contract_render_max_lines,
         max_codepoints=SURFACE_LIMITS.object_contract_render_max_codepoints,
     )
-    assert "preview" in text
-    assert "available" in text.lower() or "blocked" in text.lower()
+    assert "catalog.preview(...) -> PreviewResult; status=available" in text
+    assert "status=blocked" in text
+    assert 'marivo.help("semantic.preview")' in text
 
 
 def test_render_contract_empty_transitions_disclosed():
@@ -105,8 +108,7 @@ def test_render_contract_empty_transitions_disclosed():
         transitions=(),
     )
     text = render_contract(contract, max_lines=80, max_codepoints=4000)
-    # No mechanically invokable continuation is disclosed, not silently empty.
-    assert "no" in text.lower() or "none" in text.lower() or "0" in text
+    assert "continuations: none" in text
 
 
 def test_authoring_contract_is_a_bounded_self_rendering_result(capsys):

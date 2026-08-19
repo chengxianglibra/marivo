@@ -72,8 +72,14 @@ def _transition(
     blocked_by: tuple[str, ...] = (),
 ) -> AuthoringTransition:
     descriptor = _registry().by_canonical_id(canonical_id)
+    assert descriptor.public_entrypoint is not None
+    public_entrypoint = descriptor.public_entrypoint
+    if "(" not in public_entrypoint:
+        public_entrypoint = f"{public_entrypoint}(...)"
     return AuthoringTransition(
         kind=kind,
+        public_entrypoint=public_entrypoint,
+        expected_output_family=descriptor.output_family,
         help_target=LiveHelpTarget(surface="datasource", canonical_id=descriptor.canonical_id),
         subject_refs=subject_refs,
         required_states=required_states,

@@ -218,7 +218,7 @@ def test_catalog_collection_render_contains_refs_affordance(semantic_project_fac
     rendered = result.render()
     assert "available:" in rendered
     assert "- .refs" in rendered
-    assert "- .get(...)" in rendered
+    assert "selection: catalog.metrics.get(<displayed ref>) -> MetricEntry" in rendered
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(

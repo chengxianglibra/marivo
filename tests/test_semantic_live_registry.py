@@ -118,7 +118,8 @@ def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
         "show",
     )
     assert collection_contract.public_properties == ("items", "refs")
-    assert collection_contract.public_methods == ("get", "show", "render")
+    assert collection_contract.public_methods == ("get", "contract", "show", "render")
+    assert collection_contract.state_bearing is True
 
 
 def test_preview_capability_is_one_entry_or_exact_ref() -> None:

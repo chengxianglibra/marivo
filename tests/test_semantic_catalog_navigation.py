@@ -10,7 +10,7 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.refs import DimensionKind, Ref, SemanticKind
-from marivo.render import AgentResult
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic.catalog import (
     CatalogCollection,
@@ -196,10 +196,69 @@ def test_semantic_catalog_is_a_bounded_self_describing_result(
     rendered = catalog.render()
     for member in CATALOG_MEMBER_CONTRACTS:
         assert member.property_name in rendered
-        assert member.entry_type_name in rendered
+        collection = getattr(catalog, member.property_name)
+        if len(collection):
+            assert f"catalog.{member.property_name}.show()" in rendered
+            assert member.entry_type_name in rendered
+        else:
+            assert member.property_name in rendered.split("empty_collections: ", 1)[1]
     assert catalog.definition_fingerprint in rendered
     assert catalog.show() is None
     assert capsys.readouterr().out.rstrip() == rendered
+
+
+def test_every_catalog_collection_contract_has_exact_selection_type(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    for member in CATALOG_MEMBER_CONTRACTS:
+        collection = getattr(catalog, member.property_name)
+        transition = collection.contract().transitions[0]
+        assert transition.kind == "select"
+        assert transition.public_entrypoint == f"catalog.{member.property_name}.get(...)"
+        assert transition.expected_output_family == member.entry_type_name
+        assert transition.available is bool(len(collection))
+        assert transition.blocked_by == (() if len(collection) else ("empty_collection",))
+
+
+def test_collection_show_uses_one_receiver_qualified_selection_template(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    global_rendered = catalog.metrics.render()
+    scoped_rendered = catalog.domains.get("sales").metrics.render()
+
+    assert global_rendered.count("catalog.metrics.get(<displayed ref>)") == 1
+    assert scoped_rendered.count("collection.get(<displayed ref>)") == 1
+    assert "metric:sales.revenue" in global_rendered
+
+
+def test_empty_collection_show_and_contract_explain_blocked_selection(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    collection = catalog.state_models
+
+    rendered = collection.render()
+    contract_rendered = collection.contract().render()
+
+    assert "catalog.state_models.get(...): blocked; reason=empty_collection" in rendered
+    assert "catalog.state_models.get(...) -> StateModelEntry; status=blocked" in contract_rendered
+    assert "blocked_by=empty_collection" in contract_rendered
+
+
+def test_catalog_and_contract_outputs_respect_default_and_small_byte_budgets(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+
+    assert len(catalog.render().encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert len(catalog.contract().render().encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    small = catalog.render(max_output_bytes=640)
+    assert len(small.encode("utf-8")) <= 640
+    assert "truncated" in small
 
 
 def test_renderable_catalog_objects_expose_only_public_dir_members(
@@ -212,6 +271,7 @@ def test_renderable_catalog_objects_expose_only_public_dir_members(
     assert "_index" not in dir(catalog)
     assert "items" in dir(catalog.metrics)
     assert "get" in dir(catalog.metrics)
+    assert "contract" in dir(catalog.metrics)
     assert "_catalog" not in dir(catalog.metrics)
 
 
@@ -608,12 +668,12 @@ def test_domain_card_advertises_live_navigation_counts(semantic_project_factory)
     rendered = _catalog(semantic_project_factory).domains.get("sales").render()
 
     for expected in (
-        "entities: 2 -> .entities",
-        "dimensions: 3 -> .dimensions",
-        "time_dimensions: 1 -> .time_dimensions",
-        "measures: 1 -> .measures",
-        "metrics: 1 -> .metrics",
-        "relationships: 1 -> .relationships",
+        "entry.entities.show(): count=2",
+        "entry.dimensions.show(): count=3",
+        "entry.time_dimensions.show(): count=1",
+        "entry.measures.show(): count=1",
+        "entry.metrics.show(): count=1",
+        "entry.relationships.show(): count=1",
     ):
         assert expected in rendered
 
@@ -621,8 +681,9 @@ def test_domain_card_advertises_live_navigation_counts(semantic_project_factory)
 def test_zero_count_navigation_remains_visible(semantic_project_factory) -> None:
     rendered = _catalog(semantic_project_factory).entities.get("users").render()
 
-    assert "measures: 0 -> .measures" in rendered
-    assert "metrics: 0 -> .metrics" in rendered
+    empty = rendered.split("empty_collections: ", 1)[1].splitlines()[0]
+    assert "measures" in empty
+    assert "metrics" in empty
 
 
 def test_relationship_card_shows_typed_endpoints(semantic_project_factory) -> None:
