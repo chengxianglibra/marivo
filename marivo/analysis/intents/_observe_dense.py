@@ -7,6 +7,7 @@ each function.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from marivo._fixed_duration import fixed_duration_seconds
@@ -18,7 +19,8 @@ from marivo._temporal import (
     PeriodCalendarSnapshotV1,
     TemporalResolver,
 )
-from marivo.analysis.errors import AnalysisError
+from marivo.analysis.errors import AnalysisError, AnalysisRepair, DataTypeMismatchError
+from marivo.introspection.live.model import LiveHelpTarget
 
 _GRAIN_PANDAS_FREQ: dict[str, str] = {
     "second": "s",
@@ -123,6 +125,68 @@ def _bucket_date_range(window: Any) -> list[Any]:
     return list(bucket_index)
 
 
+def _coerce_numeric_value_series(series: Any, *, location: str) -> Any:
+    """Normalize one cumulative value column to ``float64`` before pandas arithmetic.
+
+    DuckDB materializes ``DECIMAL`` aggregation results as object-dtype
+    ``decimal.Decimal`` columns, which pandas ``cumsum``/``rolling`` reject.
+    Legal numeric values (int, float, Decimal, and numpy numeric scalars) are
+    unified to ``float64`` so the dense cumulative paths operate on a stable
+    numeric boundary, matching the ``float64`` export contract. Genuinely
+    non-numeric values raise :class:`DataTypeMismatchError` instead of leaking a
+    bare pandas ``TypeError``/``NotImplementedError``.
+    """
+    import numpy as np
+    import pandas as pd
+
+    if pd.api.types.is_numeric_dtype(series.dtype):
+        return series.astype("float64")
+
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return series.astype("float64")
+
+    for value in non_null:
+        if isinstance(value, (int, float, Decimal, np.integer, np.floating)):
+            continue
+        raise DataTypeMismatchError(
+            message=(
+                f"cumulative value column cannot be densified: {location} contains a "
+                f"non-numeric value of type {type(value).__name__!r}"
+            ),
+            expected="int, float, or decimal.Decimal values convertible to float64",
+            received=f"{type(value).__name__}",
+            location=location,
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Ensure the measure returns a numeric value (int/float/Decimal) "
+                    "before observing it cumulatively; correct the measure's column or "
+                    "expression to a numeric type."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
+        )
+    try:
+        return series.astype("float64")
+    except (TypeError, ValueError) as exc:
+        raise DataTypeMismatchError(
+            message=(f"cumulative value column {location} could not be converted to float64"),
+            expected="int, float, or decimal.Decimal values",
+            received=str(series.dtype),
+            location=location,
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Ensure the measure returns a numeric value (int/float/Decimal) "
+                    "before observing it cumulatively; correct the measure's column or "
+                    "expression to a numeric type."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+            ),
+        ) from exc
+
+
 def _dense_cumulative_frame(
     *,
     baseline_df: Any,
@@ -174,8 +238,12 @@ def _dense_cumulative_frame(
         on=["bucket_start", *merge_keys],
         how="left",
     )
-    out["_baseline"] = out["_baseline"].fillna(0)
-    out[value_column] = out[value_column].fillna(0)
+    out["_baseline"] = _coerce_numeric_value_series(
+        out["_baseline"].fillna(0), location=f"cumulative all-history baseline ({value_column})"
+    )
+    out[value_column] = _coerce_numeric_value_series(
+        out[value_column].fillna(0), location=f"cumulative all-history flow ({value_column})"
+    )
     out = out.sort_values([*merge_keys, "bucket_start"])
     out[value_column] = (
         out.groupby(merge_keys, dropna=False)[value_column].cumsum() + out["_baseline"]
@@ -396,7 +464,10 @@ def _grain_to_date_dense_frame(
         on=["bucket_start", *merge_keys],
         how="left",
     )
-    out[value_column] = out[value_column].fillna(0)
+    out[value_column] = _coerce_numeric_value_series(
+        out[value_column].fillna(0),
+        location=f"cumulative grain-to-date flow ({value_column})",
+    )
 
     # cumsum partitioned by (dims x reset period): resets at each boundary.
     out = out.sort_values([*merge_keys, "bucket_start"])
@@ -413,7 +484,9 @@ def _grain_to_date_dense_frame(
             seed.groupby(merge_keys, dropna=False)[value_column].sum().reset_index(name="_seed")
         )
         out = out.merge(seed_map, on=merge_keys, how="left")
-        out["_seed"] = out["_seed"].fillna(0)
+        out["_seed"] = _coerce_numeric_value_series(
+            out["_seed"].fillna(0), location=f"cumulative grain-to-date seed ({value_column})"
+        )
         first_period_key = _trunc_series_to_grain(
             pd.Series([bucket_values[0]]), reset_grain, snapshot=snapshot
         ).iloc[0]
@@ -475,7 +548,9 @@ def _trailing_rolling_frame(
         how="left",
     )
     # Empty windows are true zero: fill missing flow with 0 (NOT carry-forward).
-    out[value_column] = out[value_column].fillna(0)
+    out[value_column] = _coerce_numeric_value_series(
+        out[value_column].fillna(0), location=f"cumulative trailing flow ({value_column})"
+    )
     out = out.sort_values([*merge_keys, "bucket_start"])
     # Rolling sum with min_periods=1: partial windows produce actual values,
     # not NaN; empty windows produce 0.
