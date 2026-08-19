@@ -144,15 +144,16 @@ shows an explicit, actionable truncation hint; it never silently omits data.
 Analysis artifact cards name their exact ordered `output_columns` before the
 preview. Their mechanical contracts repeat the same names and preserve direct
 semantic inputs as role/path plus a copyable
-`session.catalog.<collection>.get("<path>")` acquisition call. This guidance is
+`catalog.<collection>.get("<path>")` acquisition call after the analysis flow
+binds `catalog = session.catalog`. This guidance is
 derived from persisted artifact metadata and the catalog member registry; it
 does not infer semantic ownership from a physical column name.
 
-The `available:` footer is a **static "next callable" list bound to the type**,
-not a recommendation engine. It reminds the agent which bounded methods exist on
-the object it already holds (e.g. `.to_pandas()` on a frame) — it does not
-suggest what to do next for the user's task. State-derived suggestions ("unknown
-metric → here are the available ids", "did you mean X") are a *separate*
+The `available:` footer is a **small inspection protocol bound to the type**,
+not a recommendation engine or capability inventory. State-dependent calls stay
+in the card body; the complete mechanical continuation set stays in
+`.contract()`. State-derived suggestions ("unknown metric → here are the
+available ids", "did you mean X") are a *separate*
 mechanism that appears on **error objects** and on **empty/ambiguous results**,
 always generated from a live query, never hardcoded.
 
@@ -364,7 +365,7 @@ recommendation to author.
 ### The analysis loop
 
 ```text
-marivo.help() → load catalog → observe → show → contract → compose → closeout
+marivo.help() → acquire session catalog → observe → show → contract → compose → closeout
 ```
 
 Analysis deliberately narrows the agent's mental model to **two exits per

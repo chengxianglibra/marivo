@@ -96,6 +96,8 @@ def test_semantic_live_surface_rejects_cross_surface_target() -> None:
 def test_help_resolves_string_target() -> None:
     text = _text("load")
     assert "load" in text
+    assert "catalog = ms.load()" in text
+    assert "catalog.show()" in text
 
 
 def test_help_resolves_callable_target() -> None:
@@ -149,6 +151,7 @@ def test_catalog_collection_help_teaches_displayed_typed_key_lookup() -> None:
     assert "catalog.metrics.get('metric:sales.revenue')" in text
     assert "marivo.help(entry)" in text
     assert "entry or entry.ref" in text
+    assert "call .contract() for mechanically valid next actions" in text
 
 
 def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> None:

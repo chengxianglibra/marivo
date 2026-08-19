@@ -76,11 +76,14 @@ revenue.details().show()
 `catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
 and `catalog.work_schedules`. Each is a
 `CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`,
-`.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
+`.contract()`, `.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
 exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 `SemanticCatalog` itself follows the bounded result protocol: `repr(catalog)`
-points to `catalog.show()`, whose zero-query card lists every collection, its
-entry type, and its current object count.
+points to `catalog.show()`, whose zero-query card lists only non-empty
+collections as copyable `catalog.<collection>.show()` calls and compresses all
+empty collections into one summary. `catalog.contract()` owns the generic
+`catalog.items(...)` and `catalog.require(...)` continuations; it does not
+repeat every named collection or object-level validation call.
 
 | API | Meaning |
 |---|---|
@@ -116,13 +119,14 @@ Scoped collections are the normal way to remove ambiguity:
 
 ### Self-teaching object cards
 
-Every container object's bounded `render()` / `show()` card advertises its live
-navigation properties and counts. A domain card includes a `navigation:` section
-listing each valid child collection with its count, so the agent discovers
-`.entities`, `.metrics`, etc. from real state rather than memorizing a matrix.
+Every container object's bounded `render()` / `show()` card advertises non-empty
+navigation properties as copyable `entry.<collection>.show()` calls with counts.
+Empty child collections are compressed into one summary, so the agent can still
+distinguish empty state from unsupported navigation without reading one line per
+zero-count collection.
 Every entry card names its exact kind and full path, exposes `.ref`, and
-advertises `details()`, `contract()`, `render()`, `show()`, and bounded
-navigation. Metric cards additionally render bounded exact refs for effective
+advertises `details()`, `contract()`, `render()`, and `show()`. Metric cards
+additionally render bounded exact refs for effective
 entities, candidate dimensions, candidate time dimensions, required
 relationships, and component/measure lineage when present. An empty time-axis
 set is explicit (`candidate_time_dimensions: none`). Omitted members include an
@@ -162,7 +166,9 @@ session = mv.session.get_or_create(
     "investigation",
     question="Why did revenue decline?",
 )
-collection = session.catalog.metrics
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
 collection.show()                              # bounded list when identity is unknown
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
@@ -174,6 +180,13 @@ frame = session.observe(
     grain=mv.grain("month"),
 )
 ```
+
+`ms.load()` and `session.catalog` build separate immutable catalog snapshots
+over the same semantic project. They share the same browse contract and normally
+share a definition fingerprint when project state is unchanged, but a
+`CatalogEntry` remains owned by the instance that produced it. Analysis must
+reacquire entries from the current `session.catalog`; stale or cross-catalog
+entries fail closed with a current-catalog repair.
 
 When an exact ref comes from configuration, persistence, or logs, the agent
 uses the exact-ref contract instead of browsing. `CatalogEntry` help owns the

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from marivo._authoring.model import (
     AuthoringContract,
+    AuthoringInputRequirement,
     AuthoringJudgmentRequirement,
     AuthoringTransition,
 )
@@ -25,11 +26,46 @@ def _render_state_summaries(contract: AuthoringContract) -> tuple[str, ...]:
 
 
 def _render_transition(transition: AuthoringTransition) -> str:
-    flag = "available" if transition.available else "blocked"
-    line = f"- {transition.kind} [{flag}] -> {transition.help_target.display}"
+    status = "available" if transition.available else "blocked"
+    requirements = "; ".join(
+        _render_input_requirement(requirement) for requirement in transition.input_requirements
+    )
+    output = transition.expected_output_family or "none"
+    line = (
+        f"{transition.public_entrypoint} -> {output}; status={status}; "
+        f"inputs={requirements or 'none'}; help={_help_call(transition)}"
+    )
     if not transition.available and transition.blocked_by:
-        line += f"  blocked_by={', '.join(transition.blocked_by)}"
+        line += f"; blocked_by={', '.join(transition.blocked_by)}"
     return line
+
+
+def _render_input_requirement(requirement: AuthoringInputRequirement) -> str:
+    parts = [f"{requirement.role}={requirement.family}"]
+    if requirement.min_count != 1 or requirement.max_count != 1:
+        if requirement.max_count is None:
+            parts.append(f"count>={requirement.min_count}")
+        elif requirement.min_count == requirement.max_count:
+            parts.append(f"count={requirement.min_count}")
+        else:
+            parts.append(f"count={requirement.min_count}..{requirement.max_count}")
+    if requirement.subject_refs:
+        parts.append(f"subjects={len(requirement.subject_refs)}")
+    if requirement.exact_keys:
+        parts.append(f"keys={len(requirement.exact_keys)}")
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]}({', '.join(parts[1:])})"
+
+
+def _help_call(transition: AuthoringTransition) -> str:
+    target = transition.help_target
+    suffix = f".{target.canonical_id}" if target.canonical_id is not None else ""
+    return f'marivo.help("{target.surface}{suffix}")'
+
+
+def _receiver_group(transition: AuthoringTransition) -> str:
+    return transition.public_entrypoint.partition(".")[0]
 
 
 def _render_judgment(requirement: AuthoringJudgmentRequirement) -> str:
@@ -63,12 +99,18 @@ def render_contract(
         ", ".join(contract.subject_refs) if contract.subject_refs else "(none)",
     )
     card = card.listing("states", _render_state_summaries(contract))
-    card = card.listing(
-        "transitions",
-        (_render_transition(transition).removeprefix("- ") for transition in contract.transitions)
-        if contract.transitions
-        else ("no mechanically invokable continuation disclosed",),
-    )
+    if not contract.transitions:
+        card = card.field("continuations", "none")
+    else:
+        card = card.field("continuations", "mechanical, unranked")
+        groups: dict[str, list[AuthoringTransition]] = {}
+        for transition in contract.transitions:
+            groups.setdefault(_receiver_group(transition), []).append(transition)
+        for receiver, transitions in groups.items():
+            card = card.listing(
+                receiver,
+                (_render_transition(transition) for transition in transitions),
+            )
     if contract.judgment_requirements:
         card = card.listing(
             "non-mechanical judgment requirements",

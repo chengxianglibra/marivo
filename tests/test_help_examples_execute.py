@@ -37,6 +37,7 @@ _SEMANTIC_RUNTIME_EXAMPLES = frozenset(
         "parity_check",
         "SemanticCatalog.require",
         "SemanticCatalog.items",
+        "CatalogCollection.get",
     }
 )
 
@@ -174,6 +175,7 @@ def _semantic_runtime_namespace(
         "mv": mv,
         "ms": ms,
         "catalog": catalog,
+        "collection": catalog.metrics,
         "revenue": revenue,
         "runtime_revenue": mv.runtime_metric.aggregate(
             ms.ref.measure("sales.orders.amount"),

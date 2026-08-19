@@ -691,6 +691,9 @@ def _catalog_group_guidance() -> list[str]:
     properties = tuple(member.property_name for member in CATALOG_MEMBER_CONTRACTS)
     midpoint = (len(properties) + 1) // 2
     return [
+        "  Analysis entry:",
+        "    catalog = session.catalog",
+        "    catalog.show()",
         "  Object families:",
         "    " + ", ".join(properties[:midpoint]),
         "    " + ", ".join(properties[midpoint:]),
@@ -705,9 +708,10 @@ def _catalog_exact_ref_guidance() -> list[str]:
 
     return [
         "  Exact identity handoff:",
-        "    entry = session.catalog.require(ref)",
+        "    catalog = session.catalog",
+        "    entry = catalog.require(ref)",
         "    entry.show(); entry.details().show(); marivo.help(entry)",
-        "    Use session.catalog.require only for an exact Ref from configuration, logs, or persistence.",
+        "    Use catalog.require only for an exact Ref from configuration, logs, or persistence.",
         '  Entry contract: marivo.help("semantic.CatalogEntry").',
     ]
 

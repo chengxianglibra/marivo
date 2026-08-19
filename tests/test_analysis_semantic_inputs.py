@@ -139,6 +139,21 @@ def test_stale_metric_entry_does_not_claim_an_executable_analysis_retry(
     assert repair.candidates == ("metric:sales.revenue",)
 
 
+def test_ms_load_entry_must_be_reacquired_from_current_session_catalog(
+    authoring_evidence_project: object,
+) -> None:
+    import marivo.analysis as mv
+
+    authoring_catalog = ms.load()
+    external_entry = authoring_catalog.metrics.get("sales.revenue")
+    session = mv.session.get_or_create("catalog-ownership", use_datasources=False)
+
+    assert authoring_catalog is not session.catalog
+    assert authoring_catalog.definition_fingerprint == session.catalog.definition_fingerprint
+    with pytest.raises(SemanticKindMismatchError, match="earlier catalog instance"):
+        normalize_metric_input(session.catalog, external_entry)
+
+
 def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 

@@ -83,6 +83,8 @@ TransitionKind = Literal[
     "preview",
     "readiness",
     "audit",
+    "browse",
+    "select",
     "use",
 ]
 TransitionInputRole = Literal[
@@ -114,6 +116,8 @@ class AuthoringTransition(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: TransitionKind
+    public_entrypoint: str
+    expected_output_family: str | None = None
     help_target: LiveHelpTarget
     subject_refs: tuple[str, ...]
     required_states: tuple[AuthoringStateRef, ...] = ()

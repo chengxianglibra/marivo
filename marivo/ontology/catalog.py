@@ -172,6 +172,8 @@ class OntologyCatalog(RenderableResult):
             transitions=(
                 AuthoringTransition(
                     kind="audit",
+                    public_entrypoint="mo.load(semantic=...)",
+                    expected_output_family="OntologyCatalog",
                     help_target=LiveHelpTarget(surface="ontology", canonical_id="authoring"),
                     subject_refs=subjects,
                     effects=AuthoringEffects(data_access="local_metadata_read", connection="none"),

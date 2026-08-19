@@ -72,7 +72,7 @@ def test_catalog_object_contract_exposes_verify_preview_readiness(
     assert "readiness" in kinds
 
 
-def test_semantic_catalog_contract_exposes_browse_load(
+def test_semantic_catalog_contract_exposes_browse_and_exact_selection(
     authoring_evidence_project: object,
 ) -> None:
     import marivo.semantic as ms
@@ -80,10 +80,29 @@ def test_semantic_catalog_contract_exposes_browse_load(
     catalog = ms.load()
     contract = catalog.contract()
     kinds = {t.kind for t in contract.transitions}
-    assert "load" in kinds
-    # catalog-level contract should not expose per-object transitions
+    assert kinds == {"browse", "select"}
+    assert "load" not in kinds
     assert "verify" not in kinds
     assert "preview" not in kinds
+    assert {transition.public_entrypoint for transition in contract.transitions} == {
+        "catalog.items(...)",
+        "catalog.require(...)",
+    }
+    assert "ms.load" not in contract.render()
+
+
+def test_catalog_object_contract_renders_public_continuations(
+    authoring_evidence_project: object,
+) -> None:
+    catalog = ms.load()
+    entry = catalog.metrics.get("sales.revenue")
+
+    rendered = entry.contract().render()
+
+    assert "catalog.verify(...) -> VerifyResult" in rendered
+    assert "catalog.preview(...) -> PreviewResult" in rendered
+    assert "catalog.readiness(...) -> ReadinessReport" in rendered
+    assert "- verify [" not in rendered
 
 
 def test_readiness_report_keeps_ready_refs_without_analysis_transition() -> None:

@@ -57,6 +57,8 @@ INPUT_FAMILIES = frozenset(
         "CatalogEntry",
         "CatalogEntry | Ref",
         "CatalogEntry | Ref | RuntimeMetricExpression",
+        "CatalogCollection",
+        "CatalogLookupKey | Ref",
         "SemanticCatalog",
         "SemanticKind",
         "DiscoverySnapshot",
@@ -565,7 +567,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Load the read-only semantic catalog.",
             output="SemanticCatalog",
             effects=_LOCAL,
-            example="catalog = ms.load()",
+            example="catalog = ms.load()\ncatalog.show()",
             produced_state="semantic.loaded",
         ),
         _capability(
@@ -1410,6 +1412,20 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="catalog.require(ms.ref.metric('sales.revenue'))",
             public_entrypoint="catalog.require",
         ),
+        _capability(
+            "CatalogCollection.get",
+            "marivo.semantic.catalog.CatalogCollection.get",
+            "Select one current entry from a typed catalog collection.",
+            kind="method",
+            output="CatalogEntry",
+            inputs=_inputs(
+                ("receiver", "CatalogCollection"),
+                ("subject", "CatalogLookupKey | Ref"),
+            ),
+            effects=_LOCAL,
+            example="collection.get('metric:sales.revenue')",
+            public_entrypoint="collection.get",
+        ),
     )
     groups: Mapping[SemanticRootGroup, tuple[str, ...]] = MappingProxyType(
         {
@@ -1591,7 +1607,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "CatalogCollection",
         (),
         properties=("items", "refs"),
-        methods=("get", *show_render),
+        methods=("get", "contract", *show_render),
+        state_bearing=True,
     )
     add(
         DomainEntry,

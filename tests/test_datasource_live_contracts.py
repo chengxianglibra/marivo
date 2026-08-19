@@ -347,6 +347,8 @@ def test_normalize_contract_sorts_and_deduplicates_contract_fields() -> None:
     effects = AuthoringEffects(data_access="none", connection="none")
     register = AuthoringTransition(
         kind="register",
+        public_entrypoint="md.register(...)",
+        expected_output_family="DatasourceSummary",
         help_target=LiveHelpTarget(surface="datasource", canonical_id="register"),
         subject_refs=("datasource.warehouse",),
         effects=effects,
@@ -354,6 +356,8 @@ def test_normalize_contract_sorts_and_deduplicates_contract_fields() -> None:
     )
     inspect = AuthoringTransition(
         kind="inspect",
+        public_entrypoint="md.inspect(...)",
+        expected_output_family="SourceInspection",
         help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
         subject_refs=("datasource.warehouse",),
         effects=effects,

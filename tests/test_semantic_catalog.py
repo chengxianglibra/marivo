@@ -502,7 +502,7 @@ def test_catalog_collection_render_uses_refs_affordance(semantic_project_factory
     rendered = _make_catalog(semantic_project_factory).metrics.render()
     assert "available:" in rendered
     assert "- .refs" in rendered
-    assert "- .get(...)" in rendered
+    assert "selection: catalog.metrics.get(<displayed ref>) -> MetricEntry" in rendered
 
 
 def test_catalog_collection_show_prints_render(semantic_project_factory, capsys):
@@ -882,7 +882,8 @@ def test_catalog_collection_render_uses_card_listing(
 
     assert expected_id in rendered
     assert "- .refs" in rendered
-    assert "- .get(...)" in rendered
+    assert f"selection: catalog.{collection_name}.get(<displayed ref>)" in rendered
+    assert rendered.count("selection:") == 1
 
 
 def test_catalog_measures_render_uses_card_listing(
@@ -900,7 +901,7 @@ def test_catalog_measures_render_uses_card_listing(
 
     assert "MeasureEntry" in rendered
     assert "sales.orders.amount" in rendered
-    assert "- .get(...)" in rendered
+    assert "selection: catalog.measures.get(<displayed ref>) -> MeasureEntry" in rendered
 
 
 # --- Typed collection kind filtering ---
