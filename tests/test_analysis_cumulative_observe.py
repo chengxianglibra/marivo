@@ -322,6 +322,207 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
     )
 
 
+def test_semantic_grain_fused_forest_retains_period_metadata(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+
+    catalog = ms.SemanticCatalog(project)
+    catalog.verify(ms.ref.period_calendar("sales.fiscal"))
+    catalog.preview(
+        ms.ref.period_calendar("sales.fiscal"),
+        using=fiscal_calendar_evidence(project.workspace_dir),
+    )
+
+    session = mv.session.get_or_create(
+        name="fiscal-forest",
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+    semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    # Two distinct aggregate expressions over the same entity fuse into one
+    # backend query (unlike identical expressions, which dedupe to one leaf).
+    frame = session.observe(
+        [
+            session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+            session.catalog.require(ms.ref.metric("sales.active_users")).ref,
+        ],
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_week,
+    )
+
+    result = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    # Both fused leaves must attach the certified period metadata, matching the
+    # non-fused single-metric path (issue #107).
+    assert "period_key" in result.columns
+    assert result["period_key"].tolist() == ["M1-W1", "M1-W2", "M2-W1", "M2-W2"]
+    assert result["gmv"].tolist() == pytest.approx([10, 20, 30, 40])
+    assert result["active_users"].tolist() == pytest.approx([1, 1, 1, 1])
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.output_period_keys == (
+        "M1-W1",
+        "M1-W2",
+        "M2-W1",
+        "M2-W2",
+    )
+
+
+def _fiscal_week_mixed_session(semantic_project_factory, monkeypatch, session_name):
+    """Build the shared fiscal-week backend + session for mixed-observe tests."""
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
+    )
+    calendar_rows = []
+    cursor = date(2026, 1, 1)
+    while cursor < date(2026, 3, 1):
+        month = "M1" if cursor.month == 1 else "M2"
+        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
+        calendar_rows.append((cursor.isoformat(), week, month))
+        cursor += timedelta(days=1)
+    backend.raw_sql(
+        "INSERT INTO calendar VALUES "
+        + ",".join(f"(DATE '{day}', '{week}', '{month}')" for day, week, month in calendar_rows)
+    )
+    backend.raw_sql("CREATE TABLE events (event_date DATE, amount DOUBLE, user_id INTEGER)")
+    backend.raw_sql(
+        "INSERT INTO events VALUES "
+        "(DATE '2026-01-01', 10, 1), (DATE '2026-01-08', 20, 1), "
+        "(DATE '2026-02-01', 30, 1), (DATE '2026-02-08', 40, 2)"
+    )
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    return mv.session.get_or_create(
+        name=session_name,
+        backends={"warehouse": lambda: backend},
+        report_timezone="UTC",
+    )
+
+
+def test_semantic_grain_mixed_sum_and_weighted_mean_observe_shares_axis_schema(
+    semantic_project_factory, monkeypatch
+) -> None:
+    session = _fiscal_week_mixed_session(
+        semantic_project_factory, monkeypatch, "fiscal-mixed-sum-weighted"
+    )
+    semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    # A simple aggregate leaf and a weighted-mean leaf must expose the same
+    # axis schema (bucket_start + certified period metadata) so the forest
+    # aligns instead of raising SemanticKindMismatchError (issue #107 P2).
+    frame = session.observe(
+        [
+            session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+            session.catalog.require(ms.ref.metric("sales.weighted_user")).ref,
+        ],
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_week,
+    )
+    result = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert "period_key" in result.columns
+    assert result["period_key"].tolist() == ["M1-W1", "M1-W2", "M2-W1", "M2-W2"]
+    assert result["gmv"].tolist() == pytest.approx([10, 20, 30, 40])
+    assert result["weighted_user"].tolist() == pytest.approx([1, 1, 1, 2])
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.output_period_keys == (
+        "M1-W1",
+        "M1-W2",
+        "M2-W1",
+        "M2-W2",
+    )
+
+
+def test_semantic_grain_mixed_sums_and_weighted_mean_observe_shares_axis_schema(
+    semantic_project_factory, monkeypatch
+) -> None:
+    session = _fiscal_week_mixed_session(
+        semantic_project_factory, monkeypatch, "fiscal-mixed-sums-weighted"
+    )
+    semantic_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+    # Fused simple-aggregate leaves and a weighted-mean leaf must expose the
+    # same axis schema so the mixed forest aligns (issue #107 P2).
+    frame = session.observe(
+        [
+            session.catalog.require(ms.ref.metric("sales.gmv")).ref,
+            session.catalog.require(ms.ref.metric("sales.active_users")).ref,
+            session.catalog.require(ms.ref.metric("sales.weighted_user")).ref,
+        ],
+        time_scope=mv.time_scope(start="2026-01-01", end="2026-03-01"),
+        grain=semantic_week,
+    )
+    result = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert "period_key" in result.columns
+    assert result["period_key"].tolist() == ["M1-W1", "M1-W2", "M2-W1", "M2-W2"]
+    assert result["gmv"].tolist() == pytest.approx([10, 20, 30, 40])
+    assert result["active_users"].tolist() == pytest.approx([1, 1, 1, 1])
+    assert result["weighted_user"].tolist() == pytest.approx([1, 1, 1, 2])
+    assert frame.meta.temporal_contract is not None
+    assert frame.meta.temporal_contract.output_period_keys == (
+        "M1-W1",
+        "M1-W2",
+        "M2-W1",
+        "M2-W2",
+    )
+
+
+def test_temporal_contract_explains_missing_period_key_for_semantic_grain(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = semantic_project_factory(fiscal_analysis_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    catalog = ms.SemanticCatalog(project)
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    catalog.verify(calendar_ref)
+    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+
+    calendar = catalog.period_calendars.get("sales.fiscal")
+    semantic_week = calendar.grain("fiscal_week")
+    window = AbsoluteWindow(
+        start="2026-01-01",
+        end="2026-03-01",
+        grain=semantic_week,
+        temporal_snapshot=calendar._snapshot(),
+    )
+    contract = _build_frame_temporal_contract(
+        resolved_window=window,
+        cumulative=None,
+        frame=pd.DataFrame({"bucket_start": ["2026-01-01"]}),
+        report_timezone="UTC",
+    )
+
+    assert contract is not None
+    assert contract.observation_period is not None
+    assert contract.observation_period.kind == "semantic_period"
+    assert contract.output_period_keys == ()
+    assert contract.period_key_absence_reason is not None
+    assert "period_key" in contract.period_key_absence_reason
+
+
 def test_semantic_reset_binds_derived_forest_and_recovers(
     semantic_project_factory, monkeypatch
 ) -> None:

@@ -972,8 +972,17 @@ def _build_frame_temporal_contract(
                 boundary_timezone=reset_boundary_timezone,
             )
     output_keys: tuple[Any, ...] = ()
+    period_key_absence_reason: str | None = None
     if "period_key" in frame.columns:
         output_keys = tuple(frame["period_key"].tolist())
+    elif observation_period is not None and observation_period.kind == "semantic_period":
+        # A certified calendar grain was requested but the executed frame has no
+        # period_key column, so period labels could not be attached.  Surface the
+        # gap explicitly instead of returning a silently empty key list.
+        period_key_absence_reason = (
+            "semantic observation grain active but frame has no period_key column; "
+            "certified period labels were not attached"
+        )
     return FrameTemporalContractV1(
         time_scope=scope_contract,
         observation_period=observation_period,
@@ -981,6 +990,7 @@ def _build_frame_temporal_contract(
         actual_start=scope_contract.start,
         actual_end=scope_contract.end,
         output_period_keys=output_keys,
+        period_key_absence_reason=period_key_absence_reason,
         display_timezone=report_timezone,
     )
 

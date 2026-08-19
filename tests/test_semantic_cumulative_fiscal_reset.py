@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from marivo._temporal import (
@@ -35,6 +36,11 @@ from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
     cumulative_alignment_evidence,
 )
+from marivo.analysis.executor.bucketing import (
+    SEMANTIC_PERIOD_COLUMNS,
+    materialize_semantic_period_columns,
+)
+from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.refs import ref as ref_factory
 
 
@@ -211,3 +217,68 @@ def test_snapshot_construction_rejects_gap_even_with_valid_digest() -> None:
             correspondences=(),
             snapshot_digest=digest,
         )
+
+
+# ---------------------------------------------------------------------------
+# 3. The certified period-column constant tracks the materializer output.
+# ---------------------------------------------------------------------------
+
+
+def _fiscal_week_snapshot() -> PeriodCalendarSnapshotV1:
+    calendar_ref = ref_factory.period_calendar("sales.fiscal")
+    coverage = (date(2026, 1, 1), date(2026, 1, 15))
+    levels = ("day", "fiscal_week")
+    periods = (
+        _period("fiscal_week", "W1", date(2026, 1, 1), date(2026, 1, 8), 0),
+        _period("fiscal_week", "W2", date(2026, 1, 8), date(2026, 1, 15), 1),
+    )
+    digest = _snapshot_digest(
+        calendar_ref=calendar_ref,
+        boundary_timezone="UTC",
+        coverage=coverage,
+        levels=levels,
+        periods=periods,
+        containments=(),
+        correspondences=(),
+    )
+    return PeriodCalendarSnapshotV1(
+        calendar_ref=calendar_ref,
+        boundary_timezone="UTC",
+        coverage=coverage,
+        levels=levels,
+        periods=periods,
+        containments=(),
+        correspondences=(),
+        snapshot_digest=digest,
+    )
+
+
+def test_semantic_period_columns_constant_matches_materializer_output() -> None:
+    """``SEMANTIC_PERIOD_COLUMNS`` is duplicated by hand next to the
+    materializer; this pin makes drift fail at test time.
+
+    The materializer emits ``period_key``/``period_start``/``period_end``/
+    ``period_ordinal`` always, and appends ``observed_start``/``observed_end``/
+    ``is_complete`` only when a window bounds the observation.  The constant's
+    canonical order must match the emitted column order exactly.
+    """
+    snapshot = _fiscal_week_snapshot()
+    grain = _fiscal_grain(level="fiscal_week")
+    frame = pd.DataFrame({"bucket_start": [0, 1], "value": [1.0, 2.0]})
+
+    without_window = materialize_semantic_period_columns(
+        frame, snapshot=snapshot, grain=grain, window=None
+    )
+    emitted = [
+        column for column in without_window.columns if column not in ("bucket_start", "value")
+    ]
+    assert emitted == list(SEMANTIC_PERIOD_COLUMNS[:4])
+
+    with_window = materialize_semantic_period_columns(
+        frame,
+        snapshot=snapshot,
+        grain=grain,
+        window=AbsoluteWindow(start="2026-01-01", end="2026-01-15"),
+    )
+    emitted = [column for column in with_window.columns if column not in ("bucket_start", "value")]
+    assert emitted == list(SEMANTIC_PERIOD_COLUMNS)
