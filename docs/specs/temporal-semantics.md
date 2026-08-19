@@ -1885,6 +1885,7 @@ FrameTemporalContractV1:
   actual_start
   actual_end
   output_period_keys[]
+  period_key_absence_reason: str | null
   display_timezone
 ```
 
@@ -1897,6 +1898,13 @@ They may intentionally differ, for example daily observations under a fiscal
 month reset, and each must match the corresponding authored `Grain`. A frame
 with neither leaves both null. There is no generic list of anonymous
 authorities.
+
+`output_period_keys` records the certified period keys attached to the frame
+when `observation_period` is a semantic period; it is empty when the frame has
+no certified key column. `period_key_absence_reason` is a human-readable
+explanation, non-null only when the observation grain is a semantic period yet
+the frame still carries no `period_key` column (for example a pre-period or
+metadata-less export), so an empty key list is never silently ambiguous.
 
 A comparison-like artifact retains both source contracts rather than pretending
 that two observations have one binding:

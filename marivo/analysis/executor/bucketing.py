@@ -612,6 +612,21 @@ def semantic_period_bucket_expr(
     return ibis.cases(*cases, else_=ibis.literal(-1)).name("bucket_start")
 
 
+# Canonical order of the certified period metadata columns attached by
+# ``materialize_semantic_period_columns``.  ``observed_start``/``observed_end``/
+# ``is_complete`` are only present when a window is supplied; callers must still
+# tolerate their absence (e.g. when no time scope bound the observation).
+SEMANTIC_PERIOD_COLUMNS: tuple[str, ...] = (
+    "period_key",
+    "period_start",
+    "period_end",
+    "period_ordinal",
+    "observed_start",
+    "observed_end",
+    "is_complete",
+)
+
+
 def materialize_semantic_period_columns(
     frame: pd.DataFrame,
     *,

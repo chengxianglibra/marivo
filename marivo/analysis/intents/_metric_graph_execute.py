@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis._cumulative import CUMULATIVE_CONTRACT_VERSION
 from marivo.analysis.executor.bucketing import (
+    SEMANTIC_PERIOD_COLUMNS,
     apply_time_series_bucket,
     ensure_bucket_start_timestamp,
     materialize_semantic_period_columns,
@@ -312,7 +313,12 @@ def _execute_fused_base_group(
         semantic_kind = "segmented"
     else:
         semantic_kind = "scalar"
-    axis_columns = tuple(group_names)
+    # Fused leaves must carry the certified period metadata attached above so
+    # the forest frame exposes the same temporal contract as the non-fused
+    # single-metric path (issue #107).  Keep only columns actually materialized.
+    axis_columns = tuple(group_names) + tuple(
+        column for column in SEMANTIC_PERIOD_COLUMNS if column in result.df.columns
+    )
     per_leaf = {
         leaf.node_id: replace(
             result,

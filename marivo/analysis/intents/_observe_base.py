@@ -15,6 +15,7 @@ from ibis.expr.operations.relations import Field
 from marivo._temporal import Grain as TemporalGrain
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
 from marivo.analysis.executor.bucketing import (
+    SEMANTIC_PERIOD_COLUMNS,
     apply_time_series_bucket,
     bucket_start_expr,
     ensure_bucket_start_timestamp,
@@ -156,15 +157,22 @@ def _split_aggregate_components(
         for axis in axes.values()
         if isinstance(axis, dict) and isinstance(axis.get("column"), str)
     ]
+    # Weighted-mean (component) leaves keep the same certified period metadata
+    # columns as the fused base-leaf path so a mixed forest of simple and
+    # weighted metrics shares one axis schema (issue #107).  Only columns the
+    # materializer actually emitted are projected (observed_* / is_complete are
+    # window-only), matching _execute_fused_base_group.
+    period_columns = [column for column in SEMANTIC_PERIOD_COLUMNS if column in result.df.columns]
     component_df = result.df[
         [
             *axis_columns,
+            *period_columns,
             _WEIGHTED_MEAN_NUMERATOR_COLUMN,
             _WEIGHTED_MEAN_WEIGHT_COLUMN,
             "value",
         ]
     ].rename(columns={"value": metric_ir.name})
-    canonical_df = result.df[[*axis_columns, "value"]].copy()
+    canonical_df = result.df[[*axis_columns, *period_columns, "value"]].copy()
     return replace(result, df=canonical_df, row_count=len(canonical_df)), component_df
 
 

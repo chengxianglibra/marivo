@@ -1013,6 +1013,7 @@ class FrameTemporalContractV1(BaseModel):
     actual_start: date | datetime | None = None
     actual_end: date | datetime | None = None
     output_period_keys: tuple[_JSON_SCALAR, ...] = ()
+    period_key_absence_reason: str | None = None
     display_timezone: str
 
     @model_validator(mode="after")
