@@ -37,6 +37,35 @@ of the question. If paths are unknown, show those required collections together
 once; do not also enumerate datasources, domains, entities, measures, events,
 state models, artifacts, or help indexes.
 
+## Minimal analysis flow
+
+For an ordinary investigation, use this bounded sequence as the default path:
+
+1. Decompose the question into a short coverage checklist.
+2. Run `marivo doctor` once and keep using the verified project interpreter.
+3. Read the focused live help for the capability you need.
+4. Create or resume one question-scoped session.
+5. Resolve all required typed `metric`, `dimension`, and, when time is involved,
+   `time_dimension` references together.
+6. Run one minimal bounded `observe` before optional exploration. If the
+   question does not name periods, use the smallest useful time observation to
+   identify available and complete comparable periods.
+7. Use the returned artifact to confirm the period, completeness, and metric
+   definitions that govern the analysis.
+8. When a one-off metric is missing, use the closed `runtime_metric` route
+   before considering a semantic-authoring handoff.
+9. Perform only the necessary terminal decomposition after a typed artifact has
+   established the semantic inputs and evidence scope.
+10. Run the focused `assess_quality` flow for the material result, following
+    its live-help input contract.
+11. Answer the requested questions first, with the evidence, interpretation,
+    caveats, and blockers needed to support the conclusion.
+
+Do not delay the first bounded observation by reading project question files or
+semantic source, enumerating unrelated surfaces, or building the full terminal
+analysis script. If the first observation cannot be completed, return a
+structured blocker and stop the affected branch.
+
 ## Enter the environment once
 
 The host runtime must provide one concrete project interpreter for this
