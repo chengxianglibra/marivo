@@ -655,6 +655,21 @@ only — it never ranks, recommends, or narrates:
   `frame.to_pandas()` and `md.raw_sql(...)`; results from either cannot
   re-enter typed analysis.
 
+`contract().show()` is the complete readable continuation surface. It groups
+affordances deterministically by public receiver (`session`, `discover`,
+`frame`, `transform`, then `candidates`) and leads with registry-owned public
+entry points and callable `marivo.help("analysis.<target>")` references. Preconditions and
+repairs use the same public entry point. Stable `capability_id` values remain in
+the structured contract and `model_dump()` but are omitted from readable
+labels. A contract with no continuations renders `continuations: none`; its
+readable terminal boundary is labelled `frame.to_pandas()` rather than the
+internal `boundary.to_pandas` id.
+
+Artifact `show()` cards do not repeat this matrix. They include only dynamic
+continuation facts tied to current state, such as cumulative-observation
+compatibility for `session.compare(...)` or attribution admission for
+`session.attribute(...)`.
+
 Every public value returned by `.contract()`—currently `AuthoringContract`,
 `ArtifactContract`, `DigestReadContract`, and `TimeScopeContractV1`—structurally
 provides a bounded one-line `repr`, deterministic bounded `render()`, and `show()`
@@ -709,6 +724,11 @@ not accepted. The method returns one closed immutable variant:
 `session.observe(candidate, analysis_purpose=...)` with the exact inherited
 scope. Selection is a bounded read, not an artifact-producing step: it creates no
 job, lineage step, finding, or digest.
+
+Every `CandidateSet.contract()` exposes this read continuation using its public
+`candidates.select(item_id=...)` entry point and the exact output type implied by
+the candidate shape. Pure inspection and shape-narrowing methods are not
+continuations.
 
 Only the ontology variant is an `observe` input because it resolves a different,
 not-yet-materialized Metric together with the exact inherited scope required to

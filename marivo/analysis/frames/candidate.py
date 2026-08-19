@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -18,14 +18,18 @@ from marivo.analysis.candidate_lineage import (
     merge_candidate_origins,
 )
 from marivo.analysis.evidence.types import ArtifactIssue, JsonScalar
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.frames.base import (
+    ArtifactAffordance,
+    ArtifactContract,
+    ArtifactInputRequirement,
+    BaseFrame,
+    BaseFrameMeta,
+    _capability_public_entrypoint,
+)
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.ontology.types import SemanticEdgeRef
 from marivo.refs import DimensionKind, Ref, RefPayloadV1, SemanticKind
 from marivo.render import Card
-
-if TYPE_CHECKING:
-    from marivo.analysis.frames.base import ArtifactContract
 
 ScoredCandidateShape = Literal[
     "point_anomaly",
@@ -256,6 +260,17 @@ CandidateSelection = Annotated[
 ]
 
 
+_SELECTION_OUTPUT_BY_SHAPE: dict[CandidateShape, str] = {
+    "point_anomaly": "PointAnomalySelection",
+    "period_shift": "PeriodShiftSelection",
+    "driver_axis": "DriverAxisSelection",
+    "slice": "SliceSelection",
+    "window": "WindowSelection",
+    "cross_sectional_outlier": "CrossSectionalOutlierSelection",
+    "semantic_hypothesis": "OntologyMetricCandidate",
+}
+
+
 @dataclass(repr=False)
 class CandidateSet(BaseFrame):
     """Call marivo.help(CandidateSet) for its public consumption contract."""
@@ -359,6 +374,22 @@ class CandidateSet(BaseFrame):
     def contract(self) -> ArtifactContract:
         """Return the artifact contract with live/historical exclusion repairs."""
         contract = super().contract()
+        select_affordance = ArtifactAffordance(
+            capability_id="CandidateSet.select",
+            public_entrypoint=_capability_public_entrypoint("CandidateSet.select"),
+            help_target="CandidateSet.select",
+            input_requirements=(
+                ArtifactInputRequirement(
+                    parameter="receiver",
+                    accepted_families=("CandidateSet",),
+                    bindable_from_current_artifact=True,
+                ),
+            ),
+            expected_output_family=_SELECTION_OUTPUT_BY_SHAPE[self.meta.shape],
+        )
+        contract = contract.model_copy(
+            update={"affordances": (*contract.affordances, select_affordance)}
+        )
         if not isinstance(self.meta, SemanticHypothesisCandidateSetMeta):
             return contract
         from marivo.analysis.errors import AnalysisRepair

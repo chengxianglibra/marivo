@@ -1940,6 +1940,11 @@ def test_contract_all_history_compare_is_locally_available(tmp_path, monkeypatch
     assert not any(
         p.check in {"running_total_caveat", "compare_anchor_match"} for p in cmp.preconditions
     )
+    rendered = frame.render()
+    assert (
+        "session.compare(...): available; pair compatibility is validated at call time" in rendered
+    )
+    assert "\ncompare:" not in rendered
 
 
 def test_contract_grain_to_date_defers_pair_checks_to_compare(tmp_path, monkeypatch) -> None:

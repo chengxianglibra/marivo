@@ -686,6 +686,15 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
         {"region": "US", "contribution": 30.0},
         {"region": "CN", "contribution": -10.0},
     ]
+    assert "session.forecast(...)" not in cur.render()
+    assert "session.attribute(...): supported; attribution_shape=sum" in delta.render()
+    assert "AttributionFrame" in out.render()
+    contract_text = delta.contract().render()
+    assert len(contract_text.encode("utf-8")) <= 8192
+    assert "session.attribute(...) -> AttributionFrame" in contract_text
+    bounded_contract_text = delta.contract().render(max_output_bytes=1024)
+    assert len(bounded_contract_text.encode("utf-8")) <= 1024
+    assert "output truncated" in bounded_contract_text
     assert [job.intent for job in session.jobs()].count("observe") == 4
     assert [job.intent for job in session.jobs()].count("compare") == 2
 

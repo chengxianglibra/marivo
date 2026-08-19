@@ -28,6 +28,7 @@ from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
     _ArtifactSemanticBinding,
+    _capability_public_entrypoint,
     assert_semantic_shape,
 )
 from marivo.analysis.frames.subject import SubjectCohortBinding
@@ -828,8 +829,8 @@ class MetricFrame(BaseFrame):
             card.field("cumulative", _cumulative_status_line(anchor, blocker=blocker))
         if anchor == "all_history" and blocker is None:
             card.field(
-                "compare",
-                "available: pair compatibility is validated with the baseline at call time",
+                _capability_public_entrypoint("compare"),
+                "available; pair compatibility is validated at call time",
             )
             card.field(
                 "caveat",

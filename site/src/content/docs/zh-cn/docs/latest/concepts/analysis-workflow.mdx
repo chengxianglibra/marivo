@@ -717,12 +717,20 @@ delta.to_pandas()    # 终端导出，用于自定义本地分析
 `artifact.evidence_status` 检查降级。精确证据项与 derivation 追踪使用
 `session.evidence`。
 
+`artifact.show()` 只补充依赖当前产物状态的续接提示，并使用
+`session.compare(...)`、`session.attribute(...)` 这样的公共调用；它不会在每个
+frame 中重复通用能力矩阵。`artifact.contract().show()` 是完整续接信息唯一的可读
+入口：按公共 receiver 分组，以可直接参考的公共入口为标签，并提供可调用的
+`marivo.help("analysis.<target>")` 帮助路径。
+
 用 `artifact.contract().affordances` 查看接口兼容性。每个可用操作携带
 `capability_id`（稳定的注册表 id）、`public_entrypoint`、`help_target`、
 保留参数角色的 `inputs`、`preconditions` 和 `expected_output_family`。每个输入
-记录准确参数名、接受的产物家族，以及当前产物能否绑定它。契约
-不排序、不推荐、不枚举调用，也不决定下一步。`artifact.contract().boundary_ports` 列出类型化的终端出口端口
-（例如 `boundary.to_pandas`），并附带 `preserves` 和 `does_not_preserve` 保证。
+记录准确参数名、接受的产物家族，以及当前产物能否绑定它。契约不排序、不推荐，
+也不决定下一步。可读标签隐藏 `capability_id`；稳定 id 仍保留在结构化 contract
+和 `model_dump()` 中。`artifact.contract().boundary_ports` 列出类型化的终端出口
+端口（例如结构化 id `boundary.to_pandas`），并附带 `preserves` 和
+`does_not_preserve` 保证；其可读标签是 `frame.to_pandas()`。
 
 ### 结构化错误
 

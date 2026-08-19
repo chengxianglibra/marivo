@@ -176,9 +176,19 @@ def test_metric_frame_components_loads_linked_component_frame():
     )
 
     loaded = parent.components()
+    affordance = next(
+        item
+        for item in parent.contract().affordances
+        if item.capability_id == "MetricFrame.components"
+    )
+    precondition = next(
+        item for item in affordance.preconditions if item.check == "component_frame_available"
+    )
 
     assert isinstance(loaded, ComponentFrame)
     assert loaded.ref == component.ref
+    assert precondition.status == "pass"
+    assert component.ref in (precondition.reason or "")
 
 
 def test_ordinary_metric_frame_components_raise_structured_unavailable_error():
@@ -369,6 +379,17 @@ def test_metric_frame_components_stale_ref_fails_closed():
 
     assert exc_info.value._context["component_ref"] == "frame_deadbeef"
     assert exc_info.value._context["parent_ref"] == parent_artifact_id
+    affordance = next(
+        item
+        for item in parent.contract().affordances
+        if item.capability_id == "MetricFrame.components"
+    )
+    precondition = next(
+        item for item in affordance.preconditions if item.check == "component_frame_available"
+    )
+    assert precondition.status == "fail"
+    assert precondition.repair is not None
+    assert precondition.repair.kind == "retry"
 
 
 def test_metric_frame_components_missing_ref_with_composition_fails_closed():
@@ -420,6 +441,17 @@ def test_metric_frame_components_wrong_kind_fails_closed():
         parent.components()
 
     assert exc_info.value._context["loaded_kind"] == "metric_frame"
+    affordance = next(
+        item
+        for item in parent.contract().affordances
+        if item.capability_id == "MetricFrame.components"
+    )
+    precondition = next(
+        item for item in affordance.preconditions if item.check == "component_frame_available"
+    )
+    assert precondition.status == "fail"
+    assert precondition.repair is not None
+    assert precondition.repair.kind == "environment"
 
 
 def test_metric_frame_components_corrupt_ref_propagates_corruption():
@@ -469,8 +501,21 @@ def test_metric_frame_components_corrupt_ref_propagates_corruption():
         composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
     )
 
+    affordance = next(
+        item
+        for item in parent.contract().affordances
+        if item.capability_id == "MetricFrame.components"
+    )
+    precondition = next(
+        item for item in affordance.preconditions if item.check == "component_frame_available"
+    )
+
     with pytest.raises(FrameCacheCorruptedError):
         parent.components()
+
+    assert precondition.status == "fail"
+    assert precondition.repair is not None
+    assert precondition.repair.kind == "retry"
 
 
 def test_legacy_component_graph_ref_artifact_fails_closed_on_load():
