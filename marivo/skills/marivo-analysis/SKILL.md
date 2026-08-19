@@ -166,12 +166,13 @@ action or an explicit evidence-based "no change" decision for every row.
 1. Resolve exact governed inputs and confirm readiness for the required scope.
 2. Read focused help only before the first unfamiliar public capability or
    when a structured error directs you there.
-3. Put compatible calls and the small calculations needed to answer the
-   checklist in one rerunnable session-local script.
-4. Read returned objects with `.show()` when their bounded state contributes
-   evidence. Read `.contract()` only when the next valid continuation is
-   unknown; do not call it ceremonially on every artifact.
-5. Follow one structured repair after a failure, then rerun the same script.
+3. Write one append-only session-local script for the current decision round,
+   batching compatible calls and only the small calculations it needs. After
+   execution, do not edit that script.
+4. In a later round, restore exact input artifacts by ref; do not import or
+   re-execute an earlier script. Show only artifacts produced in the current
+   round. Read `.contract()` only when the next valid continuation is unknown.
+5. After a failure, follow one structured repair in a new step script.
 6. Update the coverage checklist from current artifacts and stop when every
    required answer is supported or explicitly blocked.
 
@@ -313,15 +314,19 @@ or bounded tests over irreversible actions or invented numeric targets.
 
 ## Script discipline
 
-Store the main rerunnable script under
-`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/`. Repair and
-rerun it instead of creating a chain of disposable discovery scripts. Add an
-auxiliary script only for a distinct terminal calculation or deliverable that
-would make the main script unclear.
+Store ordered step scripts under
+`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/`. Once executed,
+each script is an immutable source record for one decision round. Batch
+compatible operations; do not split mechanically by operator.
 
-A prior script is reference-only. Consult it only when its session has a
-succeeded job and its artifacts remain recoverable. Re-resolve semantic refs,
-scope, and policies against current state before reuse.
+Carry dependencies as exact artifact refs and restore them with
+`session.get_frame(ref)`. Do not share Python variables, import prior scripts,
+select an implicit "latest" result, or print restored inputs again. Label new
+operations with a concise `analysis_purpose` and show only their new artifacts.
+
+At closeout, use bounded frame summaries, recent jobs, evidence digests, and
+findings before loading exact supporting artifacts. The agent owns synthesis;
+do not dump the whole session or treat historical conclusions as current evidence.
 
 ## Closeout
 
