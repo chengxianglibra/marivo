@@ -37,7 +37,7 @@ from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v8"] = "analysis-artifact/v8"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v9"] = "analysis-artifact/v9"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 _DEFAULT_FRAME_PREVIEW_ROWS = 50
 
@@ -321,7 +321,7 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v8"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v9"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str
@@ -1010,15 +1010,8 @@ class BaseFrame(RenderableResult):
         return None
 
     def _render_status(self) -> str | None:
-        parts: list[str] = []
         evidence = self._evidence_status_token()
-        if evidence is not None:
-            parts.append(evidence)
-        if self.meta.quality_summary is not None:
-            compat = self.meta.quality_summary.metric_definition_compatibility
-            if compat is not None:
-                parts.append(f"quality={compat}")
-        return " ".join(parts) if parts else None
+        return evidence
 
     def _repr_html_(self) -> None:
         return None

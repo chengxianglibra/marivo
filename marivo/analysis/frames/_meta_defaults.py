@@ -162,7 +162,6 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
         coverage=coverage,
         null_rate=null_rate,
         sample_size=sample_size,
-        metric_definition_compatibility="unknown",
         sample_coverage_min=_coverage_summary_val(meta, "min"),
         sample_coverage_avg=_coverage_summary_val(meta, "avg"),
         sample_coverage_partial_buckets=(

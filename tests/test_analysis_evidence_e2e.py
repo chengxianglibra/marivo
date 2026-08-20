@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import marivo.analysis as mv
@@ -96,7 +98,13 @@ def test_e2e_observe_populates_quality_and_analysis_scope(tmp_path) -> None:
     assert cur.meta.quality_summary is not None
     assert cur.meta.quality_summary.sample_size == cur.meta.row_count
     assert cur.meta.quality_summary.null_rate is not None
-    assert cur.meta.quality_summary.metric_definition_compatibility == "unknown"
+    assert not hasattr(cur.meta.quality_summary, "metric_definition_compatibility")
+    assert "quality=unknown" not in cur.render()
+
+    persisted_meta = json.loads((session._layout.frames_dir / cur.ref / "meta.json").read_text())
+    assert "metric_definition_compatibility" not in persisted_meta["quality_summary"]
+    loaded = session.get_frame(cur.ref)
+    assert loaded.meta.quality_summary == cur.meta.quality_summary
 
     assert cur.meta.analysis_scope is not None
     assert cur.meta.analysis_scope.metric_ids == ("sales.revenue",)

@@ -88,7 +88,6 @@ def _quality(digest: ArtifactDigest) -> str | None:
         ("coverage", quality.coverage),
         ("null_rate", quality.null_rate),
         ("sample_size", quality.sample_size),
-        ("metric_definition_compatibility", quality.metric_definition_compatibility),
         ("sample_coverage_min", quality.sample_coverage_min),
         ("sample_coverage_avg", quality.sample_coverage_avg),
         ("sample_coverage_partial_buckets", quality.sample_coverage_partial_buckets),
