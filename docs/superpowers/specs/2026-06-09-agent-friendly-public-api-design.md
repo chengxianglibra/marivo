@@ -423,7 +423,7 @@ Example:
 
 ```text
 MetricFrame frame_ab12 metric=sales.revenue shape=time_series rows=7
-status: evidence=partial quality=unknown
+status: evidence=partial
 columns: bucket_start | revenue
 preview:
 bucket_start | revenue

@@ -139,7 +139,6 @@ def test_correlation_digest_states_missing_inference_without_upgrading_it() -> N
         "causal_effect_not_estimated",
     }
     rendered = digest.render()
-    assert "metric_definition_compatibility" not in rendered
     assert "primary_driver" not in rendered
     assert "root cause" not in rendered
     assert "validated" not in rendered

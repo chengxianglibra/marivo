@@ -269,7 +269,7 @@ Example:
 
 ```text
 MetricFrame ref=... rows=100
-status: evidence=complete quality=compatible
+status: evidence=complete
 analysis_purpose: inspect revenue trend
 evidence: findings=100 items=1 omitted=0
 evidence items:
