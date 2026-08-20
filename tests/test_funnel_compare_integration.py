@@ -22,6 +22,10 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.event import EventFrame
+from marivo.analysis.intents._event_funnel import (
+    FUNNEL_ADDITIVE_COLUMNS,
+    funnel_reconciliation_hash,
+)
 from marivo.analysis.intents._quality_checks import (
     run_funnel_attribution_checks,
     run_funnel_delta_checks,
@@ -449,6 +453,10 @@ def test_quality_reports_cover_both_new_shapes(
     assert delta_report.meta.report_shape == "funnel_delta"
     assert delta_report.meta.overall_status == "ok"
     assert attribution_report.meta.report_shape == "funnel_attribution"
+    assert delta_report.evidence_status == "complete"
+    assert delta_report.evidence_digest is not None
+    assert attribution_report.evidence_status == "complete"
+    assert attribution_report.evidence_digest is not None
     assert {
         "funnel_delta_alignment",
         "funnel_delta_components",
@@ -467,6 +475,121 @@ def test_quality_reports_cover_both_new_shapes(
     assert delta_quality_job["funnel_comparison"]["artifact_ref"] == delta.ref
     assert "event_journey" not in attribution_quality_job
     assert attribution_quality_job["funnel_attribution"]["artifact_ref"] == drivers.ref
+
+
+def test_empty_funnel_delta_is_row_count_warning_not_row_contract_blocker(
+    funnel_session: Any,
+) -> None:
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    empty = DeltaFrame(
+        _df=delta._dataframe_copy().iloc[0:0],
+        meta=delta.meta.model_copy(update={"row_count": 0, "zero_filled_tuple_count": 0}),
+    )
+
+    checks = {row["check_id"]: row["severity"] for row in run_funnel_delta_checks(empty)}
+
+    assert checks["row_count"] == "warning"
+    assert checks["funnel_delta_row_contract"] == "ok"
+    assert "blocking" not in checks.values()
+
+
+def test_empty_event_funnel_is_warning_when_reconciliation_remains_valid(
+    funnel_session: Any,
+) -> None:
+    source, _baseline = two_scope_funnel_frames(funnel_session)
+    empty_df = source._dataframe_copy().iloc[0:0]
+    step_keys = tuple(step.key for step in source.meta.pattern.steps)
+    totals = (
+        empty_df.groupby("step_key", dropna=False, sort=False)[list(FUNNEL_ADDITIVE_COLUMNS)]
+        .sum()
+        .reindex(step_keys, fill_value=0)
+        .reset_index()
+    )
+    empty_hash = funnel_reconciliation_hash(totals, step_keys=step_keys)
+    receipt = source.meta.grouped_reconciliation.model_copy(
+        update={"status": "pass", "ungrouped_hash": empty_hash, "grouped_hash": empty_hash}
+    )
+    empty = EventFrame(
+        _df=empty_df,
+        meta=source.meta.model_copy(
+            update={
+                "ref": "frame_empty_event_funnel",
+                "row_count": 0,
+                "grouped_reconciliation": receipt,
+            }
+        ),
+    )
+
+    report = funnel_session.assess_quality(empty)
+    checks = dict(zip(report.to_pandas()["check_id"], report.to_pandas()["severity"], strict=True))
+
+    assert checks["row_count"] == "warning"
+    assert checks["event_funnel_row_contract"] == "ok"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
+    assert report.evidence_status == "complete"
+
+
+def test_empty_funnel_attribution_is_warning_with_undefined_zero_receipt(
+    funnel_session: Any,
+    payment_step: Any,
+    acquisition_channel_entry: Any,
+) -> None:
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    drivers = funnel_session.attribute(
+        delta,
+        axes=[acquisition_channel_entry],
+        target=mv.funnel_loss_rate(step=payment_step),
+    )
+    receipt = drivers.meta.reconciliation.model_copy(
+        update={
+            "target_loss_rate_delta": None,
+            "contribution_sum": None,
+            "positive_pool": 0.0,
+            "negative_pool": 0.0,
+            "residual": 0.0,
+            "max_abs_residual": 0.0,
+        }
+    )
+    empty = AttributionFrame(
+        _df=drivers._dataframe_copy().iloc[0:0],
+        meta=drivers.meta.model_copy(
+            update={
+                "ref": "frame_empty_funnel_attribution",
+                "row_count": 0,
+                "reconciliation": receipt,
+            }
+        ),
+    )
+
+    report = funnel_session.assess_quality(empty)
+
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
+    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
+    assert report.evidence_status == "complete"
+    assert report.evidence_digest is not None
+
+
+def test_funnel_delta_unknown_coverage_is_warning(funnel_session: Any) -> None:
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+    unknown = DeltaFrame(
+        _df=delta._dataframe_copy(),
+        meta=delta.meta.model_copy(
+            update={
+                "current_coverage_basis": "unknown",
+                "baseline_coverage_basis": "unknown",
+            }
+        ),
+    )
+
+    checks = {row["check_id"]: row["severity"] for row in run_funnel_delta_checks(unknown)}
+
+    assert checks["funnel_delta_coverage"] == "warning"
+    assert "blocking" not in checks.values()
 
 
 def test_funnel_quality_detects_row_corruption_without_crashing(

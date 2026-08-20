@@ -81,30 +81,29 @@ def _predicate(
 ) -> tuple[JsonScalar, str, dict[str, JsonScalar], bool]:
     if check_kind == "row_count":
         row_count = int(details.get("row_count", 0))
-        blocking_count = int(details.get("threshold_blocking", 0))
+        row_warning_threshold = int(details.get("threshold_warning", 1))
         return (
             row_count,
-            "row_count_above_blocking_threshold",
-            {"threshold": blocking_count},
-            row_count > blocking_count,
+            "row_count_at_or_above_warning_threshold",
+            {"threshold": row_warning_threshold},
+            row_count >= row_warning_threshold,
         )
     if check_kind == "null_ratio":
         null_ratio = float(details.get("null_ratio", 0.0))
-        blocking_ratio = float(details.get("threshold_blocking", 0.5))
+        warning_ratio = float(details.get("threshold_warning", 0.1))
         return (
             null_ratio,
-            "null_ratio_at_or_below_blocking_threshold",
-            {"threshold": blocking_ratio},
-            null_ratio <= blocking_ratio,
+            "null_ratio_at_or_below_warning_threshold",
+            {"threshold": warning_ratio},
+            null_ratio <= warning_ratio,
         )
     if check_kind == "time_coverage":
         coverage_ratio = float(details.get("coverage_ratio", 0.0))
-        blocking_coverage = 0.8
         return (
             coverage_ratio,
-            "time_coverage_at_or_above_blocking_threshold",
-            {"threshold": blocking_coverage},
-            coverage_ratio >= blocking_coverage,
+            "time_coverage_complete_within_data_extent",
+            {"threshold": 1.0},
+            coverage_ratio == 1.0,
         )
     if check_kind == "value_density":
         value_density = float(details.get("value_density", 0.0))
@@ -138,6 +137,37 @@ def _predicate(
             "cumulative_pairing_caveat_count_equals_zero",
             {"expected": 0},
             caveat_count == 0,
+        )
+    invalid_count_checks = {
+        "metric_row_contract",
+        "delta_math",
+        "attribution_row_contract",
+        "attribution_contribution_values",
+        "attribution_reconciliation",
+        "event_funnel_row_contract",
+        "event_funnel_math",
+        "event_funnel_axes",
+        "event_funnel_reconciliation",
+        "event_time_to_event_row_contract",
+        "event_time_to_event_identity",
+        "event_time_to_event_duration",
+        "event_time_to_event_axes",
+        "funnel_delta_alignment",
+        "funnel_delta_components",
+        "funnel_delta_coverage",
+        "funnel_delta_row_contract",
+        "funnel_attribution_components",
+        "funnel_attribution_pools",
+        "funnel_attribution_residual",
+        "funnel_attribution_reconciliation",
+    }
+    if check_kind in invalid_count_checks:
+        count = int(details.get("invalid_count", 0))
+        return (
+            count,
+            "invalid_count_equals_zero",
+            {"expected": 0},
+            count == 0,
         )
     event_detail_fields = {
         "event_row_contract": "invalid_count",

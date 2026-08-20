@@ -30,9 +30,9 @@ def test_assess_quality_persists_findings_and_bounded_digest() -> None:
     assert {item.kind for item in quality.evidence_digest.items} == {"quality_check"}
     assert all(item.epistemic_kind == "tested" for item in quality.evidence_digest.items)
     assert quality.evidence_digest.quality is not None
-    assert quality.evidence_digest.quality.evaluated_check_count == 4
+    assert quality.evidence_digest.quality.evaluated_check_count == 6
     assert quality.evidence_digest.quality.failed_check_count == 0
-    assert "evaluated_check_count=4" in quality.evidence_digest.render()
+    assert "evaluated_check_count=6" in quality.evidence_digest.render()
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -47,9 +47,11 @@ def test_assess_quality_persists_findings_and_bounded_digest() -> None:
     assert {value["kind"] for value in values} == {"quality_check"}
     assert {value["check_id"] for value in values} == {
         "row_count",
+        "metric_row_contract",
         "null_ratio:value",
         "time_coverage",
         "value_density:value",
+        "duplicate_keys",
     }
     assert legacy_tables == []
 

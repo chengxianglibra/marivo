@@ -189,10 +189,11 @@ def test_multi_metric_quality_preserves_runtime_expression_identity(runtime_sess
     assert runtime_id.startswith("runtime:")
     assert rows["check_id"].tolist() == [
         "row_count",
+        "metric_row_contract",
         "null_ratio:runtime_total",
         "null_ratio:measure_revenue",
     ]
-    assert rows["metric_id"].tolist() == [None, runtime_id, "sales.measure_revenue"]
+    assert rows["metric_id"].tolist() == [None, None, runtime_id, "sales.measure_revenue"]
     assert report.meta.target_metric_id is None
     assert report.evidence_digest is not None
     runtime_check = next(

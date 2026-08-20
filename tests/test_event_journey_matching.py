@@ -1314,6 +1314,10 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert grouped_funnel_quality.meta.blocking_issue_count == 0
     assert duration_quality.meta.blocking_issue_count == 0
     assert grouped_duration_quality.meta.blocking_issue_count == 0
+    assert funnel_quality.evidence_status == "complete"
+    assert grouped_funnel_quality.evidence_status == "complete"
+    assert duration_quality.evidence_status == "complete"
+    assert grouped_duration_quality.evidence_status == "complete"
 
 
 def test_time_to_event_rejects_axis_colliding_with_emitted_row_columns(

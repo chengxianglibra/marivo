@@ -26,11 +26,25 @@ def _reset_session(tmp_path, monkeypatch):
 
 
 def _metric(session, rows, *, semantic_kind="time_series", axes=None, window=None, measure=None):
+    resolved_axes = axes or {"time": {"field": "time", "grain": "day"}}
+    resolved_measure = measure or {"field": "value", "aggregation": "sum"}
+    df = pd.DataFrame(rows)
+    if df.empty and not len(df.columns):
+        columns = []
+        if isinstance(resolved_measure.get("field"), str):
+            columns.append(resolved_measure["field"])
+        columns.extend(resolved_measure.get("fields", []))
+        columns.extend(
+            axis.get("field") or axis.get("column")
+            for axis in resolved_axes.values()
+            if axis.get("field") or axis.get("column")
+        )
+        df = pd.DataFrame(columns=list(dict.fromkeys(columns)))
     return make_metric_frame(
-        pd.DataFrame(rows),
+        df,
         metric_id="sales.revenue",
-        axes=axes or {"time": {"field": "time", "grain": "day"}},
-        measure=measure or {"field": "value", "aggregation": "sum"},
+        axes=resolved_axes,
+        measure=resolved_measure,
         semantic_kind=semantic_kind,
         semantic_model="sales",
         window=window
@@ -48,7 +62,14 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
 
     assert report.meta.kind == "quality_report"
     assert report.meta.overall_status == "ok"
-    assert set(df["check_kind"]) == {"row_count", "null_ratio", "time_coverage", "value_density"}
+    assert set(df["check_kind"]) == {
+        "row_count",
+        "metric_row_contract",
+        "null_ratio",
+        "time_coverage",
+        "value_density",
+        "duplicate_keys",
+    }
     assert report.meta.blocking_issue_count == 0
     assert report.overall_status == report.meta.overall_status
     assert report.blocking_issue_count == report.meta.blocking_issue_count
@@ -64,9 +85,14 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
         report.overall_status = "warning"
 
 
-def test_metric_time_series_gap_warning_and_blocking(tmp_path):
+def test_metric_time_series_gaps_are_warning_only(tmp_path):
     session = session_attach.get_or_create(name="demo")
-    rows = [{"time": t, "value": 1.0} for t in pd.date_range("2026-01-01", periods=9, freq="D")]
+    full_range = pd.date_range("2026-01-01", periods=10, freq="D")
+    rows = [
+        {"time": timestamp, "value": 1.0}
+        for timestamp in full_range
+        if timestamp != pd.Timestamp("2026-01-05")
+    ]
     warning = _metric(
         session,
         rows,
@@ -80,9 +106,9 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     warning_report = session.assess_quality(warning)
     assert warning_report.meta.overall_status == "warning"
 
-    blocking = _metric(
+    sparse = _metric(
         session,
-        rows[:6],
+        [rows[0], rows[-1]],
         window={
             "start": "2026-01-01",
             "end": "2026-01-11",
@@ -90,8 +116,43 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
             "time_dimension": "time",
         },
     )
-    blocking_report = session.assess_quality(blocking)
-    assert blocking_report.meta.overall_status == "blocking"
+    sparse_report = session.assess_quality(sparse)
+    assert sparse_report.meta.overall_status == "warning"
+    assert sparse_report.meta.blocking_issue_count == 0
+
+
+def test_metric_time_coverage_beyond_extent_is_info(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": timestamp, "value": 1.0}
+        for timestamp in pd.date_range("2025-01-01", periods=18, freq="MS")
+    ]
+    frame = _metric(
+        session,
+        rows,
+        axes={"time": {"field": "time", "grain": "month"}},
+        window={
+            "start": "2025-01-01",
+            "end": "2026-09-01",
+            "grain": "month",
+            "time_dimension": "time",
+        },
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+
+    assert coverage["severity"] == "info"
+    assert details["requested_expected_buckets"] == 20
+    assert details["expected_buckets"] == 18
+    assert details["observed_buckets"] == 18
+    assert details["beyond_extent_buckets"] == 2
+    assert details["window_beyond_extent"] is True
+    assert details["data_extent_end"] == "2026-06-01"
+    assert details["coverage_ratio"] == 1.0
+    assert report.meta.overall_status == "ok"
+    assert report.meta.issues == ()
 
 
 @pytest.mark.parametrize(
@@ -160,12 +221,15 @@ def test_hourly_time_coverage_issue_belongs_only_to_quality_report(tmp_path):
         "2026-06-30T15:00:00",
         "2026-06-30T16:00:00",
     ]
-    assert report.meta.overall_status == "blocking"
+    assert coverage["severity"] == "warning"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
     assert frame.meta.issues == ()
     assert loaded_source.meta.issues == ()
     assert report_issue.check_id == "time_coverage"
     assert report_issue.observed_value == 0.5
-    assert report_issue.expectation == "coverage_ratio >= 0.8"
+    assert report_issue.severity == "warning"
+    assert report_issue.expectation == "coverage_ratio == 1.0 within data extent"
 
 
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
@@ -182,8 +246,55 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
     duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
 
     assert duplicate["severity"] == "blocking"
-    assert report.meta.issues[0].kind == "duplicate_keys_detected"
+    assert "duplicate_keys_detected" in {issue.kind for issue in report.meta.issues}
     assert json.loads(duplicate["details_json"])["duplicate_count"] == 2
+
+
+def test_metric_missing_authoritative_measure_column_is_blocking(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"other": [1.0]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=session,
+    )
+
+    report = session.assess_quality(frame)
+    contract = report.to_pandas().set_index("check_kind").loc["metric_row_contract"]
+
+    assert contract["severity"] == "blocking"
+    assert report.meta.overall_status == "blocking"
+    assert report.meta.blocking_issue_count == 1
+    assert "metric_row_contract_invalid" in {issue.kind for issue in report.meta.issues}
+
+
+def test_metric_missing_authoritative_time_column_blocks_without_crashing(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"field": "time", "grain": "day"}},
+        measure={"field": "value", "aggregation": "sum"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-02",
+            "grain": "day",
+            "time_dimension": "time",
+        },
+        session=session,
+    )
+
+    report = session.assess_quality(frame)
+    checks = report.to_pandas().set_index("check_kind")
+
+    assert checks.loc["metric_row_contract", "severity"] == "blocking"
+    assert checks.loc["duplicate_keys", "severity"] == "ok"
+    assert report.meta.overall_status == "blocking"
 
 
 def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
@@ -205,12 +316,15 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
         "value_density:value",
         "value_density:value2",
         "row_count",
+        "metric_row_contract",
         "time_coverage",
+        "duplicate_keys",
     }
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = session.assess_quality(empty)
-    assert empty_report.meta.overall_status == "blocking"
+    assert empty_report.meta.overall_status == "warning"
+    assert empty_report.meta.blocking_issue_count == 0
     assert empty_report.meta.issues[0].kind == "sample_size_low"
 
 
@@ -244,7 +358,14 @@ def test_observe_frame_runs_null_ratio_checks(tmp_path):
     )
     report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
-    assert ids == {"null_ratio:value", "value_density:value", "row_count", "time_coverage"}
+    assert ids == {
+        "null_ratio:value",
+        "value_density:value",
+        "row_count",
+        "metric_row_contract",
+        "time_coverage",
+        "duplicate_keys",
+    }
 
 
 def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tmp_path):
@@ -291,33 +412,36 @@ def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tm
 
     assert rows["check_id"].tolist() == [
         "row_count",
+        "metric_row_contract",
         "null_ratio:revenue",
         "null_ratio:order_count",
         "time_coverage",
         "value_density:revenue",
         "value_density:order_count",
+        "duplicate_keys",
     ]
     assert rows["metric_id"].tolist() == [
         None,
+        None,
         "sales.revenue",
         "sales.order_count",
         None,
         "sales.revenue",
         "sales.order_count",
+        None,
     ]
-    assert report.overall_status == "blocking"
-    assert report.blocking_issue_count == 1
+    assert report.overall_status == "warning"
+    assert report.blocking_issue_count == 0
     assert report.meta.target_metric_id is None
 
     rendered = report.render()
-    assert "checks=6" in rendered
-    assert "blocking=1" in rendered
+    assert "checks=8" in rendered
+    assert "blocking=0" in rendered
     assert "attention:" in rendered
     assert "null_ratio:revenue" in rendered
     assert "sales.revenue" in rendered
     assert "row_count" not in rendered
-    if report.warning_count:
-        assert rendered.index("null_ratio:revenue") < rendered.index("value_density:revenue")
+    assert "value_density:revenue" not in rendered
     full_rendered = report.render(max_output_bytes=None)
     assert "row_count" in full_rendered
     assert "null_ratio:order_count" in full_rendered
@@ -330,7 +454,7 @@ def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tm
 
     assert report.evidence_digest is not None
     assert report.evidence_digest.quality is not None
-    assert report.evidence_digest.quality.evaluated_check_count == 6
+    assert report.evidence_digest.quality.evaluated_check_count == 8
     revenue_null = next(
         item
         for item in report.evidence_digest.items
@@ -495,8 +619,8 @@ def test_metric_panel_span_guard_counts_time_buckets_not_cells(tmp_path):
     assert density["severity"] == "ok"
 
 
-def test_null_rate_high_blocking_issue_carries_repair(tmp_path):
-    """A null_ratio crossing 0.5 must produce a blocking issue with a repair."""
+def test_null_rate_high_warning_issue_carries_repair(tmp_path):
+    """A high null ratio remains actionable without blocking analysis."""
     session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
@@ -507,10 +631,11 @@ def test_null_rate_high_blocking_issue_carries_repair(tmp_path):
         ],
     )
     report = session.assess_quality(frame)
-    assert report.meta.overall_status == "blocking"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
     issues = [issue for issue in report.meta.issues if issue.kind == "null_rate_high"]
     assert len(issues) == 1
-    assert issues[0].severity == "blocking"
+    assert issues[0].severity == "warning"
     assert issues[0].check_id == "null_ratio:value"
     assert issues[0].repair is not None
     assert issues[0].repair.kind == "retry"
@@ -552,6 +677,17 @@ def test_segmented_metric_single_row_still_emits_row_count_warning(tmp_path):
 
     assert report.meta.overall_status == "warning"
     assert row_count["severity"] == "warning"
+    issue = next(issue for issue in report.meta.issues if issue.kind == "sample_size_low")
+    assert issue.observed_value == 1
+    assert issue.expectation == "row_count >= 5"
+    assert report.evidence_digest is not None
+    finding = next(
+        item
+        for item in report.evidence_digest.items
+        if getattr(item, "check_id", None) == "row_count"
+    )
+    assert finding.expectation_parameters == {"threshold": 5}
+    assert finding.expectation_condition_passed is False
 
 
 def test_panel_all_checks_and_persistence(tmp_path):
@@ -604,8 +740,22 @@ def test_metric_delta_quality_validates_row_contract(tmp_path):
 
     assert report.meta.report_shape == "delta"
     assert report.to_pandas()["metric_id"].isna().all()
-    assert set(report.to_pandas()["check_kind"]) == {"row_count", "delta_row_contract"}
+    assert set(report.to_pandas()["check_kind"]) == {
+        "row_count",
+        "delta_row_contract",
+        "delta_math",
+    }
     assert recovered.meta.report_shape == "delta"
+
+    corrupted = DeltaFrame(
+        _df=delta._dataframe_copy().assign(delta=99.0),
+        meta=delta.meta.model_copy(update={"ref": "frame_delta_corrupted"}),
+    )
+    corrupted_report = session.assess_quality(corrupted)
+    math_check = corrupted_report.to_pandas().set_index("check_kind").loc["delta_math"]
+    assert math_check["severity"] == "blocking"
+    assert corrupted_report.meta.overall_status == "blocking"
+    assert "delta_math_invalid" in {issue.kind for issue in corrupted_report.meta.issues}
 
 
 def test_quality_report_render_surfaces_check_results(tmp_path):
@@ -616,6 +766,7 @@ def test_quality_report_render_surfaces_check_results(tmp_path):
     assert f"status={report.meta.overall_status}" in rendered
     assert f"blocking={report.meta.blocking_issue_count}" in rendered
     assert f"warning={report.meta.warning_count}" in rendered
+    assert "info=0" in rendered
     assert f"checks={report.meta.row_count}" in rendered
     assert f"ok={report.meta.row_count}" in rendered
     assert "attention: none" in rendered
@@ -625,14 +776,14 @@ def test_quality_report_render_surfaces_check_results(tmp_path):
     assert "summary()" not in rendered
 
 
-def test_summary_reflects_blocking(tmp_path):
+def test_summary_reflects_empty_result_warning(tmp_path):
     session = session_attach.get_or_create(name="demo")
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     report = session.assess_quality(empty)
 
-    assert report.meta.overall_status == "blocking"
-    assert report.meta.blocking_issue_count >= 1
-    assert (report.to_pandas()["severity"] == "blocking").any()
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
+    assert (report.to_pandas()["severity"] == "warning").any()
 
 
 def test_repr_contains_identity_and_show_hint(tmp_path):
@@ -645,13 +796,17 @@ def test_repr_contains_identity_and_show_hint(tmp_path):
     assert f"ref={report.ref}" in r
     assert "status=ok" in r
     assert "blocking=0" in r
-    assert "rows=4" in r
+    assert "rows=6" in r
     assert "call .show() to inspect" in r
 
 
 def test_summary_reflects_warning(tmp_path):
     session = session_attach.get_or_create(name="demo")
-    rows = [{"time": t, "value": 1.0} for t in pd.date_range("2026-01-01", periods=9, freq="D")]
+    rows = [
+        {"time": timestamp, "value": 1.0}
+        for timestamp in pd.date_range("2026-01-01", periods=10, freq="D")
+        if timestamp != pd.Timestamp("2026-01-05")
+    ]
     warning = _metric(
         session,
         rows,
@@ -829,7 +984,8 @@ def test_hourly_coverage_aware_scope_naive_frame_matches_bucket_counts(tmp_path)
     assert details["observed_buckets"] == 12
     assert details["coverage_ratio"] == pytest.approx(0.5)
     assert report_issue.observed_value == pytest.approx(0.5)
-    assert report.meta.overall_status == "blocking"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
 
 
 def test_hourly_coverage_aware_scope_13_of_24_reports_approx_ratio(tmp_path):
@@ -857,7 +1013,8 @@ def test_hourly_coverage_aware_scope_13_of_24_reports_approx_ratio(tmp_path):
     assert details["observed_buckets"] == 13
     assert details["coverage_ratio"] == pytest.approx(13 / 24)
     assert report_issue.observed_value == pytest.approx(13 / 24)
-    assert report.meta.overall_status == "blocking"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
 
 
 def test_hourly_coverage_full_24_24_aware_scope_reports_one(tmp_path):

@@ -1151,6 +1151,10 @@ def _render_type_help(type_name: str) -> str:
             "  Quality verdict: report.overall_status; report.state is "
             "ArtifactState materialization metadata."
         )
+        lines.append(
+            "  Stop only for blocking correctness issues; warnings are advisory "
+            "and must be disclosed when analysis continues."
+        )
         lines.append("")
 
     lines.append(f'  Call marivo.help("analysis.{type_name}") for updates.')

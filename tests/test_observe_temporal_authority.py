@@ -8,6 +8,8 @@ reconstructing it after execution.  These tests lock that contract.
 
 from __future__ import annotations
 
+from datetime import date
+
 import ibis
 import pytest
 
@@ -188,6 +190,7 @@ def test_default_observe_records_datasource_read_timezone_on_temporal_authority(
 
     contract = frame.meta.temporal_contract
     assert contract is not None
+    assert contract.data_extent_end == date(2026, 7, 2)
     axes = contract.time_axis_timezones
     assert [item.time_dimension for item in axes] == ["sales.orders.created_at"]
     assert [item.source for item in axes] == ["datasource_read"]
@@ -228,6 +231,7 @@ def test_default_observe_records_physical_timezone_from_aware_axis(tmp_path) -> 
     assert frame.meta.temporal_contract.time_axis_timezones == expected
     recovered = session.get_frame(frame.ref)
     assert recovered.meta.temporal_contract is not None
+    assert recovered.meta.temporal_contract.data_extent_end == date(2026, 7, 2)
     assert recovered.meta.temporal_contract.time_axis_timezones == expected
 
 

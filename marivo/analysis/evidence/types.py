@@ -944,6 +944,7 @@ class RawFallback(_FrozenModel):
 
 IssueSeverity = Literal["warning", "blocking"]
 DataQualityIssueKind = Literal[
+    "metric_row_contract_invalid",
     "null_rate_high",
     "sample_size_low",
     "time_coverage_incomplete",
@@ -951,6 +952,7 @@ DataQualityIssueKind = Literal[
     "outlier_sensitivity_detected",
     "duplicate_keys_detected",
     "delta_row_contract_invalid",
+    "delta_math_invalid",
     "attribution_row_contract_invalid",
     "attribution_contribution_invalid",
     "attribution_reconciliation_invalid",

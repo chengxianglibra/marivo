@@ -1905,6 +1905,11 @@ TimeAxisTimeZoneV1:
 (inclusive); it is independent of scope coverage — a period may be fully
 scope-covered yet data-incomplete, and `data_extent_end` (together with the
 frame's `has_full_data` arrival column) is what separates the two.
+Semantic-period execution retains its exact source-derived civil date. Other
+bucketed observations derive the extent from the latest materialized bucket in
+the adopted display timezone. Quality coverage evaluates expected buckets only
+through that civil date, while retaining all sub-day buckets on the extent date;
+later requested buckets are a window-beyond-extent disclosure, not missing data.
 
 `TimeScopeContractV1` is the closed tagged serialization of the three `TimeScope`
 variants already defined in this document. An absolute scope stores normalized

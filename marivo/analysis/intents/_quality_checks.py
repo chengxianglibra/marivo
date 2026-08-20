@@ -12,6 +12,7 @@ from typing import Any, Literal, cast
 import pandas as pd
 
 from marivo._temporal import _trusted_time_scope_validation
+from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
@@ -24,8 +25,7 @@ from marivo.analysis.frames._content_hash import (
 )
 from marivo.analysis.frames._meta_defaults import (
     GRAIN_FREQ,
-    canonicalize_coverage_timestamps,
-    normalize_coverage_buckets,
+    compute_time_coverage,
 )
 from marivo.analysis.frames.attribution import (
     FUNNEL_ATTRIBUTION_COLUMNS,
@@ -83,12 +83,15 @@ _FREQ = GRAIN_FREQ
 
 def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict[str, str]]:
     df = frame._dataframe_copy()
-    rows = [_row_count_check(df, semantic_kind=frame.meta.semantic_kind)]
+    rows = [
+        _row_count_check(df, semantic_kind=frame.meta.semantic_kind),
+        _metric_row_contract_check(df, frame),
+    ]
     rows.extend(_null_ratio_checks(df, frame))
     if frame.meta.semantic_kind in {"time_series", "panel"}:
         rows.append(_time_coverage_check(df, frame, tz=tz))
         rows.extend(_value_density_checks(df, frame))
-    if frame.meta.semantic_kind in {"segmented", "panel"}:
+    if frame.meta.semantic_kind in {"time_series", "segmented", "panel"}:
         rows.append(_duplicate_keys_check(df, frame))
     return rows
 
@@ -129,6 +132,7 @@ def run_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
             },
         )
     )
+    rows.append(_delta_math_check(df))
     alignment = frame.meta.cumulative_alignment
     if alignment is not None:
         pairs = alignment.pairs
@@ -164,10 +168,69 @@ def run_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
     return rows
 
 
+def _delta_math_check(df: pd.DataFrame) -> dict[str, str]:
+    """Verify ordinary Delta rows against the canonical arithmetic helper."""
+    required = {"current", "baseline", "delta", "pct_change", "pct_change_status"}
+    if not required.issubset(df.columns):
+        invalid_count = len(required - set(df.columns))
+        numeric_invalid = invalid_count
+        delta_mismatch = 0
+        pct_change_mismatch = 0
+        status_mismatch = 0
+    else:
+        numeric_invalid = 0
+        numeric: dict[str, pd.Series] = {}
+        for column in ("current", "baseline", "delta", "pct_change"):
+            values = pd.to_numeric(df[column], errors="coerce")
+            numeric[column] = values
+            numeric_invalid += int((df[column].notna() & values.isna()).sum())
+            numeric_invalid += int(
+                values.map(
+                    lambda value: bool(pd.notna(value)) and not math.isfinite(float(value))
+                ).sum()
+            )
+
+        expected = compute_delta_columns(df[["current", "baseline"]].copy())
+        expected_delta = pd.to_numeric(expected["delta"], errors="coerce")
+        expected_pct = pd.to_numeric(expected["pct_change"], errors="coerce")
+        delta_matches = (numeric["delta"].isna() & expected_delta.isna()) | (
+            numeric["delta"].sub(expected_delta).abs() <= 1e-12
+        )
+        pct_matches = (numeric["pct_change"].isna() & expected_pct.isna()) | (
+            numeric["pct_change"].sub(expected_pct).abs() <= 1e-12
+        )
+        delta_mismatch = int((~delta_matches).sum())
+        pct_change_mismatch = int((~pct_matches).sum())
+        status_mismatch = int(
+            (df["pct_change_status"].astype(str) != expected["pct_change_status"].astype(str)).sum()
+        )
+        invalid_count = numeric_invalid + delta_mismatch + pct_change_mismatch + status_mismatch
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "delta_math",
+        "delta_math",
+        severity,
+        severity,
+        (
+            "Delta arithmetic and status are valid"
+            if not invalid_count
+            else f"Delta rows have {invalid_count} arithmetic violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "numeric_invalid_count": numeric_invalid,
+            "delta_mismatch_count": delta_mismatch,
+            "pct_change_mismatch_count": pct_change_mismatch,
+            "status_mismatch_count": status_mismatch,
+        },
+    )
+
+
 def run_event_journey_checks(frame: EventFrame) -> list[dict[str, str]]:
     """Return deterministic quality predicates for a journey-shaped EventFrame."""
     df = frame._dataframe_copy()
     rows = [
+        _empty_result_check(df),
         _event_row_contract_check(df, frame),
         _event_identity_check(df),
         _event_participant_check(df, frame),
@@ -183,6 +246,7 @@ def run_event_funnel_checks(frame: EventFrame) -> list[dict[str, str]]:
     """Return deterministic quality predicates for a funnel-shaped EventFrame."""
     df = frame._dataframe_copy()
     rows = [
+        _empty_result_check(df),
         _event_funnel_row_contract_check(df, frame),
         _event_funnel_math_check(df, frame),
         _event_funnel_axis_check(df, frame),
@@ -198,6 +262,7 @@ def run_event_time_to_event_checks(frame: EventFrame) -> list[dict[str, str]]:
     """Return deterministic checks for a time-to-event EventFrame."""
     df = frame._dataframe_copy()
     rows = [
+        _empty_result_check(df),
         _event_time_to_event_contract_check(df, frame),
         _event_time_to_event_identity_check(df),
         _event_time_to_event_duration_check(df),
@@ -233,7 +298,7 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
     missing = tuple(column for column in expected if column not in df.columns)
     extra = tuple(column for column in df.columns if column not in expected)
     order_mismatch = tuple(df.columns) != expected
-    row_invalid = len(missing) + len(extra) + int(order_mismatch) + int(df.empty)
+    row_invalid = len(missing) + len(extra) + int(order_mismatch)
     additive = [
         column
         for column in expected
@@ -257,7 +322,10 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
     if all(column in df.columns for column in alignment_keys):
         duplicate_count = int(df.duplicated(subset=alignment_keys, keep=False).sum())
         unknown_step_count = int((~df["step_key"].astype(str).isin(retained_steps)).sum())
-        if axes:
+        groups: tuple[pd.DataFrame, ...]
+        if df.empty:
+            groups = ()
+        elif axes:
             groups = tuple(
                 group
                 for _, group in df.groupby(
@@ -325,6 +393,7 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
     declarations = (*frame.meta.current_completeness, *frame.meta.baseline_completeness)
     declaration_event_refs = sorted({ref.path for item in declarations for ref in item.inputs})
     rows = [
+        _empty_result_check(df),
         _result(
             "funnel_delta_alignment",
             "funnel_delta_alignment",
@@ -355,8 +424,8 @@ def run_funnel_delta_checks(frame: DeltaFrame) -> list[dict[str, str]]:
         _result(
             "funnel_delta_coverage",
             "funnel_delta_coverage",
-            "blocking" if coverage_invalid else "ok",
-            "blocking" if coverage_invalid else "ok",
+            "warning" if coverage_invalid else "ok",
+            "warning" if coverage_invalid else "ok",
             "funnel delta coverage is disclosed",
             {
                 "invalid_count": coverage_invalid,
@@ -403,10 +472,12 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
     if not isinstance(frame.meta, FunnelAttributionFrameMeta):
         raise ValueError("funnel attribution quality requires AttributionFrame[funnel_loss_rate]")
     df = frame._dataframe_copy()
+    empty = df.empty
     missing = [column for column in FUNNEL_ATTRIBUTION_COLUMNS if column not in df.columns]
     components_invalid = len(missing)
     kinds = set(df["contribution_kind"].astype(str)) if "contribution_kind" in df.columns else set()
-    components_invalid += int(kinds != {"loss", "denominator_mix"})
+    if not empty:
+        components_invalid += int(kinds != {"loss", "denominator_mix"})
     contributions = (
         pd.to_numeric(df["contribution"], errors="coerce")
         if "contribution" in df.columns
@@ -455,14 +526,20 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
         if "contribution" in deepest.columns
         else pd.Series(dtype="float64")
     )
-    contribution_sum = float(deepest_values.sum()) if not deepest_values.isna().any() else None
+    contribution_sum = (
+        None if empty else float(deepest_values.sum()) if not deepest_values.isna().any() else None
+    )
     positive_pool = (
-        float(deepest_values.loc[deepest_values > 0].sum())
+        0.0
+        if empty
+        else float(deepest_values.loc[deepest_values > 0].sum())
         if contribution_sum is not None
         else None
     )
     negative_pool = (
-        float(deepest_values.loc[deepest_values < 0].sum())
+        0.0
+        if empty
+        else float(deepest_values.loc[deepest_values < 0].sum())
         if contribution_sum is not None
         else None
     )
@@ -473,25 +550,53 @@ def run_funnel_attribution_checks(frame: AttributionFrame) -> list[dict[str, str
     else:
         pools_invalid += int(abs(positive_pool - receipt.positive_pool) > receipt.tolerance)
         pools_invalid += int(abs(negative_pool - receipt.negative_pool) > receipt.tolerance)
-    derived_residual = (
-        receipt.target_loss_rate_delta - contribution_sum
-        if receipt.target_loss_rate_delta is not None and contribution_sum is not None
-        else None
-    )
-    residual_invalid = int(
-        derived_residual is None
-        or abs(derived_residual) > receipt.tolerance
-        or abs((derived_residual or 0.0) - receipt.residual) > receipt.tolerance
-    )
-    reconciliation_invalid = int(receipt.status != "reconciled")
-    if contribution_sum is None or receipt.contribution_sum is None:
-        reconciliation_invalid += 1
-    else:
-        reconciliation_invalid += int(
-            abs(contribution_sum - receipt.contribution_sum) > receipt.tolerance
+    if empty:
+        receipt_values_valid = (
+            receipt.target_loss_rate_delta is None and receipt.contribution_sum is None
+        ) or (
+            receipt.target_loss_rate_delta is not None
+            and receipt.contribution_sum is not None
+            and math.isclose(
+                receipt.target_loss_rate_delta,
+                0.0,
+                rel_tol=0.0,
+                abs_tol=receipt.tolerance,
+            )
+            and math.isclose(
+                receipt.contribution_sum,
+                0.0,
+                rel_tol=0.0,
+                abs_tol=receipt.tolerance,
+            )
         )
-    reconciliation_invalid += residual_invalid
+        derived_residual = None
+        residual_invalid = int(
+            not receipt_values_valid
+            or abs(receipt.residual) > receipt.tolerance
+            or abs(receipt.max_abs_residual) > receipt.tolerance
+        )
+        reconciliation_invalid = int(receipt.status != "reconciled") + residual_invalid
+    else:
+        derived_residual = (
+            receipt.target_loss_rate_delta - contribution_sum
+            if receipt.target_loss_rate_delta is not None and contribution_sum is not None
+            else None
+        )
+        residual_invalid = int(
+            derived_residual is None
+            or abs(derived_residual) > receipt.tolerance
+            or abs((derived_residual or 0.0) - receipt.residual) > receipt.tolerance
+        )
+        reconciliation_invalid = int(receipt.status != "reconciled")
+        if contribution_sum is None or receipt.contribution_sum is None:
+            reconciliation_invalid += 1
+        else:
+            reconciliation_invalid += int(
+                abs(contribution_sum - receipt.contribution_sum) > receipt.tolerance
+            )
+        reconciliation_invalid += residual_invalid
     return [
+        _empty_result_check(df),
         _result(
             "funnel_attribution_components",
             "funnel_attribution_components",
@@ -620,10 +725,10 @@ def run_attribution_checks(frame: AttributionFrame) -> list[dict[str, str]]:
         _result(
             "attribution_row_count",
             "row_count",
-            "blocking" if df.empty else "ok",
-            "blocking" if df.empty else "ok",
+            "warning" if df.empty else "ok",
+            "warning" if df.empty else "ok",
             ("Attribution result contains rows" if not df.empty else "Attribution result is empty"),
-            {"row_count": len(df), "threshold_blocking": 0},
+            {"row_count": len(df), "threshold_warning": 1},
         ),
         _result(
             "attribution_row_contract",
@@ -686,6 +791,7 @@ def run_lifecycle_history_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
         raise ValueError("Lifecycle history quality requires LifecycleFrame[history]")
     df = frame._dataframe_copy()
     return [
+        _empty_result_check(df),
         _lifecycle_history_row_contract_check(df, frame),
         _lifecycle_history_state_check(df, frame),
         _lifecycle_history_interval_check(df, frame),
@@ -703,6 +809,7 @@ def run_lifecycle_distribution_checks(frame: LifecycleFrame) -> list[dict[str, s
         raise ValueError("Lifecycle distribution quality requires LifecycleFrame[distribution]")
     df = frame._dataframe_copy()
     return [
+        _empty_result_check(df),
         _lifecycle_distribution_row_contract_check(df, frame),
         _lifecycle_distribution_math_check(df, frame),
         _lifecycle_distribution_reconciliation_check(df, frame),
@@ -716,6 +823,7 @@ def run_lifecycle_transitions_checks(frame: LifecycleFrame) -> list[dict[str, st
         raise ValueError("Lifecycle transitions quality requires LifecycleFrame[transitions]")
     df = frame._dataframe_copy()
     return [
+        _empty_result_check(df),
         _lifecycle_transitions_row_contract_check(df, frame),
         _lifecycle_transitions_math_check(df, frame),
         _lifecycle_source_history_check(frame),
@@ -728,6 +836,7 @@ def run_lifecycle_dwell_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
         raise ValueError("Lifecycle dwell quality requires LifecycleFrame[dwell]")
     df = frame._dataframe_copy()
     return [
+        _empty_result_check(df),
         _lifecycle_dwell_row_contract_check(df, frame),
         _lifecycle_dwell_math_check(df, frame),
         _lifecycle_source_history_check(frame),
@@ -740,6 +849,7 @@ def run_lifecycle_violations_checks(frame: LifecycleFrame) -> list[dict[str, str
         raise ValueError("Lifecycle violations quality requires LifecycleFrame[violations]")
     df = frame._dataframe_copy()
     return [
+        _empty_result_check(df),
         _lifecycle_violations_row_contract_check(df, frame),
         _lifecycle_violations_math_check(df, frame),
         _lifecycle_source_history_check(frame),
@@ -1355,7 +1465,11 @@ def _lifecycle_distribution_row_contract_check(
         axis_columns = [axis.output_column for axis in meta.axes]
         group_columns = [*axis_columns, "as_of"]
         groups = (
-            df.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), df),)
+            ()
+            if df.empty
+            else df.groupby(group_columns, dropna=False, sort=False)
+            if group_columns
+            else (((), df),)
         )
         for _key, group in groups:
             invalid_rows += int(tuple(group["model_state"]) != state_order)
@@ -1757,25 +1871,40 @@ def _result(
     }
 
 
-def _row_count_check(
-    df: pd.DataFrame,
-    *,
-    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
-) -> dict[str, str]:
+def _empty_result_check(df: pd.DataFrame) -> dict[str, str]:
+    """Return a zero-row advisory without inventing family sample thresholds."""
     count = len(df)
-    if count == 0:
-        severity = "blocking"
-    elif semantic_kind == "scalar":
-        severity = "ok"
-    else:
-        severity = "warning" if count < 5 else "ok"
+    severity = "warning" if count == 0 else "ok"
     return _result(
         "row_count",
         "row_count",
         severity,
         severity,
         f"row count is {count}",
-        {"row_count": count, "threshold_warning": 5, "threshold_blocking": 0},
+        {"row_count": count, "threshold_warning": 1},
+    )
+
+
+def _row_count_check(
+    df: pd.DataFrame,
+    *,
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
+) -> dict[str, str]:
+    count = len(df)
+    warning_threshold = 1 if semantic_kind == "scalar" else 5
+    if count == 0:
+        severity = "warning"
+    elif semantic_kind == "scalar":
+        severity = "ok"
+    else:
+        severity = "warning" if count < warning_threshold else "ok"
+    return _result(
+        "row_count",
+        "row_count",
+        severity,
+        severity,
+        f"row count is {count}",
+        {"row_count": count, "threshold_warning": warning_threshold},
     )
 
 
@@ -1803,13 +1932,48 @@ def _measure_targets(frame: MetricFrame) -> list[tuple[str, str | None]]:
     return targets
 
 
+def _metric_row_contract_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]:
+    """Verify authoritative Metric columns, metadata count, and scalar cardinality."""
+    required_columns = [column for column, _metric_id in _measure_targets(frame)]
+    if frame.meta.semantic_kind in {"time_series", "panel"}:
+        time_column, _grain = _time_axis(frame)
+        required_columns.append(time_column)
+    if frame.meta.semantic_kind in {"segmented", "panel"}:
+        required_columns.extend(_segment_dimensions(frame))
+    required_columns = list(dict.fromkeys(required_columns))
+    missing_columns = tuple(column for column in required_columns if column not in df.columns)
+    metadata_row_count_mismatch = int(len(df) != frame.meta.row_count)
+    scalar_cardinality_invalid = int(frame.meta.semantic_kind == "scalar" and len(df) > 1)
+    invalid_count = len(missing_columns) + metadata_row_count_mismatch + scalar_cardinality_invalid
+    severity = "blocking" if invalid_count else "ok"
+    return _result(
+        "metric_row_contract",
+        "metric_row_contract",
+        severity,
+        severity,
+        (
+            "Metric rows match their authoritative schema and cardinality"
+            if not invalid_count
+            else f"Metric rows have {invalid_count} contract violation(s)"
+        ),
+        {
+            "invalid_count": invalid_count,
+            "missing_columns": missing_columns,
+            "metadata_row_count_mismatch": metadata_row_count_mismatch,
+            "scalar_cardinality_invalid": scalar_cardinality_invalid,
+            "row_count": len(df),
+            "metadata_row_count": frame.meta.row_count,
+        },
+    )
+
+
 def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, str]]:
     rows = []
     denominator = len(df)
     for column, metric_id in _measure_targets(frame):
         null_count = int(df[column].isna().sum()) if column in df else denominator
         ratio = 0.0 if denominator == 0 else null_count / denominator
-        severity = "blocking" if ratio > 0.5 else "warning" if ratio > 0.1 else "ok"
+        severity = "warning" if ratio > 0.1 else "ok"
         rows.append(
             _result(
                 f"null_ratio:{column}",
@@ -1822,7 +1986,6 @@ def _null_ratio_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str, s
                     "null_count": null_count,
                     "null_ratio": ratio,
                     "threshold_warning": 0.1,
-                    "threshold_blocking": 0.5,
                 },
                 metric_id=metric_id,
             )
@@ -1910,10 +2073,14 @@ def _time_coverage_check(
             "warning",
             "time coverage cannot be computed from frame metadata",
             {
+                "requested_expected_buckets": 0,
                 "expected_buckets": 0,
                 "observed_buckets": int(df[time_col].nunique()) if time_col in df else 0,
                 "coverage_ratio": 0.0,
                 "missing_examples": [],
+                "beyond_extent_buckets": 0,
+                "window_beyond_extent": False,
+                "data_extent_end": None,
             },
         )
     expected = pd.date_range(
@@ -1924,33 +2091,40 @@ def _time_coverage_check(
         if time_col in df and len(df)
         else pd.Series(dtype="datetime64[ns]")
     )
-    # Issue #70: canonicalize an aware scope window against naive (or different
-    # tz) frame bucket timestamps onto one wall-clock basis; otherwise the
-    # membership test below fails for every bucket and reports 0% coverage.
-    # A naive frame time column contains local wall-clock buckets. When the
-    # explicit scope is aware, let the canonicalizer use that scope timezone
-    # instead of reinterpreting the naive buckets in the host report timezone.
-    expected_aware = expected.tz is not None
-    observed_aware = len(observed_ts) > 0 and observed_ts.dt.tz is not None
-    canonical_tz = tz if expected_aware == observed_aware else None
-    expected, observed_ts = canonicalize_coverage_timestamps(expected, observed_ts, tz=canonical_tz)
-    observed = normalize_coverage_buckets(observed_ts, grain=grain).unique()
-    observed_set = {pd.Timestamp(value) for value in observed}
-    expected_buckets = normalize_coverage_buckets(pd.Series(expected), grain=grain)
-    missing = [value for value in expected_buckets if pd.Timestamp(value) not in observed_set]
-    ratio = 1.0 if len(expected) == 0 else (len(expected) - len(missing)) / len(expected)
-    severity = "blocking" if ratio < 0.8 else "warning" if ratio < 0.95 else "ok"
+    temporal_contract = frame.meta.temporal_contract
+    coverage = compute_time_coverage(
+        expected,
+        observed_ts,
+        grain=grain,
+        tz=tz,
+        data_extent_end=(
+            temporal_contract.data_extent_end if temporal_contract is not None else None
+        ),
+    )
+    if coverage.missing_buckets:
+        severity = "warning"
+        message = f"time coverage ratio inside data extent is {coverage.coverage_ratio:.3f}"
+    elif coverage.beyond_extent_buckets:
+        severity = "info"
+        message = "requested window extends beyond the observed data extent"
+    else:
+        severity = "ok"
+        message = "time coverage is complete inside the requested window"
     return _result(
         "time_coverage",
         "time_coverage",
         severity,
         severity,
-        f"time coverage ratio is {ratio:.3f}",
+        message,
         {
-            "expected_buckets": len(expected),
-            "observed_buckets": len(observed_set),
-            "coverage_ratio": ratio,
-            "missing_examples": [value.isoformat() for value in missing[:5]],
+            "requested_expected_buckets": len(coverage.requested_expected_buckets),
+            "expected_buckets": len(coverage.expected_buckets),
+            "observed_buckets": len(coverage.observed_buckets),
+            "coverage_ratio": coverage.coverage_ratio,
+            "missing_examples": [value.isoformat() for value in coverage.missing_buckets[:5]],
+            "beyond_extent_buckets": len(coverage.beyond_extent_buckets),
+            "window_beyond_extent": bool(coverage.beyond_extent_buckets),
+            "data_extent_end": coverage.data_extent_end,
         },
     )
 
@@ -1961,10 +2135,15 @@ def _segment_dimensions(frame: MetricFrame) -> list[str]:
 
 def _duplicate_keys_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]:
     keys = _segment_dimensions(frame)
-    if frame.meta.semantic_kind == "panel":
+    if frame.meta.semantic_kind in {"time_series", "panel"}:
         time_col, _ = _time_axis(frame)
         keys.append(time_col)
-    duplicates = df.duplicated(subset=keys, keep=False) if keys else pd.Series([False] * len(df))
+    missing_key_columns = tuple(column for column in keys if column not in df.columns)
+    duplicates = (
+        df.duplicated(subset=keys, keep=False)
+        if keys and not missing_key_columns
+        else pd.Series([False] * len(df), index=df.index)
+    )
     duplicate_count = int(duplicates.sum())
     severity = "blocking" if duplicate_count else "ok"
     examples = df.loc[duplicates, keys].head(5).to_dict("records") if duplicate_count else []
@@ -1974,7 +2153,11 @@ def _duplicate_keys_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str
         severity,
         severity,
         f"duplicate key row count is {duplicate_count}",
-        {"duplicate_count": duplicate_count, "examples": examples},
+        {
+            "duplicate_count": duplicate_count,
+            "examples": examples,
+            "missing_key_columns": missing_key_columns,
+        },
     )
 
 
@@ -2040,7 +2223,11 @@ def _event_funnel_row_contract_check(
         group_columns = list(expected_axes)
         duplicate_rows = int(df.duplicated(subset=[*group_columns, "step_key"], keep=False).sum())
         groups = (
-            df.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), df),)
+            ()
+            if df.empty
+            else df.groupby(group_columns, dropna=False, sort=False)
+            if group_columns
+            else (((), df),)
         )
         for _, group in groups:
             if tuple(group["step_key"].astype(str)) != step_order:

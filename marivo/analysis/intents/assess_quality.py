@@ -404,23 +404,7 @@ def _quality_issues(
         }
     for row in output.to_dict("records"):
         severity = str(row["severity"])
-        # MetricFrame quality surfaces a typed DataQualityIssue for the
-        # near-constant-empty signal even though its severity is "warning":
-        # this is the only non-blocking metric check whose whole point is to
-        # diagnose a suspicious-but-not-dead metric (issue #104).
-        metric_density_warning = (
-            isinstance(frame, MetricFrame)
-            and severity == "warning"
-            and row["check_kind"] == "value_density"
-        )
-        if (
-            severity != "blocking"
-            and not (
-                isinstance(frame, (EventFrame, LifecycleFrame, DeltaFrame))
-                and severity == "warning"
-            )
-            and not metric_density_warning
-        ):
+        if severity not in {"warning", "blocking"}:
             continue
         details = json.loads(str(row["details_json"]))
         raw_metric_id = row.get("metric_id")
@@ -445,22 +429,26 @@ def _quality_issues(
         kind: str | None = None
         observed: str | int | float | bool | None = None
         expectation: str | None = None
-        if row["check_kind"] == "duplicate_keys":
+        if row["check_kind"] == "metric_row_contract":
+            kind = "metric_row_contract_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
+        elif row["check_kind"] == "duplicate_keys":
             kind = "duplicate_keys_detected"
             observed = int(details["duplicate_count"])
             expectation = "duplicate_count == 0"
         elif row["check_kind"] == "time_coverage":
             kind = "time_coverage_incomplete"
             observed = float(details["coverage_ratio"])
-            expectation = "coverage_ratio >= 0.8"
-        elif row["check_kind"] == "row_count" and details.get("row_count") == 0:
+            expectation = "coverage_ratio == 1.0 within data extent"
+        elif row["check_kind"] == "row_count" and severity == "warning":
             kind = "sample_size_low"
             observed = int(details["row_count"])
-            expectation = "row_count > 0"
+            expectation = f"row_count >= {int(details['threshold_warning'])}"
         elif row["check_kind"] == "null_ratio":
             kind = "null_rate_high"
             observed = float(details["null_ratio"])
-            expectation = "null_ratio <= 0.5"
+            expectation = f"null_ratio <= {float(details['threshold_warning'])}"
         elif row["check_kind"] == "value_density":
             kind = "value_density_low"
             observed = float(details["value_density"])
@@ -497,6 +485,10 @@ def _quality_issues(
             kind = "delta_row_contract_invalid"
             observed = int(details["invalid_count"])
             expectation = "invalid_count == 0"
+        elif row["check_kind"] == "delta_math":
+            kind = "delta_math_invalid"
+            observed = int(details["invalid_count"])
+            expectation = "invalid_count == 0"
         elif row["check_kind"] == "attribution_row_contract":
             kind = "attribution_row_contract_invalid"
             observed = int(details["invalid_count"])
@@ -520,7 +512,6 @@ def _quality_issues(
             "event_time_to_event_axes",
             "funnel_delta_alignment",
             "funnel_delta_components",
-            "funnel_delta_coverage",
             "funnel_delta_row_contract",
             "funnel_attribution_components",
             "funnel_attribution_pools",
@@ -530,6 +521,10 @@ def _quality_issues(
             kind = "event_row_contract_invalid"
             observed = int(details["invalid_count"])
             expectation = "invalid_count == 0"
+        elif row["check_kind"] == "funnel_delta_coverage":
+            kind = "event_coverage_unknown"
+            observed = int(details["invalid_count"])
+            expectation = "current and baseline coverage bases are known"
         elif row["check_kind"] == "cumulative_pairing":
             kind = "cumulative_alignment_caveat_present"
             observed = int(details["caveat_count"])
@@ -593,14 +588,14 @@ def _quality_issues(
 
 
 def _quality_repair(kind: str, *, metric_id: str | None = None) -> AnalysisRepair | None:
-    """Return a concrete next step for blocking quality issues, if one exists."""
+    """Return a concrete next step for actionable quality issues, if one exists."""
     target = f" for metric {metric_id!r}" if metric_id is not None else ""
     if kind == "null_rate_high":
         return AnalysisRepair(
             kind="retry",
             action=(
                 f"Widen the observed window or slice{target} to bring the null ratio "
-                "under 0.5 before continuing."
+                "under the warning threshold, or disclose the missingness in the result."
             ),
             help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         )
