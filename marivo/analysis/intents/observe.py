@@ -514,6 +514,18 @@ def _root_graph_additivity(graph_plan: Any) -> str:
     return visit(graph_plan.graph.roots[0])
 
 
+def _additivity_supports_sum_rollup(additivity: str | None) -> bool:
+    """Return True when a plain ``.sum()`` rollup is safe for ``additivity``.
+
+    ``reaggregatable`` (in the v1 rollup contract) means "there is a known safe
+    rollup and it is the ordinary sum over value columns".  Only ``additive``
+    values are closed under cross-grain summation.  ``semi_additive`` folds via
+    ``fold``/``rollup_fold``, and ``non_additive``/unknown values have no plain
+    sum rollup, so they must be conservatively blocked (issue #110).
+    """
+    return additivity == "additive"
+
+
 def _catalog_cumulative_marker(catalog: Any, metric_id: str) -> dict[str, Any] | None:
     metric = catalog._require_index().registry.metrics[metric_id]
     composition = metric.composition
@@ -1722,7 +1734,11 @@ def observe(
                     unit_state=root_execution.unit_state,
                     additivity=_meta_additivity(root_execution.additivity),
                     aggregation=_meta_aggregation(metric_ir.aggregation),
-                    reaggregatable=fold_meta is None and cumulative_meta is None,
+                    reaggregatable=(
+                        fold_meta is None
+                        and cumulative_meta is None
+                        and _additivity_supports_sum_rollup(root_execution.additivity)
+                    ),
                     status_time_dimension_ref=_status_time_dimension_payload(
                         metric_ir.status_time_dimension
                     ),
@@ -1737,7 +1753,11 @@ def observe(
             unit=root_execution.unit,
             unit_state=root_execution.unit_state,
             fold=fold_meta,
-            reaggregatable=fold_meta is None and cumulative_meta is None,
+            reaggregatable=(
+                fold_meta is None
+                and cumulative_meta is None
+                and _additivity_supports_sum_rollup(root_execution.additivity)
+            ),
             additivity=_meta_additivity(root_execution.additivity),
             aggregation=_meta_aggregation(metric_ir.aggregation),
             status_time_dimension=metric_ir.status_time_dimension,
@@ -2532,8 +2552,12 @@ def _observe_metric_forest(
             unit=root.unit,
             unit_state=root.unit_state,
             additivity=_meta_additivity(root.additivity),
-            aggregation=None,
-            reaggregatable=root.fold is None and root_cumulative_meta[index] is None,
+            aggregation=_meta_aggregation(root.aggregation),
+            reaggregatable=(
+                root.fold is None
+                and root_cumulative_meta[index] is None
+                and _additivity_supports_sum_rollup(root.additivity)
+            ),
             cumulative=root_cumulative_payloads[index],
         )
         for index, (identity, output_column, root) in enumerate(
