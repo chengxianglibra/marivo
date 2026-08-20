@@ -291,10 +291,7 @@ def test_no_backend_factory_without_context_uses_session_backend_template() -> N
 
     err = NoBackendFactoryError(
         message="session has no backend_factory; data-materializing intents need one",
-        hint=(
-            "Register a project datasource and call mv.session.get_or_create(name=...), "
-            "or pass backends={...}/backend_factory=... only for explicit overrides."
-        ),
+        context={"session_id": "sess_target"},
     )
 
     rendered = str(err)
@@ -304,7 +301,10 @@ def test_no_backend_factory_without_context_uses_session_backend_template() -> N
     assert "returned None or a non-ibis object" not in rendered
     assert "Session has no backend factory configured" in rendered
     assert "Repair:" in rendered
-    assert "mv.session.get_or_create" in rendered
-    assert "md.register" in rendered
+    assert "session_id = 'sess_target'" in rendered
+    assert "mv.session.resume(session_id)" in rendered
+    assert "mv.session.get_or_create" not in rendered
     assert "backend_factory=" in rendered
+    assert "repair_choice" in rendered
+    compile(err.repair.snippet or "", "<no-backend-factory-repair>", "exec")
     assert "Help: marivo.help('analysis.datasources')" in rendered

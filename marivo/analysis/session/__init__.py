@@ -2,9 +2,11 @@
 
 The public surface is intentionally narrow:
 
-- ``mv.session.get_or_create(name=...)`` — idempotent: attach if a session
-  with that name already exists in the project, otherwise create it. Sets
-  the new or attached session as current.
+- ``mv.session.get_or_create(name=...)`` — idempotent when the name and
+  question agree: attach if that session already exists, otherwise create it.
+  Sets the new or attached session as current.
+- ``mv.session.resume(session_id)`` — explicitly resume one existing session
+  by its immutable id and set it current.
 - ``mv.session.current()`` — return the current ``Session`` or ``None``
   when there is no current session. Safe probe: check and continue work.
 - ``mv.session.recent()`` — return a bounded newest-first page for reference.
@@ -22,15 +24,16 @@ import builtins
 import shutil
 import sys
 import types
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ibis.backends import BaseBackend
+
 from marivo.analysis.session.core import Session
 from marivo.analysis.session.history import SessionInspection, SessionSummaryPage
 
-__all__ = ["current", "delete", "get_or_create", "inspect", "recent"]
+__all__ = ["current", "delete", "get_or_create", "inspect", "recent", "resume"]
 
 _PUBLIC_NAMES = frozenset(__all__)
 
@@ -70,27 +73,109 @@ def _report_tz_fields(resolved: Any) -> dict[str, str | None]:
     }
 
 
+def _activate_session(
+    *,
+    store: Any,
+    row: Any,
+    connection_runtime: Any,
+    report_timezone: str | None,
+) -> Session:
+    """Activate one persisted session row with a caller-owned connection runtime."""
+    import json as _json
+
+    from marivo.analysis.errors import SessionTimezoneConflict
+    from marivo.analysis.session._layout import PersistenceLayout as _Layout
+    from marivo.analysis.session._runtime import (
+        _session_from_row as _from_row,
+    )
+    from marivo.analysis.session._runtime import (
+        set_process_current as _set_proc,
+    )
+
+    layout = _Layout(project_root=store.project_root, session_id=row["id"])
+    layout.session_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = layout.session_dir / "meta.json"
+
+    meta: dict[str, object]
+    if meta_path.is_file():
+        meta = _json.loads(meta_path.read_text())
+        persisted = meta.get("report_tz")
+        if isinstance(persisted, str) and report_timezone is not None:
+            requested = _resolve_report_timezone(report_timezone)
+            if persisted != requested.name:
+                raise SessionTimezoneConflict(
+                    message="session report timezone conflicts with requested report_timezone",
+                    context={
+                        "session": row["name"],
+                        "persisted_report_tz": persisted,
+                        "requested_report_tz": requested.name,
+                    },
+                )
+    else:
+        meta = {}
+
+    store.touch_session(row["id"])
+    refreshed = store.get_session_by_id(row["id"])
+    assert refreshed is not None
+    row = refreshed
+
+    if not meta:
+        resolved_report_tz = _resolve_report_timezone(report_timezone)
+        meta = {
+            "id": row["id"],
+            "name": row["name"],
+            "question": row["question"],
+            "cwd": row["cwd"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "project_root": str(store.project_root),
+            **_report_tz_fields(resolved_report_tz),
+            "known_datasources": [],
+        }
+    else:
+        if not isinstance(meta.get("report_tz"), str):
+            resolved_report_tz = _resolve_report_timezone(report_timezone)
+            meta.update(_report_tz_fields(resolved_report_tz))
+        meta.pop("tz", None)
+        meta.pop("tz_resolution", None)
+        meta.pop("tz_warning", None)
+        meta.pop("previous_tz", None)
+        meta.pop("default_calendar", None)
+        meta.pop("known_calendars", None)
+        if "known_datasources" not in meta:
+            meta["known_datasources"] = []
+        meta["updated_at"] = row["updated_at"]
+    meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
+
+    store.set_current_session_id(row["id"])
+    session = _from_row(store, row, connection_runtime)
+    _set_proc(session)
+    return session
+
+
 def get_or_create(
     name: str,
     question: str | None = None,
     *,
     report_timezone: str | None = None,
-    backends: dict[str, Callable[[], Any]] | None = None,
-    backend_factory: Callable[[str], Any] | None = None,
+    backends: dict[str, Callable[[], BaseBackend]] | None = None,
+    backend_factory: Callable[[str], BaseBackend] | None = None,
     use_datasources: bool = True,
 ) -> Session:
     """Attach to an existing session or create a new one if it does not exist.
 
     When to use: the default choice for idempotent scripts and notebooks.
-    Safe to call repeatedly with the same name -- the first call creates,
-    subsequent calls attach. Prefer this over explicit create/attach.
+    Safe to call repeatedly with the same name when the question agrees -- the
+    first call creates and subsequent calls attach. Omit ``question`` only when
+    deliberately resuming by name; prefer :func:`resume` when the session id is
+    available.
 
     Args:
         name: Session name. Creates if absent, attaches if present.
-        question: Guiding question (only used when creating a new session;
-            preserved on resume). Reusing a session name with a different
-            non-empty question emits ``SessionQuestionMismatchWarning`` and
-            keeps the original question.
+        question: Guiding question, persisted only on creation. Passing a
+            different explicit value for an existing name raises
+            ``SessionQuestionMismatchError``; omitting it deliberately resumes
+            the existing session without changing its question.
         report_timezone: IANA timezone name for the report axis. Persisted on
             first create; conflicting values on reopen raise
             ``SessionTimezoneConflict``. Defaults to the system timezone.
@@ -104,6 +189,8 @@ def get_or_create(
     Raises:
         SessionStateError: Both ``backends`` and ``backend_factory`` were
             supplied.
+        SessionQuestionMismatchError: The name is already bound to a different
+            question, including when its persisted question is ``None``.
         SessionTimezoneConflict: A ``report_timezone`` was requested that
             conflicts with the persisted report timezone.
 
@@ -112,12 +199,6 @@ def get_or_create(
     """
     from marivo.analysis.session._runtime import (
         _build_connection_runtime,
-    )
-    from marivo.analysis.session._runtime import (
-        _session_from_row as _from_row,
-    )
-    from marivo.analysis.session._runtime import (
-        set_process_current as _set_proc,
     )
     from marivo.analysis.session._store import SessionStore as _Store
 
@@ -135,85 +216,96 @@ def get_or_create(
         cwd=Path.cwd(),
     )
 
-    if question is not None and row["question"] is not None and question != row["question"]:
-        from marivo.analysis.errors import SessionQuestionMismatchWarning
+    if question is not None and question != row["question"]:
+        from marivo.analysis.errors import SessionQuestionMismatchError
 
-        warnings.warn(
-            f"session {name!r} already exists for a different question "
-            f"({row['question']!r}); reusing it while ignoring the new question "
-            f"({question!r}). Pass a new session name to start a fresh analysis, "
-            f"or omit question to resume the existing session.",
-            SessionQuestionMismatchWarning,
-            stacklevel=2,
+        raise SessionQuestionMismatchError(
+            message=(f"session {name!r} ({row['id']}) is already bound to a different question"),
+            context={
+                "session_name": name,
+                "session_id": row["id"],
+                "persisted_question": row["question"],
+                "requested_question": question,
+            },
         )
 
-    # Always touch updated_at on resume
-    store.touch_session(row["id"])
+    return _activate_session(
+        store=store,
+        row=row,
+        connection_runtime=connection_runtime,
+        report_timezone=report_timezone,
+    )
 
-    # Ensure the session directory exists on disk (it may be new)
-    from marivo.analysis.session._layout import PersistenceLayout as _Layout
 
-    layout = _Layout(project_root=store.project_root, session_id=row["id"])
-    layout.session_dir.mkdir(parents=True, exist_ok=True)
+def resume(
+    session_id: str,
+    *,
+    backends: dict[str, Callable[[], BaseBackend]] | None = None,
+    backend_factory: Callable[[str], BaseBackend] | None = None,
+    use_datasources: bool = True,
+) -> Session:
+    """Resume an existing project session by its immutable id.
 
-    # Write or upgrade meta.json with report timezone metadata
-    import json as _json
+    Args:
+        session_id: Exact ``sess_...`` id returned by a session or
+            :func:`recent` summary.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend for dynamic resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``models/datasources/*.py``.
 
-    from marivo.analysis.errors import SessionTimezoneConflict
+    Returns:
+        The resumed live :class:`Session`, set as the current session.
 
-    meta_path = layout.session_dir / "meta.json"
-    if not meta_path.is_file():
-        resolved_report_tz = _resolve_report_timezone(report_timezone)
-        meta = {
-            "id": row["id"],
-            "name": row["name"],
-            "question": row["question"],
-            "cwd": row["cwd"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-            "project_root": str(store.project_root),
-            **_report_tz_fields(resolved_report_tz),
-            "known_datasources": [],
-        }
-        meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
-    else:
-        meta = _json.loads(meta_path.read_text())
-        persisted = meta.get("report_tz")
-        if isinstance(persisted, str):
-            if report_timezone is not None:
-                requested = _resolve_report_timezone(report_timezone)
-                if persisted != requested.name:
-                    raise SessionTimezoneConflict(
-                        message="session report timezone conflicts with requested report_timezone",
-                        context={
-                            "session": row["name"],
-                            "persisted_report_tz": persisted,
-                            "requested_report_tz": requested.name,
-                        },
-                    )
-        else:
-            resolved_report_tz = _resolve_report_timezone(report_timezone)
-            meta.update(_report_tz_fields(resolved_report_tz))
-        meta.pop("tz", None)
-        meta.pop("tz_resolution", None)
-        meta.pop("tz_warning", None)
-        meta.pop("previous_tz", None)
-        meta.pop("default_calendar", None)
-        meta.pop("known_calendars", None)
-        if "known_datasources" not in meta:
-            meta["known_datasources"] = []
-        meta["updated_at"] = row["updated_at"]
-        meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
+    Raises:
+        SessionNotFoundError: The id is absent from the current project.
+        SessionStateError: Both ``backends`` and ``backend_factory`` were
+            supplied.
 
-    # Set store current
-    store.set_current_session_id(row["id"])
+    Example:
+        >>> page = mv.session.recent(limit=10)
+        >>> session = mv.session.resume(page.items[0].id)
 
-    # Build the live Session object
-    session = _from_row(store, row, connection_runtime)
+    Constraints:
+        This method never changes the persisted name, question, or report
+        timezone. Session ids are resolved only within the current project.
+    """
+    from marivo.analysis.errors import AnalysisRepair, SessionNotFoundError
+    from marivo.analysis.session._runtime import _build_connection_runtime
+    from marivo.analysis.session._store import SessionStore as _Store
+    from marivo.introspection.live.model import LiveHelpTarget
 
-    # Set process current
-    _set_proc(session)
-    return session
+    store = _Store()
+    row = store.get_session_by_id(session_id)
+    if row is None:
+        candidates = tuple(item.id for item in store.page_sessions(limit=10, after=None)[:10])
+        raise SessionNotFoundError(
+            message=f"analysis session id {session_id!r} was not found in the current project",
+            expected="an existing project session id from mv.session.recent().items[*].id",
+            received=session_id,
+            location="mv.session.resume(session_id)",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action="Read mv.session.recent() and resume one of the returned session ids.",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
+                candidates=candidates,
+            ),
+        )
+
+    connection_runtime = _build_connection_runtime(
+        store.project_root,
+        backends,
+        backend_factory,
+        use_datasources=use_datasources,
+    )
+    return _activate_session(
+        store=store,
+        row=row,
+        connection_runtime=connection_runtime,
+        report_timezone=None,
+    )
 
 
 def delete(name: str) -> None:
@@ -379,5 +471,6 @@ _new.get_or_create = get_or_create  # type: ignore[attr-defined]
 _new.inspect = inspect  # type: ignore[attr-defined]
 _new.delete = delete  # type: ignore[attr-defined]
 _new.recent = recent  # type: ignore[attr-defined]
+_new.resume = resume  # type: ignore[attr-defined]
 _new._reset_process_state = _reset_process_state  # type: ignore[attr-defined]
 sys.modules[__name__] = _new

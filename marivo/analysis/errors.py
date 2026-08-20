@@ -1054,6 +1054,12 @@ class NoBackendFactoryError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         datasource = self._context.get("datasource")
         if not (isinstance(datasource, str) and datasource):
+            raw_session_id = self._context.get("session_id")
+            session_id = (
+                raw_session_id
+                if isinstance(raw_session_id, str) and raw_session_id
+                else "<session-id>"
+            )
             return _DerivedFields(
                 location="analysis runtime backend configuration",
                 repair=AnalysisRepair(
@@ -1065,18 +1071,24 @@ class NoBackendFactoryError(AnalysisError):
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="datasources"),
                     snippet=(
                         "import marivo.analysis as mv\n"
-                        "import marivo.datasource as md\n"
                         "\n"
-                        "# Recommended: persist the project datasource config once.\n"
-                        'md.register(md.DuckDBSpec(name="tiny_orders", path=":memory:"))\n'
-                        'session = mv.session.get_or_create(name="analysis")  # auto-loads from datasource\n'
+                        f"session_id = {session_id!r}\n"
+                        'repair_choice = "<project-datasources-or-explicit-factory>"\n'
+                        'if repair_choice == "project-datasources":\n'
+                        "    # Register the real project datasource first, then resume.\n"
+                        "    session = mv.session.resume(session_id)\n"
+                        'elif repair_choice == "explicit-factory":\n'
+                        "    import ibis\n"
                         "\n"
-                        "# Or pass an explicit factory (no datasource lookup):\n"
-                        "import ibis\n"
-                        "session = mv.session.get_or_create("
-                        'name="analysis", '
-                        'backend_factory=lambda name: ibis.duckdb.connect(":memory:"), '
-                        "use_datasources=False)"
+                        "    session = mv.session.resume(\n"
+                        "        session_id,\n"
+                        '        backend_factory=lambda name: ibis.duckdb.connect(":memory:"),\n'
+                        "        use_datasources=False,\n"
+                        "    )\n"
+                        "else:\n"
+                        "    raise ValueError(\n"
+                        "        \"Set repair_choice to 'project-datasources' or 'explicit-factory'.\"\n"
+                        "    )"
                     ),
                 ),
             )
@@ -1158,19 +1170,46 @@ class HelpTargetError(AnalysisError):
 class DuplicateSessionNameError(AnalysisError): ...
 
 
-class SessionQuestionMismatchWarning(UserWarning):
-    """Emitted when ``get_or_create`` reuses a session under a different question.
-
-    The existing session's original question is preserved; this warning makes
-    the silent cross-question reuse visible so callers can choose a fresh
-    session name or resume deliberately.
-    """
-
-
 class NoActiveSessionError(AnalysisError): ...
 
 
 class SessionStateError(AnalysisError): ...
+
+
+class SessionQuestionMismatchError(SessionStateError):
+    """A session name is already bound to a different analysis question."""
+
+    def _derive_fields(self) -> _DerivedFields:
+        session_id = self._context.get("session_id", "<session-id>")
+        persisted = self._context.get("persisted_question")
+        requested = self._context.get("requested_question")
+        return _DerivedFields(
+            expected=f"question={persisted!r}",
+            received=f"question={requested!r}",
+            location="mv.session.get_or_create(question=...)",
+            repair=AnalysisRepair(
+                kind="user_choice",
+                action=(
+                    "Resume the existing session by id, or choose a new stable "
+                    "session name for the requested question."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="recovery"),
+                snippet=(
+                    'repair_choice = "<resume-existing-or-create-new>"\n'
+                    'if repair_choice == "resume-existing":\n'
+                    f"    session = mv.session.resume({session_id!r})\n"
+                    'elif repair_choice == "create-new":\n'
+                    "    session = mv.session.get_or_create(\n"
+                    '        "<new-stable-session-name>",\n'
+                    f"        question={requested!r},\n"
+                    "    )\n"
+                    "else:\n"
+                    "    raise ValueError(\n"
+                    "        \"Set repair_choice to 'resume-existing' or 'create-new'.\"\n"
+                    "    )"
+                ),
+            ),
+        )
 
 
 class SourceBindingError(SessionStateError): ...

@@ -193,8 +193,23 @@ def test_ensure_session_can_execute_blocks_read_only_sessions(
     session_attach._reset_process_state()
     read_only = session_attach.get_or_create(name="demo", use_datasources=False)
     try:
-        with __import__("pytest").raises(NoBackendFactoryError):
+        with __import__("pytest").raises(NoBackendFactoryError) as exc_info:
             ensure_session_can_execute(read_only)
+        snippet = exc_info.value.repair.snippet or ""
+        assert f"session_id = {read_only.id!r}" in snippet
+        assert "mv.session.get_or_create" not in snippet
+        namespace = {}
+        exec(
+            snippet.replace(
+                '"<project-datasources-or-explicit-factory>"',
+                '"explicit-factory"',
+                1,
+            ),
+            namespace,
+        )
+        repaired = namespace["session"]
+        assert repaired.id == read_only.id
+        assert not repaired.is_read_only
     finally:
         read_only.close()
         session_attach._reset_process_state()

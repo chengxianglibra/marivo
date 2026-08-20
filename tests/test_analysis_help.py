@@ -89,7 +89,7 @@ def test_root_help_teaches_one_guarded_first_observation() -> None:
     compile(textwrap.dedent(example), "<analysis-root-help>", "exec")
 
     steps = (
-        'session = mv.session.get_or_create("analysis", question="<business question>")',
+        'session = mv.session.get_or_create("<stable-session-name>", question="<business question>")',
         'metric = session.catalog.metrics.get("<full semantic path or typed key>")',
         "marivo.help(metric)",
         "readiness = session.catalog.readiness(refs=[metric])",
@@ -171,12 +171,24 @@ def test_root_recovery_keeps_only_acquisition_and_grouped_drill_down() -> None:
     assert "mv.session.get_or_create(...)" in root
     for entrypoint in (
         "mv.session.current()",
+        "mv.session.resume(session_id)",
         "mv.session.recent()",
         "mv.session.inspect(name)",
         "mv.session.delete(name)",
     ):
         assert entrypoint not in root
         assert entrypoint in recovery
+
+
+def test_session_resume_focused_help_uses_exact_id_contract() -> None:
+    text = _text("session.resume")
+
+    assert "Entrypoint: mv.session.resume(session_id)" in text
+    assert "Identity input: session_id" in text
+    assert "mv.session.resume(page.items[0].id)" in text
+    signature_line = next(line for line in text.splitlines() if "Signature:" in line)
+    assert "question" not in signature_line
+    assert "report_timezone" not in signature_line
 
 
 def test_focused_grouping_help_lists_real_members() -> None:
@@ -898,7 +910,7 @@ def test_focused_operator_help_includes_prerequisites_and_postconditions() -> No
     text = _text("events.funnel")
 
     assert "Prerequisites:" in text
-    assert 'session = mv.session.get_or_create("analysis"' in text
+    assert 'session = mv.session.get_or_create("<stable-session-name>"' in text
     assert 'journeys: acquire via marivo.help("analysis.events.match")' in text
     assert "After success:" in text
     assert "funnel.show()" in text

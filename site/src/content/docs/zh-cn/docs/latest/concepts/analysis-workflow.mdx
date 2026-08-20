@@ -104,12 +104,14 @@ revenue.details().show()     # 读取定义、候选轴和 measure lineage
 region.details().show()
 ```
 
-`get_or_create` 是幂等的：它会附着到同名的已有会话，或创建一个新会话，并设为当前
-会话。
-会话的精简 API 为 `get_or_create`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
+每项调查应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建该名称；之后仅在
+显式 question 未变化，或调用方有意省略 `question` 时附着到已有会话。会话的精简 API 为
+`get_or_create`、`resume(session_id)`、`current()`、`recent()`、`inspect(name)` 和
+`delete(name)`。
 
-复用同名会话但传入不同的非空 `question` 会触发 `SessionQuestionMismatchWarning`，
-并保留原 question——请传入新名称来开始新的分析，或省略 `question` 以恢复现有会话。
+复用同名会话但显式传入不同的 `question` 会抛出 `SessionQuestionMismatchError`；已保存的
+question 为空时也同样处理。请按结构化 repair 选择：调用 `resume(session_id)` 明确继续
+现有调查，或为新问题选择一个新的稳定名称。
 
 `repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
 时间戳、已注册直接操作、命名空间以及目录/job/frame 检查入口的有界

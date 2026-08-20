@@ -37,19 +37,24 @@ that touches a datasource. Operators that need a backend raise
 ### Lifecycle
 
 The public session surface is intentionally small (`mv.session.__all__` is exactly
-`current`, `delete`, `get_or_create`, `inspect`, `list`, `recent`; the removed
+`current`, `delete`, `get_or_create`, `inspect`, `recent`, `resume`; the removed
 names `archive`, `attach`, `create`, `switch`, `active` are gone):
 
 - `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
-  — the default entry. Idempotent: the first call with a name creates the session,
-  later calls attach to it, and either way it becomes the current session. This is
-  what makes a script safe to re-run across loop turns.
+  — the default entry. The first call with a name creates the session; later calls
+  attach only when an explicit question exactly matches the persisted question,
+  or when question is omitted for deliberate name-based recovery. Either way it
+  becomes the current session.
+- `mv.session.resume(session_id, *, backends=None, backend_factory=None, use_datasources=True) -> Session`
+  — explicitly resume one current-project session by its immutable `sess_...` id.
+  It never changes the persisted name, question, or report timezone.
 - `mv.session.current() -> Session | None` — a safe probe for the current session
   (process-current, else the persisted `current_session_id`, else `None`).
 - `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
   newest-updated-first keyset page for selective historical reference. This is
   the discovery path for historical sessions; each summary supports bounded
-  `.show()`, and attach by its `name` to obtain a live `Session`.
+  `.show()`, and its immutable `id` can be passed to `resume` to obtain a live
+  `Session`.
 - `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
   — a bounded metadata snapshot containing the exact session summary, recent
   frame summaries, and recent jobs. It does not resume the session, move the
@@ -62,7 +67,10 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
 raises `SessionTimezoneConflict` (see
 [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md)). `backends`
 and `backend_factory` are mutually exclusive; supplying both raises
-`SessionStateError`.
+`SessionStateError`. Reusing a name with a different explicit question, including
+when the persisted question is `None`, raises `SessionQuestionMismatchError`
+before the session is touched or made current. Its repair offers the explicit
+choices to resume the existing `session_id` or create a new stable name.
 
 ```python
 import marivo.analysis as mv

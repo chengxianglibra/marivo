@@ -1602,7 +1602,7 @@ def ensure_session_can_execute(session: Session) -> None:
     if session.is_read_only:
         raise NoBackendFactoryError(
             message=f"session '{session.name}' has no backend factory configured",
-            context={"session_name": session.name},
+            context={"session_id": session.id, "session_name": session.name},
         )
 
 

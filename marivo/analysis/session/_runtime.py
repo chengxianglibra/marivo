@@ -23,6 +23,8 @@ from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from ibis.backends import BaseBackend
+
 from marivo._compat import UTC
 from marivo.analysis.errors import NoActiveSessionError, SessionStateError
 from marivo.analysis.session._layout import (
@@ -926,7 +928,11 @@ def require_current_session() -> Session:
     if session is None:
         raise NoActiveSessionError(
             message="no current analysis session",
-            hint="Call mv.session.get_or_create(name='analysis') before running analysis intents.",
+            hint=(
+                "Call mv.session.get_or_create("
+                "name='<stable-session-name>', question='<business question>') "
+                "before running analysis intents."
+            ),
         )
     return session
 
@@ -938,8 +944,8 @@ def require_current_session() -> Session:
 
 def _build_connection_runtime(
     project_root: Path,
-    backends: dict[str, Callable[[], Any]] | None,
-    backend_factory: Callable[[str], Any] | None,
+    backends: dict[str, Callable[[], BaseBackend]] | None,
+    backend_factory: Callable[[str], BaseBackend] | None,
     *,
     use_datasources: bool = True,
 ) -> AnalysisConnectionRuntime:
