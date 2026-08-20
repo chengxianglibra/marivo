@@ -633,6 +633,64 @@ def _metric_expression(metric_ids: tuple[str, ...]) -> str:
     return f"[{', '.join(expressions)}]"
 
 
+def _observe_grain_expression(grain: Grain | TemporalGrain | None) -> str | None:
+    """Render a ready-to-copy ``grain=...`` kwarg from a resolved window grain.
+
+    Returns ``None`` when the window carries no grain (a whole-window
+    observation), in which case the snippet must faithfully omit the kwarg.
+    """
+
+    if grain is None:
+        return None
+    if isinstance(grain, TemporalGrain):
+        # Semantic calendar grain: render its exact calendar + level so the
+        # snippet round-trips through ``ms.calendar_grain``.
+        calendar_path, level = grain.to_token().rsplit("::", 1)
+        return (
+            f'ms.calendar_grain(calendar=ms.ref.period_calendar("{calendar_path}"), '
+            f'level="{level}")'
+        )
+    count = grain.count
+    return f'mv.grain("{grain.unit}"' + (f", count={count}" if count != 1 else "") + ")"
+
+
+def _split_forest_snippet(
+    selected_by_metric: dict[str, str | None], *, window: AbsoluteWindow
+) -> str:
+    """Render a ready-to-copy per-time-dimension split of a mixed-axis forest.
+
+    Each block is a complete ``session.observe`` carrying the caller's
+    time_scope/grain plus a typed time_dimension handle, so the plan can be
+    copied verbatim. Grouping is keyed by each metric root's resolved implicit
+    time dimension so the caller issues one ``session.observe`` per shared axis
+    (issue #106).
+    """
+
+    groups: dict[str, list[str]] = {}
+    for metric_id, axis in selected_by_metric.items():
+        if axis is None:
+            continue
+        groups.setdefault(axis, []).append(metric_id)
+
+    grain_expression = _observe_grain_expression(window.grain)
+    needs_semantic_import = isinstance(window.grain, TemporalGrain)
+
+    lines = ["import marivo.analysis as mv"]
+    if needs_semantic_import:
+        lines.append("import marivo.semantic as ms")
+    lines.append("# Split into one observe() call per shared time dimension:")
+    for axis in groups:
+        metric_expression = _metric_expression(tuple(groups[axis]))
+        lines.append("frame = session.observe(")
+        lines.append(f"    metrics={metric_expression},")
+        lines.append(f'    time_scope=mv.time_scope(start="{window.start}", end="{window.end}"),')
+        if grain_expression is not None:
+            lines.append(f"    grain={grain_expression},")
+        lines.append(f'    time_dimension=session.catalog.time_dimensions.get("{axis}"),')
+        lines.append(")")
+    return "\n".join(lines)
+
+
 def _grain_retry_repair(
     *,
     metric_ids: tuple[str, ...],
@@ -1062,11 +1120,13 @@ def _preflight_observe_temporal_suitability(
             repair=AnalysisRepair(
                 kind="inspect",
                 action=(
-                    "Inspect the exact per-root candidates below; only combine metric "
-                    "roots when one time dimension is valid for the complete forest."
+                    "Split the metrics into separate observe() calls grouped by their "
+                    "shared candidate time dimension; the ready-to-copy plan is "
+                    "rendered below."
                 ),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 candidates=exact_candidates,
+                snippet=_split_forest_snippet(selected_by_metric, window=resolved_window),
             ),
             context=context,
         )
