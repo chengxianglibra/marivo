@@ -229,7 +229,7 @@ def render_root_help() -> str:
             f"  {_ANALYSIS_IMPORT}",
             "",
             "First observation:",
-            '  session = mv.session.get_or_create("analysis", question="<business question>")',
+            '  session = mv.session.get_or_create("<stable-session-name>", question="<business question>")',
             '  metric = session.catalog.metrics.get("<full semantic path or typed key>")',
             "  marivo.help(metric)",
             "  readiness = session.catalog.readiness(refs=[metric])",
@@ -880,7 +880,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         prerequisite_lines: list[str] = []
         if desc.receiver.startswith("Session"):
             prerequisite_lines.append(
-                'session = mv.session.get_or_create("analysis", question="<business question>")'
+                'session = mv.session.get_or_create("<stable-session-name>", question="<business question>")'
             )
         for parameter in desc.accepted_inputs:
             prerequisite = _input_prerequisite_line(desc, parameter)

@@ -599,8 +599,9 @@ def _operation_origin(
 ) -> Literal["explicit", "delegated", "internal_load"]:
     if not stack:
         return "explicit"
+    session_recovery_capabilities = {"session.get_or_create", "session.resume"}
     loaded_by_session = surface in {"datasource", "semantic"} and any(
-        active.surface == "analysis" and active.capability_id == "session.get_or_create"
+        active.surface == "analysis" and active.capability_id in session_recovery_capabilities
         for active in stack
     )
     loaded_by_public_semantic_call = surface == "semantic" and any(
@@ -754,8 +755,11 @@ class _Operation:
         if not self.defer_start_write and not self.suppress_success:
             _write_entry(self.root, self._start_entry)
         suppress_descendants = suppress_internal_load_success or (
-            self.capability_id == "session.get_or_create"
-            and self.attributes.get("marivo.session.created") is False
+            self.capability_id == "session.resume"
+            or (
+                self.capability_id == "session.get_or_create"
+                and self.attributes.get("marivo.session.created") is False
+            )
         )
         active = _ActiveOperation(
             self.surface,

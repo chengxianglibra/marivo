@@ -2164,6 +2164,15 @@ def _build_registry() -> CapabilityRegistry:
             "none",
         ),
         (
+            "session.resume",
+            "mv.session.resume(session_id)",
+            "session.resume",
+            "Explicitly resume an existing project session by its immutable id.",
+            "recovery",
+            "Session",
+            "session_id",
+        ),
+        (
             "session.recent",
             "mv.session.recent()",
             "session.recent",
@@ -2449,7 +2458,7 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         _make_grouping_descriptor(
             "recovery",
-            "Cross-script frame and job recovery helpers.",
+            "Cross-script session, frame, and job recovery helpers.",
             "recovery",
         )
     )

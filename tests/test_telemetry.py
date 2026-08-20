@@ -263,6 +263,14 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     def resume(*, name: str, question: str, project_root: Path) -> str:
         return load_project(project_root=project_root)
 
+    @tracked_capability(
+        surface="analysis",
+        capability_id="session.resume",
+        capability_kind="lifecycle",
+    )
+    def resume_by_id(*, session_id: str, project_root: Path) -> str:
+        return load_project(project_root=project_root)
+
     assert (
         resume(
             name="demo",
@@ -275,6 +283,11 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     path = _event_path(telemetry_project)
     assert len(_capability_records(path, "session.get_or_create")) == 2
     assert _capability_records(path, "load") == []
+    assert _capability_records(path, "measure_column") == []
+    assert _capability_records(path, "trino") == []
+
+    assert resume_by_id(session_id="sess_existing", project_root=telemetry_project) == "declared"
+    assert len(_capability_records(path, "session.resume")) == 2
     assert _capability_records(path, "measure_column") == []
     assert _capability_records(path, "trino") == []
 
@@ -388,16 +401,24 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
     assert "secret-account" not in text
 
 
-def test_session_question_create_and_resume_semantics(telemetry_project: Path) -> None:
+def test_session_question_conflict_and_explicit_resume_semantics(
+    telemetry_project: Path,
+) -> None:
     first = mv.session.get_or_create(
         name="demo",
         question="Original question",
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
-    resumed = mv.session.get_or_create(
-        name="demo",
-        question="Ignored replacement",
+    with pytest.raises(mv.errors.SessionQuestionMismatchError):
+        mv.session.get_or_create(
+            name="demo",
+            question="Rejected replacement",
+            backend_factory=lambda _name: None,
+            use_datasources=False,
+        )
+    resumed = mv.session.resume(
+        first.id,
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
@@ -411,9 +432,15 @@ def test_session_question_create_and_resume_semantics(telemetry_project: Path) -
     assert calls[1]["marivo.session.question"] == "Original question"
     assert calls[2]["marivo.session.created"] is False
     assert calls[2]["marivo.session.question_applied"] is False
-    assert calls[2]["marivo.session.requested_question"] == "Ignored replacement"
+    assert calls[2]["marivo.session.requested_question"] == "Rejected replacement"
     assert calls[2]["marivo.session.question"] == "Original question"
-    assert calls[3]["marivo.session.question"] == "Original question"
+    assert calls[3]["marivo.operation.status"] == "error"
+    assert calls[3]["marivo.error.class"] == "SessionQuestionMismatchError"
+
+    resume_calls = [_attrs(record) for record in _capability_records(path, "session.resume")]
+    assert len(resume_calls) == 2
+    assert resume_calls[-1]["marivo.operation.status"] == "ok"
+    assert resume_calls[-1]["marivo.session.id"] == first.id
 
 
 def test_analysis_purpose_and_repair_survive_pre_persistence_failure(

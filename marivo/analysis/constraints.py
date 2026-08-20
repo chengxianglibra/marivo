@@ -471,7 +471,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("session", "observe", "datasources"),
         "Materializing analysis intents need a configured ibis backend factory.",
         "Observe and related intents need a live backend to compile and execute semantic metrics.",
-        "Register a datasource and use mv.session.get_or_create(name=...), or pass an explicit backend override.",
+        "Register the real project datasource and resume the same session by id, or resume it with an explicit backend override.",
         help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),

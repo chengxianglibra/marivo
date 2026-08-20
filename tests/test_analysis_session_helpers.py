@@ -21,21 +21,30 @@ import marivo.analysis as mv
 # ---------------------------------------------------------------------------
 
 
-def test_session_all_exports_exactly_five_names() -> None:
+def test_session_all_exports_exactly_six_names() -> None:
     assert mv.session.__all__ == [
         "current",
         "delete",
         "get_or_create",
         "inspect",
         "recent",
+        "resume",
     ]
 
 
 def test_session_acquisition_has_concrete_return_annotations() -> None:
     assert get_type_hints(mv.session.current)["return"] == mv.Session | None
     assert get_type_hints(mv.session.get_or_create)["return"] is mv.Session
+    assert get_type_hints(mv.session.resume)["return"] is mv.Session
     assert signature(mv.session.current).return_annotation != Any
     assert signature(mv.session.get_or_create).return_annotation != Any
+    assert signature(mv.session.resume).return_annotation != Any
+    assert tuple(signature(mv.session.resume).parameters) == (
+        "session_id",
+        "backends",
+        "backend_factory",
+        "use_datasources",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -87,13 +96,63 @@ def test_question_only_written_on_first_create(
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
     assert s1.question == "why?"
-    with pytest.warns(mv.errors.SessionQuestionMismatchWarning, match="different question"):
-        s2 = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
-    # question should NOT be overwritten on resume
-    assert s2.question == "why?"
+    with pytest.raises(mv.errors.SessionQuestionMismatchError) as exc_info:
+        mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+
+    error = exc_info.value
+    assert error.expected == "question='why?'"
+    assert error.received == "question='different?'"
+    assert error.location == "mv.session.get_or_create(question=...)"
+    assert error.repair is not None
+    assert error.repair.kind == "user_choice"
+    assert error.repair.help_target.canonical_id == "recovery"
+    assert f"mv.session.resume({s1.id!r})" in (error.repair.snippet or "")
+    assert '"<new-stable-session-name>"' in (error.repair.snippet or "")
+    assert 'repair_choice = "<resume-existing-or-create-new>"' in (error.repair.snippet or "")
+    assert mv.session.inspect("s").summary.question == "why?"
 
 
-def test_get_or_create_warns_only_on_cross_question_reuse(
+def test_question_mismatch_repair_executes_only_selected_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    existing = mv.session.get_or_create(name="existing", question="original", use_datasources=False)
+    with pytest.raises(mv.errors.SessionQuestionMismatchError) as exc_info:
+        mv.session.get_or_create(name="existing", question="replacement", use_datasources=False)
+
+    snippet = exc_info.value.repair.snippet or ""
+    compile(snippet, "<session-question-mismatch-repair>", "exec")
+
+    resume_namespace = {"mv": mv}
+    exec(
+        snippet.replace('"<resume-existing-or-create-new>"', '"resume-existing"', 1),
+        resume_namespace,
+    )
+    resumed = resume_namespace["session"]
+    assert isinstance(resumed, mv.Session)
+    assert resumed.id == existing.id
+    assert mv.session.current() is not None
+    assert mv.session.current().id == existing.id
+    with pytest.raises(mv.errors.SessionNotFoundError):
+        mv.session.inspect("<new-stable-session-name>")
+
+    create_namespace = {"mv": mv}
+    exec(
+        snippet.replace('"<resume-existing-or-create-new>"', '"create-new"', 1).replace(
+            "<new-stable-session-name>", "replacement-analysis", 1
+        ),
+        create_namespace,
+    )
+    created = create_namespace["session"]
+    assert isinstance(created, mv.Session)
+    assert created.id != existing.id
+    assert created.name == "replacement-analysis"
+    assert created.question == "replacement"
+    assert mv.session.inspect("existing").summary.question == "original"
+
+
+def test_get_or_create_allows_only_matching_or_omitted_question_on_reuse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -110,10 +169,108 @@ def test_get_or_create_warns_only_on_cross_question_reuse(
         warnings.simplefilter("error")
         mv.session.get_or_create(name="s", use_datasources=False)
 
-    # A different question on resume warns and preserves the original question.
-    with pytest.warns(mv.errors.SessionQuestionMismatchWarning, match="different question"):
-        resumed = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+    # A different explicit question fails closed and preserves the original.
+    with pytest.raises(mv.errors.SessionQuestionMismatchError):
+        mv.session.get_or_create(name="s", question="different?", use_datasources=False)
+    assert mv.session.inspect("s").summary.question == "why?"
+
+
+def test_get_or_create_rejects_binding_question_to_existing_unbound_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    existing = mv.session.get_or_create(name="s", use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionQuestionMismatchError) as exc_info:
+        mv.session.get_or_create(name="s", question="new question", use_datasources=False)
+
+    assert exc_info.value.expected == "question=None"
+    assert exc_info.value.received == "question='new question'"
+    assert f"mv.session.resume({existing.id!r})" in (exc_info.value.repair.snippet or "")
+    assert mv.session.inspect("s").summary.question is None
+
+
+def test_question_mismatch_does_not_touch_metadata_or_change_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    historical = mv.session.get_or_create(
+        name="historical", question="original", use_datasources=False
+    )
+    before = mv.session.inspect("historical").summary
+    meta_path = tmp_path / ".marivo" / "analysis" / "sessions" / historical.id / "meta.json"
+    meta_before = meta_path.read_text()
+    active = mv.session.get_or_create(name="active", use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionQuestionMismatchError):
+        mv.session.get_or_create(name="historical", question="replacement", use_datasources=False)
+
+    after = mv.session.inspect("historical").summary
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == active.id
+    assert after.updated_at == before.updated_at
+    assert after.question == "original"
+    assert meta_path.read_text() == meta_before
+
+
+def test_resume_by_id_restores_session_and_marks_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    historical = mv.session.get_or_create(name="historical", question="why?", use_datasources=False)
+    mv.session.get_or_create(name="active", use_datasources=False)
+
+    resumed = mv.session.resume(historical.id, use_datasources=False)
+
+    assert resumed.id == historical.id
+    assert resumed.name == "historical"
     assert resumed.question == "why?"
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == historical.id
+
+
+def test_resume_missing_id_raises_typed_error_with_real_id_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    known = mv.session.get_or_create(name="known", use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
+        mv.session.resume("sess_missing", use_datasources=False)
+
+    error = exc_info.value
+    assert error.expected == "an existing project session id from mv.session.recent().items[*].id"
+    assert error.received == "sess_missing"
+    assert error.location == "mv.session.resume(session_id)"
+    assert error.repair is not None
+    assert error.repair.kind == "inspect"
+    assert error.repair.help_target.canonical_id == "session.recent"
+    assert error.repair.candidates == (known.id,)
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == known.id
+
+
+def test_resume_rejects_backends_and_backend_factory_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    session = mv.session.get_or_create(name="s", use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionStateError):
+        mv.session.resume(
+            session.id,
+            backends={"w": lambda: None},
+            backend_factory=lambda _name: None,
+            use_datasources=False,
+        )
 
 
 def test_session_has_no_default_calendar_surface(
