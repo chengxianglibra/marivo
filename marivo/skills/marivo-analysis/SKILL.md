@@ -301,6 +301,16 @@ or bounded tests over irreversible actions or invented numeric targets.
 
 ## Script discipline
 
+For a fresh session, write the first decision round to a real temporary file
+named `00_bootstrap.py` before executing it. Let that script call
+`mv.session.get_or_create(...)` and complete the first bounded round. After the
+run makes `session.id` known, move the same file without changing its bytes to
+`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/00_bootstrap.py`.
+Do not create the session with an inline `<selected-python> -c ...` command.
+Number later rounds `01_*.py`, `02_*.py`, and so on; when resuming a session
+whose id is already known, write the next numbered script directly in its
+session-local scripts directory.
+
 Store ordered step scripts under
 `<project_root>/.marivo/analysis/sessions/<session.id>/scripts/`. Once executed,
 each script is an immutable source record for one decision round. Batch
