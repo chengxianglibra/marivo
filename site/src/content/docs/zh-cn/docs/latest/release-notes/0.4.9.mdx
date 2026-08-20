@@ -1,0 +1,75 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.9
+title: Marivo 0.4.9
+description: Marivo 0.4.9 发布说明。
+---
+
+Marivo 0.4.9 让面向 agent 的分析结果更聚焦于决策，支持多指标质量评估，
+并进一步明确 catalog 与 session 后续操作的契约边界。
+
+## 重点
+
+- Analysis artifact 的 `.show()` 和 `.render()` 现在会先展示当前决策上下文、问题、
+  证据和解释，再展示数据预览。默认卡片最多输出 50 行或 8 KiB；数据被截断时会给出
+  精确的省略数量和可复制的恢复调用。
+- `session.assess_quality(...)` 支持多指标 `MetricFrame`，并返回一份联合报告。Frame
+  级检查只运行一次，指标级检查会针对每个权威 measure binding 运行一次；类型化 issue
+  和 finding 会保留受影响的指标身份。
+- 分析流程新增最小首次观测路径和只追加的 step script。后续决策轮次通过 ref 恢复精确的
+  输入 artifact，不重新执行旧 script，也不依赖隐式的 latest 结果。
+- Semantic catalog 浏览现在会展示带 receiver 的可复制调用，例如
+  `catalog.metrics.show()` 和 `catalog.metrics.get(...)`；完整的机械后续操作仍通过
+  `.contract().show()` 查看。
+
+## 变更
+
+- Artifact 卡片只展示依赖当前状态的后续提示。完整的 capability 和 semantic reacquisition
+  细节收纳在 artifact contract 中，稳定的 capability identifier 仍保留在结构化输出里。
+- 多指标质量检查会在执行前校验 measure binding 是否按顺序、唯一且已物化，并在修复指引
+  和 evidence scope 中带上对应的指标身份。
+- 分析操作会从当前 session catalog 重新获取 session 所属的 catalog entry，避免混用不同
+  session 的不可变 catalog snapshot。
+
+## 修复
+
+- Analysis continuation label 现在渲染公开的 receiver 调用，包括
+  `session.compare(...)` 和 `session.attribute(...)`，不再把内部 capability identifier
+  作为主要的下一步。
+- Bounded artifact 卡片不再重复完整的 continuation matrix 或 semantic acquisition 细节，
+  减少重复和可能误导的操作指引。
+
+## 文档
+
+- 分析流程和语义层指南补充了 decision-first 卡片顺序、精确截断恢复、多指标质量报告、
+  catalog 所属关系以及只追加 script 的使用约束。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.9 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)
