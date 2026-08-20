@@ -470,9 +470,13 @@ hour 粒度需要带时间的格式）。
 `ms.datetime(timezone="Asia/Shanghai")`）。显式 `ms.datetime()` 或
 `ms.timestamp()` 未提供 `timezone=` 时，就绪检查会返回
 `undeclared_naive_time_axis` 阻塞项：运行时会回退到数据源 read 时区，而
-分析窗口使用报告时区，可能在日或小时边界错位。零查询门禁会报告这些
-运行时解析的上下文，但绝不猜测业务时区。形如 `(5, "minute")` 的
-`sample_interval` 标记一个被周期采样的时间轴，供半可加折叠使用。
+分析窗口使用报告时区，可能在日或小时边界错位。完全省略 `parse` 时，只有匹配的
+已持久化 preview 证据确认物理类型是时区-naive timestamp，就绪检查才给出这个
+`warning`。原生 `date`、时区-aware timestamp，以及未知或过期的物理类型都不会收到
+猜测性的时区修复；已有的 preview 证据 advisory 会说明如何刷新缺失证据。零查询
+门禁只报告已证明的运行时解析上下文，绝不猜测业务时区。形如 `(5, "minute")` 的
+`sample_interval` 标记一个被
+周期采样的时间轴，供半可加折叠使用。
 
 对于时间-series 和面板 frame，`bucket_start` 始终是报告时区下的桶
 标签，并以时区-naive 时间戳或日期输出。例如 `report_timezone="Asia/Shanghai"`

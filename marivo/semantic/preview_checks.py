@@ -150,6 +150,7 @@ class PreviewEvidenceRequirement:
     status: Literal["matched", "snapshot_missing", "runtime_preview_missing"]
     repair: AuthoringRepair
     evidence_roots: tuple[str, ...] = ()
+    types: tuple[tuple[str, str], ...] = ()
 
 
 def _evidence_roots(entity_ids: tuple[str, ...], registry: Registry) -> tuple[str, ...]:
@@ -646,6 +647,19 @@ def preview_evidence_requirement(
                 and created_at >= max(snapshot.created_at for snapshot in bound_snapshots)
                 and expires_at == min(snapshot.expires_at for snapshot in bound_snapshots)
             ):
+                raw_types = payload.get("types")
+                matched_types = (
+                    tuple((item[0], item[1]) for item in raw_types)
+                    if isinstance(raw_types, list)
+                    and all(
+                        isinstance(item, list)
+                        and len(item) == 2
+                        and isinstance(item[0], str)
+                        and isinstance(item[1], str)
+                        for item in raw_types
+                    )
+                    else ()
+                )
                 return PreviewEvidenceRequirement(
                     status="matched",
                     repair=repair(
@@ -654,6 +668,7 @@ def preview_evidence_requirement(
                         action="Matching preview evidence is available; readiness may proceed.",
                     ),
                     evidence_roots=evidence_roots,
+                    types=matched_types,
                 )
     missing_entities = tuple(entity_id for entity_id in entity_ids if entity_id not in snapshots)
     if missing_entities:

@@ -1888,6 +1888,17 @@ FrameTemporalContractV1:
   output_period_keys[]
   period_key_absence_reason: str | null
   display_timezone
+  time_axis_timezones[]: TimeAxisTimeZoneV1
+```
+
+`TimeAxisTimeZoneV1` records, per observation time axis, the source timezone
+authority actually adopted by planning and execution:
+
+```text
+TimeAxisTimeZoneV1:
+  time_dimension: str
+  timezone: str
+  source: "declared" | "physical" | "datasource_read"
 ```
 
 `data_extent_end` records the last observed civil date within the window
@@ -1911,6 +1922,16 @@ no certified key column. `period_key_absence_reason` is a human-readable
 explanation, non-null only when the observation grain is a semantic period yet
 the frame still carries no `period_key` column (for example a pre-period or
 metadata-less export), so an empty key list is never silently ambiguous.
+
+`time_axis_timezones` records the timezone actually adopted for each observation
+time axis: `source="physical"` when a timezone-aware physical expression carries
+the authority, `source="declared"` when a naive axis declares a `parse` timezone,
+and `source="datasource_read"` when a naive axis falls back to the datasource read
+timezone (the assumption a readiness `undeclared_naive_time_axis` issue flags).
+The record is projected from the same resolved planner context used by windowing
+and bucketing; the result layer does not reconstruct it from catalog declarations.
+It is empty when no time axis was resolved or the axis is date-only, and it is
+independent of `display_timezone`.
 
 A comparison-like artifact retains both source contracts rather than pretending
 that two observations have one binding:

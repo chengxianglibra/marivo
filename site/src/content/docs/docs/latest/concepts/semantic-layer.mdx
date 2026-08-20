@@ -520,10 +520,14 @@ example, `ms.datetime(timezone="Asia/Shanghai")`). An explicit
 `ms.datetime()` or `ms.timestamp()` without `timezone=` makes readiness return
 the `undeclared_naive_time_axis` blocker: runtime would otherwise fall back to
 the datasource read timezone, while analysis windows use the report timezone
-and may shift at day or hour boundaries. The zero-query gate reports those
-runtime-resolved contexts but never guesses the business timezone.
-`sample_interval` like `(5, "minute")` marks a periodically-sampled axis used
-by semi-additive folds.
+and may shift at day or hour boundaries. When `parse` is omitted, readiness
+emits that `warning` only if matching persisted preview evidence identifies a
+timezone-naive timestamp. Native `date`, timezone-aware timestamp, and unknown
+or stale physical types do not receive a speculative timezone repair; the
+existing preview-evidence advisory explains how to refresh missing evidence.
+The zero-query gate reports proven runtime-resolved contexts but never guesses
+the business timezone. `sample_interval` like `(5, "minute")` marks a
+periodically-sampled axis used by semi-additive folds.
 
 For time-series and panel frames, `bucket_start` is always a report-timezone
 bucket label emitted as a timezone-naive timestamp or date. For example, with

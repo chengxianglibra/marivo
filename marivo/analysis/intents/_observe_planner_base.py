@@ -9,11 +9,14 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 from zoneinfo import ZoneInfo
 
+from marivo._temporal import TimeAxisTimeZoneV1
 from marivo.analysis.executor.runner import apply_slice_to_dataset
 from marivo.analysis.executor.windowing import (
     apply_window_to_dataset,
     datasource_engine_profile,
     datasource_read_timezone,
+    effective_time_context,
+    resolve_window_time_field,
 )
 from marivo.analysis.intents._observe_planner_catalog import (
     _entity,
@@ -67,6 +70,45 @@ from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 if TYPE_CHECKING:
     from marivo.analysis.intents._subject_cohort import ResolvedSubjectCohort
+
+
+def _resolved_time_axis_timezone(
+    *,
+    dataset_ir: Any,
+    table: Any,
+    resolved_window: Any | None,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
+) -> TimeAxisTimeZoneV1 | None:
+    """Project the executor-resolved timezone authority for one observe axis."""
+    if resolved_window is None:
+        return None
+    time_field = resolve_window_time_field(dataset_ir, window=resolved_window)
+    time_meta = getattr(time_field, "time_meta", None)
+    if time_meta is None:
+        return None
+    field_expr = time_field.fn(table)
+    context = effective_time_context(
+        time_meta,
+        report_tz=report_tz,
+        datasource_read_tz=datasource_read_tz,
+        field_expr=field_expr,
+    )
+    effective_tz = context.effective_column_tz
+    if effective_tz is None:
+        return None
+    if context.actual_field_tz is not None:
+        source: Literal["declared", "physical", "datasource_read"] = "physical"
+    elif context.declared_tz is not None:
+        source = "declared"
+    else:
+        source = "datasource_read"
+    timezone = getattr(effective_tz, "key", None) or str(effective_tz)
+    return TimeAxisTimeZoneV1(
+        time_dimension=time_field.semantic_id,
+        timezone=timezone,
+        source=source,
+    )
 
 
 def _plan_temporal_fold(
@@ -395,17 +437,25 @@ def plan_base_observe(
         # timezone remains presentation policy and must not move facts across
         # custom fiscal boundaries.
         window_timezone = ZoneInfo(temporal_snapshot.boundary_timezone)
+    read_timezone = datasource_read_timezone(
+        session._connection_runtime, dataset_irs[root].datasource_name
+    )
     root_table = apply_window_to_dataset(
         root_table,
         resolved_window,
         dataset_ir=dataset_irs[root],
         report_tz=window_timezone,
-        datasource_read_tz=datasource_read_timezone(
-            session._connection_runtime, dataset_irs[root].datasource_name
-        ),
+        datasource_read_tz=read_timezone,
         profile=datasource_engine_profile(
             session._connection_runtime, dataset_irs[root].datasource_name
         ),
+    )
+    time_axis_timezone = _resolved_time_axis_timezone(
+        dataset_ir=dataset_irs[root],
+        table=root_table,
+        resolved_window=resolved_window,
+        report_tz=window_timezone,
+        datasource_read_tz=read_timezone,
     )
 
     planned_where: list[PlannedWhere] = []
@@ -755,6 +805,7 @@ def plan_base_observe(
         },
         warnings=plan_warnings,
         datasource_name=datasource_name,
+        time_axis_timezone=time_axis_timezone,
         status_time_dimension=metric_ir.status_time_dimension,
         time_fold=metric_ir.time_fold,
         temporal_fold=temporal_fold,

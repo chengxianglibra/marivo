@@ -17,6 +17,7 @@ from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -645,9 +646,18 @@ def _undeclared_naive_time_axis_issues(
     checked_refs: Iterable[str],
     kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
-) -> list[ReadinessIssue]:
-    """Return blockers for native temporal axes without a source timezone."""
+    preview_types: Mapping[str, str],
+) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
+    """Return blockers/warnings for native temporal axes without a source timezone.
+
+    An explicit ``parse=ms.datetime()``/``parse=ms.timestamp()`` with no timezone is
+    certainly a naive datetime/timestamp, so it blocks.  A time dimension with no
+    ``parse`` at all is classified only from a matching persisted preview type;
+    readiness remains query-free and does not turn an unknown physical type into a
+    timezone warning.
+    """
     blockers: list[ReadinessIssue] = []
+    warnings: list[ReadinessIssue] = []
     for ref in checked_refs:
         if kinds.get(ref) != SemanticKind.TIME_DIMENSION:
             continue
@@ -656,8 +666,6 @@ def _undeclared_naive_time_axis_issues(
         parse = getattr(time_dimension, "parse", None)
         data_type = getattr(parse, "kind", None)
         declared_timezone = getattr(parse, "timezone", None)
-        if data_type not in {"datetime", "timestamp"} or declared_timezone is not None:
-            continue
 
         entity_ref = getattr(time_dimension, "entity", None)
         entity = (
@@ -666,30 +674,72 @@ def _undeclared_naive_time_axis_issues(
             else None
         )
         datasource = getattr(entity, "datasource", None)
-        parse_call = f'ms.{data_type}(timezone="Region/City")'
-        blockers.append(
-            _issue(
-                "undeclared_naive_time_axis",
-                "blocker",
-                (path,),
-                f"{path} is a native {data_type} time axis with no declared source timezone; "
-                "analysis will otherwise interpret naive values using the datasource read timezone.",
-                repair(
-                    kind="reauthor",
-                    canonical_id="time_dimension_column",
-                    action=f"Declare the source timezone on this time dimension with parse={parse_call}.",
-                ),
-                details={
-                    "data_type": data_type,
-                    "declared_timezone": None,
-                    "datasource": datasource,
-                    "datasource_read_timezone": "resolved at runtime",
-                    "report_timezone": "resolved by the analysis session",
-                    "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
-                },
+
+        if data_type in {"datetime", "timestamp"} and declared_timezone is None:
+            parse_call = f'ms.{data_type}(timezone="Region/City")'
+            blockers.append(
+                _issue(
+                    "undeclared_naive_time_axis",
+                    "blocker",
+                    (path,),
+                    f"{path} is a native {data_type} time axis with no declared source timezone; "
+                    "analysis will otherwise interpret naive values using the datasource read timezone.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="time_dimension_column",
+                        action=f"Declare the source timezone on this time dimension with parse={parse_call}.",
+                    ),
+                    details={
+                        "data_type": data_type,
+                        "declared_timezone": None,
+                        "datasource": datasource,
+                        "datasource_read_timezone": "resolved at runtime",
+                        "report_timezone": "resolved by the analysis session",
+                        "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
+                    },
+                )
             )
-        )
-    return blockers
+        elif parse is None and _preview_type_is_naive_timestamp(preview_types.get(ref)):
+            observed_type = preview_types[ref]
+            warnings.append(
+                _issue(
+                    "undeclared_naive_time_axis",
+                    "warning",
+                    (path,),
+                    f"{path} declares no parse/timezone, and matching preview evidence reports "
+                    f"the native naive type {observed_type!r}; analysis will interpret values using "
+                    "the datasource read timezone, risking silent misalignment across "
+                    "time-zone boundaries.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="time_dimension_column",
+                        action=(
+                            "Declare the source timezone by adding "
+                            'parse=ms.datetime(timezone="Region/City") (or '
+                            'ms.timestamp(timezone="Region/City")) to the @ms.time_dimension '
+                            "declaration."
+                        ),
+                    ),
+                    details={
+                        "data_type": observed_type,
+                        "data_type_evidence": "matching_preview",
+                        "declared_timezone": None,
+                        "datasource": datasource,
+                        "datasource_read_timezone": "resolved at runtime",
+                        "report_timezone": "resolved by the analysis session",
+                        "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
+                    },
+                )
+            )
+    return blockers, warnings
+
+
+def _preview_type_is_naive_timestamp(data_type: str | None) -> bool:
+    """Whether a persisted ibis preview type is timestamp-like and timezone-naive."""
+    if data_type is None:
+        return False
+    normalized = data_type.strip().lower().replace(" ", "")
+    return normalized.startswith("timestamp") and "'" not in normalized and '"' not in normalized
 
 
 def _snapshot_fold_unobservable_issues(
@@ -845,6 +895,26 @@ def build_readiness_report(
     if compiled_state is None:
         raise RuntimeError("ready semantic project has no compiled state")
     catalog_definition_fingerprint = compiled_state.definition_fingerprint
+    preview_requirements: dict[str, PreviewEvidenceRequirement] = {}
+
+    def preview_requirement_for(path: str) -> PreviewEvidenceRequirement | None:
+        if project._registry is None or project._expression_sidecar is None:
+            return None
+        cached = preview_requirements.get(path)
+        if cached is not None:
+            return cached
+        from marivo.semantic.preview_checks import preview_evidence_requirement
+
+        requirement = preview_evidence_requirement(
+            path,
+            registry=project._registry,
+            sidecar=project._expression_sidecar,
+            project_root=project._workspace_dir,
+            catalog_definition_fingerprint=catalog_definition_fingerprint,
+        )
+        preview_requirements[path] = requirement
+        return requirement
+
     event_predicate_dependencies = {
         ref.key: tuple(binding.to_ref().key for binding in body.bindings)
         for ref, body in compiled_state.sidecar.bodies.items()
@@ -936,7 +1006,31 @@ def build_readiness_report(
             )
         )
 
-    blockers.extend(_undeclared_naive_time_axis_issues(checked_refs, kinds, objects))
+    preview_time_axis_types: dict[str, str] = {}
+    for ref in checked_refs:
+        if kinds.get(ref) is not SemanticKind.TIME_DIMENSION:
+            continue
+        time_dimension = objects.get(ref)
+        if getattr(time_dimension, "parse", None) is not None:
+            continue
+        requirement = preview_requirement_for(_display_path(ref))
+        if requirement is None or requirement.status != "matched":
+            continue
+        field_name = getattr(time_dimension, "name", None)
+        if not isinstance(field_name, str):
+            continue
+        observed_type = dict(requirement.types).get(field_name)
+        if isinstance(observed_type, str):
+            preview_time_axis_types[ref] = observed_type
+
+    naive_time_axis_blockers, naive_time_axis_warnings = _undeclared_naive_time_axis_issues(
+        checked_refs,
+        kinds,
+        objects,
+        preview_time_axis_types,
+    )
+    blockers.extend(naive_time_axis_blockers)
+    warnings.extend(naive_time_axis_warnings)
     blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects))
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
@@ -1138,8 +1232,6 @@ def build_readiness_report(
     warnings.extend(enrichment_warnings)
 
     if project._registry is not None and project._expression_sidecar is not None:
-        from marivo.semantic.preview_checks import preview_evidence_requirement
-
         evidence_issue_refs: dict[
             tuple[Literal["snapshot_missing", "runtime_preview_missing"], tuple[str, ...]],
             list[str],
@@ -1154,13 +1246,8 @@ def build_readiness_report(
             if ref in graph_invalid_refs:
                 continue
             path = _display_path(ref)
-            requirement = preview_evidence_requirement(
-                path,
-                registry=project._registry,
-                sidecar=project._expression_sidecar,
-                project_root=project._workspace_dir,
-                catalog_definition_fingerprint=catalog_definition_fingerprint,
-            )
+            requirement = preview_requirement_for(path)
+            assert requirement is not None
             if requirement.status == "matched":
                 continue
             key = (requirement.status, requirement.evidence_roots)
