@@ -281,8 +281,9 @@ def _local_bucket_expr(
         if context.declared_tz is None and context.actual_field_tz is None:
             _logger.warning(
                 "Time dimension %r has no declared timezone for naive %r column; "
-                "assuming datasource read timezone %s. Add timezone= to @ms.time_dimension "
-                "to avoid silent misalignment.",
+                "assuming datasource read timezone %s. Declare the source timezone with "
+                'parse=ms.datetime(timezone="Region/City") (or ms.timestamp(...)) to avoid '
+                "silent misalignment.",
                 getattr(time_meta, "semantic_id", "?"),
                 data_type,
                 getattr(datasource_read_tz, "key", str(datasource_read_tz)),

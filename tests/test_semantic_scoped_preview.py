@@ -575,6 +575,7 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
         }
     ]
     assert check_payload["expires_at"] == orders_snapshot.expires_at.isoformat()
+    assert check_payload["types"] == [list(item) for item in sorted(result.types.items())]
     assert "rows" not in check_payload
 
 
@@ -706,6 +707,71 @@ def test_readiness_reports_preview_advisory_only_for_direct_executable_refs(
     report = catalog.readiness(refs=[revenue])
 
     assert all(issue.kind != "runtime_preview_missing" for issue in report.warnings)
+    assert query_spy.user_data_queries == 0
+
+
+def test_matching_preview_type_drives_omitted_parse_timezone_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    query_spy: _QuerySpy,
+    semantic_project_factory,
+) -> None:
+    """Persisted preview types, not a readiness query, classify native timestamps."""
+    database_path = tmp_path / "timestamps.duckdb"
+    backend = ibis.duckdb.connect(str(database_path))
+    backend.raw_sql("CREATE TABLE orders (created_at TIMESTAMP)")
+    backend.raw_sql("INSERT INTO orders VALUES (TIMESTAMP '2026-07-10 08:00:00')")
+    backend.disconnect()
+
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            ),
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
+            ),
+            "sales/models.py": textwrap.dedent(
+                """\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                    ai_context=ms.ai_context(business_definition="Sales orders."),
+                )
+
+                @ms.time_dimension(
+                    entity=orders,
+                    granularity="hour",
+                    ai_context=ms.ai_context(business_definition="Order creation time."),
+                )
+                def created_at(orders):
+                    return orders.created_at
+                """
+            ),
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
+        scope=md.unpruned(max_rows=1, timeout_seconds=30),
+        columns=("created_at",),
+    )
+    catalog = SemanticCatalog(project)
+    axis = catalog.require(ms.ref.time_dimension("sales.orders.created_at")).ref
+    preview = catalog.preview(axis, using=snapshot)
+    assert preview.types == {"created_at": "timestamp(6)"}
+
+    query_spy.user_data_queries = 0
+    report = catalog.readiness(refs=[axis])
+
+    warning = next(issue for issue in report.warnings if issue.kind == "undeclared_naive_time_axis")
+    assert warning.details["data_type"] == "timestamp(6)"
+    assert warning.details["data_type_evidence"] == "matching_preview"
     assert query_spy.user_data_queries == 0
 
 

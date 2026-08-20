@@ -16,6 +16,7 @@ from marivo._temporal import (
     FrameTemporalContractV1,
     PeriodCalendarSnapshotV1,
     TemporalResolver,
+    TimeAxisTimeZoneV1,
     TimeScope,
     _new_time_scope,
     builtin_grain,
@@ -60,9 +61,7 @@ from marivo.analysis.evidence.types import ArtifactIssue, DataQualityIssue
 from marivo.analysis.executor.runner import (
     normalize_slice_for_storage,
 )
-from marivo.analysis.executor.windowing import (
-    datasource_engine_profile,
-)
+from marivo.analysis.executor.windowing import datasource_engine_profile
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 from marivo.analysis.frames.metric import MetricExecutionStatsV1, MetricFrame, MetricFrameMeta
@@ -897,12 +896,30 @@ def _materialize_cumulative_evaluation_end(
     return output
 
 
+def _graph_plan_time_axis_timezones(graph_plan: Any) -> tuple[TimeAxisTimeZoneV1, ...]:
+    """Return executor-resolved timezone authorities from a metric graph plan."""
+    by_dimension: dict[str, TimeAxisTimeZoneV1] = {}
+    for leaf in graph_plan.leaves:
+        base_plan = leaf.plan.base_plan if hasattr(leaf.plan, "base_plan") else leaf.plan
+        authority = base_plan.time_axis_timezone
+        if authority is None:
+            continue
+        existing = by_dimension.get(authority.time_dimension)
+        if existing is not None and existing != authority:
+            raise AssertionError(
+                "one observation time axis resolved conflicting timezone authorities"
+            )
+        by_dimension[authority.time_dimension] = authority
+    return tuple(by_dimension[key] for key in sorted(by_dimension))
+
+
 def _build_frame_temporal_contract(
     *,
     resolved_window: Any | None,
     cumulative: dict[str, Any] | None,
     frame: pd.DataFrame,
     report_timezone: str,
+    time_axis_timezones: tuple[TimeAxisTimeZoneV1, ...] = (),
 ) -> FrameTemporalContractV1 | None:
     """Persist one closed temporal authority beside every time-shaped frame."""
     if resolved_window is None:
@@ -998,6 +1015,7 @@ def _build_frame_temporal_contract(
         output_period_keys=output_keys,
         period_key_absence_reason=period_key_absence_reason,
         display_timezone=report_timezone,
+        time_axis_timezones=time_axis_timezones,
     )
 
 
@@ -1366,6 +1384,7 @@ def observe(
                     cumulative=cumulative_meta,
                     frame=pd.DataFrame(),
                     report_timezone=session.report_tz_name,
+                    time_axis_timezones=_graph_plan_time_axis_timezones(graph_plan),
                 )
                 if temporal_contract is not None:
                     params["temporal_contract"] = temporal_contract.model_dump(mode="json")
@@ -1728,6 +1747,7 @@ def observe(
                 cumulative=cumulative_meta,
                 frame=materialized_frame,
                 report_timezone=session.report_tz_name,
+                time_axis_timezones=_graph_plan_time_axis_timezones(graph_plan),
             ),
             zero_denominator_rows=root_execution.quality.zero_division_rows,
             cohort=resolved_cohort.binding if resolved_cohort is not None else None,
@@ -2288,6 +2308,7 @@ def _observe_metric_forest(
                 cumulative=cumulative_meta,
                 frame=pd.DataFrame(),
                 report_timezone=session.report_tz_name,
+                time_axis_timezones=_graph_plan_time_axis_timezones(graph_plan),
             )
             if temporal_contract is not None:
                 params["temporal_contract"] = temporal_contract.model_dump(mode="json")
@@ -2612,6 +2633,7 @@ def _observe_metric_forest(
             cumulative=cumulative_meta,
             frame=merged,
             report_timezone=session.report_tz_name,
+            time_axis_timezones=_graph_plan_time_axis_timezones(graph_plan),
         ),
         rollup_fold=("last" if cumulative_has_evaluation_contract(cumulative_meta) else None),
     )

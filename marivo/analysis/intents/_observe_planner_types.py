@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any, Literal, TypeAlias
 
 from marivo._compat import StrEnum
+from marivo._temporal import TimeAxisTimeZoneV1
 from marivo.refs import Ref
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
@@ -92,6 +93,7 @@ class BaseObservePlan:
     lineage_metadata: dict[str, Any]
     warnings: list[dict[str, Any]]
     datasource_name: str
+    time_axis_timezone: TimeAxisTimeZoneV1 | None = None
     status_time_dimension: str | None = None
     time_fold: Any | None = None
     temporal_fold: TemporalFoldPlan | None = None

@@ -992,6 +992,26 @@ PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
 TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1 | WorkScheduleBindingV1
 
 
+class TimeAxisTimeZoneV1(BaseModel):
+    """The timezone authority actually adopted for one time axis (issue #103).
+
+    Recorded on the frame temporal authority so post-hoc audits can see which
+    source timezone each time axis used, independent of the report
+    ``display_timezone``.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+    time_dimension: str
+    timezone: str
+    source: Literal["declared", "physical", "datasource_read"]
+
+
 class FrameTemporalContractV1(BaseModel):
     """Versioned temporal authority carried by an observed frame."""
 
@@ -1016,6 +1036,7 @@ class FrameTemporalContractV1(BaseModel):
     output_period_keys: tuple[_JSON_SCALAR, ...] = ()
     period_key_absence_reason: str | None = None
     display_timezone: str
+    time_axis_timezones: tuple[TimeAxisTimeZoneV1, ...] = ()
 
     @model_validator(mode="after")
     def _validate_contract(self) -> FrameTemporalContractV1:

@@ -1109,6 +1109,25 @@ def _naive_tz_report(
     return project.readiness()
 
 
+def _stub_matching_preview_types(monkeypatch, *types: tuple[str, str]) -> None:
+    from marivo.semantic import preview_checks
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
+
+    monkeypatch.setattr(
+        preview_checks,
+        "preview_evidence_requirement",
+        lambda *_args, **_kwargs: PreviewEvidenceRequirement(
+            status="matched",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
+                action="Matching preview evidence is available.",
+            ),
+            types=types,
+        ),
+    )
+
+
 def test_missing_datetime_timezone_blocks_with_structured_risk(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
@@ -1156,13 +1175,69 @@ def test_declared_timezone_clears_undeclared_naive_time_axis(semantic_project_fa
     assert "undeclared_naive_time_axis" not in _issue_kinds(report.blockers)
 
 
-def test_date_data_type_does_not_block(semantic_project_factory) -> None:
-    """ms.date() has no timezone ambiguity; should not trigger blocker."""
+def test_undeclared_parse_naive_time_axis_warns(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    """Matching preview evidence can prove an omitted-parse axis is naive."""
+    _stub_matching_preview_types(monkeypatch, ("created_at", "timestamp"))
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'granularity="hour", '
+        'ai_context=ms.ai_context(business_definition="When the order was created.")',
+    )
+    issue = next(issue for issue in report.warnings if issue.kind == "undeclared_naive_time_axis")
+
+    assert issue.severity == "warning"
+    assert issue.refs == ("sales.orders.created_at",)
+    assert issue.details["data_type"] == "timestamp"
+    assert issue.details["data_type_evidence"] == "matching_preview"
+    assert issue.details["declared_timezone"] is None
+    assert issue.details["datasource"] == "warehouse"
+    assert issue.repair is not None
+    assert "@ms.time_dimension" in issue.repair.action
+    assert "timezone=" in issue.repair.action
+
+
+def test_undeclared_parse_without_matching_type_evidence_does_not_warn(
+    semantic_project_factory,
+) -> None:
+    """Readiness stays query-free and does not guess an omitted parse type."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'granularity="hour", '
+        'ai_context=ms.ai_context(business_definition="When the order was created.")',
+    )
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.warnings)
+
+
+def test_undeclared_parse_date_preview_does_not_warn(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    """A native DATE is already unambiguous and needs no timezone repair."""
+    _stub_matching_preview_types(monkeypatch, ("created_at", "date"))
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="day", ai_context=ms.ai_context(business_definition="Date of the order.")',
     )
-    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.blockers)
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.warnings)
+
+
+def test_undeclared_parse_aware_timestamp_preview_does_not_warn(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    """A timezone-aware physical timestamp owns its timezone authority."""
+    _stub_matching_preview_types(monkeypatch, ("created_at", "timestamp('UTC')"))
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'granularity="hour", '
+        'ai_context=ms.ai_context(business_definition="When the order was created.")',
+    )
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.blockers)
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.warnings)
 
 
 def test_day_only_string_format_does_not_block(semantic_project_factory) -> None:

@@ -486,7 +486,13 @@ Two checks sit at the end of the write loop:
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session
   timezone. Its structured repair requires declaring the source timezone; the
-  zero-query gate does not guess or probe either runtime timezone.
+  zero-query gate does not guess or probe either runtime timezone. A time
+  dimension with no `parse` at all produces this `warning` only when matching
+  persisted preview evidence identifies its physical type as a timezone-naive
+  timestamp. A native `date`, a timezone-aware timestamp, or absent/mismatched
+  type evidence does not produce the warning. Existing snapshot/preview evidence
+  advisories still describe evidence that needs reacquisition; readiness never
+  invents a parse repair from an unknown physical type.
 - **`ms.richness(demand=None)`** returns a demand-ranked `RichnessReport`. It is
   purely advisory — it never blocks and never mutates readiness — and seeds
   ranking from example questions, analysis intents, run-history refs, and the
