@@ -843,6 +843,13 @@ current = session.observe(
 
 `details().show()` exposes the human-authored definition, guardrails, composition,
 effective entities, candidate dimensions/time dimensions, and measure lineage.
+For a derived metric, it also renders an `expression_tree` table that expands every
+component occurrence through its intermediate metric refs to named measure or
+entity inputs. Ratio roles, linear signs, cumulative policies, aggregate filters
+and folds, and weighted-mean inputs stay visible in that one output. An Ibis
+function-body metric is shown as an `expression_body` leaf when no named base
+measure exists. The tree is display-only; it does not add an `expression_tree`
+attribute to the details object.
 Candidate axes come from the metric's effective entities; `session.observe(...)`
 still validates cross-entity relationships and fanout. Use `.contract().show()`
 only for mechanical verify/preview/readiness continuations. `.show()` prints the

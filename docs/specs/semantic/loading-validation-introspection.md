@@ -243,6 +243,14 @@ projected recursively from composition components. Candidate axes are dimensions
 owned directly by those effective entities. They are static discovery facts, not
 a promise that every cross-entity relationship or fanout plan is executable;
 `session.observe(...)` remains the authority for plan validity.
+`DerivedMetricDetails.render()` / `.show()` additionally include an
+`expression_tree` table that expands every authored component occurrence through
+intermediate metric refs to its named measure or entity inputs. The table preserves
+ratio roles, linear signs and declaration order, cumulative axes and anchors,
+aggregate filters and folds, and weighted-mean inputs. A metric implemented by an
+Ibis function body ends honestly at `expression_body` when it has no named base
+measure. This is a rendering projection only: `DerivedMetricDetails` adds no
+`expression_tree` field or traversal API.
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 

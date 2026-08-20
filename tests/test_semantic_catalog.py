@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import textwrap
 from collections.abc import Callable
+from dataclasses import fields as dataclass_fields
 from typing import cast, get_args, get_origin, get_type_hints
 
 import ibis
@@ -1440,6 +1442,190 @@ def test_metric_details_project_effective_scope_and_measure_lineage(
     assert "candidate_time_dimensions: time_dimension:sales.queries.occurred_at" in metric_card
     assert "component_metrics:" in metric_card
     assert "measure_lineage:" in metric_card
+
+
+def test_derived_metric_details_render_complete_expression_tree_without_public_field(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                )
+                paid_amount = ms.measure_column(
+                    name="paid_amount", entity=orders, column="paid_amount", additivity="additive"
+                )
+                discount_amount = ms.measure_column(
+                    name="discount_amount", entity=orders, column="discount_amount", additivity="additive"
+                )
+                refund_amount = ms.measure_column(
+                    name="refund_amount", entity=orders, column="refund_amount", additivity="additive"
+                )
+                cost_amount = ms.measure_column(
+                    name="cost_amount", entity=orders, column="cost_amount", additivity="additive"
+                )
+                paid_revenue = ms.aggregate(
+                    name="paid_revenue", measure=paid_amount, agg="sum"
+                )
+                discounts = ms.aggregate(
+                    name="discounts", measure=discount_amount, agg="sum"
+                )
+                refunds = ms.aggregate(
+                    name="refunds", measure=refund_amount, agg="sum"
+                )
+                costs = ms.aggregate(name="costs", measure=cost_amount, agg="sum")
+                gross_profit = ms.linear(
+                    name="gross_profit", add=[paid_revenue], subtract=[refunds, costs]
+                )
+                net_revenue = ms.linear(
+                    name="net_revenue", add=[paid_revenue], subtract=[discounts, refunds]
+                )
+                gross_margin_rate = ms.ratio(
+                    name="gross_margin_rate",
+                    numerator=gross_profit,
+                    denominator=net_revenue,
+                )
+            """),
+        }
+    )
+
+    details = SemanticCatalog(project).metrics.get("sales.gross_margin_rate").details()
+    assert isinstance(details, DerivedMetricDetails)
+    rendered = details.render(max_output_bytes=None)
+
+    assert "columns: path | metric | expression | base_inputs" in rendered
+    assert "root | metric:sales.gross_margin_rate | ratio | (none)" in rendered
+    assert (
+        "numerator | metric:sales.gross_profit | linear(+term0, -term1, -term2) | (none)"
+        in rendered
+    )
+    assert (
+        "denominator | metric:sales.net_revenue | linear(+term0, -term1, -term2) | (none)"
+        in rendered
+    )
+    assert (
+        "numerator.+term0 | metric:sales.paid_revenue | sum | "
+        "measure:sales.orders.paid_amount" in rendered
+    )
+    assert (
+        "denominator.-term1 | metric:sales.discounts | sum | "
+        "measure:sales.orders.discount_amount" in rendered
+    )
+    assert "numerator.-term1 | metric:sales.discounts" not in rendered
+    assert rendered.count("metric:sales.discounts") == 1
+    assert rendered.count("metric:sales.paid_revenue") == 2
+    assert not hasattr(details, "expression_tree")
+    assert "expression_tree" not in dir(details)
+    assert "_expression_tree_rows" not in inspect.signature(DerivedMetricDetails).parameters
+    assert "_expression_tree_rows" not in {
+        field.name for field in dataclass_fields(DerivedMetricDetails)
+    }
+    bounded = details.render(max_output_bytes=800)
+    assert len(bounded.encode("utf-8")) <= 800
+    assert "expression_tree (displayed=0 total=" in bounded
+    assert "pass max_output_bytes=None for full output" in bounded
+
+
+def test_derived_metric_expression_tree_renders_all_leaf_variants(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.analysis as mv
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("orders"),
+                )
+                event_time = ms.time_dimension_column(
+                    name="event_time", entity=orders, column="event_time", granularity="day"
+                )
+                state = ms.dimension_column(
+                    name="state", entity=orders, column="state"
+                )
+                value = ms.measure_column(
+                    name="value", entity=orders, column="value", additivity="non_additive"
+                )
+                weight = ms.measure_column(
+                    name="weight", entity=orders, column="weight", additivity="additive"
+                )
+
+                @ms.measure(
+                    entity=orders,
+                    additivity=ms.semi_additive(over=event_time, fold="last"),
+                )
+                def snapshot_value(table):
+                    return table.snapshot_value
+
+                folded = ms.aggregate(
+                    name="folded",
+                    measure=snapshot_value,
+                    agg="sum",
+                    fold="mean",
+                    filter=ms.where(state="active"),
+                )
+                weighted = ms.weighted_mean(
+                    name="weighted",
+                    value=value,
+                    weight=weight,
+                    filter=ms.where(state=("active", "trial")),
+                )
+                row_count = ms.count(name="row_count", entity=orders)
+
+                @ms.metric(entities=[orders], additivity="additive")
+                def body_total(table):
+                    return table.value.sum()
+
+                month_to_date_weighted = ms.cumulative(
+                    name="month_to_date_weighted",
+                    base=weighted,
+                    over=event_time,
+                    anchor=ms.grain_to_date(grain=mv.grain("month")),
+                )
+                combined = ms.linear(
+                    name="combined",
+                    add=[month_to_date_weighted, folded, row_count, body_total],
+                )
+            """),
+        }
+    )
+
+    rendered = (
+        SemanticCatalog(project)
+        .metrics.get("sales.combined")
+        .details()
+        .render(max_output_bytes=None)
+    )
+
+    assert (
+        "+term0 | metric:sales.month_to_date_weighted | "
+        "cumulative(over=time_dimension:sales.orders.event_time, anchor=grain_to_date(month))"
+        in rendered
+    )
+    assert (
+        "+term0.base | metric:sales.weighted | weighted_mean; "
+        "where=state in ('active', 'trial') | "
+        "value=measure:sales.orders.value, weight=measure:sales.orders.weight" in rendered
+    )
+    assert (
+        "+term1 | metric:sales.folded | sum; fold=mean "
+        "over=time_dimension:sales.orders.event_time; where=state = 'active' | "
+        "measure:sales.orders.snapshot_value" in rendered
+    )
+    assert "+term2 | metric:sales.row_count | count | entity:sales.orders" in rendered
+    assert "+term3 | metric:sales.body_total | expression_body | (none)" in rendered
 
 
 def test_catalog_time_dimension_details_include_sample_interval(semantic_project_factory):

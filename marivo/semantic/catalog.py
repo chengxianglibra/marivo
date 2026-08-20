@@ -109,6 +109,7 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
+    CumulativeComposition,
     DateParse,
     DatetimeParse,
     DimensionIR,
@@ -856,18 +857,12 @@ class SimpleMetricDetails(_DetailsBase):
                     value=f"{self.aggregation_target_kind} {self.aggregation_target.key}",
                 )
             )
-        if self.filter:
+        rendered_filter = _format_metric_filter(self.filter)
+        if rendered_filter is not None:
             sections.append(
                 FieldSection(
                     label="filter",
-                    value=", ".join(
-                        (
-                            f"{dimension_name} in {value!r}"
-                            if isinstance(value, tuple)
-                            else f"{dimension_name} = {value!r}"
-                        )
-                        for dimension_name, value in self.filter
-                    ),
+                    value=rendered_filter,
                 )
             )
         return sections
@@ -951,6 +946,21 @@ class DerivedMetricDetails(_DetailsBase):
                 FieldSection(
                     label="required_relationships",
                     value=_format_refs(self.required_relationships),
+                )
+            )
+        expression_tree_rows = cast(
+            "tuple[tuple[str, str, str, str], ...]",
+            getattr(self, "_expression_tree_rows", ()),
+        )
+        if expression_tree_rows:
+            sections.append(
+                TableSection(
+                    label="expression_tree",
+                    columns=("path", "metric", "expression", "base_inputs"),
+                    rows=expression_tree_rows,
+                    rows_provider=None,
+                    row_count=len(expression_tree_rows),
+                    show_omission_counts=True,
                 )
             )
         return sections
@@ -3376,6 +3386,89 @@ def _format_agg(agg: object) -> str | None:
     return str(agg)
 
 
+def _format_cumulative_anchor(anchor: object) -> str:
+    if anchor == "all_history":
+        return "all_history"
+    if isinstance(anchor, tuple) and len(anchor) == 2 and anchor[0] == "grain_to_date":
+        grain = anchor[1]
+        token = grain.to_token() if isinstance(grain, Grain) else str(grain)
+        return f"grain_to_date({token})"
+    if isinstance(anchor, tuple) and len(anchor) == 3 and anchor[0] == "trailing":
+        return f"trailing({anchor[1]}, {anchor[2]})"
+    raise AssertionError(f"unsupported cumulative anchor: {anchor!r}")
+
+
+def _format_metric_filter(filter_ir: tuple[tuple[str, WhereValue], ...] | None) -> str | None:
+    if not filter_ir:
+        return None
+    return ", ".join(
+        (
+            f"{dimension_name} in {value!r}"
+            if isinstance(value, tuple)
+            else f"{dimension_name} = {value!r}"
+        )
+        for dimension_name, value in filter_ir
+    )
+
+
+def _metric_expression_row(
+    metric: MetricIR,
+    *,
+    path: str,
+) -> tuple[str, str, str, str]:
+    metric_ref = _make_ref(metric.semantic_id, SemanticKind.METRIC).key
+    expression: str
+    base_inputs = "(none)"
+    if metric.metric_type == "derived":
+        composition = metric.composition
+        if isinstance(composition, RatioComposition):
+            expression = "ratio"
+        elif isinstance(composition, LinearComposition):
+            terms = ", ".join(
+                f"{term.sign}term{index}" for index, term in enumerate(composition.terms)
+            )
+            expression = f"linear({terms})"
+        elif isinstance(composition, CumulativeComposition):
+            over = (
+                _make_ref(composition.over, SemanticKind.TIME_DIMENSION).key
+                if composition.over is not None
+                else "(default)"
+            )
+            expression = (
+                f"cumulative(over={over}, anchor={_format_cumulative_anchor(composition.anchor)})"
+            )
+        else:
+            raise AssertionError(f"unsupported metric composition: {composition!r}")
+        return (path, metric_ref, expression, base_inputs)
+
+    if metric.weighted_mean is not None:
+        expression = "weighted_mean"
+        base_inputs = ", ".join(
+            (
+                f"value={_make_ref(metric.weighted_mean.value, SemanticKind.MEASURE).key}",
+                f"weight={_make_ref(metric.weighted_mean.weight, SemanticKind.MEASURE).key}",
+            )
+        )
+    elif metric.aggregation is not None:
+        expression = _format_agg(metric.aggregation) or "aggregate"
+        target = _aggregation_target_ref(metric)
+        if target is None:
+            raise AssertionError(f"aggregate metric has no target: {metric.semantic_id}")
+        base_inputs = target.key
+        time_fold = metric.time_fold
+        if time_fold is not None:
+            expression += f"; fold={time_fold.label()}"
+            if metric.status_time_dimension is not None:
+                over = _make_ref(metric.status_time_dimension, SemanticKind.TIME_DIMENSION).key
+                expression += f" over={over}"
+    else:
+        expression = "expression_body"
+    rendered_filter = _format_metric_filter(metric.filter)
+    if rendered_filter is not None:
+        expression += f"; where={rendered_filter}"
+    return (path, metric_ref, expression, base_inputs)
+
+
 def _aggregation_target_ref(m_ir: MetricIR) -> Ref[SemanticKindTag] | None:
     target = m_ir.aggregation_target or m_ir.measure
     target_kind = m_ir.aggregation_target_kind or ("measure" if m_ir.measure else None)
@@ -3396,15 +3489,24 @@ def _metric_analysis_metadata(
     tuple[Ref[SemanticKindTag], ...],
     tuple[Ref[SemanticKindTag], ...],
     tuple[tuple[str, Ref[SemanticKindTag]], ...],
+    tuple[tuple[str, str, str, str], ...],
 ]:
     """Project recursive metric dependencies into static analysis metadata."""
     effective_entity_ids: dict[str, None] = {}
     measure_lineage: list[tuple[str, Ref[SemanticKindTag]]] = []
+    expression_tree_rows: list[tuple[str, str, str, str]] = []
 
-    def visit(current: MetricIR, *, role_path: str, active: frozenset[str]) -> None:
+    def visit(
+        current: MetricIR,
+        *,
+        role_path: str,
+        expression_path: str,
+        active: frozenset[str],
+    ) -> None:
         if current.semantic_id in active:
             raise AssertionError(f"metric composition cycle reached catalog: {current.semantic_id}")
         next_active = active | {current.semantic_id}
+        expression_tree_rows.append(_metric_expression_row(current, path=expression_path))
         for entity_id in current.entities:
             effective_entity_ids.setdefault(entity_id, None)
         if current.measure is not None:
@@ -3427,16 +3529,30 @@ def _metric_analysis_metadata(
             )
         if current.composition is None:
             return
-        for role, component_id in composition_components(current.composition).items():
+        components = composition_components(current.composition)
+        for index, (role, component_id) in enumerate(components.items()):
             component = registry.metrics.get(component_id)
             if component is None:
                 raise AssertionError(
                     f"metric composition component missing from ready catalog: {component_id}"
                 )
             component_path = f"{role_path}.{role}" if role_path else role
-            visit(component, role_path=component_path, active=next_active)
+            expression_role = role
+            if isinstance(current.composition, LinearComposition):
+                expression_role = f"{current.composition.terms[index].sign}{role}"
+            child_expression_path = (
+                expression_role
+                if expression_path == "root"
+                else f"{expression_path}.{expression_role}"
+            )
+            visit(
+                component,
+                role_path=component_path,
+                expression_path=child_expression_path,
+                active=next_active,
+            )
 
-    visit(metric_ir, role_path="", active=frozenset())
+    visit(metric_ir, role_path="", expression_path="root", active=frozenset())
     effective_entities = tuple(
         _make_ref(entity_id, SemanticKind.ENTITY) for entity_id in effective_entity_ids
     )
@@ -3459,6 +3575,7 @@ def _metric_analysis_metadata(
         tuple(candidate_dimensions),
         tuple(candidate_time_dimensions),
         tuple(measure_lineage),
+        tuple(expression_tree_rows),
     )
 
 
@@ -3479,6 +3596,7 @@ def _build_metric_object(
         candidate_dimensions,
         candidate_time_dimensions,
         measure_lineage,
+        expression_tree_rows,
     ) = _metric_analysis_metadata(m_ir, reg)
     linear_terms = (
         tuple((t.sign, t.metric) for t in m_ir.composition.terms)
@@ -3550,6 +3668,7 @@ def _build_metric_object(
             candidate_time_dimensions=candidate_time_dimensions,
             measure_lineage=measure_lineage,
         )
+        object.__setattr__(details, "_expression_tree_rows", expression_tree_rows)
     else:
         details = SimpleMetricDetails(
             ref=ref,

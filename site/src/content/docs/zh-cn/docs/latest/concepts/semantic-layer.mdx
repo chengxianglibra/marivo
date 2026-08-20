@@ -770,7 +770,13 @@ revenue_entry.详情().show()
 ~~~
 
 `details().show()` 展示人类编写的定义、约束、组合、有效实体、候选
-普通/时间维度与度量血缘。候选轴来自指标的有效实体；跨实体关系
+普通/时间维度与度量血缘。
+对于派生指标，同一次输出还会展示 `expression_tree` 表，沿中间指标引用把每个
+组合分支展开到命名 measure 或 entity 输入。ratio 的分子/分母、linear 的正负号与
+声明顺序、cumulative 策略、聚合过滤/fold 以及 weighted mean 输入都会保留下来。
+没有命名 base measure 的 Ibis 函数体指标会如实停在 `expression_body` 叶子。
+这棵树只属于展示文本，不会给 details 对象增加 `expression_tree` 属性。
+候选轴来自指标的有效实体；跨实体关系
 与扩散仍由 `session.observe(...)` 验证。只有在读取验证/预览/就绪检查等机械下一步时
 才调用 `.contract().show()`；`.show()` 打印的内容与 `.render()` 返回的有界卡片相同。
 如果对象缺失或定义存在争议，先回到语义编写；否则该观测会成为会话
