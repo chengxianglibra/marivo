@@ -42,11 +42,25 @@ def test_analysis_skill_package_layout() -> None:
 
 def test_analysis_skill_routes_runtime_metric_discovery_and_closeout() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+    normalized = " ".join(text.split())
 
     assert 'marivo.help("analysis.runtime_metric")' in text
-    assert "question-scoped expression" in text
+    assert "question-scoped expression over governed inputs" in normalized
     assert "semantic-authoring handoff" in text
     assert "references/runtime-metric-closeout.md" in text
+
+
+def test_skills_form_an_automatic_semantic_analysis_loop() -> None:
+    semantic_text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
+    analysis_text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+    semantic_normalized = " ".join(semantic_text.split())
+    analysis_normalized = " ".join(analysis_text.split())
+
+    assert "hand its `analysis_ready_inputs` to `marivo-analysis`" in semantic_normalized
+    assert "Do not ask permission to switch skills" in semantic_normalized
+    assert "hand it to `marivo-semantic`" in analysis_normalized
+    assert "the skill handoff does not require user approval" in analysis_normalized
+    assert "resume the branch from the returned `analysis_ready_inputs`" in analysis_normalized
 
 
 def test_analysis_skill_keeps_semantic_api_contract_in_live_help() -> None:

@@ -1,6 +1,6 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, evidence, semantic authoring, verification, preview, readiness, or missing-object repair. For build requests, ask only the earliest missing accountable input before data access or capability enumeration.
+description: Use for Marivo datasource declaration, evidence, reusable semantic authoring or repair, verification, preview, and readiness, including semantics needed to answer a business question. Ask only the earliest missing accountable input before data access or capability enumeration.
 ---
 
 # marivo-semantic
@@ -12,8 +12,11 @@ bounded authoring evidence, new or changed semantic objects, semantic
 verify/preview/readiness repair, or a missing-object handoff from
 `marivo-analysis`.
 
-Stop using it once the requested refs are analysis-ready. Investigation over
-already-ready refs belongs to `marivo-analysis`.
+Once the requested refs are analysis-ready, leave authoring. If the parent task
+includes analysis, hand its `analysis_ready_inputs` to `marivo-analysis` and
+continue the original question. Return here when analysis exposes another
+reusable semantic gap. Do not ask permission to switch skills; ask only when
+business meaning itself remains unresolved.
 
 For a build request, the first routing decision is the non-observable decision
 preflight. After one environment fingerprint and one current-project catalog
@@ -221,13 +224,14 @@ A loadable model without the required inception is not silently treated as repla
 | Static verify fails | Repair and reverify the same object |
 | Required preview is missing during authoring | Run the registered scoped preview |
 | Readiness blocks | Follow the typed repair; do not expose the ref |
-| Readiness exposes analysis-ready inputs | Hand only those inputs to `marivo-analysis` |
+| Readiness exposes analysis-ready inputs | Hand only those inputs to `marivo-analysis` and continue the original question |
 
 ## Closeout
 
-Successful closeout states the object changed, evidence identity and scope,
-business decisions and accountable source, validation stages passed,
-analysis-ready inputs, and remaining warnings.
+For an authoring-only task, successful closeout states the object changed,
+evidence identity and scope, business decisions and accountable source,
+validation stages passed, analysis-ready inputs, and remaining warnings. When
+the parent task includes analysis, follow the routing handoff instead of closing.
 
 Blocked closeout states the exact object and state, judgment or typed blocker,
 whether data was queried or source mutated, whether evidence is reusable, and
