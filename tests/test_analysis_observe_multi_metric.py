@@ -250,7 +250,7 @@ def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
     error = exc_info.value
     assert error.repair is not None
     assert error.repair.kind == "inspect"
-    assert error.repair.snippet is None
+    assert error.repair.snippet is not None
     assert error.repair.candidates == (
         "sales.revenue -> time_dimension:sales.orders.order_date",
         "sales.user_count -> time_dimension:sales.users.signup_date",
@@ -262,6 +262,66 @@ def test_cross_entity_metrics_with_different_time_axes_fail_before_execution(
     assert calls == []
     assert sales_session.jobs() == []
     assert sales_session.frame_summaries().items == ()
+
+
+def test_mixed_axis_forest_repair_outputs_ready_to_copy_split_plan(
+    sales_session,
+    monkeypatch,
+):
+    """A mixed-axis forest repair names split-by-time-dimension and renders the plan.
+
+    The ecommerce scenario in issue #106 hits this branch: roots resolve to
+    different implicit time dimensions (``sales.orders.order_date`` vs
+    ``sales.users.signup_date`` here), and the repair must give a concrete,
+    ready-to-copy per-axis split instead of only "combine when one axis is
+    valid for the forest".
+    """
+    calls: list[int] = []
+
+    def unexpected_query_capture() -> None:
+        calls.append(1)
+        raise AssertionError("temporal preflight must fail before query capture")
+
+    monkeypatch.setattr(
+        sales_session._connection_runtime,
+        "begin_query_capture",
+        unexpected_query_capture,
+    )
+    catalog = sales_session.catalog
+
+    with pytest.raises(TemporalSuitabilityError) as exc_info:
+        observe(
+            [
+                catalog.metrics.get("sales.revenue"),
+                catalog.metrics.get("sales.user_count"),
+            ],
+            time_scope=WINDOW,
+            grain=mv.grain("day"),
+            session=sales_session,
+        )
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert "Split the metrics into separate observe() calls" in repair.action
+    assert repair.snippet is not None
+    assert "import marivo.analysis as mv" in repair.snippet
+    assert 'time_scope=mv.time_scope(start="2026-07-01", end="2026-07-04")' in repair.snippet
+    assert 'grain=mv.grain("day")' in repair.snippet
+    assert (
+        'time_dimension=session.catalog.time_dimensions.get("sales.orders.order_date")'
+        in repair.snippet
+    )
+    assert (
+        'time_dimension=session.catalog.time_dimensions.get("sales.users.signup_date")'
+        in repair.snippet
+    )
+    assert 'session.catalog.metrics.get("sales.revenue")' in repair.snippet
+    assert 'session.catalog.metrics.get("sales.user_count")' in repair.snippet
+    # The bare-string form is rejected by the strict ref boundary; the snippet
+    # must render a typed handle instead (regression guard for issue #106).
+    assert 'time_dimension="' not in repair.snippet
+    assert calls == []
 
 
 def test_explicit_axis_incompatible_with_one_root_lists_all_root_candidates(
@@ -445,7 +505,19 @@ def test_cross_entity_subday_grain_reports_axis_conflict_without_partial_retry(
     repair = exc_info.value.repair
     assert repair is not None
     assert repair.kind == "inspect"
-    assert repair.snippet is None
+    # The repair carries the per-axis split plan, not a grain-retry snippet
+    # (kind="inspect" already rules out mechanical partial retry).
+    assert repair.snippet is not None
+    assert "Split into one observe() call per shared time dimension" in repair.snippet
+    assert (
+        'time_dimension=session.catalog.time_dimensions.get("sales.orders.order_date")'
+        in repair.snippet
+    )
+    assert (
+        'time_dimension=session.catalog.time_dimensions.get("sales.users.signup_date")'
+        in repair.snippet
+    )
+    assert 'time_dimension="' not in repair.snippet
     assert repair.candidates == (
         "sales.revenue -> time_dimension:sales.orders.order_date",
         "sales.user_count -> time_dimension:sales.users.signup_date",
