@@ -30,8 +30,9 @@ materially change the conclusion.
 Confirm or correct that choice in business terms. If the semantic definition
 itself is missing or wrong, the affected typed branch stops. The agent may use
 terminal `md.raw_sql(...)` with explicit temporary inferred semantics, but it
-must not change the semantic layer during analysis and must request approval for
-the smallest durable fix at closeout.
+must not change the semantic layer during analysis. It hands a reusable gap to
+`marivo-semantic` automatically; only unresolved business meaning requires your
+input.
 
 ## Review the handoff
 
@@ -148,7 +149,7 @@ relationship and fanout validity. `.contract()` is reserved for mechanical
 verify/preview/readiness continuations, while `.render()` returns the same bounded
 card that `.show()` prints. If a required object is missing or disputed, stop the
 affected typed branch before the first `observe`; terminal raw SQL may continue
-provisionally, while semantic authoring waits for closeout approval.
+provisionally, while a reusable gap moves directly to semantic authoring.
 
 :::note[When to run readiness]
 Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,
@@ -808,7 +809,8 @@ df = result.to_pandas()
 Use `artifact.to_pandas()` for terminal local pandas work from a typed
 frame. Neither `md.raw_sql(...)` results nor `to_pandas()` exports can
 re-enter typed analysis. Raw SQL does not repair missing business semantics:
-the closeout still requests approval for the smallest semantic change.
+hand a reusable gap to `marivo-semantic`, then resume typed analysis after
+readiness.
 Typed regression is not supported by the current Marivo operator surface; a
 regression task therefore remains explicit terminal custom analysis and cannot
 be promoted back into the typed chain.
@@ -881,8 +883,8 @@ defensive copy for custom local analysis; `md.raw_sql(...)` returns a
 `RawSqlResult` with `RawSqlResult.to_pandas()` as its own terminal pandas
 exit. Neither preserves lineage or evidence continuity. Terminal results
 cannot re-enter typed analysis. If business semantics are missing, terminal
-raw SQL may provide only a provisional result; retain the gap for closeout
-approval before semantic authoring.
+raw SQL may provide only a provisional result; hand the reusable gap to
+semantic authoring and retain any unresolved business judgment.
 
 ### Semantic authoring
 
@@ -893,10 +895,11 @@ If a required metric, dimension, or time dimension is missing or disputed, the
 affected typed branch stops. The agent may infer temporary semantics only in a
 terminal `md.raw_sql(...)` branch and must disclose the datasource, purpose,
 assumptions, bounded result, and loss of canonical identity, lineage, and
-evidence continuity. It proposes the smallest durable semantic change at
-closeout and follows `marivo-semantic` only after explicit approval. The semantic
-layer owns the business-object contract; the analysis layer owns typed
-computation over those objects.
+evidence continuity. It hands the smallest durable gap to `marivo-semantic`
+without requesting approval for the skill transition, then resumes the affected
+analysis branch from the returned `analysis_ready_inputs`. Only unresolved business
+meaning requires user input. The semantic layer owns the business-object contract;
+the analysis layer owns typed computation over those objects.
 
 When a later script needs previous work, recover persisted facts instead of
 rerunning upstream queries:

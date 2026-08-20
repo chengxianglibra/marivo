@@ -52,8 +52,9 @@ For an ordinary investigation, use this bounded sequence as the default path:
    identify available and complete comparable periods.
 7. Use the returned artifact to confirm the period, completeness, and metric
    definitions that govern the analysis.
-8. When a one-off metric is missing, use the closed `runtime_metric` route
-   before considering a semantic-authoring handoff.
+8. Use the closed `runtime_metric` route only for a question-scoped expression
+   over governed inputs. Hand a missing reusable business definition to
+   `marivo-semantic`, then resume the affected branch after readiness.
 9. Perform only the necessary terminal decomposition after a typed artifact has
    established the semantic inputs and evidence scope.
 10. Run the focused `assess_quality` flow for the material result, following
@@ -103,12 +104,11 @@ matches as an ambiguity to resolve rather than a reason to enumerate unrelated
 semantic families. If an exact typed identity is already available, follow the
 live help handoff directly without exploratory browsing.
 
-When the requested one-off metric is absent, consult
-`marivo.help("analysis.runtime_metric")` before treating the absence as a
-semantic-authoring gap. Follow that focused contract for a closed,
-question-scoped expression. Disputed business meaning or a requirement for a
-reusable organizational definition still requires a semantic-authoring
-handoff.
+When the requested calculation is question-scoped and fully expressible from
+governed inputs, consult `marivo.help("analysis.runtime_metric")` and follow its
+closed expression contract. A missing reusable organizational definition or
+disputed business meaning requires an immediate semantic-authoring handoff.
+Resume the affected analysis branch from the returned `analysis_ready_inputs`.
 
 Do not repeat readiness when the current handoff already attests that the
 selected project and inputs are analysis-ready. Otherwise follow the focused
@@ -232,13 +232,15 @@ Take metrics, dimensions, Events, StateModels, participant roles,
 relationships, units, definitions, and admissible joins from the semantic
 catalog. Analysis may choose question-specific windows, policies, cohorts,
 seeds, and completeness declarations, but must not add or edit semantic
-definitions.
+definitions while this skill is active.
 
-A missing or disputed business object stops only the affected branch. Record
-the gap and propose the smallest semantic-authoring handoff; do not silently
-substitute a physical column or a different metric. Absence of a reusable
-catalog metric alone is not a blocker when the closed runtime-metric route above
-applies.
+A missing or disputed reusable business object stops only the affected branch.
+Record the smallest gap and hand it to `marivo-semantic`; the skill handoff does
+not require user approval. Semantic authoring asks the user only when business
+meaning remains unresolved. After readiness, resume the branch from the returned
+`analysis_ready_inputs`. Do not silently substitute a physical column or a
+different metric. The closed runtime-metric route above remains valid only for
+question-scoped expressions over governed inputs.
 
 ### Typed execution
 
@@ -367,8 +369,7 @@ execution logs.
 Check the deliverable against the original coverage checklist before stopping.
 Do not keep exploring after all required answers are supported and limitations
 are explicit. Once a complete deliverable exists, allow at most one read and
-revision pass for material consistency gaps, then stop. Propose, but never
-perform, unapproved semantic changes.
+revision pass for material consistency gaps, then stop.
 
 Use this answer-first presentation order when the user did not request another
 format; adapt it to the question rather than treating it as a fixed template:
