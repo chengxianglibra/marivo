@@ -309,6 +309,19 @@ def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tm
     assert report.blocking_issue_count == 1
     assert report.meta.target_metric_id is None
 
+    rendered = report.render()
+    assert "checks=6" in rendered
+    assert "blocking=1" in rendered
+    assert "attention:" in rendered
+    assert "null_ratio:revenue" in rendered
+    assert "sales.revenue" in rendered
+    assert "row_count" not in rendered
+    if report.warning_count:
+        assert rendered.index("null_ratio:revenue") < rendered.index("value_density:revenue")
+    full_rendered = report.render(max_output_bytes=None)
+    assert "row_count" in full_rendered
+    assert "null_ratio:order_count" in full_rendered
+
     issue = next(item for item in report.meta.issues if item.kind == "null_rate_high")
     assert issue.evaluated_scope.metric_ids == ("sales.revenue",)
     assert issue.repair is not None
@@ -332,6 +345,9 @@ def test_multi_metric_observe_produces_joint_metric_attributed_quality_report(tm
     )
     assert frame_level.subject.metric is None
     assert frame_level.scope.metric_ids == ("sales.revenue", "sales.order_count")
+    digest_rendered = report.evidence_digest.render(max_output_bytes=None)
+    assert "subject=sales.revenue quality_check id=null_ratio:revenue" in digest_rendered
+    assert "subject=subject quality_check id=row_count" in digest_rendered
 
     loaded = load_frame(report.ref, session=session)
     assert loaded.to_pandas()["metric_id"].tolist() == rows["metric_id"].tolist()
@@ -600,8 +616,12 @@ def test_quality_report_render_surfaces_check_results(tmp_path):
     assert f"status={report.meta.overall_status}" in rendered
     assert f"blocking={report.meta.blocking_issue_count}" in rendered
     assert f"warning={report.meta.warning_count}" in rendered
+    assert f"checks={report.meta.row_count}" in rendered
+    assert f"ok={report.meta.row_count}" in rendered
+    assert "attention: none" in rendered
     for check_id in report._df["check_id"].head(5):
-        assert str(check_id) in rendered
+        assert str(check_id) not in rendered
+        assert str(check_id) in report.render(max_output_bytes=None)
     assert "summary()" not in rendered
 
 

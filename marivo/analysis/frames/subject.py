@@ -177,8 +177,7 @@ class SubjectSet(BaseFrame):
 
     def _card(self) -> Card:
         card = (
-            Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
-            .status(
+            self._header_card(
                 f"coverage={self.meta.coverage_status} "
                 f"selected={self.meta.selected_count} "
                 f"excluded_censored={self.meta.excluded_coverage_censored_count}"

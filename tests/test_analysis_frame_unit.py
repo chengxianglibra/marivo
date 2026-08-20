@@ -8,10 +8,19 @@ import pandas as pd
 import pytest
 
 from marivo._compat import UTC
+from marivo._temporal import BuiltinPeriodBindingV1, FrameTemporalContractV1
+from marivo.analysis._semantic_persistence import MeasureBindingV1
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.frames.metric import (
+    MetricFrame,
+    MetricFrameMeta,
+    _temporal_authority_line,
+)
 from marivo.analysis.lineage import Lineage
-from tests.shared_fixtures import make_test_metric_meta_contract
+from tests.shared_fixtures import (
+    make_test_metric_meta_contract,
+    make_test_multi_metric_contract,
+)
 
 
 def test_metric_frame_identity_shows_unit_when_present() -> None:
@@ -97,8 +106,112 @@ def test_frame_contract_embeds_schema() -> None:
     assert metric.acquisition == 'session.catalog.metrics.get("sales.revenue")'
     assert metric.help_target == "analysis.catalog.metrics"
     rendered = frame.render(max_output_bytes=None)
-    assert "output_columns: ['bucket_start', 'revenue']" in rendered
-    assert 'acquire=session.catalog.metrics.get("sales.revenue")' in rendered
+    assert "output_columns:" not in rendered
+    assert "semantic inputs:" not in rendered
+    assert "acquire=" not in rendered
+    contract_rendered = contract.render(max_output_bytes=None)
+    assert "output_columns: ['bucket_start', 'revenue']" in contract_rendered
+    assert 'acquire=session.catalog.metrics.get("sales.revenue")' in contract_rendered
+
+
+def test_metric_frame_show_uses_public_measure_column_before_preview() -> None:
+    rendered = _metric_frame_with_data().render(max_output_bytes=None)
+
+    assert "sales.revenue column=revenue" in rendered
+    assert rendered.index("measures:") < rendered.index("preview:")
+
+
+def test_temporal_authority_is_a_stable_summary_not_raw_json() -> None:
+    contract = FrameTemporalContractV1(
+        observation_period=BuiltinPeriodBindingV1(
+            level_name="month",
+            boundary_timezone="Asia/Shanghai",
+        ),
+        actual_start=pd.Timestamp("2026-01-01").date(),
+        actual_end=pd.Timestamp("2026-04-01").date(),
+        data_extent_end=pd.Timestamp("2026-03-31").date(),
+        display_timezone="Asia/Shanghai",
+    )
+
+    rendered = _temporal_authority_line(contract)
+
+    assert "authority=builtin:gregorian-iso/v1" in rendered
+    assert "level=month" in rendered
+    assert "boundary_timezone=Asia/Shanghai" in rendered
+    assert "display_timezone=Asia/Shanghai" in rendered
+    assert "actual=[2026-01-01,2026-04-01)" in rendered
+    assert "{" not in rendered
+
+
+def test_wide_multi_metric_panel_keeps_all_measure_identity_before_preview() -> None:
+    metric_ids = tuple(f"sales.metric_{index}" for index in range(8))
+    axes = {
+        "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+        "region": {"role": "dimension", "column": "region"},
+    }
+    contract = make_test_multi_metric_contract(*metric_ids, axes=axes)
+    identities = contract["metric_identities"]
+    bindings = tuple(
+        MeasureBindingV1(
+            identity=identity,
+            value_column=metric_id.rsplit(".", 1)[-1],
+            display_name=metric_id.rsplit(".", 1)[-1],
+            unit="CNY",
+        )
+        for metric_id, identity in zip(metric_ids, identities, strict=True)
+    )
+    meta = MetricFrameMeta(
+        **contract,
+        kind="metric_frame",
+        ref="frame_panel_8",
+        session_id="sess_s",
+        project_root="/tmp",
+        produced_by_job=None,
+        created_at=datetime(2026, 6, 28, tzinfo=UTC),
+        row_count=40,
+        byte_size=0,
+        lineage=Lineage(),
+        metric_id=None,
+        axes={},
+        measure={},
+        measures=None,
+        measure_bindings=bindings,
+        window={
+            "start": "2026-01-01",
+            "end": "2026-02-10",
+            "grain": "day",
+            "time_dimension": "sales.orders.created_at",
+        },
+        where={},
+        semantic_kind="panel",
+        semantic_model="sales",
+        temporal_contract=FrameTemporalContractV1(
+            observation_period=BuiltinPeriodBindingV1(
+                level_name="day",
+                boundary_timezone="Asia/Shanghai",
+            ),
+            actual_start=pd.Timestamp("2026-01-01").date(),
+            actual_end=pd.Timestamp("2026-02-10").date(),
+            display_timezone="Asia/Shanghai",
+        ),
+    )
+    data: dict[str, list[object]] = {
+        "bucket_start": list(pd.date_range("2026-01-01", periods=40, freq="D")),
+        "region": ["north", "south"] * 20,
+    }
+    for index, metric_id in enumerate(metric_ids):
+        data[metric_id.rsplit(".", 1)[-1]] = [float(index + row) for row in range(40)]
+    frame = MetricFrame(_df=pd.DataFrame(data), meta=meta)
+
+    rendered = frame.render()
+
+    preview_at = rendered.index("preview:")
+    assert rendered.index("observation_scope:") < preview_at
+    assert rendered.index("temporal_authority:") < preview_at
+    assert "{'schema':" not in rendered
+    for metric_id in metric_ids:
+        column = metric_id.rsplit(".", 1)[-1]
+        assert f"{metric_id} column={column} unit=CNY" in rendered[:preview_at]
 
 
 @pytest.mark.parametrize(

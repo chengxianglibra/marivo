@@ -272,15 +272,15 @@ deterministic `#N` suffix if that name is also occupied. Multi-metric frames
 continue to use one column per metric, so frames can be merged without
 arity-specific renames. Read `frame.value_columns` for the exact public name(s).
 
-Every artifact card also prints `output_columns`, the exact ordered names
-returned by `.columns` and `to_pandas()`. The mechanical contract exposes the
-same tuple as `contract.output_columns`, derived directly from
+The table header in an artifact card is the sole display of its exact public
+column names; the card does not repeat `output_columns` or semantic acquisition
+details. The mechanical contract exposes the complete tuple as
+`contract.output_columns`, derived directly from
 `contract.artifact_schema.columns`. For Metric, Event, and Lifecycle artifacts,
 `contract.semantic_inputs` records the retained semantic role/path, any bound
 output column, the exact `session.catalog.<collection>.get("<path>")`
-reacquisition call, and its focused catalog help target. The card renders the
-same acquisition calls, so agents do not need to infer a catalog collection
-from a result column.
+reacquisition call, and its focused catalog help target. Use
+`artifact.contract().show()` for these complete mechanical details.
 
 Typed transforms still use the internal canonical `value` column. For example,
 `frame.transform.filter(predicate=lambda data: data["value"] > 0)` remains valid;
@@ -824,10 +824,18 @@ delta.contract().show()     # mechanical compatibility and typed issues
 delta.to_pandas()    # terminal export for custom local analysis
 ```
 
+The default card stops at 50 rows or 8 KiB, whichever comes first. Its omission
+line reports exact displayed, total, and omitted row counts and includes a
+copyable `session.get_frame('<ref>').to_pandas()` recovery call. Pass
+`max_output_bytes=None` to `show()` or `render()` to render all rows.
+
 When an operator emits evidence, `artifact.show()` includes its bounded typed
 digest before the result preview. The same value is available as
 `artifact.evidence_digest`; check `artifact.evidence_status` for degradation.
-Use `session.evidence` for exact findings and derivation traces.
+Each displayed finding carries its persisted Metric, Event, Lifecycle, or
+SubjectSet identity. Use
+`session.evidence.findings(artifact_ref='<ref>')` for omitted exact findings and
+`session.evidence` for derivation traces.
 
 `artifact.show()` adds only continuation hints that depend on the current
 artifact state, using public calls such as `session.compare(...)` or

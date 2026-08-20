@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from marivo._temporal import FrameTemporalContractV1
+from marivo._temporal import (
+    BuiltinPeriodBindingV1,
+    FrameTemporalContractV1,
+    SemanticPeriodBindingV1,
+)
 from marivo.analysis._cumulative import (
     SemanticGrainToDateAnchorSemanticsV1,
     canonical_comparable_period_anchor,
@@ -496,6 +500,43 @@ def _fold_line(fold: dict[str, Any]) -> str:
     )
 
 
+def _temporal_authority_line(contract: FrameTemporalContractV1) -> str:
+    """Return one stable, non-JSON summary of the persisted time authority."""
+
+    parts: list[str] = []
+    period = contract.observation_period
+    if isinstance(period, BuiltinPeriodBindingV1):
+        parts.extend(
+            (
+                f"kind={period.kind}",
+                f"authority={period.authority_id}",
+                f"level={period.level_name}",
+                f"boundary_timezone={period.boundary_timezone}",
+            )
+        )
+    elif isinstance(period, SemanticPeriodBindingV1):
+        parts.extend(
+            (
+                f"kind={period.kind}",
+                f"calendar={period.calendar_ref}",
+                f"level={period.level_name}",
+                f"snapshot={period.snapshot_digest}",
+            )
+        )
+    else:
+        parts.append("authority=none")
+    parts.append(f"display_timezone={contract.display_timezone}")
+    if contract.actual_start is not None and contract.actual_end is not None:
+        parts.append(f"actual=[{contract.actual_start},{contract.actual_end})")
+    if contract.data_extent_end is not None:
+        parts.append(f"data_extent_end={contract.data_extent_end}")
+    if contract.output_period_keys:
+        parts.append(f"period_keys={len(contract.output_period_keys)}")
+    elif contract.period_key_absence_reason is not None:
+        parts.append(f"period_keys=none({contract.period_key_absence_reason})")
+    return " ".join(parts)
+
+
 def _append_metric_execution_semantics(card: Card, meta: MetricFrameMeta) -> None:
     """Append persisted decision-critical execution facts to a frame card."""
 
@@ -513,7 +554,7 @@ def _append_metric_execution_semantics(card: Card, meta: MetricFrameMeta) -> Non
     if meta.temporal_contract is not None:
         card.field(
             "temporal_authority",
-            str(meta.temporal_contract.model_dump(mode="json")),
+            _temporal_authority_line(meta.temporal_contract),
         )
     axes = _axis_lines(meta)
     if axes:
@@ -827,7 +868,7 @@ class MetricFrame(BaseFrame):
     )
 
     def _card(self) -> Card:
-        card = super()._card()
+        card = self._header_card()
         _append_metric_execution_semantics(card, self.meta)
         anchor = _cumulative_anchor(self.meta.cumulative)
         blocker = cumulative_compare_blocker(self.meta.cumulative)
@@ -842,16 +883,16 @@ class MetricFrame(BaseFrame):
                 "caveat",
                 "the result is not asserted to be interval flow; source history may be restated",
             )
-        if self.arity > 1:
-            card.listing(
-                label="measures",
-                items=[
-                    f"{entry['metric_id']} column={entry['column']}"
-                    + (f" unit={entry['unit']}" if entry.get("unit") else "")
-                    for entry in self.measures_meta()
-                ],
-            )
-        return card
+        card.listing(
+            label="measures",
+            items=[
+                f"{entry['metric_id']} column={self.value_columns[index]}"
+                + (f" unit={entry['unit']}" if entry.get("unit") else "")
+                for index, entry in enumerate(self.measures_meta())
+            ],
+        )
+        self._append_evidence_sections(card)
+        return self._append_preview_table(card)
 
     def contract(self) -> ArtifactContract:
         """Return the mechanical consumption contract, gating multi-metric frames.

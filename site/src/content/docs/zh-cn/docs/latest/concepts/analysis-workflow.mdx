@@ -227,14 +227,13 @@ arity-1 frame，对单个指标做 drill-down。
 因此不同 arity 的 frame 可以直接 merge，无需单独 rename。用
 `frame.value_columns` 可读取准确的公开值列名。
 
-每个产物卡片还会直接打印 `output_columns`，其顺序和名称与 `.columns`
-及 `to_pandas()` 完全一致。机械契约通过 `contract.output_columns` 暴露同一
+产物卡片只通过表头展示准确的公开列名，不再重复打印 `output_columns`
+或语义对象获取信息。机械契约通过 `contract.output_columns` 暴露完整有序
 元组，并直接从 `contract.artifact_schema.columns` 推导，因此不会发生漂移。对于指标、
 事件和生命周期产物，`contract.semantic_inputs` 会记录保留的语义角色
 与路径、绑定的输出列、精确的
 `session.catalog.<collection>.get("<path>")` 重新获取调用及对应专项目录
-帮助目标。卡片也会渲染相同的获取调用，智能体无需再从结果列名猜测目录
-集合。
+帮助目标。需要这些完整机械信息时，使用 `artifact.contract().show()`。
 
 类型化变换内部仍使用规范 `value` 列。例如
 `frame.transform.filter(predicate=lambda data: data["value"] > 0)` 仍然有效；
@@ -714,9 +713,16 @@ delta.contract().show()     # 接口兼容性与类型化 issues
 delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 
+默认卡片受 50 行和 8 KiB 双重约束，以先达到者为准。省略行会准确报告
+`displayed`、`total`、`omitted`，并给出可复制的
+`session.get_frame('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
+传入 `max_output_bytes=None` 可展示全部行。
+
 当操作产生证据时，`artifact.show()` 会在结果预览之前展示有界的类型化
 摘要。同一个值可以从 `artifact.evidence_digest` 读取；通过
-`artifact.evidence_status` 检查降级。精确证据项与 derivation 追踪使用
+`artifact.evidence_status` 检查降级。每条展示的 finding 都携带其持久化的
+指标、Event、Lifecycle 或 SubjectSet 主体身份。省略的精确证据项通过
+`session.evidence.findings(artifact_ref='<ref>')` 读取，derivation 追踪使用
 `session.evidence`。
 
 `artifact.show()` 只补充依赖当前产物状态的续接提示，并使用

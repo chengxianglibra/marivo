@@ -174,6 +174,89 @@ def test_lazy_table_stops_at_budget_and_names_omitted_rows() -> None:
     assert "rows" in result
 
 
+@pytest.mark.parametrize("row_count", [49, 50])
+def test_bounded_table_at_or_below_row_limit_is_not_omitted(row_count: int) -> None:
+    rows = [[f"row-{index}"] for index in range(row_count)]
+    result = (
+        Card(identity="Rows", available=(".show()",))
+        .lazy_table(
+            columns=["value"],
+            rows_provider=lambda: iter(rows),
+            row_count=row_count,
+            bounded_row_limit=50,
+            show_omission_counts=True,
+        )
+        .render()
+    )
+
+    assert f"row-{row_count - 1}" in result
+    assert "preview limited" not in result
+
+
+def test_bounded_table_row_limit_has_exact_counts_and_copyable_recovery() -> None:
+    rows = [[f"row-{index}"] for index in range(53)]
+    recovery = "session.get_frame('frame_1').to_pandas()"
+    card = Card(identity="Rows", available=(".show()",)).lazy_table(
+        columns=["value"],
+        rows_provider=lambda: iter(rows),
+        row_count=len(rows),
+        bounded_row_limit=50,
+        show_omission_counts=True,
+        recovery=recovery,
+    )
+
+    result = card.render()
+
+    assert "row-49" in result
+    assert "row-50" not in result
+    assert "preview limited to 50 rows" in result
+    assert "preview (displayed=50 total=53 omitted=3)" in result
+    assert recovery in result
+    full = card.render(max_output_bytes=None)
+    assert "row-52" in full
+    assert "preview limited" not in full
+
+
+def test_bounded_table_wide_rows_hit_byte_budget_before_row_limit() -> None:
+    rows = [[f"row-{index}", "x" * 400] for index in range(60)]
+    recovery = "session.get_frame('frame_1').to_pandas()"
+    result = (
+        Card(identity="Wide", available=(".show()",))
+        .lazy_table(
+            columns=["value", "payload"],
+            rows_provider=lambda: iter(rows),
+            row_count=len(rows),
+            bounded_row_limit=50,
+            show_omission_counts=True,
+            recovery=recovery,
+        )
+        .render(max_output_bytes=1_000)
+    )
+
+    assert len(result.encode()) <= 1_000
+    assert "output truncated at 1000 bytes" in result
+    assert "total=60" in result
+    assert "displayed=50" not in result
+    assert recovery in result
+
+
+def test_bounded_table_zero_rows_renders_none_without_omission() -> None:
+    result = (
+        Card(identity="Empty", available=(".show()",))
+        .lazy_table(
+            columns=["value"],
+            rows_provider=lambda: iter(()),
+            row_count=0,
+            bounded_row_limit=50,
+            show_omission_counts=True,
+        )
+        .render()
+    )
+
+    assert "preview: none" in result
+    assert "omitted=" not in result
+
+
 def test_renderable_result_mixin_provides_repr_render_and_show(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -386,7 +386,10 @@ def test_show_points_to_full_rows_when_digest_items_are_omitted():
 
     rendered = frame.render(max_output_bytes=None)
 
-    assert "evidence: items=1 omitted=3; call .to_pandas() for all rows" in rendered
+    assert (
+        "evidence: items=1 omitted=3; recover=session.evidence.findings(artifact_ref='frame_abc')"
+    ) in rendered
+    assert "subject=sales.revenue" in rendered
     assert "full_distribution_not_in_digest" in rendered
 
 
@@ -397,6 +400,18 @@ def test_repr_and_show_are_bounded_agent_reads(capsys):
     assert "call .show() to inspect" in repr(frame)
     frame.show(max_output_bytes=300)
     assert len(capsys.readouterr().out.encode()) <= 301
+
+
+def test_frame_default_preview_caps_at_50_rows_with_exact_recovery() -> None:
+    frame = BaseFrame(_df=pd.DataFrame({"value": range(53)}), meta=_meta(row_count=53))
+
+    rendered = frame.render()
+
+    assert "\n49\n" in rendered
+    assert "\n50\n" not in rendered
+    assert "preview (displayed=50 total=53 omitted=3)" in rendered
+    assert "session.get_frame('frame_abc').to_pandas()" in rendered
+    assert "\n52\n" in frame.render(max_output_bytes=None)
 
 
 def test_compute_quality_summary_coverage_canonicalizes_aware_scope(

@@ -569,6 +569,13 @@ gating. They do not recompute quality. `QualityReport.state` retains the common
 `ArtifactState` contract and therefore describes materialization and content
 identity, not the quality verdict.
 
+The bounded Quality card reports total, ok, warning, and blocking counts. It
+lists only blocking and warning checks, ordered by blocking first, warning
+second, then original check order; metric-level rows retain `metric_id`. A clean
+report says `attention: none`. This exception view does not repeat the same
+quality checks from the evidence digest. `render(max_output_bytes=None)` still
+renders every check row.
+
 ## Result contract and read protocol
 
 Analysis operators never write to stdout; every result is silent and returns a
@@ -582,7 +589,9 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 - `repr(result)` — one-line cold-start hint carrying kind + identity and pointing
   at `.show()`; default dataclass reprs are never used.
 - `result.show()` — print a bounded result card and return `None`;
-  `result.render()` returns the same bounded text without writing stdout.
+  `result.render()` returns the same bounded text without writing stdout. The
+  default stops at 50 rows or 8 KiB, whichever comes first; passing
+  `max_output_bytes=None` renders all rows.
 - `result.contract()` — the mechanical `ArtifactContract` (below).
 - `result.to_pandas()` — an isolated defensive DataFrame copy (tabular frames
   only). It is the only method that returns a mutable copy.
@@ -598,12 +607,12 @@ as not applicable; it never invents a coverage sidecar. Derived metrics render a
 bounded component-fold list. Recovery uses the same persisted metadata and
 therefore renders the same execution facts.
 
-Every artifact card explicitly lists `output_columns`, using the exact names
-returned by `.columns` and `to_pandas()`. `ArtifactContract.output_columns` is
-derived from `artifact_schema.columns[*].name`, so it cannot drift.
-Where an artifact retains direct semantic inputs, the card and
-`contract().semantic_inputs` preserve their roles, semantic kinds and paths,
-optional output-column binding, exact
+An artifact card's table header uses the exact names returned by `.columns` and
+`to_pandas()`, without repeating a separate `output_columns` field.
+`ArtifactContract.output_columns` remains derived from
+`artifact_schema.columns[*].name`, so it cannot drift. Where an artifact retains
+direct semantic inputs, `contract().semantic_inputs` preserves their roles,
+semantic kinds and paths, optional output-column binding, exact
 `session.catalog.<collection>.get("<path>")` acquisition call, and focused
 catalog help target. The ordered list is bounded and reports any omitted count.
 Metric artifacts expose catalog metric roots, axes, slices,
@@ -611,6 +620,11 @@ status-time dimensions, and governed runtime-expression leaves; Event artifacts
 expose pattern Events and reducer axes; Lifecycle artifacts expose their
 StateModel, replay Events, and reducer axes. These are mechanical reacquisition
 facts, not claims that an entry remains current in a different catalog.
+
+Evidence items render their persisted subject identity (Metric, Event,
+Lifecycle, or SubjectSet) before the finding. If a digest omits findings, its
+recovery call is `session.evidence.findings(artifact_ref='<ref>')`; row recovery
+remains `session.get_frame('<ref>').to_pandas()`.
 
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to

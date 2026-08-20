@@ -18,6 +18,7 @@ from marivo.analysis.evidence.types import (
     EventSubject,
     EventTimeToEventObservationValue,
     EvidenceAvailabilityIssue,
+    EvidenceSubject,
     ForecastOutput,
     FunnelAttributionObservationValue,
     FunnelDeltaObservationValue,
@@ -60,8 +61,8 @@ def _segments(value: SegmentedObservationValue | PanelObservationValue) -> str:
     )
 
 
-def _subject(digest: ArtifactDigest) -> str:
-    subject = digest.subject
+def render_evidence_subject(subject: EvidenceSubject) -> str:
+    """Render the persisted subject identity without inferring from values."""
     if isinstance(subject, EventSubject):
         return f"{subject.subject_entity_ref.path}[{subject.analysis_axis}]"
     if isinstance(subject, LifecycleSubject):
@@ -73,6 +74,10 @@ def _subject(digest: ArtifactDigest) -> str:
         return base
     suffix = ",".join(f"{key}={subject.slice[key]}" for key in sorted(subject.slice))
     return f"{base}[{suffix}]"
+
+
+def _subject(digest: ArtifactDigest) -> str:
+    return render_evidence_subject(digest.subject)
 
 
 def _quality(digest: ArtifactDigest) -> str | None:
@@ -125,7 +130,7 @@ def render_artifact_issue(issue: ArtifactIssue) -> str:
     raise TypeError(f"unsupported artifact issue type {type(issue).__name__}")
 
 
-def render_digest_item(item: DigestItem) -> str:
+def _render_digest_item_body(item: DigestItem) -> str:
     """Render one closed item variant without interpreting beyond its fields."""
     if isinstance(item, ObservationFact):
         value = item.value
@@ -278,6 +283,11 @@ def render_digest_item(item: DigestItem) -> str:
     raise TypeError(f"unsupported digest item: {type(item).__name__}")
 
 
+def render_digest_item(item: DigestItem) -> str:
+    """Render one item with its persisted metric, Event, Lifecycle, or SubjectSet identity."""
+    return f"subject={render_evidence_subject(item.subject)} {_render_digest_item_body(item)}"
+
+
 def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | None = 8_000) -> str:
     """Render a digest using only its persisted typed content."""
     card = Card(
@@ -321,4 +331,4 @@ def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | No
     return card.render(max_output_bytes=max_output_bytes)
 
 
-__all__ = ["render_artifact_digest", "render_digest_item"]
+__all__ = ["render_artifact_digest", "render_digest_item", "render_evidence_subject"]

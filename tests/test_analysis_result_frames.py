@@ -200,4 +200,4 @@ def test_quality_report_renders_evidence_with_family_status(tmp_path, monkeypatc
     assert "status=warning" in quality_text
     assert "evidence=complete" in quality_text
     assert "no evidence findings emitted" in quality_text
-    assert quality_text.index("evidence:") < quality_text.index("preview:")
+    assert quality_text.index("evidence:") < quality_text.index("checks:")

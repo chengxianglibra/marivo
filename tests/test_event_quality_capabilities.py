@@ -604,9 +604,11 @@ def test_event_frame_render_discloses_complete_matching_policy(
 
     assert "matching=every_start" in rendered
     assert f"completion_assignment={assignment}" in rendered
-    assert "output_columns:" in rendered
-    assert 'session.catalog.events.get("commerce.cart_created")' in rendered
-    assert 'session.catalog.events.get("commerce.payment_succeeded")' in rendered
+    assert "output_columns:" not in rendered
+    contract_rendered = frame.contract().render(max_output_bytes=None)
+    assert "output_columns:" in contract_rendered
+    assert 'session.catalog.events.get("commerce.cart_created")' in contract_rendered
+    assert 'session.catalog.events.get("commerce.payment_succeeded")' in contract_rendered
     contract = frame.contract()
     assert contract.output_columns == tuple(frame.columns)
     assert {item.semantic_path for item in contract.semantic_inputs} == {

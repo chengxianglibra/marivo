@@ -134,20 +134,22 @@ result.render()  # the same bounded plain-text card, returned as a string, no IO
 result.show()  # prints render() + newline, returns None
 ```
 
-`show()`/`render()` emit a **bounded result card**, not a data dump. The card has
-a fixed section order — an identity line, status, columns and a few preview rows
-when tabular, and an `available:` footer — routed through one shared renderer
-(`format_bounded_card`). It targets a size budget (roughly: a few preview rows,
-under ~80 lines total). When there is more data than the budget allows, the card
-shows an explicit, actionable truncation hint; it never silently omits data.
+`show()`/`render()` emit a **bounded result card**, not a data dump. Analysis
+cards have a fixed decision-first order: identity and status; analysis purpose
+and family-specific interpretation context; issues, inference boundaries, and
+subject-labelled evidence; table columns and preview rows when tabular; exact
+omission/recovery detail; and the `available:` footer. The default read stops at
+the first of 50 rows or 8 KiB. Passing `max_output_bytes=None` preserves every
+row. Any omission reports `displayed`, `total`, and `omitted`, plus a copyable
+`session.get_frame('<ref>').to_pandas()` recovery call; data is never silently
+omitted.
 
-Analysis artifact cards name their exact ordered `output_columns` before the
-preview. Their mechanical contracts repeat the same names and preserve direct
-semantic inputs as role/path plus a copyable
-`catalog.<collection>.get("<path>")` acquisition call after the analysis flow
-binds `catalog = session.catalog`. This guidance is
-derived from persisted artifact metadata and the catalog member registry; it
-does not infer semantic ownership from a physical column name.
+Analysis cards use the real table header as the sole column display. Complete
+ordered `output_columns` and direct semantic inputs — including role/path and a
+copyable `session.catalog.<collection>.get("<path>")` acquisition call — live
+only in the mechanical `contract().show()` view. This guidance is derived from
+persisted artifact metadata and the catalog member registry; it does not infer
+semantic ownership from a physical column name.
 
 The `available:` footer is a **small inspection protocol bound to the type**,
 not a recommendation engine or capability inventory. State-dependent calls stay

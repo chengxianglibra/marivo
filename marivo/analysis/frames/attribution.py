@@ -1243,7 +1243,7 @@ class AttributionFrame(BaseFrame):
         )
 
     def _base_card(self) -> Card:
-        card = super()._base_card()
+        card = self._header_card()
         if self.meta.semantic_kind != "funnel_loss_rate" and self.meta.method_evidence is not None:
             evidence = self.meta.method_evidence
             if evidence.kind == "distinct_membership":
@@ -1297,10 +1297,11 @@ class AttributionFrame(BaseFrame):
                 )
         reconciliation = self.meta.reconciliation
         if reconciliation is None:
+            self._append_evidence_sections(card)
             return card
         if self.meta.semantic_kind == "funnel_loss_rate":
             assert isinstance(reconciliation, FunnelAttributionReconciliation)
-            return card.field(
+            card.field(
                 "reconciliation",
                 (
                     f"status={reconciliation.status} "
@@ -1310,6 +1311,8 @@ class AttributionFrame(BaseFrame):
                     f"residual={reconciliation.residual:.12g}"
                 ),
             )
+            self._append_evidence_sections(card)
+            return card
         assert isinstance(reconciliation, AttributionReconciliation)
         values = [
             f"status={reconciliation.status}",
@@ -1327,6 +1330,7 @@ class AttributionFrame(BaseFrame):
             if value is not None:
                 values.append(f"{name}={value:.12g}")
         card.field("reconciliation", " ".join(values))
+        self._append_evidence_sections(card)
         return card
 
     @property
