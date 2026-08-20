@@ -121,8 +121,10 @@ see [Installation](https://marivo.io/docs/latest/installation/).
 Verify the selected environment once:
 
 ```bash
-marivo doctor
+.venv/bin/python -m marivo doctor
 ```
+
+On Windows, use `.venv/Scripts/python.exe -m marivo doctor`.
 
 Then use the selected project interpreter for focused help.
 

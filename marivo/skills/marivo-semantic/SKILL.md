@@ -45,17 +45,14 @@ additivity, cardinality, timezone, lifecycle, or event meaning.
 
 ## Environment entry
 
-The host runtime must provide one concrete project interpreter for this
-persona. Use that interpreter for discovery and execution. This skill does not
-choose among Python installations, create a virtual environment, install
-packages, or invoke a package manager.
+Prefer the project interpreter provided by the host. For a conventional
+project-local installation, prefer `.venv/bin/python` on macOS, Linux, and WSL,
+or `.venv/Scripts/python.exe` on Windows. Keep using the selected interpreter
+for discovery and execution.
 
-Before connecting, reading data, or changing project source, run `marivo doctor`
-once and verify the reported Marivo version, Python executable, package path,
-and project state. If the host provides only the selected interpreter, the
-equivalent `<selected-python> -m marivo doctor` invocation is acceptable. Keep
-the runtime fingerprint as working state; do not expose absolute environment
-paths in the business response.
+Before connecting, reading data, or changing project source, prefer running
+`<selected-python> -m marivo doctor` once and using the reported Marivo version,
+Python executable, package path, and project state as the runtime fingerprint.
 
 ```python
 import marivo
@@ -63,22 +60,18 @@ import marivo.datasource as md
 import marivo.semantic as ms
 ```
 
-After the decision preflight passes, enter through
+After the decision preflight passes, prefer entering through
 `<selected-python> -m marivo help`, then use
 `marivo.help("authoring")`. It owns the exact current-project catalog reads and
-routes to the focused datasource or semantic target shown by live state. If
-the doctor check, help fingerprint, and execution interpreter differ, stop for
-environment repair. If the host did not provide a runnable interpreter, stop
-and report that environment setup is required; do not guess a Python path.
-The host owns environment bootstrap. All target help goes through
-`marivo.help(...)`; `md` and `ms` execute domain APIs and do not expose separate
-public help aliases.
+routes to the focused datasource or semantic target shown by live state. Prefer
+the same selected interpreter for doctor, help, and execution. For target help,
+prefer `marivo.help(...)`; `md` and `ms` execute domain APIs.
 
-Never reconstruct a signature or repair from this skill. Prefer, in order:
-the current structured error, current result `.contract()`, focused help, then
-root help.
-Read focused help only for the active object. When several already-known,
-independent targets are needed, render them in one interpreter invocation.
+For signatures and repairs, prefer, in order: the current structured error,
+current result `.contract()`, focused help, then root help.
+Prefer focused help for the active object. When several already-known,
+independent targets are needed, prefer rendering them in one interpreter
+invocation.
 
 ## Canonical route
 

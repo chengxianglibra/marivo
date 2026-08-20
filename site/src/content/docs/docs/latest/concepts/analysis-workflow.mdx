@@ -69,20 +69,19 @@ import marivo.semantic as ms
 ```
 
 :::note[Agent discovery]
-From the command line, start with `marivo --help` for the CLI entry point.
-Verify the selected environment and discover the Python handoff with:
+Prefer the selected project interpreter for the CLI entry point. For a
+conventional project-local installation on macOS, Linux, or WSL, verify the
+environment with:
 
 ```bash
-marivo doctor
+.venv/bin/python -m marivo doctor
 ```
 
-Use the Python interpreter where `marivo` is installed. The doctor report
+On Windows, use `.venv/Scripts/python.exe -m marivo doctor`. The doctor report
 includes the rendered version, Python executable, package path, and project
-state; these form the environment fingerprint — a bare
-`marivo` resolved from `PATH` is not authoritative unless its fingerprint
-matches the analysis interpreter. Verify this fingerprint once at analysis
-entry. After that, use the public object already in hand: read `.show()` for
-current state and `.contract()` before an unfamiliar composition. Open the
+state; these form the environment fingerprint. Verify this fingerprint once at
+analysis entry. After that, use the public object already in hand: read `.show()`
+for current state and `.contract()` before an unfamiliar composition. Open the
 analysis index with `marivo.help("analysis")`; it includes one guarded first
 observation from session acquisition through `marivo.help(metric)`, scoped
 readiness, `session.observe(...)`, and `frame.show()`. Use a registered

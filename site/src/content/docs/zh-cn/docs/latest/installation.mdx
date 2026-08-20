@@ -103,8 +103,10 @@ your-project/
 
 这样可以把项目准备、读取业务数据和决定业务含义分成不同的步骤。
 
-如果智能体由其他运行时启动，运行时应提供已经选定的项目解释器。Marivo skills 只验证这个解释器和
-`marivo doctor` 的结果，不会自行选择 Python、创建虚拟环境或安装依赖。
+如果智能体由其他运行时启动，优先使用该运行时选定的项目解释器。对于常规的项目本地安装，
+macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
+`.venv/Scripts/python.exe`。使用选定的解释器运行
+`<selected-python> -m marivo doctor`，并继续用于后续 help 和执行。
 
 ## 继续之前需要检查什么
 

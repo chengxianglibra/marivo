@@ -34,8 +34,10 @@ analysis runtime calls accept directly; exact refs remain valid for
 configuration and recovery. Marivo normalizes either form to the ref before
 planning, evidence, persistence, or replay.
 
-The agent verifies the live environment once with `marivo doctor` using the
-host-provided project interpreter. After entry, it works from the public object already
+The agent selects a project interpreter and verifies the live environment once with
+`<selected-python> -m marivo doctor`. A conventional project-local installation uses
+`.venv/bin/python` on macOS, Linux, and WSL or `.venv/Scripts/python.exe` on Windows.
+After entry, it works from the public object already
 in hand: `.show()` reports current state, `.contract()` guides unfamiliar
 composition, and focused `marivo.help(...)` after `import marivo` is needed only
 when that contract is insufficient or before first use of an unfamiliar
