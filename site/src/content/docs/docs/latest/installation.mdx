@@ -116,9 +116,11 @@ After initialization, give the agent this bounded preparation request:
 This separates project setup from access to business data and from decisions about
 business meaning.
 
-When an agent is launched by another runtime, that runtime must provide the selected
-project interpreter. Marivo skills only verify that interpreter and `marivo doctor`; they
-do not choose a Python installation, create a virtual environment, or install dependencies.
+When an agent is launched by another runtime, prefer the project interpreter selected by
+that runtime. For a conventional project-local installation, prefer `.venv/bin/python` on
+macOS, Linux, and WSL, or `.venv/Scripts/python.exe` on Windows. Use the selected
+interpreter to run `<selected-python> -m marivo doctor` and for subsequent help and
+execution.
 
 ## What to review before continuing
 

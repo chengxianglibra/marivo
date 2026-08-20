@@ -63,6 +63,16 @@ def test_skills_form_an_automatic_semantic_analysis_loop() -> None:
     assert "resume the branch from the returned `analysis_ready_inputs`" in analysis_normalized
 
 
+def test_skills_recommend_project_local_interpreter_entry() -> None:
+    semantic_text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
+    analysis_text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+
+    for text in (semantic_text, analysis_text):
+        assert ".venv/bin/python" in text
+        assert ".venv/Scripts/python.exe" in text
+        assert "<selected-python> -m marivo doctor" in text
+
+
 def test_analysis_skill_keeps_semantic_api_contract_in_live_help() -> None:
     text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
 

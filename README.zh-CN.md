@@ -91,8 +91,10 @@ Windows 上的 Git Bash、MSYS2 或 Cygwin。手动安装、数据源扩展、�
 先验证一次选定的运行环境：
 
 ```bash
-marivo doctor
+.venv/bin/python -m marivo doctor
 ```
+
+Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。
 
 然后使用这个项目解释器查询 focused help。
 

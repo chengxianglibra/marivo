@@ -22,27 +22,25 @@ details.
 
 ## Start with evidence, not administration
 
-After invoking this skill, do not create task or todo objects, inspect the
-working directory, reread this file, or open project semantic files. Keep the
-question coverage checklist as comments or working state in the main script.
-Within the next five tool calls, batch the minimum environment fingerprint,
-the relevant focused live help, session entry, semantic resolution, and first
-observation or return a structured blocker. The live help surface owns the
-exact session, catalog, and operator calls; this skill does not reproduce
-those API recipes.
+After invoking this skill, prefer to establish the environment fingerprint,
+read the relevant focused live help, enter one session, resolve the required
+semantic inputs, and run the first bounded observation early. Keep the question
+coverage checklist as comments or working state in the main script. The live
+help surface owns the exact session, catalog, and operator calls; this skill
+does not reproduce those API recipes.
 
 Choose catalog families from the question. Ordinary catalog-metric analysis
 needs only `metrics` and `dimensions`, plus `time_dimensions` when time is part
-of the question. If paths are unknown, show those required collections together
-once; do not also enumerate datasources, domains, entities, measures, events,
-state models, artifacts, or help indexes.
+of the question. If paths are unknown, prefer showing those required
+collections together once.
 
 ## Minimal analysis flow
 
 For an ordinary investigation, use this bounded sequence as the default path:
 
 1. Decompose the question into a short coverage checklist.
-2. Run `marivo doctor` once and keep using the verified project interpreter.
+2. Select the project interpreter, run `<selected-python> -m marivo doctor`
+   once, and keep using that interpreter.
 3. Read the focused live help for the capability you need.
 4. Create or resume one question-scoped session.
 5. Resolve all required typed `metric`, `dimension`, and, when time is involved,
@@ -62,32 +60,23 @@ For an ordinary investigation, use this bounded sequence as the default path:
 11. Answer the requested questions first, with the evidence, interpretation,
     caveats, and blockers needed to support the conclusion.
 
-Do not delay the first bounded observation by reading project question files or
-semantic source, enumerating unrelated surfaces, or building the full terminal
-analysis script. If the first observation cannot be completed, return a
-structured blocker and stop the affected branch.
+Prefer reaching the first bounded observation before optional exploration or
+building the full terminal analysis script.
 
 ## Enter the environment once
 
-The host runtime must provide one concrete project interpreter for this
-persona. Use it for every discovery and execution call. This skill does not
-choose among Python installations, create a virtual environment, install
-packages, or invoke a package manager.
+Prefer the project interpreter provided by the host. For a conventional
+project-local installation, prefer `.venv/bin/python` on macOS, Linux, and WSL,
+or `.venv/Scripts/python.exe` on Windows.
 
-Run `marivo doctor` once before analysis and verify the reported Marivo
-version, executable, package path, and project state. If the host provides
-only the selected interpreter, the equivalent
-`<analysis-python> -m marivo doctor` invocation is acceptable. Use
-`<analysis-python> -m marivo help` only when the verified environment or the
-global entry map is actually needed; do not repeat equivalent checks.
+Prefer running `<selected-python> -m marivo doctor` once before analysis and
+using the reported Marivo version, executable, package path, and project state
+as the environment fingerprint. Keep using that interpreter for live help and
+execution. Use `<selected-python> -m marivo help` when the environment
+fingerprint or global entry map is useful.
 
-Create or resume one question-scoped session by following the exact session
-entry and call shape in the focused analysis help selected for the question.
-Do not reconstruct session or operator signatures from this skill.
-
-If the intended interpreter, installed package, or project state cannot be
-verified, stop and report that the host environment needs repair rather than
-guessing a Python path or installing dependencies from the skill.
+For session entry and operator call shapes, prefer the focused analysis help
+selected for the question.
 
 ## Resolve semantic inputs through live help
 
@@ -188,10 +177,8 @@ into report sections.
 ## Execution budget
 
 Batch compatible catalog resolutions and observations instead of probing them
-one at a time. Do not use `dir()`, signature inspection, full help or catalog
-listings, source file reads, or neighboring-API probes as discovery shortcuts.
-Use focused live help, governed object state, artifact contracts, and structured
-errors.
+one at a time. Prefer focused live help, governed object state, artifact
+contracts, and structured errors for discovery and continuation guidance.
 
 Reserve the final third of the available turns—or the final ten tool calls when
 no turn budget is known—for required derivations, reconciliation, consistency
@@ -215,8 +202,6 @@ capability, and rejected semantic or artifact condition are unchanged.
 - After the first failure, apply its structured repair or one focused-help
   recovery.
 - If the same root cause occurs twice, stop that branch and disclose the gap.
-- Do not inspect private Marivo source or probe neighboring APIs to invent a
-  workaround.
 - Do not repeat a successful observation solely to obtain a new artifact id or
   differently formatted output.
 

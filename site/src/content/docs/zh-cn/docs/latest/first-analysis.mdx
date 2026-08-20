@@ -27,7 +27,9 @@ description: 向智能体说明业务问题，然后检查分析过程与证据�
 可以直接接收它，配置与 recovery 仍可使用精确引用。Marivo 会在规划、证据、
 持久化或重放之前把两种输入都归一化为引用。
 
-智能体先使用宿主提供的项目解释器运行一次 `marivo doctor`，验证实时环境。
+智能体先选择项目解释器，并运行一次 `<selected-python> -m marivo doctor` 验证实时环境。
+常规项目本地安装在 macOS、Linux 和 WSL 使用 `.venv/bin/python`，在 Windows 使用
+`.venv/Scripts/python.exe`。
 进入分析后，智能体优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合
 操作前读取 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询专项
 `marivo.help(...)`（先 `import marivo`）。发生失败后，智能体按照结构化修复指引继续。
