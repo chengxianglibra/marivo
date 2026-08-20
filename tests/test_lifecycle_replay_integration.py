@@ -785,8 +785,10 @@ def test_lifecycle_business_choices_are_published_as_guidance_and_disclosure(
         assert "seed: from_inception" in rendered
         assert "violation_contract: record_and_continue/v1" in rendered
         assert "coverage=unknown" in rendered
-        assert "output_columns:" in rendered
-        assert f'session.catalog.state_models.get("{_MODEL_REF}")' in rendered
+        assert "output_columns:" not in rendered
+        contract_rendered = history.contract().render(max_output_bytes=None)
+        assert "output_columns:" in contract_rendered
+        assert f'session.catalog.state_models.get("{_MODEL_REF}")' in contract_rendered
         contract = history.contract()
         assert contract.output_columns == tuple(history.columns)
         assert contract.semantic_inputs[0].role == "state_model"

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict, model_validator
 
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, _display_column_names
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.render import Card
 
 #: The single lag a summary/evidence represents is selected as the lag with the
@@ -76,7 +76,6 @@ class AssociationResult(BaseFrame):
         )
 
     def _card(self) -> Card:
-        columns = _display_column_names(self._df.columns)
         metric_ids = ",".join(self.meta.metric_ids)
         status_parts = [
             f"method={self.meta.method}",
@@ -87,15 +86,8 @@ class AssociationResult(BaseFrame):
             f"dropped={self.meta.dropped_row_count}",
             f"metrics={metric_ids}",
         ]
-        evidence = self._evidence_status_token()
-        if evidence is not None:
-            status_parts.append(evidence)
-        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
-            " ".join(status_parts)
-        )
+        card = self._header_card(" ".join(status_parts))
+        card.field("alignment", str(self.meta.alignment))
+        card.field("lag_policy", str(self.meta.lag_policy))
         self._append_evidence_sections(card)
-        return card.lazy_table(
-            columns=columns,
-            rows_provider=self._preview_rows_provider,
-            row_count=len(self._df),
-        )
+        return self._append_preview_table(card)

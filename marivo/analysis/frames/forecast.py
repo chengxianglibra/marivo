@@ -9,6 +9,7 @@ from pydantic import ConfigDict
 
 from marivo._temporal import FrameTemporalContractV1
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.render import Card
 
 
 class ForecastFrameMeta(BaseFrameMeta):
@@ -45,3 +46,25 @@ class ForecastFrame(BaseFrame):
             f"ForecastFrame ref={self.meta.ref} metric={self.meta.metric_id} "
             f"rows={self.meta.row_count}"
         )
+
+    def _card(self) -> Card:
+        card = self._header_card()
+        card.field(
+            "forecast",
+            (
+                f"model={self.meta.model} horizon={self.meta.horizon} "
+                f"unit={self.meta.horizon_unit} interval={self.meta.interval_level:g} "
+                f"method={self.meta.interval_method}"
+            ),
+        )
+        card.field("history_window", str(self.meta.history_window))
+        card.field("forecast_window", str(self.meta.forecast_window))
+        card.field(
+            "segments",
+            (
+                f"dimensions={','.join(self.meta.segment_dimensions) or 'none'} "
+                f"training_counts={self.meta.train_row_count_per_segment}"
+            ),
+        )
+        self._append_evidence_sections(card)
+        return self._append_preview_table(card)

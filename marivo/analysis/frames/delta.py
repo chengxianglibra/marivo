@@ -51,7 +51,6 @@ from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
     _capability_public_entrypoint,
-    _display_column_names,
     assert_semantic_shape,
 )
 from marivo.analysis.frames.event import CoverageBasis, SubjectAxisBinding
@@ -687,24 +686,18 @@ class DeltaFrame(BaseFrame):
     def _card(self) -> Card:
         if self.meta.semantic_kind == "funnel":
             meta = self.meta
-            return (
-                self._base_card()
-                .field(
-                    "alignment",
-                    (
-                        f"{meta.alignment_kind} axes={len(meta.axes)} "
-                        f"zero_filled={meta.zero_filled_tuple_count}"
-                    ),
-                )
-                .field("current_coverage", meta.current_coverage_basis)
-                .field("baseline_coverage", meta.baseline_coverage_basis)
-                .lazy_table(
-                    columns=_display_column_names(self._df.columns),
-                    rows_provider=self._preview_rows_provider,
-                    row_count=len(self._df),
-                )
+            card = self._header_card().field(
+                "alignment",
+                (
+                    f"{meta.alignment_kind} axes={len(meta.axes)} "
+                    f"zero_filled={meta.zero_filled_tuple_count}"
+                ),
             )
-        card = self._base_card()
+            card.field("current_coverage", meta.current_coverage_basis)
+            card.field("baseline_coverage", meta.baseline_coverage_basis)
+            self._append_evidence_sections(card)
+            return self._append_preview_table(card)
+        card = self._header_card()
         temporal_contract = getattr(self.meta, "temporal_contract", None)
         if temporal_contract is not None:
             evidence = temporal_contract.alignment_evidence
@@ -836,11 +829,8 @@ class DeltaFrame(BaseFrame):
                 _attribute_admission_text(self.meta, admission)
                 + "; inspect frame.contract().show()",
             )
-        return card.lazy_table(
-            columns=_display_column_names(self._df.columns),
-            rows_provider=self._preview_rows_provider,
-            row_count=len(self._df),
-        )
+        self._append_evidence_sections(card)
+        return self._append_preview_table(card)
 
     def contract(self) -> ArtifactContract:
         """Return the mechanical contract with persisted attribution gates."""

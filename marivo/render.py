@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from itertools import islice
 from typing import Protocol, runtime_checkable
 
 _DEFAULT_MAX_OUTPUT_BYTES = 8192
@@ -35,6 +36,11 @@ class TableSection:
     rows_provider: Callable[[], Iterable[Sequence[str]]] | None
     row_count: int | None = None
     show_omission_counts: bool = False
+    bounded_row_limit: int | None = None
+    bounded_rows_provider: Callable[[], Iterable[Sequence[str]]] | None = None
+    bounded_row_count: int | None = None
+    bounded_label: str | None = None
+    recovery: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +138,8 @@ class Card:
         row_count: int | None = None,
         label: str = "preview",
         show_omission_counts: bool = False,
+        bounded_row_limit: int | None = None,
+        recovery: str | None = None,
     ) -> Card:
         materialized_rows = tuple(tuple(str(value) for value in row) for row in rows)
         self._sections.append(
@@ -142,6 +150,8 @@ class Card:
                 rows_provider=None,
                 row_count=row_count,
                 show_omission_counts=show_omission_counts,
+                bounded_row_limit=bounded_row_limit,
+                recovery=recovery,
             )
         )
         return self
@@ -153,6 +163,12 @@ class Card:
         row_count: int,
         *,
         label: str = "preview",
+        show_omission_counts: bool = False,
+        bounded_row_limit: int | None = None,
+        bounded_rows_provider: Callable[[], Iterable[Sequence[str]]] | None = None,
+        bounded_row_count: int | None = None,
+        bounded_label: str | None = None,
+        recovery: str | None = None,
     ) -> Card:
         self._sections.append(
             TableSection(
@@ -161,7 +177,12 @@ class Card:
                 rows=None,
                 rows_provider=rows_provider,
                 row_count=row_count,
-                show_omission_counts=False,
+                show_omission_counts=show_omission_counts,
+                bounded_row_limit=bounded_row_limit,
+                bounded_rows_provider=bounded_rows_provider,
+                bounded_row_count=bounded_row_count,
+                bounded_label=bounded_label,
+                recovery=recovery,
             )
         )
         return self
@@ -202,7 +223,7 @@ class Card:
 
     def _section_line_items(self) -> Iterator[_Line]:
         for index, section in enumerate(self._sections):
-            for text, is_table_row in _section_text_line_items(section):
+            for text, is_table_row in _section_text_line_items(section, bounded=True):
                 yield _Line(text=text, section_index=index, is_table_row=is_table_row)
 
     def _render_bounded(self, max_output_bytes: int) -> str:
@@ -231,7 +252,20 @@ class Card:
                 break
             body.append(line)
         else:
-            return _join_lines([*head, *_line_texts(body), *tail])
+            row_limited_at = self._first_row_limited_section(
+                rows_shown_by_section=_rows_shown_by_section(body)
+            )
+            if row_limited_at is None:
+                return _join_lines([*head, *_line_texts(body), *tail])
+            return self._render_with_marker(
+                max_output_bytes=max_output_bytes,
+                head=head,
+                body=body,
+                tail=tail,
+                truncated_at=row_limited_at,
+                current_line=None,
+                marker_kind="row_limit",
+            )
 
         min_marker = _truncation_marker(max_output_bytes=max_output_bytes, tokens=())
         minimum = _encoded_len(_join_lines([*head, min_marker, *tail]))
@@ -241,6 +275,27 @@ class Card:
                 f"and available output; minimum is {minimum} bytes; {_OMISSION_RECOVERY}"
             )
 
+        return self._render_with_marker(
+            max_output_bytes=max_output_bytes,
+            head=head,
+            body=body,
+            tail=tail,
+            truncated_at=truncated_at,
+            current_line=current_line,
+            marker_kind="byte_limit",
+        )
+
+    def _render_with_marker(
+        self,
+        *,
+        max_output_bytes: int,
+        head: list[str],
+        body: list[_Line],
+        tail: list[str],
+        truncated_at: int,
+        current_line: _Line | None,
+        marker_kind: str,
+    ) -> str:
         while True:
             body_text = _line_texts(body)
             omitted_tokens = self._omission_tokens(
@@ -248,17 +303,26 @@ class Card:
                 current_line=current_line,
                 rows_shown_by_section=_rows_shown_by_section(body),
             )
-            marker = _best_fit_marker(
-                max_output_bytes=max_output_bytes,
-                head=head,
-                body=body_text,
-                tail=tail,
-                omitted_tokens=omitted_tokens,
-                require_all_tokens=any(
-                    isinstance(section, TableSection) and section.show_omission_counts
-                    for section in self._sections[truncated_at:]
-                ),
-            )
+            recoveries = self._omission_recoveries(truncated_at=truncated_at)
+            if marker_kind == "row_limit":
+                marker = _row_limit_marker(
+                    limit=self._row_limit_from(truncated_at=truncated_at),
+                    omitted_tokens=omitted_tokens,
+                    recoveries=recoveries,
+                )
+            else:
+                marker = _best_fit_marker(
+                    max_output_bytes=max_output_bytes,
+                    head=head,
+                    body=body_text,
+                    tail=tail,
+                    omitted_tokens=omitted_tokens,
+                    recoveries=recoveries,
+                    require_all_tokens=any(
+                        isinstance(section, TableSection) and section.show_omission_counts
+                        for section in self._sections[truncated_at:]
+                    ),
+                )
             rendered = _join_lines([*head, *body_text, marker, *tail])
             if _encoded_len(rendered) <= max_output_bytes:
                 return rendered
@@ -270,6 +334,34 @@ class Card:
                 )
             removed = body.pop()
             truncated_at = min(truncated_at, removed.section_index)
+
+    def _first_row_limited_section(
+        self,
+        *,
+        rows_shown_by_section: dict[int, int],
+    ) -> int | None:
+        for index, section in enumerate(self._sections):
+            if not isinstance(section, TableSection) or section.bounded_row_limit is None:
+                continue
+            row_count = _bounded_table_row_count(section)
+            if row_count is not None and rows_shown_by_section.get(index, 0) < row_count:
+                return index
+        return None
+
+    def _omission_recoveries(self, *, truncated_at: int) -> tuple[str, ...]:
+        return tuple(
+            section.recovery
+            for section in self._sections[truncated_at:]
+            if isinstance(section, TableSection) and section.recovery is not None
+        )
+
+    def _row_limit_from(self, *, truncated_at: int) -> int:
+        limits = (
+            section.bounded_row_limit
+            for section in self._sections[truncated_at:]
+            if isinstance(section, TableSection) and section.bounded_row_limit is not None
+        )
+        return next(limits, 0)
 
     def _omission_tokens(
         self,
@@ -286,6 +378,7 @@ class Card:
                 current_line_is_table_row=current_line is not None
                 and current_line.section_index == index
                 and current_line.is_table_row,
+                bounded=True,
             )
             if token is not None:
                 tokens.append(token)
@@ -312,7 +405,7 @@ def format_bounded_card(
 
 
 def _section_text_lines(section: Section) -> Iterator[str]:
-    for text, _is_table_row in _section_text_line_items(section):
+    for text, _is_table_row in _section_text_line_items(section, bounded=False):
         yield text
 
 
@@ -328,15 +421,20 @@ def _rows_shown_by_section(lines: Sequence[_Line]) -> dict[int, int]:
     return rows_shown
 
 
-def _section_text_line_items(section: Section) -> Iterator[tuple[str, bool]]:
+def _section_text_line_items(
+    section: Section,
+    *,
+    bounded: bool,
+) -> Iterator[tuple[str, bool]]:
     if isinstance(section, TableSection):
         yield f"columns: {' | '.join(section.columns)}", False
-        iterator = _table_rows(section)
+        iterator = _table_rows(section, bounded=bounded)
         first = next(iterator, None)
+        label = section.bounded_label if bounded and section.bounded_label else section.label
         if first is None:
-            yield f"{section.label}: none", False
+            yield f"{label}: none", False
             return
-        yield f"{section.label}:", False
+        yield f"{label}:", False
         yield _format_row(first), True
         for row in iterator:
             yield _format_row(row), True
@@ -352,13 +450,18 @@ def _section_text_line_items(section: Section) -> Iterator[tuple[str, bool]]:
     yield f"{section.label}: {section.value}", False
 
 
-def _table_rows(section: TableSection) -> Iterator[tuple[str, ...]]:
-    if section.rows is not None:
-        yield from section.rows
+def _table_rows(section: TableSection, *, bounded: bool) -> Iterator[tuple[str, ...]]:
+    if bounded and section.bounded_rows_provider is not None:
+        rows: Iterable[Sequence[str]] = section.bounded_rows_provider()
+    elif section.rows is not None:
+        rows = section.rows
+    elif section.rows_provider is not None:
+        rows = section.rows_provider()
+    else:
         return
-    if section.rows_provider is None:
-        return
-    for row in section.rows_provider():
+    if bounded and section.bounded_row_limit is not None:
+        rows = islice(rows, section.bounded_row_limit)
+    for row in rows:
         yield tuple(str(value) for value in row)
 
 
@@ -371,16 +474,23 @@ def _section_omission_token(
     *,
     rows_shown: int,
     current_line_is_table_row: bool,
+    bounded: bool,
 ) -> str | None:
     if isinstance(section, TableSection):
-        omitted_rows = _omitted_table_rows(section, rows_shown, current_line_is_table_row)
+        omitted_rows = _omitted_table_rows(
+            section,
+            rows_shown,
+            current_line_is_table_row,
+            bounded=bounded,
+        )
+        label = section.bounded_label if bounded and section.bounded_label else section.label
         if omitted_rows is None:
-            return f"{section.label} rows"
+            return f"{label} rows"
         if not section.show_omission_counts:
             row_word = "row" if omitted_rows == 1 else "rows"
-            return f"{section.label} ({omitted_rows} {row_word})"
+            return f"{label} ({omitted_rows} {row_word})"
         total_rows = rows_shown + omitted_rows
-        return f"{section.label} (displayed={rows_shown} total={total_rows} omitted={omitted_rows})"
+        return f"{label} (displayed={rows_shown} total={total_rows} omitted={omitted_rows})"
     if isinstance(section, ListSection):
         return section.label
     if isinstance(section, FieldSection):
@@ -392,9 +502,12 @@ def _omitted_table_rows(
     section: TableSection,
     rows_shown: int,
     current_line_is_table_row: bool,
+    *,
+    bounded: bool,
 ) -> int | None:
-    if section.row_count is not None:
-        omitted = section.row_count - rows_shown
+    row_count = _bounded_table_row_count(section) if bounded else section.row_count
+    if row_count is not None:
+        omitted = row_count - rows_shown
         return max(omitted, 0)
     if section.rows is not None:
         omitted = len(section.rows) - rows_shown
@@ -404,9 +517,37 @@ def _omitted_table_rows(
     return None
 
 
-def _truncation_marker(*, max_output_bytes: int, tokens: Sequence[str]) -> str:
+def _bounded_table_row_count(section: TableSection) -> int | None:
+    if section.bounded_rows_provider is not None:
+        return section.bounded_row_count
+    return section.row_count
+
+
+def _recovery_text(recoveries: Sequence[str]) -> str:
+    unique = tuple(dict.fromkeys(recoveries))
+    if not unique:
+        return _OMISSION_RECOVERY
+    return f"recover: {'; '.join(unique)}; {_OMISSION_RECOVERY}"
+
+
+def _truncation_marker(
+    *,
+    max_output_bytes: int,
+    tokens: Sequence[str],
+    recoveries: Sequence[str] = (),
+) -> str:
     omitted = ", ".join(tokens) if tokens else "output"
-    return f"output truncated at {max_output_bytes} bytes; omitted: {omitted}; {_OMISSION_RECOVERY}"
+    return (
+        f"output truncated at {max_output_bytes} bytes; omitted: {omitted}; "
+        f"{_recovery_text(recoveries)}"
+    )
+
+
+def _row_limit_marker(
+    *, limit: int, omitted_tokens: Sequence[str], recoveries: Sequence[str]
+) -> str:
+    omitted = ", ".join(omitted_tokens) if omitted_tokens else "preview rows"
+    return f"preview limited to {limit} rows; omitted: {omitted}; {_recovery_text(recoveries)}"
 
 
 def _best_fit_marker(
@@ -416,19 +557,32 @@ def _best_fit_marker(
     body: Sequence[str],
     tail: Sequence[str],
     omitted_tokens: Sequence[str],
+    recoveries: Sequence[str],
     require_all_tokens: bool,
 ) -> str:
     if require_all_tokens:
-        return _truncation_marker(max_output_bytes=max_output_bytes, tokens=omitted_tokens)
+        return _truncation_marker(
+            max_output_bytes=max_output_bytes,
+            tokens=omitted_tokens,
+            recoveries=recoveries,
+        )
     accepted_tokens: list[str] = []
     for token in omitted_tokens:
         candidate_tokens = [*accepted_tokens, token]
-        marker = _truncation_marker(max_output_bytes=max_output_bytes, tokens=candidate_tokens)
+        marker = _truncation_marker(
+            max_output_bytes=max_output_bytes,
+            tokens=candidate_tokens,
+            recoveries=recoveries,
+        )
         if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
             accepted_tokens.append(token)
             continue
         break
-    marker = _truncation_marker(max_output_bytes=max_output_bytes, tokens=accepted_tokens)
+    marker = _truncation_marker(
+        max_output_bytes=max_output_bytes,
+        tokens=accepted_tokens,
+        recoveries=recoveries,
+    )
     if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
         return marker
     return _truncation_marker(max_output_bytes=max_output_bytes, tokens=())

@@ -28,6 +28,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence.types import (
     ArtifactDigest,
     ArtifactIssue,
+    DataQualityIssue,
     EvidenceScope,
     QualitySummary,
 )
@@ -38,6 +39,7 @@ from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRAC
 
 CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v8"] = "analysis-artifact/v8"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
+_DEFAULT_FRAME_PREVIEW_ROWS = 50
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -1021,15 +1023,26 @@ class BaseFrame(RenderableResult):
     def _repr_html_(self) -> None:
         return None
 
-    def _append_evidence_sections(self, card: Card) -> Card:
-        if self.meta.issues:
+    def _append_evidence_sections(
+        self,
+        card: Card,
+        *,
+        include_digest_items: bool = True,
+        include_quality_issues: bool = True,
+    ) -> Card:
+        issues = tuple(
+            issue
+            for issue in self.meta.issues
+            if include_quality_issues or not isinstance(issue, DataQualityIssue)
+        )
+        if issues:
             from marivo.analysis.evidence.summary import render_artifact_issue
 
             card.listing(
                 "issues",
                 (
                     f"{issue.severity} {issue.kind}: {render_artifact_issue(issue)}"
-                    for issue in self.meta.issues
+                    for issue in issues
                 ),
             )
         digest = self.meta.evidence_digest
@@ -1038,14 +1051,22 @@ class BaseFrame(RenderableResult):
                 card.field("evidence", "no evidence findings emitted")
             else:
                 omitted_items = digest.omissions.omitted_items
-                full_rows_hint = "; call .to_pandas() for all rows" if omitted_items else ""
+                recovery = (
+                    f"; recover=session.evidence.findings(artifact_ref='{self.meta.ref}')"
+                    if omitted_items
+                    else ""
+                )
                 card.field(
                     "evidence",
-                    f"items={len(digest.items)} omitted={omitted_items}{full_rows_hint}",
+                    f"items={len(digest.items)} omitted={omitted_items}{recovery}",
                 )
-                from marivo.analysis.evidence.summary import render_digest_item
+                if include_digest_items:
+                    from marivo.analysis.evidence.summary import render_digest_item
 
-                card.listing("evidence items", (render_digest_item(item) for item in digest.items))
+                    card.listing(
+                        "evidence items",
+                        (render_digest_item(item) for item in digest.items),
+                    )
             if digest.boundaries:
                 card.listing(
                     "inference boundaries",
@@ -1057,42 +1078,31 @@ class BaseFrame(RenderableResult):
 
     def _base_card(self) -> Card:
         """Build the shared card header and fields before any preview table."""
-        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
-        status = self._render_status()
-        if status is not None:
-            card.status(status)
-        if self.meta.analysis_purpose:
-            card.field("analysis_purpose", self.meta.analysis_purpose)
-        self._append_artifact_interface_sections(card)
+        card = self._header_card()
         self._append_evidence_sections(card)
         return card
 
-    def _append_artifact_interface_sections(self, card: Card) -> Card:
-        """Append actual public columns and exact semantic acquisition guidance."""
-        card.field("output_columns", repr(self.columns))
-        semantic_inputs, semantic_inputs_omitted = self._bounded_semantic_inputs()
-        if semantic_inputs:
-            card.listing(
-                "semantic inputs",
-                (
-                    f"{item.role}: {item.semantic_kind.value}:{item.semantic_path}"
-                    + (
-                        f" output_column={item.output_column}"
-                        if item.output_column is not None
-                        else ""
-                    )
-                    + f"; acquire={item.acquisition}"
-                    for item in semantic_inputs
-                ),
-            )
-        if semantic_inputs_omitted:
-            card.field("semantic_inputs_omitted", str(semantic_inputs_omitted))
+    def _header_card(self, status_prefix: str | None = None) -> Card:
+        """Build identity, state, and purpose before family-specific context."""
+        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
+        status_parts = [part for part in (status_prefix, self._render_status()) if part]
+        if status_parts:
+            card.status(" ".join(status_parts))
+        if self.meta.analysis_purpose:
+            card.field("analysis_purpose", self.meta.analysis_purpose)
         return card
 
     def _card(self) -> Card:
-        columns = self._public_column_names()
-        return self._base_card().lazy_table(
-            columns=columns,
+        return self._append_preview_table(self._base_card())
+
+    def _append_preview_table(self, card: Card, *, label: str = "preview") -> Card:
+        """Append the shared bounded row preview after decision-critical context."""
+        return card.lazy_table(
+            columns=self._public_column_names(),
             rows_provider=self._preview_rows_provider,
             row_count=len(self._df),
+            label=label,
+            show_omission_counts=True,
+            bounded_row_limit=_DEFAULT_FRAME_PREVIEW_ROWS,
+            recovery=f"session.get_frame('{self.meta.ref}').to_pandas()",
         )

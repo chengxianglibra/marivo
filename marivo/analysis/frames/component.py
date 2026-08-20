@@ -10,6 +10,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from marivo.analysis._semantic_persistence import AxisBindingV1, ComponentBindingV1
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.render import Card
 from marivo.semantic.metric_graph import CatalogMetricIdentity, MetricIdentity
 
 
@@ -275,3 +276,33 @@ class ComponentFrame(BaseFrame):
             f"ComponentFrame ref={self.meta.ref} parent={self.meta.parent_ref} "
             f"{subject} rows={self.meta.row_count}"
         )
+
+    def _card(self) -> Card:
+        card = self._header_card()
+        card.field(
+            "composition",
+            (
+                f"kind={self.meta.composition_kind or 'graph'} "
+                f"parent={self.meta.parent_kind}:{self.meta.parent_ref} "
+                f"shape={self.meta.semantic_kind} roots={len(self.meta.root_node_ids)}"
+            ),
+        )
+        if self.meta.component_bindings:
+            card.listing(
+                "components",
+                (
+                    f"{binding.role}={self.meta.components[binding.role]} column={binding.column}"
+                    for binding in self.meta.component_bindings
+                ),
+            )
+        if self.meta.axis_bindings:
+            card.listing(
+                "axes",
+                (
+                    f"{binding.role}={binding.ref.path} column={binding.column}"
+                    + (f" grain={binding.grain}" if binding.grain is not None else "")
+                    for binding in self.meta.axis_bindings
+                ),
+            )
+        self._append_evidence_sections(card)
+        return self._append_preview_table(card)

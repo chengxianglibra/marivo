@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
 
+import pandas as pd
 from pydantic import ConfigDict, model_validator
 
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, _display_column_names
+from marivo.analysis.frames.base import (
+    _DEFAULT_FRAME_PREVIEW_ROWS,
+    BaseFrame,
+    BaseFrameMeta,
+    _display_column_names,
+    _preview_cell,
+)
 from marivo.refs import RefPayloadV1
 from marivo.render import Card
 
@@ -216,22 +224,58 @@ class QualityReport(BaseFrame):
             f"blocking={self.meta.blocking_issue_count} rows={self.meta.row_count}"
         )
 
+    def _attention_dataframe(self) -> pd.DataFrame:
+        """Return warning/blocking checks in decision order, preserving source order."""
+        attention = self._df.loc[self._df["severity"].isin(("blocking", "warning"))].copy()
+        if attention.empty:
+            return attention
+        attention["_attention_rank"] = attention["severity"].map({"blocking": 0, "warning": 1})
+        return attention.sort_values("_attention_rank", kind="stable").drop(
+            columns=["_attention_rank"]
+        )
+
+    def _attention_rows_provider(self) -> Iterator[tuple[str, ...]]:
+        columns = self._public_column_names()
+        for row in self._attention_dataframe().itertuples(index=False, name=None):
+            yield tuple(str(_preview_cell(value)) for value in row[: len(columns)])
+
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
+        total = len(self._df)
+        ok_count = total - self.meta.blocking_issue_count - self.meta.warning_count
         status_parts = [
             f"status={self.meta.overall_status}",
+            f"checks={total}",
+            f"ok={ok_count}",
             f"blocking={self.meta.blocking_issue_count}",
             f"warning={self.meta.warning_count}",
         ]
         evidence = self._evidence_status_token()
         if evidence is not None:
             status_parts.append(evidence)
-        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
-            " ".join(status_parts)
+        card = self._header_card().status(" ".join(status_parts))
+        card.field(
+            "target",
+            (
+                f"kind={self.meta.target_kind} shape={self.meta.target_semantic_kind} "
+                f"sources={','.join(self.meta.source_refs)}"
+            ),
         )
-        self._append_evidence_sections(card)
+        self._append_evidence_sections(
+            card,
+            include_digest_items=False,
+            include_quality_issues=False,
+        )
+        attention_count = self.meta.blocking_issue_count + self.meta.warning_count
         return card.lazy_table(
             columns=columns,
             rows_provider=self._preview_rows_provider,
-            row_count=len(self._df),
+            row_count=total,
+            label="checks",
+            bounded_rows_provider=self._attention_rows_provider,
+            bounded_row_count=attention_count,
+            bounded_label="attention",
+            show_omission_counts=True,
+            bounded_row_limit=_DEFAULT_FRAME_PREVIEW_ROWS,
+            recovery=f"session.get_frame('{self.meta.ref}').to_pandas()",
         )

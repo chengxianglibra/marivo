@@ -21,7 +21,6 @@ from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
     _ArtifactSemanticBinding,
-    _display_column_names,
 )
 from marivo.analysis.frames.subject import SubjectCohortBinding
 from marivo.analysis.windows.spec import TimeScope
@@ -444,7 +443,6 @@ class EventFrame(BaseFrame):
         return tuple(bindings)
 
     def _card(self) -> Card:
-        columns = _display_column_names(self._df.columns)
         if self.meta.semantic_kind == "journey":
             matching: str = self.meta.matching.kind
             if self.meta.matching.kind == "every_start":
@@ -464,16 +462,9 @@ class EventFrame(BaseFrame):
                 f"start={self.meta.start_step.key} end={self.meta.end_step.key} "
                 f"attempts={self.meta.row_count} coverage={self.meta.coverage_basis}"
             )
-        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
-            status
-        )
-        self._append_artifact_interface_sections(card)
+        card = self._header_card(status)
         self._append_evidence_sections(card)
-        return card.lazy_table(
-            columns=columns,
-            rows_provider=self._preview_rows_provider,
-            row_count=len(self._df),
-        )
+        return self._append_preview_table(card)
 
 
 def restore_event_identity_columns(frame: Any) -> None:

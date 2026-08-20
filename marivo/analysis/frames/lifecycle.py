@@ -16,7 +16,6 @@ from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
     _ArtifactSemanticBinding,
-    _display_column_names,
     _FrameAuxiliaryReceipt,
     _FrameAuxiliaryTable,
 )
@@ -877,7 +876,6 @@ class LifecycleFrame(BaseFrame):
         return tuple(bindings)
 
     def _card(self) -> Card:
-        columns = _display_column_names(self._df.columns)
         # History discloses the exact business choices behind the artifact:
         # the seed, the completeness basis, and the fixed violation contract.
         fields: tuple[tuple[str, str], ...] = ()
@@ -893,18 +891,11 @@ class LifecycleFrame(BaseFrame):
             )
         else:
             status = f"source={cast('LifecycleReducerFrameMetaBase', self.meta).source_history_ref}"
-        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
-            status
-        )
+        card = self._header_card(status)
         for label, value in fields:
             card = card.field(label, value)
-        self._append_artifact_interface_sections(card)
         self._append_evidence_sections(card)
-        return card.lazy_table(
-            columns=columns,
-            rows_provider=self._preview_rows_provider,
-            row_count=len(self._df),
-        )
+        return self._append_preview_table(card)
 
 
 __all__ = [

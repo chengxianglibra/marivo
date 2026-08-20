@@ -294,7 +294,7 @@ class CandidateSet(BaseFrame):
             return super()._card()
         meta = self.meta
         card = (
-            self._base_card()
+            self._header_card()
             .field("source_metric", meta.source_metric_ref.path)
             .field(
                 "source_entity", meta.source_entity_ref.path if meta.source_entity_ref else "none"
@@ -318,6 +318,7 @@ class CandidateSet(BaseFrame):
                 ),
             )
         )
+        self._append_evidence_sections(card)
         contexts = {context.semantic_edge_ref.path: context for context in meta.edge_contexts}
 
         def candidate_lines() -> tuple[str, ...]:
