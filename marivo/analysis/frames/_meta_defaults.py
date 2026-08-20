@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Literal, cast
 
 import pandas as pd
@@ -23,6 +25,19 @@ from marivo.refs import RefPayloadV1
 from marivo.semantic.metric_graph import DeltaComparisonIdentity, MetricIdentity
 
 GRAIN_FREQ = {"hour": "h", "day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
+
+
+@dataclass(frozen=True)
+class TimeCoverageResult:
+    """One normalized, extent-aware coverage computation."""
+
+    requested_expected_buckets: tuple[pd.Timestamp, ...]
+    expected_buckets: tuple[pd.Timestamp, ...]
+    observed_buckets: frozenset[pd.Timestamp]
+    missing_buckets: tuple[pd.Timestamp, ...]
+    beyond_extent_buckets: tuple[pd.Timestamp, ...]
+    data_extent_end: date | None
+    coverage_ratio: float
 
 
 def normalize_coverage_buckets(timestamps: pd.Series, *, grain: str) -> pd.Series:
@@ -71,6 +86,92 @@ def canonicalize_coverage_timestamps(
     if observed_aware:
         observed = observed.dt.tz_convert(canonical).dt.tz_localize(None)
     return pd.DatetimeIndex(expected_series), observed
+
+
+def observed_data_extent_end(
+    timestamps: pd.Series,
+    *,
+    tz: str | None = None,
+) -> date | None:
+    """Return the latest observed civil date in the report timezone."""
+    if timestamps.empty:
+        return None
+    parsed = pd.to_datetime(timestamps).dropna()
+    if parsed.empty:
+        return None
+    if parsed.dt.tz is not None and tz is not None:
+        parsed = parsed.dt.tz_convert(tz)
+    latest = parsed.max()
+    return pd.Timestamp(latest).date()
+
+
+def compute_time_coverage(
+    expected: pd.DatetimeIndex,
+    observed: pd.Series,
+    *,
+    grain: str,
+    tz: str | None = None,
+    data_extent_end: date | datetime | None = None,
+) -> TimeCoverageResult:
+    """Compute bucket coverage inside the last observed civil date.
+
+    Extent is a civil-date authority.  Comparing expected bucket dates to that
+    authority keeps every hour on the extent date in scope while excluding
+    later days, months, or periods selected only by an over-wide window.
+    """
+    expected_aware = expected.tz is not None
+    observed_aware = len(observed) > 0 and observed.dt.tz is not None
+    canonical_tz = tz if expected_aware == observed_aware else None
+    canonical_expected, canonical_observed = canonicalize_coverage_timestamps(
+        expected,
+        observed,
+        tz=canonical_tz,
+    )
+    normalized_expected = tuple(
+        pd.Timestamp(value)
+        for value in normalize_coverage_buckets(
+            pd.Series(canonical_expected),
+            grain=grain,
+        )
+    )
+    normalized_observed = normalize_coverage_buckets(canonical_observed, grain=grain)
+    observed_buckets = frozenset(pd.Timestamp(value) for value in normalized_observed.unique())
+
+    extent = data_extent_end
+    extent_date: date | None
+    if isinstance(extent, datetime):
+        extent_timestamp = pd.Timestamp(extent)
+        if extent_timestamp.tzinfo is not None and tz is not None:
+            extent_timestamp = extent_timestamp.tz_convert(tz)
+        extent_date = extent_timestamp.date()
+    elif isinstance(extent, date):
+        extent_date = extent
+    else:
+        extent_date = observed_data_extent_end(canonical_observed)
+
+    if extent_date is None:
+        expected_buckets = normalized_expected
+        beyond_extent: tuple[pd.Timestamp, ...] = ()
+    else:
+        expected_buckets = tuple(
+            value for value in normalized_expected if value.date() <= extent_date
+        )
+        beyond_extent = tuple(value for value in normalized_expected if value.date() > extent_date)
+    missing = tuple(value for value in expected_buckets if value not in observed_buckets)
+    ratio = (
+        1.0
+        if not expected_buckets
+        else (len(expected_buckets) - len(missing)) / len(expected_buckets)
+    )
+    return TimeCoverageResult(
+        requested_expected_buckets=normalized_expected,
+        expected_buckets=expected_buckets,
+        observed_buckets=observed_buckets,
+        missing_buckets=missing,
+        beyond_extent_buckets=beyond_extent,
+        data_extent_end=extent_date,
+        coverage_ratio=ratio,
+    )
 
 
 def _coverage_summary_val(meta: BaseFrameMeta, key: str) -> float | int | None:
@@ -131,28 +232,23 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
                         inclusive="left",
                     )
                     if time_col in frame._df.columns and len(frame._df) > 0:
-                        # Issue #70: canonicalize an aware scope window against
-                        # naive (or different tz) frame buckets onto one
-                        # wall-clock basis before the membership test. Canonicalize
-                        # on the frame's report_tz (the tz observe bucketed by) so
-                        # summary agrees with the time_coverage check even when the
-                        # scope window tz differs from the session report tz.
-                        expected_ci, observed_ts = canonicalize_coverage_timestamps(
+                        temporal_contract = getattr(meta, "temporal_contract", None)
+                        canonical_expected, canonical_observed = canonicalize_coverage_timestamps(
                             expected,
                             pd.to_datetime(frame._df[time_col]).dropna(),
                             tz=getattr(meta, "report_tz", None),
                         )
-                        observed_set = set(
-                            normalize_coverage_buckets(observed_ts, grain=grain).unique()
+                        result = compute_time_coverage(
+                            canonical_expected,
+                            canonical_observed,
+                            grain=grain,
+                            data_extent_end=getattr(
+                                temporal_contract,
+                                "data_extent_end",
+                                None,
+                            ),
                         )
-                        missing = sum(
-                            1
-                            for ts in normalize_coverage_buckets(
-                                pd.Series(expected_ci), grain=grain
-                            )
-                            if pd.Timestamp(ts) not in observed_set
-                        )
-                        coverage = 1.0 - (missing / len(expected)) if len(expected) > 0 else None
+                        coverage = result.coverage_ratio
                     else:
                         coverage = 0.0
                 except Exception:

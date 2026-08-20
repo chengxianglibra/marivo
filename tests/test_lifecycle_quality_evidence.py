@@ -359,6 +359,38 @@ def test_lifecycle_quality_report_is_typed_and_identity_safe() -> None:
     assert recovered_digest.fingerprint == report.meta.evidence_digest.fingerprint
 
 
+def test_empty_lifecycle_result_is_warning_when_receipts_remain_valid() -> None:
+    session = mv.session.get_or_create(
+        name="empty_lifecycle_report",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    source = _history_frame(session)
+    meta = cast("LifecycleHistoryFrameMeta", source.meta)
+    empty = LifecycleFrame(
+        _df=source.to_pandas().iloc[0:0],
+        meta=meta.model_copy(
+            update={
+                "row_count": 0,
+                "interval_count": 0,
+                "seeded_subject_count": 0,
+            }
+        ),
+        _auxiliary_frames={
+            "violations.parquet": source._auxiliary_frames["violations.parquet"].copy(deep=True)
+        },
+    )
+    empty.meta = persist_frame(session, empty)
+
+    report = session.assess_quality(empty)
+    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+
+    assert row_count["severity"] == "warning"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
+    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
+
+
 def test_lifecycle_quality_discloses_unknown_coverage_and_censoring() -> None:
     session = mv.session.get_or_create(
         name="lifecycle_unknown_coverage",

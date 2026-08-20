@@ -569,7 +569,17 @@ gating. They do not recompute quality. `QualityReport.state` retains the common
 `ArtifactState` contract and therefore describes materialization and content
 identity, not the quality verdict.
 
-The bounded Quality card reports total, ok, warning, and blocking counts. It
+Severity is correctness-based. `blocking` is reserved for structural, identity,
+ordering, arithmetic, reconciliation, or coverage-receipt contradictions that
+make the artifact's result wrong or ambiguous. Empty or low-volume results,
+nulls, missing time buckets, unknown coverage, pairing caveats, and censoring are
+`warning`: analysis may continue, but the limitation must be disclosed. A
+requested time window that extends beyond `data_extent_end` while remaining
+complete inside the extent is an `info` check row and does not change
+`overall_status`. Warning rows retain typed issues; only blocking rows contribute
+to `blocking_issue_count`.
+
+The bounded Quality card reports total, ok, info, warning, and blocking counts. It
 lists only blocking and warning checks, ordered by blocking first, warning
 second, then original check order; metric-level rows retain `metric_id`. A clean
 report says `attention: none`. This exception view does not repeat the same

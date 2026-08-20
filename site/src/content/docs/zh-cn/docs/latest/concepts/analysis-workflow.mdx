@@ -512,14 +512,18 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 使用 `report.overall_status`、`report.blocking_issue_count` 和
 `report.warning_count` 读取权威质量判定与计数。`report.state` 仍是描述
 物化的 `ArtifactState` 元数据，不是质量状态。
+只有会让结果错误或产生歧义的结构、身份、顺序、算术、对账或 coverage receipt
+矛盾才是 `blocking`。空结果、低样本量、高空值率、时间 bucket 缺失、coverage
+未知及 censoring 都是 `warning`：可以继续分析，但必须披露这些限制。请求窗口
+超过 `data_extent_end`、且 extent 内覆盖完整时，该检查为 `info`。
 对于累计 comparable-周期 `DeltaFrame`，报告直接读取类型化 pairing
 证据，并呈现 matched-null、unpaired 和回退计数。
 指标归因的 `scalar`、`time_series`、`segmented` 与 `panel` 形状也可直接
 检查，包括 generic-v2 和 cumulative-flow 行契约。固定检查覆盖行契约、结果
 是否为空、贡献值是否为有限数，以及类型化 reconciliation receipt；additive
-panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门的行数检查阻断，
-不会被误报为对账失败；漏斗损失率归因仍使用其专属组件、符号池、residual 与
-对账检查。
+panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门的行数检查给出
+warning，不会被误报为对账失败；漏斗损失率归因仍使用其专属组件、符号池、
+residual 与对账检查，并遵循相同的空结果 advisory 合同。
 
 调用前先查看 `artifact.contract()`：其中 `assess_quality` affordance 会列出
 当前产物家族允许的精确形状；`marivo.help("assess_quality")` 则给出完整的
@@ -527,8 +531,9 @@ panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门�
 一次，measure 级检查按权威 measure binding 逐指标执行；任一检查为 blocking，
 整份报告即为 blocking。指标级报告行携带规范 `metric_id`，Frame 级报告行不携带
 指标 ID；类型化 issue 和 finding 保留精确的指标身份。
-报告的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
-`time_coverage_incomplete` 问题时，不得把该窗口作为完整周期事实报告。
+报告的 `contract().issues` 包含类型化数据质量发现。只有 blocking correctness
+问题要求停止；包括 `time_coverage_incomplete` 在内的 warning 仍可作为证据继续
+使用，但必须在后续分析与结论中披露。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |

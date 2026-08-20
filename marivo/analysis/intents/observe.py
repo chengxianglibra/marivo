@@ -62,7 +62,10 @@ from marivo.analysis.executor.runner import (
     normalize_slice_for_storage,
 )
 from marivo.analysis.executor.windowing import datasource_engine_profile
-from marivo.analysis.frames._meta_defaults import compute_analysis_scope
+from marivo.analysis.frames._meta_defaults import (
+    compute_analysis_scope,
+    observed_data_extent_end,
+)
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 from marivo.analysis.frames.metric import MetricExecutionStatsV1, MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.subject import SubjectSet
@@ -1017,6 +1020,11 @@ def _build_frame_temporal_contract(
         candidate = frame["data_extent_end"].iloc[0]
         if candidate is not None and not pd.isna(candidate):
             data_extent_end = candidate
+    elif "bucket_start" in frame.columns and len(frame) > 0:
+        data_extent_end = observed_data_extent_end(
+            pd.to_datetime(frame["bucket_start"]).dropna(),
+            tz=report_timezone,
+        )
     return FrameTemporalContractV1(
         time_scope=scope_contract,
         observation_period=observation_period,

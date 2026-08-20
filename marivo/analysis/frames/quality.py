@@ -242,11 +242,17 @@ class QualityReport(BaseFrame):
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
         total = len(self._df)
-        ok_count = total - self.meta.blocking_issue_count - self.meta.warning_count
+        if "severity" in self._df.columns:
+            ok_count = int((self._df["severity"] == "ok").sum())
+            info_count = int((self._df["severity"] == "info").sum())
+        else:
+            ok_count = total - self.meta.blocking_issue_count - self.meta.warning_count
+            info_count = 0
         status_parts = [
             f"status={self.meta.overall_status}",
             f"checks={total}",
             f"ok={ok_count}",
+            f"info={info_count}",
             f"blocking={self.meta.blocking_issue_count}",
             f"warning={self.meta.warning_count}",
         ]

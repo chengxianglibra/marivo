@@ -142,6 +142,8 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert quality.meta.target_metric_id == "sales.revenue"
     assert quality.meta.target_semantic_kind == "segmented"
     assert quality.meta.overall_status == "ok"
+    assert quality.evidence_status == "complete"
+    assert quality.evidence_digest is not None
     assert quality.to_pandas()["metric_id"].isna().all()
     assert set(quality.to_pandas()["check_id"]) == {
         "attribution_row_count",
@@ -245,7 +247,7 @@ def test_panel_attribution_quality_validates_each_bucket_reconciliation() -> Non
     assert "attribution_reconciliation_invalid" in issue_kinds
 
 
-def test_empty_attribution_quality_blocks_on_row_count_not_reconciliation() -> None:
+def test_empty_attribution_quality_warns_on_row_count_not_reconciliation() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(
         session,
@@ -266,8 +268,11 @@ def test_empty_attribution_quality_blocks_on_row_count_not_reconciliation() -> N
         zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
     )
 
-    assert quality.meta.overall_status == "blocking"
-    assert status["attribution_row_count"] == "blocking"
+    assert quality.meta.overall_status == "warning"
+    assert quality.meta.blocking_issue_count == 0
+    assert quality.evidence_status == "complete"
+    assert quality.evidence_digest is not None
+    assert status["attribution_row_count"] == "warning"
     assert status["attribution_row_contract"] == "ok"
     assert status["attribution_reconciliation"] == "ok"
     issue_kinds = {issue.kind for issue in quality.meta.issues}

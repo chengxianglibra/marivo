@@ -208,6 +208,7 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
     assert report.meta.analysis_scope.kind == "event"
     assert report.to_pandas()["metric_id"].isna().all()
     assert set(report.to_pandas()["check_kind"]) == {
+        "row_count",
         "event_row_contract",
         "event_identity",
         "event_participant",
@@ -223,6 +224,28 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
     persisted = json.dumps(report.meta.model_dump(mode="json"), sort_keys=True)
     assert "user_1" not in persisted
     assert "cart_1" not in persisted
+
+
+def test_empty_event_result_is_warning_when_contract_remains_valid(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create(
+        name="empty_event_quality",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    source = _declared_event_frame(session)
+    empty = EventFrame(
+        _df=source.to_pandas().iloc[0:0],
+        meta=source.meta.model_copy(update={"row_count": 0}),
+    )
+
+    report = session.assess_quality(empty)
+    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+
+    assert row_count["severity"] == "warning"
+    assert report.meta.overall_status == "warning"
+    assert report.meta.blocking_issue_count == 0
+    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
 
 
 def test_declared_completeness_is_not_a_quality_warning(tmp_path, monkeypatch) -> None:
