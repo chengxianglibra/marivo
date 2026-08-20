@@ -341,7 +341,9 @@ class MetricFrameTransforms(_FrameTransforms[MetricFrame]):
 
         Constraints:
             Only MetricFrame exposes normalize; DeltaFrameTransforms has no
-            normalize method.
+            normalize method. Normalized outputs are not plain-sum
+            reaggregatable in v1; re-observe at the target grain or dimensions
+            before normalizing when a coarser result is required.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_normalize

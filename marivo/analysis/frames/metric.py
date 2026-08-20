@@ -256,6 +256,23 @@ def _attach_rollup_affordance(contract: ArtifactContract) -> ArtifactContract:
     return contract.model_copy(update={"affordances": tuple(affordances)})
 
 
+def _clamp_reaggregatable(additivity: str | None, reaggregatable: bool) -> bool:
+    """Conservative plain-sum rollup gate for ``reaggregatable`` (issue #110).
+
+    ``reaggregatable`` means "a plain ``.sum()`` rollup is safe for the value
+    column".  Only ``additive`` values are closed under cross-grain summation;
+    ``semi_additive`` folds via ``rollup_fold`` and ``non_additive``/unknown
+    values have no plain-sum rollup, so any persisted ``reaggregatable=True``
+    must be downgraded to ``False`` unless the additivity is ``additive``.
+
+    This is idempotent for the values the observe path already writes
+    (additive keeps ``True``, everything else is already ``False``), so it is
+    lossless for current payloads and only converges legacy artifacts
+    (pre-issue-110 fold/cumulative-only rule) to the blocked state.
+    """
+    return bool(reaggregatable) and additivity == "additive"
+
+
 class MetricFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
@@ -300,8 +317,16 @@ class MetricFrameMeta(BaseFrameMeta):
     #: for metrics whose composition does not divide.
     zero_denominator_rows: int | None = None
     fold: dict[str, Any] | None = None
+    #: Whether the materialized frame has a known safe *plain-sum* rollup.
+    #: In the v1 contract this is only True for ``additive`` metrics with no
+    #: fold/cumulative contract; ``semi_additive`` folds via ``rollup_fold`` and
+    #: ``non_additive``/unknown values must be conservatively blocked (issue #110).
     reaggregatable: bool = True
+    #: How the result may be summed on a business axis
+    #: (``additive``/``semi_additive``/``non_additive``); ``None`` means unknown.
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
+    #: How the source rows were aggregated (``sum``/``count``/``percentile(q)``/...);
+    #: ``None`` means unknown or not applicable (e.g. ratio/linear).
     aggregation: str | None = None
     status_time_dimension: str | None = Field(default=None, exclude=True)
     sample_set_digest: str | None = None

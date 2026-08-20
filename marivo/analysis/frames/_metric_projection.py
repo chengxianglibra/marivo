@@ -26,7 +26,7 @@ from marivo.analysis.evidence.pipeline import (
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.component import ComponentFrame
-from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta, _clamp_reaggregatable
 from marivo.analysis.intents._observe_persist import (
     _attach_metric_component_graph_ref,
     _persist_metric_component_graph_frame,
@@ -237,9 +237,11 @@ def _semantic_aggregation(binding: MeasureBindingV1 | None, entry: dict[str, Any
 
 
 def _semantic_reaggregatable(binding: MeasureBindingV1 | None, entry: dict[str, Any]) -> bool:
-    return (
+    additivity = binding.additivity if binding is not None else entry.get("additivity")
+    reaggregatable = (
         binding.reaggregatable if binding is not None else bool(entry.get("reaggregatable", True))
     )
+    return _clamp_reaggregatable(additivity, reaggregatable)
 
 
 def _semantic_status_time_dimension(

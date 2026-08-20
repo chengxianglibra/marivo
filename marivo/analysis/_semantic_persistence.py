@@ -118,6 +118,9 @@ class MeasureBindingV1:
     unit_state: MetricUnitStateV2 | None = None
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     aggregation: str | None = None
+    #: True only when this binding has a known safe plain-sum rollup (additive,
+    #: no fold/cumulative).  semi_additive uses ``rollup_fold``; non_additive and
+    #: unknown values must never be published as reaggregatable (issue #110).
     reaggregatable: bool = True
     status_time_dimension_ref: RefPayloadV1 | None = None
     cumulative: dict[str, Any] | None = None

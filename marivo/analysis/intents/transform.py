@@ -8,6 +8,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from time import monotonic
 from typing import Any, Literal, TypeVar, cast
@@ -2699,6 +2700,18 @@ def _persist_transform_frame(
         meta_payload["alignment"] = alignment
     if normalization is not None:
         meta_payload["normalization"] = normalization
+        if isinstance(parent, MetricFrame):
+            # Normalization changes the value algebra.  The source metric may
+            # still be additive, but the materialized normalized values have no
+            # v1 plain-sum rollup contract (issue #110).
+            meta_payload["reaggregatable"] = False
+            meta_payload["measure_bindings"] = tuple(
+                replace(binding, reaggregatable=False) for binding in parent.meta.measure_bindings
+            )
+            if parent.meta.measures is not None:
+                meta_payload["measures"] = [
+                    {**entry, "reaggregatable": False} for entry in parent.meta.measures
+                ]
     if temporal_contract is not None:
         meta_payload["temporal_contract"] = temporal_contract
     if window is not None and isinstance(parent, MetricFrame):

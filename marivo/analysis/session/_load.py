@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
@@ -66,7 +67,7 @@ from marivo.analysis.frames.lifecycle import (
     LifecycleTransitionsFrameMeta,
     LifecycleViolationsFrameMeta,
 )
-from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta, _clamp_reaggregatable
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
 from marivo.analysis.intents._candidate_columns import (
@@ -215,6 +216,42 @@ def _validate_current_replay_payload(ref: str, meta: MetricFrameMeta) -> None:
             path="lineage.observe.params.replay_expression",
             reason=str(exc),
         ) from exc
+
+
+def _clamp_loaded_metric_reaggregatable(meta: MetricFrameMeta) -> None:
+    """Re-derive the plain-sum ``reaggregatable`` flag on load (issue #110).
+
+    Artifacts persisted before the issue #110 fix carried ``reaggregatable=True``
+    for ``non_additive``/unknown metrics (the pre-fix fold/cumulative-only rule).
+    Loading such an artifact would re-publish a plain-sum-rollup-able frame, the
+    exact combination issue #110 eliminates. This clamp keeps every ``additive``
+    payload intact while downgrading ``semi_additive``/``non_additive``/unknown
+    to the blocked state, both at the frame level and per measure binding.
+    """
+    bindings = meta.measure_bindings
+    if bindings:
+        meta.measure_bindings = tuple(
+            replace(
+                binding,
+                reaggregatable=_clamp_reaggregatable(binding.additivity, binding.reaggregatable),
+            )
+            for binding in bindings
+        )
+        meta.reaggregatable = all(binding.reaggregatable for binding in meta.measure_bindings)
+        return
+    if meta.measures is not None:
+        meta.measures = [
+            {
+                **entry,
+                "reaggregatable": _clamp_reaggregatable(
+                    entry.get("additivity"), bool(entry.get("reaggregatable", True))
+                ),
+            }
+            for entry in meta.measures
+        ]
+        meta.reaggregatable = all(bool(entry.get("reaggregatable")) for entry in meta.measures)
+        return
+    meta.reaggregatable = _clamp_reaggregatable(meta.additivity, meta.reaggregatable)
 
 
 def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
@@ -883,6 +920,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             },
         ) from exc
     if isinstance(parsed_meta, MetricFrameMeta):
+        _clamp_loaded_metric_reaggregatable(parsed_meta)
         last_intent = parsed_meta.lineage.steps[-1].intent if parsed_meta.lineage.steps else None
         if last_intent in {"observe", "select_metric"}:
             metric_required_state: dict[str, object | None] = {

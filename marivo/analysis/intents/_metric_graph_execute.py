@@ -44,6 +44,7 @@ from marivo.analysis.intents._observe_components import _role_to_column_name
 from marivo.analysis.intents._observe_cumulative import _execute_cumulative
 from marivo.analysis.intents._observe_derived import _merge_component_coverages
 from marivo.analysis.intents._observe_inputs import _metric_expr
+from marivo.analysis.intents._observe_persist import _meta_aggregation
 from marivo.analysis.intents._observe_planner_types import (
     BaseObservePlan,
     CumulativePhysicalLeafPlanV1,
@@ -87,6 +88,7 @@ class GraphNodeExecutionV1:
     unit_state: MetricUnitStateV2
     unit_capability_issue: str | None
     additivity: str | None
+    aggregation: str | None
     fold: Any | None
     coverage_df: Any | None
     quality: MetricEvaluationQualityV1
@@ -404,6 +406,7 @@ def execute_metric_graph_observe(
                     unit_state=unit_state(unit),
                     unit_capability_issue=None,
                     additivity=getattr(leaf.metric_ir, "additivity", None),
+                    aggregation=_meta_aggregation(getattr(leaf.metric_ir, "aggregation", None)),
                     fold=None,
                     coverage_df=None,
                     quality=aggregate.quality,
@@ -457,6 +460,7 @@ def execute_metric_graph_observe(
             unit_state=unit_state(unit),
             unit_capability_issue=None,
             additivity=getattr(leaf.metric_ir, "additivity", None),
+            aggregation=_meta_aggregation(getattr(leaf.metric_ir, "aggregation", None)),
             fold=(
                 leaf.metric_ir.time_fold.label()
                 if getattr(leaf.metric_ir, "time_fold", None) is not None
@@ -505,6 +509,7 @@ def execute_metric_graph_observe(
                 unit_state=child.unit_state,
                 unit_capability_issue=child.unit_capability_issue,
                 additivity=child.additivity,
+                aggregation=child.aggregation,
                 fold=child.fold,
                 coverage_df=child.coverage_df,
                 quality=child.quality,
@@ -539,6 +544,7 @@ def execute_metric_graph_observe(
                     else numerator.unit_capability_issue or denominator.unit_capability_issue
                 ),
                 additivity="non_additive",
+                aggregation=None,
                 fold=None,
                 coverage_df=_merge_coverage((numerator, denominator)),
                 quality=evaluation.quality,
@@ -579,6 +585,7 @@ def execute_metric_graph_observe(
                     )
                 ),
                 additivity=linear_additivity_bucket(tuple(child.additivity for child in children)),
+                aggregation=None,
                 fold=None,
                 coverage_df=_merge_coverage(children),
                 quality=evaluation.quality,
