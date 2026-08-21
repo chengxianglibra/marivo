@@ -111,8 +111,8 @@ def render_root_help() -> str:
     lines.extend(
         (
             "",
-            "Identity handoff: pass a current CatalogEntry directly to verify, "
-            "preview, readiness, or qualifying analysis APIs; use entry.ref or "
+            "Identity handoff: pass a current CatalogEntry directly to preview, "
+            "readiness, or qualifying analysis APIs; use entry.ref or "
             "ms.ref.<kind>(path) for persisted, configured, or already-known identity.",
             "",
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
@@ -125,12 +125,6 @@ def render_root_help() -> str:
 
 
 def _render_authoring(descriptor: AuthoringCapability) -> str:
-    state_rows = [
-        candidate
-        for candidate in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
-        if candidate.produced_state is not None
-        and candidate.produced_state.id.startswith("semantic.")
-    ]
     route_groups = (
         ("domain", ("domain",)),
         ("entity", ("entity",)),
@@ -139,7 +133,8 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
             ("dimension_column", "time_dimension_column", "measure_column"),
         ),
         ("aggregate metrics", ("where", "count", "aggregate")),
-        ("closeout", ("load", "verify", "preview", "readiness")),
+        ("load and scoped readiness", ("load", "readiness")),
+        ("targeted runtime probe", ("preview",)),
     )
     lines = [
         "authoring",
@@ -150,11 +145,10 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         "    models/semantic/<domain>/_domain.py",
         "    models/semantic/<domain>/<module>.py",
         "",
-        "  One-object post-load check:",
+        "  Coherent-slice checkpoint:",
         "    catalog = ms.load()",
-        "    entry = catalog.<collection>.get('<canonical identity>')",
-        "    entry.show()",
-        "    entry.contract().show()",
+        "    entry = catalog.require(ms.ref.<kind>('<canonical identity>'))",
+        "    report = catalog.readiness(refs=[entry])",
         "",
         "  Minimal focused-help routing:",
         '    datasource -> marivo.help("datasource.authoring")',
@@ -170,16 +164,9 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
     lines.extend(
         (
             "",
-            "  Registered semantic states:",
-        )
-    )
-    for candidate in state_rows:
-        assert candidate.produced_state is not None
-        lines.append(f"    {candidate.produced_state.id} <- {candidate.canonical_id}")
-    lines.extend(
-        (
-            "",
-            "  Semantic guidance ends at semantic.ready and the analysis handoff.",
+            "  Author one dependency-coherent slice before loading; ms.load() owns project-level static validation.",
+            "  Preview only when it answers a concrete runtime risk.",
+            "  Before first typed analysis use, stop only for unresolved business meaning not already settled by a current authority.",
             '  Continue datasource authoring with marivo.help("datasource.authoring").',
         )
     )
@@ -229,12 +216,6 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     lines.append(f"  Output family: {descriptor.output_family or 'None'}")
     if descriptor.preconditions:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
-    if descriptor.required_states:
-        lines.append(
-            "  Required state: " + ", ".join(state.id for state in descriptor.required_states)
-        )
-    if descriptor.produced_state is not None:
-        lines.append(f"  Produces state: {descriptor.produced_state.id}")
     effects = descriptor.effects
     assert effects is not None
     lines.extend(
@@ -259,11 +240,6 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
             lines.extend(
                 f"    {_help_invocation(target)}" for target in source_contract.prerequisite_targets
             )
-        if source_contract.judgment_requirements:
-            lines.append(
-                "  Business judgments before authoring: "
-                + ", ".join(source_contract.judgment_requirements)
-            )
     if descriptor.minimal_example is not None:
         lines.extend(
             (
@@ -286,7 +262,7 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
                 "    catalog = ms.load()",
                 (f"    entry = catalog.{source_contract.catalog_collection}.get({identity!r})"),
                 "    entry.show()",
-                "    entry.contract().show()",
+                "    catalog.readiness(refs=[entry]).show()",
             )
         )
     consumers = [
@@ -351,8 +327,8 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if type_name == "CatalogEntry":
         lines.append(
-            "  Runtime handoff: pass the current entry directly to catalog.verify, "
-            "catalog.preview, catalog.readiness, or qualifying analysis APIs; use "
+            "  Runtime handoff: pass the current entry directly to catalog.preview, "
+            "catalog.readiness, or qualifying analysis APIs; use "
             "entry.ref only when a stable configured or persisted identity is needed."
         )
         lines.append(
@@ -378,14 +354,6 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append("  Detail: call .show() for bounded readable state.")
     if "show" in contract.public_methods and "render" in contract.public_methods:
         lines.append("  Display: .show() prints the same bounded card returned by .render().")
-    if "contract" in contract.public_methods:
-        if type_name == "Metric":
-            lines.append(
-                "  Continuation: .contract() only exposes mechanically executable "
-                "verify, preview, and readiness actions."
-            )
-        else:
-            lines.append("  Continuation: call .contract() for mechanically valid next actions.")
     return _bounded("\n".join(lines))
 
 
@@ -445,7 +413,7 @@ def _render_reference(reference_id: str, original: object) -> str:
             "entry.ref",
             "entry.show()",
             "entry.details().show()",
-            "entry.contract().show()",
+            "catalog.readiness(refs=[entry]).show()",
         )
     elif type(original) is Ref:
         ref = original
@@ -456,7 +424,7 @@ def _render_reference(reference_id: str, original: object) -> str:
             "entry = catalog.require(ref)",
             "entry.show()",
             "entry.details().show()",
-            "entry.contract().show()",
+            "catalog.readiness(refs=[entry]).show()",
         )
     else:
         raise RuntimeError(f"expected exact Ref or CatalogEntry, got {type(original).__name__}")

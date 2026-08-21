@@ -13,7 +13,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import (
@@ -608,18 +607,15 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
     assert partition_result.status == "incomplete"
     assert not hasattr(partition_result, "next_calls")
     rendered = partition_result.render()
-    assert ".contract()" in rendered
+    assert ".contract()" not in rendered
     assert "value source: none" in rendered
     assert "values complete: False" in rendered
     assert "md.time_range('dt'" in rendered
     assert "start=<inclusive ISO boundary>" in rendered
-    assert [
-        transition.help_target.canonical_id
-        for transition in partition_result.contract().transitions
-    ] == ["partition", "time_range"]
+    assert not hasattr(partition_result, "contract")
 
 
-def test_inspection_contract_exposes_factual_scope_state_without_string_guidance(
+def test_inspection_exposes_factual_scope_inputs_without_lifecycle_state(
     project_root: Path,
 ) -> None:
     _register_duckdb(project_root)
@@ -628,49 +624,17 @@ def test_inspection_contract_exposes_factual_scope_state_without_string_guidance
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
 
-    contract = inspection.contract()
-
-    assert contract.subject_refs[0] == "datasource:warehouse"
-    assert {state.id for state in contract.states} == {
-        "datasource.registered",
-        "source.inspected",
-    }
-    assert [transition.help_target.canonical_id for transition in contract.transitions] == [
-        "SourceInspection.sample",
-        "unpruned",
-    ]
-    acquire = contract.transitions[0]
-    assert acquire.available is False
-    assert [requirement.family for requirement in acquire.input_requirements] == [
-        "SourceInspection",
-        "AuthoringScope",
-        "Columns",
-    ]
-    assert contract.transitions[1].available is True
-    for transition in contract.transitions:
-        canonical_id = transition.help_target.canonical_id
-        assert canonical_id is not None
-        assert transition.effects == REGISTRY.by_canonical_id(canonical_id).effects
-
-    partition_contract = inspection.partitions().contract()
-    assert partition_contract.subject_refs == contract.subject_refs
-    assert [
-        transition.help_target.canonical_id for transition in partition_contract.transitions
-    ] == [
-        "unpruned",
-    ]
+    assert not hasattr(inspection, "contract")
+    assert inspection.execution_capabilities.timeout_enforced is True
+    assert inspection.schema[0].name == "order_id"
+    assert not hasattr(inspection.partitions(), "contract")
 
     temporal = md.inspect(
         ms.ref.datasource("warehouse"),
         md.csv("events.csv", schema={"occurred_at": "timestamp"}),
     )
-    assert [
-        transition.help_target.canonical_id for transition in temporal.contract().transitions
-    ] == [
-        "SourceInspection.sample",
-        "time_range",
-        "unpruned",
-    ]
+    assert temporal.schema[0].name == "occurred_at"
+    assert temporal.execution_capabilities.partition_predicate_supported is True
     predicate_unsupported = replace(
         temporal,
         execution_capabilities=replace(
@@ -678,13 +642,10 @@ def test_inspection_contract_exposes_factual_scope_state_without_string_guidance
             partition_predicate_supported=False,
         ),
     )
-    assert [
-        transition.help_target.canonical_id
-        for transition in predicate_unsupported.contract().transitions
-    ] == ["SourceInspection.sample", "unpruned"]
+    assert predicate_unsupported.execution_capabilities.partition_predicate_supported is False
     assert not hasattr(inspection, "next_safe_action")
     rendered = inspection.render().lower()
-    assert ".contract()" in rendered
+    assert ".contract()" not in rendered
     assert "next safe action" not in rendered
     assert "next calls" not in rendered
 

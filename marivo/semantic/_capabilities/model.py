@@ -29,7 +29,6 @@ class AuthoringSourceContract:
     prerequisite_targets: tuple[LiveHelpTarget, ...]
     catalog_collection: str
     canonical_identity_template: str
-    judgment_requirements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,7 +52,6 @@ class SemanticTypeContract:
     public_properties: tuple[str, ...] = ()
     public_methods: tuple[str, ...] = ()
     consumers: tuple[LiveHelpTarget, ...] = ()
-    state_bearing: bool = False
 
 
 @dataclass(frozen=True)

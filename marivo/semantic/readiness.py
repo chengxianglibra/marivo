@@ -16,7 +16,6 @@ from marivo.semantic.errors import repair
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
-    from marivo._authoring.model import AuthoringContract
     from marivo.semantic.preview_checks import PreviewEvidenceRequirement
     from marivo.semantic.reader import SemanticProject
 
@@ -116,7 +115,6 @@ class ReadinessReport(RenderableResult):
             available=(
                 ".show()",
                 ".to_dict()",
-                ".contract()",
                 ".preview_required_refs",
                 ".analysis_ready_inputs",
             ),
@@ -183,21 +181,6 @@ class ReadinessReport(RenderableResult):
                 RefPayloadV1.from_ref(ref).to_dict() for ref in self.preview_required_refs
             ],
         }
-
-    def contract(self) -> AuthoringContract:
-        """Return the mechanical continuation contract for this readiness report.
-
-        Exposes only mechanically valid semantic repair transitions. Ready refs
-        remain available through ``analysis_ready_refs`` for explicit analysis.
-        """
-        from marivo.semantic._capabilities.contracts import (
-            contract_for_readiness_report,
-        )
-
-        return contract_for_readiness_report(
-            tuple(ref.path for ref in self.analysis_ready_refs),
-            self.blockers + self.warnings,
-        )
 
 
 def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
@@ -1085,7 +1068,7 @@ def build_readiness_report(
                             f"declaration (state={status})."
                         ),
                         repair(
-                            kind="reverify",
+                            kind="repreview",
                             canonical_id="preview",
                             action=(
                                 "Acquire one fresh exhaustive DiscoverySnapshot with "
@@ -1137,7 +1120,7 @@ def build_readiness_report(
                         (path,),
                         f"{path} has no current certified work-schedule snapshot for its declaration (state={status}).",
                         repair(
-                            kind="reverify",
+                            kind="repreview",
                             canonical_id="preview",
                             action=(
                                 "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
@@ -1190,7 +1173,7 @@ def build_readiness_report(
                         (path,),
                         f"{path} has no current certified temporal-set snapshot for its declaration (state={status}).",
                         repair(
-                            kind="reverify",
+                            kind="repreview",
                             canonical_id="preview",
                             action=(
                                 "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
@@ -1333,7 +1316,7 @@ def build_readiness_report(
                     (path,),
                     f"{path} has provenance SQL but parity has not been confirmed.",
                     repair(
-                        kind="reverify",
+                        kind="retry",
                         canonical_id="parity_check",
                         action=f"Run ms.parity_check({path!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
                     ),

@@ -120,7 +120,7 @@ from marivo.semantic.catalog import (
     WorkScheduleEntry,
     load,
 )
-from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
+from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.event import Participant, ParticipantRoleHandle
 from marivo.semantic.ir import (
     AggregateFoldInput,
@@ -270,7 +270,6 @@ __all__ = [
     "TemporalSetKind",
     "TimeDimensionDetails",
     "TimeDimensionEntry",
-    "VerifyResult",
     "WorkScheduleDetails",
     "WorkScheduleEntry",
     "WorkScheduleKind",

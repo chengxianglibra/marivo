@@ -60,7 +60,7 @@ def _fiscal_session(semantic_project_factory, monkeypatch, name: str):
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = mv.session.get_or_create(
         name=name,

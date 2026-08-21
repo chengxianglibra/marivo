@@ -11,14 +11,12 @@ from marivo._authoring.model import (
     AuthoringCapabilityKind,
     AuthoringEffects,
     AuthoringInputRequirement,
-    AuthoringStateId,
-    AuthoringStateRef,
+    AuthoringInputRole,
     ConnectionEffect,
     DataAccessEffect,
     EffectFlag,
     MutationEffect,
     RepairKind,
-    TransitionInputRole,
 )
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
@@ -127,7 +125,6 @@ OUTPUT_FAMILIES = frozenset(
         "SemanticCatalog",
         "CatalogEntry",
         "CatalogCollection",
-        "VerifyResult",
         "PreviewBatchResult",
         "PreviewResult",
         "ReadinessReport",
@@ -187,17 +184,13 @@ def _target(canonical_id: str) -> LiveHelpTarget:
     return LiveHelpTarget(surface="semantic", canonical_id=canonical_id)
 
 
-def _states(*state_ids: AuthoringStateId) -> tuple[AuthoringStateRef, ...]:
-    return tuple(AuthoringStateRef(id=state_id) for state_id in state_ids)
-
-
 def _inputs(
-    *families: tuple[TransitionInputRole, str],
+    *families: tuple[AuthoringInputRole, str],
 ) -> tuple[AuthoringInputRequirement, ...]:
     return tuple(AuthoringInputRequirement(role=role, family=family) for role, family in families)
 
 
-def _optional_input(role: TransitionInputRole, family: str) -> AuthoringInputRequirement:
+def _optional_input(role: AuthoringInputRole, family: str) -> AuthoringInputRequirement:
     return AuthoringInputRequirement(role=role, family=family, min_count=0)
 
 
@@ -239,8 +232,6 @@ def _capability(
     constraints: tuple[str, ...] = (),
     example: str | None = None,
     preconditions: tuple[str, ...] = (),
-    produced_state: AuthoringStateId | None = None,
-    required_states: tuple[AuthoringStateRef, ...] = (),
     repair_kinds: tuple[RepairKind, ...] = (),
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
@@ -256,10 +247,6 @@ def _capability(
         input_requirements=inputs,
         output_family=output,
         preconditions=preconditions,
-        produced_state=(
-            AuthoringStateRef(id=produced_state) if produced_state is not None else None
-        ),
-        required_states=required_states,
         effects=effects,
         constraints=constraints,
         minimal_example=example,
@@ -272,7 +259,6 @@ def _authoring_source_contract(
     kind: SemanticKind,
     *,
     prerequisite_targets: tuple[LiveHelpTarget, ...],
-    judgment_requirements: tuple[str, ...],
 ) -> AuthoringSourceContract:
     member = next(member for member in CATALOG_MEMBER_CONTRACTS if member.kind is kind)
     placement_kind: Literal["domain_entrypoint", "domain_module"]
@@ -302,7 +288,6 @@ def _authoring_source_contract(
         prerequisite_targets=prerequisite_targets,
         catalog_collection=member.property_name,
         canonical_identity_template=identity_template,
-        judgment_requirements=judgment_requirements,
     )
 
 
@@ -314,54 +299,30 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
         SemanticKind.DOMAIN: _authoring_source_contract(
             SemanticKind.DOMAIN,
             prerequisite_targets=(),
-            judgment_requirements=("accountable_owner", "business_definition"),
         ),
         SemanticKind.ENTITY: _authoring_source_contract(
             SemanticKind.ENTITY,
             prerequisite_targets=(_target("domain"), datasource_authoring),
-            judgment_requirements=(
-                "business_definition",
-                "primary_key_authority_if_declared",
-                "versioning_policy_if_declared",
-            ),
         ),
         SemanticKind.DIMENSION: _authoring_source_contract(
             SemanticKind.DIMENSION,
             prerequisite_targets=(_target("entity"),),
-            judgment_requirements=(
-                "business_definition",
-                "category_meaning",
-                "privacy_policy",
-            ),
         ),
         SemanticKind.TIME_DIMENSION: _authoring_source_contract(
             SemanticKind.TIME_DIMENSION,
             prerequisite_targets=(_target("entity"),),
-            judgment_requirements=(
-                "business_event_time",
-                "timezone",
-                "default_time_dimension",
-            ),
         ),
         SemanticKind.MEASURE: _authoring_source_contract(
             SemanticKind.MEASURE,
             prerequisite_targets=(_target("entity"),),
-            judgment_requirements=("business_definition", "unit", "additivity"),
         ),
         SemanticKind.METRIC: _authoring_source_contract(
             SemanticKind.METRIC,
             prerequisite_targets=(_target("entity"), _target("measure")),
-            judgment_requirements=(
-                "business_definition",
-                "aggregation_semantics",
-                "unit",
-                "additivity",
-            ),
         ),
         SemanticKind.RELATIONSHIP: _authoring_source_contract(
             SemanticKind.RELATIONSHIP,
             prerequisite_targets=(_target("entity"),),
-            judgment_requirements=("relationship_business_meaning", "cardinality"),
         ),
         SemanticKind.EVENT: _authoring_source_contract(
             SemanticKind.EVENT,
@@ -369,12 +330,6 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
                 _target("dimension"),
                 _target("time_dimension"),
                 _target("participant"),
-            ),
-            judgment_requirements=(
-                "business_occurrence",
-                "identity",
-                "occurrence_time",
-                "participants",
             ),
         ),
         SemanticKind.STATE_MODEL: _authoring_source_contract(
@@ -385,27 +340,18 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
                 _target("lifecycle_state"),
                 _target("transition"),
             ),
-            judgment_requirements=("normative_states", "legal_transitions", "inception"),
         ),
         SemanticKind.PERIOD_CALENDAR: _authoring_source_contract(
             SemanticKind.PERIOD_CALENDAR,
             prerequisite_targets=(_target("time_dimension"), _target("dimension")),
-            judgment_requirements=("period_boundaries", "coverage", "boundary_timezone"),
         ),
         SemanticKind.TEMPORAL_SET: _authoring_source_contract(
             SemanticKind.TEMPORAL_SET,
             prerequisite_targets=(_target("dimension"), _target("time_dimension")),
-            judgment_requirements=(
-                "occurrence_identity",
-                "occurrence_bounds",
-                "coverage",
-                "boundary_timezone",
-            ),
         ),
         SemanticKind.WORK_SCHEDULE: _authoring_source_contract(
             SemanticKind.WORK_SCHEDULE,
             prerequisite_targets=(_target("dimension"), _target("time_dimension")),
-            judgment_requirements=("daily_status", "coverage", "boundary_timezone"),
         ),
     }
     ids_by_kind = {
@@ -568,16 +514,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="SemanticCatalog",
             effects=_LOCAL,
             example="catalog = ms.load()\ncatalog.show()",
-            produced_state="semantic.loaded",
         ),
         _capability(
             "authoring",
             None,
-            "Semantic authoring lifecycle: browse, author, verify, preview, readiness, handoff.",
-            kind="transition",
+            "Explore current sources, author a coherent semantic slice, load once, and run scoped readiness.",
+            kind="boundary",
             output=None,
             effects=_NONE,
-            see_also=(_target("load"), _target("verify"), _target("preview")),
+            see_also=(_target("load"), _target("readiness"), _target("preview")),
         ),
         # ------------------------------------------------------------------
         # author_families
@@ -1262,22 +1207,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # verify_preview
         # ------------------------------------------------------------------
         _capability(
-            "verify",
-            "marivo.semantic.catalog.SemanticCatalog.verify",
-            "Statically verify one current catalog entry or exact ref.",
-            kind="method",
-            output="VerifyResult",
-            inputs=_inputs(
-                ("receiver", "SemanticCatalog"),
-                ("subject", "CatalogEntry | Ref"),
-            ),
-            effects=_LOCAL,
-            example="catalog.verify(revenue)",
-            produced_state="semantic.verified",
-            required_states=_states("semantic.loaded"),
-            public_entrypoint="catalog.verify",
-        ),
-        _capability(
             "preview",
             "marivo.semantic.catalog.SemanticCatalog.preview",
             (
@@ -1300,9 +1229,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
             example="catalog.preview(revenue, using=orders_snapshot)",
-            preconditions=("semantic.loaded",),
-            produced_state="semantic.previewed",
-            required_states=_states("semantic.loaded"),
+            preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview",
         ),
@@ -1331,9 +1258,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
             example="catalog.preview_many([revenue], using=orders_snapshot)",
-            preconditions=("semantic.loaded",),
-            produced_state="semantic.previewed",
-            required_states=_states("semantic.loaded"),
+            preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview_many",
         ),
@@ -1352,9 +1277,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_LOCAL,
             example="catalog.readiness(refs=[revenue, runtime_revenue])",
-            preconditions=("semantic.loaded",),
-            produced_state="semantic.ready",
-            required_states=_states("semantic.loaded"),
+            preconditions=("a current loaded SemanticCatalog",),
             public_entrypoint="catalog.readiness",
         ),
         # ------------------------------------------------------------------
@@ -1482,7 +1405,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "grain_to_date",
                 "trailing",
             ),
-            "verify_preview": ("verify", "preview", "preview_many"),
+            "verify_preview": ("preview", "preview_many"),
             "readiness": ("readiness",),
             "diagnostics_boundaries": ("richness", "parity_check"),
         }
@@ -1544,7 +1467,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         WorkScheduleDetails,
         WorkScheduleEntry,
     )
-    from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
+    from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import JoinKey, SqlProvenance
     from marivo.semantic.parity import ParityResult
     from marivo.semantic.readiness import (
@@ -1565,7 +1488,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str, ...] = (),
-        state_bearing: bool = False,
     ) -> None:
         contracts[cls] = SemanticTypeContract(
             name=name,
@@ -1573,7 +1495,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             public_properties=properties,
             public_methods=methods,
             consumers=tuple(_target(value) for value in consumers),
-            state_bearing=state_bearing,
         )
 
     add(
@@ -1592,38 +1513,32 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=(
             "items",
             "require",
-            "verify",
             "preview",
             "preview_many",
             "readiness",
-            "contract",
             "render",
             "show",
         ),
-        state_bearing=True,
     )
     add(
         CatalogEntry,
         "CatalogEntry",
         ("SemanticCatalog.require",),
         properties=("ref",),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         CatalogCollection,
         "CatalogCollection",
         (),
         properties=("items", "refs"),
-        methods=("get", "contract", *show_render),
-        state_bearing=True,
+        methods=("get", *show_render),
     )
     add(
         DomainEntry,
         "DomainEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         DomainDetails,
@@ -1635,8 +1550,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntityEntry,
         "EntityEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         EntityDetails,
@@ -1648,8 +1562,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DimensionEntry,
         "DimensionEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         DimensionDetails,
@@ -1661,8 +1574,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TimeDimensionEntry,
         "TimeDimensionEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         TimeDimensionDetails,
@@ -1674,8 +1586,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MeasureEntry,
         "MeasureEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         MeasureDetails,
@@ -1687,8 +1598,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MetricEntry,
         "MetricEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         SimpleMetricDetails,
@@ -1706,8 +1616,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         RelationshipEntry,
         "RelationshipEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         RelationshipDetails,
@@ -1719,8 +1628,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EventEntry,
         "EventEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         EventDetails,
@@ -1732,8 +1640,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         StateModelEntry,
         "StateModelEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         StateModelDetails,
@@ -1753,10 +1660,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "periods",
             "details",
             "show",
-            "contract",
             "render",
         ),
-        state_bearing=True,
     )
     add(
         PeriodCalendarDetails,
@@ -1802,8 +1707,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "TemporalSetEntry",
         (),
         properties=("ref",),
-        methods=("occurrence", "occurrences", "details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("occurrence", "occurrences", "details", "show", "render"),
     )
     add(
         TemporalSetDetails,
@@ -1837,8 +1741,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "WorkScheduleEntry",
         (),
         properties=("ref",),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         WorkScheduleDetails,
@@ -1861,8 +1764,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DatasourceEntry,
         "DatasourceEntry",
         (),
-        methods=("details", "show", "contract", "render"),
-        state_bearing=True,
+        methods=("details", "show", "render"),
     )
     add(
         DatasourceDetails,
@@ -1872,27 +1774,18 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
     # Result types
     add(
-        VerifyResult,
-        "VerifyResult",
-        ("verify",),
-        methods=("show", "contract", "render"),
-        state_bearing=True,
-    )
-    add(
         PreviewBatchResult,
         "PreviewBatchResult",
         ("preview_many",),
         properties=("status", "refs", "results"),
-        methods=("show", "contract", "render"),
-        state_bearing=True,
+        methods=("show", "render"),
     )
     add(
         ReadinessReport,
         "ReadinessReport",
         ("readiness",),
         properties=("analysis_ready_refs", "analysis_ready_inputs", "preview_required_refs"),
-        methods=("show", "contract", "render"),
-        state_bearing=True,
+        methods=("show", "render"),
     )
     add(
         RichnessReport,
@@ -1945,7 +1838,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties=("kind", "path", "key", "name"),
         consumers=(
             "SemanticCatalog.require",
-            "verify",
             "preview",
             "preview_many",
             "readiness",

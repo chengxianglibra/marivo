@@ -9,7 +9,7 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
@@ -17,11 +17,6 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.dtos import (
-    AssessmentIssue,
-    AuthoringObjectKind,
-    VerifyResult,
-)
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -88,94 +83,6 @@ class _DepNode:
     semantic_id: str
     kind: SemanticKind
     children: tuple[_DepNode, ...]
-
-
-def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
-    """Return an actionable suggestion when *ref* is not found in *registry*.
-
-    Detects the two most common wrong-level mistakes:
-
-    * Metric referenced at entity level (e.g. ``domain.entity.metric``
-      when the correct ref is ``domain.metric``).
-    * Dimension referenced at domain level (e.g. ``domain.dimension``
-      when the correct ref is ``domain.entity.dimension``).
-
-    Returns ``None`` when no plausible suggestion can be derived.
-    """
-    parts = ref.split(".")
-
-    # --- Metric referenced at entity level (3+ dots) ---
-    # e.g. "trino_query.query_info.total_elapsed_time" → "trino_query.total_elapsed_time"
-    if len(parts) >= 3:
-        domain = parts[0]
-        object_name = parts[-1]
-        domain_level_ref = f"{domain}.{object_name}"
-        if domain_level_ref in registry.metrics:
-            return (
-                f"Metrics are referenced at the domain level, not the entity level. "
-                f"Use {domain_level_ref!r} instead of {ref!r}."
-            )
-
-    # --- Dimension / time_dimension referenced at domain level (2 dots) ---
-    # e.g. "trino_query.cluster" → "trino_query.query_info.cluster"
-    if len(parts) == 2:
-        domain = parts[0]
-        object_name = parts[1]
-        matching_fields = [
-            f_id
-            for f_id, f_ir in registry.dimensions.items()
-            if f_ir.domain == domain and f_ir.name == object_name
-        ]
-        if matching_fields:
-            suggestions = ", ".join(repr(f) for f in matching_fields[:3])
-            return (
-                f"Dimensions and time dimensions are referenced at the entity level, "
-                f"not the domain level. Did you mean {suggestions}?"
-            )
-
-    return None
-
-
-_AUTHORING_KIND_BY_SYMBOL: dict[SemanticKind, AuthoringObjectKind] = {
-    SemanticKind.DOMAIN: "domain",
-    SemanticKind.DATASOURCE: "datasource",
-    SemanticKind.ENTITY: "entity",
-    SemanticKind.DIMENSION: "dimension",
-    SemanticKind.TIME_DIMENSION: "time_dimension",
-    SemanticKind.MEASURE: "measure",
-    SemanticKind.METRIC: "metric",
-    SemanticKind.RELATIONSHIP: "relationship",
-    SemanticKind.EVENT: "event",
-    SemanticKind.STATE_MODEL: "state_model",
-    SemanticKind.PERIOD_CALENDAR: "period_calendar",
-    SemanticKind.TEMPORAL_SET: "temporal_set",
-    SemanticKind.WORK_SCHEDULE: "work_schedule",
-}
-
-
-def _verification_input(
-    value: Ref[SemanticKindTag],
-) -> tuple[Ref[SemanticKindTag], AuthoringObjectKind]:
-    """Return the typed ref and requested kind before project reload."""
-    if type(value) is not Ref:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "catalog.verify(ref) requires an exact Ref. "
-            "Pass entry.ref or construct ms.ref.<kind>(path).",
-            cls=SemanticRuntimeError,
-        )
-    semantic_ref = value
-
-    requested_kind = _AUTHORING_KIND_BY_SYMBOL.get(semantic_ref.kind)
-    if requested_kind is None:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "catalog.verify(ref) requires a semantic authoring object; "
-            f"received {semantic_ref.kind.value!r}.",
-            cls=SemanticRuntimeError,
-            refs=(semantic_ref.key,),
-        )
-    return semantic_ref, requested_kind
 
 
 class SemanticProject:
@@ -565,133 +472,3 @@ class SemanticProject:
         run-history refs, and the build purpose.
         """
         return build_richness_report(self, demand=demand)
-
-    # -- exact static verification ------------------------------------------
-
-    def _verify(
-        self,
-        ref: Ref[SemanticKindTag],
-    ) -> VerifyResult:
-        """Statically verify one authored semantic object against the loaded project.
-
-        Reloading runs the existing load, assembly, dependency, type, cycle,
-        and expression-contract validators. Verification never opens a
-        datasource or executes user data; runtime execution belongs to the
-        explicit catalog preview path.
-
-        Parameters
-        ----------
-        ref:
-            Exact ref from an authoring call, entry.ref, or an ``ms.Ref`` factory.
-        Returns
-        -------
-        VerifyResult
-            Static validation status, issues, and warnings.
-        """
-        semantic_ref, requested_kind = _verification_input(ref)
-        ref_str = semantic_ref.path
-
-        kind = self._kind_for_ref(semantic_ref)
-
-        if kind != "unknown":
-            return VerifyResult(
-                status="passed",
-                ref=ref_str,
-                kind=kind,
-                validation_level="static",
-                runtime_checked=False,
-                issues=(),
-                warnings=(),
-            )
-
-        # Unknown kind fallback — check for common wrong-level refs before
-        # returning a generic message.  When the registry is unavailable,
-        # report a project-load failure (belt-and-suspenders; the early
-        # check above should normally prevent reaching this branch).
-        if self._registry is None:
-            message = (
-                f"Cannot verify {ref_str!r}: project registry is not available. "
-                f"Call ms.load() to check for errors."
-            )
-            return self._failed_verify(ref_str, requested_kind, "project_load_failed", message)
-        suggestion = _suggest_ref_level(self._registry, ref_str)
-        if suggestion is not None:
-            message = f"Semantic object {ref_str!r} was not found. {suggestion}"
-        else:
-            message = (
-                f"Semantic object {ref_str!r} was not found. "
-                "Use catalog.domains.show() to browse available refs."
-            )
-        return self._failed_verify(ref_str, requested_kind, "static_check_failed", message)
-
-    def _kind_for_ref(
-        self,
-        ref: Ref[SemanticKindTag],
-    ) -> AuthoringObjectKind | Literal["unknown"]:
-        """Determine one exact ref's authored kind without dropping its tag."""
-        if self._registry is None:
-            return "unknown"
-        path = ref.path
-        if ref.kind is SemanticKind.DOMAIN and path in self._registry.domains:
-            return "domain"
-        if ref.kind is SemanticKind.DATASOURCE and path in self._registry.datasources:
-            return "datasource"
-        if ref.kind is SemanticKind.ENTITY and path in self._registry.entities:
-            return "entity"
-        if ref.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-            field = self._registry.dimensions.get(path)
-            if field is None:
-                return "unknown"
-            if ref.kind is SemanticKind.TIME_DIMENSION and field.is_time_dimension:
-                return "time_dimension"
-            if ref.kind is SemanticKind.DIMENSION and not field.is_time_dimension:
-                return "dimension"
-            return "unknown"
-        if ref.kind is SemanticKind.MEASURE and path in self._registry.measures:
-            return "measure"
-        if ref.kind is SemanticKind.METRIC and path in self._registry.metrics:
-            metric = self._registry.metrics[path]
-            return "derived_metric" if metric.metric_type == "derived" else "metric"
-        if ref.kind is SemanticKind.RELATIONSHIP and path in self._registry.relationships:
-            return "relationship"
-        if ref.kind is SemanticKind.EVENT and path in self._registry.events:
-            return "event"
-        if ref.kind is SemanticKind.STATE_MODEL and path in self._registry.state_models:
-            return "state_model"
-        if ref.kind is SemanticKind.PERIOD_CALENDAR and path in self._registry.period_calendars:
-            return "period_calendar"
-        if ref.kind is SemanticKind.TEMPORAL_SET and path in self._registry.temporal_sets:
-            return "temporal_set"
-        if ref.kind is SemanticKind.WORK_SCHEDULE and path in self._registry.work_schedules:
-            return "work_schedule"
-        return "unknown"
-
-    def _failed_verify(
-        self,
-        ref: str,
-        kind: AuthoringObjectKind,
-        issue_kind: Literal[
-            "authored_object_invalid",
-            "datasource_unreachable",
-            "static_check_failed",
-            "project_load_failed",
-        ],
-        message: str,
-    ) -> VerifyResult:
-        """Build a failed VerifyResult with a single blocker issue."""
-        issue = AssessmentIssue(
-            kind=issue_kind,
-            severity="blocker",
-            refs=(ref,),
-            message=message,
-            rule_id=f"verify_object_{issue_kind}",
-        )
-        return VerifyResult(
-            status="failed",
-            ref=ref,
-            kind=kind,
-            validation_level="static",
-            runtime_checked=False,
-            issues=(issue,),
-            warnings=(),
-        )

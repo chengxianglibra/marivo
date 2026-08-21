@@ -123,40 +123,14 @@ def render_root_help() -> str:
 
 
 def _render_authoring(descriptor: AuthoringCapability) -> str:
-    state_rows = [
-        candidate
-        for candidate in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
-        if candidate.produced_state is not None
-        and candidate.produced_state.id.startswith(
-            ("datasource.", "source.", "scope.", "evidence.")
-        )
-    ]
     route_groups = (
-        (
-            "declare",
-            tuple(
-                candidate.canonical_id
-                for candidate in REGISTRY.group("declare_manage")
-                if candidate.produced_state is not None
-                and candidate.produced_state.id == "datasource.declared"
-            ),
-        ),
+        ("declare", ("duckdb", "sqlite", "trino", "mysql", "postgres", "clickhouse")),
         ("register and test", ("register", "test")),
         ("physical source", ("table", "parquet", "csv", "json")),
         ("metadata", ("inspect",)),
         ("explicit scope", ("partition", "time_range", "unpruned")),
-        ("bounded acquisition", ("SourceInspection.sample",)),
-        (
-            "query-free projections",
-            (
-                "DiscoverySnapshot.entity",
-                "DiscoverySnapshot.dimensions",
-                "DiscoverySnapshot.values",
-                "DiscoverySnapshot.time_dimensions",
-                "DiscoverySnapshot.measures",
-                "DiscoverySnapshot.relationships",
-            ),
-        ),
+        ("optional bounded sampling", ("SourceInspection.sample",)),
+        ("governed SQL exploration", ("raw_sql",)),
     )
     lines = [
         "authoring",
@@ -172,14 +146,11 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
             f"    {label} -> "
             + ", ".join(f'marivo.help("datasource.{target}")' for target in targets)
         )
-    lines.extend(("", "  Registered datasource states:"))
-    for candidate in state_rows:
-        assert candidate.produced_state is not None
-        lines.append(f"    {candidate.produced_state.id} <- {candidate.canonical_id}")
     lines.extend(
         (
             "",
-            "  Datasource guidance ends at evidence.projected.",
+            "  Choose inspection, optional scoped sampling, or governed raw SQL according to the unresolved question.",
+            "  RawSqlResult is terminal data: it may inform Python authoring but cannot enter typed analysis.",
             '  Continue semantic authoring with marivo.help("semantic.authoring").',
         )
     )
@@ -206,12 +177,6 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     lines.append(f"  Output family: {descriptor.output_family or 'None'}")
     if descriptor.preconditions:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
-    if descriptor.required_states:
-        lines.append(
-            "  Required state: " + ", ".join(state.id for state in descriptor.required_states)
-        )
-    if descriptor.produced_state is not None:
-        lines.append(f"  Produces state: {descriptor.produced_state.id}")
     effects = descriptor.effects
     assert effects is not None
     lines.extend(
@@ -274,17 +239,7 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if "show" in contract.public_methods:
         lines.append("  Detail: call .show() for bounded readable state.")
-    if "contract" in contract.public_methods:
-        lines.append("  Continuation: call .contract() for mechanically valid next actions.")
-    evidence_result_types = {
-        "EntityEvidenceResult",
-        "DimensionEvidenceResult",
-        "DimensionValuesResult",
-        "TimeEvidenceResult",
-        "MeasureEvidenceResult",
-        "RelationshipEvidenceResult",
-    }
-    if original is not None and type_name not in evidence_result_types:
+    if original is not None:
         try:
             stored = vars(original)
         except TypeError:

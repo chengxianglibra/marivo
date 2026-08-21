@@ -175,8 +175,8 @@ def test_filtered_event_is_an_exact_non_callable_event_ref_and_catalog_entry(
     assert "endpoint=entity:commerce.buyers" in card
     assert "cardinality=one" in card
     assert "path=relationship:commerce.event_to_buyer" in card
-    verification = catalog.verify(event.ref)
-    assert verification.status == "passed"
+    verification = catalog.require(event.ref)
+    assert verification is event
     readiness = catalog.readiness(refs=(event.ref,))
     assert event.ref in readiness.analysis_ready_refs
     assert "commerce.event_log.event_type" in readiness.input_summary.refs

@@ -35,8 +35,8 @@ def test_semantic_error_repair_defaults_to_none() -> None:
 
 
 def test_repair_helper_builds_semantic_help_target() -> None:
-    r = repair(kind="reverify", canonical_id="verify_object", action="Re-run verification.")
-    assert r.help_target == LiveHelpTarget(surface="semantic", canonical_id="verify_object")
+    r = repair(kind="retry", canonical_id="parity_check", action="Run parity diagnostic.")
+    assert r.help_target == LiveHelpTarget(surface="semantic", canonical_id="parity_check")
 
 
 def test_runtime_filter_incompatibility_preserves_authored_business_literals() -> None:

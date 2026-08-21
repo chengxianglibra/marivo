@@ -166,12 +166,13 @@ same-kind typed key such as ``metric:sales.revenue``, or an exact same-kind
 to out-of-scope objects. ``catalog.require(ref)`` remains the strict, global,
 ref-only lookup for configured, persisted, or logged identity.
 
-``catalog.verify(...)``, ``catalog.preview(...)``,
-``catalog.preview_many(...)``, and catalog-leaf
+``catalog.require(...)``, ``catalog.preview(...)``,
+``catalog.preview_many(...)``, and
 ``catalog.readiness(refs=[...])`` accept either an exact entry owned by the
 current compiled catalog or its exact ref. Entries normalize immediately to
 refs; readiness results, preview evidence, persistence, and recovery remain
-ref-based.
+ref-based. One ``ms.load()`` is the project-level static validation event for a
+dependency-coherent authored slice; there is no separate per-object verify step.
 
 For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the
 focused ``analysis.catalog.<family>`` pages for the bounded collection,
@@ -215,7 +216,6 @@ Readiness & assessment
    ReadinessInputSummary
    RichnessReport
    ParityResult
-   VerifyResult
    PreviewBatchResult
 
 Keys & kinds

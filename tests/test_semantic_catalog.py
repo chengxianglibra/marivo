@@ -516,13 +516,13 @@ def test_catalog_collection_show_prints_render(semantic_project_factory, capsys)
     assert "sales.revenue" in out
 
 
-def test_semantic_object_details_render_points_to_verify_and_readiness(
+def test_semantic_object_details_render_points_to_readiness(
     semantic_project_factory,
 ):
     catalog = _make_catalog(semantic_project_factory)
     details = catalog.require(ms.ref.metric("sales.revenue")).details()
     rendered = details.render()
-    assert "catalog.verify(ms.ref.metric('sales.revenue'))" in rendered
+    assert "catalog.verify" not in rendered
     assert "catalog.readiness(refs=[ms.ref.metric('sales.revenue')])" in rendered
 
 
@@ -1706,7 +1706,7 @@ def test_catalog_get_dataset_details_children_include_metrics(semantic_project_f
     assert "sales.orders.region" in child_refs or "sales.orders.created_at" in child_refs
 
 
-# --- Exact Ref handoff to readiness/verify ---
+# --- Exact Ref handoff to readiness and membership ---
 
 
 def test_catalog_readiness_accepts_exact_refs(semantic_project_factory) -> None:
@@ -1716,12 +1716,12 @@ def test_catalog_readiness_accepts_exact_refs(semantic_project_factory) -> None:
     assert report.status in {"ready", "ready_with_warnings", "blocked"}
 
 
-def test_catalog_verify_exact_ref_returns_passed_result(semantic_project_factory) -> None:
+def test_catalog_require_exact_ref_returns_current_entry(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    result = catalog.verify(ms.ref.domain("sales"))
+    result = catalog.require(ms.ref.domain("sales"))
 
-    assert result.status == "passed"
+    assert result.ref == ms.ref.domain("sales")
 
 
 # --- ms.load() ---
@@ -2553,91 +2553,6 @@ def test_catalog_readiness_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
     catalog.readiness()
     assert capsys.readouterr().out == ""
-
-
-# --- catalog.verify() ---
-
-
-def test_catalog_verify_object_static_domain_passes(semantic_project_factory):
-    from marivo.semantic.dtos import VerifyResult
-
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify(catalog.require(ms.ref.domain("sales")).ref)
-    assert isinstance(result, VerifyResult)
-    assert result.status == "passed"
-    assert result.ref == "sales"
-    assert result.kind == "domain"
-
-
-def test_catalog_verify_object_static_dimension_passes(semantic_project_factory):
-    from marivo.semantic.dtos import VerifyResult
-
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify(catalog.require(ms.ref.dimension("sales.orders.region")).ref)
-    assert isinstance(result, VerifyResult)
-    assert result.status == "passed"
-    assert result.kind == "dimension"
-
-
-def test_catalog_verify_accepts_exact_ref(semantic_project_factory):
-    from marivo.semantic.dtos import VerifyResult
-
-    catalog = _make_catalog(semantic_project_factory)
-    ref = make_ref("sales", SemanticKind.DOMAIN)
-    result = catalog.verify(ref)
-    assert isinstance(result, VerifyResult)
-    assert result.status == "passed"
-
-
-def test_catalog_verify_entity_level_metric_ref_is_rejected_by_exact_ref_grammar(
-    semantic_project_factory,
-):
-    with pytest.raises(ValueError, match="exactly 2 segments"):
-        ms.ref.metric("sales.orders.revenue")
-
-
-def test_catalog_verify_uses_immutable_compiled_snapshot_after_source_changes(
-    tmp_path, semantic_project_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": (
-                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-            ),
-            "sales/metrics.py": (
-                "import marivo.datasource as md\n"
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive')\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
-                "revenue_ratio = ms.ratio(name='revenue_ratio', numerator=revenue, denominator=revenue)\n"
-            ),
-        }
-    )
-    catalog = SemanticCatalog(project)
-    revenue_ratio = catalog.require(ms.ref.metric("sales.revenue_ratio"))
-    (tmp_path / "models/semantic/sales/metrics.py").write_text(
-        "raise RuntimeError('intentional post-catalog load failure')\n"
-    )
-
-    result = catalog.verify(revenue_ratio.ref)
-
-    assert result.status == "passed"
-    assert result.kind == "derived_metric"
-
-    from marivo.semantic.errors import SemanticLoadFailed
-
-    with pytest.raises(SemanticLoadFailed, match="intentional post-catalog load failure"):
-        ms.load(workspace_dir=tmp_path)
-
-
-def test_catalog_verify_unknown_ref_raises_not_found(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.verify(make_ref("nonexistent.thing", SemanticKind.ENTITY))
-    assert exc_info.value.kind == ErrorKind.NOT_FOUND
-    assert "nonexistent.thing" in str(exc_info.value)
 
 
 def test_metric_ref_rejects_entity_level_path(

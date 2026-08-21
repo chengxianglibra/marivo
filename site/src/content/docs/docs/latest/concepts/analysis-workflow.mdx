@@ -95,11 +95,15 @@ follow the structured repair. Focused help is self-contained for one correct
 minimal invocation, but is not required before every API call.
 :::
 
-When analysis needs a newly authored or changed object, close out that change
-first: `md.inspect(...)` → explicit scope → `inspection.sample(...)` once →
-snapshot projections → one Python declaration → current entry →
-`catalog.verify(entry)` → `catalog.preview(entry, using=snapshot)` → zero-query
-`catalog.readiness(refs=[entry])`. The equivalent exact-ref form remains valid.
+When analysis needs newly authored or changed semantics, close out the smallest
+dependency-coherent slice first: load current catalogs → `md.inspect(...)` →
+optional bounded sampling and/or governed terminal `md.raw_sql(...)` → explicit
+Python declarations → one `ms.load()` → `catalog.require(ref)` for every authored
+root → scoped readiness. Use preview only for a concrete runtime risk or current
+readiness repair. Before first typed analysis use, stop only for genuinely
+unresolved reusable business meaning; current user input, approved project
+definitions, and attributable non-conflicting documentation already provide
+authority without redundant confirmation.
 Routine analysis of unchanged objects does not repeat this authoring evidence
 flow. Uncommon formats and semantic judgments remain agent-owned.
 
@@ -147,9 +151,10 @@ every metric, dimension, and time dimension used by the analysis with
 `.details().show()`. The details output is where authored `ai_context`, metric
 composition, effective entities, candidate axes, and measure lineage appear.
 Candidate axes are static discovery; `observe` remains the authority for
-relationship and fanout validity. `.contract()` is reserved for mechanical
-verify/preview/readiness continuations, while `.render()` returns the same bounded
-card that `.show()` prints. If a required object is missing or disputed, stop the
+relationship and fanout validity. Use `catalog.require(...)` for exact current
+membership, focused help for callable contracts, and scoped readiness for static
+preflight; `.render()` returns the same bounded card that `.show()` prints. If a
+required object is missing or disputed, stop the
 affected typed branch before the first `observe`; terminal raw SQL may continue
 provisionally, while a reusable gap moves directly to semantic authoring.
 

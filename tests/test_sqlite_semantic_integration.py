@@ -105,7 +105,7 @@ def test_sqlite_verify_preview_readiness_and_observe(
         columns=("order_id", "amount", "created_at"),
     )
 
-    assert catalog.verify(revenue).status == "passed"
+    assert catalog.require(revenue).ref == revenue
     assert catalog.preview(revenue, using=snapshot).status == "passed"
     readiness = catalog.readiness(refs=[revenue])
     assert revenue in readiness.analysis_ready_refs

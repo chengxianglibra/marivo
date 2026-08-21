@@ -479,7 +479,7 @@ def test_compare_period_progress_uses_frames_from_public_observe(
 
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = session_attach.get_or_create(
         name="fiscal-compare",

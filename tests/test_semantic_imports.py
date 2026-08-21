@@ -113,7 +113,6 @@ def test_all_list_matches_expected() -> None:
         "WorkScheduleKind",
         "TimeDimensionEntry",
         "TimeDimensionDetails",
-        "VerifyResult",
         "load",
         "domain",
         "entity",
@@ -857,13 +856,3 @@ def test_help_text_measure_mentions_additivity() -> None:
 
     text = rendered_help("measure", owner="semantic")
     assert "additivity" in text
-
-
-# ---------------------------------------------------------------------------
-# Authoring result DTO exports
-# ---------------------------------------------------------------------------
-
-
-def test_stepwise_authoring_dto_exports() -> None:
-    for name in ("VerifyResult",):
-        assert hasattr(ms, name), f"marivo.semantic missing export: {name}"

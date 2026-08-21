@@ -9,7 +9,6 @@ from marivo._authoring.model import (
     AuthoringCapability,
     AuthoringEffects,
     AuthoringInputRequirement,
-    AuthoringStateRef,
 )
 from marivo.introspection.live.model import LiveSurfaceRegistry
 
@@ -27,8 +26,7 @@ def _preview_capability() -> AuthoringCapability:
             AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
         ),
         output_family="PreviewResult",
-        preconditions=("semantic.loaded",),
-        produced_state=AuthoringStateRef(id="semantic.previewed"),
+        preconditions=("a current loaded SemanticCatalog",),
         effects=AuthoringEffects(
             data_access="scoped_data_read",
             connection="opens_connection",

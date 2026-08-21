@@ -8,7 +8,6 @@ from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
 from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 
-from marivo._authoring.model import AuthoringContract
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
@@ -229,12 +228,6 @@ class _SpecBase(RenderableResult):
         object.__setattr__(self, "env_refs", env_refs)
         object.__setattr__(self, "ai_context", _build_ai_context(self.ai_context))
 
-    def contract(self) -> AuthoringContract:
-        """Return the mechanical registration contract for this declaration."""
-        from marivo.datasource._capabilities.contracts import contract_for_spec
-
-        return contract_for_spec(self.name)
-
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} name={self.name} backend={self.backend_type}"
 
@@ -262,9 +255,9 @@ class _SpecBase(RenderableResult):
         card = (
             Card(
                 identity=self._repr_identity(),
-                available=(".fields", ".env_refs", ".contract()", ".show()"),
+                available=(".fields", ".env_refs", ".show()"),
             )
-            .status("datasource.declared")
+            .status("valid declaration")
             .field("ref", self.ref.key)
             .field("target", rendered_target)
         )

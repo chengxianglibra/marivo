@@ -698,8 +698,8 @@ continuation facts tied to current state, such as cumulative-observation
 compatibility for `session.compare(...)` or attribution admission for
 `session.attribute(...)`.
 
-Every public value returned by `.contract()`—currently `AuthoringContract`,
-`ArtifactContract`, `DigestReadContract`, and `TimeScopeContractV1`—structurally
+Every public value returned by `.contract()`—currently `ArtifactContract`,
+`DigestReadContract`, and `TimeScopeContractV1`—structurally
 provides a bounded one-line `repr`, deterministic bounded `render()`, and `show()`
 that prints the same card. Typed fields and `model_dump()` remain available; this conformance
 does not introduce a cross-layer contract base class.

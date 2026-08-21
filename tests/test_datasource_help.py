@@ -49,15 +49,15 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
     ("target", "needles"),
     [
         ("inspect", ("Entrypoint: md.inspect", "Signature:", "Output family: SourceInspection")),
-        ("SourceInspection.sample", ("Required state:", "Effects:", "Example:")),
+        ("SourceInspection.sample", ("Preconditions:", "Effects:", "Example:")),
         (
             "raw_sql",
             (
                 "potentially_unbounded_read",
                 "requires_positive_row_guard",
-                "semantic-gap escape",
-                "cannot become canonical metrics",
-                "check is_truncated before terminal computation",
+                "governed read-only SQL exploration",
+                "cannot enter typed analysis",
+                "check is_truncated before drawing conclusions",
             ),
         ),
         (
@@ -165,33 +165,34 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "inspection = md.inspect(" in sample_text
     assert "snapshot = inspection.sample(" in sample_text
     assert "snapshot.show()" in sample_text
-    assert "snapshot.contract().show()" in sample_text
-    assert 'snapshot.dimensions(columns=("status",)).show()' in sample_text
+    assert "snapshot.contract().show()" not in sample_text
+    assert "snapshot.dimensions" not in sample_text
     assert "persist_values=True" in sample_text
     assert "snapshot_value_persistence" in sample_text
     assert "later process" in sample_text
     assert 'source_params={"apps": ["app-1", "app-2"]}' in sample_text
 
 
-def test_connection_test_help_teaches_result_and_contract_reads() -> None:
+def test_connection_test_help_teaches_result_read() -> None:
     text = _text("test")
 
     assert "result = md.test(" in text
     assert "result.show()" in text
-    assert "result.contract().show()" in text
+    assert "result.contract().show()" not in text
 
 
-def test_authoring_is_a_generated_datasource_state_boundary() -> None:
+def test_authoring_routes_direct_exploration_without_lifecycle_states() -> None:
     text = _text("authoring")
 
-    assert "datasource.declared" in text
-    assert "evidence.projected" in text
+    assert "datasource.declared" not in text
+    assert "evidence.projected" not in text
     assert 'declare -> marivo.help("datasource.duckdb")' in text
     assert 'register and test -> marivo.help("datasource.register")' in text
     assert 'metadata -> marivo.help("datasource.inspect")' in text
     assert 'explicit scope -> marivo.help("datasource.partition")' in text
-    assert 'bounded acquisition -> marivo.help("datasource.SourceInspection.sample")' in text
-    assert 'query-free projections -> marivo.help("datasource.DiscoverySnapshot.entity")' in text
+    assert 'optional bounded sampling -> marivo.help("datasource.SourceInspection.sample")' in text
+    assert 'governed SQL exploration -> marivo.help("datasource.raw_sql")' in text
+    assert "RawSqlResult is terminal data" in text
     assert _DATASOURCE_IMPORT in text
     assert _SEMANTIC_IMPORT not in text
     assert 'marivo.help("semantic.authoring")' in text
@@ -211,12 +212,12 @@ def test_consumed_type_help_uses_only_registered_public_contract() -> None:
 
 
 @pytest.mark.parametrize("target", [md.TrinoSpec, md.PartitionScope, md.UnprunedScope])
-def test_state_bearing_type_help_exposes_read_and_continuation_surfaces(target: type) -> None:
+def test_result_type_help_exposes_read_surface_without_lifecycle_contract(target: type) -> None:
     text = _text(target)
 
-    assert "Public consumption: contract, show, render" in text
+    assert "Public consumption: show, render" in text
     assert "Detail: call .show() for bounded readable state." in text
-    assert "Continuation: call .contract() for mechanically valid next actions." in text
+    assert ".contract()" not in text
 
 
 def test_datasource_failure_type_help_is_registry_owned() -> None:
@@ -230,9 +231,7 @@ def test_datasource_failure_type_help_is_registry_owned() -> None:
 
 
 def test_help_accepts_registered_receiver_path_and_rejects_private_names() -> None:
-    assert _text("snapshot.entity").startswith("DiscoverySnapshot.entity\n")
-
-    for target in ("ai_context", "datasource_name_global", "_surface"):
+    for target in ("snapshot.entity", "ai_context", "datasource_name_global", "_surface"):
         with pytest.raises(MarivoHelpTargetError):
             _text(target)
 

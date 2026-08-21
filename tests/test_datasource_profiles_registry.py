@@ -306,7 +306,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     assert result.failure.message == "authentication failed"
     assert result.repair is not None
     assert result.repair.kind == "reconnect"
-    assert result.contract().transitions[0].blocked_by == ("connection_roundtrip_failed",)
+    assert not hasattr(result, "contract")
     assert persisted == []
 
 

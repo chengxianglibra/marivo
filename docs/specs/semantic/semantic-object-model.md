@@ -2,7 +2,7 @@
 
 Status: draft design. This document defines the object contracts of
 `marivo.semantic` (`ms`): the business objects a coding agent declares in Python
-so that downstream analysis can reference stable, verified semantics. It is the
+so that downstream analysis can reference stable, validated semantics. It is the
 authority for *what each object is and what fields it carries*; the process of
 building them is in [authoring-workflow.md](authoring-workflow.md), and how they
 are loaded, read, and validated is in
@@ -203,7 +203,7 @@ readability, and materialization checks.
 ### Measure as the authority for additivity and unit
 
 A **measure** is the authoritative declaration site for a row-level numeric
-fact's `additivity` and physical `unit`. Tier-1 metrics aggregate a verified
+fact's `additivity` and physical `unit`. Tier-1 metrics aggregate a validated
 measure; derived metrics propagate the unit via composition algebra.
 
 ### Time dimension
@@ -259,8 +259,8 @@ native temporal column.
 
 ## Metric
 
-Metrics come in two tiers. **Tier-1** is the default: declare and verify a
-row-level measure, then aggregate it.
+Metrics come in two tiers. **Tier-1** is the default: declare a row-level
+measure, load the coherent slice, then aggregate it.
 
 ```python
 @ms.measure(

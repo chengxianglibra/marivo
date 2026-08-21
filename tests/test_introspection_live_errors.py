@@ -30,7 +30,7 @@ def test_help_target_error_payload_surfaces_did_you_mean_in_message():
     payload = build_help_target_error_payload(
         "snapshot",
         surface="datasource",
-        candidates=("DiscoverySnapshot", "DiscoverySnapshot.entity"),
+        candidates=("DiscoverySnapshot", "SourceInspection.sample"),
     )
     assert "Did you mean" in payload.message
     assert "DiscoverySnapshot" in payload.message

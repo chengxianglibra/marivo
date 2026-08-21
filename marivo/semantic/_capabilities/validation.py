@@ -95,8 +95,6 @@ def _focused_budget_text(canonical_id: str) -> str:
             requirements,
             descriptor.output_family or "",
             ", ".join(descriptor.preconditions),
-            descriptor.produced_state.id if descriptor.produced_state is not None else "",
-            ", ".join(state.id for state in descriptor.required_states),
             effects.data_access,
             effects.connection,
             ", ".join(effects.mutations),
@@ -120,18 +118,6 @@ def validate_semantic_live_surface() -> None:
         REGISTRY.by_canonical_id(canonical_id).callable_path for canonical_id in callable_ids
     )
     assert len(callable_paths) == len(set(callable_paths))
-
-    produced_state_ids = {
-        descriptor.produced_state.id
-        for canonical_id in canonical_ids
-        if (descriptor := REGISTRY.by_canonical_id(canonical_id)).produced_state is not None
-    }
-    required_state_ids = {
-        state.id
-        for canonical_id in canonical_ids
-        for state in REGISTRY.by_canonical_id(canonical_id).required_states
-    }
-    assert required_state_ids <= produced_state_ids
 
     registered_constraints = {str(constraint_id) for constraint_id in CONSTRAINTS}
     for canonical_id in canonical_ids:
@@ -205,8 +191,6 @@ def validate_semantic_live_surface() -> None:
             REGISTRY.by_canonical_id(target.canonical_id or "").surface == target.surface
             for target in (*contract.producers, *contract.consumers)
         )
-        assert not contract.state_bearing or "contract" in contract.public_methods
-
     root_text = "\n".join(
         (
             *(

@@ -26,13 +26,14 @@ description: 复用已有语义层项目，或让智能体为新项目起草第�
 完成[安装](/zh-cn/docs/latest/installation/)，然后告诉智能体数据源、业务目标和已经确定的规则：
 
 > 使用 `marivo-semantic`，为这个项目建立能够分析已完成订单收入的语义层。
-> 遇到需要业务判断的口径问题时向我确认。
-> 完成后展示需要我批准的指标定义，并在开始分析前停止。
+> 把当前请求和项目中可归因且不冲突的文档作为权威。只有某个可复用业务选择仍未解决时，
+> 才问我一个问题并在开始分析前停止。
 
-## 你需要确认的业务定义
+## 需要确定的业务定义
 
-至少检查收入包含和排除什么、取消和退款如何处理、时间轴、币种和可加性、允许的拆分维度、
-限制和负责人。数据模式与样本只能帮助智能体起草和提问，不能替代你的确认。
+通过当前请求、已批准的项目定义、可归因且不冲突的文档，或一个专项回答，确定收入包含和
+排除什么、取消和退款如何处理、时间轴、币种和可加性、允许的拆分维度、限制和负责人。
+数据模式与样本只能帮助智能体起草和提问，不能自行确定业务含义。
 
 ## 智能体写入项目的内容
 
@@ -63,7 +64,7 @@ ms.domain(
     owner="Mina Zhang",
     ai_context=ms.ai_context(
         business_definition="Completed-order sales analysis domain.",
-        guardrails=["Use only the user-approved completed-order population."],
+        guardrails=["Use only the authority-backed completed-order population."],
     ),
 )
 
@@ -127,8 +128,8 @@ revenue = ms.aggregate(
 
 - 指标的定义、范围、排除规则、时间轴、单位和拆分维度符合业务需要；
 - `ai_context` 中的业务定义和 `guardrails` 清楚表达了限制；
-- 负责人已经确认口径；
+- 当前权威已经确定定义中的每个可复用业务选择；
 - 智能体报告新模型的限定范围的编写认证没有阻塞项。
 
-就绪检查用于认证刚刚完成编写的模型，不代表业务口径已经获批，也不需要在每次分析前
-重跑。确认后继续[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)。
+就绪检查用于认证刚刚完成编写的模型，不会自行产生业务权威，也不需要在每次分析前
+重跑。没有未解决的可复用选择后，继续[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)。

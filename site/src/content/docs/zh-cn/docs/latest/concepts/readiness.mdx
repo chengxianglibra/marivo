@@ -53,7 +53,7 @@ description: 对新建或修改的语义对象进行显式技术认证。
 
 | 检查 | 作用 | 是否触及后端？ |
 | --- | --- | --- |
-| `catalog.verify(ref)` | 静态引用验证 | 否 |
+| `ms.load()` + `catalog.require(ref)` | 项目级静态验证与精确查找 | 否 |
 | `catalog.preview(ref, using=snapshot)` | 执行限定范围的运行时冒烟检查，只记录元数据，不持久化行 | 是 |
 | `catalog.preview_many(refs, using=snapshot_or_mapping)` | 合并兼容的运行时冒烟检查，同时按引用分别记录证据 | 是 |
 | `catalog.readiness(refs=[revenue])` | 读取匹配已持久化预览证据 | 否 |
@@ -104,8 +104,9 @@ description: 对新建或修改的语义对象进行显式技术认证。
 
 `report.show()` 会分别渲染真正的 warning 与 advisory。缺失快照和运行时预览证据
 按 evidence root 聚合：一条 issue 携带所有受影响语义引用和一条修复建议，避免逐引用
-告警洪水。`report.to_dict()` 返回同样的聚合机器列表；`report.contract()` 在缺失预览
-证据时暴露一个批量 `preview` 转换。
+告警洪水。`report.to_dict()` 返回同样的聚合机器列表。缺失预览证据时，读取类型化 issue
+repair，并把 `preview_required_refs` 直接传给当前的
+`catalog.preview_many(..., using=...)` 路径。
 通过认证的根保留在 `analysis_ready_inputs` 中；`analysis_ready_refs` 是仅含引用投影。
 
 ## 问题种类

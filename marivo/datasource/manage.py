@@ -15,7 +15,7 @@ from typing import Any, Literal, TypeAlias
 import pandas as pd
 from pandas.api.types import is_object_dtype
 
-from marivo._authoring.model import AuthoringContract, AuthoringRepair
+from marivo._authoring.model import AuthoringRepair
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -65,14 +65,8 @@ class DatasourceSummary(RenderableResult):
     def _repr_identity(self) -> str:
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
 
-    def contract(self) -> AuthoringContract:
-        """Return the validation and inspection contract for this datasource."""
-        from marivo.datasource._capabilities.contracts import contract_for_registered
-
-        return contract_for_registered(self.name)
-
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".contract()", ".show()"))
+        return Card(identity=self._repr_identity(), available=(".show()",))
 
 
 @dataclass(frozen=True, repr=False)
@@ -125,16 +119,10 @@ class DatasourceDescription(RenderableResult):
             f"fields={len(self.literal_fields)} env_refs={len(self.env_refs)}"
         )
 
-    def contract(self) -> AuthoringContract:
-        """Return the validation and inspection contract for this datasource."""
-        from marivo.datasource._capabilities.contracts import contract_for_registered
-
-        return contract_for_registered(self.name)
-
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = sorted(self.env_refs)
-        return Card(identity=self._repr_identity(), available=(".contract()", ".show()")).field(
+        return Card(identity=self._repr_identity(), available=(".show()",)).field(
             label="columns",
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
@@ -177,20 +165,10 @@ class DatasourceTestResult(RenderableResult):
         latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
         return f"DatasourceTestResult name={self.name} ok={self.ok} latency={latency}"
 
-    def contract(self) -> AuthoringContract:
-        """Return the observed connection-validation state for this result."""
-        from marivo.datasource._capabilities.contracts import contract_for_connection_test
-
-        return contract_for_connection_test(
-            self.name,
-            ok=self.ok,
-            failure_code=None if self.failure is None else self.failure.code,
-        )
-
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".failure", ".repair", ".contract()", ".show()"),
+            available=(".failure", ".repair", ".show()"),
         )
         if self.failure is not None:
             detail = self.failure.exception_type
@@ -788,7 +766,7 @@ def raw_sql(
     include_types: bool = True,
     project_root: Path | None = None,
 ) -> RawSqlResult:
-    """Run a bounded read-only SQL terminal diagnostic against a datasource.
+    """Run governed read-only SQL exploration against a datasource.
 
     Args:
         datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
@@ -796,9 +774,8 @@ def raw_sql(
             are bounded with a wrapper query capped at ``limit + 1`` rows;
             metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
             ``EXPLAIN`` execute directly so backend metadata syntax remains valid.
-        reason: Required terminal-analysis reason; shown in the result. For a
-            semantic-gap escape, name the gap, temporary analysis purpose, and
-            inferred assumptions that make the statement provisional.
+        reason: Required exploration reason shown in the result. Name the
+            physical or semantic question and disclose inferred assumptions.
         limit: Maximum rows to return. Defaults to ``RAW_SQL_DEFAULT_LIMIT``
             (100); pass an explicit ``limit`` for larger result sets. Truncation
             is reported actively — see the ``is_truncated`` field, the
@@ -825,8 +802,9 @@ def raw_sql(
         the user statement executes through bounded result fetching; if the profile
         has no enforceable timeout the function fails closed with
         ``DatasourceRawSqlError(stage="timeout_setup")``.
-        A semantic gap may use this terminal path without prior approval, but
-        inferred semantics remain provisional and must be disclosed at closeout.
+        This is a normal source-exploration option when inspection or a generic
+        sample cannot answer the current question. Inferred semantics remain
+        provisional and must be disclosed at closeout.
         The result cannot become a canonical metric or re-enter typed analysis.
         Returned rows are bounded, but the backend diagnostic itself can still be
         expensive; callers must inspect query plans and supply a narrow statement.

@@ -136,6 +136,15 @@ def test_ontology_public_surface_and_help_are_closed(capsys) -> None:
     assert "driver" in text
     assert "outcome" in text
     assert "not assert causality" in text
+    assert "data access: none" in text
+    assert "connection: none" in text
+    assert "mutations: semantic_source" in text
+
+    marivo.help("ontology.load")
+    text = capsys.readouterr().out
+    assert "data access: local_metadata_read" in text
+    assert "connection: none" in text
+    assert "mutations: none" in text
 
     with pytest.raises(InvalidSemanticEdgeError):
         mo.influences(

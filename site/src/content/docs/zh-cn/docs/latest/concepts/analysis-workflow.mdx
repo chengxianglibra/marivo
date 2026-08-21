@@ -76,12 +76,12 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的
 每次 API 调用的前置步骤。
 :::
 
-分析需要新建或刚修改的对象时，先完成该变更的编写收尾：
-`md.inspect(...)` → 显式范围 → 一次 `inspection.sample(...)` → 快照
-投影 → 一个 Python 声明 → 当前条目 → `catalog.verify(entry)` →
-`catalog.preview(entry, using=snapshot)` → 零查询 `catalog.readiness(refs=[entry])`。
-等价的精确引用形式仍然有效。日常分析复用未变化的对象时，不重复这条编写
-证据流程。非常见格式和语义判断仍由智能体负责。
+分析需要新建或刚修改的语义时，先完成最小依赖一致切片的编写收尾：加载当前目录 →
+`md.inspect(...)` → 可选的有界 sampling 和/或受治理的终端 `md.raw_sql(...)` →
+显式 Python 声明 → 一次 `ms.load()` → 对每个新建根执行 `catalog.require(ref)` →
+scoped readiness。只有具体运行时风险或当前 readiness repair 要求时才执行 preview。
+第一次类型化分析使用前，只在可复用业务含义确实未解决时停止；当前用户输入、已批准的
+项目定义、可归因且不冲突的文档已经构成权威，不需要重复确认。
 
 :::note[产物是不可变的]
 产物一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
@@ -121,7 +121,8 @@ question 为空时也同样处理。请按结构化 repair 选择：调用 `resu
 指标、维度和时间维度调用 `.details().show()`。`details` 输出会展示已编写
 的 `ai_context`；指标详情还会展示组合、有效实体、候选轴和度量
 血缘。候选轴只用于静态发现，关系与扩散的有效性仍以 `observe` 为准。
-`.contract()` 只表示验证/预览/就绪检查等机械下一步；`.render()` 返回的有界卡片
+用 `catalog.require(...)` 确认精确当前成员，用专项帮助查看调用契约，用限定范围的 readiness
+做静态预检；`.render()` 返回的有界卡片
 与 `.show()` 打印的内容相同。如果所需对象缺失或定义存在争议，首次 `observe` 前先回到
 语义编写处理。
 

@@ -767,7 +767,6 @@ class PeriodCalendarEntry:
         cursor: str | None = None,
     ) -> CalendarPeriodPage: ...
     def details(self) -> PeriodCalendarDetails: ...
-    def contract(self) -> AuthoringContract: ...
     def show(self) -> None: ...
 ```
 
@@ -776,7 +775,7 @@ spellings. Their order is stable across exact lookup, date lookup, and paging.
 
 | Result type | Public members |
 |---|---|
-| `PeriodCalendarEntry` | `ref`, `grain(level)`, `period(level, key)`, `period_on(level, date)`, `periods(level, limit=20, cursor=None)`, `details()`, `contract()`, `show()` |
+| `PeriodCalendarEntry` | `ref`, `grain(level)`, `period(level, key)`, `period_on(level, date)`, `periods(level, limit=20, cursor=None)`, `details()`, `show()` |
 | `CalendarPeriodPage` | `items`, `next_cursor`, `show()` |
 
 `period(...)` and `period_on(...)` return `TimeScope` directly.
@@ -872,7 +871,6 @@ class TemporalSetEntry:
         cursor: str | None = None,
     ) -> TemporalOccurrencePage: ...
     def details(self) -> TemporalSetDetails: ...
-    def contract(self) -> AuthoringContract: ...
     def show(self) -> None: ...
 
 
@@ -880,17 +878,16 @@ class WorkScheduleEntry:
     @property
     def ref(self) -> Ref[WorkScheduleKind]: ...
     def details(self) -> WorkScheduleDetails: ...
-    def contract(self) -> AuthoringContract: ...
     def show(self) -> None: ...
 ```
 
 `TemporalSetEntry` exposes `ref`, exact `occurrence(key)`, bounded
 `occurrences(start=None, end=None, category=None, limit=20, cursor=None)`,
-`details()`, `contract()`, and `show()`; date/timestamp
+`details()`, and `show()`; date/timestamp
 arguments must match the set encoding and the interval filter means overlap with
 `[start, end)`. `occurrence(key)` returns `TimeScope` directly;
 A `WorkScheduleEntry` is an ordinary leaf catalog entry with `ref`, `details()`,
-`contract()`, and `show()`. The remaining exact returned shapes are:
+and `show()`. The remaining exact returned shapes are:
 
 ```python
 class TemporalOccurrencePage:
@@ -938,9 +935,9 @@ category. These detail types are public returned values but are not constructors
 or top-level help targets.
 
 All entry and page `repr` values are bounded and one-line. `show()` is bounded
-and deterministic. `contract()` exposes only mechanically valid continuations:
-grain or scope acquisition, narrower paging, verify/preview/readiness where applicable,
-or use as `time_scope`, grain, or schedule. Member lookup reads the immutable
+and deterministic. Entry methods expose grain or scope acquisition and narrower
+paging directly; live help owns preview, readiness, and analysis consumers.
+Member lookup reads the immutable
 certified snapshot and never queries the datasource. Missing, ambiguous, stale,
 out-of-coverage, and cursor errors reuse the existing structured semantic catalog
 error family and include a real bounded retry; no new generic temporal lookup
@@ -957,7 +954,7 @@ The canonical workflow is:
 
 ```text
 inspect -> explicit complete coverage -> sample(persist_values=True) -> author -> load
-        -> catalog.verify -> catalog.preview(using=snapshot) -> readiness
+        -> catalog.require -> catalog.preview(using=snapshot) -> readiness
 ```
 
 There is no new public `prepare`, `sync`, or `calendar registry` API.

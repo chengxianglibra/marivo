@@ -539,7 +539,7 @@ def test_datasource_specs_render_only_agent_relevant_state(
 
     rendered = spec.render()
 
-    assert "status: datasource.declared" in rendered
+    assert "status: valid declaration" in rendered
     assert f"ref: datasource:{spec.name}" in rendered
     assert target in rendered
     assert "ai_context" not in rendered

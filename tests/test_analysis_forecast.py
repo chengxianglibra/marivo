@@ -439,7 +439,7 @@ def test_semantic_period_forecast_uses_certified_future_keys_and_contract(
     backend = _seed_fiscal_forecast_backend()
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = session_attach.get_or_create(
         name="semantic-forecast",
@@ -478,7 +478,7 @@ def test_semantic_period_forecast_validates_panel_sequences_and_ordinal_models(
     backend = _seed_fiscal_forecast_backend()
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = session_attach.get_or_create(
         name="semantic-forecast-panel", backends={"warehouse": lambda: backend}
@@ -528,7 +528,7 @@ def test_semantic_period_forecast_replays_exact_history_snapshot_without_datasou
     backend = _seed_fiscal_forecast_backend()
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     factory_calls: list[str] = []
 

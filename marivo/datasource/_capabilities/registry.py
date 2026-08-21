@@ -10,14 +10,12 @@ from marivo._authoring.model import (
     AuthoringCapabilityKind,
     AuthoringEffects,
     AuthoringInputRequirement,
-    AuthoringStateId,
-    AuthoringStateRef,
+    AuthoringInputRole,
     ConnectionEffect,
     DataAccessEffect,
     EffectFlag,
     MutationEffect,
     RepairKind,
-    TransitionInputRole,
 )
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,
@@ -84,12 +82,6 @@ OUTPUT_FAMILIES = frozenset(
         "SourceInspection",
         "PartitionInspection",
         "DiscoverySnapshot",
-        "EntityEvidenceResult",
-        "DimensionEvidenceResult",
-        "DimensionValuesResult",
-        "TimeEvidenceResult",
-        "MeasureEvidenceResult",
-        "RelationshipEvidenceResult",
         "RawSqlResult",
         "Text",
         "None",
@@ -102,17 +94,13 @@ def _target(canonical_id: str) -> LiveHelpTarget:
     return LiveHelpTarget(surface="datasource", canonical_id=canonical_id)
 
 
-def _states(*state_ids: AuthoringStateId) -> tuple[AuthoringStateRef, ...]:
-    return tuple(AuthoringStateRef(id=state_id) for state_id in state_ids)
-
-
 def _inputs(
-    *families: tuple[TransitionInputRole, str],
+    *families: tuple[AuthoringInputRole, str],
 ) -> tuple[AuthoringInputRequirement, ...]:
     return tuple(AuthoringInputRequirement(role=role, family=family) for role, family in families)
 
 
-def _optional_input(role: TransitionInputRole, family: str) -> AuthoringInputRequirement:
+def _optional_input(role: AuthoringInputRole, family: str) -> AuthoringInputRequirement:
     return AuthoringInputRequirement(role=role, family=family, min_count=0)
 
 
@@ -153,8 +141,6 @@ def _capability(
     constraints: tuple[str, ...] = (),
     example: str | None = None,
     preconditions: tuple[str, ...] = (),
-    produced_state: AuthoringStateId | None = None,
-    required_states: tuple[AuthoringStateRef, ...] = (),
     repair_kinds: tuple[RepairKind, ...] = (),
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
@@ -170,10 +156,6 @@ def _capability(
         input_requirements=inputs,
         output_family=output,
         preconditions=preconditions,
-        produced_state=(
-            AuthoringStateRef(id=produced_state) if produced_state is not None else None
-        ),
-        required_states=required_states,
         effects=effects,
         constraints=constraints,
         minimal_example=example,
@@ -205,7 +187,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'md.duckdb(name="api", http_scope="https://api.example/v1/", '
                 'http_bearer_token_env="API_TOKEN")'
             ),
-            produced_state="datasource.declared",
         ),
         _capability(
             "sqlite",
@@ -215,7 +196,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
             example='md.sqlite(name="app", path="data/app.sqlite", read_only=True)',
-            produced_state="datasource.declared",
         ),
         _capability(
             "trino",
@@ -225,7 +205,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
             example='md.trino(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")',
-            produced_state="datasource.declared",
         ),
         _capability(
             "mysql",
@@ -235,7 +214,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
             example='md.mysql(name="warehouse", host="mysql.example", database="sales")',
-            produced_state="datasource.declared",
         ),
         _capability(
             "postgres",
@@ -245,7 +223,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
             example='md.postgres(name="warehouse", host="postgres.example", database="sales")',
-            produced_state="datasource.declared",
         ),
         _capability(
             "clickhouse",
@@ -255,7 +232,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
             example='md.clickhouse(name="warehouse", host="clickhouse.example")',
-            produced_state="datasource.declared",
         ),
         _capability(
             "register",
@@ -266,9 +242,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_effects("local_metadata_read", mutations=("project_state",)),
             constraints=("datasource_secret_env_ref",),
             example='md.register(md.duckdb(name="warehouse", path=":memory:"))',
-            preconditions=("datasource.declared",),
-            produced_state="datasource.registered",
-            required_states=_states("datasource.declared"),
+            preconditions=("a validated DatasourceSpec",),
         ),
         _capability(
             "remove",
@@ -323,12 +297,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
             constraints=constraints["configured"],
-            example=(
-                'result = md.test(ms.ref.datasource("warehouse"))\n'
-                "result.show()\n"
-                "result.contract().show()"
-            ),
-            produced_state="datasource.connection_validated",
+            example=('result = md.test(ms.ref.datasource("warehouse"))\nresult.show()\n'),
         ),
         _capability(
             "source_column",
@@ -423,7 +392,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 ("scope", "PositiveTimeoutGuard"),
             ),
             example='md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)',
-            produced_state="scope.explicit",
         ),
         _capability(
             "time_range",
@@ -440,7 +408,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'md.time_range("timestamp", start="2026-08-01", end="2026-08-02", '
                 "max_rows=1000, timeout_seconds=30)"
             ),
-            produced_state="scope.explicit",
             see_also=(_target("partition"), _target("SourceInspection.sample")),
         ),
         _capability(
@@ -450,7 +417,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="UnprunedScope",
             inputs=_inputs(("scope", "PositiveRowGuard"), ("scope", "PositiveTimeoutGuard")),
             example="md.unpruned(max_rows=1000, timeout_seconds=30)",
-            produced_state="scope.explicit",
         ),
         _capability(
             "inspect",
@@ -464,27 +430,27 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "inspection.show()"
             ),
-            preconditions=("datasource.registered",),
-            produced_state="source.inspected",
-            required_states=_states("datasource.registered"),
+            preconditions=("a registered datasource ref",),
             repair_kinds=("register", "reconnect"),
         ),
         _capability(
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
-            "Run bounded read-only terminal analysis, including semantic-gap escape; "
-            "results cannot become canonical metrics. Results may be truncated — always "
-            "check is_truncated before terminal computation.",
+            "Run governed read-only SQL exploration with bounded returned rows and an "
+            "enforced timeout. Results are terminal evidence and cannot enter typed analysis; "
+            "always check is_truncated before drawing conclusions.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "Ref[datasource]"),
                 ("dependency", "SqlText"),
                 ("dependency", "RawSqlReason"),
+                ("scope", "PositiveLimit"),
+                ("scope", "PositiveTimeoutGuard"),
             ),
             effects=_effects(
                 "potentially_unbounded_read",
                 "opens_connection",
-                flags=("requires_positive_row_guard",),
+                flags=("requires_positive_row_guard", "requires_positive_timeout_guard"),
             ),
             constraints=constraints["configured"],
             example='md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="check connectivity")',
@@ -545,9 +511,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
             effects=_TEST,
             constraints=constraints["configured"],
-            example=(
-                'result = md.load().test("warehouse")\nresult.show()\nresult.contract().show()'
-            ),
+            example=('result = md.load().test("warehouse")\nresult.show()'),
             public_entrypoint="catalog.test",
         ),
         _capability(
@@ -614,118 +578,20 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 '    columns=("order_id", "status", "amount"),\n'
                 ")\n"
                 "snapshot.show()\n"
-                "snapshot.contract().show()\n"
-                'snapshot.dimensions(columns=("status",)).show()\n'
                 "# If a later process needs value projections, explicitly accept plaintext\n"
                 "# project-local caching and pass persist_values=True to the original sample.\n"
                 '# For md.source_param("apps"), add '
                 'source_params={"apps": ["app-1", "app-2"]}.'
             ),
-            preconditions=("source.inspected", "scope.explicit"),
-            produced_state="evidence.acquired",
-            required_states=_states("source.inspected", "scope.explicit"),
+            preconditions=("a current SourceInspection", "an explicit AuthoringScope"),
             repair_kinds=("rescope", "reacquire"),
             public_entrypoint="inspection.sample",
-        ),
-        _capability(
-            "DiscoverySnapshot.entity",
-            "marivo.datasource.snapshot.DiscoverySnapshot.entity",
-            "Project entity evidence from retained snapshot values.",
-            kind="method",
-            output="EntityEvidenceResult",
-            inputs=_inputs(("receiver", "DiscoverySnapshot"), ("dependency", "Columns")),
-            example='snapshot.entity(columns=("order_id",))',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("reacquire",),
-            public_entrypoint="snapshot.entity",
-        ),
-        _capability(
-            "DiscoverySnapshot.dimensions",
-            "marivo.datasource.snapshot.DiscoverySnapshot.dimensions",
-            "Project dimension evidence from retained snapshot values.",
-            kind="method",
-            output="DimensionEvidenceResult",
-            inputs=_inputs(("receiver", "DiscoverySnapshot"), ("dependency", "Columns")),
-            example='snapshot.dimensions(columns=("status",))',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("reacquire",),
-            public_entrypoint="snapshot.dimensions",
-        ),
-        _capability(
-            "DiscoverySnapshot.values",
-            "marivo.datasource.snapshot.DiscoverySnapshot.values",
-            "Project bounded retained value frequency evidence.",
-            kind="method",
-            output="DimensionValuesResult",
-            inputs=_inputs(
-                ("receiver", "DiscoverySnapshot"), ("subject", "Column"), ("scope", "PositiveLimit")
-            ),
-            example='snapshot.values("status", limit=10)',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("reacquire",),
-            public_entrypoint="snapshot.values",
-        ),
-        _capability(
-            "DiscoverySnapshot.time_dimensions",
-            "marivo.datasource.snapshot.DiscoverySnapshot.time_dimensions",
-            "Project deterministic time evidence from a snapshot.",
-            kind="method",
-            output="TimeEvidenceResult",
-            inputs=_inputs(("receiver", "DiscoverySnapshot"), ("dependency", "Columns")),
-            example='snapshot.time_dimensions(columns=("event_date",))',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("reacquire",),
-            public_entrypoint="snapshot.time_dimensions",
-        ),
-        _capability(
-            "DiscoverySnapshot.measures",
-            "marivo.datasource.snapshot.DiscoverySnapshot.measures",
-            "Project numeric measure evidence from a snapshot.",
-            kind="method",
-            output="MeasureEvidenceResult",
-            inputs=_inputs(("receiver", "DiscoverySnapshot"), ("dependency", "Columns")),
-            example='snapshot.measures(columns=("amount",))',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("reacquire",),
-            public_entrypoint="snapshot.measures",
-        ),
-        _capability(
-            "DiscoverySnapshot.relationships",
-            "marivo.datasource.snapshot.DiscoverySnapshot.relationships",
-            "Compare retained evidence from two snapshots.",
-            kind="method",
-            output="RelationshipEvidenceResult",
-            inputs=(
-                *_inputs(
-                    ("receiver", "DiscoverySnapshot"),
-                    ("dependency", "DiscoverySnapshot"),
-                ),
-                AuthoringInputRequirement(
-                    role="mapping_key", family="Columns", exact_keys=("left", "right")
-                ),
-            ),
-            example='snapshot.relationships(other, left=("customer_id",), right=("id",))',
-            preconditions=("evidence.acquired",),
-            produced_state="evidence.projected",
-            required_states=_states("evidence.acquired"),
-            repair_kinds=("retry", "reacquire"),
-            public_entrypoint="snapshot.relationships",
         ),
         _capability(
             "authoring",
             None,
             "Describe the datasource authoring workflow boundary.",
-            kind="transition",
+            kind="boundary",
             output=None,
             effects=_NONE,
             see_also=(_target("inspect"), _target("SourceInspection.sample")),
@@ -772,15 +638,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "time_range",
                 "unpruned",
             ),
-            "acquire_project": (
-                "SourceInspection.sample",
-                "DiscoverySnapshot.entity",
-                "DiscoverySnapshot.dimensions",
-                "DiscoverySnapshot.values",
-                "DiscoverySnapshot.time_dimensions",
-                "DiscoverySnapshot.measures",
-                "DiscoverySnapshot.relationships",
-            ),
+            "acquire_project": ("SourceInspection.sample",),
             "diagnostics_boundaries": ("raw_sql", "authoring", "boundary.semantic_authoring"),
         }
     )
@@ -809,14 +667,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         TrinoSpec,
     )
     from marivo.datasource.catalog import DatasourceCatalog
-    from marivo.datasource.evidence import (
-        DimensionEvidenceResult,
-        DimensionValuesResult,
-        EntityEvidenceResult,
-        MeasureEvidenceResult,
-        RelationshipEvidenceResult,
-        TimeEvidenceResult,
-    )
     from marivo.datasource.inspection import (
         ExecutionCapabilities,
         Partitioning,
@@ -855,7 +705,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str, ...] = (),
-        state_bearing: bool = False,
     ) -> None:
         contracts[cls] = DatasourceTypeContract(
             name=name,
@@ -863,7 +712,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             public_properties=properties,
             public_methods=methods,
             consumers=tuple(_target(value) for value in consumers),
-            state_bearing=state_bearing,
         )
 
     spec_producers: tuple[tuple[type, str], ...] = (
@@ -880,9 +728,8 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             spec_type.__name__,
             (producer,),
             properties=("name", "backend_type", "fields", "env_refs", "ref"),
-            methods=("contract", *show_render),
+            methods=show_render,
             consumers=("register",),
-            state_bearing=True,
         )
     add(
         DatasourceCatalog,
@@ -902,8 +749,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "DatasourceSummary",
         ("register", "DatasourceCatalog.get"),
         properties=("name", "backend_type", "semantic_id"),
-        methods=("contract", *show_render),
-        state_bearing=True,
+        methods=show_render,
     )
     add(
         DatasourceList,
@@ -917,8 +763,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "DatasourceDescription",
         ("describe", "DatasourceCatalog.describe"),
         properties=("name", "backend_type", "literal_fields", "env_refs"),
-        methods=("contract", *show_render),
-        state_bearing=True,
+        methods=show_render,
     )
     add(
         DatasourceFailure,
@@ -931,8 +776,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "DatasourceTestResult",
         ("test", "DatasourceCatalog.test"),
         properties=("name", "ok", "latency_ms", "failure", "repair"),
-        methods=("contract", *show_render),
-        state_bearing=True,
+        methods=show_render,
     )
     add(
         RawSqlResult,
@@ -985,18 +829,16 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "PartitionScope",
         ("partition", "time_range"),
         properties=("values", "max_rows", "timeout_seconds"),
-        methods=("contract", *show_render),
+        methods=show_render,
         consumers=("SourceInspection.sample",),
-        state_bearing=True,
     )
     add(
         UnprunedScope,
         "UnprunedScope",
         ("unpruned",),
         properties=("max_rows", "timeout_seconds"),
-        methods=("contract", *show_render),
+        methods=show_render,
         consumers=("SourceInspection.sample",),
-        state_bearing=True,
     )
     add(
         PhysicalExtent,
@@ -1034,8 +876,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "status",
             "issues",
         ),
-        methods=("contract", *show_render),
-        state_bearing=True,
+        methods=show_render,
     )
     add(
         SourceInspection,
@@ -1051,9 +892,8 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "projectable_columns",
             "warnings",
         ),
-        methods=("contract", "partitions", "sample", *show_render),
+        methods=("partitions", "sample", *show_render),
         consumers=("SourceInspection.partitions", "SourceInspection.sample"),
-        state_bearing=True,
     )
     add(
         DiscoverySnapshot,
@@ -1074,98 +914,10 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "cache_status",
             "created_at",
             "expires_at",
+            "retained_values",
         ),
-        methods=(
-            "entity",
-            "dimensions",
-            "values",
-            "time_dimensions",
-            "measures",
-            "relationships",
-            "contract",
-            *show_render,
-        ),
-        consumers=(
-            "DiscoverySnapshot.entity",
-            "DiscoverySnapshot.dimensions",
-            "DiscoverySnapshot.values",
-            "DiscoverySnapshot.time_dimensions",
-            "DiscoverySnapshot.measures",
-            "DiscoverySnapshot.relationships",
-        ),
-        state_bearing=True,
+        methods=show_render,
     )
-    evidence_contracts: tuple[tuple[type, str, tuple[str, ...]], ...] = (
-        (
-            EntityEvidenceResult,
-            "DiscoverySnapshot.entity",
-            ("status", "snapshot_id", "columns", "evidence_by_column", "issues", "repair"),
-        ),
-        (
-            DimensionEvidenceResult,
-            "DiscoverySnapshot.dimensions",
-            ("status", "snapshot_id", "columns", "evidence_by_column", "issues", "repair"),
-        ),
-        (
-            DimensionValuesResult,
-            "DiscoverySnapshot.values",
-            (
-                "status",
-                "snapshot_id",
-                "column",
-                "sample_distinct_count",
-                "returned_value_count",
-                "sample_values_complete",
-                "scope_values_complete",
-                "value_evidence_state",
-                "frequency_capacity",
-                "values",
-                "issues",
-                "repair",
-            ),
-        ),
-        (
-            TimeEvidenceResult,
-            "DiscoverySnapshot.time_dimensions",
-            ("status", "snapshot_id", "columns", "evidence_by_column", "issues", "repair"),
-        ),
-        (
-            MeasureEvidenceResult,
-            "DiscoverySnapshot.measures",
-            ("status", "snapshot_id", "columns", "evidence_by_column", "issues", "repair"),
-        ),
-        (
-            RelationshipEvidenceResult,
-            "DiscoverySnapshot.relationships",
-            (
-                "status",
-                "left_snapshot_id",
-                "right_snapshot_id",
-                "left_scope",
-                "right_scope",
-                "left",
-                "right",
-                "left_profile",
-                "right_profile",
-                "type_compatible",
-                "evidence_state",
-                "retained_overlap_count",
-                "retained_left_orphan_count",
-                "retained_right_orphan_count",
-                "scope_comparability",
-                "issues",
-                "repair",
-            ),
-        ),
-    )
-    for evidence_type, producer, properties in evidence_contracts:
-        add(
-            evidence_type,
-            evidence_type.__name__,
-            (producer,),
-            properties=properties,
-            methods=("contract", *show_render),
-        )
     return MappingProxyType(contracts)
 
 

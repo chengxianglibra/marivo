@@ -1,393 +1,170 @@
 # Semantic Authoring Workflow
 
-Status: draft design. This document defines the active agent workflow for
-building a Marivo semantic layer — the write loop that turns datasource evidence
-into verified semantic objects. It complements
-[semantic-object-model.md](semantic-object-model.md) (which owns the object
-contracts) and [datasource-layer.md](datasource-layer.md) (which owns connections
-and evidence).
+Status: draft design. This document defines the current agent-native authoring
+workflow across `marivo.datasource` and `marivo.semantic`.
 
-See also:
+## Outcome
 
-- [overview.md](overview.md) — the three-layer picture and guidance layering.
-- [loading-validation-introspection.md](loading-validation-introspection.md) —
-  what `ms.load()`, `catalog.verify(...)`, scoped preview, and
-  `catalog.readiness(...)` return.
-- `marivo.help("authoring")` — the composed runnable workflow; use
-  `marivo.help("semantic.authoring")` or
-  `marivo.help("datasource.authoring")` for a focused component.
+An agent loads current project state, establishes the physical facts needed for
+the task, authors the smallest dependency-coherent semantic slice, and uses one
+`ms.load()` as the project-level static validation event. Exact authored roots
+are then resolved with `catalog.require(...)`, checked through scoped readiness,
+and handed to analysis when their business meaning has current authority.
 
-## Current public flow
+The workflow has no public authoring lifecycle graph, no one-object-at-a-time
+checkpoint rule, and no separate static verification result.
 
-`python -m marivo help` is an environment bootstrap only: it confirms the
-current interpreter, installed package version, and environment fingerprint,
-then points into Python. All focused targets go through the sole public
-coordinator, `marivo.help(...)`. The `datasource.*`, `semantic.*`, and
-`analysis.*` content remains owned by the corresponding native registry; `md`
-and `ms` execute domain operations and do not expose `.help()` aliases.
+## Ownership
 
-The semantic-authoring lifecycle is a registered state model, not a hardcoded
-method-by-method runbook. `marivo.help("authoring")` composes the registered
-datasource and semantic lifecycle views without merging their state ownership.
-Choose the smallest policy route that matches the request. A datasource-only
-request ends after declaration, registration, and connection validation:
+- `marivo.help(...)` owns current constructors, callable operations, effects,
+  input facts, constraints, examples, and repair routes.
+- Datasource inspection, optional bounded sampling, and governed raw SQL expose
+  physical evidence. They do not decide reusable business meaning.
+- Project Python is the semantic source of truth; `ms.load()` validates the
+  whole current project and assembles the catalog.
+- The agent owns evidence interpretation, explicit Python drafting, checkpoint
+  choice, and residual-risk disclosure.
+- Current authority owns choices that change reusable business meaning.
+
+## Current flow
 
 ```text
-environment -> declare -> register -> connection test -> closeout
+load current datasource and semantic catalogs
+-> inspect authoritative physical facts
+-> choose inspection, optional bounded sampling, and/or governed raw SQL
+-> author one dependency-coherent semantic slice
+-> one ms.load()
+-> catalog.require(...) for every authored root
+-> scoped readiness and targeted runtime probes when needed
+-> first typed analysis use
 ```
 
-Physical-source discovery adds the evidence path, while semantic authoring uses
-the complete path:
+### 1. Enter from current state
 
-```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
-```
-
-Invocation details — exact signatures, required inputs, effects, and
-preconditions — live in focused `marivo.help("semantic.<target>")` and the current object's
-`.contract()`, not in this document. Each state-bearing result exposes
-`.contract()` for its mechanically available continuations, and each structured
-error exposes typed repair pointing back to live help. This document states the
-policy order and judgment boundaries; it does not duplicate parameter tables or
-reconstruct mechanical requirements from prose.
-
-`marivo-semantic` is the one-file packaged skill that applies this flow's
-ordered routing discipline. It is a stable policy kernel, not an API manual:
-constructor placement, current signatures, object acquisition, postconditions,
-and repairs remain owned by live help, result cards, contracts, and structured
-errors. The library supplies facts and validation; the agent settles business
-intent and writes ordinary Python definitions. There is no separate "prepare"
-or handoff-brief stage — an agent settles constructor values before authoring
-one object.
-
-## Layer ownership
-
-Each layer of guidance has exactly one job:
-
-- **`marivo.help("semantic.<constructor-or-object>")` — static authoring contract.**
-  Constructors, required and optional parameters, allowed values, defaults, omit
-  rules, nested parse shapes, and static constraints come from the semantic
-  registry. Datasource targets similarly come from the datasource registry;
-  the public coordinator routes but does not duplicate either registry. Help
-  says *what must be settled*; it carries no runtime data.
-- **`md.inspect(...)` and one snapshot — runtime datasource evidence.** Inspect
-  metadata, choose explicit scope, acquire one selected-column sample, and reuse
-  local projections. Evidence never authors objects or infers meaning.
-- **Catalog verify, preview, readiness — validation.** Static verification is
-  query-free; runtime preview requires `using=`; readiness is query-free and
-  consumes matching checks after authoring. Snapshot and preview timestamps are
-  reference metadata, not readiness gates.
-
-The agent settles constructor values from help, discovery evidence, catalog
-state, project docs, source SQL/provenance, prior decisions, and user answers. If
-a semantic decision is still unresolved after the evidence pass, the agent grills
-the user one decision at a time — it does not silently pick a default for
-business-caliber questions (failure handling, ratio denominators, time-axis
-choice, scope).
-
-Some required inputs are not observable from data at all. Before any user-data
-read, the agent checks for an accountable domain owner and the target business
-concept. If either is required and missing, it asks one precise question and
-stops. Sampling is reserved for evidence-shaped uncertainties such as identity,
-unit, additivity, timezone, categorical meaning, and relationship cardinality;
-it is not a way to guess ownership or business definitions.
-
-## File organization
-
-The standard layout is one datasource file per connection and one
-`_domain.py` per domain:
-
-```text
-models/
-  datasources/
-    warehouse.py          # md.duckdb(...) / md.trino(...) / ...
-  semantic/
-    sales/
-      _domain.py          # ms.domain(...) + entities → metrics for this domain
-    marketing/
-      _domain.py
-```
-
-- `models/datasources/*.py` is project-level, shareable, and secret-free (see
-  [datasource-layer.md](datasource-layer.md)).
-- `<root>/<domain>/_domain.py` is the domain entrypoint. It calls `ms.domain(...)`
-  once (with `name` equal to the directory) and holds that domain's entities,
-  dimensions, time dimensions, measures, metrics, and relationships in dependency
-  order.
-- The loader can still execute sibling `.py` files in a domain directory, but
-  that is a lower-level capability. The standard workflow keeps a domain in its
-  single `_domain.py`; multi-file authoring needs its own import-order and
-  default-domain rules and is not the default.
-
-## Authoring ladder
-
-Build datasource-backed objects in dependency order:
-
-```text
-domain -> entity -> dimension -> time_dimension -> measure -> metric
-       -> relationship -> cross-entity metric -> derived metric
-```
-
-Datasource registration is a prerequisite owned by `marivo.datasource`, not a
-rung on this ladder. Each active batch is one entity plus one semantic kind
-(e.g. `entity.sales.orders + dimension`, then `+ time_dimension`, then
-`+ measure`). Relationship and cross-entity batches span multiple entities only
-when the kind requires it.
-
-## Per-object cycle
-
-The per-object cycle is the registered lifecycle applied to one object. Its
-mechanical transitions — load, verify, preview, and readiness —
-and their exact inputs, effects, and preconditions are disclosed by focused
-`marivo.help("semantic.<target>")` and the current object/result's `.contract()`, not restated
-here as a second runbook. `CatalogEntry.contract()` exposes the exact
-object-bound verify, preview, and readiness continuations; this is the canonical
-read point after `ms.load()`. The judgment-shaped steps, which no registry can
-perform, are:
-
-- Settle one candidate from evidence, registry facts, project docs, source
-  SQL/provenance, prior decisions, and user answers. Reuse the matching
-  query-free projection from the one explicitly scoped snapshot acquired for the
-  active batch; inspect current catalog state with `ms.load()` when reuse or
-  dependencies matter.
-- Ask the user only when semantic intent or business policy is still unresolved
-  after the evidence pass.
-- Author exactly one semantic object in Python, reload, navigate to the exact
-  current catalog entry, and inspect it. Use the strict ref-only
-  `catalog.require(ref)` path when identity comes from configuration,
-  persistence, or logs.
-
-Evidence projections expose unresolved business decisions as frozen
-`AuthoringJudgmentRequirement` values in
-`result.contract().judgment_requirements`. Each requirement has a stable ID,
-bounded subjects, evidence IDs, and
-`authority="user_or_business_owner"`. These requirements are a machine-readable
-handoff boundary: they do not add constructor transitions, rank candidates,
-recommend values, or persist an approval token. Cards render them separately as
-“non-mechanical judgment requirements”.
-
-Authoring several objects and validating later is forbidden — each object is
-verified before the next. Verification is result-local (a current `VerifyResult`
-proves one check passed) and not a persisted gate; the skill enforces
-verify-before-preview as policy, while the runtime leaves preview mechanically
-callable from an exact current entry or its exact ref.
-
-## Datasource evidence handoff
-
-Physical evidence comes from `marivo.datasource`. Before authoring a
-datasource-backed object, inspect metadata, choose an explicit scan scope, and
-project evidence from one acquisition:
+Read current datasource and semantic catalogs before mutation:
 
 ```python
-inspection = md.inspect(warehouse, md.table("orders"))
-inspection.show()
-inspection.partitions().show()
-scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
-snapshot = inspection.sample(
-    scope=scope,
-    columns=("order_id", "region", "created_at", "amount"),
-)
-snapshot.entity(columns=("order_id",)).show()
-snapshot.dimensions(columns=("region",)).show()
-snapshot.time_dimensions(columns=("created_at",)).show()
-snapshot.measures(columns=("amount",)).show()
-```
-
-Keep snapshot values memory-only when all projections run in this process. If
-value projections or retained-row certification must continue in another
-process, make the privacy decision before this original acquisition and use
-`persist_values=True`; otherwise cold recovery retains metadata but reports the
-value evidence as unavailable.
-
-`md.table(...)` has two closed authoring modes: catalog-backed discovery without
-`columns=`, and a typed projection whose `columns` map stable output aliases to
-`md.source_column(...)` bindings. Semantic `primary_key` and direct
-`dimension_column`, `time_dimension_column`, and `measure_column` declarations
-always name those stable entity outputs, never the remote physical identifiers.
-If inspection reports a declared-only binding warning, follow its focused help,
-choose an explicit bounded scope, and acquire one sample before authoring or
-closing the object. Use explicit unpruned scope only for the classified
-metadata-unavailable or omitted-partition case described by the live contract.
-Static load/verify establishes declaration coherence; preview is the runtime
-authority, and readiness only consumes matching evidence without querying.
-
-For ClickHouse, `inspection.projectable_columns` is the safe list of physical
-columns found in active parts but absent from the normal catalog. Use its exact
-name and normalized type in `md.source_column(...)`; conflicting or unparseable
-part types are omitted with warnings. Use `md.time_range(...)` for a bounded
-half-open date/timestamp sample, including a transformed temporal partition.
-Dynamic, unmaterialized Map keys are not governed columns.
-
-Evidence cards derive null rates from captured counts. A `null_semantics`
-judgment is a prompt to record the business meaning of `NULL` in
-`ai_context.guardrails`, not permission to classify it as missing data or filter
-it automatically.
-
-`Ref[datasource]`, `TableSource`, and the source constructors (`md.table(...)`,
-`md.parquet(...)`, `md.csv(...)`, `md.json(...)`) are datasource-owned. Once an
-entity is registered, do not re-supply `(datasource, source)` tuples for semantic
-object parameters — physical facts stay datasource-owned, semantic refs stay
-semantic-owned.
-
-## Reference model
-
-Object-to-object parameters use ref objects. Prefer refs returned by earlier
-declarations or imported from sibling semantic modules. Use
-`ms.ref.<kind>(path)` only for explicit forward/cross-file references or
-import cycles:
-
-```python
-sessions_per_user = ms.ratio(
-    name="sessions_per_user",
-    numerator=ms.ref.metric("marketing.sessions"),
-    denominator=total_users,
-)
-```
-
-Cross-domain refs are allowed but are existence-, cycle-, and contract-checked at
-resolve time; they never fall back to copying another domain's definition into
-SQL provenance. Bare semantic-id strings are not valid authoring arguments.
-
-Refs are immutable identities and are never callable. Inside a decorated
-expression body, apply a declared dimension, time dimension, or measure to one
-direct entity parameter with `ms.bind(field_ref, entity_alias)`. The loader
-captures that explicit binding and validates catalog membership, entity
-ownership, and cycles before runtime materialization.
-
-## Decision rules
-
-The workflow includes a few mechanical rules so the agent does not guess.
-
-**Field vs metric** — what to declare for a value:
-
-| Situation | Choice |
-|---|---|
-| Readable from one physical column (country, platform, order date) | `ms.dimension_column` / `ms.time_dimension_column` |
-| Numeric fact readable from one physical column (amount, quantity, bytes) | `ms.measure_column`, then `ms.aggregate` |
-| Row-level value needing an Ibis expression (normalize, case, cast, cross-column) | `@ms.dimension` / `@ms.time_dimension` / `@ms.measure` |
-| A one-off condition with no reuse value | inline in the metric expression |
-| Reused across several metrics, filters, relationships, or slices | promote to a dimension/time_dimension |
-
-Hard rule: a metric body contains only aggregation plus references to declared
-dimensions/time_dimensions/measures. Row-level `.filter(...)`, `.cast(...)`,
-complex `case`, or multi-step chains are extracted first.
-
-For conditional logic, use the current ibis API (`ibis.cases(...)` or
-`value.cases(...)`) rather than the deprecated `value.case().when(...)`, which
-emits a `FutureWarning` on ibis v10+ and will be removed in a future release.
-
-**Sum vs ratio vs weighted mean** — the decomposition:
-
-| Metric shape | Decomposition |
-|---|---|
-| Directly summable absolute quantity | `ms.aggregate(..., agg="sum")` (base metric) |
-| `numerator / denominator` (conversion/success rate) | `ms.ratio(numerator=..., denominator=...)` |
-| Row-level value needing weighted aggregation and mix attribution | `ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>)` |
-
-If the decomposition is unclear, do not default to a sum — settle the structure
-from the business definition, source SQL, existing component metrics, or a user
-answer.
-
-**When to use `ms.ref.<kind>`** — prefer decorated object refs for static readability
-and refactoring; reserve `ms.ref.<kind>(path)` for forward or cross-domain
-references. Its single positional argument is the kind-relative path
-(e.g. `ms.ref.metric("marketing.sessions")`,
-`ms.ref.dimension("sales.orders.user_id")`).
-
-### What to settle vs ask
-
-Settle values from evidence; ask the user only for business caliber the evidence
-cannot decide. Ask when:
-
-- business definitions conflict (source SQL vs comments vs project docs);
-- an amount's unit is ambiguous;
-- a status/enum code's meaning is undocumented;
-- several time axes are plausible;
-- refund, cancellation, test-data, or other exclusion rules are unstated;
-- a metric has no source SQL and may need to be trusted without provenance.
-
-Do not ask for anything the datasource can provide — column lists, types,
-comments, sample values, existing objects, or datasource shape. Fetch those with
-`md.inspect(...)`, one scoped snapshot and its projections, and `ms.load()`.
-Do not reacquire a snapshot merely to request another projection. Reacquisition
-is justified only when a required column or value evidence was not captured,
-the snapshot is stale for the decision, or its datasource/source/scope identity
-does not match the active object.
-
-## Read the current state first
-
-Before adding or changing semantics, read the current registry:
-
-```python
+import marivo.datasource as md
 import marivo.semantic as ms
 
-catalog = ms.load()  # find_project() locates models/semantic/ upward
-catalog.metrics.show()
-
-sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-orders.metrics.show()
+datasources = md.load()
+catalog = ms.load()
 ```
 
-`ms.load()` fails closed when no project root is found — do not guess a root;
-prompt for initialization or an explicit root. For diagnostics,
-`python -m marivo.semantic.check` loads a `SemanticProject` and prints structured
-errors, warnings, readiness, and (optionally) parity; `--strict-provenance`
-treats any `unverified` metric (including via derived propagation) as a failure.
+Environment fingerprinting and focused help remain available. Metadata
+inspection must not be blocked merely because an accountable owner has not yet
+been identified. Owner or business-definition questions become mandatory only
+when the answer changes a reusable declaration or its promotion caliber.
 
-## Verification and readiness
+### 2. Establish authoritative physical facts
 
-- **`catalog.verify(ref)`** is a static, zero-query per-ref gate. Its
-  result is result-local: it proves one check passed but is not persisted as a
-  workflow checkpoint and is not a runtime prerequisite for preview. The skill
-  enforces verify-before-preview as policy.
-- **`catalog.preview(ref, using=snapshot)`** is the explicit scoped runtime gate;
-  multi-entity objects use an exact entity-keyed snapshot mapping.
-- **`catalog.preview_many(report.preview_required_refs, using=...)`** is the
-  canonical readiness-repair path when several already-authored objects lack
-  preview evidence. It batches compatible execution plans but persists exact
-  evidence per object; it does not replace the one-object authoring loop.
-- The preview `limit` argument bounds returned display rows. Metric previews
-  independently cap scoped input at 10,000 rows before aggregation, expose that
-  `pre_aggregate_limit` in `PreviewResult.sample_policy`, and render an
-  `approximate_preview` warning. Snapshot scope coverage therefore does not make
-  the displayed metric value an exact aggregate.
-- **`catalog.readiness(refs=[ref])`** is the final zero-query closeout gate. It
-  reads matching static and runtime-check evidence, reports missing datasource
-  snapshots and missing or stale preview evidence as advisories, and never
-  refreshes automatically. Evidence absence or age does not block readiness or
-  force a new datasource query. Authoring policy still requires the applicable
-  evidence repair before closeout. Refs whose dependency closures have no
-  semantic blocker are exposed through `ReadinessReport.analysis_ready_refs`.
-  Snapshot and preview advisories are aggregated by evidence root in the existing
-  `warnings` collection; advisory-only reports remain `ready`, while true warning
-  severity still yields `ready_with_warnings`.
+Use datasource registration, connection testing, and `md.inspect(...)` for
+column names, physical types, source identity, partition facts, and backend
+capabilities. Inspection is the preferred schema path because these facts should
+not require a user-data scan. Unknown or unsupported metadata remains explicit;
+Marivo does not replace it with a discovery guess.
 
-`ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
-diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.
+### 3. Explore according to the question
 
-## Analysis stop conditions
+Choose among three evidence paths:
 
-The crossing to `marivo-analysis` uses the explicit readiness result directly.
-Only refs listed in `ReadinessReport.analysis_ready_refs` may continue; blockers
-and warnings remain on the same report. Do not continue while any blocker
-remains:
+- inspection only when schema and existing project context are sufficient;
+- optional explicitly scoped sampling when retained rows or generic profiles
+  directly answer the current question;
+- `md.raw_sql(...)` for source-specific metadata, distributions, joins,
+  conditional logic, comparison with existing SQL, or bounded scratch work.
 
-- project load or check failed;
-- a datasource required for live validation is unreachable;
-- a new entity lacks its bounded discovery/preview evidence;
-- a time dimension preview or cast failed;
-- metric materialization or compilation failed;
-- a relationship join key is unconfirmed;
-- a metric spans multiple datasources without federation support;
-- a metric body needs raw SQL to express the business logic.
+These paths are composable within the caller's explicit data-access budget.
+There is no mandatory inspect-snapshot-projection ladder. Every user-data read
+has positive row and timeout guards; a returned-row limit is not a scan bound.
 
-These are warnings, not blockers — analysis may proceed after they are disclosed:
+Raw SQL is a normal governed exploration option. It remains read-only, bounded,
+effect-disclosed, and terminal. A `RawSqlResult` cannot enter
+`session.observe(...)`, become a `MetricFrame`, or be persisted as canonical
+analysis. Its observed facts and disclosed assumptions may inform semantic
+Python.
 
-- runtime preview evidence is missing or stale for an already-authored ref;
-- a provenance-bearing metric is still `unverified`, or its parity is `drifted`;
-- a metric is trusted without provenance;
-- the preview sample is small but materialization succeeded;
-- primary-key uniqueness was not sampled;
-- string refs resolve but are refactor-fragile;
-- comments are missing but source SQL, knowledge, and user confirmation suffice.
+A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
+coverage, and cache identity. It does not produce semantic-shaped projections or
+business judgment requirements.
+
+### 4. Author a coherent semantic slice
+
+A semantic slice is the smallest dependency-coherent set that can be reviewed
+and loaded meaningfully. Typical slices include:
+
+- one entity with its direct dimensions, time dimensions, measures, and base
+  metrics;
+- one relationship plus the exact participating entity fields;
+- one cross-entity or derived metric plus newly required reusable components;
+- one event or state model with its exact semantic dependencies.
+
+A slice is not restricted to one object, but it must not expand into an
+unrelated domain-wide rewrite. A smaller checkpoint remains appropriate when an
+individual declaration is unusually uncertain.
+
+### 5. Load once and repair structural failures
+
+`ms.load()` is the authoritative static validation event for authored source. It
+evaluates the current project and fails closed on invalid organization,
+duplicate identity, unresolved refs, type mismatches, illegal expression
+bindings, invalid decomposition, and cycles.
+
+After a successful load, confirm exact identity with ordinary catalog navigation:
+
+```python
+catalog = ms.load(project_root)
+
+for ref in authored_roots:
+    catalog.require(ref)
+```
+
+Repair all structural failures for the slice and reload. Do not insert a
+separate per-object validation checkpoint between load and catalog navigation.
+
+### 6. Scoped readiness and targeted runtime checks
+
+Run `catalog.readiness(refs=[...])` over the exact requested roots and their
+governed dependency closures. During this milestone, the existing contracts for
+snapshot-bound preview input, persisted preview evidence, readiness issue
+ownership, and ready-input projection fields remain unchanged. Follow current
+live help and typed repairs; do not introduce a second preview or readiness path.
+
+Use targeted preview or observation only for a concrete runtime risk or current
+readiness repair. A successful project load proves static coherence, not current
+external source health or every possible downstream execution.
+
+## Business meaning and first-use authority
+
+An agent may explore freely and draft a coherent slice before every
+business-caliber question is settled. Drafting does not grant typed-analysis
+authority.
+
+Before the first typed analysis use of a new or changed definition, every
+unresolved choice that changes reusable business meaning must be settled by at
+least one current, non-conflicting authority:
+
+1. the user's explicit request or answer in the current task;
+2. an approved existing project definition;
+3. attributable project documentation or source provenance that is sufficiently
+   explicit.
+
+This includes denominator, inclusion and exclusion policy, failure handling,
+unit, aggregation, additivity, business time axis, and metric caliber. If the
+current request or approved project already establishes the meaning, the agent
+proceeds without asking for redundant confirmation. Marivo does not persist an
+approval token, acknowledgement, decision record, or handoff receipt.
+
+When no current authority settles the earliest material choice, the agent names
+the object and choice, summarizes the evidence and its limit, asks one question,
+and stops before typed analysis handoff. Physical observations alone do not
+authorize primary-key meaning, exhaustive enums, unit, additivity, timezone, or
+business semantics.
+
+## Closeout
+
+An authoring closeout records the coherent slice changed, physical evidence and
+scope used, authoritative sources for business meaning, validation outcome,
+exact analysis-ready roots, and remaining warnings or runtime risks. If the
+parent task includes analysis, the current refs or `analysis_ready_inputs` are
+handed to `marivo-analysis` and the original question continues.

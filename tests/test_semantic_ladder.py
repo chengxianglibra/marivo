@@ -1,4 +1,4 @@
-"""Tests for semantic verification behavior."""
+"""Tests for project loading and exact catalog lookup behavior."""
 
 from pathlib import Path
 
@@ -56,33 +56,29 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
     )
 
 
-# -- Static entity verification tests -----------------------------------------
+# -- Project-level loading and exact lookup -----------------------------------
 
 
-def test_verify_object_entity_is_static_without_audit_side_effects(
+def test_require_entity_is_static_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
+    result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
 
-    assert result.status == "passed"
-    assert result.kind == "entity"
-    assert result.validation_level == "static"
-    assert result.runtime_checked is False
-    assert not hasattr(result, "scan")
-    assert not hasattr(result, "auto" + "_recorded")
+    assert result.kind.value == "entity"
+    assert result.ref == ms.ref.entity("sales.orders")
+    assert not hasattr(result, "contract")
     assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_object_entity_uses_current_source_declaration(
+def test_require_entity_uses_current_loaded_project(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.orders"))
-    assert first.status == "passed"
-    assert first.runtime_checked is False
+    first = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
+    assert first.ref == ms.ref.entity("sales.orders")
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -104,11 +100,8 @@ def test_verify_object_entity_uses_current_source_declaration(
         workspace_dir=tmp_path,
     )
 
-    second = ms.SemanticCatalog(project2).verify(ms.ref.entity("sales.orders"))
-    assert second.status == "passed"
-    assert second.validation_level == "static"
-    assert second.runtime_checked is False
-    assert not hasattr(second, "scan")
+    second = ms.SemanticCatalog(project2).require(ms.ref.entity("sales.orders"))
+    assert second.ref == first.ref
     assert not (Path(project2.state_root) / "evidence").exists()
 
 
@@ -218,7 +211,7 @@ def test_layout_load_errors_have_registry_backed_structured_repairs(
         assert snippet in (error.repair.snippet or "")
 
 
-def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
+def test_require_measure_returns_current_entry(semantic_project_factory) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
@@ -230,16 +223,16 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.ref.measure("sales.orders.amount"))
+    result = ms.SemanticCatalog(project).require(ms.ref.measure("sales.orders.amount"))
 
-    assert result.status == "passed"
-    assert result.kind == "measure"
+    assert result.kind.value == "measure"
+    assert result.ref == ms.ref.measure("sales.orders.amount")
 
 
-def test_verify_known_ref_is_not_found_when_loaded(
+def test_require_unknown_ref_is_not_found_when_loaded(
     semantic_project_factory,
 ) -> None:
-    """Verification requires membership in the immutable loaded catalog."""
+    """Exact lookup requires membership in the immutable loaded catalog."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -251,5 +244,5 @@ def test_verify_known_ref_is_not_found_when_loaded(
     assert project.is_ready()
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        ms.SemanticCatalog(project).verify(ms.ref.metric("sales.nonexistent_metric"))
+        ms.SemanticCatalog(project).require(ms.ref.metric("sales.nonexistent_metric"))
     assert exc_info.value.kind == "not_found"

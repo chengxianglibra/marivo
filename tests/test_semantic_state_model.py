@@ -140,7 +140,7 @@ def test_state_model_compiles_canonical_roles_and_catalog_entry(
     assert entry.details().inceptions[0][2] == (ms.ref.relationship("commerce.event_to_order"),)
     assert "state.created" in entry.render()
     assert "payment_captured" in entry.details().render()
-    assert catalog.verify(entry).status == "passed"
+    assert catalog.require(entry.ref) is entry
     readiness = catalog.readiness(refs=(entry,))
     assert entry.ref in readiness.analysis_ready_refs
     assert preview_dependency_entities(
@@ -415,7 +415,7 @@ def test_seedless_model_loads_but_is_not_replay_ready(
     )
     catalog = SemanticCatalog(_project(semantic_project_factory, objects=seedless))
     model = catalog.state_models.get("order_lifecycle")
-    assert catalog.verify(model).status == "passed"
+    assert catalog.require(model.ref) is model
     readiness = catalog.readiness(refs=(model,))
     assert model.ref not in readiness.analysis_ready_refs
     assert any(issue.kind == "state_model_seed_missing" for issue in readiness.blockers)

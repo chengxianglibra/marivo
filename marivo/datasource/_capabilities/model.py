@@ -28,7 +28,6 @@ class DatasourceTypeContract:
     public_properties: tuple[str, ...] = ()
     public_methods: tuple[str, ...] = ()
     consumers: tuple[LiveHelpTarget, ...] = ()
-    state_bearing: bool = False
 
 
 @dataclass(frozen=True)

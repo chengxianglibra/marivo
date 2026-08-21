@@ -63,10 +63,9 @@ entity is registered.
   `models/semantic/` into another analysis project. It contains only literal
   connection fields and env-var *names* — never resolved secret values.
 - **Snapshot evidence is not authorship.** `md.inspect(...)` exposes physical
-  facts before data access; one explicitly scoped sample feeds local evidence
-  projections. Those projections do not author objects or infer business
-  meaning. They may expose stable, structured judgment requirements whose
-  authority remains the user or accountable business owner.
+  facts before data access; optional explicitly scoped sampling retains generic
+  rows, profiles, source evidence, coverage, and cache identity. A snapshot does
+  not project semantic candidates or authorize business meaning.
 - **Fail closed.** Missing env vars, unreachable backends, dialect/`backend_type`
   mismatch, and unsafe partition scans raise structured errors that state what
   was expected, what was received, and the concrete next step. Authoring errors
@@ -119,9 +118,8 @@ Every spec has a bounded, decision-first `show()` / `render()` card. It exposes
 the declared state, exact ref, core connection target, credential field names,
 and only a count for additional configuration. It never expands resolved
 secrets, session/settings maps, `extra`, or AI context. Read `.fields` and
-`.env_refs` only when exact configuration is needed, and use `.contract()` for
-the mechanical registration transition. The default repr is a one-line pointer
-to this card rather than a dataclass field dump.
+`.env_refs` only when exact configuration is needed. The default repr is a
+one-line pointer to this card rather than a dataclass field dump.
 
 SQLite uses `md.table(...)` for tables and views. It does not consume the
 DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
@@ -436,9 +434,8 @@ md.test(spec.ref).show()  # validated live round trip
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
 code (`connection_open_failed`, `connection_roundtrip_failed`, or
 `secret_persistence_failed`), backend exception type/code/name, and a sanitized
-message. `.repair` provides the focused help target and action, while
-`.contract()` exposes the blocked `validate_connection` transition. Successful
-results prove only `datasource.connection_validated`.
+message. `.repair` provides the focused help target and action. Successful
+results prove only that the current datasource connection test passed.
 
 ## Inspection and evidence snapshots
 
@@ -485,11 +482,8 @@ snapshot = inspection.sample(
     columns=("order_id", "status", "dt", "amount"),
 )
 
-snapshot.entity(columns=("order_id",)).show()
-snapshot.dimensions(columns=("status",)).show()
-snapshot.values("status", limit=10).show()
-snapshot.time_dimensions(columns=("dt",)).show()
-snapshot.measures(columns=("amount",)).show()
+snapshot.show()
+# Read bounded rows, profiles, coverage, and retained values only when needed.
 ```
 
 For date or timestamp acquisition, use the same public `PartitionScope` through
@@ -512,7 +506,7 @@ still be large.
 Scope `show()` / `render()` cards expose only the scope kind, positive guards,
 and a bounded predicate preview. Large partition predicates report omissions
 and point to `.values` for the exact mapping; unpruned scope is labeled as a
-broad read. `.contract()` remains the complete mechanical continuation surface.
+broad read.
 
 Read-only ClickHouse acquisition uses the server setting `readonly=1` together
 with the bounded execution timeout. Connection, source-resolution, timeout, and
@@ -520,55 +514,38 @@ post-execution failures surface as `DatasourceAuthoringError` values with
 `query_executed`, a sanitized backend summary, and one focused repair; they do
 not escape as raw driver exceptions.
 
-The snapshot card makes the datasource/source/scope identity, selected columns,
-coverage, and value/cache state explicit. Snapshot projections are local,
-column-independent views and issue no query; their cards and contracts mark
-`data_access=none`.
-Values default to memory-only. A later process can recover snapshot identity,
-profiles, and coverage, but reports `value_evidence_unavailable` for retained
-values and value-derived projections. Use `persist_values=True` on the original
-sample only when later processes need those values or retained-row certification
-and bounded plaintext project-local caching is explicitly acceptable. Uncommon
-formats, keys, timezones, aggregation, units,
-additivity, relationship cardinality, and business meaning remain agent-owned.
+The snapshot card makes datasource/source/scope identity, selected columns,
+coverage, and value/cache state explicit. Values default to memory-only. A later
+process can recover snapshot identity, profiles, and coverage but not retained
+values unless the original sample used `persist_values=True` with explicit
+acceptance of bounded plaintext project-local caching. Uncommon formats, keys,
+timezones, aggregation, units, additivity, relationship cardinality, null
+semantics, and business meaning remain agent-owned. Marivo does not classify a
+high null rate as a business-quality failure or filter nulls implicitly.
 
-Evidence projections expose those unresolved decisions through frozen
-`AuthoringJudgmentRequirement` values. The shared shape contains `id`,
-`subjects`, `evidence_ids`, and
-`authority="user_or_business_owner"`. Mechanical `states` and `transitions`
-remain unchanged: a judgment requirement is neither a constructor action nor an
-approval record.
-
-Entity, dimension, measure, and values evidence derives `null_rate` from the
-captured row/null counts. If dimension values contain `NULL`, the existing
-evidence judgment includes `null_semantics` and asks the author to explain the
-business meaning in `ai_context.guardrails`. Marivo does not classify a high
-null rate as a data-quality failure and never filters nulls implicitly.
-
-Reacquire evidence only when a required column or required value evidence was
-not captured, the snapshot is stale for the current decision, or its
-datasource/source/scope identity does not match. Asking the same snapshot for
-entity, dimension, time, measure, relationship, or bounded-value projections is
-not a reacquisition reason and never causes data access.
+Reacquire evidence only when a required column or value was not captured, or
+when datasource/source/scope identity no longer matches. Snapshot age alone is
+not invalidation.
 
 For a declared-only projected binding, a successful bounded sample proves that
 the generated projection executed for the selected output aliases and scope. It
-does not certify business meaning or make static verification a runtime existence
-check. Authoring continues through snapshot projection, `catalog.preview(...,
-using=snapshot)`, and query-free `catalog.readiness(...)` over that exact source
-identity.
+does not certify business meaning. During the current milestone, scoped
+`catalog.preview(..., using=snapshot)` and readiness keep their existing input
+and evidence contract.
 
-### Raw SQL terminal exit
+### Governed raw SQL exploration
 
 ```python
-md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="verify pruning").show()
+md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="inspect pruning").show()
 ```
 
-`md.raw_sql(...)` is the sole terminal raw SQL execution path — bounded by
+`md.raw_sql(...)` is a normal governed exploration option and the sole terminal
+raw SQL execution path — bounded by
 `timeout_seconds` (default 30), exact row limiting, and read-only enforcement.
 It returns a `RawSqlResult` that cannot re-enter typed analysis; use
-`RawSqlResult.to_pandas()` for the terminal pandas exit. It is for custom
-analysis that `session.observe(...)` cannot express, not a general query path.
+`RawSqlResult.to_pandas()` for the terminal pandas exit. Its observed facts may
+inform explicit semantic Python, but the result itself cannot become typed or
+canonical analysis.
 
 Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
 typed expressions; datasource-adapter SQL generated only from validated source IR
@@ -578,8 +555,9 @@ bindings never accept expressions, predicates, joins, casts, or SQL fragments.
 
 ## Handoff to semantics
 
-Once a datasource is registered and validated, everything the semantic layer
-needs is the ref plus the evidence:
+Once a datasource is registered and validated, semantic authoring uses its ref
+plus the physical facts needed for the current question. A snapshot is optional
+bounded evidence and exposes generic profiles and retained values directly:
 
 ```python
 import marivo.datasource as md
@@ -591,7 +569,8 @@ snapshot = inspection.sample(
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
     columns=("order_id",),
 )
-snapshot.entity(columns=("order_id",)).show()
+snapshot.show()
+order_id_profile = snapshot.profiles[0]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 

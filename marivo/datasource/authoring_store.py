@@ -22,7 +22,6 @@ from marivo.config import (
     AUTHORING_SNAPSHOT_DIR,
     STATE_DIR,
 )
-from marivo.datasource.evidence import TIME_RULE_IDS
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.snapshot import (
     ColumnProfile,
@@ -1022,3 +1021,13 @@ class AuthoringStore:
     def write_preview_check(self, check: PreviewCheckV1) -> None:
         """Atomically persist row-free semantic preview evidence."""
         self._write_json(self._check_path(check.id), check)
+
+
+TIME_RULE_IDS = (
+    "type.native_date",
+    "type.native_timestamp",
+    "date.iso",
+    "datetime.iso",
+    "date.yyyymmdd",
+    "time.hour_00_23",
+)

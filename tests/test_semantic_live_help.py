@@ -151,7 +151,7 @@ def test_catalog_collection_help_teaches_displayed_typed_key_lookup() -> None:
     assert "catalog.metrics.get('metric:sales.revenue')" in text
     assert "marivo.help(entry)" in text
     assert "entry or entry.ref" in text
-    assert "call .contract() for mechanically valid next actions" in text
+    assert "call .show() for bounded readable state" in text
 
 
 def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> None:
@@ -181,7 +181,7 @@ def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> No
     assert "ms.bind(amount, orders)" in bind
 
 
-@pytest.mark.parametrize("target", ["verify", "preview", "preview_many", "readiness"])
+@pytest.mark.parametrize("target", ["preview", "preview_many", "readiness"])
 def test_runtime_help_uses_public_semantic_input_name(target: str) -> None:
     text = _text(target)
     assert "_SemanticInput" not in text
@@ -221,7 +221,8 @@ def test_ref_help_resolves_to_object_near_reference_briefing() -> None:
     text = _text(ref)
     assert "metric: sales.revenue" in text
     assert "entry = catalog.require(ref)" in text
-    assert "entry.contract().show()" in text
+    assert "entry.details().show()" in text
+    assert "catalog.readiness(refs=[entry]).show()" in text
     assert "observe" not in text
     assert "preview" not in text
 
@@ -249,7 +250,6 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert "Object: MetricEntry" in text
     assert "metric: sales.revenue" in text
     assert "Details:" in text
-    assert "Semantic continuation:" in text
     assert "Analysis handoff (kind-level" in text
     assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text

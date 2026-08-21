@@ -75,7 +75,6 @@ SEMANTIC_PUBLIC = {
     "SqlProvenance",
     "TimeDimensionEntry",
     "TimeDimensionDetails",
-    "VerifyResult",
     "aggregate",
     "ai_context",
     "all_rows",

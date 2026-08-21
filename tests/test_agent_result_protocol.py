@@ -10,7 +10,6 @@ import pytest
 
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
-from marivo._authoring.model import AuthoringContract, AuthoringStateRef
 from marivo._compat import UTC
 from marivo._temporal import TimeScopeContractV1
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
@@ -40,7 +39,6 @@ from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
     PreviewBatchResult,
-    VerifyResult,
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from marivo.semantic.richness import RichnessReport
@@ -71,17 +69,6 @@ def test_agent_result_is_runtime_checkable() -> None:
             return result_repr("X id=1")
 
     assert isinstance(_Conforming(), AgentResult)
-
-
-def test_authoring_contract_conforms_to_agent_result() -> None:
-    contract = AuthoringContract(
-        subject_refs=("sales.revenue",),
-        states=(AuthoringStateRef(id="semantic.loaded", subject_refs=("sales.revenue",)),),
-        transitions=(),
-    )
-
-    assert_conforms(contract)
-    assert contract.model_dump()["states"][0]["id"] == "semantic.loaded"
 
 
 def assert_conforms(obj: object) -> None:
@@ -263,18 +250,6 @@ def _authoring_assessment() -> AuthoringAssessment:
     return AuthoringAssessment(status="needs_input", issues=(issue,))
 
 
-def _verify_result() -> VerifyResult:
-    return VerifyResult(
-        status="passed",
-        ref="sales.orders",
-        kind="entity",
-        validation_level="static",
-        runtime_checked=False,
-        issues=(),
-        warnings=(),
-    )
-
-
 def _readiness_report() -> ReadinessReport:
     return ReadinessReport(
         status="ready",
@@ -306,7 +281,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
-    pytest.param(_verify_result, id="VerifyResult"),
     pytest.param(_readiness_report, id="ReadinessReport"),
     pytest.param(_richness_report, id="RichnessReport"),
 ]
@@ -356,7 +330,6 @@ def test_preview_result_renders_shared_card_shape() -> None:
             "- .results",
             "- .refs",
             "- .show()",
-            "- .contract()",
         ]
     )
 
@@ -366,7 +339,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
         [
             "DatasourceSummary name=wh backend=duckdb",
             "available:",
-            "- .contract()",
             "- .show()",
         ]
     )
@@ -387,7 +359,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "DatasourceDescription name=wh backend=trino fields=2 env_refs=1",
             "columns: catalog | host | auth_env",
             "available:",
-            "- .contract()",
             "- .show()",
         ]
     )
@@ -422,7 +393,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "available:",
             "- .failure",
             "- .repair",
-            "- .contract()",
             "- .show()",
         ]
     )
@@ -453,21 +423,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "- .show()",
         ]
     )
-    assert _verify_result().render() == "\n".join(
-        [
-            "VerifyResult status=passed ref=sales.orders kind=entity",
-            "status: passed",
-            "validation_level: static",
-            "runtime_checked: false",
-            "Next step:",
-            "- continue the batch or run catalog.readiness(refs=...)",
-            "available:",
-            "- .issues",
-            "- .warnings",
-            "- .show()",
-            "- .contract()",
-        ]
-    )
     assert _readiness_report().render() == "\n".join(
         [
             "ReadinessReport scope=semantic_static status=ready issues=0",
@@ -477,7 +432,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "available:",
             "- .show()",
             "- .to_dict()",
-            "- .contract()",
             "- .preview_required_refs",
             "- .analysis_ready_inputs",
         ]
@@ -586,21 +540,7 @@ def _time_scope_contract() -> TimeScopeContractV1:
     )
 
 
-def _authoring_contract() -> AuthoringContract:
-    return AuthoringContract(
-        subject_refs=("sales.revenue",),
-        states=(
-            AuthoringStateRef(
-                id="semantic.loaded",
-                subject_refs=("sales.revenue",),
-            ),
-        ),
-        transitions=(),
-    )
-
-
 CONTRACT_BUILDERS: list = [
-    pytest.param(_authoring_contract, id="AuthoringContract"),
     pytest.param(_artifact_contract, id="ArtifactContract"),
     pytest.param(_digest_read_contract, id="DigestReadContract"),
     pytest.param(_time_scope_contract, id="TimeScopeContractV1"),

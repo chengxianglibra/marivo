@@ -1092,12 +1092,7 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
     assert len(preview_advisories) == 1
     assert preview_advisories[0].refs == tuple(ref.path for ref in refs)
     assert missing.render().count("runtime_preview_missing:") == 1
-    preview_transitions = [
-        transition for transition in missing.contract().transitions if transition.kind == "preview"
-    ]
-    assert len(preview_transitions) == 1
-    assert preview_transitions[0].available is True
-    assert preview_transitions[0].subject_refs == tuple(ref.path for ref in refs)
+    assert not hasattr(missing, "contract")
     assert query_spy.user_data_queries == 0
 
     result = catalog.preview_many(
@@ -1124,9 +1119,7 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
         any(warning.kind == "approximate_preview" for warning in item.warnings)
         for item in metric_results
     )
-    readiness_transition = result.contract().transitions
-    assert len(readiness_transition) == 1
-    assert readiness_transition[0].kind == "readiness"
+    assert not hasattr(result, "contract")
 
     query_spy.user_data_queries = 0
     ready = catalog.readiness(refs=refs)
@@ -1297,9 +1290,8 @@ fiscal = ms.period_calendar(
     assert missing_snapshot.value.repair.candidates == ()
     assert "catalog.readiness(refs=" in missing_snapshot.value.repair.action
 
-    verified = catalog.verify(calendar_ref)
-    assert verified.status == "passed"
-    assert verified.kind == "period_calendar"
+    loaded = catalog.require(calendar_ref)
+    assert loaded.kind.value == "period_calendar"
 
     preview = catalog.preview(calendar_ref, using=snapshot)
     calendar = catalog.period_calendars.get("sales.fiscal")
@@ -1455,7 +1447,7 @@ named_campaigns = ms.temporal_set(
 
     before = catalog.readiness(refs=[temporal_set_ref])
     assert any(issue.kind == "temporal_set_snapshot_missing" for issue in before.blockers)
-    assert catalog.verify(temporal_set_ref).kind == "temporal_set"
+    assert catalog.require(temporal_set_ref).kind.value == "temporal_set"
     preview = catalog.preview(temporal_set_ref, using=snapshot)
     assert preview.rows[0]["key"] in {"holiday", "spring", "incident"}
 
@@ -1544,7 +1536,7 @@ schedule = ms.work_schedule(
 
     before = catalog.readiness(refs=[schedule_ref])
     assert any(issue.kind == "work_schedule_snapshot_missing" for issue in before.blockers)
-    assert catalog.verify(schedule_ref).kind == "work_schedule"
+    assert catalog.require(schedule_ref).kind.value == "work_schedule"
 
     query_spy.user_data_queries = 0
     preview = catalog.preview(schedule_ref, using=snapshot)
@@ -1559,17 +1551,7 @@ schedule = ms.work_schedule(
     assert entry.details().snapshot_status == "current"
     assert entry.details().coverage == (date(2026, 1, 1), date(2026, 1, 5))
     assert catalog.domains.get("sales").work_schedules.get(schedule_ref) == entry
-    schedule_contract = entry.contract()
-    schedule_use = next(
-        transition
-        for transition in schedule_contract.transitions
-        if transition.help_target.surface == "analysis"
-        and transition.help_target.canonical_id == "working_day_progress"
-    )
-    assert schedule_use.kind == "use"
-    assert schedule_use.available is True
-    assert schedule_use.public_entrypoint == "mv.working_day_progress(...)"
-    assert "mv.working_day_progress(...)" in schedule_contract.render()
+    assert not hasattr(entry, "contract")
     assert "mv.working_day_progress" not in entry.render()
     assert not any(
         issue.kind == "work_schedule_snapshot_missing"

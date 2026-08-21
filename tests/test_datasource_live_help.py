@@ -14,14 +14,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo.datasource.catalog import DatasourceCatalog
-from marivo.datasource.errors import (
-    DatasourceMissingError,
-    repair,
-)
-from marivo.datasource.evidence import (
-    DimensionValuesResult,
-    EntityEvidenceResult,
-)
+from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.inspection import (
     ExecutionCapabilities,
     Partitioning,
@@ -125,14 +118,6 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
         scope,
         inspection,
         snapshot,
-        EntityEvidenceResult(
-            status="complete",
-            snapshot_id="snapshot-1",
-            columns=(),
-            evidence_by_column={},
-            issues=(),
-            repair=None,
-        ),
         DatasourceMissingError(message="warehouse is missing"),
     )
 
@@ -143,34 +128,6 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
     for target in datasource_runtime_targets:
         text = _text(target)
         assert text.strip()
-
-
-def test_projection_result_help_points_to_contract_and_repair_without_values() -> None:
-    result = DimensionValuesResult(
-        status="incomplete",
-        snapshot_id="snapshot-1",
-        column="region",
-        sample_distinct_count=1,
-        returned_value_count=1,
-        sample_values_complete=False,
-        scope_values_complete=False,
-        value_evidence_state="available",
-        frequency_capacity=10,
-        values=(("private-region-value", 1),),
-        issues=("requested_limit_bounded",),
-        repair=repair(
-            kind="reacquire",
-            canonical_id="SourceInspection.sample",
-            action="Reacquire bounded retained values.",
-            preserves_evidence=False,
-        ),
-    )
-
-    text = _text(result)
-
-    assert "Continuation: call .contract()" in text
-    assert "repair" in text
-    assert "private-region-value" not in text
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:

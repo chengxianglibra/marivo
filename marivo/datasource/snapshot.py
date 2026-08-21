@@ -17,13 +17,9 @@ from urllib.parse import urlparse
 import ibis.expr.types as ir
 import pandas as pd
 
-from marivo._authoring.model import AuthoringContract
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
-from marivo.datasource._capabilities.contracts import (
-    contract_for_snapshot,
-    repair_for_authoring_code,
-)
+from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -113,13 +109,7 @@ class ColumnProfile:
 
 @dataclass(frozen=True, repr=False)
 class DiscoverySnapshot(RenderableResult):
-    """Immutable bounded source evidence with query-free semantic projections.
-
-    Use ``entity()``, ``dimensions()``, ``time_dimensions()``, ``measures()``,
-    ``values()``, and ``relationships()`` to project evidence already captured
-    by ``SourceInspection.sample(...)``. Projection methods never query the
-    datasource.
-    """
+    """Immutable bounded rows and profiles from one explicit source acquisition."""
 
     id: str
     datasource: Ref[DatasourceKind]
@@ -152,13 +142,7 @@ class DiscoverySnapshot(RenderableResult):
                     ".profiles",
                     ".coverage",
                     ".source_params",
-                    ".entity(columns=(...))",
-                    ".dimensions(columns=(...))",
-                    ".values(column, limit=...)",
-                    ".time_dimensions(columns=(...))",
-                    ".measures(columns=(...))",
-                    ".relationships(other, left=(...), right=(...))",
-                    ".contract()",
+                    ".retained_values",
                     ".show()",
                 ),
             )
@@ -188,10 +172,6 @@ class DiscoverySnapshot(RenderableResult):
                 ),
             )
             .field(
-                "projection effects",
-                "entity/dimensions/values/time_dimensions/measures/relationships: data_access=none",
-            )
-            .field(
                 "reacquire boundary",
                 "only missing columns, missing retained values, stale evidence, or identity mismatch",
             )
@@ -211,125 +191,6 @@ class DiscoverySnapshot(RenderableResult):
                 label="profiles",
             )
         )
-
-    def contract(self) -> AuthoringContract:
-        """Return the explicit-scope and acquired-evidence states this snapshot proves."""
-        return contract_for_snapshot(
-            datasource_id=self.datasource.path,
-            source=self.source,
-            snapshot_id=self.id,
-        )
-
-    def entity(self, *, columns: tuple[str, ...]) -> EntityEvidenceResult:
-        """Project column-local identity observations.
-
-        Args:
-            columns: Non-empty tuple of columns retained by this snapshot.
-
-        Returns:
-            Immutable sample uniqueness and lexical evidence for every requested column.
-
-        Example:
-            ``snapshot.entity(columns=("order_id",))``
-
-        Constraints:
-            This method is query-free and does not recommend or rank keys.
-        """
-        return _project_entity(self, columns=columns)
-
-    def dimensions(self, *, columns: tuple[str, ...]) -> DimensionEvidenceResult:
-        """Project column-local dimension observations.
-
-        Args:
-            columns: Non-empty tuple of columns retained by this snapshot.
-
-        Returns:
-            Immutable physical, frequency, and completeness evidence by column.
-
-        Example:
-            ``snapshot.dimensions(columns=("region",))``
-
-        Constraints:
-            This method is query-free and does not infer business semantics.
-        """
-        return _project_dimensions(self, columns=columns)
-
-    def values(self, column: str, *, limit: int) -> DimensionValuesResult:
-        """Return bounded retained frequency evidence for one dimension column.
-
-        Args:
-            column: One column retained by this snapshot.
-            limit: Positive maximum number of retained value-count pairs to return.
-
-        Returns:
-            Sample- and scope-qualified value completeness evidence.
-
-        Example:
-            ``snapshot.values("region", limit=10)``
-
-        Constraints:
-            This method is query-free; unavailable retained values remain unavailable.
-        """
-        return _project_values(self, column, limit=limit)
-
-    def time_dimensions(self, *, columns: tuple[str, ...]) -> TimeEvidenceResult:
-        """Project fixed deterministic time rules.
-
-        Args:
-            columns: Non-empty tuple of columns retained by this snapshot.
-
-        Returns:
-            Immutable exact checked, matched, and failed counts by column and rule.
-
-        Example:
-            ``snapshot.time_dimensions(columns=("event_date", "event_hour"))``
-
-        Constraints:
-            This method is query-free; hour evidence is component-only.
-        """
-        return _project_time_dimensions(self, columns=columns)
-
-    def measures(self, *, columns: tuple[str, ...]) -> MeasureEvidenceResult:
-        """Project column-local measure observations.
-
-        Args:
-            columns: Non-empty tuple of columns retained by this snapshot.
-
-        Returns:
-            Immutable numeric profile evidence for every requested column.
-
-        Example:
-            ``snapshot.measures(columns=("amount",))``
-
-        Constraints:
-            This method is query-free and does not choose aggregation, unit, or additivity.
-        """
-        return _project_measures(self, columns=columns)
-
-    def relationships(
-        self,
-        other: DiscoverySnapshot,
-        *,
-        left: tuple[str, ...],
-        right: tuple[str, ...],
-    ) -> RelationshipEvidenceResult:
-        """Compare one explicit retained column pair.
-
-        Args:
-            other: Snapshot providing the right-hand evidence.
-            left: Exactly one column retained by this snapshot.
-            right: Exactly one column retained by ``other``.
-
-        Returns:
-            Type and retained-value overlap evidence with both physical scopes.
-
-        Example:
-            ``orders.relationships(customers, left=("customer_id",), right=("id",))``
-
-        Constraints:
-            This method is query-free; multi-column overlap is unavailable.
-        """
-        return _project_relationships(self, other, left=left, right=right)
 
 
 def _acquisition_error(
@@ -836,19 +697,3 @@ def acquire_snapshot(
     )
     store.write_snapshot(snapshot, datasource_fingerprint=datasource_fingerprint)
     return snapshot
-
-
-from marivo.datasource.evidence import (  # noqa: E402
-    DimensionEvidenceResult,
-    DimensionValuesResult,
-    EntityEvidenceResult,
-    MeasureEvidenceResult,
-    RelationshipEvidenceResult,
-    TimeEvidenceResult,
-    _project_dimensions,
-    _project_entity,
-    _project_measures,
-    _project_relationships,
-    _project_time_dimensions,
-    _project_values,
-)
