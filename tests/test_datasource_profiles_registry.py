@@ -54,7 +54,7 @@ def test_set_rejects_model_qualified_name(project_root: Path) -> None:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
     assert exc_info.value.expected == "[a-z][a-z0-9_]*"
     assert "sales_warehouse" in str(exc_info.value.repair.action)
-    assert "cached credentials" in str(exc_info.value.repair.action)
+    assert "Update references to use the new identity" in str(exc_info.value.repair.action)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:

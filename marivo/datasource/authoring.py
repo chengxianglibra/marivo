@@ -629,9 +629,7 @@ def validate_datasource_name(name: Any) -> None:
                 canonical_id="duckdb",
                 action=(
                     f"Rename the datasource to {suggested!r}. Its identity becomes "
-                    f"datasource:{suggested}. Existing ~/.marivo/secrets.toml entries are "
-                    "not renamed; cached credentials are reused only when the conventional "
-                    "environment-variable name remains unchanged."
+                    f"datasource:{suggested}. Update references to use the new identity."
                 ),
             ),
         ) from None
@@ -791,8 +789,10 @@ def trino(
         http_scheme: Set to 'https' for TLS.
         client_tags: Optional Trino client tags.
         session_properties: Optional Trino session properties.
-        user_env: Environment variable for Trino user.
-        auth_env: Environment variable for Trino auth token or password.
+        user_env: Optional explicit environment variable for the Trino user.
+            When omitted, Marivo passes no user and Ibis applies its default.
+        auth_env: Optional explicit environment variable for a Trino auth token
+            or password. When omitted, Marivo passes no auth value.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -818,6 +818,7 @@ def trino(
         When called while loading a datasource file, the spec is automatically
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Marivo never infers credential environment-variable names.
     """
     spec = TrinoSpec(
         name=name,

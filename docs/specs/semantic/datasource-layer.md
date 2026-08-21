@@ -148,12 +148,8 @@ orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"
 `ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare
 strings and kind-qualified strings such as `"datasource.warehouse"` are
 rejected — the exact ref is the contract. Renaming a legacy datasource changes
-its semantic identity, but cached credentials are keyed by the resolved
-environment-variable name. A rename such as `prod-mysql` to `prod_mysql`
-therefore reuses a conventional cached credential because both select
-`MARIVO_PROD_MYSQL_<FIELD>`; a rename whose conventional environment-variable
-name differs leaves the old cache entry untouched and requires exporting or
-caching the new name. Marivo never migrates or deletes the old cache entry.
+its semantic identity. Explicit `*_env` references remain unchanged unless the
+author edits them.
 
 ## Credentials and secret persistence
 
@@ -167,6 +163,10 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
 - **Resolution.** Each `*_env` name is resolved against the chain. A name that is
   set in neither environment nor cache raises `DatasourceEnvVarMissingError`
   naming the datasource, field, and env var.
+- **No implicit names.** Marivo resolves only explicitly declared `*_env`
+  references. It does not scan ambient `MARIVO_<DATASOURCE>_<FIELD>` variables;
+  when a connection field is omitted, the selected Ibis backend owns its default
+  or required-field behavior.
 - **Post-validation caching.** After a *validated* round trip — `md.test(ref)`
   (or a successful `md.connect`) — env-sourced secrets are cached in plaintext at
   user-global `~/.marivo/secrets.toml` so later sessions can connect without the
@@ -177,8 +177,6 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
   `0o700`, and Marivo refuses to write it anywhere inside a git repository.
   Insecure permissions on an existing cache raise
   `DatasourceSecretStorePermissionsError`.
-- **Convention.** The conventional env var for a datasource secret field is
-  `MARIVO_<DATASOURCE>_<FIELD>` (e.g. `MARIVO_WAREHOUSE_PASSWORD`).
 
 The persistence boundary is a hard rule: resolved secret values may be cached in
 plaintext **user-global** state, but must never be written into **project-local**

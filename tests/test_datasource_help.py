@@ -104,6 +104,23 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
             ("http_scope", "http_bearer_token_env", "duckdb_http_auth_scoped"),
         ),
         (
+            "trino",
+            (
+                "user_env",
+                "auth_env",
+                "resolve only from explicit *_env references",
+                "ambient MARIVO_* names are ignored",
+            ),
+        ),
+        (
+            "register",
+            (
+                "Entrypoint: md.register",
+                "resolve only from explicit *_env references",
+                "ambient MARIVO_* names are ignored",
+            ),
+        ),
+        (
             "SourceInspection.sample",
             ("source_params", "SourceParameters optional", "json_source_params_exact"),
         ),

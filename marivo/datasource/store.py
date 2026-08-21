@@ -17,7 +17,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR
 from marivo.datasource.loader import load_datasources
-from marivo.datasource.secrets import conventional_env_var
 from marivo.project import resolve_project_root
 
 
@@ -69,13 +68,10 @@ def _write_datasource_file(
         else:
             extra_kwargs[key] = value
     kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
-    # Only write explicit *_env overrides; conventional names are implied.
     http_headers_env: dict[str, str] = {}
     for stem, env_var in spec.env_refs.items():
         if stem.startswith("http_header:"):
             http_headers_env[stem.removeprefix("http_header:")] = env_var
-            continue
-        if env_var == conventional_env_var(spec.name, stem):
             continue
         kwargs[f"{stem}_env"] = env_var
     if http_headers_env:

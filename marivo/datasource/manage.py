@@ -417,6 +417,8 @@ def register(
     Constraints:
         Use one of the public typed specs. Sensitive fields use named
         ``*_env`` references, not plaintext literals or generic keyword bags.
+        Every explicit ``*_env`` name is persisted; no credential names are
+        inferred or omitted by convention.
     """
     stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)

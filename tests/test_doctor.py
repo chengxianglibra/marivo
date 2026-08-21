@@ -330,6 +330,26 @@ def test_default_doctor_loads_datasources_without_connecting(tmp_path: Path) -> 
     assert 'export TRINO_AUTH="secret_value"' in render_fix_snap(report)
 
 
+def test_default_doctor_ignores_unreferenced_ambient_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_manifest(tmp_path)
+    ds_dir = tmp_path / "models" / "datasources"
+    ds_dir.mkdir(parents=True)
+    ds_dir.joinpath("warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.trino(name='warehouse', host='trino.example', catalog='hive')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MARIVO_WAREHOUSE_USER", "ambient-user")
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, datasource="warehouse"))
+
+    assert all(
+        "MARIVO_WAREHOUSE_USER" not in check.id for check in _section(report, "secrets").checks
+    )
+
+
 def test_default_doctor_does_not_create_analysis_state(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
 

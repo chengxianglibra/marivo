@@ -324,7 +324,9 @@ Sensitive fields are authored as `*_env` references that name an environment
 variable — `user_env="TRINO_USER"`, `password_env="MYSQL_PASSWORD"`. Putting a
 secret literal in a datasource field raises an error. Marivo resolves `*_env`
 values through `os.environ` → `~/.marivo/secrets.toml` and caches resolved secrets
-there after a validated `md.test(...)` round-trip.
+there after a validated `md.test(...)` round-trip. Only explicitly declared
+references are resolved: ambient `MARIVO_<DATASOURCE>_<FIELD>` variables are
+ignored, and omitted connection fields are left to the selected Ibis backend.
 :::
 
 ```python
