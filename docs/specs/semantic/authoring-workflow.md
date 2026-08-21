@@ -29,7 +29,15 @@ and `ms` execute domain operations and do not expose `.help()` aliases.
 The semantic-authoring lifecycle is a registered state model, not a hardcoded
 method-by-method runbook. `marivo.help("authoring")` composes the registered
 datasource and semantic lifecycle views without merging their state ownership.
-The conceptual policy order is:
+Choose the smallest policy route that matches the request. A datasource-only
+request ends after declaration, registration, and connection validation:
+
+```text
+environment -> declare -> register -> connection test -> closeout
+```
+
+Physical-source discovery adds the evidence path, while semantic authoring uses
+the complete path:
 
 ```text
 help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis

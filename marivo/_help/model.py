@@ -65,3 +65,29 @@ class MarivoHelpTargetError(ValueError):
         if candidates:
             message += f" Candidates: {', '.join(candidates)}."
         super().__init__(message)
+
+
+class MarivoHelpSurfaceError(RuntimeError):
+    """Structured blocker for an unexpected live-help routing or render failure."""
+
+    def __init__(
+        self,
+        *,
+        target: object | None,
+        stage: str,
+        cause_type: str,
+    ) -> None:
+        self.target = target
+        self.stage = stage
+        self.cause_type = cause_type
+        self.received = target if isinstance(target, str) else type(target).__name__
+        self.expected = "a registered, renderable Marivo help target"
+        self.repair = (
+            "Run doctor with the same interpreter and retry focused or root help. If help remains "
+            "unavailable, use local docs or installed package source as read-only recovery; "
+            "treat private implementation details as unverified and do not bypass public safety boundaries."
+        )
+        super().__init__(
+            f"Marivo live help is unavailable for {self.received!r}: "
+            f"stage={stage!r}, cause={cause_type!r}. {self.repair}"
+        )

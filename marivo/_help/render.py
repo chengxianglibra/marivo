@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing_extensions import TypeAliasType
 
 from marivo._help.model import (
+    MarivoHelpSurfaceError,
     MarivoHelpTargetError,
     NativeHelpRoute,
     SurfaceRootHelpRoute,
@@ -117,6 +118,19 @@ def help(target: PublicHelpTarget = None) -> None:
                     }
                 )
             raise
+        except Exception as error:
+            if operation is not None:
+                operation.attributes.update(
+                    {
+                        "marivo.help.outcome": "surface_error",
+                        "marivo.help.resolved_owner": "global",
+                    }
+                )
+            raise MarivoHelpSurfaceError(
+                target=target,
+                stage="route_or_render",
+                cause_type=type(error).__name__,
+            ) from error
         if operation is not None:
             operation.attributes.update(
                 {

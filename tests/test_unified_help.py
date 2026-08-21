@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import get_args, get_type_hints
@@ -14,7 +16,9 @@ import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._help import render as help_render
 from marivo._help.model import (
+    MarivoHelpSurfaceError,
     MarivoHelpTargetError,
     NativeHelpRoute,
     SurfaceRootHelpRoute,
@@ -46,6 +50,50 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis")
 
 def _text(target: PublicHelpTarget = None) -> str:
     return render_help_text(target)[0]
+
+
+def test_public_help_wraps_unexpected_surface_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_target: PublicHelpTarget = None) -> tuple[str, str, str | None]:
+        raise RuntimeError("synthetic renderer failure")
+
+    monkeypatch.setattr(help_render, "render_help_text", fail)
+
+    with pytest.raises(MarivoHelpSurfaceError) as captured:
+        marivo.help("datasource.duckdb")
+
+    error = captured.value
+    assert error.received == "datasource.duckdb"
+    assert error.stage == "route_or_render"
+    assert error.cause_type == "RuntimeError"
+    assert "doctor" in str(error)
+    assert "installed package source" in str(error)
+
+
+def test_public_help_preserves_unknown_target_error() -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help("not-a-registered-target")
+
+
+def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
+    code = (
+        "import marivo; "
+        "marivo.help(); "
+        "marivo.help('authoring'); "
+        "marivo.help('datasource.authoring')"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "marivo.help" in completed.stdout
+    assert "Datasource guidance ends at evidence.projected." in completed.stdout
 
 
 def test_marivo_help_is_the_only_public_help_callable(
