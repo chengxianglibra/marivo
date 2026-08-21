@@ -479,3 +479,101 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
     assert {"name", "host", "catalog", "port", "user_env", "auth_env", "extra"} <= trino_field_names
     assert "description" not in trino_field_names
     assert "backend_type" not in trino_field_names
+
+
+@pytest.mark.parametrize(
+    ("spec", "target"),
+    [
+        (DuckDBSpec(name="local"), "target: path=':memory:'"),
+        (
+            SQLiteSpec(name="app", path="data/app.sqlite", read_only=True),
+            "target: path='data/app.sqlite'",
+        ),
+        (
+            TrinoSpec(
+                name="warehouse",
+                host="trino.example",
+                catalog="hive",
+                port=8443,
+                schema="sales",
+                http_scheme="https",
+            ),
+            (
+                "target: host='trino.example' | catalog='hive' | port=8443 | "
+                "schema='sales' | http_scheme='https'"
+            ),
+        ),
+        (
+            MySQLSpec(name="mysql_wh", host="mysql.example", database="sales", port=3307),
+            "target: host='mysql.example' | database='sales' | port=3307",
+        ),
+        (
+            PostgresSpec(
+                name="pg_wh",
+                host="postgres.example",
+                database="sales",
+                port=5433,
+                schema="mart",
+            ),
+            ("target: host='postgres.example' | database='sales' | port=5433 | schema='mart'"),
+        ),
+        (
+            ClickHouseSpec(
+                name="clickhouse_wh",
+                host="clickhouse.example",
+                port=9440,
+                database="sales",
+                secure=True,
+            ),
+            ("target: host='clickhouse.example' | port=9440 | database='sales' | secure=True"),
+        ),
+    ],
+)
+def test_datasource_specs_render_only_agent_relevant_state(
+    spec: DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
+    target: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert_conforms(spec)
+    capsys.readouterr()
+
+    rendered = spec.render()
+
+    assert "status: datasource.declared" in rendered
+    assert f"ref: datasource:{spec.name}" in rendered
+    assert target in rendered
+    assert "ai_context" not in rendered
+    assert "session_properties" not in rendered
+    assert "settings" not in rendered
+    assert "extra" not in rendered
+    assert repr(spec) == (
+        f"<{type(spec).__name__} name={spec.name} backend={spec.backend_type}; "
+        "call .show() to inspect>"
+    )
+
+    assert spec.show() is None
+    assert capsys.readouterr().out == rendered + "\n"
+
+
+def test_datasource_spec_render_summarizes_hidden_configuration_and_credentials() -> None:
+    spec = TrinoSpec(
+        name="warehouse",
+        host="trino.example",
+        catalog="hive",
+        user_env="WAREHOUSE_USER",
+        auth_env="WAREHOUSE_AUTH",
+        session_properties={f"property_{index}": "x" * 100 for index in range(100)},
+        extra={"custom_options": {f"option_{index}": "y" * 100 for index in range(100)}},
+    )
+
+    rendered = spec.render()
+
+    assert "credential fields: auth_env | user_env (2 refs)" in rendered
+    assert "additional configuration: 2 fields; inspect .fields" in rendered
+    assert "WAREHOUSE_USER" not in rendered
+    assert "WAREHOUSE_AUTH" not in rendered
+    assert "property_99" not in rendered
+    assert "option_99" not in rendered
+    assert len(rendered.encode("utf-8")) < 1024
+    assert len(repr(spec)) < 200
+    assert spec.env_refs == {"user": "WAREHOUSE_USER", "auth": "WAREHOUSE_AUTH"}

@@ -228,8 +228,8 @@ day-粒度时间-series 或面板 frame 之间按从选定范围起算的零基�
 ### 1. 连接数据源
 
 数据源在 `models/datasources/*.py` 中声明，每种后端对应一个类型化辅助函数。
-辅助函数会注册连接。语义文件通过精确的 `ms.ref.datasource("warehouse")` factory 引用
-数据源。
+辅助函数返回类型化 spec，并在数据源 loader 执行时自动声明。语义文件通过精确的
+`ms.ref.datasource("warehouse")` factory 引用数据源。
 
 ```python
 # models/datasources/warehouse.py
@@ -265,6 +265,11 @@ md.duckdb(
 | `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
 | `md.trino` | `host`、`catalog` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`user_env`、`auth_env` |
 | `md.clickhouse` | `host` | `port`（9000 / 9440 secure）、`database`、`secure`、`settings`、`user_env`、`password_env` |
+
+已经拿到返回的 spec 时，`spec.show()` 只打印声明状态、引用、核心连接目标、凭据
+字段名和其他配置数量；不会展开 settings、`extra`、AI context、环境变量名或解析后的
+密钥。精确值分别读取 `spec.fields` / `spec.env_refs`，注册 continuation 使用
+`spec.contract().show()`。
 
 ClickHouse 数据源默认关闭 clickhouse-connect 自动生成的会话 id，这样分析
 缓存后端时，重复查询或并发查询不会共享同一个 ClickHouse server 会话 lock。
@@ -1111,6 +1116,7 @@ inspection = md.inspect(warehouse, orders)
 inspection.show()
 inspection.partitions().show()
 scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+scope.show()  # 范围类型、guards 和有界谓词预览
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "region", "created_at", "amount"),
@@ -1137,6 +1143,8 @@ scope = md.time_range(
 时区感知方式一致；带时区的时间戳会统一规范化为 UTC。projected source 必须暴露该
 时间列。与等值分区范围不同，
 `time_range` 可以限定经过转换的时间分区。
+范围卡片会限制谓词预览；分区映射有遗漏时指向 `.values`，unpruned 范围则明确标记为
+broad read。完整 acquisition continuation 使用 `scope.contract().show()`。
 
 `md.duckdb(...)` 声明数据源。`md.table(...)` 选择该数据源内部的
 表或 view。`md.parquet(...)` 和 `md.csv(...)` 是 DuckDB 文件来源

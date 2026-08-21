@@ -67,6 +67,12 @@ Inspection & snapshots
 Scope helpers
 -------------
 
+Datasource specs and explicit scopes expose bounded ``render()`` / ``show()``
+cards for agent-relevant state. Specs show only their core connection target,
+credential field names, and hidden-configuration count; scopes show guards and
+a bounded predicate preview. Read ``.fields`` / ``.env_refs`` or ``.values``
+for exact data, and ``.contract()`` for mechanical continuation.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:

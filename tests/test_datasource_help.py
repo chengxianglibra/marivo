@@ -201,6 +201,15 @@ def test_consumed_type_help_uses_only_registered_public_contract() -> None:
     assert "_" not in "\n".join(line for line in text.splitlines() if line.strip().startswith("_"))
 
 
+@pytest.mark.parametrize("target", [md.TrinoSpec, md.PartitionScope, md.UnprunedScope])
+def test_state_bearing_type_help_exposes_read_and_continuation_surfaces(target: type) -> None:
+    text = _text(target)
+
+    assert "Public consumption: contract, show, render" in text
+    assert "Detail: call .show() for bounded readable state." in text
+    assert "Continuation: call .contract() for mechanically valid next actions." in text
+
+
 def test_datasource_failure_type_help_is_registry_owned() -> None:
     text = _text(md.DatasourceFailure)
 

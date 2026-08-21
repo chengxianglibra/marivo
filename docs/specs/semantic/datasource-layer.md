@@ -115,6 +115,14 @@ used everywhere downstream.
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.
 
+Every spec has a bounded, decision-first `show()` / `render()` card. It exposes
+the declared state, exact ref, core connection target, credential field names,
+and only a count for additional configuration. It never expands resolved
+secrets, session/settings maps, `extra`, or AI context. Read `.fields` and
+`.env_refs` only when exact configuration is needed, and use `.contract()` for
+the mechanical registration transition. The default repr is a one-line pointer
+to this card rather than a dataclass field dump.
+
 SQLite uses `md.table(...)` for tables and views. It does not consume the
 DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
 connection-level `PRAGMA query_only`; Marivo's bounded inspection and diagnostic
@@ -495,6 +503,11 @@ timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
 Both guards are positive and enforceable; unsupported timeout blocks before
 execution. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
 still be large.
+
+Scope `show()` / `render()` cards expose only the scope kind, positive guards,
+and a bounded predicate preview. Large partition predicates report omissions
+and point to `.values` for the exact mapping; unpruned scope is labeled as a
+broad read. `.contract()` remains the complete mechanical continuation surface.
 
 Read-only ClickHouse acquisition uses the server setting `readonly=1` together
 with the bounded execution timeout. Connection, source-resolution, timeout, and

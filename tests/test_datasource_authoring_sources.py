@@ -197,6 +197,52 @@ def test_time_range_reuses_partition_scope_and_normalizes_iso_boundaries() -> No
     assert "time_range" in repr(date_scope)
 
 
+def test_authoring_scopes_render_bounded_decision_state_without_changing_repr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    partitioned = md.partition(
+        {f"partition_{index}": str(index) for index in range(6)},
+        max_rows=1000,
+        timeout_seconds=30,
+    )
+    time_bounded = md.time_range(
+        "created_at",
+        start="2026-08-01",
+        end="2026-08-21",
+        max_rows=500,
+        timeout_seconds=15,
+    )
+    unpruned = md.unpruned(max_rows=100, timeout_seconds=5)
+    partitioned_repr = repr(partitioned)
+    time_bounded_repr = repr(time_bounded)
+    unpruned_repr = repr(unpruned)
+
+    partitioned_rendered = partitioned.render()
+    assert "PartitionScope kind=partition" in partitioned_rendered
+    assert "max_rows=1000 timeout_seconds=30" in partitioned_rendered
+    assert "displayed=4 total=6 omitted=2" in partitioned_rendered
+    assert "Read scope.values for the complete predicate." in partitioned_rendered
+    assert "partition_4" not in partitioned_rendered
+    assert "partition_5 | 5" in partitioned.render(max_output_bytes=None)
+
+    time_rendered = time_bounded.render()
+    assert "PartitionScope kind=time_range" in time_rendered
+    assert "max_rows=500 timeout_seconds=15" in time_rendered
+    assert (
+        "predicate: created_at in [datetime.date(2026, 8, 1), datetime.date(2026, 8, 21))"
+    ) in time_rendered
+
+    unpruned_rendered = unpruned.render()
+    assert "UnprunedScope kind=unpruned" in unpruned_rendered
+    assert "broad read within explicit guards max_rows=100 timeout_seconds=5" in unpruned_rendered
+
+    assert partitioned.show() is None
+    assert capsys.readouterr().out == partitioned_rendered + "\n"
+    assert repr(partitioned) == partitioned_repr
+    assert repr(time_bounded) == time_bounded_repr
+    assert repr(unpruned) == unpruned_repr
+
+
 @pytest.mark.parametrize(
     ("start", "end"),
     [

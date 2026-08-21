@@ -281,6 +281,16 @@ def test_stateful_type_contracts_list_registered_consumption_methods() -> None:
     )
 
 
+def test_state_bearing_type_contracts_expose_read_and_continuation_methods() -> None:
+    for type_obj, contract in TYPE_CONTRACTS.items():
+        if not contract.state_bearing:
+            continue
+        assert {"contract", "show", "render"} <= set(contract.public_methods)
+        assert callable(type_obj.contract)
+        assert callable(type_obj.show)
+        assert callable(type_obj.render)
+
+
 def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.inspect) is REGISTRY.by_canonical_id("inspect")
     assert REGISTRY.by_callable(md.source_param) is REGISTRY.by_canonical_id("source_param")

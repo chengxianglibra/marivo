@@ -868,7 +868,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             spec_type.__name__,
             (producer,),
             properties=("name", "backend_type", "fields", "env_refs", "ref"),
-            methods=("contract",),
+            methods=("contract", *show_render),
             consumers=("register",),
             state_bearing=True,
         )
@@ -973,7 +973,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "PartitionScope",
         ("partition", "time_range"),
         properties=("values", "max_rows", "timeout_seconds"),
-        methods=("contract",),
+        methods=("contract", *show_render),
         consumers=("SourceInspection.sample",),
         state_bearing=True,
     )
@@ -982,7 +982,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "UnprunedScope",
         ("unpruned",),
         properties=("max_rows", "timeout_seconds"),
-        methods=("contract",),
+        methods=("contract", *show_render),
         consumers=("SourceInspection.sample",),
         state_bearing=True,
     )

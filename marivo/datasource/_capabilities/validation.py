@@ -125,16 +125,22 @@ def validate_datasource_live_surface() -> None:
     assert len(group_ids) == len(set(group_ids))
     assert set(group_ids) <= set(canonical_ids)
 
-    for contract in TYPE_CONTRACTS.values():
+    for type_obj, contract in TYPE_CONTRACTS.items():
         assert all(
             not property_name.startswith("_") for property_name in contract.public_properties
         )
         assert all(not method_name.startswith("_") for method_name in contract.public_methods)
         assert all(
+            callable(getattr(type_obj, method_name, None))
+            for method_name in contract.public_methods
+        )
+        assert all(
             REGISTRY.by_canonical_id(target.canonical_id or "").surface == target.surface
             for target in (*contract.producers, *contract.consumers)
         )
-        assert not contract.state_bearing or "contract" in contract.public_methods
+        assert not contract.state_bearing or {"contract", "show", "render"} <= set(
+            contract.public_methods
+        )
 
     root_text = "\n".join(
         (

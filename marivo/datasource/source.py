@@ -21,6 +21,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
     normalize_json_body,
 )
+from marivo.render import Card, RenderableResult
 
 TableSource: TypeAlias = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
@@ -33,7 +34,7 @@ class _TimeRangePredicate:
 
 
 @dataclass(frozen=True)
-class PartitionScope:
+class PartitionScope(RenderableResult):
     """Explicit pruned selection and positive acquisition guards."""
 
     values: tuple[tuple[str, str], ...]
@@ -60,9 +61,50 @@ class PartitionScope:
 
         return contract_for_scope("time_range" if self._time_range is not None else "partition")
 
+    def _repr_identity(self) -> str:
+        kind = "time_range" if self._time_range is not None else "partition"
+        return f"PartitionScope kind={kind}"
+
+    def _card(self) -> Card:
+        if self._time_range is not None:
+            predicate = self._time_range
+            return (
+                Card(
+                    identity=self._repr_identity(),
+                    available=(".contract()", ".show()"),
+                )
+                .status(
+                    f"explicit scope max_rows={self.max_rows} "
+                    f"timeout_seconds={self.timeout_seconds}"
+                )
+                .field(
+                    "predicate",
+                    f"{predicate.column} in [{predicate.start!r}, {predicate.end!r})",
+                )
+            )
+
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(".values", ".contract()", ".show()"),
+            )
+            .status(
+                f"explicit scope max_rows={self.max_rows} timeout_seconds={self.timeout_seconds}"
+            )
+            .table(
+                columns=("field", "value"),
+                rows=self.values,
+                row_count=len(self.values),
+                label="predicate",
+                show_omission_counts=True,
+                bounded_row_limit=4,
+                recovery="Read scope.values for the complete predicate.",
+            )
+        )
+
 
 @dataclass(frozen=True)
-class UnprunedScope:
+class UnprunedScope(RenderableResult):
     """Explicit unpruned acquisition with positive guards."""
 
     max_rows: int
@@ -73,6 +115,18 @@ class UnprunedScope:
         from marivo.datasource._capabilities.contracts import contract_for_scope
 
         return contract_for_scope("unpruned")
+
+    def _repr_identity(self) -> str:
+        return "UnprunedScope kind=unpruned"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(".contract()", ".show()"),
+        ).status(
+            "broad read within explicit guards "
+            f"max_rows={self.max_rows} timeout_seconds={self.timeout_seconds}"
+        )
 
 
 AuthoringScope: TypeAlias = PartitionScope | UnprunedScope
