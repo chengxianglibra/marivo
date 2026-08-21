@@ -445,11 +445,16 @@ results prove only `datasource.connection_validated`.
 `md.inspect(datasource, source)` is metadata-only. It exposes schema, physical
 extent, partition state, and enforceable execution capabilities before a user-data
 read. Its card includes the exact source descriptor and complete real schema
-column names and types. `inspection.partitions()` is also metadata-only; its
-card identifies the value source, completeness and truncation, shows bounded
-captured values, and derives a copyable `md.partition(...)` scope template from
-those already-captured values without another query. A single transformed
-temporal partition instead produces a copyable `md.time_range(...)` template.
+column names and types. `inspection.partitions(limit=..., order=...)` is also
+metadata-only. The default descending-edge request reuses values captured during
+inspection; another bound or order performs one bounded metadata query. Use
+`order="asc"` or `order="desc"` for the corresponding physical-value edge. This
+ordering is not automatically chronological for string or numeric encodings.
+Its card identifies the requested edge, value source, completeness and
+truncation, shows bounded values, and derives a copyable `md.partition(...)`
+scope template. A truncated edge is not an enumeration of every middle
+partition. A single transformed temporal partition instead produces a copyable
+`md.time_range(...)` template.
 
 Physical extent always carries provenance and scope. For a ClickHouse
 `Distributed` source, Marivo may inspect the resolved local table through
@@ -519,9 +524,12 @@ The snapshot card makes the datasource/source/scope identity, selected columns,
 coverage, and value/cache state explicit. Snapshot projections are local,
 column-independent views and issue no query; their cards and contracts mark
 `data_access=none`.
-Values default to memory-only. `persist_values=True` stores only bounded value
-evidence in plaintext project-local cache and therefore requires an explicit
-privacy judgment. Uncommon formats, keys, timezones, aggregation, units,
+Values default to memory-only. A later process can recover snapshot identity,
+profiles, and coverage, but reports `value_evidence_unavailable` for retained
+values and value-derived projections. Use `persist_values=True` on the original
+sample only when later processes need those values or retained-row certification
+and bounded plaintext project-local caching is explicitly acceptable. Uncommon
+formats, keys, timezones, aggregation, units,
 additivity, relationship cardinality, and business meaning remain agent-owned.
 
 Evidence projections expose those unresolved decisions through frozen

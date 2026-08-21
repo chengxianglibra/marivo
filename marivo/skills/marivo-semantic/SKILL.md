@@ -210,6 +210,13 @@ relationship evidence pair. Reacquire only when current structured state says
 columns or retained values are missing, evidence is stale, or source/schema/
 scope identity no longer matches. Snapshot age alone is not invalidation.
 
+Before the original sample, decide whether value-based work must continue in
+another process. Same-process projections should keep the memory-only default.
+For cross-process value projections or retained-row certification, follow the
+focused sample help and explicitly accept bounded plaintext project-local value
+persistence; do not discover this requirement only after losing process-local
+values.
+
 ### Explicit source and secrets
 
 The source of truth is project Python evaluated by the semantic loader.

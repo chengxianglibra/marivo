@@ -1119,7 +1119,8 @@ orders = md.table("orders")
 
 inspection = md.inspect(warehouse, orders)
 inspection.show()
-inspection.partitions().show()
+inspection.partitions(limit=1, order="asc").show()  # 物理值升序一侧
+inspection.partitions(limit=100, order="desc").show()  # 物理值降序一侧
 scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
 scope.show()  # 范围类型、guards 和有界谓词预览
 snapshot = inspection.sample(
@@ -1263,7 +1264,10 @@ with session.source_bindings({
 使用相同映射：`inspection.sample(..., source_params={...})`。
 
 检查是元数据-仅，并在 sampling 前报告结构、物理 extent、分区
-状态和 enforceable 能力。范围必须有正整数行/timeout guards 和明确列；
+状态和 enforceable 能力。`inspection.partitions(limit=..., order=...)`
+用 `asc` 或 `desc` 查询相应的物理值排序一侧；字符串或数值排序不会被自动解释为时间顺序，
+截断结果也不代表包含所有中间分区。
+范围必须有正整数行/timeout guards 和明确列；
 `LIMIT` 不保证 bytes scanned。快照投影不查询数据源，值默认只在内存。
 对于 ClickHouse `Distributed` 来源，本地 `system.parts` 观察只会作为
 `scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
@@ -1274,7 +1278,10 @@ ClickHouse 检查还会在 `projectable_columns` 中列出安全的 adapter-only
 保留精确物理名与规范化类型。active parts 间类型冲突或无法解析的后端类型只会
 产生 warning，并且不会列为可投影列。这并不枚举动态 MapV2 key：未物化 key
 必须在上游物化、通过数据库 view 暴露，或仅在终端 `md.raw_sql(...)` 中使用。
-只有接受有界值证据明文写入项目本地 cache 时才使用 `persist_values=True`。
+值默认只在当前进程内保留。另一进程可以恢复快照 identity、profiles 和 coverage，
+但值投影会报告 `value_evidence_unavailable`。只有后续进程确实需要值投影或 retained-row
+认证，并且接受有界值证据明文写入项目本地 cache 时，才应在原始 sample 中使用
+`persist_values=True`。
 非常见格式、键、时区、聚合、单位、可加性、关系 cardinality
 和业务含义仍由智能体负责。
 
@@ -1284,8 +1291,10 @@ ClickHouse 检查还会在 `projectable_columns` 中列出安全的 adapter-only
 高 null rate 自动判为数据质量故障，也不会隐式过滤 `NULL`。
 
 检查卡片会显示精确来源 descriptor，以及真实结构的列名和类型。分区
-卡片会显示已捕获值的来源、完整性、截断状态、有界值和无需新查询即可使用的范围
-模板。快照卡片会显示范围、selected 列、覆盖率与值/cache 状态；
+卡片会显示请求的物理值升序/降序一侧、值来源、完整性、截断状态、有界值和范围模板。
+默认降序一侧复用已捕获的元数据；其他 limit 或 order 会执行一次有界 metadata-only
+查询。字符串或数值排序不会被自动解释为时间顺序。快照卡片会显示范围、selected 列、
+覆盖率与值/cache 状态；
 每个投影都明确标记为 `data_access=none`。
 
 连接测试以 `md.test(ref).show()` 为停止点。失败的 `DatasourceTestResult` 会公开结构化

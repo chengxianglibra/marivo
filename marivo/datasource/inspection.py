@@ -25,6 +25,7 @@ from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
+    DatasourceFieldInvalidError,
     DatasourceMetadataError,
     DatasourceObservedEffects,
     repair,
@@ -94,13 +95,16 @@ class PartitionInspection(RenderableResult):
     datasource: Ref[DatasourceKind]
     source: TableSource
     partitioning: Partitioning
+    limit: int
+    order: Literal["asc", "desc"]
     status: Literal["complete", "incomplete"]
     issues: tuple[str, ...]
 
     def _repr_identity(self) -> str:
         return (
             f"PartitionInspection datasource={self.datasource.path} "
-            f"state={self.partitioning.state} status={self.status}"
+            f"state={self.partitioning.state} order={self.order} "
+            f"limit={self.limit} status={self.status}"
         )
 
     def _card(self) -> Card:
@@ -112,8 +116,15 @@ class PartitionInspection(RenderableResult):
             value=", ".join(field.name for field in self.partitioning.fields) or "none",
         )
         card.field("value source", self.partitioning.value_source or "none")
+        card.field("listing", f"order={self.order} limit={self.limit}")
         card.field("values complete", str(self.partitioning.values_complete))
         card.field("values truncated", str(self.partitioning.truncated))
+        if self.partitioning.truncated:
+            opposite = "asc" if self.order == "desc" else "desc"
+            card.field(
+                "opposite edge",
+                f"inspection.partitions(limit={self.limit}, order={opposite!r})",
+            )
         range_field = _time_range_partition_field(self.partitioning)
         if range_field is not None:
             card.field(
@@ -300,13 +311,69 @@ class SourceInspection(RenderableResult):
             ),
         )
 
-    def partitions(self) -> PartitionInspection:
-        """Return partition evidence already captured by ``md.inspect(...)``."""
-        issues = _partition_issues(self.partitioning)
+    def partitions(
+        self,
+        *,
+        limit: int = _PARTITION_VALUE_LIMIT,
+        order: Literal["asc", "desc"] = "desc",
+    ) -> PartitionInspection:
+        """Return one bounded edge of the source's partition metadata.
+
+        Args:
+            limit: Positive result bound no greater than 100.
+            order: ``"asc"`` for the ascending physical-value edge or
+                ``"desc"`` for the descending physical-value edge.
+
+        Returns:
+            A bounded ``PartitionInspection``. The default descending-edge
+            request reuses values captured by ``md.inspect(...)``; another
+            bound or order performs one metadata-only partition query.
+
+        Example:
+            ``inspection.partitions(limit=1, order="asc").show()``
+
+        Constraints:
+            This method reads partition metadata, not user rows. It exposes
+            bounded physical-value edges and does not interpret lexical or
+            numeric ordering as chronological ordering.
+        """
+        if type(limit) is not int or not 1 <= limit <= _PARTITION_VALUE_LIMIT:
+            raise _partition_listing_field_error(
+                inspection=self,
+                parameter="limit",
+                expected="an integer within [1, 100]",
+                received=repr(limit),
+            )
+        if type(order) is not str or order not in {"asc", "desc"}:
+            raise _partition_listing_field_error(
+                inspection=self,
+                parameter="order",
+                expected="'asc' or 'desc'",
+                received=repr(order),
+            )
+
+        partitioning = self.partitioning
+        listing_warnings: tuple[MetadataWarning, ...] = ()
+        if limit != _PARTITION_VALUE_LIMIT or order != "desc":
+            partitioning, listing_warnings = _listed_partitioning(
+                self,
+                limit=limit,
+                order=order,
+            )
+        issues = tuple(
+            dict.fromkeys(
+                (
+                    *_partition_issues(partitioning),
+                    *(warning.message for warning in listing_warnings),
+                )
+            )
+        )
         return PartitionInspection(
             datasource=self.datasource,
             source=self.source,
-            partitioning=self.partitioning,
+            partitioning=partitioning,
+            limit=limit,
+            order=order,
             status="complete" if not issues else "incomplete",
             issues=issues,
         )
@@ -328,10 +395,30 @@ class SourceInspection(RenderableResult):
     ) -> DiscoverySnapshot:
         """Acquire a bounded snapshot after metadata preflight.
 
-        ``source_params`` supplies the exact non-secret runtime values declared
-        by ``md.source_param(...)`` on a JSON source. Missing or extra values
-        fail before acquisition and the normalized values participate in the
-        persisted snapshot identity.
+        Args:
+            scope: One explicit partition, time-range, or unpruned acquisition scope.
+            columns: Non-empty tuple of inspected output columns to retain.
+            persist_values: Keep ``False`` for memory-only values in the current
+                process. Set ``True`` only when another process must recover
+                value projections or retained rows and plaintext project-local
+                persistence is acceptable.
+            refresh: Re-execute this exact bounded acquisition instead of reusing
+                a matching cached snapshot.
+            source_params: Exact non-secret runtime values declared by
+                ``md.source_param(...)`` on a JSON source.
+
+        Returns:
+            One immutable ``DiscoverySnapshot`` whose local projections issue no query.
+
+        Example:
+            ``snapshot = inspection.sample(scope=scope, columns=("id", "region"))``
+
+        Constraints:
+            Missing or extra source parameters fail before acquisition. Values
+            are memory-only by default: a cold process recovers snapshot metadata
+            with ``value_evidence_state="value_evidence_unavailable"``. Explicit
+            value persistence stores only bounded retained evidence in plaintext
+            project-local state.
         """
         _preflight_sample(self, scope=scope, columns=columns)
         return acquire_snapshot(
@@ -342,6 +429,32 @@ class SourceInspection(RenderableResult):
             refresh=refresh,
             source_params=source_params,
         )
+
+
+def _partition_listing_field_error(
+    *,
+    inspection: SourceInspection,
+    parameter: Literal["limit", "order"],
+    expected: str,
+    received: str,
+) -> DatasourceFieldInvalidError:
+    return DatasourceFieldInvalidError(
+        message=f"SourceInspection.partitions {parameter} is invalid",
+        expected=expected,
+        received=received,
+        location=f"SourceInspection.partitions({parameter}=...)",
+        effect_observed=DatasourceObservedEffects(
+            query_executed=False,
+            scope_state=inspection.partitioning.state,
+        ),
+        repair=repair(
+            kind="retry",
+            canonical_id="SourceInspection.partitions",
+            action="Use a bounded physical-value listing with a supported order.",
+            snippet='inspection.partitions(limit=100, order="desc")',
+            preserves_evidence=True,
+        ),
+    )
 
 
 def _authoring_error(
@@ -964,9 +1077,30 @@ def _captured_partitioning(
     datasource_ir: DatasourceIR,
     source: TableSource,
     profile: EngineProfile,
+    limit: int = _PARTITION_VALUE_LIMIT,
+    order: Literal["asc", "desc"] = "desc",
 ) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
-    state = metadata.partition_state
-    fields = metadata.partitions
+    return _captured_partitioning_for_fields(
+        state=metadata.partition_state,
+        fields=metadata.partitions,
+        datasource_ir=datasource_ir,
+        source=source,
+        profile=profile,
+        limit=limit,
+        order=order,
+    )
+
+
+def _captured_partitioning_for_fields(
+    *,
+    state: Literal["known", "none", "unknown"],
+    fields: tuple[PartitionMetadata, ...],
+    datasource_ir: DatasourceIR,
+    source: TableSource,
+    profile: EngineProfile,
+    limit: int,
+    order: Literal["asc", "desc"],
+) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
     if state == "none":
         return (
             Partitioning(
@@ -1042,14 +1176,15 @@ def _captured_partitioning(
                 datasource_ir=datasource_ir,
                 source=source,
                 partition_columns=tuple(field.name for field in fields),
-                limit=_PARTITION_VALUE_LIMIT + 1,
+                limit=limit + 1,
+                order=order,
             )
         )
-        rows = result.rows[: _PARTITION_VALUE_LIMIT + 1]
-        truncated = len(rows) > _PARTITION_VALUE_LIMIT
+        rows = result.rows[: limit + 1]
+        truncated = len(rows) > limit
         complete_values: list[tuple[tuple[str, str], ...]] = []
         omitted_incomplete = 0
-        for row in rows[:_PARTITION_VALUE_LIMIT]:
+        for row in rows[:limit]:
             if any(row.get(field.name) is None for field in fields):
                 omitted_incomplete += 1
                 continue
@@ -1097,6 +1232,73 @@ def _captured_partitioning(
         if callable(disconnect):
             with suppress(Exception):
                 disconnect()
+
+
+def _listed_partitioning(
+    inspection: SourceInspection,
+    *,
+    limit: int,
+    order: Literal["asc", "desc"],
+) -> tuple[Partitioning, tuple[MetadataWarning, ...]]:
+    """Read one alternate bounded partition edge for an existing inspection."""
+    if inspection.partitioning.state != "known" or not isinstance(inspection.source, TableSourceIR):
+        return inspection.partitioning, ()
+
+    datasource_name = _storage_name(inspection.datasource)
+    datasource_ir = _store.load_one(datasource_name, project_root=inspection._project_root)
+    if datasource_ir is None:
+        raise _authoring_error(
+            code="datasource_missing",
+            stage="project",
+            expected=f"registered datasource {inspection.datasource.path}",
+            received="missing datasource",
+            reason=(
+                f"datasource {inspection.datasource.path!r} was removed after source inspection"
+            ),
+            scope_state=inspection.partitioning.state,
+        )
+    profile = require_profile_for_backend_type(datasource_ir.backend_type)
+    physical_source = inspection.source
+    physical_fields = inspection.partitioning.fields
+    source_to_output: dict[str, str] = {}
+    if inspection.source.columns:
+        output_to_source = {output: binding.source for output, binding in inspection.source.columns}
+        if any(field.name not in output_to_source for field in physical_fields):
+            return inspection.partitioning, (
+                MetadataWarning(
+                    kind="projected_partition_unavailable",
+                    message="projected partition fields cannot be mapped back to physical names",
+                    columns=tuple(field.name for field in physical_fields),
+                ),
+            )
+        physical_fields = tuple(
+            replace(field, name=output_to_source[field.name]) for field in physical_fields
+        )
+        source_to_output = {source: output for output, source in output_to_source.items()}
+        physical_source = _unprojected_table(inspection.source)
+
+    partitioning, warnings = _captured_partitioning_for_fields(
+        state=inspection.partitioning.state,
+        fields=physical_fields,
+        datasource_ir=datasource_ir,
+        source=physical_source,
+        profile=profile,
+        limit=limit,
+        order=order,
+    )
+    if not source_to_output or partitioning.state != "known":
+        return partitioning, warnings
+    return (
+        replace(
+            partitioning,
+            fields=inspection.partitioning.fields,
+            values=tuple(
+                tuple((source_to_output[name], value) for name, value in captured)
+                for captured in partitioning.values
+            ),
+        ),
+        warnings,
+    )
 
 
 def _structured_inspection_warnings(

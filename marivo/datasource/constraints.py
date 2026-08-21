@@ -37,6 +37,8 @@ class ConstraintId(StrEnum):
     TABLE_COLUMN_BINDINGS_CLOSED = "table_column_bindings_closed"
     TABLE_COLUMN_TYPE_ASSERTION = "table_column_type_assertion"
     PROJECTED_SOURCE_RUNTIME_EVIDENCE = "projected_source_runtime_evidence"
+    PARTITION_LISTING_BOUNDED = "partition_listing_bounded"
+    SNAPSHOT_VALUE_PERSISTENCE = "snapshot_value_persistence"
 
 
 def _constraint(
@@ -222,6 +224,24 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Projected inspection is metadata-only and declared-only bindings require bounded runtime evidence.",
         "Catalog absence does not prove that a physical identifier is queryable.",
         "Inspect first, then acquire an explicit bounded sample before semantic preview or readiness.",
+    ),
+    ConstraintId.PARTITION_LISTING_BOUNDED: _constraint(
+        ConstraintId.PARTITION_LISTING_BOUNDED,
+        "DatasourceFieldInvalid",
+        "runtime",
+        ("SourceInspection.partitions",),
+        "Partition metadata listings expose one bounded ordered edge.",
+        "Agents need bounded physical-value boundaries without turning discovery into an unbounded partition dump or inventing temporal meaning.",
+        "Use order='asc' or order='desc' for one physical-value edge; string and numeric ordering are not automatically chronological, and a truncated result does not include every middle value.",
+    ),
+    ConstraintId.SNAPSHOT_VALUE_PERSISTENCE: _constraint(
+        ConstraintId.SNAPSHOT_VALUE_PERSISTENCE,
+        "DatasourceFieldInvalid",
+        "runtime",
+        ("SourceInspection.sample",),
+        "Snapshot values are memory-only unless plaintext persistence is explicitly requested.",
+        "The default avoids writing observed values to project-local state, so another process can recover metadata but not retained value evidence.",
+        "Keep persist_values=False for same-process projections; use persist_values=True only when a later process needs value projections or retained-row certification and plaintext project-local caching is acceptable.",
     ),
 }
 

@@ -74,6 +74,13 @@ class PartitionProbeRequest:
     source: TableSourceIR
     partition_columns: tuple[str, ...]
     limit: int
+    order: Literal["asc", "desc"] = "desc"
+
+    def __post_init__(self) -> None:
+        if type(self.limit) is not int or self.limit < 1:
+            raise ValueError("partition probe limit must be a positive integer")
+        if type(self.order) is not str or self.order not in {"asc", "desc"}:
+            raise ValueError("partition probe order must be 'asc' or 'desc'")
 
 
 @dataclass(frozen=True)

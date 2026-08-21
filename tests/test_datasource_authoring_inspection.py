@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import ibis
 import pytest
@@ -18,6 +19,7 @@ from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
     DatasourceError,
+    DatasourceFieldInvalidError,
     DatasourceObservedEffects,
 )
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
@@ -765,3 +767,125 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
     assert len(inspection.partitioning.values) == 100
     assert inspection.partitioning.truncated is expected_truncated
     assert inspection.partitioning.values_complete is expected_complete
+
+
+def test_partition_listing_queries_requested_order_and_bound(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _register_duckdb(project_root)
+    metadata = TableMetadata(
+        datasource="warehouse",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(ColumnMetadata("dt", "string", False, None, 1),),
+        partitions=(PartitionMetadata(name="dt", type="string"),),
+        partition_state="known",
+        warnings=(),
+    )
+    requests: list[tuple[int, str]] = []
+
+    def partition_hook(request: PartitionProbeRequest) -> PartitionProbeResult:
+        requests.append((request.limit, request.order))
+        values = (
+            ({"dt": "20260101"}, {"dt": "20260102"})
+            if request.order == "asc"
+            else ({"dt": "20261231"}, {"dt": "20261230"})
+        )
+        return PartitionProbeResult(rows=values, value_source="metadata")
+
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source",
+        lambda *_args, **_kwargs: metadata,
+    )
+    monkeypatch.setattr(
+        "marivo.datasource.inspection.require_profile_for_backend_type",
+        lambda _backend_type: replace(
+            DUCKDB_PROFILE,
+            inspect_partition_values=partition_hook,
+        ),
+    )
+
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    ascending = inspection.partitions(limit=1, order="asc")
+
+    assert requests == [(101, "desc"), (2, "asc")]
+    assert ascending.limit == 1
+    assert ascending.order == "asc"
+    assert ascending.partitioning.values == ((("dt", "20260101"),),)
+    assert ascending.partitioning.truncated is True
+    assert ascending.partitioning.values_complete is False
+    assert "inspection.partitions(limit=1, order='desc')" in ascending.render()
+    assert "earliest" not in ascending.render()
+    assert "latest" not in ascending.render()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "parameter", "expected", "received"),
+    [
+        ({"limit": 0}, "limit", "an integer within [1, 100]", "0"),
+        ({"limit": 101}, "limit", "an integer within [1, 100]", "101"),
+        ({"order": "newest"}, "order", "'asc' or 'desc'", "'newest'"),
+    ],
+)
+def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, Any],
+    parameter: str,
+    expected: str,
+    received: str,
+) -> None:
+    inspection = md.SourceInspection(
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
+        physical_extent=md.PhysicalExtent(
+            row_count=None,
+            row_count_kind="unknown",
+            size_bytes=None,
+            size_kind="unknown",
+            source="metadata",
+            notes=(),
+        ),
+        partitioning=md.Partitioning(
+            state="known",
+            fields=(PartitionMetadata(name="dt", type="string"),),
+            value_source="metadata",
+            values=((("dt", "20260101"),),),
+            values_complete=True,
+            truncated=False,
+        ),
+        execution_capabilities=md.ExecutionCapabilities(
+            partition_predicate_supported=True,
+            transformed_partition_supported=False,
+            timeout_enforced=True,
+            byte_estimate_supported=False,
+        ),
+        schema=(ColumnMetadata("dt", "string", False, None, 1),),
+        warnings=(),
+        _project_root=project_root,
+    )
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._listed_partitioning",
+        lambda *_args, **_kwargs: pytest.fail("partition metadata queried"),
+    )
+
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        inspection.partitions(**kwargs)
+
+    error = exc_info.value
+    assert error.message == f"SourceInspection.partitions {parameter} is invalid"
+    assert error.expected == expected
+    assert error.received == received
+    assert error.location == f"SourceInspection.partitions({parameter}=...)"
+    assert error.effect_observed == DatasourceObservedEffects(
+        query_executed=False,
+        scope_state="known",
+    )
+    assert error.repair is not None
+    assert error.repair.kind == "retry"
+    assert error.repair.help_target.canonical_id == "SourceInspection.partitions"
+    assert error.repair.snippet == 'inspection.partitions(limit=100, order="desc")'
+    assert error.repair.preserves_evidence is True
