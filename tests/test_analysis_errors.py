@@ -210,10 +210,10 @@ def test_frame_meta_invalid_explicit_repair_wins_over_derived() -> None:
     )
     error = FrameMetaInvalidError(
         message="frame 'frame_a' uses unsupported artifact schema 'v7'",
-        expected="analysis-artifact/v9",
+        expected="analysis-artifact/v10",
         received="analysis-artifact/v7",
         repair=explicit,
-        context={"ref": "frame_a", "got": "v7", "expected": "v9"},
+        context={"ref": "frame_a", "got": "v7", "expected": "v10"},
     )
 
     assert error.repair is explicit

@@ -1057,7 +1057,7 @@ class DigestReadContract(_FrozenModel):
 
 
 class ArtifactDigest(_FrozenModel):
-    digest_version: str = "v1"
+    digest_version: Literal["v1", "v2"] = "v2"
     artifact_ref: str
     operator: OperatorSemantics
     subject: EvidenceSubject

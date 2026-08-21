@@ -11,6 +11,7 @@ from marivo.analysis.evidence.identity import (
     make_digest_item_id,
 )
 from marivo.analysis.evidence.types import (
+    AnalysisScope,
     AnomalyCandidate,
     AnomalyCandidateFindingValue,
     ArtifactDigest,
@@ -39,6 +40,7 @@ from marivo.analysis.evidence.types import (
     QualityCheckResult,
     QualitySummary,
     RawFallback,
+    Subject,
     TestDecision,
     TestFindingValue,
 )
@@ -64,6 +66,46 @@ def _default_sort_key(finding: Finding) -> tuple[int, str, str]:
         finding.canonical_item_key,
         finding.finding_id,
     )
+
+
+def _ordered_findings(
+    *,
+    operator_name: str,
+    scope: EvidenceScope,
+    findings: tuple[Finding, ...],
+    entry: _RuleEntry,
+) -> tuple[Finding, ...]:
+    """Order current digest findings without depending on extraction order."""
+    if operator_name != "observe" or not isinstance(scope, AnalysisScope):
+        return tuple(sorted(findings, key=entry.sort_key))
+
+    metric_ids = scope.metric_ids
+    if len(metric_ids) <= 1:
+        return tuple(sorted(findings, key=entry.sort_key))
+
+    positions = {metric_id: index for index, metric_id in enumerate(metric_ids)}
+    for finding in findings:
+        if finding.finding_type != "observation":
+            continue
+        finding_subject = finding.subject
+        metric_id = finding_subject.metric if isinstance(finding_subject, Subject) else None
+        if metric_id is None:
+            raise ValueError("multi-metric observe digest requires a metric subject on every item")
+        if metric_id not in positions:
+            raise ValueError(
+                f"multi-metric observe digest subject {metric_id!r} is outside analysis scope"
+            )
+
+    def metric_order_key(finding: Finding) -> tuple[int, str, str]:
+        finding_subject = finding.subject
+        metric_id = finding_subject.metric if isinstance(finding_subject, Subject) else None
+        return (
+            positions.get(metric_id, len(positions)) if metric_id is not None else len(positions),
+            finding.canonical_item_key,
+            finding.finding_id,
+        )
+
+    return tuple(sorted(findings, key=metric_order_key))
 
 
 _RULES: dict[str, _RuleEntry] = {
@@ -567,7 +609,12 @@ def build_artifact_digest(
     supplied_findings = tuple(findings)
     if entry is None:
         raise ValueError(f"no digest rule registered for operator {operator.operator!r}")
-    ordered = sorted(supplied_findings, key=entry.sort_key)
+    ordered = _ordered_findings(
+        operator_name=operator_name,
+        scope=scope,
+        findings=supplied_findings,
+        entry=entry,
+    )
     for finding in ordered:
         if finding.artifact_id != artifact_ref:
             raise ValueError("every finding must belong to the digest artifact")
@@ -588,7 +635,7 @@ def build_artifact_digest(
     if rows_available:
         fallback_reasons.append("row_level_validation")
     payload = {
-        "digest_version": "v1",
+        "digest_version": "v2",
         "artifact_ref": artifact_ref,
         "operator": operator,
         "subject": subject,

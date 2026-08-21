@@ -314,12 +314,13 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
         "analysis-artifact/v6",
         "analysis-artifact/v7",
         "analysis-artifact/v8",
+        "analysis-artifact/v9",
     ],
 )
 def test_registered_frame_rejects_every_non_current_artifact_schema(schema_version):
-    """The loader accepts only the current artifact schema (v9).
+    """The loader accepts only the current artifact schema (v10).
 
-    v6/v7/v8 are not migrated or dual-read — they return a typed error whose
+    Earlier versions are not migrated or dual-read — they return a typed error whose
     message names the unsupported version and whose context carries
     expected/got, so callers can recreate the analysis session.
     """
@@ -346,8 +347,8 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     # got/expected must be visible through public fields (not only private
     # context) so an agent can see what was read vs what is required.
     assert exc_info.value.received == (schema_version or "<missing>")
-    assert exc_info.value.expected == "analysis-artifact/v9"
-    assert "analysis-artifact/v9" in str(exc_info.value)
+    assert exc_info.value.expected == "analysis-artifact/v10"
+    assert "analysis-artifact/v10" in str(exc_info.value)
     # A cutover is expected: the repair must tell the agent to re-run analysis.
     assert exc_info.value.repair is not None
     assert "recreate" in exc_info.value.message
@@ -355,11 +356,11 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     assert "Repair:" in str(exc_info.value)
 
 
-def test_current_artifact_schema_version_is_v9():
-    """Producers write analysis-artifact/v9 and the loader accepts only v9."""
+def test_current_artifact_schema_version_is_v10():
+    """Producers write analysis-artifact/v10 and the loader accepts only v10."""
     from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 
-    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v9"
+    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v10"
 
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
@@ -371,7 +372,7 @@ def test_current_artifact_schema_version_is_v9():
         semantic_model="custom",
         session=session,
     )
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v9"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v10"
 
 
 def test_cross_session_frame_raises_cross_session_frame_error():

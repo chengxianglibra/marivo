@@ -634,7 +634,9 @@ facts, not claims that an entry remains current in a different catalog.
 Evidence items render their persisted subject identity (Metric, Event,
 Lifecycle, or SubjectSet) before the finding. If a digest omits findings, its
 recovery call is `session.evidence.findings(artifact_ref='<ref>')`; row recovery
-remains `session.get_frame('<ref>').to_pandas()`.
+remains `session.get_frame('<ref>').to_pandas()`. A multi-metric observation
+retains digest items in the input metric order, never by comparing totals, and
+names that rule as `selection=metric_input_order` whenever items are omitted.
 
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to

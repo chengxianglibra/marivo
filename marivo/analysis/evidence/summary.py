@@ -287,6 +287,19 @@ def render_digest_item(item: DigestItem) -> str:
     return f"subject={render_evidence_subject(item.subject)} {_render_digest_item_body(item)}"
 
 
+def render_digest_selection(digest: ArtifactDigest) -> str | None:
+    """Render the persisted v2 multi-metric observation selection contract."""
+    if (
+        digest.digest_version == "v2"
+        and digest.operator.operator == "observe"
+        and isinstance(digest.scope, AnalysisScope)
+        and len(digest.scope.metric_ids) > 1
+        and digest.omissions.omitted_items
+    ):
+        return "metric_input_order"
+    return None
+
+
 def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | None = 8_000) -> str:
     """Render a digest using only its persisted typed content."""
     card = Card(
@@ -296,10 +309,18 @@ def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | No
         ),
         available=(".show()", ".contract()"),
     )
+    selection = render_digest_selection(digest)
+    selection_token = f" selection={selection}" if selection is not None else ""
+    recovery = (
+        f"; recover=session.evidence.findings(artifact_ref={digest.artifact_ref!r})"
+        if digest.omissions.omitted_items
+        else ""
+    )
     card.field(
         "evidence",
         (
-            f"items={len(digest.items)} omitted={digest.omissions.omitted_items} "
+            f"items={len(digest.items)} omitted={digest.omissions.omitted_items}"
+            f"{selection_token}{recovery} "
             f"fingerprint={digest.fingerprint}"
         ),
     )
@@ -330,4 +351,9 @@ def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | No
     return card.render(max_output_bytes=max_output_bytes)
 
 
-__all__ = ["render_artifact_digest", "render_digest_item", "render_evidence_subject"]
+__all__ = [
+    "render_artifact_digest",
+    "render_digest_item",
+    "render_digest_selection",
+    "render_evidence_subject",
+]
