@@ -334,7 +334,11 @@ def test_preview_result_renders_shared_card_shape() -> None:
     assert result.render() == "\n".join(
         [
             "PreviewResult kind=semantic_dataset ref=sales.orders rows=1/50",
-            "status: status=passed truncated=False coverage=exhaustive/scope_exact",
+            (
+                "status: status=passed truncated=False "
+                "scope_coverage=exhaustive/scope_exact "
+                "sample_policy=bounded_limit(limit=20)"
+            ),
             "columns: id | country",
             "preview:",
             "1 | US",

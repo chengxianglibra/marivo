@@ -18,7 +18,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._compat import UTC
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
-from marivo.preview import PreviewLimitError
+from marivo.preview import METRIC_PREVIEW_SAMPLE_SIZE, PreviewLimitError
 from marivo.refs import ref
 from marivo.semantic.catalog import MetricEntry, SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
@@ -1117,6 +1117,13 @@ def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
     assert result.results[3].rows == ({"value": 30.0},)
     assert result.results[4].rows == ({"value": 60.0},)
     assert result.results[5].rows == ({"value": 30.0},)
+    metric_results = result.results[3:]
+    assert all(item.sample_policy.method == "pre_aggregate_limit" for item in metric_results)
+    assert all(item.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE for item in metric_results)
+    assert all(
+        any(warning.kind == "approximate_preview" for warning in item.warnings)
+        for item in metric_results
+    )
     readiness_transition = result.contract().transitions
     assert len(readiness_transition) == 1
     assert readiness_transition[0].kind == "readiness"

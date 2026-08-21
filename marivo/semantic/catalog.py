@@ -221,6 +221,16 @@ ValidityVersioning = ValidityVersioningIR
 EntityVersioning = EntityVersioningIR
 
 
+def _metric_preview_warning() -> PreviewWarning:
+    return PreviewWarning(
+        kind="approximate_preview",
+        message=(
+            f"metric preview aggregates at most {METRIC_PREVIEW_SAMPLE_SIZE:,} scoped input "
+            "rows; treat the result as approximate"
+        ),
+    )
+
+
 def _metric_preview_table(
     resolver: SemanticResolver,
     registry: Registry,
@@ -5592,7 +5602,9 @@ class SemanticCatalog(RenderableResult):
 
         Constraints:
             Input ownership and membership are checked before connection
-            acquisition or materialization.
+            acquisition or materialization. ``limit`` bounds returned preview
+            rows; metric previews independently aggregate at most 10,000 scoped
+            input rows and must be treated as approximate.
         """
         return self._preview_one(
             _normalize_semantic_input(
@@ -5634,7 +5646,9 @@ class SemanticCatalog(RenderableResult):
 
         Constraints:
             The complete input sequence is normalized before any preview
-            begins. Duplicate canonical refs are rejected.
+            begins. Duplicate canonical refs are rejected. ``limit`` bounds
+            returned rows per result; metric previews independently aggregate
+            at most 10,000 scoped input rows and must be treated as approximate.
         """
         normalized_refs = tuple(
             _normalize_semantic_input(
@@ -5849,7 +5863,7 @@ class SemanticCatalog(RenderableResult):
                 metric_ref = _make_ref(ref_str, SemanticKind.METRIC)
                 sample_policy = PreviewSamplePolicy(
                     method="pre_aggregate_limit",
-                    limit=preview_limit,
+                    limit=METRIC_PREVIEW_SAMPLE_SIZE,
                 )
                 result = preview_ibis_table(
                     _metric_preview_table(
@@ -5877,10 +5891,7 @@ class SemanticCatalog(RenderableResult):
                     coverage=result.coverage,
                     warnings=(
                         *result.warnings,
-                        PreviewWarning(
-                            kind="approximate_preview",
-                            message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
-                        ),
+                        _metric_preview_warning(),
                     ),
                     sample_policy=result.sample_policy,
                     timezones=result.timezones,
@@ -6407,15 +6418,10 @@ class SemanticCatalog(RenderableResult):
                     requested_limit=limit,
                     sample_policy=PreviewSamplePolicy(
                         method="pre_aggregate_limit",
-                        limit=limit,
+                        limit=METRIC_PREVIEW_SAMPLE_SIZE,
                     ),
                     types={"value": schema_types[alias]} if include_types else {},
-                    warnings=(
-                        PreviewWarning(
-                            kind="approximate_preview",
-                            message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
-                        ),
-                    ),
+                    warnings=(_metric_preview_warning(),),
                 )
             )
         return tuple(results)
