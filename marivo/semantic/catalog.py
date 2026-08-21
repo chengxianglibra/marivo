@@ -164,9 +164,8 @@ from marivo.semantic.state_model import _state_model_fingerprint
 CalendarDate = date
 
 if TYPE_CHECKING:
-    from marivo._authoring.model import AuthoringContract, AuthoringRepair
+    from marivo._authoring.model import AuthoringRepair
     from marivo.semantic._compiled_state import CompiledSemanticState
-    from marivo.semantic.dtos import VerifyResult
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
@@ -558,10 +557,7 @@ class _DetailsBase(RenderableResult):
             card = card.section(section)
         card = card.listing(
             label="suggested next calls",
-            items=(
-                f"catalog.verify(ms.ref.{self.ref.kind.value}({self.ref.path!r}))",
-                f"catalog.readiness(refs=[ms.ref.{self.ref.kind.value}({self.ref.path!r})])",
-            ),
+            items=(f"catalog.readiness(refs=[ms.ref.{self.ref.kind.value}({self.ref.path!r})])",),
         )
         return card
 
@@ -1393,7 +1389,6 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         available = (
             ".ref",
             ".details()",
-            ".contract()",
             ".show()",
         )
         card = (
@@ -1433,16 +1428,6 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
                 value=", ".join(empty_collections),
             )
         return card
-
-    def contract(self) -> AuthoringContract:
-        """Return the mechanical continuation contract for this catalog object.
-
-        The contract exposes verify, preview (for executable kinds), and
-        readiness transitions scoped to this object's ref.
-        """
-        from marivo.semantic._capabilities.contracts import contract_for_catalog_object
-
-        return contract_for_catalog_object(self.ref.path, self.ref.kind.value)
 
 
 _SemanticInput: TypeAlias = Ref[KindT] | CatalogEntry[KindT]
@@ -2044,7 +2029,6 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
                     ".occurrence(key)",
                     ".occurrences(...)",
                     ".details()",
-                    ".contract()",
                     ".show()",
                 ),
             )
@@ -2211,7 +2195,6 @@ class WorkScheduleEntry(CatalogEntry[WorkScheduleKind]):
                 available=(
                     ".ref",
                     ".details()",
-                    ".contract()",
                     ".show()",
                 ),
             )
@@ -2719,7 +2702,6 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
             available=(
                 ".items",
                 ".refs",
-                ".contract()",
                 ".show()",
             ),
         ).table(
@@ -2733,38 +2715,9 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
                 "selection",
                 f"{entrypoint}(<displayed ref>) -> {self._object_type.__name__}",
             )
-        contract_entrypoint = entrypoint.removesuffix(".get") + ".contract().show()"
         return card.field(
             f"{entrypoint}(...)",
-            f"blocked; reason=empty_collection; inspect {contract_entrypoint}",
-        )
-
-    def contract(self) -> AuthoringContract:
-        """Return the exact typed selection contract for this collection.
-
-        Returns:
-            An authoring contract with one ``get`` continuation whose output
-            family matches this collection's concrete entry type.
-
-        Example:
-            >>> collection = catalog.metrics
-            >>> collection.contract().show()
-
-        Constraints:
-            Empty collections retain a blocked selection transition. The
-            contract does not rank or choose any displayed entry.
-        """
-        from marivo.semantic._capabilities.contracts import (
-            contract_for_catalog_collection,
-        )
-
-        scope = self._scope_ref.key if self._scope_ref is not None else "catalog"
-        return contract_for_catalog_collection(
-            kind=self._kind.value,
-            scope=scope,
-            public_entrypoint=f"{self._public_get_entrypoint()}(...)",
-            expected_output_family=self._object_type.__name__,
-            available=bool(self.items),
+            "blocked; reason=empty_collection; browse another loaded collection",
         )
 
 
@@ -4956,10 +4909,7 @@ class SemanticCatalog(RenderableResult):
                 empty_collections.append(member.property_name)
         card = Card(
             identity=self._repr_identity(),
-            available=(
-                ".contract()",
-                ".show()",
-            ),
+            available=(".show()",),
         )
         card.field("definition_fingerprint", self.definition_fingerprint)
         card.field("semantic_root", str(self.semantic_root))
@@ -5505,46 +5455,6 @@ class SemanticCatalog(RenderableResult):
             analysis_ready_refs=ready_refs,
             analysis_ready_inputs=ready_inputs,
         )
-
-    def verify(
-        self,
-        ref: _SemanticInput[SemanticKindTag],
-        /,
-    ) -> VerifyResult:
-        """Statically verify one current catalog entry or exact ref.
-
-        Args:
-            ref: A current entry owned by this catalog or an exact member ref.
-
-        Returns:
-            A static VerifyResult for the normalized canonical ref.
-
-        Example:
-            >>> revenue = catalog.metrics.get("sales.revenue")
-            >>> result = catalog.verify(revenue)
-
-        Constraints:
-            Verification does not query a datasource. Entries from another or
-            earlier catalog instance are rejected before verification.
-        """
-        normalized = _normalize_semantic_input(
-            self,
-            ref,
-            allowed_kinds=_ALL_SEMANTIC_KINDS,
-            location="catalog.verify(ref)",
-        )
-        return self._project._verify(normalized)
-
-    def contract(self) -> AuthoringContract:
-        """Return the mechanical continuation contract for this catalog.
-
-        The contract exposes catalog-level browse and exact-membership affordances, not
-        per-object transitions. Use ``CatalogEntry.contract()`` for
-        object-scoped verify, preview, and readiness transitions.
-        """
-        from marivo.semantic._capabilities.contracts import contract_for_semantic_catalog
-
-        return contract_for_semantic_catalog()
 
     def _semantic_resolver(
         self,

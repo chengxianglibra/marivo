@@ -66,7 +66,7 @@ Backend-touching validation is separate and runs on demand:
 
 | Check | What it does | Touches backend? |
 | --- | --- | --- |
-| `catalog.verify(ref)` | Static ref validation | No |
+| `ms.load()` + `catalog.require(ref)` | Project-level static validation and exact lookup | No |
 | `catalog.preview(ref, using=snapshot)` | Executes the scoped runtime smoke check and records metadata, never rows | Yes |
 | `catalog.preview_many(refs, using=snapshot_or_mapping)` | Batches compatible runtime smoke checks while recording evidence per ref | Yes |
 | `catalog.readiness(refs=[revenue])` | Reads matching persisted preview evidence | No |
@@ -121,8 +121,9 @@ target:
 `report.show()` renders true warnings and advisories separately. Missing snapshot
 and runtime-preview evidence is aggregated by evidence root: one issue carries
 all affected semantic refs and one repair hint, preventing per-ref warning floods.
-`report.to_dict()` returns the same grouped machine list; `report.contract()`
-exposes one batch `preview` transition when preview evidence is missing.
+`report.to_dict()` returns the same grouped machine list. When preview evidence
+is missing, inspect the typed issue repair and pass `preview_required_refs`
+directly to the current `catalog.preview_many(..., using=...)` path.
 Certified roots remain available through `analysis_ready_inputs`;
 `analysis_ready_refs` is the refs-only projection.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import marivo.datasource as md
-from marivo._authoring.model import AuthoringEffects, AuthoringStateRef
+from marivo._authoring.model import AuthoringEffects
 from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
@@ -45,12 +45,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "DatasourceConnection.disconnect",
     "SourceInspection.partitions",
     "SourceInspection.sample",
-    "DiscoverySnapshot.entity",
-    "DiscoverySnapshot.dimensions",
-    "DiscoverySnapshot.values",
-    "DiscoverySnapshot.time_dimensions",
-    "DiscoverySnapshot.measures",
-    "DiscoverySnapshot.relationships",
 }
 
 
@@ -105,7 +99,7 @@ EXPECTED_EFFECTS = {
     "raw_sql": AuthoringEffects(
         data_access="potentially_unbounded_read",
         connection="opens_connection",
-        flags=("requires_positive_row_guard",),
+        flags=("requires_positive_row_guard", "requires_positive_timeout_guard"),
     ),
     "DatasourceCatalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
@@ -140,12 +134,6 @@ EXPECTED_EFFECTS = {
             "may_persist_plaintext_values",
         ),
     ),
-    "DiscoverySnapshot.entity": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.dimensions": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.values": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.time_dimensions": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.measures": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.relationships": AuthoringEffects(data_access="none", connection="none"),
 }
 
 
@@ -204,93 +192,35 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
     ) == ("TemporalColumn", "TemporalBound", "PositiveRowGuard", "PositiveTimeoutGuard")
     assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
-    ) == ("Ref[datasource]", "SqlText", "RawSqlReason")
-    relationship_requirements = REGISTRY.by_canonical_id(
-        "DiscoverySnapshot.relationships"
-    ).input_requirements
-    assert relationship_requirements[-1].exact_keys == ("left", "right")
+    ) == (
+        "Ref[datasource]",
+        "SqlText",
+        "RawSqlReason",
+        "PositiveLimit",
+        "PositiveTimeoutGuard",
+    )
 
 
-def test_registry_declares_mechanical_inspection_acquisition_and_projection_lifecycle() -> None:
+def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:
     inspection = REGISTRY.by_canonical_id("inspect")
-    assert inspection.preconditions == ("datasource.registered",)
-    assert inspection.required_states == (AuthoringStateRef(id="datasource.registered"),)
+    assert inspection.preconditions == ("a registered datasource ref",)
     assert inspection.repair_kinds == ("register", "reconnect")
 
     sample = REGISTRY.by_canonical_id("SourceInspection.sample")
-    assert sample.preconditions == ("source.inspected", "scope.explicit")
-    assert sample.required_states == (
-        AuthoringStateRef(id="source.inspected"),
-        AuthoringStateRef(id="scope.explicit"),
+    assert sample.preconditions == (
+        "a current SourceInspection",
+        "an explicit AuthoringScope",
     )
     assert sample.repair_kinds == ("rescope", "reacquire")
 
-    projection = REGISTRY.by_canonical_id("DiscoverySnapshot.entity")
-    assert projection.preconditions == ("evidence.acquired",)
-    assert projection.required_states == (AuthoringStateRef(id="evidence.acquired"),)
-    assert projection.repair_kinds == ("reacquire",)
-    assert REGISTRY.by_canonical_id("DiscoverySnapshot.relationships").repair_kinds == (
-        "retry",
-        "reacquire",
-    )
 
-
-def test_registry_closes_required_datasource_state_edges() -> None:
-    for constructor in ("duckdb", "trino", "mysql", "postgres", "clickhouse"):
-        assert REGISTRY.by_canonical_id(constructor).produced_state == AuthoringStateRef(
-            id="datasource.declared"
-        )
-
-    register = REGISTRY.by_canonical_id("register")
-    assert register.required_states == (AuthoringStateRef(id="datasource.declared"),)
-    assert register.produced_state == AuthoringStateRef(id="datasource.registered")
-
-    assert REGISTRY.by_canonical_id("connect").produced_state is None
-    assert REGISTRY.by_canonical_id("test").produced_state == AuthoringStateRef(
-        id="datasource.connection_validated"
-    )
-
-    for scope_builder in ("partition", "time_range", "unpruned"):
-        assert REGISTRY.by_canonical_id(scope_builder).produced_state == AuthoringStateRef(
-            id="scope.explicit"
-        )
-
-    produced_states = {
-        descriptor.produced_state.id
-        for canonical_id in REGISTRY.canonical_ids()
-        if (descriptor := REGISTRY.by_canonical_id(canonical_id)).produced_state is not None
-    }
-    required_states = {
-        state.id
-        for canonical_id in REGISTRY.canonical_ids()
-        for state in REGISTRY.by_canonical_id(canonical_id).required_states
-    }
-    assert required_states <= produced_states
-
-
-def test_stateful_type_contracts_list_registered_consumption_methods() -> None:
+def test_type_contracts_list_registered_consumption_methods() -> None:
     assert tuple(target.canonical_id for target in TYPE_CONTRACTS[SourceInspection].consumers) == (
         "SourceInspection.partitions",
         "SourceInspection.sample",
     )
-    assert tuple(target.canonical_id for target in TYPE_CONTRACTS[DiscoverySnapshot].consumers) == (
-        "DiscoverySnapshot.entity",
-        "DiscoverySnapshot.dimensions",
-        "DiscoverySnapshot.values",
-        "DiscoverySnapshot.time_dimensions",
-        "DiscoverySnapshot.measures",
-        "DiscoverySnapshot.relationships",
-    )
-
-
-def test_state_bearing_type_contracts_expose_read_and_continuation_methods() -> None:
-    for type_obj, contract in TYPE_CONTRACTS.items():
-        if not contract.state_bearing:
-            continue
-        assert {"contract", "show", "render"} <= set(contract.public_methods)
-        assert callable(type_obj.contract)
-        assert callable(type_obj.show)
-        assert callable(type_obj.render)
+    assert TYPE_CONTRACTS[DiscoverySnapshot].consumers == ()
+    assert "retained_values" in TYPE_CONTRACTS[DiscoverySnapshot].public_properties
 
 
 def test_registry_resolves_functions_and_bound_methods() -> None:

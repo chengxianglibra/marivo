@@ -87,7 +87,7 @@ def render_semantic_object(target: object) -> str:
                     "    catalog = ms.load()",
                     "    entry = catalog.require(ref)",
                     "    entry.details().show()",
-                    "    entry.contract().show()",
+                    "    catalog.readiness(refs=[entry]).show()",
                     "",
                     '  Capability help: marivo.help("semantic.Ref")',
                 )
@@ -98,7 +98,6 @@ def render_semantic_object(target: object) -> str:
 
     ref = target.ref
     details_text = target.details().render()
-    contract_text = target.contract().render()
     lines = [
         f"{ref.kind.value}: {ref.path}",
         f"  Object: {type(target).__name__}",
@@ -106,9 +105,6 @@ def render_semantic_object(target: object) -> str:
         "",
         "  Details:",
         *(f"    {line}" for line in details_text.splitlines()),
-        "",
-        "  Semantic continuation:",
-        *(f"    {line}" for line in contract_text.splitlines()),
     ]
     handoff_lines = _analysis_handoff_lines(ref.kind.value)
     if handoff_lines:

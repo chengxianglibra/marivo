@@ -48,8 +48,8 @@ def test_environment_fingerprint_reports_running_interpreter_not_symlink_target(
 
 def test_authoring_values_have_one_private_owner() -> None:
     assert authoring_model.AuthoringCapability is not None
-    assert authoring_model.AuthoringContract is not None
     assert authoring_model.AuthoringRepair is not None
+    assert not hasattr(authoring_model, "AuthoringContract")
     assert not hasattr(live_model, "AuthoringCapability")
     assert not hasattr(live_model, "AuthoringContract")
     assert not hasattr(live_model, "AuthoringRepair")

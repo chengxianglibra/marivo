@@ -27,9 +27,5 @@ def test_candidate_workflow_types_are_not_exported():
         assert name not in ms.__all__, name
 
 
-def test_help_lists_remaining_dtos(capsys):
-    from tests.shared_fixtures import rendered_help
-
-    text = rendered_help("VerifyResult", owner="semantic")
-    assert "VerifyResult" in text
-    assert "show" in text or "contract" in text
+def test_verify_result_is_removed_from_public_surface() -> None:
+    assert "VerifyResult" not in ms.__all__

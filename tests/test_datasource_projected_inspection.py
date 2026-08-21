@@ -328,7 +328,9 @@ def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
     assert requests[0].source.columns == ()
     assert tuple(field.name for field in inspection.partitioning.fields) == ("event_day",)
     assert inspection.partitioning.values == ((("event_day", "2026-08-17"),),)
-    assert inspection.partitions().contract().transitions[0].available is True
+    partition_result = inspection.partitions()
+    assert partition_result.status == "complete"
+    assert not hasattr(partition_result, "contract")
 
     ascending = inspection.partitions(limit=1, order="asc")
     assert requests[1].partition_columns == ("dt",)

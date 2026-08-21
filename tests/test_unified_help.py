@@ -93,7 +93,7 @@ def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "marivo.help" in completed.stdout
-    assert "Datasource guidance ends at evidence.projected." in completed.stdout
+    assert "Choose inspection, optional scoped sampling, or governed raw SQL" in completed.stdout
 
 
 def test_marivo_help_is_the_only_public_help_callable(
@@ -234,13 +234,12 @@ def test_registered_global_composition_topics_win_over_native_duplicates(target:
     assert f"semantic.{target}" in text
 
 
-def test_global_authoring_routes_preflight_and_exact_project_catalog_reads() -> None:
+def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -> None:
     text = _text("authoring")
 
-    assert "Before data access or capability enumeration" in text
-    assert "Ask only the earliest missing accountable input and stop" in text
-    assert "Do not bundle owner with an independent business decision" in text
-    assert "A user-named build target satisfies target-concept preflight" in text
+    assert "Inspect authoritative metadata before asking for physical facts" in text
+    assert "optional bounded sampling" in text
+    assert "governed raw SQL" in text
     assert "datasource_catalog = md.load()" in text
     assert "semantic_catalog = ms.load()" in text
 
@@ -332,7 +331,6 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     text = _text(entry)
     assert "metric: sales.revenue" in text
     assert "Details:" in text
-    assert "Semantic continuation:" in text
     assert "Analysis handoff (kind-level" in text
     assert "session.observe(...) -> MetricFrame" in text
     assert 'marivo.help("analysis.observe")' in text

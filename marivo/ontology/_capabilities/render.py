@@ -63,6 +63,15 @@ def render_help_target(
             f"  {descriptor.summary}",
         ]
         lines.extend(f"  {line}" for line in descriptor.body)
+        lines.extend(
+            (
+                "  Effects:",
+                f"    data access: {descriptor.effects.data_access}",
+                f"    connection: {descriptor.effects.connection}",
+                ("    mutations: " + (", ".join(descriptor.effects.mutations) or "none")),
+                f"    flags: {', '.join(descriptor.effects.flags) or 'none'}",
+            )
+        )
         return _bounded("\n".join(lines))
     if resolved.kind == "type_contract":
         return _bounded(

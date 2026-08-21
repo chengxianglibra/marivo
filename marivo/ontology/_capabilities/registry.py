@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from marivo._authoring.model import AuthoringEffects
+
 
 @dataclass(frozen=True)
 class OntologyDescriptor:
@@ -15,6 +17,15 @@ class OntologyDescriptor:
     callable_path: str | None
     summary: str
     body: tuple[str, ...]
+    effects: AuthoringEffects
+
+
+_LOCAL = AuthoringEffects(data_access="local_metadata_read", connection="none")
+_AUTHOR = AuthoringEffects(
+    data_access="none",
+    connection="none",
+    mutations=("semantic_source",),
+)
 
 
 _DESCRIPTORS = (
@@ -31,6 +42,7 @@ _DESCRIPTORS = (
             "ontology.show()",
             "Ontology supplies discovery context only; it cannot execute semantic meaning.",
         ),
+        effects=_LOCAL,
     ),
     OntologyDescriptor(
         canonical_id="influences",
@@ -45,6 +57,7 @@ _DESCRIPTORS = (
             "The relation is a hypothesis and does not assert causality.",
             "It does not encode effect size, confidence, evidence, joins, filters, or SQL.",
         ),
+        effects=_AUTHOR,
     ),
     OntologyDescriptor(
         canonical_id="related_to",
@@ -58,6 +71,7 @@ _DESCRIPTORS = (
             "Swapped endpoints are the same canonical pair; identical endpoints are rejected.",
             "It does not imply joinability or statistical association.",
         ),
+        effects=_AUTHOR,
     ),
 )
 

@@ -5,22 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from marivo._authoring.model import (
-    AuthoringEffects,
-    AuthoringStateRef,
-)
-
-
-def test_authoring_state_ref_defaults():
-    ref = AuthoringStateRef(id="semantic.loaded")
-    assert ref.id == "semantic.loaded"
-    assert ref.subject_refs == ()
-    assert ref.evidence_ids == ()
-
-
-def test_authoring_state_ref_rejects_unknown_id():
-    with pytest.raises(ValidationError):
-        AuthoringStateRef(id="not.a.state")
+from marivo._authoring.model import AuthoringEffects
 
 
 def test_authoring_effects_orthogonal_axes():

@@ -207,21 +207,6 @@ def test_semantic_catalog_is_a_bounded_self_describing_result(
     assert capsys.readouterr().out.rstrip() == rendered
 
 
-def test_every_catalog_collection_contract_has_exact_selection_type(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    for member in CATALOG_MEMBER_CONTRACTS:
-        collection = getattr(catalog, member.property_name)
-        transition = collection.contract().transitions[0]
-        assert transition.kind == "select"
-        assert transition.public_entrypoint == f"catalog.{member.property_name}.get(...)"
-        assert transition.expected_output_family == member.entry_type_name
-        assert transition.available is bool(len(collection))
-        assert transition.blocked_by == (() if len(collection) else ("empty_collection",))
-
-
 def test_collection_show_uses_one_receiver_qualified_selection_template(
     semantic_project_factory,
 ) -> None:
@@ -235,27 +220,22 @@ def test_collection_show_uses_one_receiver_qualified_selection_template(
     assert "metric:sales.revenue" in global_rendered
 
 
-def test_empty_collection_show_and_contract_explain_blocked_selection(
+def test_empty_collection_show_explains_blocked_selection(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     collection = catalog.state_models
 
     rendered = collection.render()
-    contract_rendered = collection.contract().render()
-
     assert "catalog.state_models.get(...): blocked; reason=empty_collection" in rendered
-    assert "catalog.state_models.get(...) -> StateModelEntry; status=blocked" in contract_rendered
-    assert "blocked_by=empty_collection" in contract_rendered
 
 
-def test_catalog_and_contract_outputs_respect_default_and_small_byte_budgets(
+def test_catalog_output_respects_default_and_small_byte_budgets(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
     assert len(catalog.render().encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
-    assert len(catalog.contract().render().encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
     small = catalog.render(max_output_bytes=640)
     assert len(small.encode("utf-8")) <= 640
     assert "truncated" in small
@@ -271,7 +251,7 @@ def test_renderable_catalog_objects_expose_only_public_dir_members(
     assert "_index" not in dir(catalog)
     assert "items" in dir(catalog.metrics)
     assert "get" in dir(catalog.metrics)
-    assert "contract" in dir(catalog.metrics)
+    assert "contract" not in dir(catalog.metrics)
     assert "_catalog" not in dir(catalog.metrics)
 
 
@@ -513,7 +493,7 @@ def test_collection_get_wrong_kind_typed_key_names_correct_collection(
     assert "catalog.entities" in str(exc_info.value)
 
 
-def test_verify_accepts_metric_and_event_entries_like_their_refs(
+def test_semantic_input_normalization_accepts_entries_like_their_refs(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
@@ -522,11 +502,21 @@ def test_verify_accepts_metric_and_event_entries_like_their_refs(
         catalog.metrics.get("sales.revenue"),
         catalog.events.get("sales.order_created"),
     ):
-        by_entry = catalog.verify(entry)
-        by_ref = catalog.verify(entry.ref)
+        by_entry = _normalize_semantic_input(
+            catalog,
+            entry,
+            allowed_kinds=frozenset({entry.kind}),
+            location="test.input",
+        )
+        by_ref = _normalize_semantic_input(
+            catalog,
+            entry.ref,
+            allowed_kinds=frozenset({entry.kind}),
+            location="test.input",
+        )
 
         assert by_entry == by_ref
-        assert by_entry.ref == entry.path
+        assert by_entry == entry.ref
 
 
 def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
@@ -572,7 +562,12 @@ def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticRuntimeError, match="bare strings") as bare:
-        catalog.verify("sales.revenue")  # type: ignore[arg-type]
+        _normalize_semantic_input(
+            catalog,
+            "sales.revenue",  # type: ignore[arg-type]
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
     assert bare.value.repair is not None
     assert bare.value.repair.kind == "inspect"
     assert bare.value.repair.snippet is None
@@ -604,7 +599,12 @@ def test_semantic_input_rejects_cross_catalog_entry_without_retry(
     foreign_metric = other_catalog.metrics.get("sales.revenue")
 
     with pytest.raises(SemanticRuntimeError, match="another catalog") as exc_info:
-        catalog.verify(foreign_metric)
+        _normalize_semantic_input(
+            catalog,
+            foreign_metric,
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
 
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.kind == "inspect"
@@ -619,7 +619,12 @@ def test_semantic_input_stale_entry_has_executable_exact_reacquisition(
     current_catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticRuntimeError, match="earlier catalog instance") as exc_info:
-        current_catalog.verify(stale_metric)
+        _normalize_semantic_input(
+            current_catalog,
+            stale_metric,
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
 
     error = exc_info.value
     assert error.repair is not None
@@ -651,7 +656,12 @@ def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
     current_catalog = SemanticCatalog(current_project)
 
     with pytest.raises(SemanticRuntimeError, match="stale catalog instance") as exc_info:
-        current_catalog.verify(stale_metric)
+        _normalize_semantic_input(
+            current_catalog,
+            stale_metric,
+            allowed_kinds=frozenset({SemanticKind.METRIC}),
+            location="test.metric",
+        )
 
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.kind == "inspect"

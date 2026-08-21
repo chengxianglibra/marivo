@@ -1,14 +1,18 @@
-"""Semantic live-surface object-near contract tests."""
+"""Semantic result facts and lifecycle-removal contracts."""
 
 from __future__ import annotations
+
+import inspect
 
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.readiness import ReadinessIssue
+from marivo.semantic import preview_checks
+from marivo.semantic.catalog import CatalogEntry, SemanticCatalog
+from marivo.semantic.readiness import ReadinessIssue, ReadinessReport
 
 
-def test_readiness_issue_has_repair_field() -> None:
+def test_readiness_issue_has_typed_repair_without_suggested_action() -> None:
     issue = ReadinessIssue(
         kind="unknown_ref",
         severity="blocker",
@@ -20,136 +24,21 @@ def test_readiness_issue_has_repair_field() -> None:
             action="Browse catalog.metrics before referencing a metric.",
         ),
     )
+
     assert issue.repair is not None
     assert issue.repair.kind == "inspect"
+    assert "suggested_action" not in inspect.getsource(ReadinessIssue)
 
 
-def test_readiness_issue_has_no_suggested_action() -> None:
-    import inspect as _inspect
-
-    source = _inspect.getsource(ReadinessIssue)
-    assert "suggested_action" not in source
-
-
-def test_preview_evidence_requirement_has_repair_not_suggested_action() -> None:
-    import inspect as _inspect
-
-    from marivo.semantic import preview_checks
-
-    source = _inspect.getsource(preview_checks)
+def test_preview_evidence_requirement_keeps_typed_repair_for_milestone2() -> None:
+    source = inspect.getsource(preview_checks)
     assert "suggested_action" not in source
     assert "PreviewEvidenceRequirement" in source
 
 
-def test_verify_result_contract_exposes_preview_continuation() -> None:
-    from marivo.semantic.dtos import VerifyResult
-
-    result = VerifyResult(
-        status="passed",
-        ref="metric.sales.revenue",
-        kind="metric",
-        validation_level="static",
-        runtime_checked=False,
-        issues=(),
-        warnings=(),
-    )
-    contract = result.contract()
-    assert contract.subject_refs == ("metric.sales.revenue",)
-    assert any(t.kind == "preview" and t.available for t in contract.transitions)
-
-
-def test_catalog_object_contract_exposes_verify_preview_readiness(
-    authoring_evidence_project: object,
-) -> None:
-    import marivo.semantic as ms
-
-    catalog = ms.load()
-    obj = catalog.require(ms.ref.metric("sales.revenue"))
-    contract = obj.contract()
-    kinds = {t.kind for t in contract.transitions}
-    assert "verify" in kinds
-    assert "preview" in kinds
-    assert "readiness" in kinds
-
-
-def test_semantic_catalog_contract_exposes_browse_and_exact_selection(
-    authoring_evidence_project: object,
-) -> None:
-    import marivo.semantic as ms
-
-    catalog = ms.load()
-    contract = catalog.contract()
-    kinds = {t.kind for t in contract.transitions}
-    assert kinds == {"browse", "select"}
-    assert "load" not in kinds
-    assert "verify" not in kinds
-    assert "preview" not in kinds
-    assert {transition.public_entrypoint for transition in contract.transitions} == {
-        "catalog.items(...)",
-        "catalog.require(...)",
-    }
-    assert "ms.load" not in contract.render()
-
-
-def test_catalog_object_contract_renders_public_continuations(
-    authoring_evidence_project: object,
-) -> None:
-    catalog = ms.load()
-    entry = catalog.metrics.get("sales.revenue")
-
-    rendered = entry.contract().render()
-
-    assert "catalog.verify(...) -> VerifyResult" in rendered
-    assert "catalog.preview(...) -> PreviewResult" in rendered
-    assert "catalog.readiness(...) -> ReadinessReport" in rendered
-    assert "- verify [" not in rendered
-
-
-def test_readiness_report_keeps_ready_refs_without_analysis_transition() -> None:
-    from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
-
-    report = ReadinessReport(
-        status="ready",
-        analysis_ready_refs=(ms.ref.metric("sales.revenue"),),
-        blockers=(),
-        warnings=(),
-        input_summary=ReadinessInputSummary(
-            datasources=("warehouse",),
-            refs=("metric.sales.revenue",),
-            tables=("orders",),
-        ),
-        checked_at="2026-07-14T00:00:00Z",
-    )
-    contract = report.contract()
-    assert report.analysis_ready_refs == (ms.ref.metric("sales.revenue"),)
-    assert contract.transitions == ()
-
-
-def test_readiness_report_contract_does_not_invent_analysis_transition_when_blocked() -> None:
-    from marivo.semantic.readiness import (
-        ReadinessInputSummary,
-        ReadinessIssue,
-        ReadinessReport,
-    )
-
-    issue = ReadinessIssue(
-        kind="unknown_ref",
-        severity="blocker",
-        refs=("metric.foo",),
-        message="not found",
-        repair=AuthoringRepair(
-            kind="inspect",
-            help_target=LiveHelpTarget(surface="semantic", canonical_id="load"),
-            action="Browse catalog first.",
-        ),
-    )
-    report = ReadinessReport(
-        status="blocked",
-        analysis_ready_refs=(),
-        blockers=(issue,),
-        warnings=(),
-        input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),
-        checked_at="2026-07-14T00:00:00Z",
-    )
-    contract = report.contract()
-    assert contract.transitions == ()
+def test_milestone1_removes_generic_lifecycle_contracts_and_verify() -> None:
+    assert not hasattr(CatalogEntry, "contract")
+    assert not hasattr(SemanticCatalog, "contract")
+    assert not hasattr(SemanticCatalog, "verify")
+    assert not hasattr(ReadinessReport, "contract")
+    assert "VerifyResult" not in ms.__all__

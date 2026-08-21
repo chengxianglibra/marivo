@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo._authoring.model import AuthoringContract
 from marivo.preview import PreviewResult
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
@@ -119,73 +118,6 @@ def derive_status(
 
 
 @dataclass(frozen=True, repr=False)
-class VerifyResult(RenderableResult):
-    status: Literal["passed", "failed"]
-    ref: str
-    kind: AuthoringObjectKind
-    validation_level: Literal["static"]
-    runtime_checked: Literal[False]
-    issues: tuple[AssessmentIssue, ...]
-    warnings: tuple[AssessmentIssue, ...]
-
-    def _repr_identity(self) -> str:
-        return f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"
-
-    def _card(self) -> Card:
-        status_parts: list[str] = [self.status]
-        if self.issues:
-            status_parts.append(f"{len(self.issues)} issue{'s' if len(self.issues) != 1 else ''}")
-        if self.warnings:
-            status_parts.append(
-                f"{len(self.warnings)} warning{'s' if len(self.warnings) != 1 else ''}"
-            )
-        card = Card(
-            identity=self._repr_identity(),
-            available=(".issues", ".warnings", ".show()", ".contract()"),
-        ).status(", ".join(status_parts))
-        card = card.field("validation_level", self.validation_level).field(
-            "runtime_checked", "false"
-        )
-        if self.issues:
-            card = card.listing(
-                label="issues",
-                items=tuple(f"[{i.severity}] {i.kind}: {i.message}" for i in self.issues),
-            )
-        if self.warnings:
-            card = card.listing(
-                label="warnings",
-                items=tuple(f"[{w.severity}] {w.kind}: {w.message}" for w in self.warnings),
-            )
-        if self.status == "passed":
-            card = card.listing(
-                label="Next step",
-                items=("continue the batch or run catalog.readiness(refs=...)",),
-            )
-        else:
-            card = card.listing(
-                label="Next step",
-                items=("repair this object, then re-run catalog.verify(ref)",),
-            )
-        return card
-
-    def contract(self) -> AuthoringContract:
-        """Return the mechanical continuation contract for this verification result.
-
-        The contract exposes ``preview`` as a result-local continuation after
-        explicit verification, with the ``semantic.verified`` current state and
-        the ``semantic.previewed`` produced state.
-
-        Returns
-        -------
-        AuthoringContract
-            Normalized contract scoped to ``self.ref``.
-        """
-        from marivo.semantic._capabilities.contracts import contract_for_verify_result
-
-        return contract_for_verify_result(self.ref)
-
-
-@dataclass(frozen=True, repr=False)
 class PreviewBatchResult(RenderableResult):
     """Successful bounded previews for an explicitly requested ref batch."""
 
@@ -203,7 +135,7 @@ class PreviewBatchResult(RenderableResult):
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),
-            available=(".results", ".refs", ".show()", ".contract()"),
+            available=(".results", ".refs", ".show()"),
         ).listing(
             label=f"previews ({len(self.results)})",
             items=tuple(
@@ -212,17 +144,3 @@ class PreviewBatchResult(RenderableResult):
                 for result in self.results
             ),
         )
-
-    def contract(self) -> AuthoringContract:
-        """Return the query-free readiness continuation for this batch.
-
-        Returns
-        -------
-        AuthoringContract
-            Normalized contract scoped to every successfully previewed ref.
-        """
-        from marivo.semantic._capabilities.contracts import (
-            contract_for_preview_batch_result,
-        )
-
-        return contract_for_preview_batch_result(self.refs)

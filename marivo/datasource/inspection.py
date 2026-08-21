@@ -11,15 +11,10 @@ from typing import Literal
 
 import ibis
 
-from marivo._authoring.model import AuthoringContract
 from marivo.config import find_project_root
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
-from marivo.datasource._capabilities.contracts import (
-    contract_for_partition_inspection,
-    contract_for_source_inspection,
-    repair_for_authoring_code,
-)
+from marivo.datasource._capabilities.contracts import repair_for_authoring_code
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
@@ -110,7 +105,7 @@ class PartitionInspection(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".contract()", ".show()"),
+            available=(".show()",),
         ).field(
             label="partition fields",
             value=", ".join(field.name for field in self.partitioning.fields) or "none",
@@ -166,19 +161,6 @@ class PartitionInspection(RenderableResult):
             card.listing("issues", self.issues)
         return card
 
-    def contract(self) -> AuthoringContract:
-        """Return factual scope constructors for this captured partition state."""
-        return contract_for_partition_inspection(
-            datasource_id=self.datasource.path,
-            source=self.source,
-            partition_state=self.partitioning.state,
-            partition_fields=tuple(field.name for field in self.partitioning.fields),
-            time_range_available=any(
-                field.type is not None and _is_temporal_type(field.type)
-                for field in self.partitioning.fields
-            ),
-        )
-
 
 @dataclass(frozen=True, repr=False)
 class SourceInspection(RenderableResult):
@@ -203,7 +185,6 @@ class SourceInspection(RenderableResult):
         card = Card(
             identity=self._repr_identity(),
             available=(
-                ".contract()",
                 ".partitions()",
                 ".sample(...)",
                 ".show()",
@@ -297,19 +278,6 @@ class SourceInspection(RenderableResult):
         if self.warnings:
             card.listing("warnings", self.warnings)
         return card
-
-    def contract(self) -> AuthoringContract:
-        """Return factual scope and acquisition transitions for this inspection."""
-        return contract_for_source_inspection(
-            datasource_id=self.datasource.path,
-            source=self.source,
-            partition_state=self.partitioning.state,
-            partition_fields=tuple(field.name for field in self.partitioning.fields),
-            time_range_available=(
-                self.execution_capabilities.partition_predicate_supported
-                and any(_is_temporal_type(column.type) for column in self.schema)
-            ),
-        )
 
     def partitions(
         self,

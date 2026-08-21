@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal, TypeAlias
 
-from marivo._authoring.model import AuthoringContract
 from marivo._compat import UTC
 from marivo.datasource.ir import (
     CsvSourceIR,
@@ -55,12 +54,6 @@ class PartitionScope(RenderableResult):
             f"timeout_seconds={self.timeout_seconds!r})"
         )
 
-    def contract(self) -> AuthoringContract:
-        """Return the blocked acquisition contract for this explicit scope."""
-        from marivo.datasource._capabilities.contracts import contract_for_scope
-
-        return contract_for_scope("time_range" if self._time_range is not None else "partition")
-
     def _repr_identity(self) -> str:
         kind = "time_range" if self._time_range is not None else "partition"
         return f"PartitionScope kind={kind}"
@@ -71,7 +64,7 @@ class PartitionScope(RenderableResult):
             return (
                 Card(
                     identity=self._repr_identity(),
-                    available=(".contract()", ".show()"),
+                    available=(".show()",),
                 )
                 .status(
                     f"explicit scope max_rows={self.max_rows} "
@@ -86,7 +79,7 @@ class PartitionScope(RenderableResult):
         return (
             Card(
                 identity=self._repr_identity(),
-                available=(".values", ".contract()", ".show()"),
+                available=(".values", ".show()"),
             )
             .status(
                 f"explicit scope max_rows={self.max_rows} timeout_seconds={self.timeout_seconds}"
@@ -110,19 +103,13 @@ class UnprunedScope(RenderableResult):
     max_rows: int
     timeout_seconds: int
 
-    def contract(self) -> AuthoringContract:
-        """Return the blocked acquisition contract for this explicit scope."""
-        from marivo.datasource._capabilities.contracts import contract_for_scope
-
-        return contract_for_scope("unpruned")
-
     def _repr_identity(self) -> str:
         return "UnprunedScope kind=unpruned"
 
     def _card(self) -> Card:
         return Card(
             identity=self._repr_identity(),
-            available=(".contract()", ".show()"),
+            available=(".show()",),
         ).status(
             "broad read within explicit guards "
             f"max_rows={self.max_rows} timeout_seconds={self.timeout_seconds}"

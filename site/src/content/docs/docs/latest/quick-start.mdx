@@ -30,15 +30,17 @@ Complete [Installation](/docs/latest/installation/), then provide the datasource
 business goal, and rules already decided:
 
 > Use `marivo-semantic` to build the semantic layer this project needs for
-> completed-order revenue analysis. Ask me when a definition requires a
-> business decision. Show me the
-> metric definition I need to approve, and stop before analysis.
+> completed-order revenue analysis. Use the rules in this request and existing
+> non-conflicting project documentation as authority. Ask one question and stop
+> before analysis only when a reusable business choice remains unresolved.
 
-## Business definitions you must confirm
+## Business definitions to settle
 
-Review inclusions and exclusions, cancellation and refund treatment, time axis,
-currency and additivity, allowed breakdowns, limitations, and ownership. Schema
-and samples help the agent draft; they do not replace approval.
+Settle inclusions and exclusions, cancellation and refund treatment, time axis,
+currency and additivity, allowed breakdowns, limitations, and ownership through
+the current request, an approved project definition, attributable non-conflicting
+documentation, or one focused answer. Schema and samples help the agent draft;
+they do not establish business meaning.
 
 ## What the agent writes to the project
 
@@ -70,7 +72,7 @@ ms.domain(
     owner="Mina Zhang",
     ai_context=ms.ai_context(
         business_definition="Completed-order sales analysis domain.",
-        guardrails=["Use only the user-approved completed-order population."],
+        guardrails=["Use only the authority-backed completed-order population."],
     ),
 )
 
@@ -134,9 +136,9 @@ revenue = ms.aggregate(
 
 - The definition, population, exclusions, time axis, unit, and breakdowns match the business need.
 - `ai_context` and `guardrails` state important limits clearly.
-- The accountable owner has approved the definition.
+- Current authority establishes every reusable business choice in the definition.
 - The agent reports no blocker in the new model's scoped authoring certification.
 
-Readiness certifies the newly authored model; it is not business approval and is
-not rerun before every analysis. After approval, continue to the
+Readiness certifies the newly authored model; it is not business authority and is
+not rerun before every analysis. Once no reusable choice remains unresolved, continue to the
 [first agent-guided analysis](/docs/latest/first-analysis/).

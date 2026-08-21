@@ -110,18 +110,19 @@ Authoring guidance is split so each surface has one job (elaborated in
   constraints from their native registries. `md` and `ms` execute their
   domain APIs and intentionally expose no separate `.help()` aliases. Help says
   *what must be settled*; it carries no runtime data.
-- **`md.inspect` and snapshots — runtime evidence.** Metadata inspection precedes
-  one explicit-scope sample; entity, dimension, value, time, measure, and
-  relationship projections reuse that immutable snapshot without queries.
-- **Catalog verification, preview, and readiness — validation.** Static
-  verification executes no query, preview requires `using=` evidence scope, and
-  readiness consumes structurally matching checks without querying. Snapshot
-  age remains visible metadata but is not a validation requirement.
+- **Datasource exploration — runtime evidence.** Metadata inspection is the
+  preferred schema path. Optional explicitly scoped sampling supplies generic
+  bounded rows and profiles; governed raw SQL handles source-specific bounded
+  scratch investigation. None of these paths decides business meaning.
+- **Project load, catalog navigation, preview, and readiness — validation.** One
+  `ms.load()` validates a dependency-coherent authored slice. Exact refs are
+  confirmed with `catalog.require(...)`; scoped preview and readiness keep their
+  current runtime contracts.
 
 The `marivo-semantic` skill owns workflow and routing only:
 
 ```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> first typed analysis use
 ```
 
 It does not duplicate parameter tables from `marivo.help(...)`. Uncommon
@@ -140,19 +141,18 @@ executed by the library. This mirrors the ownership split stated in
 | Concern | Canonical owner |
 |---|---|
 | Datasource constructors, connections, scope, effects, snapshots, evidence | `marivo.datasource` (`md`) |
-| Semantic constructors, typed refs, dependencies, verification, preview | `marivo.semantic` (`ms`) |
+| Semantic constructors, typed refs, dependencies, project validation, preview | `marivo.semantic` (`ms`) |
 | Readiness and analysis-ready refs | `ReadinessReport` |
-| Mechanically available calls, effects, and transition facts | private authoring-state registry (not a public API) |
+| Callable operations, effects, input facts, and constraints | private native registries (not public APIs) |
 | Current failed-operation repair | typed error/result repair object |
 | Ordered routing discipline and readiness policy | `marivo-semantic` skill |
 | Evidence interpretation and technical drafting | agent |
 | Unresolved business meaning and caliber acceptance | user or business owner |
 
-The private authoring-state registry is descriptive, not executable orchestration:
-it states which calls are mechanically available from current typed state and what
-they require, but it cannot choose which object to author, acquire data on the
-agent's behalf, or advance to readiness automatically. It is not a third public
-`marivo.authoring` module and is not exposed for user mutation.
+The native registries describe callable operations, effects, input facts, and
+constraints without constructing a shared authoring lifecycle graph. They cannot
+choose a semantic slice, acquire data on the agent's behalf, or advance to
+readiness automatically. There is no third public `marivo.authoring` module.
 
 `ReadinessReport.analysis_ready_refs` is the direct semantic-to-analysis
 contract. It lists only directly requested refs whose dependency closures have

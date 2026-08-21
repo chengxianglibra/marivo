@@ -8,7 +8,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource._capabilities.contracts import source_subject_ref
 from marivo.datasource.authoring_store import snapshot_identity
 from marivo.datasource.ir import (
     TableColumnBindingIR,
@@ -241,7 +240,6 @@ def test_binding_order_and_equivalent_types_preserve_all_slice_one_identities() 
 
     assert first == reordered
     assert first.to_dict() == reordered.to_dict()
-    assert source_subject_ref(first) == source_subject_ref(reordered)
     assert _snapshot_identity(first) == _snapshot_identity(reordered)
     assert _semantic_definition_fingerprint(first) == _semantic_definition_fingerprint(reordered)
 
@@ -286,6 +284,5 @@ def test_binding_changes_invalidate_all_slice_one_identities(changed: TableSourc
     original = _projected_source()
 
     assert original != changed
-    assert source_subject_ref(original) != source_subject_ref(changed)
     assert _snapshot_identity(original) != _snapshot_identity(changed)
     assert _semantic_definition_fingerprint(original) != _semantic_definition_fingerprint(changed)

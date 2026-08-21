@@ -9,13 +9,6 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import cast
 
-from marivo._authoring.model import (
-    AuthoringContract,
-    AuthoringEffects,
-    AuthoringStateRef,
-    AuthoringTransition,
-)
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext
 from marivo.ontology.errors import (
     InvalidOntologyRefError,
@@ -128,7 +121,7 @@ class OntologyCatalog(RenderableResult):
         card = (
             Card(
                 identity=self._repr_identity(),
-                available=(".configured", ".edge_count", ".contract()", ".show()"),
+                available=(".configured", ".edge_count", ".show()"),
             )
             .field("definition_fingerprint", self.definition_fingerprint)
             .field("semantic_catalog_fingerprint", self.semantic_catalog_fingerprint)
@@ -157,33 +150,6 @@ class OntologyCatalog(RenderableResult):
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
         """Print the bounded ontology catalog summary."""
         print(self.render(max_output_bytes=max_output_bytes))
-
-    def contract(self) -> AuthoringContract:
-        """Return mechanical ontology authoring and source-audit continuations."""
-        subjects = (self.source_location,) if self.source_location is not None else ()
-        states = (
-            (AuthoringStateRef(id="ontology.loaded", subject_refs=subjects),)
-            if self.configured
-            else ()
-        )
-        return AuthoringContract(
-            subject_refs=subjects,
-            states=states,
-            transitions=(
-                AuthoringTransition(
-                    kind="audit",
-                    public_entrypoint="mo.load(semantic=...)",
-                    expected_output_family="OntologyCatalog",
-                    help_target=LiveHelpTarget(surface="ontology", canonical_id="authoring"),
-                    subject_refs=subjects,
-                    effects=AuthoringEffects(data_access="local_metadata_read", connection="none"),
-                    available=self.source_location is not None,
-                    blocked_by=("models/ontology.py is not configured",)
-                    if self.source_location is None
-                    else (),
-                ),
-            ),
-        )
 
     def _edges_for_discovery(self) -> tuple[SemanticEdgeIR, ...]:
         """Return the immutable internal edge view for the analysis bridge."""

@@ -75,31 +75,28 @@ revenue.details().show()
 `catalog.metrics`, `catalog.relationships`, `catalog.events`,
 `catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
 and `catalog.work_schedules`. Each is a
-`CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`,
-`.contract()`, `.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
+`CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`, `.render()`,
+`.show()`, `len()`, and iteration. `catalog.require(ref)` is the
 exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 `SemanticCatalog` itself follows the bounded result protocol: `repr(catalog)`
 points to `catalog.show()`, whose zero-query card lists only non-empty
 collections as copyable `catalog.<collection>.show()` calls and compresses all
-empty collections into one summary. `catalog.contract()` owns the generic
-`catalog.items(...)` and `catalog.require(...)` continuations; it does not
-repeat every named collection or object-level validation call.
+empty collections into one summary.
 
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
 | `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by exact typed ref; this global lookup remains ref-only. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, displayed same-kind typed key, or exact same-kind ref within that collection's scope. |
-| `catalog.verify(entry_or_ref)` | Static, zero-query validation of one exact current entry or ref. |
 | `catalog.preview(entry_or_ref, using=snapshot_or_mapping)` | Scoped runtime preview for one current entry or ref, bound to matching snapshot evidence. |
 | `catalog.preview_many(entries_or_refs, using=snapshot_or_mapping)` | Normalize an ordered batch before execution, then persist an independent preview check for every canonical ref. |
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
-preview repair. The report keeps per-ref advisories for structured diagnostics,
-groups them in bounded rendering, and exposes one batch preview transition from
-`.contract()`. Entity preview evidence never satisfies child refs.
+preview repair. The report keeps per-ref advisories for structured diagnostics
+and groups them in bounded rendering. Entity preview evidence never satisfies
+child refs.
 
 ### Navigation matrix
 
@@ -125,7 +122,7 @@ Empty child collections are compressed into one summary, so the agent can still
 distinguish empty state from unsupported navigation without reading one line per
 zero-count collection.
 Every entry card names its exact kind and full path, exposes `.ref`, and
-advertises `details()`, `contract()`, `render()`, and `show()`. Metric cards
+advertises `details()`, `render()`, and `show()`. Metric cards
 additionally render bounded exact refs for effective
 entities, candidate dimensions, candidate time dimensions, required
 relationships, and component/measure lineage when present. An empty time-axis
@@ -139,7 +136,7 @@ or policy choices, their registered call shapes, and the artifact family of an
 operator result. It does not infer readiness, enumerate downstream operators,
 or create a second programmable navigation result. The caller inspects the
 focused target for companion inputs, executes it only after readiness, and then
-uses `result.contract().show()` for state-specific continuation. A bare `Ref`
+uses the returned analysis artifact for state-specific continuation. A bare `Ref`
 does not receive this handoff because project membership and readiness are
 unknown until it is resolved to a current entry.
 
@@ -266,14 +263,13 @@ Source-mutating constructors are described by one internal authoring-source
 registry. Focused constructor help therefore identifies the declaration as a
 loader fragment, gives its exact placement under
 `models/semantic/<domain>/`, links prerequisite help targets, states the
-business judgments that must already be settled, and ends with the generated
+required dependencies and static constraints, and ends with the generated
 loaded-object postcondition:
 
 ```python
 catalog = ms.load()
 entry = catalog.<collection>.get("<canonical-identity>")
 entry.show()
-entry.contract().show()
 ```
 
 The ordered catalog-member contract supplies `<collection>`, so focused help,
@@ -288,10 +284,9 @@ methods **do not write stdout**; inspection is explicit and silent by default:
 - `result.render()` — return the same bounded text without writing stdout.
 - `repr(result)` — a one-line cold-start hint pointing to `.show()`.
 
-State-bearing objects additionally return a structured continuation value from
-`.contract()`. Its default representation and `show()`/`render()` output are
-bounded transition summaries; callers that need machine detail read `states`,
-`transitions`, or `model_dump()` explicitly.
+Semantic authoring results expose bounded detail plus structured errors and
+typed repairs. Callable operations, effects, and input facts come from the
+native registry without a shared lifecycle-state result.
 
 Catalog browsing returns a `CatalogCollection` (not a raw list); use `.items`,
 `.refs`, `.render()`, and `.show()`. This is the semantic-layer instance of the
@@ -308,7 +303,6 @@ through the catalog:
 ```python
 catalog = ms.load()
 revenue = catalog.metrics.get("sales.revenue")
-catalog.verify(revenue).show()
 catalog.preview(revenue, using=snapshot).show()
 catalog.readiness(refs=[revenue]).show()
 ```
@@ -344,8 +338,9 @@ reordering is identity-stable while rebinding, renaming, or changing a declared
 type changes identity.
 
 To inspect a metric's caliber without executing analysis, use typed details and
-static verification. Use `catalog.preview(..., using=...)` for a scoped runtime
-check. Parity is a separate potentially unbounded provenance SQL diagnostic.
+scoped readiness after the project has loaded successfully. Use
+`catalog.preview(..., using=...)` for a scoped runtime check. Parity is a
+separate potentially unbounded provenance SQL diagnostic.
 
 ## Validation and failure semantics
 
@@ -409,7 +404,7 @@ runtime physical dtype raises `filter_value_runtime_incompatible`, with
 `query_executed=False` and `declaration_preserved=True`. This is distinct from
 assembly-time `invalid_filter`: Marivo preserves the authored business literal,
 does not infer a code/label mapping from physical types or sample values, and
-routes the required decision to the user or business owner. Static verification
+routes the required decision to the current business authority. Project loading
 and `semantic_static` readiness may continue without the unavailable runtime
 evidence.
 
@@ -506,17 +501,14 @@ Two checks sit at the end of the write loop:
   ranking from example questions, analysis intents, run-history refs, and the
   build purpose.
 
-`catalog.verify(entry_or_ref)` completes the static per-object surface. A current
-`VerifyResult` proves that one explicit check passed, but verification is
-**result-local**: it is not persisted as a workflow checkpoint and is not a
-runtime prerequisite for preview. The `marivo-semantic` skill enforces
-verify-before-preview as a policy edge; the runtime does not consume a
-`VerifyResult` in `catalog.preview(...)` or `catalog.readiness(...)`.
-For projected tables, these static checks prove declaration coherence only.
+`ms.load()` is the authoritative project-level static validation event. Author a
+dependency-coherent slice, load once, repair reported structural errors, and
+confirm every exact authored root with `catalog.require(ref)`.
+For projected tables, successful loading proves declaration coherence only.
 Datasource inspection may classify bindings as declared-only when catalog
 metadata cannot confirm them. Authoring must then obtain one explicitly bounded
 sample, run the scoped preview, and let zero-query readiness consume matching
-evidence; neither load nor static verification proves that a declared physical
+evidence; loading does not prove that a declared physical
 column exists or is queryable.
 `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
 a readiness requirement. All three return silent result objects with `.show()` /

@@ -178,7 +178,7 @@ def test_semantic_grain_cumulative_and_rollup_use_certified_period_binding(
 
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
 
     session = mv.session.get_or_create(
@@ -350,7 +350,7 @@ def test_semantic_grain_fused_forest_retains_period_metadata(
     )
 
     catalog = ms.SemanticCatalog(project)
-    catalog.verify(ms.ref.period_calendar("sales.fiscal"))
+    catalog.require(ms.ref.period_calendar("sales.fiscal"))
     catalog.preview(
         ms.ref.period_calendar("sales.fiscal"),
         using=fiscal_calendar_evidence(project.workspace_dir),
@@ -416,7 +416,7 @@ def _fiscal_week_mixed_session(semantic_project_factory, monkeypatch, session_na
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     return mv.session.get_or_create(
         name=session_name,
@@ -497,7 +497,7 @@ def test_temporal_contract_explains_missing_period_key_for_semantic_grain(
     monkeypatch.chdir(project.workspace_dir)
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
 
     calendar = catalog.period_calendars.get("sales.fiscal")
@@ -556,7 +556,7 @@ def test_semantic_reset_binds_derived_forest_and_recovers(
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = mv.session.get_or_create(
         name="fiscal-derived-forest",
@@ -628,7 +628,7 @@ def test_semantic_tail_bucket_distinguishes_scope_complete_from_data_arrival(
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = mv.session.get_or_create(
         name="fiscal-tail-arrival",
@@ -690,7 +690,7 @@ def test_semantic_fused_frame_carries_arrival_columns(
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = mv.session.get_or_create(
         name="fiscal-fused-arrival",
@@ -753,7 +753,7 @@ def test_semantic_fused_truncated_digest_suppresses_direction(
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     session = mv.session.get_or_create(
         name="fiscal-fused-truncated-digest",
@@ -807,7 +807,7 @@ def test_semantic_membership_uses_calendar_boundary_timezone(
     )
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.verify(calendar_ref)
+    catalog.require(calendar_ref)
     catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
     metric = catalog.require(ms.ref.metric("sales.gmv")).ref
     scope = mv.time_scope(start="2026-01-01", end="2026-02-01")

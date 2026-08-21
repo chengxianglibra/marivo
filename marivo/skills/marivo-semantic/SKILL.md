@@ -1,261 +1,169 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, evidence, reusable semantic authoring or repair, verification, preview, and readiness, including semantics needed to answer a business question. Ask only the earliest missing accountable input before data access or capability enumeration.
+description: Use for Marivo datasource setup, governed source exploration, coherent semantic authoring or repair, scoped preview, and readiness, including semantics needed to answer a business question.
 ---
 
 # marivo-semantic
 
-## Trigger
+## Trigger and exit
 
-Use this skill for datasource setup and validation, physical source inspection,
-bounded authoring evidence, new or changed semantic objects, semantic
-verify/preview/readiness repair, or a missing-object handoff from
+Use this skill for datasource declaration and validation, physical-source
+inspection, optional bounded sampling, governed raw SQL, new or changed semantic
+objects, scoped preview, readiness repair, or a missing-object handoff from
 `marivo-analysis`.
 
-Once the requested refs are analysis-ready, leave authoring. If the parent task
-includes analysis, hand its `analysis_ready_inputs` to `marivo-analysis` and
-continue the original question. Return here when analysis exposes another
-reusable semantic gap. Do not ask permission to switch skills; ask only when
-business meaning itself remains unresolved.
+Leave authoring as soon as the requested refs are usable. If the parent task
+includes analysis, pass the current refs or `analysis_ready_inputs` to
+`marivo-analysis` and continue the original question. Return only when analysis
+exposes another reusable semantic gap.
 
-For a semantic build request, the first routing decision is the non-observable decision
-preflight. After one environment fingerprint and one current-project catalog
-read, ask for a missing accountable owner or target business concept and stop.
-Do not enumerate root/focused help or inspect metadata before that stop.
-Do not bundle independent judgments. A user-named build target satisfies the
-target-concept preflight unless its ambiguity would change the requested scope.
+For a datasource-only request, declare, register, test the connection, and stop.
+Do not enter discovery or semantic authoring unless the request needs it.
 
-For a datasource-only request that only declares, registers, and validates a
-connection, use the short datasource route and stop after validation. Do not
-enter physical-source discovery or semantic authoring unless the request needs
-them.
+## Ownership
 
-## Ownership and authority
+This skill owns routing, data-access safety, coherent checkpoint choice,
+business-authority stops, and handoff. It does not duplicate signatures, result
+fields, backend catalogs, or error taxonomies.
 
-This skill is a boundary router, not an API catalog or semantic inference
-engine.
+- Live `marivo.help(...)` owns current constructors, operations, effects,
+  constraints, examples, and repair calls.
+- `.show()` and structured errors own current result detail and repair.
+- The agent owns evidence interpretation and explicit Python drafting.
+- Current authority owns reusable business meaning.
 
-- Live Marivo help owns current signatures, effects, examples, file placement,
-  result fields, and repair calls.
-- `.show()`, `.contract()`, and structured errors own object-local state and
-  continuation.
-- The skill owns ordering, data-access safety, evidence continuity, judgment
-  stops, and handoff.
-- The agent owns technical interpretation and explicit Python drafting.
-- The user or accountable business owner owns business meaning.
-
-Physical observations can establish only what they measured. They cannot
-authorize an owner, primary key, business definition, unit, aggregation,
-additivity, cardinality, timezone, lifecycle, or event meaning.
+The source of truth is project Python evaluated by `ms.load()`. Credentials are
+references, never authored plaintext.
 
 ## Environment entry
 
-Prefer the project interpreter provided by the host. For a conventional
-project-local installation, prefer `.venv/bin/python` on macOS, Linux, and WSL,
-or `.venv/Scripts/python.exe` on Windows. Keep using the selected interpreter
-for discovery and execution.
+Use the project interpreter supplied by the host. For a conventional checkout,
+prefer `.venv/bin/python` on macOS, Linux, and WSL, or
+`.venv/Scripts/python.exe` on Windows. Keep using the same interpreter.
 
-Before connecting, reading data, or changing project source, prefer running
-`<selected-python> -m marivo doctor` once and using the reported Marivo version,
-Python executable, package path, and project state as the runtime fingerprint.
+Before connecting, reading user data, or changing project source, prefer one
+`<selected-python> -m marivo doctor` call. Enter runtime guidance through
+`<selected-python> -m marivo help`, then `marivo.help("authoring")` and the
+focused datasource or semantic target shown by current state.
 
 ```python
-import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
+
+datasources = md.load()
+catalog = ms.load()
 ```
-
-After the decision preflight passes, prefer entering through
-`<selected-python> -m marivo help`, then use
-`marivo.help("authoring")`. It owns the exact current-project catalog reads and
-routes to the focused datasource or semantic target shown by live state. Prefer
-the same selected interpreter for doctor, help, and execution. For target help,
-prefer `marivo.help(...)`; `md` and `ms` execute domain APIs.
-
-For signatures and repairs, prefer, in order: the current structured error,
-current result `.contract()`, focused help, then root help.
-Prefer focused help for the active object. When several already-known,
-independent targets are needed, prefer rendering them in one interpreter
-invocation.
-
-If live help fails unexpectedly, use the current error or result contract when
-one exists and prefer a focused or root retry. Local docs or installed package
-source are valid read-only recovery aids when help remains unavailable; treat
-private implementation details as unverified, do not call private APIs, and do
-not bypass datasource safety boundaries.
 
 ## Canonical route
 
-Choose the smallest route that matches the request:
-
 ```text
-datasource-only:
-environment -> declare -> register -> connection test -> closeout
-
-physical-source discovery:
-environment -> project browse -> non-observable decision preflight
--> metadata inspect -> explicit scope -> one snapshot -> query-free projections
-
-semantic authoring:
-environment -> project browse -> non-observable decision preflight
--> metadata inspect -> explicit scope -> one snapshot -> query-free projections
--> evidence-grounded judgment -> author one object -> load exact entry
--> static verify -> required preview -> readiness -> analysis
+current catalogs
+-> inspect authoritative physical facts
+-> choose inspection, optional bounded sampling, and/or governed raw SQL
+-> author one dependency-coherent semantic slice
+-> one ms.load()
+-> catalog.require(...) for every authored root
+-> scoped readiness and only the targeted runtime probes the current risk needs
+-> first typed analysis use
 ```
 
-The partial order is policy even when a live method is mechanically callable:
+There is no mandatory snapshot ladder, one-object checkpoint loop, separate
+verify stage, or public authoring lifecycle state.
 
-- browse current project and catalog before mutation;
-- ask required non-observable inputs before user-data access;
-- inspect metadata before reading business rows;
-- use explicit positive row and timeout guards for every user-data read;
-- satisfy dependencies before dependents;
-- validate one authored object before advancing;
-- static verification precedes required preview;
-- readiness precedes analysis use.
+### Explore according to the question
 
-Keep already-known independent datasource actions in one interpreter invocation
-when practical; do not depend on process-local state across invocations.
+Use `md.inspect(...)` for source identity, columns, physical types, partitions,
+and backend capabilities. Metadata inspection does not require an accountable
+owner or a prior business approval.
 
-### Decision preflight
+Choose the smallest additional evidence path that answers the current question:
 
-Before any user-data read, detect required inputs that data cannot answer:
-accountable owner, requested business concept, supplied policy, or an explicit
-choice among disputed definitions. Ask the earliest such question and stop.
-Do not sample data to answer it.
+- inspection only when schema and current project context are sufficient;
+- optional explicitly scoped sampling when retained rows or generic profiles
+  matter;
+- `md.raw_sql(...)` for source-specific metadata, distributions, joins,
+  conditional logic, comparison with existing SQL, or bounded scratch work.
 
-After preflight, collect only evidence needed for the active object. Acquire one
-bounded snapshot and reuse its query-free projections. Do not reacquire merely
-to inspect entity, dimension, value, time, measure, or relationship views.
+All user-data reads require explicit positive row and timeout guards and remain
+within caller-stated budgets. A returned-row limit is not a scan bound.
+`md.raw_sql(...)` is a normal governed exploration option: read-only, bounded,
+effect-disclosed, and terminal. Its result cannot be passed to typed analysis,
+promoted to a `MetricFrame`, or persisted as canonical analysis. Its observed
+facts may inform explicit semantic Python.
 
-When table inspection reports declared-only typed bindings, follow the warning's
-focused datasource route and runtime evidence requirement. Choose an explicit
-bounded scope and acquire one matching snapshot before semantic closeout; use an
-explicit unpruned scope only when the live contract classifies metadata as
-unavailable or partition discovery as omitted. Static load, verify, and
-zero-query readiness do not substitute for the required runtime preview.
+Use only physical names and normalized types that inspection established. Treat
+unknown, conflicted, dynamic, or unparseable fields as unresolved physical
+facts; do not promote them through a guess.
 
-When inspection exposes `projectable_columns`, use only the exact physical names
-and normalized types it verified in `md.source_column(...)`; a conflicted or
-unparseable physical type is not a safe candidate. For a date/timestamp interval,
-follow `datasource.time_range`; this is also the bounded route for one transformed
-temporal partition. Dynamic keys not materialized as physical columns remain
-outside governed authoring and require upstream materialization, a database view,
-or terminal raw SQL.
+### Author a coherent slice
 
-If evidence reports `null_semantics`, record the business interpretation of
-`NULL` in `ai_context.guardrails`. Do not infer that a high null rate is a quality
-failure and do not filter nulls implicitly. In readiness, distinguish issue
-severity: advisory-only reports remain ready, and grouped snapshot/preview
-advisories are one evidence-root repair, not one failure per semantic ref.
+A semantic slice is the smallest dependency-coherent set that can be loaded and
+reviewed meaningfully. It may contain an entity with its direct dimensions, time
+dimension, measures, and base metrics; a relationship with the exact
+participating fields; or a derived object with newly required reusable
+dependencies. It is not restricted to one object and should not expand into an
+unrelated domain-wide rewrite.
 
-### One-object loop
+Author the whole slice in explicit Python, then use one `ms.load()`. That load
+is the authoritative project-level static validation event. Repair all reported
+structural errors together, reload, and use `catalog.require(ref)` to confirm
+every authored root. Do not add a separate verification checkpoint.
 
-Author exactly one explicit Python object, reload the catalog, acquire that
-exact typed entry, and follow its registered verify, preview, and readiness
-path. Repair and revalidate the same object before moving to a dependent.
-Domain-sized batch authoring followed by deferred validation is forbidden.
+Run readiness over the exact requested roots. Keep the current runtime contract
+for scoped preview, persisted preview evidence, readiness issues, and ready-input
+fields; follow live help and typed repairs rather than inventing another path.
+Use targeted preview or observation only when a concrete runtime risk or current
+readiness repair calls for it.
 
-## Judgment boundary
+## Business meaning and first-use authority
 
-Read `result.show()` and
-`result.contract().judgment_requirements`. These requirements are
-non-mechanical: they identify what remains unresolved and who owns the answer;
-they are not constructor recommendations or approval tokens.
+The agent may inspect freely and draft a coherent slice before every
+business-caliber choice is settled. Drafting does not grant typed-analysis
+authority.
 
-Use this authority order:
+Before the first typed analysis use of a new or changed definition, settle each
+unresolved choice that changes reusable business meaning through at least one
+current, non-conflicting authority:
 
-1. live contracts for mechanical legality;
-2. explicit accountable business-owner decisions for meaning;
-3. approved existing project definitions;
-4. attributable project documentation and source provenance;
-5. inspection and snapshot output for physical observations only.
+1. the user's explicit request or answer in the current task;
+2. an approved existing project definition;
+3. attributable project documentation or source provenance that is sufficiently
+   explicit.
 
-If one judgment remains, name the object and requirement, summarize the
-relevant evidence and its limit, ask one question, and stop. If several remain,
-ask only the earliest dependency whose answer can change later questions.
+This applies to choices such as denominator, inclusion and exclusion policy,
+failure handling, unit, aggregation, additivity, business time axis, and metric
+caliber. If the current request or approved project already establishes the
+meaning, proceed without asking for redundant confirmation. Do not create an
+approval token, receipt, or second authorization stage.
 
-Observed uniqueness is not primary-key authority. Observed values are not an
-exhaustive enum. Physical types do not establish unit, additivity, timezone, or
-business time. Never turn plausible evidence into an authored promise.
-
-## Deterministic stop rule
-
-If the same root cause occurs twice, stop that branch. At most one
-focused-help recovery is allowed before reporting the exact blocker, current
-state, observed effects, and whether evidence is reusable.
-
-Stop when minimum sufficient evidence answers the current routing decision.
-Do not enumerate catalogs, capabilities, columns, or candidate objects without
-a concrete unresolved need.
+When no current authority settles the earliest material choice, name the object
+and choice, summarize the relevant evidence and its limit, ask one question, and
+stop before typed analysis handoff. Physical observations alone do not establish
+primary-key authority, exhaustive enums, unit, additivity, timezone, or business
+meaning.
 
 ## Hard boundaries
 
-### Data access and bypass
-
-Do not read business rows directly through Ibis, DuckDB, pandas, backend
-clients, or ad hoc SQL to bypass Marivo inspection and snapshot contracts.
-`md.raw_sql(...)` is an explicit terminal diagnostic escape only; its result
-cannot re-enter typed semantic or analysis work.
-
-A returned-row limit is not a scan bound. Never retry an operation until its
-focused help exposes the effect and required scope.
-Caller-stated read-count, row, and timeout budgets override any repair that
-would otherwise permit a retry.
-
-### Snapshot continuity
-
-One snapshot supports all query-free projections for the active object or
-relationship evidence pair. Reacquire only when current structured state says
-columns or retained values are missing, evidence is stale, or source/schema/
-scope identity no longer matches. Snapshot age alone is not invalidation.
-
-Before the original sample, decide whether value-based work must continue in
-another process. Same-process projections should keep the memory-only default.
-For cross-process value projections or retained-row certification, follow the
-focused sample help and explicitly accept bounded plaintext project-local value
-persistence; do not discover this requirement only after losing process-local
-values.
-
-### Explicit source and secrets
-
-The source of truth is project Python evaluated by the semantic loader.
-Credentials remain references, not authored plaintext. Plaintext value
-persistence requires the live effect contract and explicit acceptance.
-
-### Events and StateModels
-
-Semantic Events own governed business occurrence meaning and identity; ordered
-pattern matching belongs to analysis. A ``TemporalSet`` owns named analysis
-windows such as holidays, campaigns, and incidents, while a ``WorkSchedule``
-owns a finite daily final ``is_working`` status authority for working-day
-alignment. Neither is an Event substitute or an implicit recurrence rule.
-StateModels own normative states and legal transitions,
-not replay windows, censoring, completeness assumptions, or observed policy.
-A loadable model without the required inception is not silently treated as replay-ready.
-
-## Routing
-
-| Current condition | Route |
-| --- | --- |
-| Datasource declaration only | Declare, register, test the connection, then close out |
-| Environment mismatch | Stop before connection, data read, or mutation |
-| Non-observable required decision missing | Ask one accountable question before sampling |
-| Current result or error exists | Read `.show()` and `.contract()` or its typed repair |
-| Snapshot already matches | Reuse it and project evidence without querying |
-| Business judgment remains | Ask one evidence-grounded question and stop |
-| Static verify fails | Repair and reverify the same object |
-| Required preview is missing during authoring | Run the registered scoped preview |
-| Readiness blocks | Follow the typed repair; do not expose the ref |
-| Readiness exposes analysis-ready inputs | Hand only those inputs to `marivo-analysis` and continue the original question |
+- Do not bypass Marivo safety with direct Ibis, DuckDB, pandas, backend clients,
+  or ad hoc SQL.
+- Caller-stated read-count, row, and timeout budgets override suggested retries.
+- If the same structured root cause occurs twice, stop that branch after at most
+  one focused-help recovery and report the exact blocker and observed effects.
+- Reuse a matching snapshot's generic rows, profiles, source evidence, and cache
+  identity when useful. Reacquire only for missing facts, changed source/schema/
+  scope identity, or an explicit current repair; snapshot age alone is not
+  invalidation.
+- Semantic Events own governed occurrence meaning; ordered pattern matching
+  belongs to analysis. StateModels own normative states and legal transitions,
+  not replay or completeness assumptions.
 
 ## Closeout
 
-For an authoring-only task, successful closeout states the object changed,
-evidence identity and scope, business decisions and accountable source,
-validation stages passed, analysis-ready inputs, and remaining warnings. When
-the parent task includes analysis, follow the routing handoff instead of closing.
+For authoring-only work, state the coherent slice changed, evidence and scope
+used, authoritative sources for business meaning, validation outcome, exact
+analysis-ready roots, and remaining warnings or runtime risks. When the parent
+task includes analysis, hand off and continue instead of closing early.
 
-Blocked closeout states the exact object and state, judgment or typed blocker,
-whether data was queried or source mutated, whether evidence is reusable, and
-the single required user or environment action.
+If blocked, state the exact object and unresolved choice or structured blocker,
+whether data was queried or source mutated, whether evidence remains reusable,
+and the single action required to continue.

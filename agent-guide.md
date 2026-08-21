@@ -96,12 +96,13 @@ These rules govern every public surface change:
   detail. Default dataclass reprs are not acceptable on public result types.
 - Terminal results (objects an agent stops to read) implement bounded
   `.show()` output with deterministic ordering. Artifact cards include only
-  continuation hints that depend on the artifact's current state, rendered
-  through the registry-owned public entry point; they do not repeat the full
-  capability matrix. Typed artifacts and state-bearing datasource and semantic
-  objects/results additionally expose `.contract()` for the complete set of
-  mechanically valid next actions. Explicit terminal boundaries such as
-  `RawSqlResult` remain contract-free when no typed continuation is valid.
+  continuation hints that depend on the artifact's current state; they do not
+  repeat the full capability matrix. Analysis artifacts expose `.contract()`
+  when they own mechanically valid next actions. Datasource and semantic
+  authoring expose callable operations, effects, input facts, structured errors,
+  and typed repairs without a shared lifecycle graph. Explicit terminal
+  boundaries such as `RawSqlResult` remain contract-free because they cannot
+  enter typed analysis.
 - Surface growth is gated: public `__all__` sets are pinned by a snapshot
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
@@ -119,24 +120,28 @@ These rules govern every public surface change:
 — constructor, required/optional parameters, types, defaults, omit rules, and
 cross-parameter constraints — as the single source agents consult before
 authoring. `marivo.help("datasource.<target>")` owns datasource contracts;
-`md.inspect(...)`, an explicitly scoped
-`inspection.sample(...)`, and query-free snapshot projections own runtime
-datasource evidence. They never own semantic-selection judgments. The
+`md.inspect(...)`, optional explicitly scoped `inspection.sample(...)`, and
+governed bounded `md.raw_sql(...)` own runtime datasource evidence. Snapshots
+retain generic rows, profiles, source evidence, and cache identity; they do not
+project semantic candidates or own semantic judgments. The
 `marivo-semantic` skill owns workflow and routing only:
 
 ```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> first typed analysis use
 ```
 
 It must not duplicate parameter tables from either help surface. There is no
-public prepare stage or automatic authoring planner. The agent owns evidence-based
-drafting and technical handling, including uncommon physical formats. The user or
-business owner owns unresolved business-semantic decisions and approves metric
-meaning before analysis handoff.
+public prepare stage, automatic authoring planner, per-object verify checkpoint,
+or shared public authoring lifecycle graph. The agent owns evidence-based
+drafting and technical handling, including uncommon physical formats. Before
+the first typed analysis use, genuinely unresolved reusable business meaning
+must have current authority from the user, an approved project definition, or
+attributable non-conflicting documentation or provenance. Already-authorized
+meaning proceeds without redundant confirmation.
 
 Ownership split: the public `marivo.help(...)` coordinator routes to the native
-datasource and semantic registries that own the static contracts and mechanical
-continuation facts. Those registries are not public APIs; the
+datasource and semantic registries that own static contracts, operations,
+effects, and input facts. Those registries are not public APIs; the
 `marivo-semantic` skill owns workflow and routing only; the runtime has no
 canonical link to packaged skill files, so skill content is never read or
 executed by the library.

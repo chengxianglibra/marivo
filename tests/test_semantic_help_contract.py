@@ -82,17 +82,15 @@ def test_help_text_entity_contains_signature_and_example() -> None:
     assert "Source path: models/semantic/<domain>/<module>.py" in text
     assert 'marivo.help("semantic.domain")' in text
     assert 'marivo.help("datasource.authoring")' in text
-    assert "Business judgments before authoring:" in text
     assert "entry = catalog.entities.get('<domain>.<entity>')" in text
     assert "entry.show()" in text
-    assert "entry.contract().show()" in text
+    assert "catalog.readiness(refs=[entry]).show()" in text
 
 
-def test_domain_help_requires_accountable_owner_without_inventing_one() -> None:
+def test_domain_help_does_not_invent_an_accountable_owner() -> None:
     text = _text("domain")
 
     assert "Source path: models/semantic/<domain>/_domain.py" in text
-    assert "accountable_owner" in text
     assert "Mina Zhang" not in text
     assert "entry = catalog.domains.get('<domain>')" in text
 
@@ -148,7 +146,6 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
         ("snapshot", "partition_field=snapshot_date, grain='day'"),
         ("validity", "valid_from=valid_from, valid_to=valid_to"),
         ("semi_additive", "over=snapshot_date, fold='last'"),
-        ("verify", "catalog.verify(revenue)"),
         (
             "preview",
             "catalog.preview(revenue, using=orders_snapshot)",
@@ -182,18 +179,13 @@ def test_help_text_semantic_catalog_type() -> None:
     assert _DATASOURCE_IMPORT not in text
 
 
-def test_help_text_metric_type_distinguishes_inspection_display_and_continuation() -> None:
+def test_help_text_metric_type_distinguishes_inspection_and_display() -> None:
     text = _text(ms.MetricEntry)
 
     assert ".details() for structured semantic metadata" in text
     assert ".details().show() for bounded readable detail" in text
     assert ".show() prints the same bounded card returned by .render()" in text
-    assert ".contract() for mechanically valid next actions" in text
-
-
-def test_help_text_verify_result_type() -> None:
-    text = _text(ms.VerifyResult)
-    assert "VerifyResult" in text
+    assert ".contract()" not in text
 
 
 def test_help_text_readiness_report_type() -> None:
@@ -245,15 +237,17 @@ def test_help_lists_authoring_topic() -> None:
 def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     text = _text("authoring")
     assert "authoring" in text
-    assert "browse" in text
-    assert "verify" in text
+    assert "Coherent-slice checkpoint" in text
+    assert "dependency-coherent slice" in text
     assert "readiness" in text
-    assert "handoff" in text
-    assert "semantic.ready" in text
-    assert "analysis handoff" in text
+    assert "Preview only when" in text
+    assert "first typed analysis use" in text
+    assert "not already settled by a current authority" in text
+    assert "semantic.ready" not in text
+    assert "verify" not in text
     assert "models/datasources/<datasource>.py" in text
     assert "models/semantic/<domain>/_domain.py" in text
-    assert "entry = catalog.<collection>.get('<canonical identity>')" in text
+    assert "entry = catalog.require(ms.ref.<kind>('<canonical identity>'))" in text
     assert _DATASOURCE_IMPORT not in text
     assert _SEMANTIC_IMPORT in text
 
@@ -303,7 +297,6 @@ def test_every_source_authored_constructor_has_placement_and_postcondition() -> 
         text = _text(canonical_id)
         assert "Loader placement:" in text, canonical_id
         assert "Source path: models/semantic/" in text, canonical_id
-        assert "Business judgments before authoring:" in text, canonical_id
         assert "Postcondition after saving:" in text, canonical_id
         assert "entry.show()" in text, canonical_id
-        assert "entry.contract().show()" in text, canonical_id
+        assert "catalog.readiness(refs=[entry]).show()" in text, canonical_id

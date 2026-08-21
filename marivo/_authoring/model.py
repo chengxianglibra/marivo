@@ -1,4 +1,4 @@
-"""Closed value model for the datasource-to-semantic authoring lifecycle."""
+"""Closed value model for agent-facing capability facts and repairs."""
 
 from __future__ import annotations
 
@@ -7,33 +7,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from marivo.introspection.live.model import HelpSurface, LiveHelpTarget
-from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
-
-AuthoringStateId = Literal[
-    "datasource.declared",
-    "datasource.registered",
-    "datasource.connection_validated",
-    "source.inspected",
-    "scope.explicit",
-    "evidence.acquired",
-    "evidence.projected",
-    "semantic.loaded",
-    "semantic.verified",
-    "semantic.previewed",
-    "semantic.ready",
-    "ontology.loaded",
-]
-
-
-class AuthoringStateRef(BaseModel):
-    """Runtime-observable authoring state bound to subjects and evidence."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: AuthoringStateId
-    subject_refs: tuple[str, ...] = ()
-    evidence_ids: tuple[str, ...] = ()
-
 
 DataAccessEffect = Literal[
     "none",
@@ -69,25 +42,7 @@ class AuthoringEffects(BaseModel):
     flags: tuple[EffectFlag, ...] = ()
 
 
-TransitionKind = Literal[
-    "declare",
-    "register",
-    "validate_connection",
-    "inspect",
-    "scope",
-    "acquire",
-    "project_evidence",
-    "load",
-    "reload",
-    "verify",
-    "preview",
-    "readiness",
-    "audit",
-    "browse",
-    "select",
-    "use",
-]
-TransitionInputRole = Literal[
+AuthoringInputRole = Literal[
     "receiver",
     "subject",
     "dependency",
@@ -98,89 +53,16 @@ TransitionInputRole = Literal[
 
 
 class AuthoringInputRequirement(BaseModel):
-    """Role-bound input requirement for an authoring transition."""
+    """Role-bound input fact for an agent-facing capability."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    role: TransitionInputRole
+    role: AuthoringInputRole
     family: str
     subject_refs: tuple[str, ...] = ()
     exact_keys: tuple[str, ...] = ()
     min_count: int = 1
     max_count: int | None = 1
-
-
-class AuthoringTransition(BaseModel):
-    """Mechanically available or blocked transition from current state."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: TransitionKind
-    public_entrypoint: str
-    expected_output_family: str | None = None
-    help_target: LiveHelpTarget
-    subject_refs: tuple[str, ...]
-    required_states: tuple[AuthoringStateRef, ...] = ()
-    produced_state: AuthoringStateRef | None = None
-    effects: AuthoringEffects
-    available: bool
-    input_requirements: tuple[AuthoringInputRequirement, ...] = ()
-    blocked_by: tuple[str, ...] = ()
-
-
-class AuthoringJudgmentRequirement(BaseModel):
-    """One non-mechanical semantic decision grounded by captured evidence."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str
-    subjects: tuple[str, ...]
-    evidence_ids: tuple[str, ...] = ()
-    authority: Literal["user_or_business_owner"] = "user_or_business_owner"
-
-
-class AuthoringContract(BaseModel):
-    """Mechanical continuation contract for one state-bearing value."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    subject_refs: tuple[str, ...]
-    states: tuple[AuthoringStateRef, ...]
-    transitions: tuple[AuthoringTransition, ...]
-    judgment_requirements: tuple[AuthoringJudgmentRequirement, ...] = ()
-
-    def _repr_identity(self) -> str:
-        return (
-            "AuthoringContract "
-            f"subjects={len(self.subject_refs)} "
-            f"states={len(self.states)} "
-            f"transitions={len(self.transitions)} "
-            f"judgments={len(self.judgment_requirements)}"
-        )
-
-    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        """Return a bounded summary while preserving typed fields for machine use."""
-        from marivo._authoring.render import render_contract
-        from marivo.introspection.live.model import SURFACE_LIMITS
-
-        return render_contract(
-            self,
-            max_lines=SURFACE_LIMITS.object_contract_render_max_lines,
-            max_codepoints=SURFACE_LIMITS.object_contract_render_max_codepoints,
-            max_output_bytes=max_output_bytes,
-        )
-
-    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        """Print the bounded continuation summary."""
-        print(self.render(max_output_bytes=max_output_bytes))
-
-    def __repr__(self) -> str:
-        from marivo.render import result_repr
-
-        return result_repr(self._repr_identity())
-
-    def __str__(self) -> str:
-        return self.render()
 
 
 RepairKind = Literal[
@@ -193,7 +75,6 @@ RepairKind = Literal[
     "reacquire",
     "reauthor",
     "reload",
-    "reverify",
     "repreview",
     "environment",
     "user_choice",
@@ -216,7 +97,6 @@ class AuthoringRepair(BaseModel):
 AuthoringCapabilityKind = Literal[
     "callable",
     "method",
-    "transition",
     "boundary",
     "recovery",
 ]
@@ -236,8 +116,6 @@ class AuthoringCapability(BaseModel):
     input_requirements: tuple[AuthoringInputRequirement, ...] = ()
     output_family: str | None = None
     preconditions: tuple[str, ...] = ()
-    produced_state: AuthoringStateRef | None = None
-    required_states: tuple[AuthoringStateRef, ...] = ()
     effects: AuthoringEffects | None = None
     constraints: tuple[str, ...] = ()
     minimal_example: str | None = None

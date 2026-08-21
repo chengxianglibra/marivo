@@ -439,7 +439,7 @@ def _write_project_with_json_entity(
     )
 
 
-def test_verify_object_statically_validates_json_entity(tmp_path: Path) -> None:
+def test_load_and_require_json_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
 
@@ -449,15 +449,13 @@ def test_verify_object_statically_validates_json_entity(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.events"))
+    result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.events"))
 
-    assert result.status == "passed"
-    assert result.validation_level == "static"
-    assert result.runtime_checked is False
-    assert not hasattr(result, "scan")
+    assert result.kind.value == "entity"
+    assert result.ref == ms.ref.entity("sales.events")
 
 
-def test_verify_object_statically_validates_json_entity_with_auto_format(tmp_path: Path) -> None:
+def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path, format=None)
 
@@ -467,12 +465,10 @@ def test_verify_object_statically_validates_json_entity_with_auto_format(tmp_pat
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).verify(ms.ref.entity("sales.events"))
+    result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.events"))
 
-    assert result.status == "passed"
-    assert result.validation_level == "static"
-    assert result.runtime_checked is False
-    assert not hasattr(result, "scan")
+    assert result.kind.value == "entity"
+    assert result.ref == ms.ref.entity("sales.events")
 
 
 def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:

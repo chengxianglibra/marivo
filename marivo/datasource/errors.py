@@ -94,7 +94,6 @@ def repair(
         "reacquire",
         "reauthor",
         "reload",
-        "reverify",
         "repreview",
         "environment",
     ],

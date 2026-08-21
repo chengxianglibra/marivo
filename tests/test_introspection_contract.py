@@ -126,7 +126,7 @@ def test_semantic_catalog_help_lists_workflow_methods() -> None:
     assert "SemanticCatalog" in text
     assert "require" in text
     assert "readiness" in text
-    assert "verify" in text
+    assert "verify" not in text
 
 
 def test_semantic_load_help_mentions_entrypoint() -> None:

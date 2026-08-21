@@ -99,7 +99,7 @@ def test_sample_return_annotation_is_runtime_resolvable() -> None:
     )
 
 
-def test_snapshot_exposes_projection_methods_and_affordances(
+def test_snapshot_exposes_generic_evidence_without_semantic_projections(
     inspection: SourceInspection,
 ) -> None:
     snapshot = inspection.sample(
@@ -115,20 +115,14 @@ def test_snapshot_exposes_projection_methods_and_affordances(
         "measures",
         "relationships",
     )
-    assert all(hasattr(DiscoverySnapshot, name) for name in projection_names)
+    assert all(not hasattr(DiscoverySnapshot, name) for name in projection_names)
     rendered = snapshot.render()
-    assert all(f".{name}(" in rendered for name in projection_names)
-    assert ".contract()" in rendered
+    assert all(f".{name}(" not in rendered for name in projection_names)
     assert "selected columns: order_id" in rendered
-    assert "projection effects:" in rendered
-    assert "data_access=none" in rendered
+    assert ".profiles" in rendered
+    assert ".retained_values" in rendered
     assert "reacquire boundary:" in rendered
-    contract = snapshot.contract()
-    assert contract.subject_refs[0] == "datasource:warehouse"
-    assert [(state.id, state.evidence_ids) for state in contract.states] == [
-        ("evidence.acquired", (snapshot.id,)),
-        ("scope.explicit", ()),
-    ]
+    assert ".contract()" not in rendered
 
 
 def test_sample_executes_one_query_with_limit_plus_one(
@@ -143,13 +137,6 @@ def test_sample_executes_one_query_with_limit_plus_one(
 
     assert query_spy.user_data_queries == 1
     assert "LIMIT 3" in query_spy.user_data_sql[0].upper()
-
-    snapshot.entity(columns=("order_id",))
-    snapshot.dimensions(columns=("order_id",))
-    snapshot.values("order_id", limit=2)
-    snapshot.time_dimensions(columns=("order_id",))
-    snapshot.measures(columns=("amount",))
-    snapshot.relationships(snapshot, left=("order_id",), right=("order_id",))
 
     assert query_spy.user_data_queries == 1
     assert "RANDOM" not in query_spy.user_data_sql[0].upper()
@@ -505,16 +492,6 @@ def test_time_range_accepts_raw_clickhouse_temporal_type_spellings(
             for column in inspection.schema
         ),
     )
-
-    inspection_transitions = {
-        transition.help_target.canonical_id for transition in transformed.contract().transitions
-    }
-    partition_transitions = {
-        transition.help_target.canonical_id
-        for transition in transformed.partitions().contract().transitions
-    }
-    assert "time_range" in inspection_transitions
-    assert "time_range" in partition_transitions
 
     snapshot = transformed.sample(
         scope=md.time_range(

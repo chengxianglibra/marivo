@@ -1390,7 +1390,7 @@ def test_readiness_ready_with_warnings_renders_direct_ready_refs() -> None:
                 refs=("sales.total_amount",),
                 message="SQL parity is advisory.",
                 repair=AuthoringRepair(
-                    kind="reverify",
+                    kind="retry",
                     help_target=LiveHelpTarget(surface="semantic", canonical_id="parity_check"),
                     action="Run ms.parity_check(...) when parity matters.",
                 ),

@@ -312,8 +312,8 @@ These ladders show up as two end-to-end loops.
 ### The authoring loop (semantic)
 
 ```text
-help → inspect → explicit scope → sample once → project evidence →
-settle/grill → author → load typed object → verify → preview → readiness
+load current catalogs → inspect → optional bounded sample and/or governed raw SQL →
+author one coherent slice → one ms.load() → catalog.require(...) → readiness
 ```
 
 Each step discloses just enough for the next:
@@ -324,22 +324,17 @@ import marivo
 
 marivo.help("semantic.time_dimension_column")
 
-# 2. inspect and sample once under an explicit scope
+# 2. inspect, then sample only if generic bounded rows or profiles are needed
 inspection = md.inspect(warehouse, md.table("orders"))
 snapshot = inspection.sample(
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
     columns=("dt",),
 )
 
-# 3. project query-free physical evidence (no authoring, no judgment)
-evidence = snapshot.time_dimensions(columns=("dt",))
-evidence.show()
+# Governed md.raw_sql(...) is another normal bounded exploration option when
+# the question needs source-specific metadata, distributions, joins, or logic.
 
-# 4. settle / grill — reconcile help + evidence + catalog + project docs + user
-#    answers into concrete parameter values; ask the user only for policy the
-#    evidence cannot decide (e.g. failure/ratio-denominator/time-axis calls)
-
-# 5. author — one object, in a Python _domain.py file (the source of truth)
+# 3. author the smallest dependency-coherent slice in project Python
 dt = ms.time_dimension_column(
     name="order_date",
     entity=orders,
@@ -348,21 +343,27 @@ dt = ms.time_dimension_column(
     parse=ms.strptime("%Y%m%d"),
 )
 
-# 6. reload the typed object, verify statically, then preview against the snapshot
+# Author the entity, direct dimensions, measures, and mutually dependent metrics
+# in this same checkpoint when they belong to the slice.
+
+# 4. one project-level static validation event, then exact catalog navigation
 catalog = ms.load()
-dt_entry = catalog.time_dimensions.get("sales.orders.order_date")
-catalog.verify(dt_entry).show()
+dt_entry = catalog.require(ms.ref.time_dimension("sales.orders.order_date"))
+
+# 5. preview only for a concrete runtime risk or current readiness repair
 catalog.preview(dt_entry, using=snapshot).show()
 
-# 7. readiness — zero-query certification for the authored change
+# 6. readiness over the exact requested roots
 catalog.readiness(refs=[dt_entry]).show()
 ```
 
 The disclosure discipline here is what makes authoring safe for an agent: the
-static contract (`help`) and the physical evidence (`snapshot` projections) are *different*
-surfaces with *different* jobs, so the agent never confuses "what parameters
-exist" with "what the data looks like," and never mistakes evidence for a
-recommendation to author.
+static contract (`help`) and physical evidence are different surfaces with
+different jobs. A snapshot retains generic rows, profiles, source evidence, and
+cache identity; it does not project semantic candidates. Before first typed
+analysis use, genuinely unresolved reusable meaning needs current authority,
+while user input, approved project definitions, and attributable
+non-conflicting documentation do not require redundant confirmation.
 
 ### The analysis loop
 
@@ -484,7 +485,7 @@ snapshot-with-allowlist spirit throughout:
   real method.
 - `tests/test_introspection_help_folding.py` — the top-level `marivo.help()` family
   partition is pinned, so new symbols are classified deliberately.
-- `tests/test_marivo_analysis_skill_contract.py` — packaged skills remain
+- `tests/test_packaged_skill_shape.py` — packaged skills remain
   bounded one-file routing kernels with no deleted attachment paths.
 - Focused live-help and API-drift tests — runnable help examples and mechanical
   contracts stay aligned with the real surface.
@@ -497,7 +498,7 @@ snapshot-with-allowlist spirit throughout:
   [agent result surface design](../superpowers/specs/2026-06-13-agent-result-surface-design.md)
 - The two-exit frame model:
   [frame/result interface simplification](../superpowers/specs/2026-06-28-frame-result-interface-simplification-design.md)
-- Authoring layering (help vs. discover vs. verify):
+- Historical authoring-layering rationale:
   [authoring guidance layering](../superpowers/specs/2026-06-26-authoring-guidance-layering-design.md)
 - Skill vs. library division of labor:
   [skill/library surface coordination](../superpowers/specs/2026-06-13-skill-library-surface-coordination-design.md)
