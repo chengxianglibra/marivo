@@ -96,10 +96,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_SECRET_ENV_REF,
         "DatasourceSecretInPlaintext",
         "decorator",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse"),
-        "Datasource secrets must be authored as environment-variable references.",
+        ("duckdb", "trino", "mysql", "postgres", "clickhouse", "register"),
+        "Datasource secrets resolve only from explicit *_env references; ambient MARIVO_* names are ignored.",
         "Datasource files are project metadata; plaintext credentials in them can leak into git and agent context.",
-        'Use *_env fields such as password_env="ENV_VAR_NAME" for password, token, auth, api_key, private_key, and similar fields.',
+        'Use *_env fields such as password_env="ENV_VAR_NAME"; each named variable resolves from the environment and then ~/.marivo/secrets.toml.',
         example='md.trino(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")',
     ),
     ConstraintId.DATASOURCE_LOADER_CONTEXT: _constraint(

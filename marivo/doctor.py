@@ -27,10 +27,8 @@ from marivo.config import (
     SKILL_SEMANTIC,
     load_semantic_layer_paths,
 )
-from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.secrets import conventional_env_var
 
 DoctorStatus = Literal["ok", "warning", "fail", "skipped"]
 ReportStatus = Literal["ok", "warning", "fail"]
@@ -977,20 +975,6 @@ def _secrets_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
                             f'export {env_var}="secret_value"',
                             f"marivo doctor --project-root {project_root} --datasource {datasource.name} --connect",
                         ),
-                    )
-                )
-        for stem in sorted(SENSITIVE_FIELD_STEMS):
-            if stem in datasource.fields or stem in datasource.env_refs:
-                continue
-            conventional = conventional_env_var(datasource.name, stem)
-            if os.environ.get(conventional) or cache.get(conventional):
-                checks.append(
-                    DoctorCheck(
-                        id=f"secret.conventional.{conventional}",
-                        label=conventional,
-                        status="ok",
-                        summary=f"{conventional} is available as a conventional fallback",
-                        details={"datasource": datasource.name, "field": stem},
                     )
                 )
     if not checks:

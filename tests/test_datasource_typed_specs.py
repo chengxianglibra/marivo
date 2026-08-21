@@ -150,7 +150,7 @@ def test_datasource_name_grammar_rejects_legacy_shapes_with_valid_rename(
 
     assert exc_info.value.expected == "[a-z][a-z0-9_]*"
     assert suggested in str(exc_info.value)
-    assert "secrets.toml" in str(exc_info.value)
+    assert "Update references to use the new identity" in str(exc_info.value)
 
 
 def test_datasource_name_validation_uses_shared_ref_segment_grammar(
@@ -357,7 +357,13 @@ def test_store_writes_convenience_function_call(
     monkeypatch.chdir(tmp_path)
 
     md.register(
-        TrinoSpec(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")
+        TrinoSpec(
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+            user_env="MARIVO_WAREHOUSE_USER",
+            auth_env="TRINO_AUTH",
+        )
     )
 
     datasource_file = tmp_path / "models" / "datasources" / "warehouse.py"
@@ -365,8 +371,14 @@ def test_store_writes_convenience_function_call(
     assert "md.trino(" in text
     assert "backend_type" not in text
     assert "description" not in text
+    assert "user_env='MARIVO_WAREHOUSE_USER'" in text or (
+        'user_env="MARIVO_WAREHOUSE_USER"' in text
+    )
     assert "auth_env='TRINO_AUTH'" in text or 'auth_env="TRINO_AUTH"' in text
-    assert md.describe("warehouse").env_refs == {"auth": "TRINO_AUTH"}
+    assert md.describe("warehouse").env_refs == {
+        "user": "MARIVO_WAREHOUSE_USER",
+        "auth": "TRINO_AUTH",
+    }
 
 
 def test_store_persists_ai_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

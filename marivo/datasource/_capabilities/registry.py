@@ -262,6 +262,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="DatasourceSummary",
             inputs=_inputs(("subject", "DatasourceSpec")),
             effects=_effects("local_metadata_read", mutations=("project_state",)),
+            constraints=("datasource_secret_env_ref",),
             example='md.register(md.duckdb(name="warehouse", path=":memory:"))',
             preconditions=("datasource.declared",),
             produced_state="datasource.registered",
