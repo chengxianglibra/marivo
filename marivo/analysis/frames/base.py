@@ -37,7 +37,7 @@ from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult, result_repr
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
-CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v9"] = "analysis-artifact/v9"
+CURRENT_ARTIFACT_SCHEMA_VERSION: Literal["analysis-artifact/v10"] = "analysis-artifact/v10"
 _ARTIFACT_SEMANTIC_INPUT_LIMIT = 12
 _DEFAULT_FRAME_PREVIEW_ROWS = 50
 
@@ -321,7 +321,7 @@ class BaseFrameMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    artifact_schema_version: Literal["analysis-artifact/v9"] = CURRENT_ARTIFACT_SCHEMA_VERSION
+    artifact_schema_version: Literal["analysis-artifact/v10"] = CURRENT_ARTIFACT_SCHEMA_VERSION
     ref: str
     session_id: str
     project_root: str
@@ -1044,6 +1044,10 @@ class BaseFrame(RenderableResult):
                 card.field("evidence", "no evidence findings emitted")
             else:
                 omitted_items = digest.omissions.omitted_items
+                from marivo.analysis.evidence.summary import render_digest_selection
+
+                selection = render_digest_selection(digest)
+                selection_token = f" selection={selection}" if selection is not None else ""
                 recovery = (
                     f"; recover=session.evidence.findings(artifact_ref='{self.meta.ref}')"
                     if omitted_items
@@ -1051,7 +1055,10 @@ class BaseFrame(RenderableResult):
                 )
                 card.field(
                     "evidence",
-                    f"items={len(digest.items)} omitted={omitted_items}{recovery}",
+                    (
+                        f"items={len(digest.items)} omitted={omitted_items}"
+                        f"{selection_token}{recovery}"
+                    ),
                 )
                 if include_digest_items:
                     from marivo.analysis.evidence.summary import render_digest_item

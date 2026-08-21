@@ -1031,11 +1031,11 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(
-        FrameMetaInvalidError, match="is missing required analysis-artifact/v9 fields"
+        FrameMetaInvalidError, match="is missing required analysis-artifact/v10 fields"
     ) as exc_info:
         runtime_session.get_frame(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
-    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v9"
+    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v10"
 
 
 def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_session) -> None:
@@ -1063,9 +1063,9 @@ def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_sessio
     assert "analysis-artifact/v6" in message
     # got/expected must be reachable through public fields and str(e).
     assert exc_info.value.received == "analysis-artifact/v6"
-    assert exc_info.value.expected == "analysis-artifact/v9"
+    assert exc_info.value.expected == "analysis-artifact/v10"
     assert "analysis-artifact/v6" in str(exc_info.value)
-    assert "analysis-artifact/v9" in str(exc_info.value)
+    assert "analysis-artifact/v10" in str(exc_info.value)
     # The failure is a schema cutover, not a v6 missing field.
     assert "missing_fields" not in exc_info.value._context
     # The agent must get an executable repair telling it to regenerate the frame.

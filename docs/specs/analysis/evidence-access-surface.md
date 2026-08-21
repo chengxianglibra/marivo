@@ -46,6 +46,7 @@ The digest is an immutable commit-time snapshot with:
 
 | Field | Meaning |
 | --- | --- |
+| `digest_version` | Digest projection contract version; current producers emit `v2`. |
 | `artifact_ref` | Exact source artifact identity. |
 | `operator` | Operator, version, artifact family, and semantic shape. |
 | `subject` | Metric-shaped subject and analysis axis. |
@@ -79,8 +80,14 @@ built from declared typed finding paths.
 ## Bounds and fallback
 
 A digest retains no more than five items and three inference boundaries. The
-ordering rule is deterministic. `omissions` says when items were left out;
-absence from a bounded digest never means absence from the result.
+ordering rule is deterministic. For a v2 multi-metric `observe` digest, items
+follow the ordered `AnalysisScope.metric_identities` supplied by the observation
+and retain the first five metrics; metric totals are never compared across
+metrics. Each metric's internal `top_segments` ranking remains independent and
+uses absolute segment magnitude. `omissions` says when items were left out;
+absence from a bounded digest never means absence from the result. The readable
+digest and frame card report `selection=metric_input_order` when this bound is
+exceeded.
 
 Use the fallback references when:
 

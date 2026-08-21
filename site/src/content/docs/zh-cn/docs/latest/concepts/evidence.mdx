@@ -38,6 +38,10 @@ result.show()
 
 一个摘要最多保留 5 个类型化项和 3 个推断边界。`omissions` 记录被省略的数量，
 `fallback` 说明精确证据项与原始行是否可用。有界摘要中没有出现，不代表产物中不存在。
+对于多指标观察，摘要按照传给 `observe` 的指标顺序保留前 5 个指标，不会按不同指标的
+总量排名。达到上限时，`show()` 会输出 `selection=metric_input_order`，并通过
+`session.evidence.findings(artifact_ref='<ref>')` 指向全部精确证据项。`top_segments`
+仍是单个指标内部按分群绝对值计算的独立排名。
 
 主要项与操作语义严格对应：
 

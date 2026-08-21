@@ -45,7 +45,13 @@ data preview.
 A digest contains at most five typed items and three inference boundaries. Its
 `omissions` reports discarded item counts, and `fallback` tells you whether
 exact findings and raw rows are available. Absence from a bounded digest does
-not mean absence from the artifact.
+not mean absence from the artifact. For a multi-metric observation, the digest
+retains the first five metrics in the order passed to `observe`; it does not rank
+metrics by their totals. When that limit is reached, `show()` reports
+`selection=metric_input_order` and points to
+`session.evidence.findings(artifact_ref='<ref>')` for every exact finding.
+`top_segments` remains a separate within-metric ranking by absolute segment
+magnitude.
 
 The main item types match operator semantics:
 

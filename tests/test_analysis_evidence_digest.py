@@ -11,11 +11,14 @@ from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     AnomalyCandidateFindingValue,
+    ArtifactDigest,
     AssociationFindingValue,
     DeltaFindingValue,
     DerivationRule,
     Finding,
+    ObservationFindingValue,
     OperatorSemantics,
+    ScalarObservationValue,
     Subject,
     TestFindingValue,
 )
@@ -82,6 +85,111 @@ def test_digest_is_bounded_and_reports_exact_omissions() -> None:
     assert digest.omissions.omitted_kinds == ("change",)
     assert digest.boundaries[0].kind == "full_distribution_not_in_digest"
     assert "unregistered_question" in digest.fallback.recommended_when
+
+
+def _observation_finding(*, metric_id: str, value: float) -> Finding:
+    subject = make_test_subject(metric_id=metric_id, analysis_axis="scalar")
+    canonical_item_key = f"metric:{metric_id}:digest"
+    return Finding(
+        finding_id=f"fnd_{metric_id}",
+        finding_type="observation",
+        epistemic_kind="observed",
+        artifact_id="art_observe",
+        session_id="sess_1",
+        subject=subject,
+        canonical_item_key=canonical_item_key,
+        value=ObservationFindingValue(
+            row_count=1,
+            value=ScalarObservationValue(value=value),
+        ),
+        derivation=DerivationRule(
+            rule_id="extract.observation_aggregate",
+            rule_version="v2",
+            operator="observe",
+            source_fields=("value",),
+            source_finding_refs=(),
+        ),
+        committed_at=datetime.now(UTC),
+    )
+
+
+def test_multi_metric_observe_digest_retains_metric_input_order() -> None:
+    metrics = (
+        ("sales.zeta", 1_000.0),
+        ("sales.alpha", 1.0),
+        ("sales.theta", 900.0),
+        ("sales.beta", 2.0),
+        ("sales.omega", 800.0),
+        ("sales.gamma", 3.0),
+        ("sales.delta", 4.0),
+        ("sales.epsilon", 5.0),
+    )
+    findings = tuple(
+        _observation_finding(metric_id=metric_id, value=value) for metric_id, value in metrics
+    )
+
+    def build(candidate_findings: tuple[Finding, ...]):
+        return build_artifact_digest(
+            artifact_ref="art_observe",
+            operator=OperatorSemantics(
+                operator="observe",
+                operator_version="v1",
+                artifact_family="metric_frame",
+                semantic_shape="scalar",
+            ),
+            subject=make_test_subject(metric_id=None, analysis_axis="scalar"),
+            scope=make_test_analysis_scope(*(metric_id for metric_id, _ in metrics)),
+            findings=candidate_findings,
+            quality=None,
+            rows_available=True,
+        )
+
+    digest = build(findings)
+    reversed_digest = build(tuple(reversed(findings)))
+    expected_metric_ids = tuple(metric_id for metric_id, _ in metrics[:5])
+
+    assert digest.digest_version == "v2"
+    assert tuple(item.subject.metric for item in digest.items) == expected_metric_ids
+    assert reversed_digest.items == digest.items
+    assert reversed_digest.fingerprint == digest.fingerprint
+    assert digest.omissions.omitted_items == 3
+    rendered = digest.render(max_output_bytes=None)
+    recovery = "recover=session.evidence.findings(artifact_ref='art_observe')"
+    assert f"selection=metric_input_order; {recovery}" in rendered
+
+    historical = ArtifactDigest.model_validate(
+        {**digest.model_dump(mode="python"), "digest_version": "v1"}
+    )
+    assert historical.digest_version == "v1"
+    historical_rendered = historical.render(max_output_bytes=None)
+    assert "selection=metric_input_order" not in historical_rendered
+    assert recovery in historical_rendered
+
+
+@pytest.mark.parametrize("metric_id", [None, "sales.outside_scope"])
+def test_multi_metric_observe_digest_rejects_unscoped_item_subject(
+    metric_id: str | None,
+) -> None:
+    finding = _observation_finding(metric_id="sales.alpha", value=1.0)
+    finding = finding.model_copy(
+        update={"subject": make_test_subject(metric_id=metric_id, analysis_axis="scalar")}
+    )
+
+    with pytest.raises(ValueError, match="multi-metric observe digest"):
+        build_artifact_digest(
+            artifact_ref="art_observe",
+            operator=OperatorSemantics(
+                operator="observe",
+                operator_version="v1",
+                artifact_family="metric_frame",
+                semantic_shape="scalar",
+            ),
+            subject=make_test_subject(metric_id=None, analysis_axis="scalar"),
+            scope=make_test_analysis_scope("sales.alpha", "sales.beta"),
+            findings=(finding,),
+            quality=None,
+            rows_available=True,
+        )
 
 
 def test_digest_fingerprint_ignores_finding_commit_time() -> None:

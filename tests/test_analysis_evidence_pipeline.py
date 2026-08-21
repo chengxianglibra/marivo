@@ -12,7 +12,9 @@ from pydantic import ValidationError
 
 import marivo.analysis.evidence.pipeline as pipeline_module
 from marivo._compat import UTC
+from marivo.analysis._semantic_persistence import MeasureBindingV1
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
+from marivo.analysis.evidence.audit import query_findings
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -30,7 +32,7 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
-from tests.shared_fixtures import make_test_metric_contract
+from tests.shared_fixtures import make_test_metric_contract, make_test_multi_metric_contract
 
 
 def _frame(tmp_path: Path, *, ordinal: int = 0) -> MetricFrame:
@@ -112,6 +114,57 @@ def _attribution_frame(tmp_path: Path) -> AttributionFrame:
     return AttributionFrame(_df=df, meta=meta)
 
 
+def _multi_metric_frame(tmp_path: Path) -> tuple[MetricFrame, tuple[str, ...]]:
+    metric_ids = (
+        "sales.zeta",
+        "sales.alpha",
+        "sales.theta",
+        "sales.beta",
+        "sales.omega",
+        "sales.gamma",
+        "sales.delta",
+        "sales.epsilon",
+    )
+    values = (1_000.0, 1.0, 900.0, 2.0, 800.0, 3.0, 4.0, 5.0)
+    columns = tuple(metric_id.rsplit(".", 1)[-1] for metric_id in metric_ids)
+    data = pd.DataFrame({column: [value] for column, value in zip(columns, values, strict=True)})
+    contract = make_test_multi_metric_contract(*metric_ids, axes={})
+    bindings = tuple(
+        MeasureBindingV1(
+            identity=identity,
+            value_column=column,
+            display_name=column,
+            additivity="additive",
+        )
+        for identity, column in zip(contract["metric_identities"], columns, strict=True)
+    )
+    frame = MetricFrame(
+        _df=data,
+        meta=MetricFrameMeta(
+            **contract,
+            kind="metric_frame",
+            ref="placeholder",
+            session_id="sess_1",
+            project_root=str(tmp_path),
+            produced_by_job=None,
+            created_at=datetime(2026, 7, 18, tzinfo=UTC),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id=None,
+            axes={},
+            measure={},
+            measures=None,
+            measure_bindings=bindings,
+            window=None,
+            where={},
+            semantic_kind="scalar",
+            semantic_model="sales",
+        ),
+    )
+    return frame, metric_ids
+
+
 def _commit(tmp_path: Path, *, emit_evidence: bool = True, store=True, ordinal: int = 0):
     evidence_store = open_evidence_store(tmp_path / "judgment.db") if store else None
     frame = _frame(tmp_path, ordinal=ordinal)
@@ -181,6 +234,61 @@ def test_complete_commit_persists_identical_digest_in_db_and_sidecar(tmp_path: P
             .fetchone()[0]
             == 2
         )
+    finally:
+        store.close()
+
+
+def test_multi_metric_commit_persists_and_renders_metric_input_order(tmp_path: Path) -> None:
+    store = open_evidence_store(tmp_path / "judgment.db")
+    frame, metric_ids = _multi_metric_frame(tmp_path)
+    try:
+        result = commit_result(
+            store=store,
+            frames_dir=tmp_path / "frames",
+            frame=frame,
+            step_type="observe",
+            inputs=CommitInputs(input_refs=[]),
+            params=CommitParams(values={"metrics": list(metric_ids)}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="scalar"),
+            extractor_family="metric_frame",
+        )
+
+        assert result.evidence_digest is not None
+        assert tuple(item.subject.metric for item in result.evidence_digest.items) == metric_ids[:5]
+        assert result.evidence_digest.omissions.omitted_items == 3
+        rendered = result.render(max_output_bytes=None)
+        evidence_line = (
+            "evidence: items=5 omitted=3 selection=metric_input_order; "
+            f"recover=session.evidence.findings(artifact_ref='{result.ref}')"
+        )
+        assert evidence_line in rendered
+        assert rendered.index(evidence_line) < rendered.index("preview:")
+        for metric_id in metric_ids[:5]:
+            assert f"subject={metric_id} observation" in rendered
+
+        findings = query_findings(
+            store=store,
+            session_id="sess_1",
+            artifact_ref=result.ref,
+            kind="observation",
+            limit=50,
+        )
+        assert {finding.subject.metric for finding in findings.items} == set(metric_ids)
+
+        row = (
+            store.read()
+            .execute(
+                "SELECT digest_payload, fingerprint FROM artifact_digests WHERE artifact_id = ?",
+                (result.ref,),
+            )
+            .fetchone()
+        )
+        sidecar = json.loads(
+            (tmp_path / "frames" / result.ref / "meta.json").read_text(encoding="utf-8")
+        )
+        assert json.loads(row["digest_payload"]) == sidecar["evidence_digest"]
+        assert row["fingerprint"] == result.evidence_digest.fingerprint
     finally:
         store.close()
 
