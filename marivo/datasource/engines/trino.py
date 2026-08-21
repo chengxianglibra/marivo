@@ -122,8 +122,10 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
     select_columns = ", ".join(
         _partition_column_select(column, iceberg) for column in request.partition_columns
     )
+    direction = request.order.upper()
     order_by = ", ".join(
-        f"{_partition_column_ref(column, iceberg)} DESC" for column in request.partition_columns
+        f"{_partition_column_ref(column, iceberg)} {direction}"
+        for column in request.partition_columns
     )
     sql = f"SELECT {select_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {request.limit}"
     frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)

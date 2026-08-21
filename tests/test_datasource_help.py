@@ -155,12 +155,21 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
 
     assert "inspection = md.inspect(" in inspect_text
     assert "inspection.show()" in inspect_text
-    assert "inspection.partitions().show()" in partitions_text
+    assert 'inspection.partitions(limit=1, order="asc").show()' in partitions_text
+    assert 'inspection.partitions(limit=100, order="desc").show()' in partitions_text
+    assert "# ascending edge" in partitions_text
+    assert "# descending edge" in partitions_text
+    assert "# earliest" not in partitions_text
+    assert "# latest" not in partitions_text
+    assert "partition_listing_bounded" in partitions_text
     assert "inspection = md.inspect(" in sample_text
     assert "snapshot = inspection.sample(" in sample_text
     assert "snapshot.show()" in sample_text
     assert "snapshot.contract().show()" in sample_text
     assert 'snapshot.dimensions(columns=("status",)).show()' in sample_text
+    assert "persist_values=True" in sample_text
+    assert "snapshot_value_persistence" in sample_text
+    assert "later process" in sample_text
     assert 'source_params={"apps": ["app-1", "app-2"]}' in sample_text
 
 

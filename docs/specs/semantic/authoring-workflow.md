@@ -193,6 +193,12 @@ snapshot.time_dimensions(columns=("created_at",)).show()
 snapshot.measures(columns=("amount",)).show()
 ```
 
+Keep snapshot values memory-only when all projections run in this process. If
+value projections or retained-row certification must continue in another
+process, make the privacy decision before this original acquisition and use
+`persist_values=True`; otherwise cold recovery retains metadata but reports the
+value evidence as unavailable.
+
 `md.table(...)` has two closed authoring modes: catalog-backed discovery without
 `columns=`, and a typed projection whose `columns` map stable output aliases to
 `md.source_column(...)` bindings. Semantic `primary_key` and direct

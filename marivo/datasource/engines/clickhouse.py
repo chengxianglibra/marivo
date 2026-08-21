@@ -127,6 +127,7 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
     database, table = clickhouse_system_parts_target(
         request.backend, request.datasource_ir, request.source
     )
+    direction = request.order.upper()
     sql = (
         f"SELECT partition AS {quote_identifier(column, PROFILE)} "
         "FROM system.parts "
@@ -134,7 +135,7 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
         f"AND database = {_quote_sql_literal(database)} "
         f"AND table = {_quote_sql_literal(table)} "
         "GROUP BY partition "
-        "ORDER BY partition DESC "
+        f"ORDER BY partition {direction} "
         f"LIMIT {request.limit}"
     )
     frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)

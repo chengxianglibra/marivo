@@ -11,7 +11,7 @@ through the ``partition`` row when the table is Iceberg. See issue #21.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from marivo.datasource.authoring import TrinoSpec
 from marivo.datasource.engines.base import PartitionProbeRequest
@@ -50,6 +50,7 @@ def _request(
     table: str,
     columns: tuple[str, ...],
     limit: int,
+    order: Literal["asc", "desc"] = "desc",
 ) -> PartitionProbeRequest:
     ir = TrinoSpec(name="trino_olap", host="trino.example", catalog="hive").to_ir(
         location=DatasourceSourceLocation(file="<test>", line=1)
@@ -60,6 +61,7 @@ def _request(
         source=TableSourceIR(table=table, database=database),
         partition_columns=columns,
         limit=limit,
+        order=order,
     )
 
 
@@ -131,3 +133,27 @@ def test_hive_partitions_table_exposes_partition_columns_top_level() -> None:
     # must NOT route them through a ``partition`` row that does not exist here.
     assert '"partition"' not in enum_query
     assert '"dt"' in enum_query
+
+
+def test_partition_enumeration_applies_requested_ascending_order() -> None:
+    columns = ("dt", "hour")
+    table_ref = '"hive"."warehouse"."orders$partitions"'
+    backend = _Backend(
+        table_ref,
+        {
+            "SELECT *": _Cursor(
+                description=(("dt", "varchar"), ("hour", "varchar")),
+                rows=(),
+            ),
+            f"FROM {table_ref} ORDER BY": _Cursor(
+                description=(("dt", "varchar"), ("hour", "varchar")),
+                rows=(("2026-01-01", "00"),),
+            ),
+        },
+    )
+    request = _request(backend, "warehouse", "orders", columns, 2, order="asc")
+
+    inspect_partition_values(request)
+
+    enum_query = next(sql for sql in backend.calls if "ORDER BY" in sql)
+    assert 'ORDER BY "dt" ASC, "hour" ASC LIMIT 2' in enum_query

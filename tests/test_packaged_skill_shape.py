@@ -44,6 +44,15 @@ def test_semantic_skill_package_layout() -> None:
     assert sorted(path.name for path in SEMANTIC_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
 
+def test_semantic_skill_routes_cross_process_value_continuity_to_live_help() -> None:
+    text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text()
+
+    assert "cross-process value projections" in text
+    assert "focused sample help" in text
+    assert "plaintext project-local value" in text
+    assert "persistence; do not discover this requirement" in text
+
+
 def test_no_active_source_references_deleted_semantic_paths() -> None:
     forbidden = "marivo/skills/marivo-semantic/references"
     assert not _active_references_to_deleted_semantic_paths(forbidden)

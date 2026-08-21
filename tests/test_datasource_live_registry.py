@@ -126,7 +126,9 @@ EXPECTED_EFFECTS = {
         flags=("may_cache_resolved_secret",),
     ),
     "DatasourceConnection.disconnect": AuthoringEffects(data_access="none", connection="none"),
-    "SourceInspection.partitions": AuthoringEffects(data_access="none", connection="none"),
+    "SourceInspection.partitions": AuthoringEffects(
+        data_access="live_metadata_read", connection="opens_connection"
+    ),
     "SourceInspection.sample": AuthoringEffects(
         data_access="scoped_data_read",
         connection="opens_connection",

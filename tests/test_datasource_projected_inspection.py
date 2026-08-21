@@ -330,6 +330,15 @@ def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
     assert inspection.partitioning.values == ((("event_day", "2026-08-17"),),)
     assert inspection.partitions().contract().transitions[0].available is True
 
+    ascending = inspection.partitions(limit=1, order="asc")
+    assert requests[1].partition_columns == ("dt",)
+    assert requests[1].source.columns == ()
+    assert requests[1].limit == 2
+    assert requests[1].order == "asc"
+    assert ascending.partitioning.values == ((("event_day", "2026-08-17"),),)
+    assert ascending.limit == 1
+    assert ascending.order == "asc"
+
     omitted = md.inspect(
         ms.ref.datasource("warehouse"),
         _projected_source(include_partition=False),

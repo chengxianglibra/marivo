@@ -53,11 +53,13 @@ INPUT_FAMILIES = frozenset(
         "TypedSchema",
         "JsonFieldPaths",
         "PartitionValues",
+        "PartitionOrder",
         "TemporalColumn",
         "TemporalBound",
         "PositiveRowGuard",
         "PositiveTimeoutGuard",
         "PositiveLimit",
+        "SnapshotPersistencePolicy",
         "SqlText",
         "RawSqlReason",
         "HelpTarget",
@@ -561,13 +563,20 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.partitions",
             "marivo.datasource.inspection.SourceInspection.partitions",
-            "Read partition evidence captured during inspection.",
+            "Read one bounded ordered edge of partition metadata.",
             kind="method",
             output="PartitionInspection",
-            inputs=_inputs(("receiver", "SourceInspection")),
+            inputs=(
+                *_inputs(("receiver", "SourceInspection")),
+                _optional_input("scope", "PositiveLimit"),
+                _optional_input("scope", "PartitionOrder"),
+            ),
+            effects=_effects("live_metadata_read", "opens_connection"),
+            constraints=("partition_listing_bounded",),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
-                "inspection.partitions().show()"
+                'inspection.partitions(limit=1, order="asc").show()  # ascending edge\n'
+                'inspection.partitions(limit=100, order="desc").show()  # descending edge'
             ),
             public_entrypoint="inspection.partitions",
         ),
@@ -584,6 +593,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                     ("dependency", "Columns"),
                 ),
                 _optional_input("dependency", "SourceParameters"),
+                _optional_input("scope", "SnapshotPersistencePolicy"),
             ),
             effects=_effects(
                 "scoped_data_read",
@@ -596,7 +606,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                     "may_persist_plaintext_values",
                 ),
             ),
-            constraints=("json_source_params_exact",),
+            constraints=("json_source_params_exact", "snapshot_value_persistence"),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "snapshot = inspection.sample(\n"
@@ -606,6 +616,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "snapshot.show()\n"
                 "snapshot.contract().show()\n"
                 'snapshot.dimensions(columns=("status",)).show()\n'
+                "# If a later process needs value projections, explicitly accept plaintext\n"
+                "# project-local caching and pass persist_values=True to the original sample.\n"
                 '# For md.source_param("apps"), add '
                 'source_params={"apps": ["app-1", "app-2"]}.'
             ),
@@ -1013,7 +1025,15 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         PartitionInspection,
         "PartitionInspection",
         ("SourceInspection.partitions",),
-        properties=("datasource", "source", "partitioning", "status", "issues"),
+        properties=(
+            "datasource",
+            "source",
+            "partitioning",
+            "limit",
+            "order",
+            "status",
+            "issues",
+        ),
         methods=("contract", *show_render),
         state_bearing=True,
     )
