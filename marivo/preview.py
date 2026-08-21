@@ -127,7 +127,8 @@ class PreviewResult(RenderableResult):
         status_parts = [
             f"status={self.status}",
             f"truncated={self.is_truncated}",
-            f"coverage={self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}",
+            (f"scope_coverage={self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}"),
+            (f"sample_policy={self.sample_policy.method}(limit={self.sample_policy.limit})"),
         ]
         if self.timezones:
             labels = [
@@ -135,14 +136,18 @@ class PreviewResult(RenderableResult):
                 for column, info in sorted(self.timezones.items())
             ]
             status_parts.append("; ".join(labels))
-        return (
-            Card(identity=self._repr_identity(), available=(".show()",))
-            .status(" ".join(status_parts))
-            .table(
-                columns=list(self.columns),
-                rows=preview_rows,
-                row_count=self.returned_row_count,
+        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
+            " ".join(status_parts)
+        )
+        if self.warnings:
+            card = card.listing(
+                "warnings",
+                (f"{warning.kind}: {warning.message}" for warning in self.warnings),
             )
+        return card.table(
+            columns=list(self.columns),
+            rows=preview_rows,
+            row_count=self.returned_row_count,
         )
 
 

@@ -341,6 +341,11 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   canonical readiness-repair path when several already-authored objects lack
   preview evidence. It batches compatible execution plans but persists exact
   evidence per object; it does not replace the one-object authoring loop.
+- The preview `limit` argument bounds returned display rows. Metric previews
+  independently cap scoped input at 10,000 rows before aggregation, expose that
+  `pre_aggregate_limit` in `PreviewResult.sample_policy`, and render an
+  `approximate_preview` warning. Snapshot scope coverage therefore does not make
+  the displayed metric value an exact aggregate.
 - **`catalog.readiness(refs=[ref])`** is the final zero-query closeout gate. It
   reads matching static and runtime-check evidence, reports missing datasource
   snapshots and missing or stale preview evidence as advisories, and never

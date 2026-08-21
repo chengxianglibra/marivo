@@ -10,6 +10,7 @@ import pytest
 from marivo.preview import (
     PreviewLimitError,
     PreviewSamplePolicy,
+    PreviewWarning,
     display_column_names,
     normalize_preview_cell,
     preview_from_pandas,
@@ -99,6 +100,32 @@ def test_preview_result_carries_timezones_in_render() -> None:
     rendered = preview.render()
     assert "created_at" in rendered
     assert "report_tz=Asia/Shanghai" in rendered
+
+
+def test_preview_result_renders_sample_policy_and_warnings() -> None:
+    preview = preview_from_pandas(
+        pd.DataFrame({"value": [10_000.0]}),
+        kind="semantic_metric",
+        ref="sales.revenue",
+        requested_limit=2,
+        sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=10_000),
+        warnings=(
+            PreviewWarning(
+                kind="approximate_preview",
+                message=(
+                    "metric preview aggregates at most 10,000 scoped input rows; "
+                    "treat the result as approximate"
+                ),
+            ),
+        ),
+    )
+
+    rendered = preview.render()
+
+    assert "scope_coverage=exhaustive/scope_exact" in rendered
+    assert "sample_policy=pre_aggregate_limit(limit=10000)" in rendered
+    assert "warnings:" in rendered
+    assert "approximate_preview: metric preview aggregates at most 10,000" in rendered
 
 
 def test_preview_from_pandas_warns_on_empty_preview() -> None:

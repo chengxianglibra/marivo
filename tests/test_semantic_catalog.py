@@ -15,6 +15,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.preview import METRIC_PREVIEW_SAMPLE_SIZE
 from marivo.refs import (
     DimensionKind,
     MeasureKind,
@@ -1969,7 +1970,51 @@ def test_catalog_preview_metric_preserves_approximate_warning(
     )
 
     assert preview.ref == "sales.revenue"
+    assert preview.sample_policy.method == "pre_aggregate_limit"
+    assert preview.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE
     assert any(w.kind == "approximate_preview" for w in preview.warnings)
+    rendered = preview.render()
+    assert "sample_policy=pre_aggregate_limit(limit=10000)" in rendered
+    assert "treat the result as approximate" in rendered
+
+
+def test_catalog_preview_metric_caps_input_before_aggregation(
+    semantic_project_factory, tmp_path, monkeypatch
+) -> None:
+    database_path = tmp_path / "warehouse.duckdb"
+    backend = ibis.duckdb.connect(str(database_path))
+    backend.raw_sql(
+        "CREATE TABLE orders AS "
+        "SELECT i AS order_id, 1.0 AS amount, 'east' AS region, "
+        "TIMESTAMP '2026-01-01' AS created_at FROM range(10001) AS rows(i)"
+    )
+    backend.disconnect()
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            ),
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    catalog = SemanticCatalog(project)
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
+        scope=md.unpruned(max_rows=10_001, timeout_seconds=30),
+        columns=("order_id", "amount", "region", "created_at"),
+    )
+
+    preview = catalog.preview(
+        catalog.require(ms.ref.metric("sales.revenue")).ref,
+        using=snapshot,
+        limit=2,
+    )
+
+    assert preview.rows == ({"value": 10_000.0},)
+    assert preview.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE
+    assert "treat the result as approximate" in preview.render()
 
 
 def test_catalog_preview_ratio_over_filtered_weighted_means(

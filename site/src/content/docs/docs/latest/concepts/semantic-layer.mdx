@@ -953,6 +953,12 @@ These runtime calls accept the current entry or its exact ref and normalize to
 the ref immediately. Readiness output, preview evidence, persistence, replay,
 and recovery stay ref-based.
 
+The preview `limit` controls how many result rows are displayed. Metric previews
+use a separate safety bound: they aggregate at most 10,000 scoped input rows.
+Their result card shows `sample_policy=pre_aggregate_limit(limit=10000)` and an
+`approximate_preview` warning, so even exhaustive snapshot scope coverage must
+not be read as proof that the displayed metric value is exact.
+
 :::note[Readiness is explicit certification]
 A project can `load()` successfully while readiness is still blocked because
 loading and certification answer different questions. Analysis APIs load,
