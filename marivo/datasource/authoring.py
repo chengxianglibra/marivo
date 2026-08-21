@@ -18,6 +18,7 @@ from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLoca
 from marivo.datasource.typing import AiContextValue
 from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
 from marivo.refs import ref as ref_factory
+from marivo.render import Card, RenderableResult
 
 
 def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
@@ -63,6 +64,15 @@ SENSITIVE_FIELD_STEMS = frozenset(
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
 _META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
+
+_SPEC_TARGET_FIELDS: dict[str, tuple[str, ...]] = {
+    "duckdb": ("path",),
+    "sqlite": ("path",),
+    "trino": ("host", "catalog", "port", "schema", "http_scheme"),
+    "mysql": ("host", "database", "port"),
+    "postgres": ("host", "database", "port", "schema"),
+    "clickhouse": ("host", "port", "database", "secure"),
+}
 
 
 def _description(text: str) -> dict[str, str]:
@@ -179,8 +189,8 @@ class DatasourceLoaderContext:
     pending_objects: list[DatasourceIR] = field(default_factory=list)
 
 
-@dataclass(frozen=True, kw_only=True)
-class _SpecBase:
+@dataclass(frozen=True, kw_only=True, repr=False)
+class _SpecBase(RenderableResult):
     """Shared behavior for concrete datasource specification classes."""
 
     name: str = field(
@@ -224,6 +234,54 @@ class _SpecBase:
         from marivo.datasource._capabilities.contracts import contract_for_spec
 
         return contract_for_spec(self.name)
+
+    def _repr_identity(self) -> str:
+        return f"{type(self).__name__} name={self.name} backend={self.backend_type}"
+
+    def _card(self) -> Card:
+        target_fields = _SPEC_TARGET_FIELDS[self.backend_type]
+        rendered_target = " | ".join(
+            f"{name}={self.fields[name]!r}" for name in target_fields if name in self.fields
+        )
+        credential_fields = sorted(
+            {
+                "http_headers_env" if name.startswith("http_header:") else f"{name}_env"
+                for name in self.env_refs
+            }
+        )
+        additional_fields = set(self.fields).difference(target_fields)
+        for dataclass_field in fields(self):
+            if dataclass_field.name not in additional_fields:
+                continue
+            if (
+                dataclass_field.default is not MISSING
+                and getattr(self, dataclass_field.name) == dataclass_field.default
+            ):
+                additional_fields.remove(dataclass_field.name)
+
+        card = (
+            Card(
+                identity=self._repr_identity(),
+                available=(".fields", ".env_refs", ".contract()", ".show()"),
+            )
+            .status("datasource.declared")
+            .field("ref", self.ref.key)
+            .field("target", rendered_target)
+        )
+        if credential_fields:
+            ref_count = len(self.env_refs)
+            card.field(
+                "credential fields",
+                f"{' | '.join(credential_fields)} "
+                f"({ref_count} {'ref' if ref_count == 1 else 'refs'})",
+            )
+        if additional_fields:
+            field_count = len(additional_fields)
+            card.field(
+                "additional configuration",
+                f"{field_count} {'field' if field_count == 1 else 'fields'}; inspect .fields",
+            )
+        return card
 
     def _validate_required_string_fields(self) -> None:
         for dataclass_field in fields(self):
@@ -316,7 +374,7 @@ class _SpecBase:
         )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class DuckDBSpec(_SpecBase):
     """DuckDB datasource specification."""
 
@@ -396,7 +454,7 @@ class DuckDBSpec(_SpecBase):
             )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class SQLiteSpec(_SpecBase):
     """SQLite datasource specification."""
 
@@ -415,7 +473,7 @@ class SQLiteSpec(_SpecBase):
     )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class TrinoSpec(_SpecBase):
     """Trino datasource specification."""
 
@@ -450,7 +508,7 @@ class TrinoSpec(_SpecBase):
     )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class MySQLSpec(_SpecBase):
     """MySQL datasource specification."""
 
@@ -471,7 +529,7 @@ class MySQLSpec(_SpecBase):
     )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class PostgresSpec(_SpecBase):
     """Postgres datasource specification."""
 
@@ -493,7 +551,7 @@ class PostgresSpec(_SpecBase):
     )
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, repr=False)
 class ClickHouseSpec(_SpecBase):
     """ClickHouse datasource specification."""
 
