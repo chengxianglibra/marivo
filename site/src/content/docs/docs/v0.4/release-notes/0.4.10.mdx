@@ -1,0 +1,84 @@
+---
+slug: docs/v0.4/release-notes/0.4.10
+title: Marivo 0.4.10
+description: Release notes for Marivo 0.4.10.
+---
+
+Marivo 0.4.10 strengthens multi-metric and temporal analysis, makes quality
+evidence more precise, and improves the handoff from semantic authoring to
+analysis for agents.
+
+## Highlights
+
+- Multi-metric observations now preserve each metric binding's aggregation
+  semantics across transforms and only expose reaggregation when the metric is
+  additive. Mixed temporal axes provide a ready-to-copy split plan instead of
+  leaving the agent to infer how to separate the observations.
+- Temporal readiness now surfaces an undeclared timezone for inferred naive
+  time axes, so the author can make the time interpretation explicit before
+  execution. Cumulative observations over decimal inputs are normalized to a
+  stable `float64` representation in dense execution paths.
+- Semantic authoring can hand off to analysis automatically once the semantic
+  object is ready. Session recovery now identifies the exact session-owned
+  state, while the analysis bootstrap and environment guidance make the
+  supported entry path and its traceability clearer.
+- Quality assessment distinguishes correctness-blocking issues from contextual
+  evidence, and multi-metric evidence digests retain the input metric order.
+  Derived metrics also expose their details through the semantic catalog.
+
+## Changed
+
+- Quality checks and readiness reports now carry more precise temporal,
+  metric-binding, and evidence scope information into repair guidance.
+- Analysis continuation and semantic handoff guidance use the current public
+  workflow and explicit session identity instead of relying on an implicit
+  latest result or a compatibility-only quality field.
+
+## Fixed
+
+- Multi-metric evidence no longer changes the caller's metric order while
+  building a digest or summary.
+- Per-binding aggregation metadata is preserved when metric values are loaded,
+  transformed, and reused by analysis operations.
+- Decimal cumulative values no longer remain in an inconsistent numeric type
+  on dense paths.
+- Inferred naive time axes now report the missing timezone authority rather
+  than silently proceeding with an ambiguous interpretation.
+- Mixed-axis multi-metric observations now return a concrete split plan that
+  can be copied into the next operation.
+
+## Documentation
+
+- The analysis and semantic guides document the automatic handoff, explicit
+  session recovery identity, correctness-only quality blocking, temporal
+  authority, multi-metric value semantics, and derived-metric catalog details.
+
+## Installation
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+In mainland China, use:
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+For manual installation:
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.10
+requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)

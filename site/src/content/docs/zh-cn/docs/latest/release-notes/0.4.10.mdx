@@ -1,0 +1,72 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.10
+title: Marivo 0.4.10
+description: Marivo 0.4.10 发布说明。
+---
+
+Marivo 0.4.10 强化了多指标和时间分析，让质量证据更加精确，并改善了面向 agent
+的语义编写到分析流程的交接。
+
+## 重点
+
+- 多指标观测现在会在变换过程中保留每个 metric binding 的聚合语义，只有可加指标才会
+  暴露重新聚合能力。时间轴不一致的多指标观测会提供可直接复制的拆分方案，不再需要
+  agent 自行推断如何拆分。
+- Temporal readiness 现在会指出推断出的无时区时间轴缺少声明的时区，因此作者可以在执行
+  前明确时间解释。基于 decimal 输入的累计观测在 dense 执行路径中会统一为稳定的
+  `float64` 表示。
+- 语义对象就绪后可以自动交接到分析流程。Session 恢复现在会标识准确的 session 所属状态；
+  analysis bootstrap 和环境指引也更清楚地说明支持的入口与可追溯性。
+- 质量评估会区分阻断正确性的 issue 与上下文证据，多指标 evidence digest 会保留输入指标
+  顺序；derived metric 也会通过 semantic catalog 暴露详细信息。
+
+## 变更
+
+- Quality check 和 readiness report 会在修复指引中携带更精确的时间、指标绑定和 evidence
+  scope 信息。
+- Analysis continuation 与语义交接指引现在使用当前公开流程和明确的 session identity，
+  不再依赖隐式的 latest result 或仅用于兼容的 quality 字段。
+
+## 修复
+
+- 构建多指标 digest 或 summary 时不再改变调用方的指标顺序。
+- Metric value 在加载、变换和复用于分析操作时会保留每个 binding 的聚合元数据。
+- Decimal 累计值在 dense 路径中不再保持不一致的数值类型。
+- 推断出的无时区时间轴会报告缺失的时区 authority，不再静默使用含义不明确的解释继续执行。
+- 时间轴不一致的多指标观测现在会返回可复制的具体拆分方案，便于继续下一步操作。
+
+## 文档
+
+- 分析和语义指南补充了自动交接、明确的 session 恢复身份、仅阻断正确性的质量检查、时间
+  authority、多指标 value semantics 以及 derived metric catalog 详情。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.10 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)
