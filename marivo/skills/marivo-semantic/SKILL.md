@@ -18,12 +18,17 @@ continue the original question. Return here when analysis exposes another
 reusable semantic gap. Do not ask permission to switch skills; ask only when
 business meaning itself remains unresolved.
 
-For a build request, the first routing decision is the non-observable decision
+For a semantic build request, the first routing decision is the non-observable decision
 preflight. After one environment fingerprint and one current-project catalog
 read, ask for a missing accountable owner or target business concept and stop.
 Do not enumerate root/focused help or inspect metadata before that stop.
 Do not bundle independent judgments. A user-named build target satisfies the
 target-concept preflight unless its ambiguity would change the requested scope.
+
+For a datasource-only request that only declares, registers, and validates a
+connection, use the short datasource route and stop after validation. Do not
+enter physical-source discovery or semantic authoring unless the request needs
+them.
 
 ## Ownership and authority
 
@@ -73,11 +78,25 @@ Prefer focused help for the active object. When several already-known,
 independent targets are needed, prefer rendering them in one interpreter
 invocation.
 
+If live help fails unexpectedly, use the current error or result contract when
+one exists and prefer a focused or root retry. Local docs or installed package
+source are valid read-only recovery aids when help remains unavailable; treat
+private implementation details as unverified, do not call private APIs, and do
+not bypass datasource safety boundaries.
+
 ## Canonical route
 
-Resume from the earliest unsatisfied boundary for one object:
+Choose the smallest route that matches the request:
 
 ```text
+datasource-only:
+environment -> declare -> register -> connection test -> closeout
+
+physical-source discovery:
+environment -> project browse -> non-observable decision preflight
+-> metadata inspect -> explicit scope -> one snapshot -> query-free projections
+
+semantic authoring:
 environment -> project browse -> non-observable decision preflight
 -> metadata inspect -> explicit scope -> one snapshot -> query-free projections
 -> evidence-grounded judgment -> author one object -> load exact entry
@@ -94,6 +113,9 @@ The partial order is policy even when a live method is mechanically callable:
 - validate one authored object before advancing;
 - static verification precedes required preview;
 - readiness precedes analysis use.
+
+Keep already-known independent datasource actions in one interpreter invocation
+when practical; do not depend on process-local state across invocations.
 
 ### Decision preflight
 
@@ -209,6 +231,7 @@ A loadable model without the required inception is not silently treated as repla
 
 | Current condition | Route |
 | --- | --- |
+| Datasource declaration only | Declare, register, test the connection, then close out |
 | Environment mismatch | Stop before connection, data read, or mutation |
 | Non-observable required decision missing | Ask one accountable question before sampling |
 | Current result or error exists | Read `.show()` and `.contract()` or its typed repair |

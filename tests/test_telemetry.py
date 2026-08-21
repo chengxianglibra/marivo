@@ -505,6 +505,31 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
     assert completed["marivo.help.resolved_owner"] == "global"
 
 
+def test_unified_help_surface_failure_is_tracked_separately(
+    telemetry_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import marivo
+    from marivo._help import render as help_render
+    from marivo._help.model import MarivoHelpSurfaceError
+
+    def fail(_target: object = None) -> tuple[str, str, str | None]:
+        raise RuntimeError("synthetic renderer failure")
+
+    monkeypatch.setattr(help_render, "render_help_text", fail)
+
+    with pytest.raises(MarivoHelpSurfaceError):
+        marivo.help("datasource.duckdb")
+
+    path = _event_path(telemetry_project)
+    completed = _attrs(_capability_records(path, "help")[-1])
+    assert completed["marivo.surface"] == "help"
+    assert completed["marivo.operation.status"] == "error"
+    assert completed["marivo.error.class"] == "MarivoHelpSurfaceError"
+    assert completed["marivo.help.outcome"] == "surface_error"
+    assert completed["marivo.help.resolved_owner"] == "global"
+
+
 def test_surface_root_help_tracks_exact_owner_and_canonical_id(
     telemetry_project: Path,
 ) -> None:
