@@ -32,8 +32,13 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
         "unpruned",
     ):
         assert target in text
-    assert "output:" in text
-    assert "effects:" in text
+    assert "-> SourceInspection" in text
+    assert "effects: live_metadata_read, opens_connection" in text
+    assert "effects: none" not in text
+    assert "no mutation" not in text
+    assert "no extra guards" not in text
+    assert "Consumed types:" not in text
+    assert "Errors:" not in text
     assert _DATASOURCE_IMPORT in text
     assert _SEMANTIC_IMPORT not in text
     assert text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
