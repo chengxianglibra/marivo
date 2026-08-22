@@ -449,9 +449,12 @@ inspection; another bound or order performs one bounded metadata query. Use
 ordering is not automatically chronological for string or numeric encodings.
 Its card identifies the requested edge, value source, completeness and
 truncation, shows bounded values, and derives a copyable `md.partition(...)`
-scope template. A truncated edge is not an enumeration of every middle
-partition. A single transformed temporal partition instead produces a copyable
-`md.time_range(...)` template.
+scope template. The result status is `complete` when the edge is exhaustive,
+`truncated` when the requested bound cuts off additional edge values, and
+`incomplete` only when partition metadata is unavailable or invalid. A
+truncated edge is not an enumeration of every middle partition. A single
+transformed temporal partition instead produces a copyable `md.time_range(...)`
+template.
 
 Physical extent always carries provenance and scope. For a ClickHouse
 `Distributed` source, Marivo may inspect the resolved local table through

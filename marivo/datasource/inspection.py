@@ -92,7 +92,7 @@ class PartitionInspection(RenderableResult):
     partitioning: Partitioning
     limit: int
     order: Literal["asc", "desc"]
-    status: Literal["complete", "incomplete"]
+    status: Literal["complete", "truncated", "incomplete"]
     issues: tuple[str, ...]
 
     def _repr_identity(self) -> str:
@@ -295,7 +295,10 @@ class SourceInspection(RenderableResult):
         Returns:
             A bounded ``PartitionInspection``. The default descending-edge
             request reuses values captured by ``md.inspect(...)``; another
-            bound or order performs one metadata-only partition query.
+            bound or order performs one metadata-only partition query. Its
+            status is ``complete`` for an exhaustive edge, ``truncated`` when
+            the requested bound cuts off more edge values, and ``incomplete``
+            only when partition metadata is unavailable or invalid.
 
         Example:
             ``inspection.partitions(limit=1, order="asc").show()``
@@ -336,13 +339,20 @@ class SourceInspection(RenderableResult):
                 )
             )
         )
+        status: Literal["complete", "truncated", "incomplete"]
+        if issues:
+            status = "incomplete"
+        elif partitioning.truncated:
+            status = "truncated"
+        else:
+            status = "complete"
         return PartitionInspection(
             datasource=self.datasource,
             source=self.source,
             partitioning=partitioning,
             limit=limit,
             order=order,
-            status="complete" if not issues else "incomplete",
+            status=status,
             issues=issues,
         )
 
@@ -624,7 +634,11 @@ def _partition_issues(partitioning: Partitioning) -> tuple[str, ...]:
     issues: list[str] = []
     if partitioning.state == "unknown":
         issues.append("partition state is unknown")
-    if partitioning.state == "known" and not partitioning.values_complete:
+    if (
+        partitioning.state == "known"
+        and not partitioning.values_complete
+        and not partitioning.truncated
+    ):
         issues.append("partition values are incomplete")
     if (
         any(field.transform is not None for field in partitioning.fields)

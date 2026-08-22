@@ -107,7 +107,7 @@ analysis public exports.
 Use small typed result objects:
 
 ```text
-DoctorStatus = ok | warning | fail | skipped
+DoctorStatus = ok | info | warning | fail | skipped
 
 DoctorCheck
   id: stable check id
@@ -135,6 +135,7 @@ Overall status is derived from checks:
 
 - any `fail` check makes the report `fail`;
 - otherwise any `warning` check makes the report `warning`;
+- informational checks are shown in their section but keep the report `ok`;
 - otherwise the report is `ok`;
 - skipped checks do not fail the report.
 
@@ -173,14 +174,17 @@ Checks:
 - `models/semantic/` existence is reported;
 - `.marivo/` existence is reported but not created.
 
-Missing project files can be failures or warnings depending on the context:
+Missing project files can be failures, informational notes, or warnings depending
+on the context:
 
 - an explicit `--project-root` that does not exist is a failure;
 - no detected `marivo.toml` is a failure for project health and suggests
   changing directory, setting `MARIVO_PROJECT_ROOT`, passing `--project-root`,
   or running `marivo init`;
-- missing optional subdirectories are warnings when the project can still be
-  inspected.
+- a missing local `models/semantic/` directory is informational while semantic
+  modeling is pending;
+- other missing optional subdirectories are warnings when the project can still
+  be inspected.
 
 ### Datasources
 

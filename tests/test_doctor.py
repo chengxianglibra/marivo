@@ -57,6 +57,24 @@ def test_status_from_checks_returns_warning_without_failures() -> None:
     assert status_from_checks((section,)) == "warning"
 
 
+def test_status_from_checks_ignores_info_for_report_status() -> None:
+    section = DoctorSection(
+        id="project",
+        label="Project",
+        checks=(
+            DoctorCheck(
+                id="semantic",
+                label="models/semantic/",
+                status="info",
+                summary="semantic modeling is pending",
+            ),
+        ),
+    )
+
+    assert section.status == "info"
+    assert status_from_checks((section,)) == "ok"
+
+
 def test_doctor_report_to_dict_is_json_safe() -> None:
     report = _report_with_checks(
         DoctorCheck(
@@ -214,6 +232,30 @@ def test_default_doctor_reports_installation_and_project(tmp_path: Path) -> None
     assert _check(report, "project", "project.marivo_toml").status == "ok"
     assert _check(report, "project", "project.models").status == "ok"
     assert _section(report, "skills").status == "skipped"
+
+
+def test_default_doctor_reports_missing_semantic_models_as_info(tmp_path: Path) -> None:
+    _write_manifest(tmp_path)
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True)
+    datasource_dir.joinpath("warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    check = _check(report, "project", "project.semantic")
+    assert report.status == "ok"
+    assert _section(report, "project").status == "info"
+    assert check.status == "info"
+    assert check.summary.endswith("semantic modeling is pending")
+    assert check.to_dict()["status"] == "info"
+    text = render_text(report)
+    assert "Marivo doctor: ok" in text
+    assert "[project] info 1 informational note" in text
+    assert "models/semantic/: info -" in text
+    json.dumps(report.to_dict())
 
 
 def test_doctor_reports_initialized_agent_skills(tmp_path: Path) -> None:

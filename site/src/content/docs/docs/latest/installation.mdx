@@ -138,3 +138,9 @@ When those checks pass, continue to [Quick Start](/docs/latest/quick-start/) and
 choose whether to reuse an existing semantic layer or create one. After the
 selected project path is ready and its business meaning is approved, continue
 to the [first analysis](/docs/latest/first-analysis/).
+
+A project with existing `models/datasources/` declarations but no local
+`models/semantic/` directory is a normal starting point. Doctor reports this as
+an informational `semantic modeling is pending` note rather than a setup
+warning; actual manifest, layer-path, backend, and credential problems remain
+diagnostic failures or warnings.

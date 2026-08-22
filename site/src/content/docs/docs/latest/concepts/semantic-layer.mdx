@@ -1436,7 +1436,9 @@ types. Partition cards report the requested ascending/descending physical-value
 edge, value source, completeness, truncation, bounded values, and a scope
 template. String or numeric ordering is not automatically chronological. The
 default descending edge reuses captured metadata; another limit or order
-performs one bounded metadata-only query.
+performs one bounded metadata-only query. Its status is `complete` for an
+exhaustive edge, `truncated` when the requested bound cuts off additional edge
+values, and `incomplete` only for unavailable or invalid partition metadata.
 The snapshot card reports its scope, selected columns, coverage, and value/cache
 state. It does not project semantic candidates or authorize business meaning.
 

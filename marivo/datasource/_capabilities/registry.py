@@ -527,7 +527,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.partitions",
             "marivo.datasource.inspection.SourceInspection.partitions",
-            "Read one bounded ordered edge of partition metadata.",
+            "Read one bounded ordered edge of partition metadata; status distinguishes complete, truncated, and incomplete metadata.",
             kind="method",
             output="PartitionInspection",
             inputs=(

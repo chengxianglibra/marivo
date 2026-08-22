@@ -232,7 +232,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SourceInspection.partitions",),
         "Partition metadata listings expose one bounded ordered edge.",
         "Agents need bounded physical-value boundaries without turning discovery into an unbounded partition dump or inventing temporal meaning.",
-        "Use order='asc' or order='desc' for one physical-value edge; string and numeric ordering are not automatically chronological, and a truncated result does not include every middle value.",
+        "Use order='asc' or order='desc' for one physical-value edge; status='truncated' means the requested edge hit its bound and does not include every middle value, while status='incomplete' signals unavailable or invalid metadata.",
     ),
     ConstraintId.SNAPSHOT_VALUE_PERSISTENCE: _constraint(
         ConstraintId.SNAPSHOT_VALUE_PERSISTENCE,
