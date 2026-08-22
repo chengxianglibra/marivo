@@ -38,7 +38,7 @@ from marivo.datasource.source import (
 )
 from marivo.refs import DatasourceKind, Ref, RefPayloadV1
 
-EVIDENCE_FORMAT_VERSION = 3
+EVIDENCE_FORMAT_VERSION = 4
 SNAPSHOT_TTL = timedelta(hours=24)
 
 JsonValue = TypeAliasType(  # type: ignore[misc]
@@ -571,8 +571,8 @@ def _retained_values(
     columns: tuple[str, ...],
     retained_row_count: int,
     persist_values: bool,
-) -> tuple[tuple[JsonScalar, ...], ...]:
-    """Decode the exact row values retained by an explicit persisted snapshot."""
+) -> tuple[dict[str, JsonScalar], ...]:
+    """Decode named row values retained by an explicit persisted snapshot."""
     rows = _sequence(value, field="retained_values")
     if not persist_values:
         if rows:
@@ -580,16 +580,17 @@ def _retained_values(
         return ()
     if len(rows) != retained_row_count:
         raise ValueError("retained row values do not match snapshot coverage")
-    normalized: list[tuple[JsonScalar, ...]] = []
+    normalized: list[dict[str, JsonScalar]] = []
     for row in rows:
-        values = _sequence(row, field="retained_values row")
-        if len(values) != len(columns):
-            raise ValueError("retained row values do not match selected columns")
+        values = _mapping(row, field="retained_values row")
+        if set(values) != set(columns):
+            raise ValueError("retained row columns do not match selected columns")
+        normalized.append({column: cast("JsonScalar", values[column]) for column in columns})
         if any(
-            not isinstance(item, (str, int, float, bool)) and item is not None for item in values
+            not isinstance(item, (str, int, float, bool)) and item is not None
+            for item in normalized[-1].values()
         ):
             raise ValueError("retained row values must be JSON scalars")
-        normalized.append(tuple(cast("JsonScalar", item) for item in values))
     return tuple(normalized)
 
 

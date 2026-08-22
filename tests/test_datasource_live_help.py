@@ -128,6 +128,17 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
     for target in datasource_runtime_targets:
         text = _text(target)
         assert text.strip()
+        if isinstance(target, DiscoverySnapshot):
+            assert "Public consumption: contract, show, render" in text
+            assert "call .contract().show()" in text
+
+
+def test_sample_help_teaches_snapshot_contract_and_named_rows() -> None:
+    text = _text("SourceInspection.sample")
+
+    assert "snapshot.contract().show()" in text
+    assert "persist_values=True" in text
+    assert 'snapshot.retained_values[0]["order_id"]' in text
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:

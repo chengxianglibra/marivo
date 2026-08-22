@@ -576,10 +576,12 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "snapshot = inspection.sample(\n"
                 "    scope=md.unpruned(max_rows=1000, timeout_seconds=30),\n"
                 '    columns=("order_id", "status", "amount"),\n'
+                "    persist_values=True,\n"
                 ")\n"
+                "snapshot.contract().show()\n"
                 "snapshot.show()\n"
-                "# If a later process needs value projections, explicitly accept plaintext\n"
-                "# project-local caching and pass persist_values=True to the original sample.\n"
+                "# Retained rows use selected column names, for example:\n"
+                'snapshot.retained_values[0]["order_id"]\n'
                 '# For md.source_param("apps"), add '
                 'source_params={"apps": ["app-1", "app-2"]}.'
             ),
@@ -916,7 +918,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "expires_at",
             "retained_values",
         ),
-        methods=show_render,
+        methods=("contract", *show_render),
     )
     return MappingProxyType(contracts)
 

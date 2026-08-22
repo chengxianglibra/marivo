@@ -76,6 +76,7 @@ def render_authoring() -> str:
                 "",
                 "  Read the current result or error first:",
                 "    result.show()",
+                "    result.contract().show() when the result owns mechanical read facts",
                 "",
                 '  Datasource evidence and scope: marivo.help("datasource.authoring")',
                 '  Semantic source and validation: marivo.help("semantic.authoring")',

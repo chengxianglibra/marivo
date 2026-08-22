@@ -295,8 +295,8 @@ def test_persisted_date_columns_use_civil_date_values(project_root: Path) -> Non
     )
 
     assert snapshot.retained_values == (
-        ("2026-01-01", "W1"),
-        ("2026-01-02", "W1"),
+        {"calendar_date": "2026-01-01", "week": "W1"},
+        {"calendar_date": "2026-01-02", "week": "W1"},
     )
     certified = certify_period_calendar_rows(
         calendar_ref=ref.period_calendar("sales.fiscal"),
@@ -349,7 +349,7 @@ def test_memory_hit_reuses_live_values_without_a_query(
     assert query_spy.user_data_queries == 1
     assert first.cache_status == "fresh"
     assert second.cache_status == "cached"
-    assert second.value_evidence_state == "available"
+    assert second.value_evidence_state == "value_evidence_unavailable"
     assert second.profiles[0].display_samples == first.profiles[0].display_samples
 
 
@@ -402,7 +402,7 @@ def test_private_disk_reload_rejects_tampered_value_fields(
 
     assert query_spy.user_data_queries == 2
     assert reloaded.cache_status == "mismatched"
-    assert reloaded.value_evidence_state == "available"
+    assert reloaded.value_evidence_state == "value_evidence_unavailable"
     assert reloaded.profiles[0] == first.profiles[0]
 
 
@@ -426,6 +426,8 @@ def test_opted_in_disk_reload_preserves_only_bounded_values_without_querying(
     assert query_spy.user_data_queries == 1
     assert reloaded.cache_status == "cached"
     assert reloaded.value_evidence_state == "available"
+    assert reloaded.retained_values == first.retained_values
+    assert reloaded.retained_values[0]["region"] == first.retained_values[0]["region"]
     assert reloaded.profiles[0].min_value == first.profiles[0].min_value
     assert reloaded.profiles[0].max_value == first.profiles[0].max_value
     assert reloaded.profiles[0].top_values == first.profiles[0].top_values
@@ -466,7 +468,7 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     first = inspection.sample(scope=scope, columns=("region",), refresh=True)
     path = _snapshot_path(project_root, first.id)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["evidence_format_version"] = 2
+    payload["evidence_format_version"] = 3
     path.write_text(json.dumps(payload), encoding="utf-8")
     authoring_store._SNAPSHOT_MEMORY.clear()
 
@@ -476,7 +478,42 @@ def test_evidence_format_mismatch_reacquires_once_and_repairs_artifact(
     assert repaired.id == first.id
     assert repaired.cache_status == "mismatched"
     repaired_payload = json.loads(path.read_text(encoding="utf-8"))
-    assert repaired_payload["evidence_format_version"] == 3
+    assert repaired_payload["evidence_format_version"] == 4
+
+
+@pytest.mark.parametrize(
+    "tampered_row",
+    [
+        {"region": "east"},
+        {"region": "east", "amount": 10.0, "unexpected": True},
+    ],
+)
+def test_private_disk_reload_rejects_wrong_named_retained_row_shape(
+    project_root: Path,
+    inspection: SourceInspection,
+    query_spy: _QuerySpy,
+    tampered_row: dict[str, object],
+) -> None:
+    from marivo.datasource import authoring_store
+
+    scope = md.unpruned(max_rows=100, timeout_seconds=30)
+    first = inspection.sample(
+        scope=scope,
+        columns=("region", "amount"),
+        persist_values=True,
+        refresh=True,
+    )
+    path = _snapshot_path(project_root, first.id)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["retained_values"][0] = tampered_row
+    _rewrite_payload(path, payload, resign=True)
+    authoring_store._SNAPSHOT_MEMORY.clear()
+
+    reloaded = inspection.sample(scope=scope, columns=("region", "amount"), persist_values=True)
+
+    assert query_spy.user_data_queries == 2
+    assert reloaded.cache_status == "mismatched"
+    assert set(reloaded.retained_values[0]) == {"region", "amount"}
 
 
 @pytest.mark.parametrize(

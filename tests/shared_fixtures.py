@@ -97,12 +97,18 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
     )
     from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
-    rows: list[tuple[str, str, str]] = []
+    rows: list[dict[str, str]] = []
     cursor = date(2026, 1, 1)
     while cursor < date(2026, 3, 1):
         month = "M1" if cursor.month == 1 else "M2"
         week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
-        rows.append((cursor.isoformat(), week, month))
+        rows.append(
+            {
+                "calendar_date": cursor.isoformat(),
+                "fiscal_week": week,
+                "fiscal_month": month,
+            }
+        )
         cursor += timedelta(days=1)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     calendar = catalog._require_ready().period_calendars[calendar_ref.path]

@@ -108,6 +108,56 @@ class ColumnProfile:
 
 
 @dataclass(frozen=True, repr=False)
+class DiscoverySnapshotContract(RenderableResult):
+    """Query-free read contract for one :class:`DiscoverySnapshot`."""
+
+    snapshot_id: str
+    columns: tuple[str, ...]
+    retained_row_count: int
+    value_evidence_state: Literal["available", "value_evidence_unavailable"]
+    retained_values_shape: Literal["dict_rows"]
+    available_reads: tuple[str, ...]
+
+    def _repr_identity(self) -> str:
+        return (
+            f"DiscoverySnapshotContract snapshot={self.snapshot_id} rows={self.retained_row_count}"
+        )
+
+    def _card(self) -> Card:
+        retained_values = (
+            "available via .retained_values"
+            if ".retained_values" in self.available_reads
+            else "unavailable; sample(..., persist_values=True) is required"
+        )
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(
+                    ".snapshot_id",
+                    ".columns",
+                    ".retained_row_count",
+                    ".value_evidence_state",
+                    ".retained_values_shape",
+                    ".available_reads",
+                    ".show()",
+                ),
+            )
+            .status(
+                f"value_evidence={self.value_evidence_state} "
+                f"retained_rows={self.retained_row_count}"
+            )
+            .field("selected columns", repr(self.columns))
+            .field("retained row shape", "tuple[dict[str, JsonScalar], ...]")
+            .field("retained values", retained_values)
+            .listing("query-free reads", self.available_reads)
+            .field("typed consumers", "none; snapshot is generic evidence")
+        )
+
+    def __str__(self) -> str:
+        return self.render()
+
+
+@dataclass(frozen=True, repr=False)
 class DiscoverySnapshot(RenderableResult):
     """Immutable bounded rows and profiles from one explicit source acquisition."""
 
@@ -126,7 +176,7 @@ class DiscoverySnapshot(RenderableResult):
     expires_at: datetime
     _project_root: Path
     source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = ()
-    retained_values: tuple[tuple[JsonScalar, ...], ...] = ()
+    retained_values: tuple[dict[str, JsonScalar], ...] = ()
 
     def _repr_identity(self) -> str:
         return (
@@ -143,6 +193,7 @@ class DiscoverySnapshot(RenderableResult):
                     ".coverage",
                     ".source_params",
                     ".retained_values",
+                    ".contract()",
                     ".show()",
                 ),
             )
@@ -190,6 +241,32 @@ class DiscoverySnapshot(RenderableResult):
                 row_count=len(self.profiles),
                 label="profiles",
             )
+        )
+
+    def contract(self) -> DiscoverySnapshotContract:
+        """Return the query-free read contract for this generic evidence snapshot.
+
+        Returns:
+            A bounded contract describing selected columns, retained row shape,
+            value-evidence availability, and direct field reads.
+
+        Example:
+            ``snapshot.contract().show()``
+
+        Constraints:
+            This method never refreshes the snapshot, connects to a datasource,
+            or infers semantic meaning from the retained evidence.
+        """
+        available_reads = [".columns", ".profiles", ".coverage", ".source_params"]
+        if self.value_evidence_state == "available":
+            available_reads.append(".retained_values")
+        return DiscoverySnapshotContract(
+            snapshot_id=self.id,
+            columns=self.columns,
+            retained_row_count=self.coverage.retained_row_count,
+            value_evidence_state=self.value_evidence_state,
+            retained_values_shape="dict_rows",
+            available_reads=tuple(available_reads),
         )
 
 
@@ -680,16 +757,17 @@ def acquire_snapshot(
             pushed_predicate=pushed_predicate,
         ),
         persist_values=persist_values,
-        value_evidence_state="available",
+        value_evidence_state=("available" if persist_values else "value_evidence_unavailable"),
         cache_status=lookup.status,
         created_at=created_at,
         expires_at=created_at + SNAPSHOT_TTL,
         _project_root=inspection._project_root,
         source_params=source_param_items,
         retained_values=tuple(
-            tuple(
-                persisted_value(value, column) for column, value in zip(columns, row, strict=True)
-            )
+            {
+                column: persisted_value(value, column)
+                for column, value in zip(columns, row, strict=True)
+            }
             for row in retained.itertuples(index=False, name=None)
         )
         if persist_values

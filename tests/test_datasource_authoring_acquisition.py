@@ -20,6 +20,7 @@ from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
 from marivo.datasource.snapshot import DeterministicMatch, DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope
+from marivo.render import AgentResult
 
 
 class _QuerySpy:
@@ -122,7 +123,38 @@ def test_snapshot_exposes_generic_evidence_without_semantic_projections(
     assert ".profiles" in rendered
     assert ".retained_values" in rendered
     assert "reacquire boundary:" in rendered
-    assert ".contract()" not in rendered
+    assert ".contract()" in rendered
+
+    contract = snapshot.contract()
+    assert contract.columns == ("order_id",)
+    assert contract.retained_row_count == 1
+    assert contract.value_evidence_state == "value_evidence_unavailable"
+    assert contract.retained_values_shape == "dict_rows"
+    assert ".retained_values" not in contract.available_reads
+    assert "persist_values=True" in contract.render()
+
+
+def test_persisted_snapshot_retained_values_are_named_rows(
+    inspection: SourceInspection,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshot = inspection.sample(
+        scope=md.unpruned(max_rows=1, timeout_seconds=30),
+        columns=("order_id", "amount"),
+        persist_values=True,
+        refresh=True,
+    )
+
+    assert snapshot.retained_values == (({"order_id": "o-1", "amount": 10.0}),)
+    assert snapshot.retained_values[0]["order_id"] == "o-1"
+    contract = snapshot.contract()
+    assert isinstance(contract, AgentResult)
+    assert "DiscoverySnapshotContract" in repr(contract)
+    rendered = contract.render()
+    assert len(rendered.encode("utf-8")) <= 8192
+    contract.show()
+    assert capsys.readouterr().out == rendered + "\n"
+    assert ".retained_values" in contract.available_reads
 
 
 def test_sample_executes_one_query_with_limit_plus_one(

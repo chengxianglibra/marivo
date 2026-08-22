@@ -239,6 +239,8 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if "show" in contract.public_methods:
         lines.append("  Detail: call .show() for bounded readable state.")
+    if "contract" in contract.public_methods:
+        lines.append("  Contract: call .contract().show() for mechanical read facts.")
     if original is not None:
         try:
             stored = vars(original)
