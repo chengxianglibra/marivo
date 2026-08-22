@@ -1780,27 +1780,38 @@ def certify_work_schedule(
     )
 
 
+def _named_persisted_row(
+    values: object,
+    *,
+    columns: tuple[str, ...],
+) -> dict[str, object]:
+    """Validate and order one named row from persisted datasource evidence."""
+    if not isinstance(values, Mapping):
+        raise TypeError("persisted snapshot rows must be mappings keyed by selected columns")
+    if set(values) != set(columns):
+        raise ValueError("persisted snapshot row columns do not match selected columns")
+    return {column: values[column] for column in columns}
+
+
 def certify_work_schedule_rows(
     *,
     work_schedule_ref: Ref[WorkScheduleKind],
     boundary_timezone: str,
     coverage: tuple[date, date],
     columns: tuple[str, ...],
-    retained_values: tuple[tuple[object, ...], ...],
+    retained_values: tuple[Mapping[str, object], ...],
     date_column: str,
     is_working: str,
     date_parse: object | None = None,
 ) -> WorkScheduleSnapshotV1:
     """Certify rows retained by one persisted datasource acquisition."""
-    positions = {name: index for index, name in enumerate(columns)}
-    missing = tuple(name for name in (date_column, is_working) if name not in positions)
+    missing = tuple(name for name in (date_column, is_working) if name not in columns)
     if missing:
         raise ValueError(f"persisted snapshot is missing work-schedule columns {missing!r}")
     rows: list[dict[str, object]] = []
     for values in retained_values:
-        if len(values) != len(columns):
-            raise ValueError("persisted snapshot row width does not match selected columns")
-        raw = values[positions[date_column]]
+        row = _named_persisted_row(values, columns=columns)
+        raw = row[date_column]
         if type(raw) is datetime:
             raise ValueError("work-schedule date values must be civil dates")
         parsed = _parse_persisted_temporal_value(
@@ -1813,7 +1824,7 @@ def certify_work_schedule_rows(
         rows.append(
             {
                 "date": parsed,
-                "is_working": values[positions[is_working]],
+                "is_working": row[is_working],
             }
         )
     return certify_work_schedule(
@@ -2065,7 +2076,7 @@ def certify_temporal_set_rows(
     boundary_timezone: str,
     coverage: tuple[date, date],
     columns: tuple[str, ...],
-    retained_values: tuple[tuple[object, ...], ...],
+    retained_values: tuple[Mapping[str, object], ...],
     occurrence_id: str,
     start: str,
     end: str,
@@ -2074,29 +2085,27 @@ def certify_temporal_set_rows(
     end_parse: object | None = None,
 ) -> TemporalSetSnapshotV1:
     """Certify rows retained by one persisted datasource acquisition."""
-    positions = {name: index for index, name in enumerate(columns)}
     required = (occurrence_id, start, end, *((category,) if category is not None else ()))
-    missing = tuple(name for name in required if name not in positions)
+    missing = tuple(name for name in required if name not in columns)
     if missing:
         raise ValueError(f"persisted snapshot is missing temporal-set columns {missing!r}")
     rows: list[dict[str, object]] = []
     for values in retained_values:
-        if len(values) != len(columns):
-            raise ValueError("persisted snapshot row width does not match selected columns")
+        row = _named_persisted_row(values, columns=columns)
         rows.append(
             {
-                occurrence_id: values[positions[occurrence_id]],
+                occurrence_id: row[occurrence_id],
                 start: _parse_persisted_temporal_value(
-                    values[positions[start]],
+                    row[start],
                     parse=start_parse,
                     boundary_timezone=boundary_timezone,
                 ),
                 end: _parse_persisted_temporal_value(
-                    values[positions[end]],
+                    row[end],
                     parse=end_parse,
                     boundary_timezone=boundary_timezone,
                 ),
-                **({category: values[positions[category]]} if category is not None else {}),
+                **({category: row[category]} if category is not None else {}),
             }
         )
     return certify_temporal_set(
@@ -2425,7 +2434,7 @@ def certify_period_calendar_rows(
     boundary_timezone: str,
     coverage: tuple[date, date],
     columns: tuple[str, ...],
-    retained_values: tuple[tuple[_JSON_SCALAR | None, ...], ...],
+    retained_values: tuple[Mapping[str, _JSON_SCALAR | None], ...],
     date_column: str,
     levels: Mapping[str, str],
     correspondences: Mapping[str, tuple[str, str]] | None = None,
@@ -2435,21 +2444,19 @@ def certify_period_calendar_rows(
     The caller supplies physical column bindings from the semantic declaration;
     this bridge performs no datasource, pandas, or registry operation.
     """
-    positions = {name: index for index, name in enumerate(columns)}
     correspondence_columns = (
         ()
         if correspondences is None
         else tuple(column for _level, column in correspondences.values())
     )
     required = (date_column, *levels.values(), *correspondence_columns)
-    missing = tuple(name for name in required if name not in positions)
+    missing = tuple(name for name in required if name not in columns)
     if missing:
         raise ValueError(f"persisted snapshot is missing calendar columns {missing!r}")
     rows: list[dict[str, object]] = []
     for values in retained_values:
-        if len(values) != len(columns):
-            raise ValueError("persisted snapshot row width does not match selected columns")
-        raw_date = values[positions[date_column]]
+        row_values = _named_persisted_row(values, columns=columns)
+        raw_date = row_values[date_column]
         if type(raw_date) is not str:
             raise TypeError(
                 "calendar date values must be ISO civil-date strings in persisted evidence"
@@ -2460,9 +2467,9 @@ def certify_period_calendar_rows(
             raise ValueError(f"calendar date value {raw_date!r} is not an ISO civil date") from exc
         row: dict[str, object] = {"date": civil_date}
         for _level, column in levels.items():
-            row[column] = values[positions[column]]
+            row[column] = row_values[column]
         for _name, (_level, column) in ({} if correspondences is None else correspondences).items():
-            row[column] = values[positions[column]]
+            row[column] = row_values[column]
         rows.append(row)
     return certify_period_calendar(
         calendar_ref=calendar_ref,

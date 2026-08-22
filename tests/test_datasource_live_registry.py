@@ -220,6 +220,7 @@ def test_type_contracts_list_registered_consumption_methods() -> None:
         "SourceInspection.sample",
     )
     assert TYPE_CONTRACTS[DiscoverySnapshot].consumers == ()
+    assert TYPE_CONTRACTS[DiscoverySnapshot].public_methods == ("contract", "show", "render")
     assert "retained_values" in TYPE_CONTRACTS[DiscoverySnapshot].public_properties
 
 

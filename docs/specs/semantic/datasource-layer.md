@@ -493,8 +493,9 @@ the source relation is built and before column selection and `LIMIT`. The time
 column must be exposed by a projected source, bounds must have matching date or
 datetime kinds and matching timezone awareness, aware datetime bounds are
 canonicalized to UTC, and transformed temporal
-partitions are supported. Snapshot evidence format v3 includes the normalized
-column and bounds in scope identity; older v2 evidence is invalid and must be
+partitions are supported. Snapshot evidence format v4 includes the normalized
+column and bounds in scope identity; persisted retained rows are dictionaries
+keyed by the selected columns, and older v3 evidence is invalid and must be
 reacquired.
 
 Scope and explicit columns are required. `md.unpruned(max_rows=...,
@@ -515,10 +516,13 @@ post-execution failures surface as `DatasourceAuthoringError` values with
 not escape as raw driver exceptions.
 
 The snapshot card makes datasource/source/scope identity, selected columns,
-coverage, and value/cache state explicit. Values default to memory-only. A later
+coverage, and value/cache state explicit; use `snapshot.contract().show()` for
+these query-free mechanical read facts. Values default to memory-only. A later
 process can recover snapshot identity, profiles, and coverage but not retained
 values unless the original sample used `persist_values=True` with explicit
-acceptance of bounded plaintext project-local caching. Uncommon formats, keys,
+acceptance of bounded plaintext project-local caching. When available, read a
+retained row by column name, for example
+`snapshot.retained_values[0]["order_id"]`. Uncommon formats, keys,
 timezones, aggregation, units, additivity, relationship cardinality, null
 semantics, and business meaning remain agent-owned. Marivo does not classify a
 high null rate as a business-quality failure or filter nulls implicitly.

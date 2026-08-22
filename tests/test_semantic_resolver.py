@@ -162,10 +162,10 @@ def test_period_snapshot_certifies_one_persisted_snapshot_value_set() -> None:
         coverage=(date(2026, 1, 1), date(2026, 1, 5)),
         columns=("calendar_date", "fiscal_week"),
         retained_values=(
-            ("2026-01-01", "W1"),
-            ("2026-01-02", "W1"),
-            ("2026-01-03", "W2"),
-            ("2026-01-04", "W2"),
+            {"calendar_date": "2026-01-01", "fiscal_week": "W1"},
+            {"calendar_date": "2026-01-02", "fiscal_week": "W1"},
+            {"calendar_date": "2026-01-03", "fiscal_week": "W2"},
+            {"calendar_date": "2026-01-04", "fiscal_week": "W2"},
         ),
         date_column="calendar_date",
         levels={"week": "fiscal_week"},
@@ -396,27 +396,46 @@ def test_temporal_set_snapshot_rows_reject_invalid_encoding_bounds_and_category(
     with pytest.raises(ValueError, match="duplicate"):
         certify_temporal_set_rows(
             retained_values=(
-                ("same", "2026-01-02", "2026-01-03", "holiday"),
-                ("same", "2026-01-04", "2026-01-05", "holiday"),
+                {
+                    "id": "same",
+                    "start": "2026-01-02",
+                    "end": "2026-01-03",
+                    "category": "holiday",
+                },
+                {
+                    "id": "same",
+                    "start": "2026-01-04",
+                    "end": "2026-01-05",
+                    "category": "holiday",
+                },
             ),
             **common,
         )
     with pytest.raises(ValueError, match="mix date and timestamp"):
         certify_temporal_set_rows(
             retained_values=(
-                ("date", "2026-01-02", "2026-01-03", None),
-                ("instant", "2026-01-04T00:00:00Z", "2026-01-05T00:00:00Z", None),
+                {"id": "date", "start": "2026-01-02", "end": "2026-01-03", "category": None},
+                {
+                    "id": "instant",
+                    "start": "2026-01-04T00:00:00Z",
+                    "end": "2026-01-05T00:00:00Z",
+                    "category": None,
+                },
             ),
             **common,
         )
     with pytest.raises(ValueError, match="start < end"):
         certify_temporal_set_rows(
-            retained_values=(("empty", "2026-01-04", "2026-01-04", None),),
+            retained_values=(
+                {"id": "empty", "start": "2026-01-04", "end": "2026-01-04", "category": None},
+            ),
             **common,
         )
     with pytest.raises(ValueError, match="category"):
         certify_temporal_set_rows(
-            retained_values=(("bad-category", "2026-01-04", "2026-01-05", 1),),
+            retained_values=(
+                {"id": "bad-category", "start": "2026-01-04", "end": "2026-01-05", "category": 1},
+            ),
             **common,
         )
 
@@ -428,8 +447,16 @@ def test_temporal_set_timestamp_rows_normalize_to_one_instant_encoding() -> None
         coverage=(date(2026, 1, 1), date(2026, 1, 3)),
         columns=("id", "start", "end"),
         retained_values=(
-            ("launch", "2026-01-01T08:00:00+08:00", "2026-01-02T00:00:00+08:00"),
-            ("incident", "2026-01-02T00:00:00Z", "2026-01-02T08:00:00Z"),
+            {
+                "id": "launch",
+                "start": "2026-01-01T08:00:00+08:00",
+                "end": "2026-01-02T00:00:00+08:00",
+            },
+            {
+                "id": "incident",
+                "start": "2026-01-02T00:00:00Z",
+                "end": "2026-01-02T08:00:00Z",
+            },
         ),
         occurrence_id="id",
         start="start",
@@ -449,7 +476,7 @@ def test_temporal_set_rows_reapply_time_dimension_parse_convention() -> None:
         boundary_timezone="UTC",
         coverage=(date(2026, 1, 1), date(2026, 1, 4)),
         columns=("id", "start", "end"),
-        retained_values=(("launch", "20260101", "20260103"),),
+        retained_values=({"id": "launch", "start": "20260101", "end": "20260103"},),
         occurrence_id="id",
         start="start",
         end="end",
@@ -505,7 +532,10 @@ def test_work_schedule_rows_reject_timestamp_dates_and_store_exact_history(tmp_p
     }
     with pytest.raises(ValueError, match="civil dates"):
         certify_work_schedule_rows(
-            retained_values=(("2026-01-01T00:00:00Z", True), ("2026-01-02", False)),
+            retained_values=(
+                {"date": "2026-01-01T00:00:00Z", "is_working": True},
+                {"date": "2026-01-02", "is_working": False},
+            ),
             **common,
         )
 

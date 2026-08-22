@@ -1243,12 +1243,18 @@ scope.show()  # scope kind, guards, and a bounded predicate preview
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "region", "created_at", "amount"),
+    persist_values=True,
 )
 snapshot.show()
+snapshot.contract().show()
 profiles = {profile.name: profile for profile in snapshot.profiles}
 profiles["order_id"].sample_distinct_count
-snapshot.retained_values
+snapshot.retained_values[0]["order_id"]
 ```
+
+`retained_values` is a tuple of rows keyed by the selected column names. It is
+available only when `persist_values=True`; otherwise the snapshot contract marks
+value evidence as unavailable and no follow-up query is issued.
 
 For a date or timestamp window, reuse the same bounded scope type:
 

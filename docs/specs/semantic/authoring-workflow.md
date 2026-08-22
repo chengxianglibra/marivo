@@ -85,8 +85,10 @@ analysis. Its observed facts and disclosed assumptions may inform semantic
 Python.
 
 A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
-coverage, and cache identity. It does not produce semantic-shaped projections or
-business judgment requirements.
+coverage, and cache identity. Its `.contract()` is a query-free read contract;
+when `persist_values=True`, `retained_values` is a tuple of dictionaries keyed
+by the selected column names. It does not produce semantic-shaped projections
+or business judgment requirements.
 
 ### 4. Author a coherent semantic slice
 

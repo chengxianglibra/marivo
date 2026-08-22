@@ -165,11 +165,11 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "inspection = md.inspect(" in sample_text
     assert "snapshot = inspection.sample(" in sample_text
     assert "snapshot.show()" in sample_text
-    assert "snapshot.contract().show()" not in sample_text
+    assert "snapshot.contract().show()" in sample_text
     assert "snapshot.dimensions" not in sample_text
     assert "persist_values=True" in sample_text
+    assert 'snapshot.retained_values[0]["order_id"]' in sample_text
     assert "snapshot_value_persistence" in sample_text
-    assert "later process" in sample_text
     assert 'source_params={"apps": ["app-1", "app-2"]}' in sample_text
 
 

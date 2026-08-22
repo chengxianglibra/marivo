@@ -1136,12 +1136,18 @@ scope.show()  # 范围类型、guards 和有界谓词预览
 snapshot = inspection.sample(
     scope=scope,
     columns=("order_id", "region", "created_at", "amount"),
+    persist_values=True,
 )
 snapshot.show()
+snapshot.contract().show()
 profiles = {profile.name: profile for profile in snapshot.profiles}
 profiles["order_id"].sample_distinct_count
-snapshot.retained_values
+snapshot.retained_values[0]["order_id"]
 ```
+
+`retained_values` 是按选中列名组织的行字典元组。只有设置
+`persist_values=True` 时才会提供；否则快照契约会标记值证据不可用，也不会发起
+后续查询。
 
 日期或时间戳窗口继续复用同一个有界范围类型：
 

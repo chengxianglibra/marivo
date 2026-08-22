@@ -4123,7 +4123,7 @@ class _CertificationCapture:
     scope: AuthoringScope
     columns: tuple[str, ...]
     rows_observed: int
-    retained_values: tuple[tuple[_PreviewCell, ...], ...]
+    retained_values: tuple[dict[str, _PreviewCell], ...]
 
     def coverage(self, entity_id: str) -> PreviewCoverage:
         return PreviewCoverage(
@@ -4232,8 +4232,8 @@ def _certification_capture(
         columns=columns,
         rows_observed=observed,
         retained_values=tuple(
-            tuple(
-                cast(
+            {
+                column: cast(
                     "str | int | float | bool | None",
                     (
                         value.date().isoformat()
@@ -4242,7 +4242,7 @@ def _certification_capture(
                     ),
                 )
                 for column, value in zip(columns, row, strict=True)
-            )
+            }
             for row in retained.itertuples(index=False, name=None)
         ),
     )

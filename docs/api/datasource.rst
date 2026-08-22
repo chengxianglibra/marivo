@@ -64,6 +64,12 @@ Inspection & snapshots
    ExecutionCapabilities
    raw_sql
 
+``DiscoverySnapshot.contract().show()`` displays the query-free read contract
+for a snapshot, including its selected columns, retained-row shape, and value
+evidence state. When ``persist_values=True``, ``snapshot.retained_values`` is a
+tuple of dictionaries keyed by the selected column names; with the default
+``persist_values=False`` it remains unavailable and no follow-up query occurs.
+
 Scope helpers
 -------------
 
