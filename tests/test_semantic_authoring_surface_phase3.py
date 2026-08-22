@@ -164,7 +164,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     preview = catalog.preview(
         catalog.require(ms.ref.measure("sales.orders.amount")).ref,
-        using=snapshot,
+        scope=snapshot.scope,
         limit=3,
     )
 
@@ -175,7 +175,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
             catalog.require(ms.ref.measure("sales.orders.amount")).ref,
-            using=snapshot,
+            scope=snapshot.scope,
             context_columns=("region",),
         )
 

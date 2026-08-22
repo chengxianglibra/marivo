@@ -106,9 +106,9 @@ def test_sqlite_verify_preview_readiness_and_observe(
     )
 
     assert catalog.require(revenue).ref == revenue
-    assert catalog.preview(revenue, using=snapshot).status == "passed"
+    assert catalog.preview(revenue, scope=snapshot.scope).status == "passed"
     readiness = catalog.readiness(refs=[revenue])
-    assert revenue in readiness.analysis_ready_refs
+    assert revenue in readiness.analysis_ready_inputs
 
     session = mv.session.get_or_create(
         name="sqlite-revenue",

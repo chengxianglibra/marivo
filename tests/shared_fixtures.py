@@ -9,13 +9,16 @@ import tempfile
 from contextlib import contextmanager, suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 import ibis
 
 from marivo._compat import UTC
 from marivo.refs import ref as ref_factory
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticCatalog
 
 # ---------------------------------------------------------------------------
 # Named DuckDB templates (versioned, cached in /tmp)
@@ -83,12 +86,16 @@ def fiscal_analysis_project_files() -> dict[str, str]:
     }
 
 
-def fiscal_calendar_evidence(project_root: Path) -> Any:
-    """Build the exhaustive persisted-value snapshot for the fiscal fixture."""
+def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
+    """Publish the certified fiscal calendar used by analysis-only tests."""
 
-    import marivo.datasource as md
     import marivo.semantic as ms
-    from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
+    from marivo._temporal import (
+        TemporalSnapshotStore,
+        certify_period_calendar_rows,
+        period_calendar_definition_digest,
+    )
+    from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
     rows: list[tuple[str, str, str]] = []
     cursor = date(2026, 1, 1)
@@ -97,30 +104,39 @@ def fiscal_calendar_evidence(project_root: Path) -> Any:
         week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
         rows.append((cursor.isoformat(), week, month))
         cursor += timedelta(days=1)
-    now = datetime.now(UTC)
-    return DiscoverySnapshot(
-        id="fiscal-calendar-analysis",
-        datasource=ms.ref.datasource("warehouse"),
-        source=md.table("calendar"),
-        scope=md.unpruned(max_rows=len(rows), timeout_seconds=30),
-        columns=("calendar_date", "fiscal_week", "fiscal_month"),
-        schema_fingerprint="fiscal-calendar-analysis-v1",
-        profiles=(),
-        coverage=SnapshotCoverage(
-            observed_row_count=len(rows),
-            retained_row_count=len(rows),
-            scope_exhaustion="exhaustive",
-            scope_exactness="scope_exact",
-            sampling_method="first_rows_limit",
-            pushed_predicate=(),
+    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    calendar = catalog._require_ready().period_calendars[calendar_ref.path]
+    snapshot = certify_period_calendar_rows(
+        calendar_ref=calendar_ref,
+        boundary_timezone=calendar.boundary_timezone,
+        coverage=(
+            date.fromisoformat(calendar.coverage[0]),
+            date.fromisoformat(calendar.coverage[1]),
         ),
-        persist_values=True,
-        value_evidence_state="available",
-        cache_status="fresh",
-        created_at=now,
-        expires_at=now + timedelta(hours=1),
-        _project_root=project_root,
+        columns=("calendar_date", "fiscal_week", "fiscal_month"),
         retained_values=tuple(rows),
+        date_column="calendar_date",
+        levels={
+            "fiscal_week": "fiscal_week",
+            "fiscal_month": "fiscal_month",
+        },
+    )
+    dependency_digest = scoped_definition_fingerprint(
+        root=calendar_ref,
+        definitions=catalog._state.definitions,
+        dependencies=catalog._state.dependencies,
+        sidecar=catalog._state.sidecar,
+    )
+    TemporalSnapshotStore(catalog.workspace_dir).publish(
+        snapshot,
+        definition_digest=period_calendar_definition_digest(
+            calendar_ref=calendar_ref,
+            boundary_timezone=calendar.boundary_timezone,
+            coverage=calendar.coverage,
+            levels=calendar.levels,
+            correspondences=calendar.correspondences,
+            dependency_digest=dependency_digest,
+        ),
     )
 
 

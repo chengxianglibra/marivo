@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic import preview_checks
+from marivo.semantic import preview_scope
 from marivo.semantic.catalog import CatalogEntry, SemanticCatalog
 from marivo.semantic.readiness import ReadinessIssue, ReadinessReport
 
@@ -30,10 +31,11 @@ def test_readiness_issue_has_typed_repair_without_suggested_action() -> None:
     assert "suggested_action" not in inspect.getsource(ReadinessIssue)
 
 
-def test_preview_evidence_requirement_keeps_typed_repair_for_milestone2() -> None:
-    source = inspect.getsource(preview_checks)
+def test_milestone2_removes_persisted_preview_check_contract() -> None:
+    source = inspect.getsource(preview_scope)
     assert "suggested_action" not in source
-    assert "PreviewEvidenceRequirement" in source
+    assert "PreviewEvidenceRequirement" not in source
+    assert importlib.util.find_spec("marivo.semantic.preview_checks") is None
 
 
 def test_milestone1_removes_generic_lifecycle_contracts_and_verify() -> None:

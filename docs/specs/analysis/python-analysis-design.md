@@ -403,8 +403,7 @@ forms one ordered mixed forest with one outer scope.
 The same ordered catalog/runtime roots may be passed to
 `catalog.readiness(refs=[...])` before observation. Readiness lowers the forest,
 checks its governed leaves without querying, and returns passing roots through
-`analysis_ready_inputs`; `analysis_ready_refs` remains the catalog-ref-only
-projection.
+`analysis_ready_inputs`.
 
 Catalog and runtime roots lower to the same canonical expression graph. Runtime
 expressions may recursively contain other runtime expressions or catalog metric

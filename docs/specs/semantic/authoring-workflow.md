@@ -125,14 +125,15 @@ separate per-object validation checkpoint between load and catalog navigation.
 ### 6. Scoped readiness and targeted runtime checks
 
 Run `catalog.readiness(refs=[...])` over the exact requested roots and their
-governed dependency closures. During this milestone, the existing contracts for
-snapshot-bound preview input, persisted preview evidence, readiness issue
-ownership, and ready-input projection fields remain unchanged. Follow current
-live help and typed repairs; do not introduce a second preview or readiness path.
+governed dependency closures. Readiness is snapshot-independent: it evaluates
+the current semantic project, the requested closure, and dedicated certified
+temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 
-Use targeted preview or observation only for a concrete runtime risk or current
-readiness repair. A successful project load proves static coherence, not current
-external source health or every possible downstream execution.
+Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
+or dedicated artifact repair. Ordinary preview reads the current datasource and
+does not persist a check or change readiness. A successful project load proves
+static coherence, not current external source health or every possible
+downstream execution.
 
 ## Business meaning and first-use authority
 

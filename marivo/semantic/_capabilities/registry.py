@@ -59,7 +59,8 @@ INPUT_FAMILIES = frozenset(
         "CatalogLookupKey | Ref",
         "SemanticCatalog",
         "SemanticKind",
-        "DiscoverySnapshot",
+        "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+        "Mapping[Ref[entity], JSON source parameter mapping]",
         "HelpTarget",
         "DomainName",
         "EntityName",
@@ -214,8 +215,21 @@ _AUTHOR = _effects(mutations=("semantic_source",))
 _PREVIEW = _effects(
     "scoped_data_read",
     "opens_connection",
-    mutations=("project_state",),
-    flags=("requires_existing_snapshot_binding",),
+    flags=(
+        "requires_explicit_scope",
+        "requires_positive_row_guard",
+        "requires_positive_timeout_guard",
+    ),
+)
+_CERTIFYING_PREVIEW = _effects(
+    "scoped_data_read",
+    "opens_connection",
+    flags=(
+        "requires_explicit_scope",
+        "requires_positive_row_guard",
+        "requires_positive_timeout_guard",
+        "may_publish_certified_artifact",
+    ),
 )
 _PARITY = _effects("potentially_unbounded_read", "opens_connection")
 
@@ -1212,7 +1226,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             (
                 "Run one scoped data preview for a current catalog entry or exact ref. "
                 "Metric previews aggregate at most 10,000 scoped input rows and report "
-                "an approximate result."
+                "an approximate result; period calendars, temporal sets, and work "
+                "schedules publish their dedicated certified artifacts."
             ),
             kind="method",
             output="PreviewResult",
@@ -1223,12 +1238,19 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     family="CatalogEntry | Ref",
                 ),
                 AuthoringInputRequirement(
-                    role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
+                    role="scope",
+                    family="AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+                ),
+                _optional_input(
+                    "dependency",
+                    "Mapping[Ref[entity], JSON source parameter mapping]",
                 ),
             ),
-            effects=_PREVIEW,
+            effects=_CERTIFYING_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview(revenue, using=orders_snapshot)",
+            example=(
+                "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
+            ),
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview",
@@ -1252,12 +1274,20 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     max_count=None,
                 ),
                 AuthoringInputRequirement(
-                    role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
+                    role="scope",
+                    family="AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+                ),
+                _optional_input(
+                    "dependency",
+                    "Mapping[Ref[entity], JSON source parameter mapping]",
                 ),
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview_many([revenue], using=orders_snapshot)",
+            example=(
+                "catalog.preview_many([revenue], "
+                "scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
+            ),
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview_many",
@@ -1784,7 +1814,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessReport,
         "ReadinessReport",
         ("readiness",),
-        properties=("analysis_ready_refs", "analysis_ready_inputs", "preview_required_refs"),
+        properties=("analysis_ready_inputs",),
         methods=("show", "render"),
     )
     add(

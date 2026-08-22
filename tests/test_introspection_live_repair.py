@@ -11,11 +11,11 @@ from marivo.introspection.live.model import LiveHelpTarget
 
 def test_authoring_repair_minimal():
     repair = AuthoringRepair(
-        kind="repreview",
+        kind="rescope",
         help_target=LiveHelpTarget(surface="semantic", canonical_id="preview"),
-        action="Run a scoped preview with fresh evidence.",
+        action="Run preview with a complete explicit scope.",
     )
-    assert repair.kind == "repreview"
+    assert repair.kind == "rescope"
     assert repair.snippet is None
     assert repair.candidates == ()
     assert repair.preserves_evidence is None

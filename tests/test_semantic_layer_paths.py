@@ -371,7 +371,7 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     assert md.remove("warehouse") is True
 
     verify = catalog.require(entity_ref)
-    preview = catalog.preview(metric_ref, using=snapshot, limit=1)
+    preview = catalog.preview(metric_ref, scope=snapshot.scope, limit=1)
 
     assert verify.ref == entity_ref
     assert preview.rows == ({"value": 150.0},)

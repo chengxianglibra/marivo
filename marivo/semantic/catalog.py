@@ -27,7 +27,6 @@ from typing import (
     overload,
 )
 
-from marivo._compat import UTC
 from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV1,
@@ -50,7 +49,6 @@ from marivo.datasource.ir import (
     _format_database_identity,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
@@ -59,6 +57,7 @@ from marivo.preview import (
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
+    normalize_preview_cell,
     preview_from_pandas,
     preview_ibis_table,
     validate_preview_limit,
@@ -142,12 +141,12 @@ from marivo.semantic.ir import (
     composition_components,
 )
 from marivo.semantic.parity import propagated_parity_status
-from marivo.semantic.preview_checks import (
-    NormalizedPreviewBindings,
-    PreviewUsing,
-    normalize_preview_batch_bindings,
-    normalize_preview_bindings,
-    persist_preview_check,
+from marivo.semantic.preview_scope import (
+    NormalizedPreviewScope,
+    PreviewScope,
+    PreviewSourceBindings,
+    normalize_preview_batch_scopes,
+    normalize_preview_scope,
 )
 from marivo.semantic.runtime_metric import (
     RuntimeAggregateExpr,
@@ -226,6 +225,58 @@ def _metric_preview_warning() -> PreviewWarning:
         message=(
             f"metric preview aggregates at most {METRIC_PREVIEW_SAMPLE_SIZE:,} scoped input "
             "rows; treat the result as approximate"
+        ),
+    )
+
+
+def _attach_preview_scope(
+    result: PreviewResult,
+    *,
+    bindings: NormalizedPreviewScope,
+    approximate_input: bool = False,
+) -> PreviewResult:
+    """Attach only current execution scope facts to one preview result."""
+    coverage = replace(
+        result.coverage,
+        scopes=bindings.scopes,
+        scope_exactness=("sample_only" if approximate_input else result.coverage.scope_exactness),
+    )
+    return replace(result, coverage=coverage)
+
+
+def _is_naive_timestamp_type(data_type: str | None) -> bool:
+    if data_type is None:
+        return False
+    normalized = data_type.strip().lower().replace(" ", "")
+    return normalized.startswith("timestamp") and "'" not in normalized and '"' not in normalized
+
+
+def _time_parse_risk_warning(ref: str, data_type: str) -> PreviewWarning:
+    return PreviewWarning(
+        kind="time_parse_risk",
+        message=(
+            f"{ref} has no declared parse/timezone and preview observed native naive "
+            f"type {data_type!r}; declare the source timezone before relying on "
+            "report-local day or hour boundaries"
+        ),
+    )
+
+
+def _with_time_parse_risk(
+    result: PreviewResult,
+    *,
+    ref: str,
+    field: DimensionIR,
+) -> PreviewResult:
+    """Attach the native naive-timestamp warning when current types prove it."""
+    observed_type = result.types.get(result.columns[-1])
+    if field.parse is not None or not _is_naive_timestamp_type(observed_type):
+        return result
+    return replace(
+        result,
+        warnings=(
+            *result.warnings,
+            _time_parse_risk_warning(ref, cast("str", observed_type)),
         ),
     )
 
@@ -382,7 +433,7 @@ class _BatchPreviewItem:
     order: int
     ref: Ref[SemanticKindTag]
     kind: SemanticKind
-    bindings: NormalizedPreviewBindings
+    bindings: NormalizedPreviewScope
 
 
 @dataclass(frozen=True)
@@ -4061,53 +4112,152 @@ def _build_work_schedule_object(
     return _object_from_details(WorkScheduleEntry, details, catalog)
 
 
+_PreviewCell: TypeAlias = str | int | float | bool | None
+
+
+@dataclass(frozen=True)
+class _CertificationCapture:
+    """Exact current-source rows used only for one temporal certification."""
+
+    scope: AuthoringScope
+    columns: tuple[str, ...]
+    rows_observed: int
+    retained_values: tuple[tuple[_PreviewCell, ...], ...]
+
+    def coverage(self, entity_id: str) -> PreviewCoverage:
+        return PreviewCoverage(
+            scopes=((entity_id, self.scope),),
+            rows_observed=self.rows_observed,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+        )
+
+
+def _certification_capture(
+    *,
+    ref: Ref[SemanticKindTag],
+    kind: SemanticKind,
+    registry: Registry,
+    bindings: NormalizedPreviewScope,
+    resolver: SemanticResolver,
+) -> _CertificationCapture:
+    """Read one exhaustive bounded value capture for a certified artifact."""
+    if len(bindings.entity_ids) != 1:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Certified semantic artifacts require exactly one dependency entity.",
+            cls=SemanticRuntimeError,
+            refs=(ref.key,),
+            details={"query_executed": False, "entities": bindings.entity_ids},
+        )
+    entity_id = bindings.entity_ids[0]
+    scope = bindings.scopes[0][1]
+    if kind is SemanticKind.PERIOD_CALENDAR:
+        calendar = registry.period_calendars[ref.path]
+        field_ids = (
+            calendar.date,
+            *(field for _name, field in calendar.levels),
+            *(field for _name, _level, field in calendar.correspondences),
+        )
+    elif kind is SemanticKind.TEMPORAL_SET:
+        temporal_set = registry.temporal_sets[ref.path]
+        field_ids = tuple(
+            field
+            for field in (
+                temporal_set.occurrence_id,
+                temporal_set.start,
+                temporal_set.end,
+                temporal_set.category,
+            )
+            if field is not None
+        )
+    elif kind is SemanticKind.WORK_SCHEDULE:
+        work_schedule = registry.work_schedules[ref.path]
+        field_ids = (work_schedule.date, work_schedule.is_working)
+    else:
+        raise AssertionError(f"unsupported certified artifact kind: {kind}")
+    fields = tuple(registry.dimensions[field_id] for field_id in field_ids)
+    if any(field.source_column is None for field in fields):
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Certified artifact fields must all use direct physical source columns.",
+            cls=SemanticRuntimeError,
+            refs=(ref.key,),
+            details={"query_executed": False},
+        )
+    columns = tuple(dict.fromkeys(cast("str", field.source_column) for field in fields))
+    table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
+    connections = resolver.connections
+    backend = connections.session_backend(bindings.datasource_id)
+    profile = require_profile_for_backend_type(bindings.backend)
+    timeout_guard = profile.authoring_timeout
+    if timeout_guard is None:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Certified artifact preview requires an adapter-enforced authoring timeout.",
+            cls=SemanticRuntimeError,
+            refs=(ref.key,),
+            details={"query_executed": False, "backend": bindings.backend},
+        )
+    with timeout_guard(backend, bindings.timeout_seconds):
+        frame = table.execute()
+    observed = len(frame)
+    if observed > scope.max_rows:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "Certified artifact preview requires an exhaustive explicit scope.",
+            cls=SemanticRuntimeError,
+            refs=(ref.key,),
+            details={
+                "query_executed": True,
+                "rows_observed": observed,
+                "max_rows": scope.max_rows,
+                "scope_exhaustion": "truncated",
+            },
+            repair_value=repair(
+                kind="rescope",
+                canonical_id="preview",
+                action=(
+                    "Retry catalog.preview(..., scope=...) with a complete bounded "
+                    "source range and a row budget that admits every required row."
+                ),
+                preserves_evidence=False,
+            ),
+        )
+    retained = frame.iloc[: scope.max_rows]
+    schema = table.schema()
+    return _CertificationCapture(
+        scope=scope,
+        columns=columns,
+        rows_observed=observed,
+        retained_values=tuple(
+            tuple(
+                cast(
+                    "str | int | float | bool | None",
+                    (
+                        value.date().isoformat()
+                        if schema[column].is_date() and isinstance(value, datetime)
+                        else normalize_preview_cell(value)
+                    ),
+                )
+                for column, value in zip(columns, row, strict=True)
+            )
+            for row in retained.itertuples(index=False, name=None)
+        ),
+    )
+
+
 def _preview_temporal_set(
     *,
     temporal_set_ref: Ref[TemporalSetKind],
     registry: Registry,
     project_root: Path,
-    using: PreviewUsing,
+    capture: _CertificationCapture,
     limit: int,
     dependency_digest: str,
 ) -> PreviewResult:
-    """Certify a temporal set locally from one exhaustive persisted snapshot."""
+    """Certify a temporal-set artifact from one live exhaustive capture."""
     preview_limit = validate_preview_limit(limit)
-    if not isinstance(using, DiscoverySnapshot):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set preview requires exactly one DiscoverySnapshot in using=.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={"query_executed": False},
-        )
-    if using._project_root.resolve() != project_root.resolve():
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set snapshot belongs to a different semantic project.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={"query_executed": False},
-        )
-    if using.cache_status in {"stale", "mismatched"} or using.expires_at <= datetime.now(UTC):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set preview cannot certify stale or expired datasource evidence.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={"query_executed": False, "cache_status": using.cache_status},
-        )
-    if using.value_evidence_state != "available" or not using.retained_values:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set preview requires retained persisted value evidence.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={
-                "query_executed": False,
-                "value_evidence_state": using.value_evidence_state,
-                "retained_row_count": len(using.retained_values),
-            },
-        )
     temporal_set = registry.temporal_sets.get(temporal_set_ref.path)
     if temporal_set is None:
         raise RuntimeError(f"missing compiled temporal set {temporal_set_ref.path!r}")
@@ -4135,25 +4285,6 @@ def _preview_temporal_set(
             refs=(temporal_set_ref.key,),
             details={"query_executed": False},
         )
-    source_entity = registry.entities.get(occurrence_field.entity)
-    if (
-        source_entity is None
-        or using.datasource.path != source_entity.datasource
-        or using.source != source_entity.source
-        or using.coverage.scope_exhaustion != "exhaustive"
-        or not using.persist_values
-    ):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set preview requires an exhaustive snapshot from the occurrence entity source with persist_values=True.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={
-                "query_executed": False,
-                "scope_exhaustion": using.coverage.scope_exhaustion,
-                "persist_values": using.persist_values,
-            },
-        )
     from marivo._temporal import (
         TemporalSetSnapshotStore,
         certify_temporal_set_rows,
@@ -4168,8 +4299,8 @@ def _preview_temporal_set(
                 date.fromisoformat(temporal_set.coverage[0]),
                 date.fromisoformat(temporal_set.coverage[1]),
             ),
-            columns=using.columns,
-            retained_values=using.retained_values,
+            columns=capture.columns,
+            retained_values=capture.retained_values,
             occurrence_id=occurrence_field.source_column,
             start=start_field.source_column,
             end=end_field.source_column,
@@ -4220,14 +4351,7 @@ def _preview_temporal_set(
         returned_row_count=len(rows),
         is_truncated=len(snapshot.occurrences) > preview_limit,
         status="passed",
-        coverage=PreviewCoverage(
-            scopes=((occurrence_field.entity, using.scope),),
-            rows_observed=using.coverage.observed_row_count,
-            scope_exhaustion=using.coverage.scope_exhaustion,
-            scope_exactness=using.coverage.scope_exactness,
-            snapshot_ids=(using.id,),
-            cache_status="fresh" if using.cache_status == "mismatched" else using.cache_status,
-        ),
+        coverage=capture.coverage(occurrence_field.entity),
         sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
     )
 
@@ -4237,48 +4361,12 @@ def _preview_work_schedule(
     work_schedule_ref: Ref[WorkScheduleKind],
     registry: Registry,
     project_root: Path,
-    using: PreviewUsing,
+    capture: _CertificationCapture,
     limit: int,
     dependency_digest: str,
 ) -> PreviewResult:
-    """Certify a work schedule locally from one exhaustive persisted snapshot."""
+    """Certify a work-schedule artifact from one live exhaustive capture."""
     preview_limit = validate_preview_limit(limit)
-    if not isinstance(using, DiscoverySnapshot):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule preview requires exactly one DiscoverySnapshot in using=.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={"query_executed": False},
-        )
-    if using._project_root.resolve() != project_root.resolve():
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule snapshot belongs to a different semantic project.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={"query_executed": False},
-        )
-    if using.cache_status in {"stale", "mismatched"} or using.expires_at <= datetime.now(UTC):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule preview cannot certify stale or expired datasource evidence.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={"query_executed": False, "cache_status": using.cache_status},
-        )
-    if using.value_evidence_state != "available" or not using.retained_values:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule preview requires retained persisted value evidence.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={
-                "query_executed": False,
-                "value_evidence_state": using.value_evidence_state,
-                "retained_row_count": len(using.retained_values),
-            },
-        )
     schedule = registry.work_schedules.get(work_schedule_ref.path)
     if schedule is None:
         raise RuntimeError(f"missing compiled work schedule {work_schedule_ref.path!r}")
@@ -4297,25 +4385,6 @@ def _preview_work_schedule(
             refs=(work_schedule_ref.key,),
             details={"query_executed": False},
         )
-    source_entity = registry.entities.get(date_field.entity)
-    if (
-        source_entity is None
-        or using.datasource.path != source_entity.datasource
-        or using.source != source_entity.source
-        or using.coverage.scope_exhaustion != "exhaustive"
-        or not using.persist_values
-    ):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule preview requires an exhaustive snapshot from the date entity source with persist_values=True.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={
-                "query_executed": False,
-                "scope_exhaustion": using.coverage.scope_exhaustion,
-                "persist_values": using.persist_values,
-            },
-        )
     from marivo._temporal import (
         WorkScheduleSnapshotStore,
         certify_work_schedule_rows,
@@ -4330,8 +4399,8 @@ def _preview_work_schedule(
                 date.fromisoformat(schedule.coverage[0]),
                 date.fromisoformat(schedule.coverage[1]),
             ),
-            columns=using.columns,
-            retained_values=using.retained_values,
+            columns=capture.columns,
+            retained_values=capture.retained_values,
             date_column=date_field.source_column,
             is_working=working_field.source_column,
             date_parse=date_field.parse,
@@ -4367,14 +4436,7 @@ def _preview_work_schedule(
         returned_row_count=len(rows),
         is_truncated=len(snapshot.days) > preview_limit,
         status="passed",
-        coverage=PreviewCoverage(
-            scopes=((date_field.entity, using.scope),),
-            rows_observed=using.coverage.observed_row_count,
-            scope_exhaustion=using.coverage.scope_exhaustion,
-            scope_exactness=using.coverage.scope_exactness,
-            snapshot_ids=(using.id,),
-            cache_status="fresh" if using.cache_status == "mismatched" else using.cache_status,
-        ),
+        coverage=capture.coverage(date_field.entity),
         sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
     )
 
@@ -4384,80 +4446,12 @@ def _preview_period_calendar(
     calendar_ref: Ref[PeriodCalendarKind],
     registry: Registry,
     project_root: Path,
-    using: PreviewUsing,
+    capture: _CertificationCapture,
     limit: int,
     dependency_digest: str,
 ) -> PreviewResult:
-    """Certify a calendar locally from one exhaustive persisted datasource snapshot."""
+    """Certify a period-calendar artifact from one live exhaustive capture."""
     preview_limit = validate_preview_limit(limit)
-    if not isinstance(using, DiscoverySnapshot):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar preview requires exactly one DiscoverySnapshot in using=.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={"query_executed": False},
-        )
-    if using._project_root.resolve() != project_root.resolve():
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar snapshot belongs to a different semantic project.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={
-                "query_executed": False,
-                "expected_project_root": str(project_root.resolve()),
-                "received_project_root": str(using._project_root.resolve()),
-            },
-            repair_value=repair(
-                kind="reacquire",
-                canonical_id="SourceInspection.sample",
-                action=(
-                    "Acquire the exhaustive calendar snapshot from this project and pass "
-                    "that exact immutable value to catalog.preview(..., using=...)."
-                ),
-                preserves_evidence=False,
-            ),
-        )
-    if using.cache_status in {"stale", "mismatched"} or using.expires_at <= datetime.now(UTC):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar preview cannot certify stale or expired datasource evidence.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={
-                "query_executed": False,
-                "cache_status": using.cache_status,
-                "expires_at": using.expires_at.isoformat(),
-            },
-            repair_value=repair(
-                kind="reacquire",
-                canonical_id="SourceInspection.sample",
-                action=(
-                    "Reacquire a fresh exhaustive snapshot with persist_values=True, then "
-                    "retry the calendar preview."
-                ),
-                preserves_evidence=False,
-            ),
-        )
-    if using.value_evidence_state != "available" or not using.retained_values:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar preview requires retained persisted value evidence.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={
-                "query_executed": False,
-                "value_evidence_state": using.value_evidence_state,
-                "retained_row_count": len(using.retained_values),
-            },
-            repair_value=repair(
-                kind="reacquire",
-                canonical_id="SourceInspection.sample",
-                action="Acquire the same calendar columns with persist_values=True and retry.",
-                preserves_evidence=False,
-            ),
-        )
     calendar = registry.period_calendars.get(calendar_ref.path)
     if calendar is None:
         raise RuntimeError(f"missing compiled period calendar {calendar_ref.path!r}")
@@ -4469,31 +4463,6 @@ def _preview_period_calendar(
             cls=SemanticRuntimeError,
             refs=(calendar_ref.key, calendar.date),
             details={"query_executed": False},
-        )
-    source_entity = registry.entities.get(date_dimension.entity)
-    if (
-        source_entity is None
-        or using.datasource.path != source_entity.datasource
-        or using.source != source_entity.source
-    ):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar snapshot must belong to the calendar date entity's datasource and source.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={"query_executed": False},
-        )
-    if using.coverage.scope_exhaustion != "exhaustive" or not using.persist_values:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar preview requires an exhaustive snapshot acquired with persist_values=True.",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={
-                "query_executed": False,
-                "scope_exhaustion": using.coverage.scope_exhaustion,
-                "persist_values": using.persist_values,
-            },
         )
     level_columns: dict[str, str] = {}
     for level, field_ref in calendar.levels:
@@ -4533,8 +4502,8 @@ def _preview_period_calendar(
                 date.fromisoformat(calendar.coverage[0]),
                 date.fromisoformat(calendar.coverage[1]),
             ),
-            columns=using.columns,
-            retained_values=using.retained_values,
+            columns=capture.columns,
+            retained_values=capture.retained_values,
             date_column=date_dimension.source_column,
             levels=level_columns,
             correspondences=correspondence_columns,
@@ -4550,11 +4519,11 @@ def _preview_period_calendar(
                 "certification_error": type(exc).__name__,
             },
             repair_value=repair(
-                kind="reacquire",
-                canonical_id="SourceInspection.sample",
+                kind="rescope",
+                canonical_id="preview",
                 action=(
-                    "Correct the calendar source values or coverage, reacquire the same "
-                    "exhaustive columns with persist_values=True, and retry preview."
+                    "Correct the calendar source values or declared coverage, then retry "
+                    "catalog.preview(..., scope=...) with complete bounded coverage."
                 ),
                 preserves_evidence=False,
             ),
@@ -4587,14 +4556,7 @@ def _preview_period_calendar(
         returned_row_count=len(rows),
         is_truncated=len(snapshot.periods) > preview_limit,
         status="passed",
-        coverage=PreviewCoverage(
-            scopes=((date_dimension.entity, using.scope),),
-            rows_observed=using.coverage.observed_row_count,
-            scope_exhaustion=using.coverage.scope_exhaustion,
-            scope_exactness=using.coverage.scope_exactness,
-            snapshot_ids=(using.id,),
-            cache_status="fresh" if using.cache_status == "mismatched" else using.cache_status,
-        ),
+        coverage=capture.coverage(date_dimension.entity),
         sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
     )
 
@@ -5244,13 +5206,12 @@ class SemanticCatalog(RenderableResult):
     ) -> ReadinessReport:
         """Return explicit certification and diagnostics for the given semantic refs.
 
-        Reads loaded state plus persisted row-free preview evidence without
-        acquiring, refreshing, or querying. Missing evidence produces exact
-        next calls for the caller to execute explicitly.
+        Reads only current loaded semantic state and dedicated certified
+        artifact state without acquiring, refreshing, or querying ordinary
+        datasource evidence.
 
         ``analysis_ready_inputs`` preserves directly selected refs and runtime
         expressions whose full dependency closures have no blocker.
-        ``analysis_ready_refs`` remains the refs-only compatibility projection.
 
         Args:
             refs: Current catalog entries, semantic refs, or closed runtime
@@ -5438,21 +5399,21 @@ class SemanticCatalog(RenderableResult):
                 graph_issues.append(graph_issue(root_keys=root_keys, exc=exc))
 
         base_report = self._project.readiness(refs=check_refs)
-        ready_leaf_refs = set(base_report.analysis_ready_refs)
+        ready_leaf_refs = {
+            value for value in base_report.analysis_ready_inputs if type(value) is Ref
+        }
         ready_inputs = tuple(
             value
             for index, value in enumerate(normalized_inputs)
             if index not in graph_blocked
             and all(dependency in ready_leaf_refs for dependency in root_dependencies[index])
         )
-        ready_refs = tuple(value for value in ready_inputs if type(value) is Ref)
         blockers = (*base_report.blockers, *graph_issues)
         status = "blocked" if blockers else base_report.status
         return replace(
             base_report,
             status=status,
             blockers=blockers,
-            analysis_ready_refs=ready_refs,
             analysis_ready_inputs=ready_inputs,
         )
 
@@ -5489,7 +5450,8 @@ class SemanticCatalog(RenderableResult):
         ref: _SemanticInput[SemanticKindTag],
         /,
         *,
-        using: PreviewUsing,
+        scope: PreviewScope,
+        source_bindings: PreviewSourceBindings | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
@@ -5498,7 +5460,10 @@ class SemanticCatalog(RenderableResult):
 
         Args:
             ref: A current catalog entry or exact member ref.
-            using: Persisted datasource discovery snapshot bindings.
+            scope: One explicit authoring scope, or exact entity-to-scope
+                bindings when the ref spans multiple entities.
+            source_bindings: Optional exact entity-to-parameter bindings for
+                parameterized JSON sources.
             limit: Positive bounded preview row limit.
             include_types: Include physical type facts in the result.
             context_columns: Optional context columns for field previews.
@@ -5508,7 +5473,10 @@ class SemanticCatalog(RenderableResult):
 
         Example:
             >>> revenue = catalog.metrics.get("sales.revenue")
-            >>> preview = catalog.preview(revenue, using=orders_snapshot)
+            >>> preview = catalog.preview(
+            ...     revenue,
+            ...     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+            ... )
 
         Constraints:
             Input ownership and membership are checked before connection
@@ -5523,7 +5491,8 @@ class SemanticCatalog(RenderableResult):
                 allowed_kinds=_ALL_SEMANTIC_KINDS,
                 location="catalog.preview(ref)",
             ),
-            using=using,
+            scope=scope,
+            source_bindings=source_bindings,
             limit=limit,
             include_types=include_types,
             context_columns=context_columns,
@@ -5534,7 +5503,8 @@ class SemanticCatalog(RenderableResult):
         refs: Sequence[_SemanticInput[SemanticKindTag]],
         /,
         *,
-        using: PreviewUsing,
+        scope: PreviewScope,
+        source_bindings: PreviewSourceBindings | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
     ) -> PreviewBatchResult:
@@ -5542,7 +5512,10 @@ class SemanticCatalog(RenderableResult):
 
         Args:
             refs: A non-empty ordered sequence of current entries or exact refs.
-            using: One snapshot or exact entity-to-snapshot bindings.
+            scope: One explicit authoring scope when all refs share one entity,
+                or exact entity-to-scope bindings otherwise.
+            source_bindings: Optional exact entity-to-parameter bindings for
+                parameterized JSON sources.
             limit: Positive bounded preview row limit per result.
             include_types: Include physical type facts in each result.
 
@@ -5552,7 +5525,10 @@ class SemanticCatalog(RenderableResult):
         Example:
             >>> revenue = catalog.metrics.get("sales.revenue")
             >>> region = catalog.dimensions.get("sales.orders.region")
-            >>> batch = catalog.preview_many([region, revenue], using=orders_snapshot)
+            >>> batch = catalog.preview_many(
+            ...     [region, revenue],
+            ...     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+            ... )
 
         Constraints:
             The complete input sequence is normalized before any preview
@@ -5571,7 +5547,8 @@ class SemanticCatalog(RenderableResult):
         )
         return self._preview_batch(
             normalized_refs,
-            using=using,
+            scope=scope,
+            source_bindings=source_bindings,
             limit=limit,
             include_types=include_types,
         )
@@ -5580,7 +5557,8 @@ class SemanticCatalog(RenderableResult):
         self,
         ref: Ref[SemanticKindTag],
         *,
-        using: PreviewUsing,
+        scope: PreviewScope,
+        source_bindings: PreviewSourceBindings | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
@@ -5599,14 +5577,39 @@ class SemanticCatalog(RenderableResult):
                 cls=SemanticRuntimeError,
                 refs=(ref_str,),
             )
+        bindings = normalize_preview_scope(
+            ref=ref_str,
+            kind=kind,
+            scope=scope,
+            source_bindings=source_bindings,
+            registry=reg,
+        )
+        if kind in {
+            SemanticKind.PERIOD_CALENDAR,
+            SemanticKind.TEMPORAL_SET,
+            SemanticKind.WORK_SCHEDULE,
+        }:
+            validate_preview_limit(limit)
         if kind is SemanticKind.PERIOD_CALENDAR:
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+            resolver = self._semantic_resolver(
+                connections=self._project._connection_service(),
+                entity_scopes=bindings.entity_scopes,
+                source_bindings=bindings.source_bindings,
+            )
 
             return _preview_period_calendar(
                 calendar_ref=cast("Ref[PeriodCalendarKind]", ref_obj),
                 registry=reg,
                 project_root=self.workspace_dir,
-                using=using,
+                capture=_certification_capture(
+                    ref=ref_obj,
+                    kind=kind,
+                    registry=reg,
+                    bindings=bindings,
+                    resolver=resolver,
+                ),
                 limit=limit,
                 dependency_digest=scoped_definition_fingerprint(
                     root=ref_obj,
@@ -5618,11 +5621,23 @@ class SemanticCatalog(RenderableResult):
         if kind is SemanticKind.TEMPORAL_SET:
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
+            resolver = self._semantic_resolver(
+                connections=self._project._connection_service(),
+                entity_scopes=bindings.entity_scopes,
+                source_bindings=bindings.source_bindings,
+            )
+
             return _preview_temporal_set(
                 temporal_set_ref=cast("Ref[TemporalSetKind]", ref_obj),
                 registry=reg,
                 project_root=self.workspace_dir,
-                using=using,
+                capture=_certification_capture(
+                    ref=ref_obj,
+                    kind=kind,
+                    registry=reg,
+                    bindings=bindings,
+                    resolver=resolver,
+                ),
                 limit=limit,
                 dependency_digest=scoped_definition_fingerprint(
                     root=ref_obj,
@@ -5634,11 +5649,23 @@ class SemanticCatalog(RenderableResult):
         if kind is SemanticKind.WORK_SCHEDULE:
             from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
+            resolver = self._semantic_resolver(
+                connections=self._project._connection_service(),
+                entity_scopes=bindings.entity_scopes,
+                source_bindings=bindings.source_bindings,
+            )
+
             return _preview_work_schedule(
                 work_schedule_ref=cast("Ref[WorkScheduleKind]", ref_obj),
                 registry=reg,
                 project_root=self.workspace_dir,
-                using=using,
+                capture=_certification_capture(
+                    ref=ref_obj,
+                    kind=kind,
+                    registry=reg,
+                    bindings=bindings,
+                    resolver=resolver,
+                ),
                 limit=limit,
                 dependency_digest=scoped_definition_fingerprint(
                     root=ref_obj,
@@ -5647,16 +5674,11 @@ class SemanticCatalog(RenderableResult):
                     sidecar=self._state.sidecar,
                 ),
             )
-        bindings = normalize_preview_bindings(
-            ref=ref_str,
-            kind=kind,
-            using=using,
-            registry=reg,
-            sidecar=sidecar,
-            project_root=self.workspace_dir,
-            catalog_definition_fingerprint=self.definition_fingerprint,
-        )
         preview_limit = validate_preview_limit(limit)
+        row_preview_limit = min(
+            preview_limit,
+            *(bound_scope.max_rows for _entity_id, bound_scope in bindings.scopes),
+        )
         is_field_preview = kind in {
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,
@@ -5698,8 +5720,10 @@ class SemanticCatalog(RenderableResult):
                     table,
                     kind="semantic_dataset",
                     ref=ref_str,
-                    limit=preview_limit,
-                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    limit=row_preview_limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="bounded_limit", limit=row_preview_limit
+                    ),
                     include_types=include_types,
                     report_tz=system_timezone_name(),
                 )
@@ -5713,8 +5737,10 @@ class SemanticCatalog(RenderableResult):
                     preview_table,
                     kind="semantic_measure",
                     ref=ref_str,
-                    limit=preview_limit,
-                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    limit=row_preview_limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="bounded_limit", limit=row_preview_limit
+                    ),
                     include_types=include_types,
                     report_tz=system_timezone_name(),
                 )
@@ -5754,12 +5780,14 @@ class SemanticCatalog(RenderableResult):
                     *[parent_table[column] for column in selected_context],
                     field_value.name(field_column_name),
                 )
-                return preview_ibis_table(
+                result = preview_ibis_table(
                     preview_table,
                     kind="semantic_field",
                     ref=ref_str,
-                    limit=preview_limit,
-                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    limit=row_preview_limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="bounded_limit", limit=row_preview_limit
+                    ),
                     include_types=include_types,
                     timezones=_preview_timezones_for_field(
                         column_name=field_column_name,
@@ -5769,6 +5797,13 @@ class SemanticCatalog(RenderableResult):
                     ),
                     report_tz=report_tz,
                 )
+                if kind is SemanticKind.TIME_DIMENSION:
+                    result = _with_time_parse_risk(
+                        result,
+                        ref=ref_str,
+                        field=field_ir,
+                    )
+                return result
             if kind == SemanticKind.METRIC:
                 metric_ref = _make_ref(ref_str, SemanticKind.METRIC)
                 sample_policy = PreviewSamplePolicy(
@@ -5953,17 +5988,18 @@ class SemanticCatalog(RenderableResult):
 
         with timeout(backend, bindings.timeout_seconds):
             result = execute_preview()
-        return persist_preview_check(
+        return _attach_preview_scope(
             result,
             bindings=bindings,
-            project_root=self.workspace_dir,
+            approximate_input=kind is SemanticKind.METRIC,
         )
 
     def _preview_batch(
         self,
         refs: Sequence[Ref[SemanticKindTag]],
         *,
-        using: PreviewUsing,
+        scope: PreviewScope,
+        source_bindings: PreviewSourceBindings | None,
         limit: int,
         include_types: bool,
     ) -> PreviewBatchResult:
@@ -5971,7 +6007,7 @@ class SemanticCatalog(RenderableResult):
         if not refs:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.preview_many(refs, using=...) requires a non-empty sequence.",
+                "catalog.preview_many(refs, scope=...) requires a non-empty sequence.",
                 cls=SemanticRuntimeError,
                 details={"query_executed": False},
             )
@@ -5992,7 +6028,7 @@ class SemanticCatalog(RenderableResult):
         if duplicate_refs:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.preview_many(refs, using=...) received duplicate refs: "
+                "catalog.preview_many(refs, scope=...) received duplicate refs: "
                 f"{[ref.key for ref in duplicate_refs]}.",
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in duplicate_refs),
@@ -6015,7 +6051,7 @@ class SemanticCatalog(RenderableResult):
             if kind not in supported_kinds:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"catalog.preview_many(refs, using=...) does not support {kind} refs.",
+                    f"catalog.preview_many(refs, scope=...) does not support {kind} refs.",
                     cls=SemanticRuntimeError,
                     refs=(ref_obj.path,),
                     details={"query_executed": False, "kind": str(kind)},
@@ -6032,13 +6068,11 @@ class SemanticCatalog(RenderableResult):
                 refs=tuple(ref.path for ref in ref_objects),
                 details={"query_executed": False},
             )
-        normalized = normalize_preview_batch_bindings(
+        normalized = normalize_preview_batch_scopes(
             refs=resolved,
-            using=using,
+            scope=scope,
+            source_bindings=source_bindings,
             registry=reg,
-            sidecar=sidecar,
-            project_root=self.workspace_dir,
-            catalog_definition_fingerprint=self.definition_fingerprint,
         )
         items = tuple(
             _BatchPreviewItem(order, ref_obj, kind, bindings)
@@ -6058,7 +6092,7 @@ class SemanticCatalog(RenderableResult):
             identity = (
                 item.bindings.datasource_id,
                 item.bindings.entity_ids,
-                tuple(snapshot.id for snapshot in item.bindings.snapshots),
+                item.bindings.scopes,
                 item.bindings.timeout_seconds,
             )
             key: tuple[object, ...]
@@ -6082,11 +6116,7 @@ class SemanticCatalog(RenderableResult):
                         include_types=include_types,
                     )
                     results = tuple(
-                        persist_preview_check(
-                            result,
-                            bindings=item.bindings,
-                            project_root=self.workspace_dir,
-                        )
+                        _attach_preview_scope(result, bindings=item.bindings)
                         for item, result in zip(group_items, raw_results, strict=True)
                     )
                 elif group_key[0] == "metric":
@@ -6097,10 +6127,10 @@ class SemanticCatalog(RenderableResult):
                         include_types=include_types,
                     )
                     results = tuple(
-                        persist_preview_check(
+                        _attach_preview_scope(
                             result,
                             bindings=item.bindings,
-                            project_root=self.workspace_dir,
+                            approximate_input=True,
                         )
                         for item, result in zip(group_items, raw_results, strict=True)
                     )
@@ -6109,18 +6139,18 @@ class SemanticCatalog(RenderableResult):
                     results = (
                         self._preview_one(
                             item.ref,
-                            using=(
-                                item.bindings.snapshots[0]
+                            scope=(
+                                item.bindings.scopes[0][1]
                                 if len(item.bindings.entity_ids) == 1
                                 else {
-                                    _make_ref(entity_id, SemanticKind.ENTITY): snapshot
-                                    for entity_id, snapshot in zip(
-                                        item.bindings.entity_ids,
-                                        item.bindings.snapshots,
-                                        strict=True,
-                                    )
+                                    _make_ref(entity_id, SemanticKind.ENTITY): bound_scope
+                                    for entity_id, bound_scope in item.bindings.scopes
                                 }
                             ),
+                            source_bindings={
+                                _make_ref(entity_id, SemanticKind.ENTITY): params
+                                for entity_id, params in item.bindings.source_bindings.items()
+                            },
                             limit=preview_limit,
                             include_types=include_types,
                         ),
@@ -6151,6 +6181,7 @@ class SemanticCatalog(RenderableResult):
         reg = self._require_ready()
         bindings = items[0].bindings
         entity_id = bindings.entity_ids[0]
+        row_limit = min(limit, bindings.scopes[0][1].max_rows)
         resolver = self._semantic_resolver(
             connections=connections,
             entity_scopes=bindings.entity_scopes,
@@ -6200,7 +6231,7 @@ class SemanticCatalog(RenderableResult):
             )
         backend = connections.session_backend(bindings.datasource_id)
         with timeout(backend, bindings.timeout_seconds):
-            dataframe = preview_table.limit(limit + 1).execute()
+            dataframe = preview_table.limit(row_limit + 1).execute()
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         from marivo.datasource.timezone import system_timezone_name
 
@@ -6251,18 +6282,23 @@ class SemanticCatalog(RenderableResult):
                         datasource_timezone=datasource_timezone,
                         report_tz=report_tz,
                     )
-            results.append(
-                preview_from_pandas(
-                    frame,
-                    kind=kind,
-                    ref=item.ref.path,
-                    requested_limit=limit,
-                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-                    types=result_types,
-                    timezones=timezones,
-                    report_tz=report_tz,
-                )
+            result = preview_from_pandas(
+                frame,
+                kind=kind,
+                ref=item.ref.path,
+                requested_limit=row_limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=row_limit),
+                types=result_types,
+                timezones=timezones,
+                report_tz=report_tz,
             )
+            if item.kind is SemanticKind.TIME_DIMENSION:
+                result = _with_time_parse_risk(
+                    result,
+                    ref=item.ref.path,
+                    field=reg.dimensions[item.ref.path],
+                )
+            results.append(result)
         return tuple(results)
 
     def _preview_metric_group(

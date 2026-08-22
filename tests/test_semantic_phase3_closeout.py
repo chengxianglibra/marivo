@@ -6,7 +6,7 @@ import importlib.util
 import inspect
 
 import marivo.semantic as ms
-from marivo.semantic import constraints, dtos, errors, preview_checks, readiness
+from marivo.semantic import constraints, dtos, errors, preview_scope, readiness
 
 
 def test_phase3_removes_authoring_question() -> None:
@@ -42,7 +42,7 @@ def test_phase3_removes_skill_paths_from_constraints() -> None:
 
 def test_phase3_removes_suggested_action_from_readiness_and_preview() -> None:
     readiness_source = inspect.getsource(readiness)
-    preview_source = inspect.getsource(preview_checks)
+    preview_source = inspect.getsource(preview_scope)
     assert "suggested_action" not in readiness_source
     assert "suggested_action" not in preview_source
 

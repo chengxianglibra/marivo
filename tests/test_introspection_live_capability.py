@@ -23,7 +23,7 @@ def _preview_capability() -> AuthoringCapability:
         summary="Scoped runtime preview of one loaded semantic object.",
         input_requirements=(
             AuthoringInputRequirement(role="subject", family="Ref"),
-            AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
+            AuthoringInputRequirement(role="scope", family="AuthoringScope"),
         ),
         output_family="PreviewResult",
         preconditions=("a current loaded SemanticCatalog",),
@@ -31,10 +31,10 @@ def _preview_capability() -> AuthoringCapability:
             data_access="scoped_data_read",
             connection="opens_connection",
             mutations=("project_state",),
-            flags=("requires_existing_snapshot_binding",),
+            flags=("requires_explicit_scope", "requires_positive_row_guard"),
         ),
         constraints=("preview_scope_required",),
-        minimal_example="catalog.preview(obj, using=snapshot)",
+        minimal_example="catalog.preview(obj, scope=scope)",
     )
 
 

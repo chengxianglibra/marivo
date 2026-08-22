@@ -69,10 +69,9 @@ def test_preview_from_pandas_bounds_rows_and_reports_truncation() -> None:
     assert preview.returned_row_count == 2
     assert preview.is_truncated is True
     assert preview.status == "passed"
-    assert preview.coverage.rows_observed == 2
+    assert preview.coverage.rows_observed == 3
     assert preview.coverage.scope_exhaustion == "truncated"
     assert preview.coverage.scope_exactness == "sample_only"
-    assert preview.coverage.snapshot_ids == ()
 
 
 def test_preview_result_carries_timezones_in_render() -> None:

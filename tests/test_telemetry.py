@@ -630,7 +630,7 @@ def test_base_frame_show_does_not_instrument_shared_semantic_show(
 
     report = ReadinessReport(
         status="ready",
-        analysis_ready_refs=(),
+        analysis_ready_inputs=(),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),

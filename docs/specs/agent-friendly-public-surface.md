@@ -350,8 +350,11 @@ dt = ms.time_dimension_column(
 catalog = ms.load()
 dt_entry = catalog.require(ms.ref.time_dimension("sales.orders.order_date"))
 
-# 5. preview only for a concrete runtime risk or current readiness repair
-catalog.preview(dt_entry, using=snapshot).show()
+# 5. preview the current datasource only for a concrete runtime risk
+catalog.preview(
+    dt_entry,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
 
 # 6. readiness over the exact requested roots
 catalog.readiness(refs=[dt_entry]).show()

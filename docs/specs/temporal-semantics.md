@@ -953,47 +953,43 @@ than ordinary semantic objects.
 The canonical workflow is:
 
 ```text
-inspect -> explicit complete coverage -> sample(persist_values=True) -> author -> load
-        -> catalog.require -> catalog.preview(using=snapshot) -> readiness
+inspect -> author -> load -> catalog.require
+        -> catalog.preview(scope=explicit_complete_coverage) -> readiness
 ```
 
 There is no new public `prepare`, `sync`, or `calendar registry` API.
 
-For `PeriodCalendar`, `catalog.preview(calendar, using=snapshot)` requires a
-bound `DiscoverySnapshot` whose scope is exhaustive rather than truncated and
-whose persisted selected values cover the date, level, and correspondence
-dependencies. Calendar authoring therefore sets `persist_values=True` explicitly.
-The one bounded `inspection.sample(...)` acquisition is the authoritative data
-read. Calendar preview loads those exact immutable rows locally, validates every
-row in declared coverage, and atomically writes a compact normalized certified
-snapshot under the project-local semantic state directory. It never performs a
-second datasource read and does not certify from profiles or display samples.
-Persisted values are plaintext project-local state, so the explicit flag is
-the author's privacy decision rather than a hidden calendar side effect.
+For `PeriodCalendar`, `catalog.preview(calendar, scope=...)` reads the current
+datasource directly. The scope must cover the complete declared calendar range,
+and its row budget must admit the full set of required date, level, and
+correspondence columns plus one sentinel row. Preview validates those current
+rows and atomically publishes a compact normalized certified artifact under the
+project-local semantic state directory. It never certifies from discovery
+profiles, historical samples, or the returned display slice.
 
 The calendar preview's `limit=` controls only rendered example rows. It cannot
-reduce certification coverage. The preceding snapshot acquisition uses the
-bound scope's timeout and row budget, reads one sentinel row beyond that budget
+reduce certification coverage. The certification read uses the supplied
+scope's timeout and row budget, reads one sentinel row beyond that budget
 to detect truncation, and must observe scope exhaustion. Rows outside declared
 coverage may exist and are excluded deterministically before validation, but the
 acquired physical scope itself must fit the chosen acquisition budget. A larger
 shared date dimension therefore needs a bounded datasource view or partition
 before it can be a V1 calendar source.
 
-Ordinary preview evidence is advisory to later readiness. A certified
-period-calendar snapshot is the intentional exception:
+Ordinary preview is not a readiness input. A certified period-calendar artifact
+is the intentional exception:
 its values are executable semantic dependencies, not merely evidence about a
 formula. Consequently:
 
 - the calendar itself is not analysis-ready without a matching certified
-  snapshot;
+  artifact;
 - any metric or analysis binding that depends on the calendar is blocked when
   the snapshot is missing, stale, invalid, or out of coverage;
 - readiness is query-free and checks only project-local state;
 - analysis never queries a calendar backend at execution time;
 - a business-data scan cannot begin until all temporal dependencies pass.
 
-The preview manifest separately binds the decorated definition and dependency
+The artifact manifest separately binds the decorated definition and dependency
 digests for stale-readiness checks. The normalized `snapshot_digest` binds the
 executable coverage, timezone, levels, periods, containments, and
 correspondences. Exact semantic identity is calendar ref and snapshot digest; a
@@ -2001,12 +1997,12 @@ Required typed failures include:
 | decoration | invalid timezone, coverage, or duplicate level name | exact argument and allowed shape |
 | load | cross-entity date/key dependency | offending refs and required date entity |
 | verify | unsupported date granularity or nullable required key | exact semantic dependency to repair |
-| preview | exhaustive values were not persisted | exact `inspection.sample(..., persist_values=True)` continuation |
+| preview | scope row budget truncates required values | exact larger or narrower `catalog.preview(..., scope=...)` continuation |
 | preview | incomplete date coverage | first missing ranges and required full coverage |
 | preview | gap, overlap, or discontiguous period key | levels, period keys, and bounded example dates |
 | preview | invalid correspondence | mapping name, current key, conflicting or absent baseline keys |
 | certification | definition or source content changes during publication | failed atomic publication and the exact retry |
-| readiness | missing or stale certified snapshot | exact `catalog.preview(..., using=...)` continuation |
+| readiness | missing or stale certified artifact | exact `catalog.preview(..., scope=...)` continuation |
 | preflight | requested date or key out of coverage | available bounds or bounded nearest period keys |
 | preflight | mixed calendar authorities | both bindings and the grain that must be made explicit |
 | preflight or transform | consumer requires complete periods but edge periods are partial | incomplete count, bounded keys, observed/full bounds, and exact full-scope repair |
@@ -2071,37 +2067,28 @@ The agent never re-authors the fiscal convention in the analysis call.
    source scope and the required columns.
 2. Settle the business-owned timezone, coverage, level names, and any named
    comparison correspondences.
-3. Acquire those columns once with exhaustive scope and
-   `persist_values=True`.
-4. Declare dimension refs and one period calendar with a direct `levels`
+3. Declare dimension refs and one period calendar with a direct `levels`
    mapping.
-5. Load and statically verify it.
-6. Preview against the exact persisted rows, review structural findings, and
-   obtain a certified normalized snapshot digest without another datasource
-   read.
-7. Check readiness, then obtain exact semantic grains from the calendar entry.
+4. Load and statically verify it.
+5. Preview the current datasource with that exact scope, review structural
+   findings, and obtain a certified normalized artifact.
+6. Check readiness, then obtain exact semantic grains from the calendar entry.
 
 The acquisition is still the ordinary datasource call; the important new
 precondition is exhaustive scope:
 
 ```python
-snapshot = inspection.sample(
+preview = catalog.preview(
+    calendar,
     scope=md.unpruned(max_rows=100_000, timeout_seconds=30),
-    columns=(
-        "calendar_date",
-        "fiscal_year_key",
-        "fiscal_quarter_key",
-        "fiscal_month_key",
-        "fiscal_week_key",
-        "prior_year_shifted_week_key",
-    ),
-    persist_values=True,
+    limit=20,
 )
 ```
 
-If this acquisition reports `scope_exhaustion="truncated"`, the agent must use a
+If this preview reports `scope_exhaustion="truncated"`, the agent must use a
 bounded calendar source or choose a larger explicit datasource scope supported
-by the environment. Preview never turns a truncated sample into authority.
+by the environment. Preview never turns a truncated read into authority or
+publishes a replacement artifact.
 
 This is necessarily the expensive path because it creates reusable business
 authority. The cost is paid once in semantic authoring rather than repeatedly in

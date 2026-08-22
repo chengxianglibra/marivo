@@ -11,13 +11,12 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias, cast
+from typing import Literal, TypeAlias, cast
 
 from typing_extensions import TypeAliasType
 
 from marivo._compat import UTC
 from marivo.config import (
-    AUTHORING_CHECK_DIR,
     AUTHORING_DIR,
     AUTHORING_SNAPSHOT_DIR,
     STATE_DIR,
@@ -38,9 +37,6 @@ from marivo.datasource.source import (
     time_range,
 )
 from marivo.refs import DatasourceKind, Ref, RefPayloadV1
-
-if TYPE_CHECKING:
-    from marivo.semantic.preview_checks import PreviewCheckV1
 
 EVIDENCE_FORMAT_VERSION = 3
 SNAPSHOT_TTL = timedelta(hours=24)
@@ -669,7 +665,6 @@ class AuthoringStore:
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root.resolve()
         self.snapshot_dir = self.project_root / AUTHORING_SNAPSHOT_DIR
-        self.check_dir = self.project_root / AUTHORING_CHECK_DIR
 
     def _memory_key(self, snapshot_id: str) -> str:
         return f"{self.project_root}:{snapshot_id}"
@@ -677,15 +672,11 @@ class AuthoringStore:
     def _snapshot_path(self, snapshot_id: str) -> Path:
         return self.snapshot_dir / f"{snapshot_id}.json"
 
-    def _check_path(self, check_id: str) -> Path:
-        return self.check_dir / f"{check_id}.json"
-
     def _ensure_directories(self) -> None:
         for path in (
             self.project_root / STATE_DIR,
             self.project_root / AUTHORING_DIR,
             self.snapshot_dir,
-            self.check_dir,
         ):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.chmod(path, 0o700)
@@ -1017,10 +1008,6 @@ class AuthoringStore:
         payload["payload_digest"] = _payload_digest(payload)
         self._write_json(self._snapshot_path(snapshot.id), payload)
         _SNAPSHOT_MEMORY[self._memory_key(snapshot.id)] = snapshot
-
-    def write_preview_check(self, check: PreviewCheckV1) -> None:
-        """Atomically persist row-free semantic preview evidence."""
-        self._write_json(self._check_path(check.id), check)
 
 
 TIME_RULE_IDS = (

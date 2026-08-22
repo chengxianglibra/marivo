@@ -94,7 +94,6 @@ def repair(
         "reacquire",
         "reauthor",
         "reload",
-        "repreview",
         "environment",
     ],
     canonical_id: str,

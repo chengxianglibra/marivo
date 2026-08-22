@@ -178,12 +178,9 @@ def test_filtered_event_is_an_exact_non_callable_event_ref_and_catalog_entry(
     verification = catalog.require(event.ref)
     assert verification is event
     readiness = catalog.readiness(refs=(event.ref,))
-    assert event.ref in readiness.analysis_ready_refs
+    assert event.ref in readiness.analysis_ready_inputs
     assert "commerce.event_log.event_type" in readiness.input_summary.refs
-    assert any(
-        issue.kind == "snapshot_missing" and "commerce.payment_succeeded" in issue.refs
-        for issue in readiness.warnings
-    )
+    assert not readiness.warnings
 
 
 def test_event_card_bounds_participants_and_points_to_full_details(
@@ -434,11 +431,11 @@ def test_event_readiness_includes_predicate_dimension_enrichment(
     readiness = catalog.readiness(refs=(event.ref,))
 
     assert "commerce.event_log.event_type" in readiness.input_summary.refs
-    assert event.ref not in readiness.analysis_ready_refs
+    assert event.ref in readiness.analysis_ready_inputs
+    richness = project.richness()
     assert any(
-        issue.kind == "missing_business_definition"
-        and "commerce.event_log.event_type" in issue.refs
-        for issue in readiness.blockers
+        gap.subkind == "missing_business_definition" and "commerce.event_log.event_type" in gap.refs
+        for gap in richness.gaps
     )
 
 
@@ -450,7 +447,7 @@ def test_event_readiness_includes_predicate_dimension_enrichment(
         ([None], ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY),
     ],
 )
-def test_event_preview_checks_identity_and_participant_cardinality(
+def test_event_preview_reports_identity_and_participant_cardinality(
     semantic_project_factory,
     subjects: list[str | None],
     expected_kind: ErrorKind,
