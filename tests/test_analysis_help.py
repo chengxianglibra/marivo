@@ -666,6 +666,15 @@ def test_observe_help_documents_ref_readiness_gate() -> None:
     assert "analysis APIs do not invoke readiness automatically" in text
 
 
+def test_observe_help_documents_time_dimension_grain_compatibility() -> None:
+    text = _text("observe")
+
+    assert "observe_time_grain_compatible" in text
+    assert "no finer than the selected time dimension's declared granularity" in text
+    assert 'grain=mv.grain("hour")' in text
+    assert "time_dimension=hourly_time_dimension" in text
+
+
 def test_correlate_help_explains_signed_lag_semantics() -> None:
     text = _text("correlate")
 

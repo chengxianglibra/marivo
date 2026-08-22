@@ -24,6 +24,7 @@ class ConstraintId(StrEnum):
     METRIC_EXPRESSION_RESOLVABLE = "metric_expression_resolvable"
     METRIC_READINESS_VERIFIED = "metric_readiness_verified"
     WINDOW_ABSOLUTE_PARSEABLE = "window_absolute_parseable"
+    OBSERVE_TIME_GRAIN_COMPATIBLE = "observe_time_grain_compatible"
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
     SINGLE_METRIC_INPUT = "single_metric_input"
     DISCOVER_MINIMUM_EVIDENCE = "discover_minimum_evidence"
@@ -126,6 +127,27 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Analysis persistence records concrete half-open ranges and cannot infer an ambiguous natural-language window or silently include the end bound.",
         'Pass time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01") to include all of July and exclude August 1.',
         example='time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")',
+        help_target="observe",
+    ),
+    ConstraintId.OBSERVE_TIME_GRAIN_COMPATIBLE: _constraint(
+        ConstraintId.OBSERVE_TIME_GRAIN_COMPATIBLE,
+        "GrainUnsupported",
+        "runtime",
+        ("observe", "grain", "time_dimension"),
+        (
+            "Observe grain must be no finer than the selected time dimension's declared "
+            "granularity; when the default time dimension is day-granular, "
+            'grain=mv.grain("hour") requires an hour-granular time dimension passed '
+            "explicitly as time_dimension=hourly_time_dimension."
+        ),
+        (
+            "Marivo cannot recover time-of-day detail from a day-granular time dimension "
+            "or silently choose a different time axis."
+        ),
+        (
+            "Select an existing hour-granular time dimension, or author and verify one "
+            "first, then pass it explicitly as time_dimension=hourly_time_dimension."
+        ),
         help_target="observe",
     ),
     ConstraintId.FRAME_KIND_COMPATIBLE: _constraint(

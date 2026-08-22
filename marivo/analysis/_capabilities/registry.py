@@ -705,6 +705,7 @@ def _build_registry() -> CapabilityRegistry:
                 "metric_expression_resolvable",
                 "metric_readiness_verified",
                 "window_absolute_parseable",
+                "observe_time_grain_compatible",
             ),
             callable_path="marivo.analysis.session.core.Session.observe",
             receiver="Session",

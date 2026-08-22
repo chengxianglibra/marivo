@@ -773,6 +773,8 @@ class Session(RenderableResult):
                 The interval is half-open: start is inclusive and end is exclusive.
             grain: Optional unified ``mv.grain(...)`` or certified semantic grain. When
                 present, observe returns a time series or panel depending on ``dimensions``.
+                It must be no finer than the selected time dimension's declared
+                granularity.
             dimensions: Exact current-catalog dimension/time-dimension entries
                 or refs used as segment axes. Omit, pass ``None``, or pass
                 ``[]`` for no segment axes.
@@ -782,7 +784,9 @@ class Session(RenderableResult):
                 ``==, !=, in, >, >=, <, <=, between``.
             time_dimension: Exact current-catalog time-dimension entry/ref
                 selecting the time axis when an entity declares multiple time
-                dimensions.
+                dimensions. When the default axis is day-granular, an hourly
+                observation requires an hour-granular time dimension passed
+                explicitly here; author and verify one first if none exists.
             expect_shape: Optional guard. If set, observe predicts the output shape
                 from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
                 before any backend work when the prediction differs.
