@@ -875,7 +875,21 @@ preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的
 无效时仍会阻塞依赖它的根。
 :::
 
-另外两个检查支持编写：
+Source 漂移有独立的显式报告，并且永远不会改变 readiness：
+
+```python
+catalog.source_health([revenue]).show()  # 连接及 schema/capability identity
+catalog.source_health(
+    [revenue],
+    checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
+```
+
+只有通过 `ms.source_check` 声明的 check 才会读取用户数据；每个 check 都必须提供并
+披露精确的有界 scope。Marivo 不会从 discovery sample 推断数据期望。
+
+另外两个诊断支持编写：
 
 - `ms.richness()` —— 建议性的覆盖度/深度报告；永不阻塞。
 - `ms.parity_check("sales.revenue")` —— 用指标的 `provenance` SQL 运行并比对结果。

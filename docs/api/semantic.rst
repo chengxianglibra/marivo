@@ -91,8 +91,8 @@ Provenance
 
    from_sql
 
-Readiness & verification
-------------------------
+Readiness & runtime checks
+--------------------------
 
 .. autosummary::
    :toctree: api/
@@ -100,6 +100,15 @@ Readiness & verification
 
    richness
    parity_check
+
+``catalog.source_health(refs, checks=..., scope=...)`` independently checks
+current connectivity, physical schema/capability identity, and only explicitly
+declared data expectations. Construct expectations with ``source_check``.
+Metadata-only health checks omit ``scope`` and never query user data; declared
+data checks require an explicit bounded scope and never change readiness.
+
+.. autodata:: source_check
+   :annotation:
 
 Refs, binding & loading
 -----------------------
@@ -167,7 +176,7 @@ to out-of-scope objects. ``catalog.require(ref)`` remains the strict, global,
 ref-only lookup for configured, persisted, or logged identity.
 
 ``catalog.require(...)``, ``catalog.preview(...)``,
-``catalog.preview_many(...)``, and
+``catalog.preview_many(...)``, ``catalog.source_health(...)``, and
 ``catalog.readiness(refs=[...])`` accept either an exact entry owned by the
 current compiled catalog or its exact ref. Entries normalize immediately to
 refs; readiness results, preview evidence, persistence, and recovery remain
@@ -217,6 +226,8 @@ Readiness & assessment
    RichnessReport
    ParityResult
    PreviewBatchResult
+   SourceHealthReport
+   SourceHealthCheckResult
 
 Keys & kinds
 ------------

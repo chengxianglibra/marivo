@@ -34,7 +34,7 @@ def _seed_orders(path: Path) -> None:
         connection.close()
 
 
-def test_sqlite_verify_preview_readiness_and_observe(
+def test_sqlite_agent_native_authoring_journey(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory,
@@ -100,15 +100,48 @@ def test_sqlite_verify_preview_readiness_and_observe(
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
     revenue = catalog.require(ms.ref.metric("sales.revenue")).ref
-    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
+    amount = catalog.require(ms.ref.measure("sales.orders.amount")).ref
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    snapshot = inspection.sample(
         scope=md.unpruned(max_rows=10, timeout_seconds=5),
         columns=("order_id", "amount", "created_at"),
     )
+    sql_result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT COUNT(*) AS order_count FROM orders",
+        reason="Confirm the physical order population before typed analysis.",
+        limit=10,
+        timeout_seconds=5,
+        project_root=tmp_path,
+    )
 
     assert catalog.require(revenue).ref == revenue
+    assert sql_result.rows == ({"order_count": 2},)
     assert catalog.preview(revenue, scope=snapshot.scope).status == "passed"
     readiness = catalog.readiness(refs=[revenue])
     assert revenue in readiness.analysis_ready_inputs
+    source_health = catalog.source_health(
+        [revenue],
+        checks=[ms.source_check.not_null(amount)],
+        scope=md.unpruned(max_rows=10, timeout_seconds=5),
+    )
+    readiness_after_health = catalog.readiness(refs=[revenue])
+
+    assert source_health.status == "current"
+    assert tuple(check.kind for check in source_health.checks) == (
+        "connectivity",
+        "schema",
+        "not_null",
+    )
+    assert source_health.checks[-1].user_data_queried is True
+    assert source_health.checks[-1].scopes == (
+        (ms.ref.entity("sales.orders"), md.unpruned(max_rows=10, timeout_seconds=5)),
+    )
+    readiness_before_payload = readiness.to_dict()
+    readiness_after_payload = readiness_after_health.to_dict()
+    readiness_before_payload.pop("checked_at")
+    readiness_after_payload.pop("checked_at")
+    assert readiness_after_payload == readiness_before_payload
 
     session = mv.session.get_or_create(
         name="sqlite-revenue",

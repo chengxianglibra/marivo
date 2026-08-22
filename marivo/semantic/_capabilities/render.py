@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _GROUPS = (
     ("browse_load", "Browse and load"),
     ("author_families", "Author by object family"),
-    ("verify_preview", "Verify and preview"),
+    ("runtime_probes", "Runtime probes"),
     ("readiness", "Readiness"),
     ("diagnostics_boundaries", "Diagnostics and boundaries"),
 )
@@ -112,7 +112,7 @@ def render_root_help() -> str:
         (
             "",
             "Identity handoff: pass a current CatalogEntry directly to preview, "
-            "readiness, or qualifying analysis APIs; use entry.ref or "
+            "source health, readiness, or qualifying analysis APIs; use entry.ref or "
             "ms.ref.<kind>(path) for persisted, configured, or already-known identity.",
             "",
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
@@ -134,7 +134,7 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         ),
         ("aggregate metrics", ("where", "count", "aggregate")),
         ("load and scoped readiness", ("load", "readiness")),
-        ("targeted runtime probe", ("preview",)),
+        ("targeted runtime probes", ("preview", "source_health")),
     )
     lines = [
         "authoring",
@@ -193,6 +193,9 @@ def _render_boundary(descriptor: AuthoringCapability) -> str:
 def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.canonical_id == "authoring":
         return _render_authoring(descriptor)
+    if descriptor.canonical_id == "source_check":
+        type_lines = _render_type("SourceCheckNamespace", None).splitlines()
+        return _bounded("\n".join((descriptor.canonical_id, *type_lines[1:])))
     if descriptor.kind == "boundary":
         return _render_boundary(descriptor)
 
@@ -241,12 +244,11 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
                 f"    {_help_invocation(target)}" for target in source_contract.prerequisite_targets
             )
     if descriptor.minimal_example is not None:
-        lines.extend(
-            (
-                "  Example:",
-                "    # Declaration fragment; execute only when ms.load() evaluates the source file.",
+        lines.append("  Example:")
+        if source_contract is not None:
+            lines.append(
+                "    # Declaration fragment; execute only when ms.load() evaluates the source file."
             )
-        )
         lines.extend(
             f"    {line}" if line else "" for line in descriptor.minimal_example.splitlines()
         )
@@ -324,6 +326,20 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append(
             "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
             "one immutable Ref[kind]."
+        )
+    if type_name == "SourceCheckNamespace":
+        lines.extend(
+            (
+                "  Closed constructors:",
+                "    ms.source_check.not_null(field_ref)",
+                "    ms.source_check.allowed_values(field_ref, values=(...))",
+                "    ms.source_check.unique(fields=(...))",
+                "    ms.source_check.freshness(time_dimension_ref, max_age=timedelta(...))",
+                "    ms.source_check.relationship_matches(relationship_ref, side='from'|'both')",
+                "    ms.source_check.relationship_cardinality(relationship_ref, expected='one_to_one'|'many_to_one'|'one_to_many'|'many_to_many')",
+                "  Data boundary: pass these values only to catalog.source_health(..., "
+                "checks=[...], scope=<explicit bounded scope>); no expectation is inferred.",
+            )
         )
     if type_name == "CatalogEntry":
         lines.append(

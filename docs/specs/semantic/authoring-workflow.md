@@ -135,6 +135,15 @@ does not persist a check or change readiness. A successful project load proves
 static coherence, not current external source health or every possible
 downstream execution.
 
+When current source or data drift matters, run
+`catalog.source_health(refs, checks=..., scope=...)` separately. Omitting
+`checks` runs connectivity and schema/capability inspection without querying
+user data and therefore requires no scope. Null, enum, uniqueness, freshness,
+relationship, and cardinality expectations exist only when explicitly built
+with `ms.source_check`; those data-reading checks require an exact bounded
+scope and disclose it in every result. Source health is ephemeral and never
+changes readiness or semantic source.
+
 ## Business meaning and first-use authority
 
 An agent may explore freely and draft a coherent slice before every

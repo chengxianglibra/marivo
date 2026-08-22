@@ -29,9 +29,9 @@ _SEMANTIC_EXAMPLES = tuple(
 _SEMANTIC_RUNTIME_EXAMPLES = frozenset(
     {
         "load",
-        "verify",
         "preview",
         "preview_many",
+        "source_health",
         "readiness",
         "richness",
         "parity_check",

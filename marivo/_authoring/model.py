@@ -12,6 +12,7 @@ DataAccessEffect = Literal[
     "none",
     "local_metadata_read",
     "live_metadata_read",
+    "live_metadata_or_scoped_data_read",
     "scoped_data_read",
     "potentially_unbounded_read",
 ]
@@ -25,6 +26,7 @@ EffectFlag = Literal[
     "requires_explicit_scope",
     "requires_positive_row_guard",
     "requires_positive_timeout_guard",
+    "scope_required_for_declared_data_checks",
     "may_publish_certified_artifact",
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",

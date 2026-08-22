@@ -168,6 +168,7 @@ if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
+    from marivo.semantic.source_health import SourceCheck, SourceHealthReport
     from marivo.semantic.validator import Registry
 
 __all__ = [
@@ -5415,6 +5416,75 @@ class SemanticCatalog(RenderableResult):
             status=status,
             blockers=blockers,
             analysis_ready_inputs=ready_inputs,
+        )
+
+    def source_health(
+        self,
+        refs: Sequence[_SemanticInput[SemanticKindTag]],
+        /,
+        *,
+        checks: Sequence[SourceCheck] = (),
+        scope: PreviewScope | None = None,
+    ) -> SourceHealthReport:
+        """Check current source access, schema, and explicit data expectations.
+
+        Connectivity and metadata checks run for every selected source. Data
+        expectations run only when supplied through ``ms.source_check`` and
+        require an explicit bounded ``scope``. The result is independent of
+        semantic readiness and is not persisted.
+
+        Args:
+            refs: Non-empty unique current semantic entries or exact refs whose
+                physical Entity sources should be checked.
+            checks: Optional explicit expectations built by ``ms.source_check``.
+                No null, enum, uniqueness, freshness, relationship, or
+                cardinality expectation is inferred.
+            scope: Required for data-reading checks and forbidden otherwise.
+                Use one ``AuthoringScope`` for one checked Entity or an exact
+                ``Ref[entity]`` mapping for multiple checked Entities.
+
+        Returns:
+            SourceHealthReport with per-check status, observed identities,
+            affected refs, repair direction, and query/scope disclosure.
+        """
+        self._require_ready()
+        values = tuple(refs)
+        if not values:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.source_health(refs=...) requires a non-empty sequence.",
+                cls=SemanticRuntimeError,
+                details={"query_executed": False},
+            )
+        exact_refs = tuple(
+            _normalize_semantic_input(
+                self,
+                value,
+                allowed_kinds=_ALL_SEMANTIC_KINDS,
+                location="catalog.source_health(refs=...)",
+            )
+            for value in values
+        )
+        duplicates = tuple(
+            dict.fromkeys(
+                value for index, value in enumerate(exact_refs) if value in exact_refs[:index]
+            )
+        )
+        if duplicates:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.source_health(refs=...) requires unique exact refs.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in duplicates),
+                details={"query_executed": False},
+            )
+        from marivo.semantic.source_health import run_source_health
+
+        return run_source_health(
+            self,
+            refs=exact_refs,
+            checks=checks,
+            scope=scope,
         )
 
     def _semantic_resolver(

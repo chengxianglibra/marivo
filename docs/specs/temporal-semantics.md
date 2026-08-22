@@ -487,7 +487,7 @@ snapshot schemas are fixed and versioned even though input schemas are flexible.
 
 `PeriodCalendar` is a new domain-scoped semantic kind with refs of the form
 `period_calendar:<domain>.<name>`. It is authored in Python and participates in
-the same decoration, loading, dependency, verification, preview, readiness, and
+the same decoration, loading, dependency, preview, readiness, and
 fingerprint model as other semantic objects.
 
 V1 calendars are day-based and finite. The constructor is:
