@@ -181,7 +181,7 @@ def test_root_and_ref_help_teach_entry_runtime_and_ref_identity_handoffs() -> No
     assert "ms.bind(amount, orders)" in bind
 
 
-@pytest.mark.parametrize("target", ["preview", "preview_many", "readiness"])
+@pytest.mark.parametrize("target", ["preview", "preview_many", "source_health", "readiness"])
 def test_runtime_help_uses_public_semantic_input_name(target: str) -> None:
     text = _text(target)
     assert "_SemanticInput" not in text

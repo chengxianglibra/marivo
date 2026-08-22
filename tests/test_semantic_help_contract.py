@@ -150,6 +150,7 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
             "preview",
             "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))",
         ),
+        ("source_health", "catalog.source_health([revenue])"),
     ],
 )
 def test_help_examples_use_typed_inputs_and_required_evidence(
@@ -166,6 +167,25 @@ def test_preview_help_discloses_only_conditional_artifact_persistence() -> None:
     assert "mutations: none" in preview
     assert "may_publish_certified_artifact" in preview
     assert "may_publish_certified_artifact" not in preview_many
+
+
+def test_source_health_help_discloses_conditional_data_access_and_independence() -> None:
+    root = _text()
+    health = _text("source_health")
+    checks = _text("source_check")
+    checks_by_object = _text(ms.source_check)
+
+    assert "Runtime probes" in root
+    assert "Verify and preview" not in root
+    assert "live_metadata_or_scoped_data_read" in health
+    assert "scope_required_for_declared_data_checks" in health
+    assert "without changing readiness" in health
+    assert "Declaration fragment" not in health
+    assert "not_null" in checks
+    assert "allowed_values(field_ref, values=(...))" in checks
+    assert "freshness(time_dimension_ref, max_age=timedelta(...))" in checks
+    assert "relationship_cardinality" in checks
+    assert checks_by_object == checks.replace("source_check", "SourceCheckNamespace", 1)
 
 
 def test_time_dimension_column_help_inlines_parse_selection() -> None:

@@ -21,7 +21,7 @@ from marivo.semantic.constraints import CONSTRAINTS
 _ROOT_GROUP_LABELS = {
     "browse_load": "Browse and load",
     "author_families": "Author by object family",
-    "verify_preview": "Verify and preview",
+    "runtime_probes": "Runtime probes",
     "readiness": "Readiness",
     "diagnostics_boundaries": "Diagnostics and boundaries",
 }
@@ -165,7 +165,7 @@ def validate_semantic_live_surface() -> None:
         Literal[
             "browse_load",
             "author_families",
-            "verify_preview",
+            "runtime_probes",
             "readiness",
             "diagnostics_boundaries",
         ],
@@ -173,7 +173,7 @@ def validate_semantic_live_surface() -> None:
     ] = (
         "browse_load",
         "author_families",
-        "verify_preview",
+        "runtime_probes",
         "readiness",
         "diagnostics_boundaries",
     )

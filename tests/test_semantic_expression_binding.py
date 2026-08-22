@@ -63,6 +63,14 @@ def _recursive_amount(orders):
     return bind(AMOUNT, orders)
 
 
+def _raw_amount(orders):
+    return orders.amount
+
+
+def _raw_country(orders):
+    return orders["country"]
+
+
 def _metric_ref_call(orders):
     return bind(REVENUE, orders)  # type: ignore[arg-type]
 
@@ -99,6 +107,22 @@ def test_compile_captures_exact_field_ref_and_entity_position() -> None:
     assert binding.field_ref.kind.value == "measure"
     assert binding.field_ref.path == "sales.orders.amount"
     assert binding.entity_position == 0
+
+
+def test_compile_captures_direct_physical_source_columns() -> None:
+    amount = compile_expression_body(
+        _raw_amount,
+        owning_ref=AMOUNT,
+        ordered_entity_refs=(ORDERS,),
+    )
+    country = compile_expression_body(
+        _raw_country,
+        owning_ref=COUNTRY,
+        ordered_entity_refs=(ORDERS,),
+    )
+
+    assert amount.source_columns == ("amount",)
+    assert country.source_columns == ("country",)
 
 
 def test_variable_parameter_and_function_renames_preserve_body_identity() -> None:

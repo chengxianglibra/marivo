@@ -190,19 +190,29 @@ def _normalize_entity_key(key: object, *, preview_ref: str, parameter: str) -> s
     )
 
 
-def _validate_scope(scope: object, *, preview_ref: str) -> AuthoringScope:
+def _validate_scope(
+    scope: object,
+    *,
+    preview_ref: str,
+    operation: str = "catalog.preview",
+) -> AuthoringScope:
+    scope_label = "Preview scope" if operation == "catalog.preview" else "Source-health scope"
     if not isinstance(scope, PartitionScope | UnprunedScope):
         _blocked(
             preview_ref,
-            "catalog.preview(..., scope=...) requires md.PartitionScope or md.UnprunedScope.",
+            f"{operation}(..., scope=...) requires md.PartitionScope or md.UnprunedScope.",
             details={"received_type": type(scope).__name__},
         )
     if type(scope.max_rows) is not int or scope.max_rows < 1:
-        _blocked(preview_ref, "Preview scope max_rows must be a positive integer.", details={})
+        _blocked(
+            preview_ref,
+            f"{scope_label} max_rows must be a positive integer.",
+            details={},
+        )
     if type(scope.timeout_seconds) is not int or scope.timeout_seconds < 1:
         _blocked(
             preview_ref,
-            "Preview scope timeout_seconds must be a positive integer.",
+            f"{scope_label} timeout_seconds must be a positive integer.",
             details={},
         )
     if isinstance(scope, PartitionScope) and scope._time_range is not None:
@@ -226,7 +236,12 @@ def _validate_scope(scope: object, *, preview_ref: str) -> AuthoringScope:
     else:
         invalid = False
     if invalid:
-        _blocked(preview_ref, "Preview partition scope is invalid.", details={})
+        partition_label = (
+            "Preview partition scope"
+            if operation == "catalog.preview"
+            else "Source-health partition scope"
+        )
+        _blocked(preview_ref, f"{partition_label} is invalid.", details={})
     return scope
 
 
@@ -235,19 +250,26 @@ def _normalize_scopes(
     scope: PreviewScope,
     *,
     preview_ref: str,
+    operation: str = "catalog.preview",
 ) -> tuple[tuple[str, AuthoringScope], ...]:
+    operation_label = "preview" if operation == "catalog.preview" else "source-health"
     if len(entity_ids) == 1:
         if isinstance(scope, Mapping):
             _blocked(
                 preview_ref,
-                "A single-entity preview requires one AuthoringScope, not a Mapping.",
+                f"A single-entity {operation_label} requires one AuthoringScope, not a Mapping.",
                 details={"received_type": type(scope).__name__},
             )
-        return ((entity_ids[0], _validate_scope(scope, preview_ref=preview_ref)),)
+        return (
+            (
+                entity_ids[0],
+                _validate_scope(scope, preview_ref=preview_ref, operation=operation),
+            ),
+        )
     if not isinstance(scope, Mapping):
         _blocked(
             preview_ref,
-            "A multi-entity preview requires a Mapping keyed by exact Ref[entity].",
+            f"A multi-entity {operation_label} requires a Mapping keyed by exact Ref[entity].",
             details={"received_type": type(scope).__name__},
         )
     by_entity: dict[str, AuthoringScope] = {}
@@ -255,15 +277,28 @@ def _normalize_scopes(
         entity_id = _normalize_entity_key(
             key,
             preview_ref=preview_ref,
-            parameter="catalog.preview(..., scope=...) Mapping",
+            parameter=f"{operation}(..., scope=...) Mapping",
         )
         if entity_id in by_entity:
-            _blocked(preview_ref, f"Preview scope repeats entity {entity_id!r}.", details={})
-        by_entity[entity_id] = _validate_scope(value, preview_ref=preview_ref)
+            _blocked(
+                preview_ref,
+                f"{operation_label.capitalize()} scope repeats entity {entity_id!r}.",
+                details={},
+            )
+        by_entity[entity_id] = _validate_scope(
+            value,
+            preview_ref=preview_ref,
+            operation=operation,
+        )
     if set(by_entity) != set(entity_ids):
+        mapping_label = (
+            "Preview scope Mapping"
+            if operation == "catalog.preview"
+            else "catalog.source_health scope Mapping"
+        )
         _blocked(
             preview_ref,
-            "Preview scope Mapping must cover exactly the dependency entities.",
+            f"{mapping_label} must cover exactly the dependency entities.",
             details={
                 "missing": tuple(
                     entity_id for entity_id in entity_ids if entity_id not in by_entity

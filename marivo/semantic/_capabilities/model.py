@@ -13,7 +13,7 @@ from marivo.introspection.live.reflect import callable_identity
 SemanticRootGroup = Literal[
     "browse_load",
     "author_families",
-    "verify_preview",
+    "runtime_probes",
     "readiness",
     "diagnostics_boundaries",
 ]

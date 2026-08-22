@@ -72,6 +72,7 @@ class ExpressionBody:
     parameter_count: int
     bindings: tuple[ExpressionBindingV1, ...]
     source_column: str | None = None
+    source_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not callable(self.callable):
@@ -84,6 +85,10 @@ class ExpressionBody:
             type(self.source_column) is not str or not self.source_column
         ):
             raise ValueError("expression body source_column must be non-empty when provided")
+        if any(type(column) is not str or not column for column in self.source_columns):
+            raise ValueError("expression body source_columns must contain non-empty strings")
+        if len(set(self.source_columns)) != len(self.source_columns):
+            raise ValueError("expression body source_columns must be unique")
         for binding in self.bindings:
             if binding.entity_position >= self.parameter_count:
                 raise ValueError("expression binding entity_position must be below parameter_count")
@@ -112,6 +117,7 @@ class ExpressionBody:
             parameter_count=1,
             bindings=(),
             source_column=column,
+            source_columns=(column,),
         )
 
 
@@ -576,6 +582,31 @@ def _normalized_body_hash(
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _physical_source_columns(
+    function: ast.FunctionDef,
+    *,
+    parameter_positions: Mapping[str, int],
+) -> tuple[str, ...]:
+    columns: list[str] = []
+    parameter_names = frozenset(parameter_positions)
+    for node in ast.walk(function):
+        column: str | None = None
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if node.value.id in parameter_names:
+                column = node.attr
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in parameter_names
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        ):
+            column = node.slice.value
+        if column is not None and column not in columns:
+            columns.append(column)
+    return tuple(columns)
+
+
 def compile_expression_body(
     fn: Callable[..., object],
     *,
@@ -681,6 +712,10 @@ def compile_expression_body(
         ),
         parameter_count=len(parameters),
         bindings=tuple(collector.bindings),
+        source_columns=_physical_source_columns(
+            function,
+            parameter_positions=parameter_positions,
+        ),
     )
 
 

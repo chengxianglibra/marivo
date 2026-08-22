@@ -90,6 +90,7 @@ empty collections into one summary.
 | `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, displayed same-kind typed key, or exact same-kind ref within that collection's scope. |
 | `catalog.preview(entry_or_ref, scope=scope_or_mapping, source_bindings=None)` | Read one current semantic object through an explicit datasource scope. |
 | `catalog.preview_many(entries_or_refs, scope=scope_or_mapping, source_bindings=None)` | Validate an ordered batch and its complete exact entity-ref scope mapping before connection. |
+| `catalog.source_health(entries_or_refs, checks=(), scope=None)` | Check current connectivity and schema/capability identity, plus only explicitly declared bounded data expectations, independently from readiness. |
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
@@ -506,6 +507,23 @@ readiness.
 `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
 a readiness requirement. All three return silent result objects with `.show()` /
 `.render()`.
+
+## Explicit source health
+
+`catalog.source_health(refs)` composes the existing connection roundtrip and
+authoritative source inspection seams. It returns current datasource/source
+identity, affected semantic refs, schema and capability fingerprints, per-check
+status and time, typed repair direction, and exact user-data/scope disclosure.
+It stores no history and neither reads nor changes readiness.
+
+With no `checks`, only connectivity and metadata checks run and `scope` must be
+omitted. Data expectations are closed, call-time values from `ms.source_check`:
+`not_null`, `allowed_values`, `unique`, `freshness`,
+`relationship_matches`, and `relationship_cardinality`. They are never inferred
+from samples and require a positive bounded `AuthoringScope`, or an exact
+entity-ref scope mapping for a multi-entity check. Per-check states are
+`current`, `failed`, `unavailable`, or `unknown`; failures identify current
+downstream affected refs without modifying the project.
 
 ### Analysis-ready inputs
 

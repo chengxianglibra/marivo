@@ -135,6 +135,12 @@ from marivo.semantic.readiness import (
     ReadinessReport,
 )
 from marivo.semantic.richness import RichnessReport
+from marivo.semantic.source_health import (
+    SourceCheck,
+    SourceHealthCheckResult,
+    SourceHealthReport,
+    source_check,
+)
 from marivo.semantic.state_model import (
     Inception,
     LifecycleState,
@@ -260,6 +266,9 @@ __all__ = [
     "SemanticCatalog",
     "SemanticKind",
     "SimpleMetricDetails",
+    "SourceCheck",
+    "SourceHealthCheckResult",
+    "SourceHealthReport",
     "SqlProvenance",
     "StateModelDetails",
     "StateModelEntry",
@@ -310,6 +319,7 @@ __all__ = [
     "richness",
     "semi_additive",
     "snapshot",
+    "source_check",
     "state_model",
     "strptime",
     "temporal_set",

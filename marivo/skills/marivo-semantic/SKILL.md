@@ -1,6 +1,6 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource setup, governed source exploration, coherent semantic authoring or repair, scoped preview, and readiness, including semantics needed to answer a business question.
+description: Use for Marivo datasource setup, governed source exploration, coherent semantic authoring or repair, scoped preview, readiness, and explicit source health, including semantics needed to answer a business question.
 ---
 
 # marivo-semantic
@@ -9,8 +9,8 @@ description: Use for Marivo datasource setup, governed source exploration, coher
 
 Use this skill for datasource declaration and validation, physical-source
 inspection, optional bounded sampling, governed raw SQL, new or changed semantic
-objects, scoped preview, readiness repair, or a missing-object handoff from
-`marivo-analysis`.
+objects, scoped preview, readiness repair, explicit source-health evidence, or a
+missing-object handoff from `marivo-analysis`.
 
 Leave authoring as soon as the requested refs are usable. If the parent task
 includes analysis, pass the current refs or `analysis_ready_inputs` to
@@ -116,6 +116,15 @@ current scoped preview path shown by live help with an explicit positive row and
 timeout guard. Ordinary preview returns current execution results without
 creating authoring checkpoints; only dedicated temporal certification may
 publish its immutable artifact.
+
+Use `catalog.source_health(...)` only when the task needs current source or data
+drift evidence. With no declared checks it reports connectivity, schema, and
+capability identity without querying user data. Build any data expectation
+explicitly through `ms.source_check`; then pass the exact positive row/timeout
+scope requested by live help. Never infer null, enum, uniqueness, freshness,
+relationship, or cardinality expectations from a sample. Source health is
+ephemeral and separately reportable: do not treat it as readiness evidence or
+persist it as an authoring checkpoint.
 
 ## Business meaning and first-use authority
 

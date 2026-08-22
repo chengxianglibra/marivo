@@ -36,7 +36,7 @@ def test_registry_group_members_are_registered() -> None:
     groups: tuple[SemanticRootGroup, ...] = (
         "browse_load",
         "author_families",
-        "verify_preview",
+        "runtime_probes",
         "readiness",
         "diagnostics_boundaries",
     )
@@ -111,6 +111,7 @@ def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
         "require",
         "preview",
         "preview_many",
+        "source_health",
         "readiness",
         "render",
         "show",

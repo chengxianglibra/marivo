@@ -127,7 +127,7 @@ project semantic candidates or own semantic judgments. The
 `marivo-semantic` skill owns workflow and routing only:
 
 ```text
-load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> first typed analysis use
+load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> targeted runtime or source-health probes -> first typed analysis use
 ```
 
 It must not duplicate parameter tables from either help surface. There is no
@@ -145,6 +145,14 @@ Ordinary preview is not a persisted checkpoint and does not affect readiness.
 Readiness is derived from the current semantic project and requested closure,
 plus any dedicated certified temporal artifacts, and hands analysis only
 `analysis_ready_inputs`.
+
+Source and data drift have a separate explicit owner:
+`catalog.source_health(refs, checks=[...], scope=...)`. Connectivity and schema
+identity are checked without a user-data scope; null, enum, uniqueness,
+freshness, relationship, and cardinality checks exist only when constructed via
+`ms.source_check` and then require an exact positive row/timeout scope. Source
+health is ephemeral, does not mutate source or semantic state, and never changes
+readiness.
 
 Ownership split: the public `marivo.help(...)` coordinator routes to the native
 datasource and semantic registries that own static contracts, operations,

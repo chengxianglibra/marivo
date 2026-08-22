@@ -60,6 +60,7 @@ INPUT_FAMILIES = frozenset(
         "SemanticCatalog",
         "SemanticKind",
         "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+        "SourceCheck",
         "Mapping[Ref[entity], JSON source parameter mapping]",
         "HelpTarget",
         "DomainName",
@@ -129,6 +130,8 @@ OUTPUT_FAMILIES = frozenset(
         "PreviewBatchResult",
         "PreviewResult",
         "ReadinessReport",
+        "SourceCheck",
+        "SourceHealthReport",
         "RichnessReport",
         "ParityResult",
         "Ref",
@@ -220,6 +223,11 @@ _PREVIEW = _effects(
         "requires_positive_row_guard",
         "requires_positive_timeout_guard",
     ),
+)
+_SOURCE_HEALTH = _effects(
+    "live_metadata_or_scoped_data_read",
+    "opens_connection",
+    flags=("scope_required_for_declared_data_checks",),
 )
 _CERTIFYING_PREVIEW = _effects(
     "scoped_data_read",
@@ -1218,7 +1226,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="ms.trailing(count=7, unit='day')",
         ),
         # ------------------------------------------------------------------
-        # verify_preview
+        # runtime_probes
         # ------------------------------------------------------------------
         _capability(
             "preview",
@@ -1291,6 +1299,46 @@ def _build_registry() -> SemanticCapabilityRegistry:
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview_many",
+        ),
+        _capability(
+            "source_check",
+            None,
+            (
+                "Build explicit null, enum, uniqueness, freshness, relationship, "
+                "or cardinality expectations; no expectation is inferred from samples."
+            ),
+            kind="boundary",
+            output="SourceCheck",
+            effects=_NONE,
+        ),
+        _capability(
+            "source_health",
+            "marivo.semantic.catalog.SemanticCatalog.source_health",
+            (
+                "Check current connectivity and schema identity, plus only explicitly "
+                "declared bounded data expectations, without changing readiness."
+            ),
+            kind="method",
+            output="SourceHealthReport",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                AuthoringInputRequirement(
+                    role="subject",
+                    family="CatalogEntry | Ref",
+                    min_count=1,
+                    max_count=None,
+                ),
+                _optional_input("dependency", "SourceCheck"),
+                _optional_input(
+                    "scope",
+                    "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+                ),
+            ),
+            effects=_SOURCE_HEALTH,
+            example="catalog.source_health([revenue])",
+            preconditions=("a current loaded SemanticCatalog",),
+            repair_kinds=("inspect", "reconnect", "rescope", "reauthor"),
+            public_entrypoint="catalog.source_health",
         ),
         # ------------------------------------------------------------------
         # readiness
@@ -1435,7 +1483,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "grain_to_date",
                 "trailing",
             ),
-            "verify_preview": ("preview", "preview_many"),
+            "runtime_probes": ("preview", "preview_many", "source_check", "source_health"),
             "readiness": ("readiness",),
             "diagnostics_boundaries": ("richness", "parity_check"),
         }
@@ -1506,6 +1554,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessReport,
     )
     from marivo.semantic.richness import RichnessReport
+    from marivo.semantic.source_health import (
+        SourceCheckNamespace,
+        SourceHealthCheckResult,
+        SourceHealthReport,
+    )
 
     show_render = ("show", "render")
     contracts: dict[type, SemanticTypeContract] = {}
@@ -1545,6 +1598,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "require",
             "preview",
             "preview_many",
+            "source_health",
             "readiness",
             "render",
             "show",
@@ -1818,6 +1872,33 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("show", "render"),
     )
     add(
+        SourceHealthReport,
+        "SourceHealthReport",
+        ("source_health",),
+        properties=("status", "checks", "affected_refs"),
+        methods=("show", "render", "to_dict"),
+    )
+    add(
+        SourceHealthCheckResult,
+        "SourceHealthCheckResult",
+        ("source_health",),
+        properties=("kind", "status", "affected_refs", "user_data_queried", "scopes"),
+        methods=("show", "render", "to_dict"),
+    )
+    add(
+        SourceCheckNamespace,
+        "SourceCheckNamespace",
+        ("source_check",),
+        methods=(
+            "not_null",
+            "allowed_values",
+            "unique",
+            "freshness",
+            "relationship_matches",
+            "relationship_cardinality",
+        ),
+    )
+    add(
         RichnessReport,
         "RichnessReport",
         ("richness",),
@@ -1870,6 +1951,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "SemanticCatalog.require",
             "preview",
             "preview_many",
+            "source_health",
             "readiness",
         ),
     )

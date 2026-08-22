@@ -126,7 +126,7 @@ one instead of a single monolithic manual:
   `marivo.help("analysis")`, and optional `marivo.help("ontology")` open their
   native bounded indexes. The analysis root includes one guarded first-observation
   path: acquire the session, select and inspect a current metric entry with
-  `marivo.help(entry)`, check scoped readiness, then call `session.observe(...)`
+  `marivo.help(entry)`, inspect scoped readiness, then call `session.observe(...)`
   and read the resulting frame. It does not render the registry's complete type
   algebra. Registered
   namespace topics such as `analysis.events` and `analysis.lifecycle` list

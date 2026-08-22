@@ -963,7 +963,22 @@ every call. Ordinary preview history is not a readiness input; dedicated
 certified temporal artifacts remain blockers when missing, stale, or invalid.
 :::
 
-Two more checks support authoring:
+Source drift has its own explicit report and never changes readiness:
+
+```python
+catalog.source_health([revenue]).show()  # connection plus schema/capability identity
+catalog.source_health(
+    [revenue],
+    checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
+```
+
+Only checks declared through `ms.source_check` read user data, and each requires
+and discloses an exact bounded scope. Marivo does not infer data expectations
+from discovery samples.
+
+Two additional diagnostics support authoring:
 
 - `ms.richness()` — advisory coverage/depth report; never blocks.
 - `ms.parity_check("sales.revenue")` — runs the metric against its

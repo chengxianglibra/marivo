@@ -1312,6 +1312,17 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         ``datasource`` is the typed ref itself; do not call ``md.connect``
         before inspection.
     """
+    project_root = find_project_root() or Path.cwd()
+    return _inspect_in_project(datasource, source, project_root=project_root)
+
+
+def _inspect_in_project(
+    datasource: Ref[DatasourceKind],
+    source: TableSource,
+    *,
+    project_root: Path,
+) -> SourceInspection:
+    """Inspect one source against an already-resolved project root."""
     if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
         received = type(datasource).__name__
         if received == "DatasourceConnection":
@@ -1332,7 +1343,6 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
     if not isinstance(source, TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR):
         raise TypeError("source must be built by md.table, md.parquet, md.csv, or md.json.")
 
-    project_root = find_project_root() or Path.cwd()
     datasource_name = _storage_name(datasource)
     datasource_ir = _store.load_one(datasource_name, project_root=project_root)
     if datasource_ir is None:

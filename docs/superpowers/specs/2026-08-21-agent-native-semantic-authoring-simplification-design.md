@@ -1,8 +1,12 @@
 # Agent-Native Semantic Authoring Simplification Design
 
-Status: proposed
+Status: implemented
 
 Date: 2026-08-21
+
+Implementation completed: 2026-08-22. Milestones 1–3 and the aggregate
+acceptance inventory are represented by the current runtime, live help,
+packaged skill, active specs, tests, and latest English/Chinese documentation.
 
 ## Relationship To Existing Designs
 

@@ -50,6 +50,41 @@ certification path. Marivo reads every required column up to the scope's
 scope is exhaustive and the rows satisfy the declaration. `limit` controls only
 the displayed result rows, not certification input.
 
+## Source health is separate
+
+Use `catalog.source_health(...)` when the current question is whether a source
+or declared data expectation has drifted. It never runs implicitly during load,
+preview, readiness, or analysis, and it stores no checkpoint or history.
+
+```python
+from datetime import timedelta
+
+health = catalog.source_health([revenue])  # connectivity and metadata only
+
+health = catalog.source_health(
+    [revenue],
+    checks=[
+        ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
+        ms.source_check.freshness(
+            ms.ref.time_dimension("sales.orders.created_at"),
+            max_age=timedelta(hours=24),
+        ),
+    ],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
+
+With no declared checks, source health performs only a connection roundtrip and
+authoritative schema/capability inspection; omit `scope`, and no user data is
+queried. Null, enum, uniqueness, freshness, relationship-match, and cardinality
+expectations exist only when explicitly built through `ms.source_check`. Those
+checks require a positive bounded scope. Every result reports `current`,
+`failed`, `unavailable`, or `unknown`, the affected current semantic refs, a
+typed repair, and whether user data was queried under which exact scope.
+
+Running source health cannot change `ReadinessReport.status`, issues, or
+`analysis_ready_inputs`.
+
 ## The report
 
 `catalog.readiness(refs=[...])` returns a frozen `ReadinessReport`:

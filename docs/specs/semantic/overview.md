@@ -13,7 +13,7 @@ matches your task.
 | [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
 | [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
 | [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — domain, entity, dimension, time dimension, measure, metric, derived/cumulative metrics, relationship, provenance, `ai_context`. |
-| [authoring-workflow.md](authoring-workflow.md) | The single evidence-snapshot write loop from help and inspection through scoped preview and readiness. |
+| [authoring-workflow.md](authoring-workflow.md) | Agent-native exploration, coherent-slice authoring, scoped readiness, and targeted runtime/source-health probes. |
 | [loading-validation-introspection.md](loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness/richness. |
 
 For the cross-module (datasource + semantic + analysis) result and guidance
@@ -114,10 +114,10 @@ Authoring guidance is split so each surface has one job (elaborated in
   preferred schema path. Optional explicitly scoped sampling supplies generic
   bounded rows and profiles; governed raw SQL handles source-specific bounded
   scratch investigation. None of these paths decides business meaning.
-- **Project load, catalog navigation, preview, and readiness — validation.** One
+- **Project load, catalog navigation, preview, source health, and readiness — validation.** One
   `ms.load()` validates a dependency-coherent authored slice. Exact refs are
-  confirmed with `catalog.require(...)`; scoped preview and readiness keep their
-  current runtime contracts.
+  confirmed with `catalog.require(...)`; scoped preview, explicit source health,
+  and readiness keep independent runtime, drift, and static contracts.
 
 The `marivo-semantic` skill owns workflow and routing only:
 
