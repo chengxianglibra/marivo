@@ -30,7 +30,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.intents.attribute import _cumulative_anchor_evidence
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
-from tests.shared_fixtures import fiscal_analysis_project_files, fiscal_calendar_evidence
+from tests.shared_fixtures import fiscal_analysis_project_files, publish_fiscal_calendar_artifact
 
 
 def _fiscal_session(semantic_project_factory, monkeypatch, name: str):
@@ -61,7 +61,7 @@ def _fiscal_session(semantic_project_factory, monkeypatch, name: str):
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     catalog.require(calendar_ref)
-    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    publish_fiscal_calendar_artifact(catalog)
     session = mv.session.get_or_create(
         name=name,
         backends={"warehouse": lambda: backend},

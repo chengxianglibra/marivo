@@ -1,158 +1,84 @@
 ---
 title: 就绪检查
-description: 对新建或修改的语义对象进行显式技术认证。
+description: 与快照无关的语义输入技术认证。
 ---
 
-## 智能体什么时候运行就绪检查
+## 就绪检查判断什么
 
-就绪检查是针对所选语义对象的显式技术认证和诊断。新建或修改对象后，或者
-流程要求技术认证时运行它。它会识别不完整对象、未知引用，以及
-缺少当前验证或预览证据的情况。
+`catalog.readiness(refs=[...])` 是面向当前目录条目、精确引用与封闭运行时指标
+表达式的显式零查询认证。它只检查当前语义项目和每个请求输入的依赖闭包。
+分析 API 不会自动调用它。
 
-显式语义定义是受治理的业务语义真源。检查、快照、发现和
-预览为编写与诊断提供辅助证据；缺少这些证据不会覆盖已经批准且结构合法的定义，
-也不会使其无法用于分析。
+就绪检查不读取 discovery snapshot，也不读取普通 preview 的历史记录。因此，同一
+定义在没有快照、快照新鲜或过期、以及存在或不存在历史 preview 文件时，除
+`checked_at` 外会得到相同状态、问题和 ready inputs。专用的 period calendar、
+temporal set 与 work schedule artifact 是唯一例外：依赖它们的根必须等到当前认证
+artifact 可用后才能放行。
 
-阻塞报告不代表业务问题不能分析，而是说明所选对象存在语义或技术阻塞项。
-缺少数据源快照或运行时预览认证时报告 advisory：没有其他阻塞项
-时，披露后可继续日常分析，但在声明新建或修改的语义对象已完成前仍需修复。
+业务描述与 guardrail 属于建议性的 richness 问题。使用 `ms.richness()` 检查；它们
+不会阻塞 readiness。
 
-分析 API 不会自动调用就绪检查。日常分析复用未变化的对象时，依赖实时目录
-加载、语义输入解析、规划和运行时执行检查，不会在每次调用前刷新
-编写快照。
+## Preview 与 readiness 相互独立
 
-## 用户怎么处理
-
-大部分就绪问题都由智能体通过 `marivo-semantic` 处理，例如修复声明、取得相关证据并重新
-检查。只有修复过程涉及业务判断时，才需要用户参与，例如确认指标含义、纳入规则或正确的
-时间轴。
-
-确认或纠正这项业务选择后，让智能体继续即可。用户不需要分别安排验证、预览、依赖检查或
-报告字段。
-
-## 就绪表示什么
-
-`ready` 表示所选语义对象没有 blocker 或真正的 warning；仍可能包含 advisory。
-`ready_with_warnings` 表示仍有真正的 warning。缺失的数据源快照或不匹配的预览
-证据属于 advisory-only，因此报告仍为 `ready`；此时
-`analysis_ready_inputs` 会按顺序列出受治理的依赖闭包中没有阻塞项的直接请求
-引用与运行时指标表达式；`analysis_ready_refs` 是其中仅含引用的投影。两种状态都不是运行时
-授权令牌：就绪检查不记录用户的批准行为，不保证所有后续查询都能成功，也不会
-替用户判断结论是否适合业务决策。
-
-需要检查技术契约的读者，可以继续查看下面的报告和 API 参考。
-
-## 限定范围的运行时证据之后的零查询收尾
-
-`catalog.readiness(refs=[...])` 是一次**纯内存检查**。它从不打开数据源连接；除声明
-外，它还会让封闭运行时指标表达式通过分析使用的同一套有界图契约。
-检查内容包括缺失定义、未知受治理的叶节点、图 budgets、数据源兼容性、脆弱的
-字符串引用与 SQL 一致性状态。它不检查 GitHub/GitLab 审批状态，也不做审计审批判断。
-
-触及后端的校验是独立的，并按需运行：
-
-| 检查 | 作用 | 是否触及后端？ |
-| --- | --- | --- |
-| `ms.load()` + `catalog.require(ref)` | 项目级静态验证与精确查找 | 否 |
-| `catalog.preview(ref, using=snapshot)` | 执行限定范围的运行时冒烟检查，只记录元数据，不持久化行 | 是 |
-| `catalog.preview_many(refs, using=snapshot_or_mapping)` | 合并兼容的运行时冒烟检查，同时按引用分别记录证据 | 是 |
-| `catalog.readiness(refs=[revenue])` | 读取匹配已持久化预览证据 | 否 |
-| `ms.parity_check(ref)` | 可选且可能无界的指标/来源信息 SQL 诊断 | 是 |
-| `ms.richness()` | 关于覆盖度/深度的建议性报告；从不阻塞 | 否 |
-
-:::caution[就绪检查不证明查询能跑通]
-非阻塞报告表示所选定义已通过语义就绪检查门禁。快照和预览
-是建议性的编写元数据；缺少或过期都不会阻塞就绪检查，也不会触发重新采样。
-它不证明每一种未来分析查询或完整来源事实。一致性从不作为就绪检查要求。
-:::
-
-## 报告
-
-`catalog.readiness(refs=[...])` 返回一个冻结的 `ReadinessReport`：
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `scope` | `"semantic_static"` | 本报告认证语义依赖闭包，不认证具体分析操作的可执行性。 |
-| `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | 总体结论（见下）。 |
-| `blockers` | `tuple[ReadinessIssue, ...]` | 阻止所选引用完成认证的问题。 |
-| `warnings` | `tuple[ReadinessIssue, ...]` | 不阻塞的 warning 与 advisory，通过 `severity` 区分。 |
-| `analysis_ready_inputs` | `tuple[Ref \| RuntimeMetricExpr, ...]` | 按原顺序保留受治理的依赖闭包中没有阻塞项的直接请求根。 |
-| `analysis_ready_refs` | `tuple[Ref, ...]` | 依赖闭包中没有阻塞项的直接请求引用。 |
-| `preview_required_refs` | `tuple[Ref, ...]` | 缺少或没有匹配预览认证的类型化可执行引用。 |
-| `input_summary` | `ReadinessInputSummary` | 检查了什么：数据源、引用、表。 |
-| `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
-| `catalog_definition_fingerprint` | `str` | 本报告使用的精确编译后的目录图。 |
-
-`status` 由严重程度推导：只要有阻塞项 ⇒ `blocked`；只要有真正 warning ⇒
-`ready_with_warnings`；仅有 advisory 或没有问题 ⇒ `ready`。
-
-快照身份、时间折叠、粒度与产物形状等要求由实际消费它的
-分析操作检查。因此就绪报告不承诺任意 `session.observe(...)`
-调用都一定能够执行。
-
-每个 `ReadinessIssue` 都携带一个类型化的 `repair`，而不是自由文本的下一步描述，因此下一步
-动作是机器可读的，并指向所属的实时帮助目标：
-
-| 属性 | 含义 |
-| --- | --- |
-| `kind` | 问题种类（见下表）。 |
-| `severity` | `"blocker"`、`"warning"` 或 `"advisory"`。 |
-| `refs` | 问题涉及的语义引用。 |
-| `catalog_definition_fingerprint` | 与报告相同的编译后的目录图指纹。 |
-| `message` | 期望是什么、实际是什么。 |
-| `repair` | 类型化的 `AuthoringRepair \| None`，包含 `action`、`help_target`、可选的 `snippet` 与 `candidates` —— 即具体的下一步及其契约的查阅位置。 |
-
-`report.show()` 会分别渲染真正的 warning 与 advisory。缺失快照和运行时预览证据
-按 evidence root 聚合：一条 issue 携带所有受影响语义引用和一条修复建议，避免逐引用
-告警洪水。`report.to_dict()` 返回同样的聚合机器列表。缺失预览证据时，读取类型化 issue
-repair，并把 `preview_required_refs` 直接传给当前的
-`catalog.preview_many(..., using=...)` 路径。
-通过认证的根保留在 `analysis_ready_inputs` 中；`analysis_ready_refs` 是仅含引用投影。
-
-## 问题种类
-
-| 类型 | 严重程度 | 触发条件 | 下一步 |
-| --- | --- | --- | --- |
-| `load_error` | 阻塞项 | 某个声明加载失败。 | 修复语义加载错误并重新加载。 |
-| `unknown_ref` | 阻塞项 | 请求的引用不在 registry 中。 | 修正该引用，或将其从就绪检查范围中移除。 |
-| `missing_business_definition` | 阻塞项 | 被检查的对象没有 `ai_context.business_definition`。 | 补充 `business_definition`。 |
-| `cross_datasource_unfederated` | 阻塞项 | 某个指标在没有联邦的情况下跨越多个数据源。 | 把集成移到上游、启用联邦后端，或拆分指标。 |
-| `metric_graph_invalid` | 阻塞项 | 目录/运行时图违反受治理的叶节点、加权平均、数据源领域、深度或发生项约束。 | 修复报告中的 leaf，或在图限制内重建封闭表达式。 |
-| `missing_guardrails` | 警告 | 被检查的指标、实体、维度、度量或时间维度没有 `ai_context.guardrails`；一条 warning 聚合全部受影响语义引用（逐条明细见 `refs`/`details`）。约束是建议性的丰富化，不是认证必需项。 | 当显式使用约束有帮助时补充 `guardrails`。 |
-| `sql_parity_unverified` | 警告 | 某个指标有 `provenance` SQL 但一致性未确认。 | 运行 `ms.parity_check(ref)`。 |
-| `fragile_string_ref` | 警告 | 某个对象使用了脆弱的字符串引用。 | 用稳定的对象引用替换它。 |
-| `time_dimension_pushdown_advisory` | 警告 | 某个时间维度可能无法下推到分区。 | 当业务时间轴与分区一致时，保留原始分区列并声明其解析。 |
-| `snapshot_missing` | advisory | 一个 evidence root 没有结构匹配的数据源快照元数据；一条 issue 包含全部受影响语义引用。没有其他阻塞项时定义仍可用于分析。 | 该 advisory 不要求再次读取。仅在剩余数据访问预算允许且采集分支未达到停止边界时取得匹配的有界快照；否则报告运行时证据不可用。 |
-| `runtime_preview_missing` | advisory | 一个 evidence root 没有精确匹配引用负载、目录 definition 指纹、语义依赖摘要、实体-快照绑定与后端的预览检查。 | 日常分析可以继续；在声明新建或修改的对象已完成前运行限定范围的预览。 |
-
-## 限定检查范围
-
-通过 `refs=` 传入精确当前条目、它们的精确引用或封闭 `RuntimeMetricExpr`，把
-就绪检查限定到正在明确认证的对象与运行时根。条目会立即归一化为引用，
-混合列表保持原顺序。Marivo 会解析受治理的叶节点及其完整依赖闭包（指标、度量、
-维度、实体与数据源）：
+Preview 通过显式有界 scope 直接读取当前数据源：
 
 ```python
-revenue = catalog.metrics.get("sales.revenue")
-report = catalog.readiness(refs=[revenue])
-if report.preview_required_refs:  # authoring closeout 必须修复；日常分析可选
-    catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
-    report = catalog.readiness(refs=[revenue])
+import marivo.datasource as md
+
+preview = catalog.preview(
+    catalog.metrics.get("sales.revenue"),
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
 ```
 
-批量预览会在连接前校验全部绑定，合并兼容的实体/字段/度量与指标
-执行计划，并继续为每个引用记录独立、精确的预览检查。实体预览不会认证其子对象。
+多实体引用必须传入由精确 `Ref[entity]` 键控的完整 mapping。参数化 JSON source
+通过 `source_bindings=` 使用同样的精确实体引用 mapping 形状。Marivo 会在打开连接
+之前验证 scope 键、数据源兼容性、正数行数与超时 guard，以及完整 batch。
 
-使用该报告完成语义变更的收尾，或满足更严格流程的认证要求。日常分析
-不会自动调用它。关于分析如何记录结论，参见 [证据链](/zh-cn/docs/latest/concepts/evidence/)。
+普通 preview 只返回本次执行结果，不创建 authoring checkpoint，也不会改变
+readiness。原生 naive timestamp 如果没有显式 parse 契约，会由当前 preview 直接
+报告 `time_parse_risk` warning。
+
+Period calendar、temporal set 与 work schedule 的 preview 同时也是认证路径。
+Marivo 会在 scope 的 `max_rows + 1` 边界内读取全部必需列；只有 scope 完整且行值
+符合声明时才发布 immutable artifact。`limit` 只限制展示行，不限制认证读取。
+
+## 报告字段
+
+`catalog.readiness(refs=[...])` 返回冻结的 `ReadinessReport`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `scope` | 固定为 `"semantic_static"`；操作专属执行检查仍由消费 API 负责。 |
+| `status` | `"ready"`、`"ready_with_warnings"` 或 `"blocked"`。 |
+| `analysis_ready_inputs` | 按请求顺序保留完整依赖闭包中没有 blocker 的引用或运行时表达式。 |
+| `blockers` | 阻止受影响请求根进入分析的问题。 |
+| `warnings` | 不阻塞的 warning 与 advisory。 |
+| `input_summary` | 本次检查涉及的数据源、引用和表。 |
+| `checked_at` | ISO-8601 检查时间。 |
+| `catalog_definition_fingerprint` | 精确的当前编译语义项目身份。 |
+
+`analysis_ready_inputs` 是唯一的语义到分析交接字段。不再有仅引用投影、
+preview-required 列表、认证令牌或隐藏传递对象。
+
+每条 issue 都携带类型化 `repair`，其中包含具体动作和所属 live-help 目标。按 repair
+处理后重新运行 readiness，再把 ready inputs 传给普通分析 API。
+
+## 重要 blocker
+
+结构图问题、未知引用、未联邦的跨数据源依赖、无效时间语义、没有 replay seed 的
+state model，以及不可观测的 snapshot fold 仍然 fail closed。
+
+专用时间 artifact blocker 使用 artifact 术语：
+
+- `period_calendar_artifact_missing`、`_stale` 或 `_invalid`
+- `temporal_set_artifact_missing`、`_stale` 或 `_invalid`
+- `work_schedule_artifact_missing`、`_stale` 或 `_invalid`
+
+其 repair 会指向带完整显式 scope 的 `catalog.preview(..., scope=...)`。认证失败或
+scope 被截断时不会发布替代 artifact。
 
 ## 继续进入分析
-
-当就绪检查未被阻塞时，`analysis_ready_inputs` 按原顺序包含依赖闭包中没有阻塞项的
-直接请求引用与运行时表达式；`analysis_ready_refs` 是仅含引用投影。warning 与
-advisory 继续显示在同一份报告上，调用方应在决定继续前明确披露；
-`snapshot_missing` 与 `runtime_preview_missing` advisory 都不会阻止日常分析。中间不再创建
-额外的传递对象。
 
 ```python
 import marivo.semantic as ms
@@ -160,11 +86,13 @@ import marivo.semantic as ms
 catalog = ms.load()
 revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
+
 if report.status == "blocked":
     report.show()
     raise SystemExit
+
 ready_inputs = report.analysis_ready_inputs
 ```
 
-就绪检查仍需显式调用；分析操作不会自动执行它。处理警告后，只把列出的
-输入传给普通分析 API。
+非阻塞报告只认证所选语义闭包，不保证所有未来查询或操作专属 artifact 形状都能
+成功。运行时执行、数据质量和分析专属契约仍由实际消费操作负责。

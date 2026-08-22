@@ -148,7 +148,7 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
         ("semi_additive", "over=snapshot_date, fold='last'"),
         (
             "preview",
-            "catalog.preview(revenue, using=orders_snapshot)",
+            "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))",
         ),
     ],
 )
@@ -157,6 +157,15 @@ def test_help_examples_use_typed_inputs_and_required_evidence(
     expected: str,
 ) -> None:
     assert expected in _text(target)
+
+
+def test_preview_help_discloses_only_conditional_artifact_persistence() -> None:
+    preview = _text("preview")
+    preview_many = _text("preview_many")
+
+    assert "mutations: none" in preview
+    assert "may_publish_certified_artifact" in preview
+    assert "may_publish_certified_artifact" not in preview_many
 
 
 def test_time_dimension_column_help_inlines_parse_selection() -> None:

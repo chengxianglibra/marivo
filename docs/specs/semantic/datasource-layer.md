@@ -530,8 +530,8 @@ not invalidation.
 For a declared-only projected binding, a successful bounded sample proves that
 the generated projection executed for the selected output aliases and scope. It
 does not certify business meaning. During the current milestone, scoped
-`catalog.preview(..., using=snapshot)` and readiness keep their existing input
-and evidence contract.
+`catalog.preview(..., scope=...)` reads the current source directly. Ordinary
+preview does not persist an authoring checkpoint or affect readiness.
 
 ### Governed raw SQL exploration
 

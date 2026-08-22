@@ -88,15 +88,15 @@ empty collections into one summary.
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
 | `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by exact typed ref; this global lookup remains ref-only. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, displayed same-kind typed key, or exact same-kind ref within that collection's scope. |
-| `catalog.preview(entry_or_ref, using=snapshot_or_mapping)` | Scoped runtime preview for one current entry or ref, bound to matching snapshot evidence. |
-| `catalog.preview_many(entries_or_refs, using=snapshot_or_mapping)` | Normalize an ordered batch before execution, then persist an independent preview check for every canonical ref. |
+| `catalog.preview(entry_or_ref, scope=scope_or_mapping, source_bindings=None)` | Read one current semantic object through an explicit datasource scope. |
+| `catalog.preview_many(entries_or_refs, scope=scope_or_mapping, source_bindings=None)` | Validate an ordered batch and its complete exact entity-ref scope mapping before connection. |
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
-`ReadinessReport.preview_required_refs` is the canonical typed input for batch
-preview repair. The report keeps per-ref advisories for structured diagnostics
-and groups them in bounded rendering. Entity preview evidence never satisfies
-child refs.
+Ordinary preview returns current execution results and never persists an
+authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
+preview may publish their immutable certified artifact after an exhaustive
+bounded read.
 
 ### Navigation matrix
 
@@ -303,15 +303,18 @@ through the catalog:
 ```python
 catalog = ms.load()
 revenue = catalog.metrics.get("sales.revenue")
-catalog.preview(revenue, using=snapshot).show()
+catalog.preview(
+    revenue,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
 catalog.readiness(refs=[revenue]).show()
 ```
 
 These runtime methods accept an exact entry from the current compiled catalog or
 its exact ref and normalize immediately to the canonical ref. Ordered batches
 are normalized completely before preview begins. No `CatalogEntry`, catalog
-pointer, or object identity reaches preview evidence, readiness output,
-persistence, replay, or recovery. Semantic authoring constructors and
+pointer, or object identity reaches readiness output, persistence, replay, or
+recovery. Semantic authoring constructors and
 decorators remain ref-only.
 
 Backend resolution rules:
@@ -339,7 +342,7 @@ type changes identity.
 
 To inspect a metric's caliber without executing analysis, use typed details and
 scoped readiness after the project has loaded successfully. Use
-`catalog.preview(..., using=...)` for a scoped runtime check. Parity is a
+`catalog.preview(..., scope=...)` for a scoped runtime check. Parity is a
 separate potentially unbounded provenance SQL diagnostic.
 
 ## Validation and failure semantics
@@ -474,28 +477,18 @@ Two checks sit at the end of the write loop:
   operation is executable. Operation-specific snapshot identity, temporal
   fold, grain, and artifact-shape checks remain owned by the consuming
   analysis call.
-  `catalog.preview(..., using=...)` persists scoped runtime metadata that
-  readiness consumes. Missing datasource snapshots and missing or stale preview
-  evidence for executable families (`static_only`, `single_snapshot`,
-  `snapshot_mapping`) are visible advisories, not analysis blockers; authoring
-  policy still requires repairing the applicable evidence before declaring a
-  new or changed object complete. Snapshot and preview absence or age never
-  block readiness or trigger implicit reacquisition. These issues use
-  `severity="advisory"`, remain in the existing `ReadinessReport.warnings`
-  collection, and are aggregated by evidence root with all affected refs.
-  Advisory-only reports remain `ready`; only true warnings produce
-  `ready_with_warnings`.
+  Readiness is independent of discovery snapshots and ordinary preview history.
+  It evaluates only the current semantic project, the requested dependency
+  closure, and dedicated certified temporal artifacts. Ordinary preview cannot
+  change its status or ready inputs.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session
   timezone. Its structured repair requires declaring the source timezone; the
   zero-query gate does not guess or probe either runtime timezone. A time
-  dimension with no `parse` at all produces this `warning` only when matching
-  persisted preview evidence identifies its physical type as a timezone-naive
-  timestamp. A native `date`, a timezone-aware timestamp, or absent/mismatched
-  type evidence does not produce the warning. Existing snapshot/preview evidence
-  advisories still describe evidence that needs reacquisition; readiness never
-  invents a parse repair from an unknown physical type.
+  dimension with no `parse` is not inferred from historical preview types.
+  Current preview reports a `time_parse_risk` warning when it directly observes
+  a native timezone-naive timestamp.
 - **`ms.richness(demand=None)`** returns a demand-ranked `RichnessReport`. It is
   purely advisory — it never blocks and never mutates readiness — and seeds
   ranking from example questions, analysis intents, run-history refs, and the
@@ -506,28 +499,24 @@ dependency-coherent slice, load once, repair reported structural errors, and
 confirm every exact authored root with `catalog.require(ref)`.
 For projected tables, successful loading proves declaration coherence only.
 Datasource inspection may classify bindings as declared-only when catalog
-metadata cannot confirm them. Authoring must then obtain one explicitly bounded
-sample, run the scoped preview, and let zero-query readiness consume matching
-evidence; loading does not prove that a declared physical
-column exists or is queryable.
+metadata cannot confirm them. Authoring may then run an explicitly scoped
+preview against the current datasource; loading alone does not prove that a
+declared physical column exists or is queryable, and preview does not alter
+readiness.
 `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
 a readiness requirement. All three return silent result objects with `.show()` /
 `.render()`.
 
-### Analysis-ready refs
+### Analysis-ready inputs
 
 `ReadinessReport.analysis_ready_inputs` is the ordered result-owned list of
 directly requested refs and runtime expressions whose full dependency closures
-contain no blocker. `analysis_ready_refs` remains its refs-only compatibility
-projection. Governed leaf refs remain visible in `input_summary.refs` but are
+contain no blocker. Governed leaf refs remain visible in `input_summary.refs` but are
 never substituted for the originally requested runtime expression. Warnings
 remain visible on the same report and require an explicit proceed-or-stop
 decision by the caller.
 
 The report and every issue carry the same `catalog_definition_fingerprint`.
-Persisted preview evidence matches only when its v1 checked-ref payload,
-catalog fingerprint, semantic dependency digest, entity-snapshot bindings, and
-backend all match the active compiled catalog.
 
 The report does not create a second transfer object or validation token. After
 readiness succeeds, an agent passes the listed canonical refs or runtime
@@ -551,8 +540,7 @@ not hide inside one-off analysis scripts.
 
 Semantic readiness is the explicit certification boundary:
 `analysis_ready_inputs` carries the requested canonical refs or runtime
-expressions whose dependency closures passed; `analysis_ready_refs` remains the
-refs-only projection. A missing required semantic object activates
+expressions whose dependency closures passed. A missing required semantic object activates
 `marivo-semantic` through the structured `semantic_authoring` repair and returns
 to the same semantic entry, requiring matching scoped readiness before
 resuming.

@@ -134,5 +134,11 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert subject.family == "CatalogEntry | Ref"
     assert preview.minimal_example is not None
     assert "catalog.preview(revenue" in preview.minimal_example
-    assert REGISTRY.by_canonical_id("preview_many").output_family == "PreviewBatchResult"
+    assert preview.effects is not None
+    assert preview.effects.mutations == ()
+    assert "may_publish_certified_artifact" in preview.effects.flags
+    preview_many = REGISTRY.by_canonical_id("preview_many")
+    assert preview_many.output_family == "PreviewBatchResult"
+    assert preview_many.effects is not None
+    assert "may_publish_certified_artifact" not in preview_many.effects.flags
     assert ms.PreviewBatchResult in TYPE_CONTRACTS

@@ -91,8 +91,6 @@ class PreviewCoverage:
     rows_observed: int
     scope_exhaustion: Literal["exhaustive", "truncated"]
     scope_exactness: Literal["scope_exact", "sample_only"]
-    snapshot_ids: tuple[str, ...]
-    cache_status: Literal["fresh", "cached", "stale"]
 
 
 @dataclass(frozen=True, repr=False)
@@ -278,11 +276,9 @@ def preview_from_pandas(
         status="passed",
         coverage=PreviewCoverage(
             scopes=(),
-            rows_observed=len(rows),
+            rows_observed=len(dataframe),
             scope_exhaustion=("truncated" if len(dataframe) > limit else "exhaustive"),
             scope_exactness=("sample_only" if len(dataframe) > limit else "scope_exact"),
-            snapshot_ids=(),
-            cache_status="fresh",
         ),
         warnings=tuple(result_warnings),
         sample_policy=sample_policy,

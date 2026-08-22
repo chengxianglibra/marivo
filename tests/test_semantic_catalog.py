@@ -1948,7 +1948,7 @@ def test_catalog_preview_field_preserves_context_columns(
     )
     preview = catalog.preview(
         catalog.require(ms.ref.dimension("sales.orders.region")).ref,
-        using=snapshot,
+        scope=snapshot.scope,
         context_columns=("order_id",),
         limit=2,
     )
@@ -1965,7 +1965,7 @@ def test_catalog_preview_metric_preserves_approximate_warning(
     )
     preview = catalog.preview(
         catalog.require(ms.ref.metric("sales.revenue")).ref,
-        using=snapshot,
+        scope=snapshot.scope,
         limit=2,
     )
 
@@ -2008,7 +2008,7 @@ def test_catalog_preview_metric_caps_input_before_aggregation(
 
     preview = catalog.preview(
         catalog.require(ms.ref.metric("sales.revenue")).ref,
-        using=snapshot,
+        scope=snapshot.scope,
         limit=2,
     )
 
@@ -2087,7 +2087,7 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
 
     preview = catalog.preview(
         catalog.require(ms.ref.metric("sales.paid_price_index")).ref,
-        using=snapshot,
+        scope=snapshot.scope,
     )
 
     assert preview.rows == ({"value": pytest.approx(0.8)},)
@@ -2103,7 +2103,7 @@ def test_catalog_preview_context_columns_rejected_for_metric(
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
             catalog.require(ms.ref.metric("sales.revenue")).ref,
-            using=snapshot,
+            scope=snapshot.scope,
             context_columns=("order_id",),
         )
 
@@ -2194,7 +2194,7 @@ def test_catalog_readiness_normalizes_entry_and_ref_to_same_public_payload(
     by_ref = catalog.readiness(refs=[revenue.ref])
 
     assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs
-    assert by_entry.analysis_ready_refs == by_ref.analysis_ready_refs
+    assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs
     assert by_entry.input_summary == by_ref.input_summary
     assert all(type(value) is Ref for value in by_entry.analysis_ready_inputs)
 
@@ -2235,7 +2235,7 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
     report = catalog.readiness(refs=[revenue_entry, expression])
 
     assert report.status == "ready"
-    assert report.analysis_ready_refs == (revenue,)
+    assert report.analysis_ready_inputs == (revenue, expression)
     assert report.analysis_ready_inputs == (revenue, expression)
     assert report.input_summary.refs == (
         "sales.revenue",
@@ -2290,7 +2290,7 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
     report = catalog.readiness(refs=[revenue, missing])
 
     assert report.status == "blocked"
-    assert report.analysis_ready_refs == (revenue,)
+    assert report.analysis_ready_inputs == (revenue,)
     assert report.analysis_ready_inputs == (revenue,)
     assert {issue.kind for issue in report.blockers} >= {"unknown_ref", "metric_graph_invalid"}
 
@@ -2519,9 +2519,9 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     datasource_report = catalog.readiness(refs=[ms.ref.datasource("sales")])
     all_report = catalog.readiness()
 
-    assert domain_report.analysis_ready_refs == (ms.ref.domain("sales"),)
-    assert datasource_report.analysis_ready_refs == (ms.ref.datasource("sales"),)
-    assert set(all_report.analysis_ready_refs) == {
+    assert domain_report.analysis_ready_inputs == (ms.ref.domain("sales"),)
+    assert datasource_report.analysis_ready_inputs == (ms.ref.datasource("sales"),)
+    assert set(all_report.analysis_ready_inputs) == {
         ms.ref.domain("sales"),
         ms.ref.datasource("sales"),
     }

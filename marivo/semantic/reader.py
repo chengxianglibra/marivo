@@ -439,15 +439,15 @@ class SemanticProject:
     ) -> ReadinessReport:
         """Return a query-free semantic readiness report.
 
-        Performs in-memory checks and reads persisted row-free preview evidence:
+        Performs in-memory checks and reads dedicated certified artifact state:
         load errors, unknown refs, cross-datasource unfederated metrics,
         recursive metric-graph lowering and budgets, SQL parity unverified
-        warnings, strict enrichment issues, and load warnings forwarding. Use
+        warnings, temporal artifact integrity, and load warnings forwarding. Use
         ``refs`` to scope which semantic objects to check; by default all loaded
         objects are checked.
 
-        Missing preview evidence is reported with state-derived acquisition or
-        preview calls; readiness never executes those calls itself.
+        Ordinary discovery snapshots and preview history never affect this
+        report; readiness never executes datasource calls itself.
 
         Args:
             refs: Exact refs supplied by the catalog boundary. String paths are

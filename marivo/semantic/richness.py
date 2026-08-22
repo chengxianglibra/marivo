@@ -89,6 +89,8 @@ def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
         + list(reg.dimensions.values())
         + list(reg.measures.values())
         + list(reg.metrics.values())
+        + list(reg.events.values())
+        + list(reg.state_models.values())
     )
     for obj in objects:
         ai = obj.ai_context
@@ -233,7 +235,14 @@ def build_richness_report(
     if reg is None:
         return RichnessReport(gaps=(), checked_at=_checked_at())
 
-    objects: dict[str, object] = {**reg.entities, **reg.dimensions, **reg.metrics}
+    objects: dict[str, object] = {
+        **reg.entities,
+        **reg.dimensions,
+        **reg.measures,
+        **reg.metrics,
+        **reg.events,
+        **reg.state_models,
+    }
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.dimensions.values():
         fields_by_dataset.setdefault(field_obj.entity, []).append(field_obj)

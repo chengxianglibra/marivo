@@ -16,7 +16,6 @@ from marivo.semantic.errors import repair
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
-    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -28,23 +27,19 @@ ReadinessIssueKind = Literal[
     "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
-    "snapshot_missing",
-    "runtime_preview_missing",
-    "missing_business_definition",
-    "missing_guardrails",
     "undeclared_naive_time_axis",
     "metric_graph_invalid",
     "snapshot_fold_unobservable",
     "state_model_seed_missing",
-    "period_calendar_snapshot_missing",
-    "period_calendar_snapshot_stale",
-    "period_calendar_snapshot_invalid",
-    "temporal_set_snapshot_missing",
-    "temporal_set_snapshot_stale",
-    "temporal_set_snapshot_invalid",
-    "work_schedule_snapshot_missing",
-    "work_schedule_snapshot_stale",
-    "work_schedule_snapshot_invalid",
+    "period_calendar_artifact_missing",
+    "period_calendar_artifact_stale",
+    "period_calendar_artifact_invalid",
+    "temporal_set_artifact_missing",
+    "temporal_set_artifact_stale",
+    "temporal_set_artifact_invalid",
+    "work_schedule_artifact_missing",
+    "work_schedule_artifact_stale",
+    "work_schedule_artifact_invalid",
 ]
 
 
@@ -90,18 +85,12 @@ class ReadinessInputSummary:
 class ReadinessReport(RenderableResult):
     scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
     status: ReadinessStatus
-    analysis_ready_refs: tuple[Ref[SemanticKindTag], ...]
+    analysis_ready_inputs: tuple[Ref[SemanticKindTag] | RuntimeMetricExpr, ...]
     blockers: tuple[ReadinessIssue, ...]
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
-    preview_required_refs: tuple[Ref[SemanticKindTag], ...] = ()
     catalog_definition_fingerprint: str | None = None
-    analysis_ready_inputs: tuple[Ref[SemanticKindTag] | RuntimeMetricExpr, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.analysis_ready_inputs and self.analysis_ready_refs:
-            object.__setattr__(self, "analysis_ready_inputs", self.analysis_ready_refs)
 
     def _repr_identity(self) -> str:
         return (
@@ -115,7 +104,6 @@ class ReadinessReport(RenderableResult):
             available=(
                 ".show()",
                 ".to_dict()",
-                ".preview_required_refs",
                 ".analysis_ready_inputs",
             ),
         )
@@ -148,10 +136,11 @@ class ReadinessReport(RenderableResult):
                     for i in advisories
                 ),
             )
-        if self.analysis_ready_refs:
+        ready_refs = tuple(item for item in self.analysis_ready_inputs if type(item) is Ref)
+        if ready_refs:
             card = card.field(
                 label="analysis_ready",
-                value=", ".join(ref.key for ref in self.analysis_ready_refs),
+                value=", ".join(ref.key for ref in ready_refs),
             )
         runtime_inputs = tuple(item for item in self.analysis_ready_inputs if type(item) is not Ref)
         if runtime_inputs:
@@ -165,9 +154,6 @@ class ReadinessReport(RenderableResult):
         return {
             "scope": self.scope,
             "status": self.status,
-            "analysis_ready_refs": [
-                RefPayloadV1.from_ref(ref).to_dict() for ref in self.analysis_ready_refs
-            ],
             "analysis_ready_inputs": [
                 RefPayloadV1.from_ref(item).to_dict() if type(item) is Ref else replay_payload(item)
                 for item in self.analysis_ready_inputs
@@ -177,9 +163,6 @@ class ReadinessReport(RenderableResult):
             "input_summary": self.input_summary.to_dict(),
             "checked_at": self.checked_at,
             "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
-            "preview_required_refs": [
-                RefPayloadV1.from_ref(ref).to_dict() for ref in self.preview_required_refs
-            ],
         }
 
 
@@ -349,76 +332,6 @@ def _scope_keys(
         candidates = tuple(key for key in kinds if _display_path(key) == ref)
         keys.append(candidates[0] if len(candidates) == 1 else ref)
     return tuple(keys)
-
-
-def _strict_enrichment_issues(
-    checked_refs: Iterable[str],
-    kinds: Mapping[str, SemanticKind],
-    objects: Mapping[str, object],
-) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
-    """Contracts section 7: analyzable handoff refs must carry a non-empty
-    business_definition (blocker) and guardrails (warning for all analyzable
-    refs). Richness owns optional enrichment suggestions.
-    Relationships are out of scope, matching semantic-preview scoping."""
-    analyzable = {
-        SemanticKind.ENTITY,
-        SemanticKind.DIMENSION,
-        SemanticKind.MEASURE,
-        SemanticKind.TIME_DIMENSION,
-        SemanticKind.METRIC,
-        SemanticKind.EVENT,
-        SemanticKind.STATE_MODEL,
-    }
-    blockers: list[ReadinessIssue] = []
-    warnings: list[ReadinessIssue] = []
-    guardrails_missing: list[str] = []
-    for ref in checked_refs:
-        kind = kinds.get(ref)
-        if kind not in analyzable:
-            continue
-        obj = objects.get(ref)
-        if obj is None:
-            continue
-        path = _display_path(ref)
-        if _missing_business_definition(obj):
-            blockers.append(
-                _issue(
-                    "missing_business_definition",
-                    "blocker",
-                    (path,),
-                    f"{path} has no ai_context.business_definition for semantic certification.",
-                    repair(
-                        kind="reauthor",
-                        canonical_id="metric",
-                        action="Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
-                    ),
-                )
-            )
-            # business_definition missing implies guardrails missing too; report
-            # the single most fundamental issue rather than stacking findings.
-            continue
-        if _missing_guardrails(obj):
-            guardrails_missing.append(path)
-    if guardrails_missing:
-        missing_paths = _dedupe(guardrails_missing)
-        noun = "ref" if len(missing_paths) == 1 else "refs"
-        verb = "has" if len(missing_paths) == 1 else "have"
-        warnings.append(
-            _issue(
-                "missing_guardrails",
-                "warning",
-                missing_paths,
-                f"{len(missing_paths)} analyzable {noun} {verb} no ai_context.guardrails; "
-                "analysis may proceed but the agent lacks usage constraints.",
-                repair(
-                    kind="reauthor",
-                    canonical_id="metric",
-                    action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
-                ),
-                details={"missing_refs": list(missing_paths)},
-            )
-        )
-    return blockers, warnings
 
 
 _CONTAINER_KINDS = frozenset(
@@ -613,31 +526,16 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
 
-def _missing_business_definition(obj: object) -> bool:
-    ai_context = getattr(obj, "ai_context", None)
-    business_definition = getattr(ai_context, "business_definition", None)
-    return not (business_definition and business_definition.strip())
-
-
-def _missing_guardrails(obj: object) -> bool:
-    ai_context = getattr(obj, "ai_context", None)
-    guardrails = getattr(ai_context, "guardrails", None)
-    return not guardrails
-
-
 def _undeclared_naive_time_axis_issues(
     checked_refs: Iterable[str],
     kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
-    preview_types: Mapping[str, str],
 ) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
     """Return blockers/warnings for native temporal axes without a source timezone.
 
     An explicit ``parse=ms.datetime()``/``parse=ms.timestamp()`` with no timezone is
-    certainly a naive datetime/timestamp, so it blocks.  A time dimension with no
-    ``parse`` at all is classified only from a matching persisted preview type;
-    readiness remains query-free and does not turn an unknown physical type into a
-    timezone warning.
+    certainly a naive datetime/timestamp, so it blocks. Runtime-observed physical
+    type risks belong to preview and never affect semantic-static readiness.
     """
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -682,47 +580,7 @@ def _undeclared_naive_time_axis_issues(
                     },
                 )
             )
-        elif parse is None and _preview_type_is_naive_timestamp(preview_types.get(ref)):
-            observed_type = preview_types[ref]
-            warnings.append(
-                _issue(
-                    "undeclared_naive_time_axis",
-                    "warning",
-                    (path,),
-                    f"{path} declares no parse/timezone, and matching preview evidence reports "
-                    f"the native naive type {observed_type!r}; analysis will interpret values using "
-                    "the datasource read timezone, risking silent misalignment across "
-                    "time-zone boundaries.",
-                    repair(
-                        kind="reauthor",
-                        canonical_id="time_dimension_column",
-                        action=(
-                            "Declare the source timezone by adding "
-                            'parse=ms.datetime(timezone="Region/City") (or '
-                            'ms.timestamp(timezone="Region/City")) to the @ms.time_dimension '
-                            "declaration."
-                        ),
-                    ),
-                    details={
-                        "data_type": observed_type,
-                        "data_type_evidence": "matching_preview",
-                        "declared_timezone": None,
-                        "datasource": datasource,
-                        "datasource_read_timezone": "resolved at runtime",
-                        "report_timezone": "resolved by the analysis session",
-                        "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
-                    },
-                )
-            )
     return blockers, warnings
-
-
-def _preview_type_is_naive_timestamp(data_type: str | None) -> bool:
-    """Whether a persisted ibis preview type is timestamp-like and timezone-naive."""
-    if data_type is None:
-        return False
-    normalized = data_type.strip().lower().replace(" ", "")
-    return normalized.startswith("timestamp") and "'" not in normalized and '"' not in normalized
 
 
 def _snapshot_fold_unobservable_issues(
@@ -826,12 +684,12 @@ def build_readiness_report(
     *,
     refs: Iterable[Ref[SemanticKindTag] | str] | None = None,
 ) -> ReadinessReport:
-    """Build a readiness report from loaded state and persisted row-free evidence.
+    """Build a semantic-static readiness report from current loaded state.
 
     Performs pure in-memory checks: load errors, unknown refs,
     cross-datasource unfederated metrics, raw SQL requirements,
-    strict enrichment issues, load warnings, and matching preview checks.
-    It never acquires snapshots, refreshes state, or executes a datasource query.
+    temporal artifact integrity, and load warnings. It never reads ordinary
+    discovery or preview history and never executes a datasource query.
 
     Args:
         project: A loaded SemanticProject instance.
@@ -843,7 +701,6 @@ def build_readiness_report(
     """
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
-    preview_required_keys: list[str] = []
 
     if not project.is_ready():
         for error in project.errors():
@@ -862,7 +719,7 @@ def build_readiness_report(
             )
         return ReadinessReport(
             status="blocked",
-            analysis_ready_refs=(),
+            analysis_ready_inputs=(),
             blockers=tuple(blockers),
             warnings=(),
             input_summary=ReadinessInputSummary(
@@ -878,26 +735,6 @@ def build_readiness_report(
     if compiled_state is None:
         raise RuntimeError("ready semantic project has no compiled state")
     catalog_definition_fingerprint = compiled_state.definition_fingerprint
-    preview_requirements: dict[str, PreviewEvidenceRequirement] = {}
-
-    def preview_requirement_for(path: str) -> PreviewEvidenceRequirement | None:
-        if project._registry is None or project._expression_sidecar is None:
-            return None
-        cached = preview_requirements.get(path)
-        if cached is not None:
-            return cached
-        from marivo.semantic.preview_checks import preview_evidence_requirement
-
-        requirement = preview_evidence_requirement(
-            path,
-            registry=project._registry,
-            sidecar=project._expression_sidecar,
-            project_root=project._workspace_dir,
-            catalog_definition_fingerprint=catalog_definition_fingerprint,
-        )
-        preview_requirements[path] = requirement
-        return requirement
-
     event_predicate_dependencies = {
         ref.key: tuple(binding.to_ref().key for binding in body.bindings)
         for ref, body in compiled_state.sidecar.bodies.items()
@@ -916,14 +753,13 @@ def build_readiness_report(
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
     cross_datasource_refs: list[str] = []
-    graph_invalid_refs: set[str] = set()
     if reg is not None:
-        from marivo.semantic.preview_checks import preview_dependency_entities
+        from marivo.semantic.preview_scope import dependency_entities_for_ref
 
         for ref in direct_refs:
             if kinds.get(ref) not in _EXECUTABLE_KINDS:
                 continue
-            entity_ids = preview_dependency_entities(_display_path(ref), registry=reg)
+            entity_ids = dependency_entities_for_ref(_display_path(ref), registry=reg)
             datasource_ids = {
                 reg.entities[entity_id].datasource
                 for entity_id in entity_ids
@@ -945,7 +781,6 @@ def build_readiness_report(
             try:
                 lower_catalog_metric(reg, path, sidecar=project._expression_sidecar)
             except (MetricGraphContractError, TypeError, ValueError) as exc:
-                graph_invalid_refs.add(ref)
                 blockers.append(
                     _issue(
                         "metric_graph_invalid",
@@ -989,35 +824,17 @@ def build_readiness_report(
             )
         )
 
-    preview_time_axis_types: dict[str, str] = {}
-    for ref in checked_refs:
-        if kinds.get(ref) is not SemanticKind.TIME_DIMENSION:
-            continue
-        time_dimension = objects.get(ref)
-        if getattr(time_dimension, "parse", None) is not None:
-            continue
-        requirement = preview_requirement_for(_display_path(ref))
-        if requirement is None or requirement.status != "matched":
-            continue
-        field_name = getattr(time_dimension, "name", None)
-        if not isinstance(field_name, str):
-            continue
-        observed_type = dict(requirement.types).get(field_name)
-        if isinstance(observed_type, str):
-            preview_time_axis_types[ref] = observed_type
-
     naive_time_axis_blockers, naive_time_axis_warnings = _undeclared_naive_time_axis_issues(
         checked_refs,
         kinds,
         objects,
-        preview_time_axis_types,
     )
     blockers.extend(naive_time_axis_blockers)
     warnings.extend(naive_time_axis_warnings)
     blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects))
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
-    # preview evidence, a missing/stale certified snapshot is a hard blocker
+    # preview output, a missing/stale certified artifact is a hard blocker
     # and is checked entirely from project-local state.
     if reg is not None:
         from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
@@ -1054,29 +871,28 @@ def build_readiness_report(
                 path = _display_path(ref)
                 issue_kind = cast(
                     "ReadinessIssueKind",
-                    f"period_calendar_snapshot_{status}",
+                    f"period_calendar_artifact_{status}",
                 )
                 if status == "missing":
-                    issue_kind = "period_calendar_snapshot_missing"
+                    issue_kind = "period_calendar_artifact_missing"
                 blockers.append(
                     _issue(
                         issue_kind,
                         "blocker",
                         (path,),
                         (
-                            f"{path} has no current certified period-calendar snapshot for its "
+                            f"{path} has no current certified period-calendar artifact for its "
                             f"declaration (state={status})."
                         ),
                         repair(
-                            kind="repreview",
+                            kind="rescope",
                             canonical_id="preview",
                             action=(
-                                "Acquire one fresh exhaustive DiscoverySnapshot with "
-                                "persist_values=True, then preview this period calendar using "
-                                "that exact snapshot."
+                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
+                                "scope covering the period-calendar declaration."
                             ),
                         ),
-                        details={"snapshot_status": status},
+                        details={"artifact_status": status},
                     )
                 )
 
@@ -1110,24 +926,24 @@ def build_readiness_report(
             )
             if status != "current":
                 path = _display_path(ref)
-                issue_kind = cast("ReadinessIssueKind", f"work_schedule_snapshot_{status}")
+                issue_kind = cast("ReadinessIssueKind", f"work_schedule_artifact_{status}")
                 if status == "missing":
-                    issue_kind = "work_schedule_snapshot_missing"
+                    issue_kind = "work_schedule_artifact_missing"
                 blockers.append(
                     _issue(
                         issue_kind,
                         "blocker",
                         (path,),
-                        f"{path} has no current certified work-schedule snapshot for its declaration (state={status}).",
+                        f"{path} has no current certified work-schedule artifact for its declaration (state={status}).",
                         repair(
-                            kind="repreview",
+                            kind="rescope",
                             canonical_id="preview",
                             action=(
-                                "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
-                                "then preview this work schedule using that exact snapshot."
+                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
+                                "scope covering the work-schedule declaration."
                             ),
                         ),
-                        details={"snapshot_status": status},
+                        details={"artifact_status": status},
                     )
                 )
 
@@ -1163,24 +979,24 @@ def build_readiness_report(
             )
             if status != "current":
                 path = _display_path(ref)
-                issue_kind = cast("ReadinessIssueKind", f"temporal_set_snapshot_{status}")
+                issue_kind = cast("ReadinessIssueKind", f"temporal_set_artifact_{status}")
                 if status == "missing":
-                    issue_kind = "temporal_set_snapshot_missing"
+                    issue_kind = "temporal_set_artifact_missing"
                 blockers.append(
                     _issue(
                         issue_kind,
                         "blocker",
                         (path,),
-                        f"{path} has no current certified temporal-set snapshot for its declaration (state={status}).",
+                        f"{path} has no current certified temporal-set artifact for its declaration (state={status}).",
                         repair(
-                            kind="repreview",
+                            kind="rescope",
                             canonical_id="preview",
                             action=(
-                                "Acquire one fresh exhaustive DiscoverySnapshot with persist_values=True, "
-                                "then preview this temporal set using that exact snapshot."
+                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
+                                "scope covering the temporal-set declaration."
                             ),
                         ),
-                        details={"snapshot_status": status},
+                        details={"artifact_status": status},
                     )
                 )
 
@@ -1201,78 +1017,6 @@ def build_readiness_report(
                         canonical_id="state_model",
                         action="Add at least one ms.inception(on=...) trigger before replay.",
                     ),
-                )
-            )
-
-    # Strict enrichment: missing business_definition is a blocker;
-    # missing guardrails is a warning for every analyzable object.
-    enrichment_blockers, enrichment_warnings = _strict_enrichment_issues(
-        checked_refs,
-        kinds,
-        objects,
-    )
-    blockers.extend(enrichment_blockers)
-    warnings.extend(enrichment_warnings)
-
-    if project._registry is not None and project._expression_sidecar is not None:
-        evidence_issue_refs: dict[
-            tuple[Literal["snapshot_missing", "runtime_preview_missing"], tuple[str, ...]],
-            list[str],
-        ] = {}
-        evidence_issue_repairs: dict[
-            tuple[Literal["snapshot_missing", "runtime_preview_missing"], tuple[str, ...]],
-            AuthoringRepair,
-        ] = {}
-        for ref in direct_refs:
-            if kinds.get(ref) not in _EXECUTABLE_KINDS or ref in cross_datasource_refs:
-                continue
-            if ref in graph_invalid_refs:
-                continue
-            path = _display_path(ref)
-            requirement = preview_requirement_for(path)
-            assert requirement is not None
-            if requirement.status == "matched":
-                continue
-            key = (requirement.status, requirement.evidence_roots)
-            evidence_issue_refs.setdefault(key, []).append(path)
-            evidence_issue_repairs.setdefault(key, requirement.repair)
-            if requirement.status == "snapshot_missing":
-                continue
-            preview_required_keys.append(ref)
-
-        for (issue_kind, evidence_roots), paths in evidence_issue_refs.items():
-            unique_paths = _dedupe(paths)
-            if issue_kind == "snapshot_missing":
-                message = (
-                    f"{len(unique_paths)} semantic refs share an evidence root with no matching "
-                    "datasource snapshot metadata; analysis may proceed."
-                )
-            else:
-                message = (
-                    f"{len(unique_paths)} semantic refs share an evidence root without a current "
-                    "runtime preview; analysis may proceed, but preview remains the optional "
-                    "certification step for authoring changes."
-                )
-            issue_repair = evidence_issue_repairs[(issue_kind, evidence_roots)]
-            if issue_kind == "runtime_preview_missing":
-                issue_repair = repair(
-                    kind="repreview",
-                    canonical_id="preview_many",
-                    action=(
-                        "Run catalog.preview_many(report.preview_required_refs, using=...) "
-                        "to repair the grouped runtime-preview evidence."
-                    ),
-                    snippet="catalog.preview_many(report.preview_required_refs, using=...)",
-                    preserves_evidence=False,
-                )
-            warnings.append(
-                _issue(
-                    issue_kind,
-                    "advisory",
-                    unique_paths,
-                    message,
-                    repair=issue_repair,
-                    details={"evidence_roots": list(evidence_roots)},
                 )
             )
 
@@ -1367,13 +1111,8 @@ def build_readiness_report(
             )[0]
         )
     )
-    analysis_ready_refs = tuple(
+    analysis_ready_inputs = tuple(
         _exact_ref(_display_path(ref), kinds[ref]) for ref in analysis_ready_ids if ref in kinds
-    )
-    preview_required_refs = tuple(
-        _exact_ref(_display_path(ref), kinds[ref])
-        for ref in _dedupe(preview_required_keys)
-        if ref in kinds
     )
 
     datasources_checked: tuple[str, ...] = scoped_datasources if reg is not None else ()
@@ -1389,7 +1128,7 @@ def build_readiness_report(
 
     return ReadinessReport(
         status=_status(blockers, warnings),
-        analysis_ready_refs=analysis_ready_refs,
+        analysis_ready_inputs=analysis_ready_inputs,
         blockers=tuple(blockers),
         warnings=tuple(warnings),
         input_summary=ReadinessInputSummary(
@@ -1398,6 +1137,5 @@ def build_readiness_report(
             tables=_dataset_refs(checked_refs, kinds),
         ),
         checked_at=_checked_at(),
-        preview_required_refs=preview_required_refs,
         catalog_definition_fingerprint=catalog_definition_fingerprint,
     )

@@ -1,183 +1,95 @@
 ---
 title: Readiness
-description: Explicit technical certification for new or changed semantic objects.
+description: Snapshot-independent technical certification for semantic inputs.
 ---
 
-## When the agent runs readiness
+## What readiness checks
 
-Readiness is Marivo's explicit certification and diagnostic check for selected
-semantic objects. Run it after authoring or changing an object, or when a
-workflow asks for technical certification. It identifies incomplete
-objects, unknown references, and missing current validation or preview evidence.
+`catalog.readiness(refs=[...])` is Marivo's explicit, zero-query certification
+for selected current catalog entries, exact refs, and closed runtime metric
+expressions. It checks the current semantic project and each requested
+dependency closure. Analysis APIs do not invoke it automatically.
 
-The explicit semantic definitions are the governed source of business meaning.
-Inspection, snapshots, discovery, and preview provide evidence for authoring and
-diagnosis; their absence does not override an approved, structurally valid
-definition or make it unavailable to analysis.
+Readiness does not read discovery snapshots or ordinary preview history. The
+same definition therefore produces the same status, issues, and ready inputs
+whether snapshots or historical preview files are missing, fresh, or stale.
+Dedicated period-calendar, temporal-set, and work-schedule artifacts are the
+exception: roots that depend on them remain blocked until their current
+certified artifact is available.
 
-A blocked report does not mean the analysis question is invalid. It means the
-selected objects have a semantic or technical blocker. Missing snapshot or
-runtime preview certification is reported as an advisory instead: disclose it,
-continue routine analysis when no blocker remains, and repair it before
-declaring a new or changed semantic object complete.
+Business descriptions and guardrails are advisory richness concerns. Inspect
+them with `ms.richness()`; they do not block readiness.
 
-Analysis APIs do not invoke readiness automatically. Routine analysis of
-unchanged objects relies on live catalog loading, semantic input resolution,
-planning, and runtime execution checks instead of refreshing authoring snapshots
-before every call.
+## Preview is independent
 
-## How to respond
+Preview reads the current datasource through an explicit bounded scope:
 
-Most readiness issues belong to the agent: it can repair declarations, acquire
-the relevant evidence, and rerun the scoped check through `marivo-semantic`.
-You only need to step in when the fix requires a business decision, such as the
-meaning of a metric, an inclusion rule, or the correct time axis.
+```python
+import marivo.datasource as md
 
-Confirm or correct that business choice, then let the agent continue. You do
-not need to request validation, preview, dependency traversal, or report fields
-individually.
+preview = catalog.preview(
+    catalog.metrics.get("sales.revenue"),
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+```
 
-## What ready means
+For a multi-entity ref, pass a complete mapping keyed by exact
+`Ref[entity]` values. `source_bindings=` uses the same exact entity-ref mapping
+shape for parameterized JSON sources. Marivo validates scope keys, datasource
+compatibility, positive row and timeout guards, and the complete batch before
+opening a connection.
 
-`ready` means the selected semantic objects have no blocker or true warning;
-advisories may still be present.
-`ready_with_warnings` means at least one true warning remains. Missing datasource
-snapshot or stale preview evidence is advisory-only and therefore keeps the
-report `ready`, while `analysis_ready_inputs` identifies the directly requested refs
-and runtime metric expressions whose dependency closures have no blocker.
-`analysis_ready_refs` remains the refs-only projection. Neither status is a runtime
-authorization token: readiness does not record the user's approval, guarantee
-every future query, or decide whether a conclusion is suitable for a business
-decision.
+Ordinary preview returns only the current execution result. It creates no
+authoring checkpoint and cannot change readiness. A native timezone-naive
+timestamp without an explicit parse contract is reported directly by preview as
+a `time_parse_risk` warning.
 
-The sections below document the report and API behavior for readers who need
-to inspect the technical contract.
-
-## Zero-query closeout after scoped runtime evidence
-
-`catalog.readiness(refs=[...])` is a **pure in-memory check**. It never opens a datasource
-connection — it reasons about the declarations themselves and lowers closed
-runtime metric expressions through the same bounded graph contract used by
-analysis. It checks missing definitions, unknown governed leaves, graph budgets,
-datasource compatibility, fragile string references, and SQL parity status. It
-does not inspect GitHub/GitLab approval state or make audit-approval judgments.
-
-Backend-touching validation is separate and runs on demand:
-
-| Check | What it does | Touches backend? |
-| --- | --- | --- |
-| `ms.load()` + `catalog.require(ref)` | Project-level static validation and exact lookup | No |
-| `catalog.preview(ref, using=snapshot)` | Executes the scoped runtime smoke check and records metadata, never rows | Yes |
-| `catalog.preview_many(refs, using=snapshot_or_mapping)` | Batches compatible runtime smoke checks while recording evidence per ref | Yes |
-| `catalog.readiness(refs=[revenue])` | Reads matching persisted preview evidence | No |
-| `ms.parity_check(ref)` | Optional, potentially unbounded metric/provenance SQL diagnostic | Yes |
-| `ms.richness()` | Advisory coverage/depth report; never blocks | No |
-
-:::caution[Readiness does not prove the query runs]
-A non-blocked report means the selected definitions passed the semantic
-readiness gate. Snapshot and preview evidence is advisory authoring metadata;
-its absence or age does not block readiness or trigger reacquisition. The report
-does not prove every future analysis query or full-source truth. Parity is never
-required for readiness.
-:::
+Previewing a period calendar, temporal set, or work schedule is also its
+certification path. Marivo reads every required column up to the scope's
+`max_rows + 1` boundary and publishes the immutable artifact only when that
+scope is exhaustive and the rows satisfy the declaration. `limit` controls only
+the displayed result rows, not certification input.
 
 ## The report
 
 `catalog.readiness(refs=[...])` returns a frozen `ReadinessReport`:
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `scope` | `"semantic_static"` | The report certifies semantic dependency closures, not operation-specific executability. |
-| `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
-| `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
-| `warnings` | `tuple[ReadinessIssue, ...]` | Non-blocking warning and advisory issues, distinguished by `severity`. |
-| `analysis_ready_inputs` | `tuple[Ref | RuntimeMetricExpr, ...]` | Ordered directly requested roots whose governed dependency closures contain no blocker. |
-| `analysis_ready_refs` | `tuple[Ref, ...]` | Directly requested refs whose dependency closures contain no blocker. |
-| `preview_required_refs` | `tuple[Ref, ...]` | Typed executable refs with missing or stale preview certification. |
-| `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
-| `checked_at` | `str` | ISO-8601 timestamp of the check. |
-| `catalog_definition_fingerprint` | `str` | Exact compiled catalog graph used by this report. |
-
-`status` is derived from severity: any blocker ⇒ `blocked`; any true warning ⇒
-`ready_with_warnings`; advisory-only or no issue ⇒ `ready`.
-
-Snapshot identity, temporal-fold, grain, and artifact-shape requirements are
-checked by the consuming analysis operation. A ready report therefore does not
-promise that every possible `session.observe(...)` call will execute.
-
-Each `ReadinessIssue` carries a typed `repair` instead of free-form next-step
-text, so the next action is machine-readable and points at the owning live help
-target:
-
-| Attribute | Meaning |
+| Field | Meaning |
 | --- | --- |
-| `kind` | The issue kind (see table below). |
-| `severity` | `"blocker"`, `"warning"`, or `"advisory"`. |
-| `refs` | The semantic refs the issue applies to. |
-| `catalog_definition_fingerprint` | The same compiled catalog graph fingerprint carried by the report. |
-| `message` | What was expected and what was found. |
-| `repair` | A typed `AuthoringRepair \| None` carrying `action`, `help_target`, optional `snippet`, and `candidates` — the concrete next step and where to read its contract. |
+| `scope` | Always `"semantic_static"`; operation-specific execution checks remain with the consuming API. |
+| `status` | `"ready"`, `"ready_with_warnings"`, or `"blocked"`. |
+| `analysis_ready_inputs` | Ordered requested refs or runtime expressions whose full dependency closures contain no blocker. |
+| `blockers` | Issues that prevent the affected requested roots from being handed to analysis. |
+| `warnings` | Non-blocking warnings and advisories. |
+| `input_summary` | Datasources, refs, and tables considered by the check. |
+| `checked_at` | ISO-8601 check timestamp. |
+| `catalog_definition_fingerprint` | Exact compiled semantic project identity. |
 
-`report.show()` renders true warnings and advisories separately. Missing snapshot
-and runtime-preview evidence is aggregated by evidence root: one issue carries
-all affected semantic refs and one repair hint, preventing per-ref warning floods.
-`report.to_dict()` returns the same grouped machine list. When preview evidence
-is missing, inspect the typed issue repair and pass `preview_required_refs`
-directly to the current `catalog.preview_many(..., using=...)` path.
-Certified roots remain available through `analysis_ready_inputs`;
-`analysis_ready_refs` is the refs-only projection.
+`analysis_ready_inputs` is the only semantic-to-analysis handoff field. There
+is no refs-only projection, preview-required list, validation token, or hidden
+transfer object.
 
-Optional `guardrails` enrichment is reported by readiness and richness; it does
-not block certification.
+Each issue carries a typed `repair` with the action and owning live-help target.
+Follow that repair, rerun readiness, then pass the ready inputs to the ordinary
+analysis API.
 
-## Issue kinds
+## Important blockers
 
-| Kind | Severity | Trigger | Next step |
-| --- | --- | --- | --- |
-| `load_error` | blocker | A declaration failed to load. | Fix the semantic load errors and reload. |
-| `unknown_ref` | blocker | A requested ref is not in the registry. | Fix the ref or remove it from the readiness scope. |
-| `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
-| `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
-| `metric_graph_invalid` | blocker | A catalog/runtime graph violates a governed-leaf, weighted-mean, datasource-domain, depth, or occurrence constraint. | Repair the reported leaf or rebuild the closed expression within the graph limits. |
-| `missing_guardrails` | warning | A checked metric, entity, dimension, measure, or time dimension has no `ai_context.guardrails`; one warning aggregates every affected semantic ref (per-ref detail in `refs`/`details`). Guardrails are recommended enrichment, not a certification requirement. | Add `guardrails` when explicit usage constraints would help. |
-| `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
-| `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
-| `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
-| `snapshot_missing` | advisory | One evidence root has no structurally matching datasource snapshot metadata; one issue includes every affected semantic ref. The definition remains analysis-ready when no blocker exists. | This advisory does not require another read. Acquire a matching scoped snapshot only when the caller's remaining data-access budget permits and no acquisition blocker has reached its stop boundary; otherwise report runtime evidence as unavailable. |
-| `runtime_preview_missing` | advisory | One evidence root has no matching preview check for the exact ref payload, catalog definition fingerprint, semantic dependency digest, entity-snapshot bindings, and backend. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
+Readiness continues to fail closed for structural graph problems, unknown refs,
+unfederated cross-datasource dependencies, invalid temporal semantics, state
+models without a replay seed, and unobservable snapshot folds.
 
-## Scope the check
+Dedicated temporal artifact blockers use artifact terminology:
 
-Pass exact current entries, their exact refs, or closed `RuntimeMetricExpr`
-values through `refs=` to scope readiness to the objects and runtime roots being
-certified. Entries normalize immediately to refs, and mixed lists retain their
-order. Marivo resolves governed leaves and their full dependency closure
-(metrics, measures, dimensions, entities, and datasources) for you:
+- `period_calendar_artifact_missing`, `_stale`, or `_invalid`
+- `temporal_set_artifact_missing`, `_stale`, or `_invalid`
+- `work_schedule_artifact_missing`, `_stale`, or `_invalid`
 
-```python
-revenue = catalog.metrics.get("sales.revenue")
-report = catalog.readiness(refs=[revenue])
-if report.preview_required_refs:  # required for authoring closeout; optional for routine analysis
-    catalog.preview_many(report.preview_required_refs, using=orders_snapshot)
-    report = catalog.readiness(refs=[revenue])
-```
-
-Batch preview validates every binding before connecting, groups compatible
-entity/field/measure and metric execution plans, and still records one exact
-preview check per ref. An entity preview never certifies its children.
-
-Use this report to close out semantic changes or satisfy a stricter workflow's
-certification requirement. Routine analysis does not call it automatically. For
-how analysis records what it concludes, see [Evidence](/docs/latest/concepts/evidence/).
+Their repair points to `catalog.preview(..., scope=...)` with an exhaustive
+bounded scope. Failed or truncated certification does not publish a replacement
+artifact.
 
 ## Continue to analysis
-
-When readiness is not blocked, `analysis_ready_inputs` contains the directly
-requested refs and runtime expressions whose dependency closures have no
-blocker. `analysis_ready_refs` remains the refs-only projection. Warnings and
-advisories remain visible on the same report and should be disclosed before the
-caller chooses to proceed. `snapshot_missing` and `runtime_preview_missing`
-advisories do not stop routine analysis. There is no second transfer object.
 
 ```python
 import marivo.semantic as ms
@@ -185,12 +97,15 @@ import marivo.semantic as ms
 catalog = ms.load()
 revenue = catalog.metrics.get("sales.revenue")
 report = catalog.readiness(refs=[revenue])
+
 if report.status == "blocked":
     report.show()
     raise SystemExit
+
 ready_inputs = report.analysis_ready_inputs
 ```
 
-Readiness remains explicit: analysis operators do not run it automatically.
-Pass only the listed inputs to the ordinary analysis APIs after handling warnings
-and acknowledging advisories.
+A non-blocked report certifies the selected semantic closures; it is not a
+guarantee that every future query or operation-specific artifact shape will
+succeed. Runtime execution, data quality, and analysis-specific contracts remain
+owned by the consuming operation.

@@ -115,8 +115,6 @@ def _preview_result() -> PreviewResult:
             rows_observed=1,
             scope_exhaustion="exhaustive",
             scope_exactness="scope_exact",
-            snapshot_ids=(),
-            cache_status="fresh",
         ),
     )
 
@@ -253,7 +251,7 @@ def _authoring_assessment() -> AuthoringAssessment:
 def _readiness_report() -> ReadinessReport:
     return ReadinessReport(
         status="ready",
-        analysis_ready_refs=(ref_factory.metric("sales.revenue"),),
+        analysis_ready_inputs=(ref_factory.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(
@@ -432,7 +430,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "available:",
             "- .show()",
             "- .to_dict()",
-            "- .preview_required_refs",
             "- .analysis_ready_inputs",
         ]
     )

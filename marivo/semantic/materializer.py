@@ -192,9 +192,18 @@ class Materializer:
         scope = self._entity_scopes.get(semantic_id)
         if scope is not None:
             if isinstance(scope, PartitionScope):
-                for column, value in scope.values:
-                    table = table.filter(table[column] == value)
-            table = table.limit(scope.max_rows)
+                if scope._time_range is not None:
+                    predicate = scope._time_range
+                    table = table.filter(
+                        (table[predicate.column] >= predicate.start)
+                        & (table[predicate.column] < predicate.end)
+                    )
+                else:
+                    for column, value in scope.values:
+                        table = table.filter(table[column] == value)
+            # Preview needs one extra row to distinguish an exhaustive scope
+            # from a bounded sample without performing another query.
+            table = table.limit(scope.max_rows + 1)
 
         # Apply pre-aggregate row limit when sample_size is set
         if self._sample_size is not None:

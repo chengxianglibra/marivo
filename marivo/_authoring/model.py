@@ -25,7 +25,7 @@ EffectFlag = Literal[
     "requires_explicit_scope",
     "requires_positive_row_guard",
     "requires_positive_timeout_guard",
-    "requires_existing_snapshot_binding",
+    "may_publish_certified_artifact",
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",
 ]
@@ -75,7 +75,6 @@ RepairKind = Literal[
     "reacquire",
     "reauthor",
     "reload",
-    "repreview",
     "environment",
     "user_choice",
 ]

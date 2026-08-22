@@ -508,7 +508,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
                 "status": "blocked",
                 "blockers": [
                     {
-                        "kind": "missing_business_definition",
+                        "kind": "unknown_ref",
                         "severity": "blocker",
                         "refs": ["sales.total"],
                         "message": "missing",
@@ -522,7 +522,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
                     "status": "blocked",
                     "blockers": [
                         {
-                            "kind": "missing_business_definition",
+                            "kind": "unknown_ref",
                             "severity": "blocker",
                             "refs": ["sales.total"],
                             "message": "missing",
@@ -564,10 +564,16 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
             "warnings": [],
             "readiness": {
                 "status": "blocked",
-                "analysis_ready_refs": ["sales.ok_metric"],
+                "analysis_ready_inputs": [
+                    {
+                        "schema": "marivo.semantic_ref/v1",
+                        "kind": "metric",
+                        "path": "sales.ok_metric",
+                    }
+                ],
                 "blockers": [
                     {
-                        "kind": "missing_business_definition",
+                        "kind": "unknown_ref",
                         "severity": "blocker",
                         "refs": ["sales.total"],
                         "message": "missing business definition",
@@ -596,7 +602,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                     "status": "blocked",
                     "blockers": [
                         {
-                            "kind": "missing_business_definition",
+                            "kind": "unknown_ref",
                             "severity": "blocker",
                             "refs": ["sales.total"],
                             "message": "missing business definition",
@@ -627,7 +633,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
         "status": "blocked",
         "blockers": [
             {
-                "kind": "missing_business_definition",
+                "kind": "unknown_ref",
                 "severity": "blocker",
                 "refs": ["sales.total"],
                 "message": "missing business definition",
@@ -677,7 +683,9 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
                         "repair": None,
                     }
                 ],
-                "analysis_ready_refs": ["sales.margin"],
+                "analysis_ready_inputs": [
+                    {"schema": "marivo.semantic_ref/v1", "kind": "metric", "path": "sales.margin"}
+                ],
                 "input_summary": {"datasources": ["warehouse"], "refs": [], "tables": []},
                 "checked_at": "2026-07-07T12:00:00Z",
             },
@@ -740,10 +748,10 @@ def test_doctor_semantic_advisories_keep_domain_ok(
                     "blockers": [],
                     "warnings": [
                         {
-                            "kind": "snapshot_missing",
+                            "kind": "sql_parity_unverified",
                             "severity": "advisory",
                             "refs": ["sales.revenue"],
-                            "message": "snapshot evidence is optional",
+                            "message": "SQL parity evidence is optional",
                             "repair": None,
                         }
                     ],
@@ -777,7 +785,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
                 "status": "blocked",
                 "blockers": [
                     {
-                        "kind": "missing_business_definition",
+                        "kind": "unknown_ref",
                         "severity": "blocker",
                         "refs": ["msgdata.orders"],
                         "message": "missing",
@@ -791,7 +799,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
                     "status": "blocked",
                     "blockers": [
                         {
-                            "kind": "missing_business_definition",
+                            "kind": "unknown_ref",
                             "severity": "blocker",
                             "refs": ["msgdata.orders"],
                             "message": "missing",

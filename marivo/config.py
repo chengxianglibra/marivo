@@ -22,7 +22,6 @@ EVIDENCE_DIR = ".marivo/evidence"
 ANALYSIS_DIR = ".marivo/analysis"
 AUTHORING_DIR = ".marivo/authoring"
 AUTHORING_SNAPSHOT_DIR = ".marivo/authoring/snapshots"
-AUTHORING_CHECK_DIR = ".marivo/authoring/checks"
 
 CLAUDE_SKILLS_DIR = ".claude/skills"
 CODEX_SKILLS_DIR = ".codex/skills"

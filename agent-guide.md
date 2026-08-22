@@ -139,6 +139,13 @@ must have current authority from the user, an approved project definition, or
 attributable non-conflicting documentation or provenance. Already-authorized
 meaning proceeds without redundant confirmation.
 
+Semantic preview reads the current datasource through an explicit
+`AuthoringScope` (or an exact entity-ref scope mapping for multi-entity roots).
+Ordinary preview is not a persisted checkpoint and does not affect readiness.
+Readiness is derived from the current semantic project and requested closure,
+plus any dedicated certified temporal artifacts, and hands analysis only
+`analysis_ready_inputs`.
+
 Ownership split: the public `marivo.help(...)` coordinator routes to the native
 datasource and semantic registries that own static contracts, operations,
 effects, and input facts. Those registries are not public APIs; the

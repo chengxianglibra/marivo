@@ -51,7 +51,7 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     assert tuple(catalog.require(ref).ref for ref in refs) == refs
     report = catalog.readiness(refs=list(refs))
     assert not report.blockers
-    assert report.analysis_ready_refs == refs
+    assert report.analysis_ready_inputs == refs
 
 
 def test_milestone1_has_no_verify_or_semantic_snapshot_projection() -> None:

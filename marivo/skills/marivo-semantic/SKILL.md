@@ -109,11 +109,13 @@ is the authoritative project-level static validation event. Repair all reported
 structural errors together, reload, and use `catalog.require(ref)` to confirm
 every authored root. Do not add a separate verification checkpoint.
 
-Run readiness over the exact requested roots. Keep the current runtime contract
-for scoped preview, persisted preview evidence, readiness issues, and ready-input
-fields; follow live help and typed repairs rather than inventing another path.
-Use targeted preview or observation only when a concrete runtime risk or current
-readiness repair calls for it.
+Run readiness over the exact requested roots and hand off its
+`analysis_ready_inputs`. Readiness is static and does not depend on discovery or
+ordinary preview history. When a concrete runtime risk needs a probe, call the
+current scoped preview path shown by live help with an explicit positive row and
+timeout guard. Ordinary preview returns current execution results without
+creating authoring checkpoints; only dedicated temporal certification may
+publish its immutable artifact.
 
 ## Business meaning and first-use authority
 

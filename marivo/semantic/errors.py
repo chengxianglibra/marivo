@@ -59,7 +59,6 @@ def repair(
         "reacquire",
         "reauthor",
         "reload",
-        "repreview",
         "environment",
         "user_choice",
     ],

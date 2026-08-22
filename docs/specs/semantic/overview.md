@@ -142,7 +142,7 @@ executed by the library. This mirrors the ownership split stated in
 |---|---|
 | Datasource constructors, connections, scope, effects, snapshots, evidence | `marivo.datasource` (`md`) |
 | Semantic constructors, typed refs, dependencies, project validation, preview | `marivo.semantic` (`ms`) |
-| Readiness and analysis-ready refs | `ReadinessReport` |
+| Readiness and analysis-ready inputs | `ReadinessReport` |
 | Callable operations, effects, input facts, and constraints | private native registries (not public APIs) |
 | Current failed-operation repair | typed error/result repair object |
 | Ordered routing discipline and readiness policy | `marivo-semantic` skill |
@@ -154,12 +154,12 @@ constraints without constructing a shared authoring lifecycle graph. They cannot
 choose a semantic slice, acquire data on the agent's behalf, or advance to
 readiness automatically. There is no third public `marivo.authoring` module.
 
-`ReadinessReport.analysis_ready_refs` is the direct semantic-to-analysis
-contract. It lists only directly requested refs whose dependency closures have
-no blocker; dependency refs remain diagnostic input rather than leaking into the
-handoff. Blockers and warnings remain on the same report. No additional transfer
-object or hidden authoring API exists between readiness and ordinary analysis
-operations.
+`ReadinessReport.analysis_ready_inputs` is the direct semantic-to-analysis
+contract. It lists only directly requested refs or runtime expressions whose
+dependency closures have no blocker; dependency refs remain diagnostic input
+rather than leaking into the handoff. Blockers and warnings remain on the same
+report. No additional transfer object or hidden authoring API exists between
+readiness and ordinary analysis operations.
 
 ## Relationship to prior schema designs
 

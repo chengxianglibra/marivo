@@ -16,7 +16,7 @@ from marivo.semantic.errors import (
     SemanticDecoratorError,
     SemanticRuntimeError,
 )
-from marivo.semantic.preview_checks import preview_dependency_entities
+from marivo.semantic.preview_scope import dependency_entities_for_ref
 from marivo.semantic.state_model import _resolve_model_state
 
 _DOMAIN = """\
@@ -142,8 +142,8 @@ def test_state_model_compiles_canonical_roles_and_catalog_entry(
     assert "payment_captured" in entry.details().render()
     assert catalog.require(entry.ref) is entry
     readiness = catalog.readiness(refs=(entry,))
-    assert entry.ref in readiness.analysis_ready_refs
-    assert preview_dependency_entities(
+    assert entry.ref in readiness.analysis_ready_inputs
+    assert dependency_entities_for_ref(
         entry.ref.path,
         registry=registry,
     ) == ("commerce.event_log", "commerce.orders")
@@ -208,12 +208,12 @@ def test_entity_and_state_model_previews_report_their_exact_kinds(
     orders = catalog.require(ms.ref.entity("commerce.orders")).ref
     events = catalog.require(ms.ref.entity("commerce.event_log")).ref
 
-    entity_preview = catalog.preview(orders, using=orders_snapshot)
+    entity_preview = catalog.preview(orders, scope=orders_snapshot.scope)
     model_preview = catalog.preview(
         catalog.require(ms.ref.state_model("commerce.order_lifecycle")).ref,
-        using={
-            orders: orders_snapshot,
-            events: events_snapshot,
+        scope={
+            orders: orders_snapshot.scope,
+            events: events_snapshot.scope,
         },
     )
 
@@ -417,7 +417,7 @@ def test_seedless_model_loads_but_is_not_replay_ready(
     model = catalog.state_models.get("order_lifecycle")
     assert catalog.require(model.ref) is model
     readiness = catalog.readiness(refs=(model,))
-    assert model.ref not in readiness.analysis_ready_refs
+    assert model.ref not in readiness.analysis_ready_inputs
     assert any(issue.kind == "state_model_seed_missing" for issue in readiness.blockers)
 
 

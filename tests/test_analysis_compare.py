@@ -11,9 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._compat import UTC
 from marivo._temporal import (
     BuiltinPeriodBindingV1,
     FrameTemporalContractV1,
@@ -25,6 +23,7 @@ from marivo._temporal import (
     certify_period_calendar,
     certify_temporal_set,
     certify_work_schedule,
+    work_schedule_definition_digest,
 )
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -46,19 +45,41 @@ from marivo.analysis.policies import (
     working_day_progress,
 )
 from marivo.analysis.session._layout import read_frame_from_disk
-from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.refs import ref
+from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.metric_graph import ExactComparisonSemanticsV1
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import (
     fiscal_analysis_project_files,
-    fiscal_calendar_evidence,
     make_metric_frame,
+    publish_fiscal_calendar_artifact,
 )
 
 compare_intent = importlib.import_module("marivo.analysis.intents.compare")
+
+
+def _publish_work_schedule_artifact(catalog, schedule_snapshot) -> None:
+    schedule_ref = schedule_snapshot.work_schedule_ref
+    schedule = catalog._require_ready().work_schedules[schedule_ref.path]
+    dependency_digest = scoped_definition_fingerprint(
+        root=schedule_ref,
+        definitions=catalog._state.definitions,
+        dependencies=catalog._state.dependencies,
+        sidecar=catalog._state.sidecar,
+    )
+    WorkScheduleSnapshotStore(catalog.workspace_dir).publish(
+        schedule_snapshot,
+        definition_digest=work_schedule_definition_digest(
+            work_schedule_ref=schedule_ref,
+            boundary_timezone=schedule.boundary_timezone,
+            coverage=schedule.coverage,
+            date=schedule.date,
+            is_working=schedule.is_working,
+            dependency_digest=dependency_digest,
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -480,7 +501,7 @@ def test_compare_period_progress_uses_frames_from_public_observe(
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ref.period_calendar("sales.fiscal")
     catalog.require(calendar_ref)
-    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    publish_fiscal_calendar_artifact(catalog)
     session = session_attach.get_or_create(
         name="fiscal-compare",
         backends={"warehouse": lambda: backend},
@@ -695,33 +716,7 @@ def test_compare_working_day_progress_uses_exact_schedule_and_excludes_nonworkin
         date_column="date",
         is_working="is_working",
     )
-    schedule_evidence = DiscoverySnapshot(
-        id="schedule-evidence",
-        datasource=ref.datasource("warehouse"),
-        source=md.table("orders"),
-        scope=md.unpruned(max_rows=35, timeout_seconds=30),
-        columns=("created_at", "is_working"),
-        schema_fingerprint="schedule-v1",
-        profiles=(),
-        coverage=SnapshotCoverage(
-            observed_row_count=35,
-            retained_row_count=35,
-            scope_exhaustion="exhaustive",
-            scope_exactness="scope_exact",
-            sampling_method="first_rows_limit",
-            pushed_predicate=(),
-        ),
-        persist_values=True,
-        value_evidence_state="available",
-        cache_status="fresh",
-        created_at=datetime.now(UTC),
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-        _project_root=tmp_path,
-        retained_values=tuple(
-            (row["date"].isoformat(), row["is_working"]) for row in schedule_rows
-        ),
-    )
-    session.catalog.preview(schedule_ref, using=schedule_evidence)
+    _publish_work_schedule_artifact(session.catalog, schedule_snapshot)
     schedule_entry = session.catalog.work_schedules.get(schedule_ref)
     assert schedule_entry.details().snapshot_status == "current"
 
@@ -861,33 +856,7 @@ def test_compare_working_day_progress_uses_frames_from_public_observe(tmp_path):
         date_column="date",
         is_working="is_working",
     )
-    schedule_evidence = DiscoverySnapshot(
-        id="schedule-observe-evidence",
-        datasource=ref.datasource("warehouse"),
-        source=md.table("orders"),
-        scope=md.unpruned(max_rows=35, timeout_seconds=30),
-        columns=("created_at", "is_working"),
-        schema_fingerprint="schedule-observe-v1",
-        profiles=(),
-        coverage=SnapshotCoverage(
-            observed_row_count=35,
-            retained_row_count=35,
-            scope_exhaustion="exhaustive",
-            scope_exactness="scope_exact",
-            sampling_method="first_rows_limit",
-            pushed_predicate=(),
-        ),
-        persist_values=True,
-        value_evidence_state="available",
-        cache_status="fresh",
-        created_at=datetime.now(UTC),
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-        _project_root=tmp_path,
-        retained_values=tuple(
-            (row["date"].isoformat(), row["is_working"]) for row in schedule_rows
-        ),
-    )
-    session.catalog.preview(schedule_ref, using=schedule_evidence)
+    _publish_work_schedule_artifact(session.catalog, schedule_snapshot)
     metric = ref.metric("sales.revenue")
     current = session.observe(
         metric,

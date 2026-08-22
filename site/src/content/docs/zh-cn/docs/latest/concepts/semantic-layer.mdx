@@ -125,9 +125,9 @@ frame = session.observe(
 
 当业务周期不能安全地由 Gregorian 粒度推导时（例如财务周期或 4-4-5 日历），使用
 `PeriodCalendar`。通过 `ms.period_calendar(...)` 声明民用日期主轴和命名层级，然后用
-`persist_values=True` 一次获取数据，并把不可变的 `DiscoverySnapshot` 传给
-`catalog.preview(calendar_ref, using=snapshot)`。认证要求覆盖完整范围，并发布绑定快照的
-权威；之后目录导航不会再次读取数据源。
+完整显式 scope 调用 `catalog.preview(calendar_ref, scope=...)`。认证会在 scope 的
+`max_rows + 1` 边界内读取当前 source 的必需列，并发布 immutable artifact；之后目录
+导航不会再次读取数据源。
 
 ```python
 calendar_ref = ms.period_calendar(
@@ -137,13 +137,11 @@ calendar_ref = ms.period_calendar(
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
     levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
 )
-snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("calendar")).sample(
-    scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("calendar_date", "fiscal_week"),
-    persist_values=True,
-)
 catalog.require(calendar_ref)
-catalog.preview(calendar_ref, using=snapshot)
+catalog.preview(
+    calendar_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
 
 calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
@@ -161,7 +159,7 @@ week_scope.contract().show()  # 精确边界和认证快照身份
 
 对于节日、促销、发布、事故等可能有间隙或重叠的命名窗口，使用独立的
 `TemporalSet`。通过 `ms.temporal_set(...)` 声明显式的开始和 exclusive end，
-再用一次 exhaustive、`persist_values=True` 的 `DiscoverySnapshot` 完成本地认证：
+再通过一个 exhaustive 显式 scope 读取当前 source 并完成认证：
 
 ```python
 campaigns_ref = ms.temporal_set(
@@ -173,12 +171,10 @@ campaigns_ref = ms.temporal_set(
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
     category=ms.ref.dimension("sales.campaigns.category"),
 )
-snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("campaigns")).sample(
+catalog.preview(
+    campaigns_ref,
     scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("campaign_id", "starts_at", "ends_at", "category"),
-    persist_values=True,
 )
-catalog.preview(campaigns_ref, using=snapshot)
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
@@ -208,14 +204,10 @@ schedule_ref = ms.work_schedule(
     boundary_timezone="Asia/Shanghai",
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
 )
-schedule_snapshot = md.inspect(
-    ms.ref.datasource("warehouse"), md.table("calendar")
-).sample(
+catalog.preview(
+    schedule_ref,
     scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("date", "is_working"),
-    persist_values=True,
 )
-catalog.preview(schedule_ref, using=schedule_snapshot)
 schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 ```
 
@@ -478,11 +470,10 @@ hour 粒度需要带时间的格式）。
 `ms.datetime(timezone="Asia/Shanghai")`）。显式 `ms.datetime()` 或
 `ms.timestamp()` 未提供 `timezone=` 时，就绪检查会返回
 `undeclared_naive_time_axis` 阻塞项：运行时会回退到数据源 read 时区，而
-分析窗口使用报告时区，可能在日或小时边界错位。完全省略 `parse` 时，只有匹配的
-已持久化 preview 证据确认物理类型是时区-naive timestamp，就绪检查才给出这个
-`warning`。原生 `date`、时区-aware timestamp，以及未知或过期的物理类型都不会收到
-猜测性的时区修复；已有的 preview 证据 advisory 会说明如何刷新缺失证据。零查询
-门禁只报告已证明的运行时解析上下文，绝不猜测业务时区。形如 `(5, "minute")` 的
+分析窗口使用报告时区，可能在日或小时边界错位。完全省略 `parse` 时，当前数据源的
+preview 若观察到时区-naive timestamp，会返回 `time_parse_risk` warning；readiness
+不会根据 preview 历史推断这一风险。原生 `date` 和时区-aware timestamp 不会收到
+猜测性的时区修复。形如 `(5, "minute")` 的
 `sample_interval` 标记一个被
 周期采样的时间轴，供半可加折叠使用。
 
@@ -855,30 +846,33 @@ region = orders.dimensions.get("region")  # one dimension object
 集合帮助会完整展示 `.items`、`.refs`、`.get(...)`、`.render()` 与
 `.show()`；lookup 仍是精确查找，不提供 fuzzy search。
 
-新建或修改对象后，运行**就绪检查**，认证所选定义及其限定范围的运行时证据仍然有效：
+新建或修改对象后，对所选定义运行**就绪检查**。Preview 是独立的当前 source 运行时探针：
 
 ```python
 catalog.require(revenue.ref)
-catalog.preview(revenue, using=snapshot).show()
+catalog.preview(
+    revenue,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
 report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
 
-这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。就绪检查输出、
-预览证据、持久化、重放与 recovery 仍然只保存引用。
+这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
+不创建 authoring checkpoint，也不会影响 readiness。
 
 preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的安全上限：聚合前最多
 读取限定范围内的 10,000 行。结果卡片会显示
 `sample_policy=pre_aggregate_limit(limit=10000)` 和 `approximate_preview` 警告；因此，
-即使快照范围覆盖显示为 exhaustive，也不能据此将展示的指标值视为精确聚合。
+即使 scope 覆盖显示为 exhaustive，也不能据此将展示的指标值视为精确聚合。
 
 :::note[就绪检查是显式认证]
 项目可以在就绪检查仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。分析 API
 会加载、解析、规划并在运行时检查输入，但不会自动调用就绪检查。阻塞报告需要在声明
 语义变更完成之前修复；日常分析复用未变化的对象时，不必在每次调用前重跑
-就绪检查。缺失或不匹配的运行时预览认证会显示为 advisory，而不是 blocker 或
-真正的 warning：日常分析先披露再继续，编写收尾前完成修复。
+就绪检查。普通 preview 历史不是 readiness 输入；专用时间 artifact 缺失、过期或
+无效时仍会阻塞依赖它的根。
 :::
 
 另外两个检查支持编写：
@@ -1320,9 +1314,9 @@ join 与条件逻辑的 `md.raw_sql(...)`。Raw SQL 是普通的受治理探索�
 `catalog.require(ref)` 解析每个新建根，并对精确请求根运行 scoped readiness。
 只有存在具体运行时风险或当前 readiness repair 要求时才运行 preview。
 
-当就绪检查报告多个运行时预览缺失时，仍通过同一个入口修复：
-`catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`。
-它会合并兼容查询，但仍为每个引用保留独立证据；这不是批量编写捷径。
+需要多个当前 source 探针时，可调用
+`catalog.preview_many(refs, scope=scope_or_mapping)`。精确实体引用 scope mapping 会在
+连接前完整验证；batch 不会创建 readiness 证据，也不是批量编写捷径。
 
 ## 事件与生命周期建模
 

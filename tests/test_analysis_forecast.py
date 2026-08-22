@@ -25,8 +25,8 @@ from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import (
     fiscal_analysis_project_files,
-    fiscal_calendar_evidence,
     make_metric_frame,
+    publish_fiscal_calendar_artifact,
     seeded_time_series_metric_frame,
 )
 
@@ -440,7 +440,7 @@ def test_semantic_period_forecast_uses_certified_future_keys_and_contract(
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     catalog.require(calendar_ref)
-    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    publish_fiscal_calendar_artifact(catalog)
     session = session_attach.get_or_create(
         name="semantic-forecast",
         backends={"warehouse": lambda: backend},
@@ -479,7 +479,7 @@ def test_semantic_period_forecast_validates_panel_sequences_and_ordinal_models(
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     catalog.require(calendar_ref)
-    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    publish_fiscal_calendar_artifact(catalog)
     session = session_attach.get_or_create(
         name="semantic-forecast-panel", backends={"warehouse": lambda: backend}
     )
@@ -529,7 +529,7 @@ def test_semantic_period_forecast_replays_exact_history_snapshot_without_datasou
     catalog = ms.SemanticCatalog(project)
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     catalog.require(calendar_ref)
-    catalog.preview(calendar_ref, using=fiscal_calendar_evidence(project.workspace_dir))
+    publish_fiscal_calendar_artifact(catalog)
     factory_calls: list[str] = []
 
     def backend_factory():

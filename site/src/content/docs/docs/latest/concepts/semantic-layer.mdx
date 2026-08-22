@@ -147,11 +147,11 @@ described below before this routine analysis sequence.
 
 Use a `PeriodCalendar` when business periods cannot be derived safely from a
 Gregorian grain (for example, a fiscal or 4-4-5 calendar). Declare the civil-date
-spine and named levels with `ms.period_calendar(...)`, then acquire that source
-once with `persist_values=True` and pass the immutable `DiscoverySnapshot` to
-`catalog.preview(calendar_ref, using=snapshot)`. Certification requires exhaustive
-coverage and publishes a snapshot-bound authority; it does not query the source
-again during catalog navigation.
+spine and named levels with `ms.period_calendar(...)`, then call
+`catalog.preview(calendar_ref, scope=...)` with an exhaustive explicit scope.
+Certification reads the required current-source columns within the scope's
+`max_rows + 1` boundary and publishes an immutable artifact; catalog navigation
+does not query the source again.
 
 ```python
 calendar_ref = ms.period_calendar(
@@ -161,13 +161,11 @@ calendar_ref = ms.period_calendar(
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
     levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
 )
-snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("calendar")).sample(
-    scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("calendar_date", "fiscal_week"),
-    persist_values=True,
-)
 catalog.require(calendar_ref)
-catalog.preview(calendar_ref, using=snapshot)
+catalog.preview(
+    calendar_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
 
 calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
@@ -186,8 +184,8 @@ Use `marivo.help("analysis.calendar.period")` for the bounded exact lookup synta
 
 Use a `TemporalSet` for named windows such as holidays, campaigns, launches, or
 incidents whose intervals may overlap or leave gaps. Declare explicit start and
-exclusive end fields with `ms.temporal_set(...)`, then certify the values from one
-exhaustive `DiscoverySnapshot` with `persist_values=True`:
+exclusive end fields with `ms.temporal_set(...)`, then certify the current
+source through one exhaustive explicit scope:
 
 ```python
 campaigns_ref = ms.temporal_set(
@@ -199,12 +197,10 @@ campaigns_ref = ms.temporal_set(
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
     category=ms.ref.dimension("sales.campaigns.category"),
 )
-snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("campaigns")).sample(
+catalog.preview(
+    campaigns_ref,
     scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("campaign_id", "starts_at", "ends_at", "category"),
-    persist_values=True,
 )
-catalog.preview(campaigns_ref, using=snapshot)
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
@@ -242,14 +238,10 @@ schedule_ref = ms.work_schedule(
     boundary_timezone="Asia/Shanghai",
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
 )
-schedule_snapshot = md.inspect(
-    ms.ref.datasource("warehouse"), md.table("calendar")
-).sample(
+catalog.preview(
+    schedule_ref,
     scope=md.unpruned(max_rows=400, timeout_seconds=30),
-    columns=("date", "is_working"),
-    persist_values=True,
 )
-catalog.preview(schedule_ref, using=schedule_snapshot)
 schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 ```
 
@@ -530,13 +522,11 @@ example, `ms.datetime(timezone="Asia/Shanghai")`). An explicit
 `ms.datetime()` or `ms.timestamp()` without `timezone=` makes readiness return
 the `undeclared_naive_time_axis` blocker: runtime would otherwise fall back to
 the datasource read timezone, while analysis windows use the report timezone
-and may shift at day or hour boundaries. When `parse` is omitted, readiness
-emits that `warning` only if matching persisted preview evidence identifies a
-timezone-naive timestamp. Native `date`, timezone-aware timestamp, and unknown
-or stale physical types do not receive a speculative timezone repair; the
-existing preview-evidence advisory explains how to refresh missing evidence.
-The zero-query gate reports proven runtime-resolved contexts but never guesses
-the business timezone. `sample_interval` like `(5, "minute")` marks a
+and may shift at day or hour boundaries. When `parse` is omitted, current-source
+preview emits a `time_parse_risk` warning if it observes a timezone-naive
+timestamp. Readiness never infers this risk from preview history. Native `date`
+and timezone-aware timestamps do not receive a speculative timezone repair.
+`sample_interval` like `(5, "minute")` marks a
 periodically-sampled axis used by semi-additive folds.
 
 For time-series and panel frames, `bucket_start` is always a report-timezone
@@ -939,25 +929,28 @@ summary. Collection help exposes the exact `.items`, `.refs`, `.get(...)`,
 `.render()`, and `.show()` surface; lookup
 remains exact and does not use fuzzy search.
 
-After authoring or changing an object, run **readiness** to certify that the
-selected definition and its scoped runtime evidence are current:
+After authoring or changing an object, run **readiness** over the selected
+definition. Preview is an independent current-source runtime probe:
 
 ```python
 catalog.require(revenue.ref)
-catalog.preview(revenue, using=snapshot).show()
+catalog.preview(
+    revenue,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+).show()
 report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
 
 These runtime calls accept the current entry or its exact ref and normalize to
-the ref immediately. Readiness output, preview evidence, persistence, replay,
-and recovery stay ref-based.
+the ref immediately. Ordinary preview creates no authoring checkpoint and does
+not affect readiness.
 
 The preview `limit` controls how many result rows are displayed. Metric previews
 use a separate safety bound: they aggregate at most 10,000 scoped input rows.
 Their result card shows `sample_policy=pre_aggregate_limit(limit=10000)` and an
-`approximate_preview` warning, so even exhaustive snapshot scope coverage must
+`approximate_preview` warning, so even exhaustive scope coverage must
 not be read as proof that the displayed metric value is exact.
 
 :::note[Readiness is explicit certification]
@@ -966,9 +959,8 @@ loading and certification answer different questions. Analysis APIs load,
 resolve, plan, and runtime-check their inputs without invoking readiness
 automatically. Repair a blocked report before declaring the semantic change
 complete; routine analysis of unchanged objects does not rerun readiness before
-every call. Missing or stale runtime preview certification appears as an
-advisory, not a blocker or true warning: disclose it for routine analysis and
-repair it before authoring closeout.
+every call. Ordinary preview history is not a readiness input; dedicated
+certified temporal artifacts remain blockers when missing, stale, or invalid.
 :::
 
 Two more checks support authoring:
@@ -1450,11 +1442,10 @@ project-level static validation event, and resolve every authored root through
 `catalog.require(ref)`. Run scoped readiness over the exact requested roots.
 Use preview only for a concrete runtime risk or a current readiness repair.
 
-When readiness reports several missing runtime previews, repair them through
-the same entry point with
-`catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`.
-This batches compatible queries but preserves independent evidence for every ref;
-it is not a batch-authoring shortcut.
+When several current-source probes are useful, call
+`catalog.preview_many(refs, scope=scope_or_mapping)`. The exact entity-ref scope
+mapping is validated completely before connection; the batch does not create
+readiness evidence or act as a batch-authoring shortcut.
 
 ## Event and Lifecycle modeling
 
