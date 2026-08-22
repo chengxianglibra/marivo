@@ -679,8 +679,8 @@ def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("row_count", "expected_truncated", "expected_complete"),
-    [(100, False, True), (101, True, False)],
+    ("row_count", "expected_truncated", "expected_complete", "expected_status"),
+    [(100, False, True, "complete"), (101, True, False, "truncated")],
 )
 def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
     project_root: Path,
@@ -688,6 +688,7 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
     row_count: int,
     expected_truncated: bool,
     expected_complete: bool,
+    expected_status: str,
 ) -> None:
     _register_duckdb(project_root)
     metadata = TableMetadata(
@@ -728,6 +729,9 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
     assert len(inspection.partitioning.values) == 100
     assert inspection.partitioning.truncated is expected_truncated
     assert inspection.partitioning.values_complete is expected_complete
+    result = inspection.partitions()
+    assert result.status == expected_status
+    assert result.issues == ()
 
 
 def test_partition_listing_queries_requested_order_and_bound(
@@ -778,9 +782,59 @@ def test_partition_listing_queries_requested_order_and_bound(
     assert ascending.partitioning.values == ((("dt", "20260101"),),)
     assert ascending.partitioning.truncated is True
     assert ascending.partitioning.values_complete is False
+    assert ascending.status == "truncated"
+    assert ascending.issues == ()
     assert "inspection.partitions(limit=1, order='desc')" in ascending.render()
     assert "earliest" not in ascending.render()
     assert "latest" not in ascending.render()
+
+
+def test_partition_listing_keeps_incomplete_metadata_distinct_from_truncation(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _register_duckdb(project_root)
+    metadata = TableMetadata(
+        datasource="warehouse",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(ColumnMetadata("dt", "string", False, None, 1),),
+        partitions=(PartitionMetadata(name="dt", type="string"),),
+        partition_state="known",
+        warnings=(),
+    )
+
+    def partition_hook(request: PartitionProbeRequest) -> PartitionProbeResult:
+        assert request.limit == 101
+        return PartitionProbeResult(
+            rows=(
+                {"dt": "20260101"},
+                {"dt": None},
+            ),
+            value_source="metadata",
+        )
+
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source",
+        lambda *_args, **_kwargs: metadata,
+    )
+    monkeypatch.setattr(
+        "marivo.datasource.inspection.require_profile_for_backend_type",
+        lambda _backend_type: replace(
+            DUCKDB_PROFILE,
+            inspect_partition_values=partition_hook,
+        ),
+    )
+
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
+    result = inspection.partitions()
+
+    assert result.status == "incomplete"
+    assert result.partitioning.truncated is False
+    assert "partition values are incomplete" in result.issues
+    assert "incomplete partition metadata rows omitted=1" in inspection.warnings
 
 
 @pytest.mark.parametrize(

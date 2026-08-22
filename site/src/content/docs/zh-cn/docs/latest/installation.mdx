@@ -121,3 +121,8 @@ macOS、Linux 和 WSL 优先使用 `.venv/bin/python`，Windows 优先使用
 完成这些检查后，进入[快速开始](/zh-cn/docs/latest/quick-start/)，选择复用现有语义层，还是创建
 新语义层。所选项目路径准备就绪且业务含义得到确认后，再进行
 [第一次分析](/zh-cn/docs/latest/first-analysis/)。
+
+如果项目已经有 `models/datasources/` 数据源声明，但还没有本地
+`models/semantic/` 目录，这是正常的起点。Doctor 会将其显示为
+`semantic modeling is pending` 信息，而不是 setup warning；manifest、layer path、后端和凭据等
+真实问题仍会保留为诊断 failure 或 warning。

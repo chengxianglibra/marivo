@@ -162,6 +162,7 @@ def test_inspection_help_teaches_result_reads_from_an_assigned_value() -> None:
     assert "# earliest" not in partitions_text
     assert "# latest" not in partitions_text
     assert "partition_listing_bounded" in partitions_text
+    assert "status distinguishes complete, truncated, and incomplete metadata" in partitions_text
     assert "inspection = md.inspect(" in sample_text
     assert "snapshot = inspection.sample(" in sample_text
     assert "snapshot.show()" in sample_text

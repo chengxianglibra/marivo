@@ -30,7 +30,7 @@ from marivo.config import (
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 
-DoctorStatus = Literal["ok", "warning", "fail", "skipped"]
+DoctorStatus = Literal["ok", "info", "warning", "fail", "skipped"]
 ReportStatus = Literal["ok", "warning", "fail"]
 
 
@@ -69,6 +69,8 @@ class DoctorSection:
             return "fail"
         if any(check.status == "warning" for check in self.checks):
             return "warning"
+        if any(check.status == "info" for check in self.checks):
+            return "info"
         if self.checks and all(check.status == "skipped" for check in self.checks):
             return "skipped"
         return "ok"
@@ -146,11 +148,14 @@ def status_from_checks(sections: Sequence[DoctorSection]) -> ReportStatus:
 def _section_summary(section: DoctorSection) -> str:
     failures = sum(1 for check in section.checks if check.status == "fail")
     warnings = sum(1 for check in section.checks if check.status == "warning")
+    infos = sum(1 for check in section.checks if check.status == "info")
     skipped = sum(1 for check in section.checks if check.status == "skipped")
     if failures:
         return f"{failures} failure" if failures == 1 else f"{failures} failures"
     if warnings:
         return f"{warnings} warning" if warnings == 1 else f"{warnings} warnings"
+    if infos:
+        return _count_summary(infos, "informational note")
     advisories = 0
     for check in section.checks:
         details = check.details
@@ -489,6 +494,9 @@ def _project_section(root: Path) -> DoctorSection:
         elif using_valid_external_layers:
             status = "ok"
             summary = f"{path} is missing; using configured semantic layer paths"
+        elif check_id == "project.semantic":
+            status = "info"
+            summary = f"{path} is missing; semantic modeling is pending"
         else:
             status = "warning"
             summary = f"{path} is missing"

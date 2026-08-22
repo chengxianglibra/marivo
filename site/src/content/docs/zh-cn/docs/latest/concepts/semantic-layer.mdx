@@ -1282,7 +1282,8 @@ with session.source_bindings({
 检查是元数据-仅，并在 sampling 前报告结构、物理 extent、分区
 状态和 enforceable 能力。`inspection.partitions(limit=..., order=...)`
 用 `asc` 或 `desc` 查询相应的物理值排序一侧；字符串或数值排序不会被自动解释为时间顺序，
-截断结果也不代表包含所有中间分区。
+截断结果也不代表包含所有中间分区。结果状态中，`complete` 表示这一侧已完整，
+`truncated` 表示按请求边界截断，`incomplete` 只表示分区元数据不可用或无效。
 范围必须有正整数行/timeout guards 和明确列；
 `LIMIT` 不保证 bytes scanned。快照只保留通用的有界行、profiles、来源证据、
 coverage 和 cache identity；值默认只在内存。
