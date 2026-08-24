@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 
 import ibis
 import pandas as pd
@@ -266,6 +267,88 @@ def test_weighted_linear_quantile_handles_ties_and_nulls() -> None:
     )
 
     assert weighted_linear_quantile(values, q=0.5) == pytest.approx(2.0)
+
+
+def test_native_percentile_replay_reuses_observed_endpoints_and_reconciles(
+    monkeypatch,
+) -> None:
+    current_values = ibis.table({"region": "string", "value": "float64"}, name="current_values")
+    baseline_values = ibis.table({"region": "string", "value": "float64"}, name="baseline_values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=current_values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    intermediate_values = iter((1.80, 2.20))
+    executed = []
+
+    def _run_intermediate(*args, **kwargs):
+        executed.append(args[0])
+        return pd.DataFrame({"value": [next(intermediate_values)]})
+
+    monkeypatch.setattr(_nonadditive_attribution, "_run_dataframe", _run_intermediate)
+    evaluate = _nonadditive_attribution._native_percentile_coalition_evaluator(
+        partitions=(("CN",), ("US",)),
+        current_values=current_values,
+        baseline_values=baseline_values,
+        current_endpoint=1.79,
+        baseline_endpoint=2.25,
+        prefix_axes=("region",),
+        q=0.90,
+        prepared=prepared,
+        session=object(),
+    )
+
+    assert evaluate(frozenset()) == 2.25
+    assert evaluate(frozenset({0, 1})) == 1.79
+    assert executed == []
+
+    contributions, standard_errors, seed = _nonadditive_attribution._shapley_from_evaluator(
+        2,
+        evaluate=evaluate,
+        seed_material="native-percentile-endpoint-regression",
+    )
+
+    target_delta = 1.79 - 2.25
+    assert sum(contributions) == pytest.approx(target_delta, abs=1e-12)
+    assert standard_errors == [0.0, 0.0]
+    assert seed is None
+    assert len(executed) == 2
+
+
+def test_quantile_endpoint_buckets_preserve_aligned_endpoint_values() -> None:
+    endpoint = SimpleNamespace(
+        ref="delta:daily-p90",
+        meta=SimpleNamespace(alignment={"baseline_bucket_column": "bucket_start_b"}),
+        _dataframe_copy=lambda: pd.DataFrame(
+            {
+                "bucket_start": [pd.Timestamp("2026-08-12")],
+                "bucket_start_b": [pd.Timestamp("2026-08-11")],
+                "current": [1.79],
+                "baseline": [2.25],
+                "delta": [-0.46],
+            }
+        ),
+    )
+
+    buckets = _nonadditive_attribution._endpoint_buckets(
+        endpoint,
+        bucket_column="bucket_start",
+    )
+
+    assert buckets == [
+        (
+            pd.Timestamp("2026-08-12"),
+            pd.Timestamp("2026-08-11"),
+            1.79,
+            2.25,
+            -0.46,
+        )
+    ]
 
 
 def test_permutation_quantile_is_deterministic_across_subprocesses() -> None:

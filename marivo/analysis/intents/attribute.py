@@ -64,7 +64,7 @@ from marivo.analysis.intents._derived import (
 from marivo.analysis.intents._nonadditive_attribution import (
     attribute_distinct,
     attribute_exact_quantile,
-    attribute_qdigest_quantile,
+    attribute_native_percentile_quantile,
 )
 from marivo.analysis.intents._replay import (
     _dimension_ref,
@@ -1217,7 +1217,7 @@ def _attribute_nonadditive(
         quantile_executor = (
             attribute_exact_quantile
             if reproduction.distribution_representation == "exact_value_frequency"
-            else attribute_qdigest_quantile
+            else attribute_native_percentile_quantile
         )
         result = quantile_executor(
             current=current,
@@ -1257,7 +1257,7 @@ def _attribute_nonadditive(
                 right_scope=baseline.meta.analysis_scope or AnalysisScope(),
                 incompatible_fields=("source_error_bound",),
                 approximation_details=(
-                    "Trino qdigest source error bound is not declared by the persisted "
+                    "Trino approx_percentile source error bound is not declared by the persisted "
                     "datasource capability",
                 ),
             )

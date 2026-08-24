@@ -80,67 +80,6 @@ _QUANTILE_OPERATOR_VERSION = "quantile-replacement/v1"
 _RECONCILIATION_TOLERANCE = 1e-9
 
 
-@ibis.udf.agg.builtin(name="qdigest_agg")  # type: ignore[untyped-decorator]
-def _trino_qdigest_agg(value: float) -> str:
-    raise NotImplementedError
-
-
-@ibis.udf.agg.builtin(name="qdigest_agg")  # type: ignore[untyped-decorator]
-def _trino_qdigest_agg_bigint(value: int) -> str:
-    raise NotImplementedError
-
-
-@ibis.udf.agg.builtin(  # type: ignore[untyped-decorator]
-    name="qdigest_agg", signature=(("float32",), "string")
-)
-def _trino_qdigest_agg_real(value: float) -> str:
-    raise NotImplementedError
-
-
-@ibis.udf.agg.builtin(name="merge")  # type: ignore[untyped-decorator]
-def _trino_merge_qdigest(digest: str) -> str:
-    raise NotImplementedError
-
-
-@ibis.udf.scalar.builtin(name="value_at_quantile")  # type: ignore[untyped-decorator]
-def _trino_value_at_quantile(digest: str, q: float) -> float:
-    raise NotImplementedError
-
-
-@ibis.udf.scalar.builtin(name="value_at_quantile")  # type: ignore[untyped-decorator]
-def _trino_value_at_quantile_bigint(digest: str, q: float) -> int:
-    raise NotImplementedError
-
-
-@ibis.udf.scalar.builtin(  # type: ignore[untyped-decorator]
-    name="value_at_quantile",
-    signature=(("string", "float64"), "float32"),
-)
-def _trino_value_at_quantile_real(digest: str, q: float) -> float:
-    raise NotImplementedError
-
-
-def trino_qdigest_coalition_expression(
-    sketches: Any,
-    *,
-    sketch_column: str,
-    q: float,
-    value_dtype: str = "float64",
-) -> Any:
-    """Compile service-side qdigest merge and evaluation for one coalition."""
-    merged = _trino_merge_qdigest(sketches[sketch_column])
-    normalized_dtype = value_dtype.lower().replace(" ", "")
-    if normalized_dtype.startswith("int"):
-        value = _trino_value_at_quantile_bigint(merged, q)
-    elif normalized_dtype.startswith("float32"):
-        value = _trino_value_at_quantile_real(merged, q)
-    elif normalized_dtype.startswith("float"):
-        value = _trino_value_at_quantile(merged, q)
-    else:
-        raise ValueError(f"unsupported qdigest value dtype: {value_dtype!r}")
-    return sketches.aggregate(value=value)
-
-
 @dataclass(frozen=True)
 class PreparedEvidenceV1:
     """Transient replay expression; never persisted or rendered."""
@@ -474,25 +413,67 @@ def _endpoint_buckets(
     endpoint: DeltaFrame,
     *,
     bucket_column: str | None,
-) -> list[tuple[object | None, object | None, float]]:
+) -> list[tuple[object | None, object | None, float, float, float]]:
     frame = endpoint._dataframe_copy()
-    if "delta" not in frame.columns:
+    required_columns = {"current", "baseline", "delta"}
+    missing_columns = sorted(required_columns - set(frame.columns))
+    if missing_columns:
         raise AttributionMaterializationError(
-            message="independent endpoint delta is missing its delta column",
-            context={"endpoint_ref": endpoint.ref},
+            message="independent endpoint delta is missing required value columns",
+            context={"endpoint_ref": endpoint.ref, "missing_columns": missing_columns},
         )
+
+    def numeric_value(row: pd.Series, column: str) -> float:
+        raw_value = row[column]
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise AttributionMaterializationError(
+                message="independent endpoint contains a non-numeric value",
+                context={
+                    "endpoint_ref": endpoint.ref,
+                    "column": column,
+                    "value_type": type(raw_value).__name__,
+                },
+            ) from exc
+        if not math.isfinite(value):
+            raise AttributionMaterializationError(
+                message="independent endpoint contains a non-finite value",
+                context={
+                    "endpoint_ref": endpoint.ref,
+                    "column": column,
+                    "value": repr(raw_value),
+                },
+            )
+        return value
+
     if bucket_column is None:
         if len(frame) != 1:
             raise AttributionMaterializationError(
                 message="scalar attribution endpoint must contain one row",
                 context={"endpoint_ref": endpoint.ref, "row_count": len(frame)},
             )
-        return [(None, None, float(frame.iloc[0]["delta"]))]
+        row = frame.iloc[0]
+        return [
+            (
+                None,
+                None,
+                numeric_value(row, "current"),
+                numeric_value(row, "baseline"),
+                numeric_value(row, "delta"),
+            )
+        ]
     baseline_column = endpoint.meta.alignment.get("baseline_bucket_column", f"{bucket_column}_b")
     if baseline_column not in frame.columns:
         baseline_column = bucket_column
     return [
-        (row[bucket_column], row[baseline_column], float(row["delta"]))
+        (
+            row[bucket_column],
+            row[baseline_column],
+            numeric_value(row, "current"),
+            numeric_value(row, "baseline"),
+            numeric_value(row, "delta"),
+        )
         for _, row in frame.iterrows()
     ]
 
@@ -576,7 +557,7 @@ def attribute_distinct(
             prefix="baseline",
         )
         overlap_count += current_overlap + baseline_overlap
-        for current_bucket, baseline_bucket, target_delta in endpoint_buckets:
+        for current_bucket, baseline_bucket, _, _, target_delta in endpoint_buckets:
             piece = _merge_scope_rows(
                 current_rows,
                 baseline_rows,
@@ -831,11 +812,11 @@ def _preflight_quantile_partition_limit(
     baseline_keys: pd.DataFrame,
     resolutions: Sequence[Sequence[str]],
     bucket_column: str | None,
-    endpoint_buckets: Sequence[tuple[object | None, object | None, float]],
+    endpoint_buckets: Sequence[tuple[object | None, object | None, float, float, float]],
 ) -> None:
     """Reject oversized games before any value-frequency evidence is materialized."""
     for prefix_axes in resolutions:
-        for current_bucket, baseline_bucket, _ in endpoint_buckets:
+        for current_bucket, baseline_bucket, _, _, _ in endpoint_buckets:
             current_rows = _bucket_rows(current_keys, bucket_column, current_bucket)
             baseline_rows = _bucket_rows(baseline_keys, bucket_column, baseline_bucket)
             partition_rows = pd.concat(
@@ -922,7 +903,7 @@ def attribute_exact_quantile(
     reconciliations: list[AttributionResolutionReconciliationV1] = []
     q = basis.effective_q
     for prefix_axes in resolutions:
-        for current_bucket, baseline_bucket, target_delta in endpoint_buckets:
+        for current_bucket, baseline_bucket, _, _, target_delta in endpoint_buckets:
             current_rows = _bucket_rows(current_frequency, bucket_column, current_bucket)
             baseline_rows = _bucket_rows(baseline_frequency, bucket_column, baseline_bucket)
             current_distributions = _partition_distributions(current_rows, axis_columns=prefix_axes)
@@ -1103,10 +1084,9 @@ def _or_partition_predicates(
     return predicate
 
 
-def _qdigest_partition_sketches(
+def _native_percentile_scope(
     prepared: PreparedEvidenceV1,
     *,
-    axis_columns: Sequence[str],
     bucket_value: object | None,
 ) -> Any:
     table = prepared.table
@@ -1118,40 +1098,17 @@ def _qdigest_partition_sketches(
             else bucket_field == ibis.literal(bucket_value)
         )
     table = table.filter(table[prepared.value_column].notnull())
-    value = table[prepared.value_column]
-    normalized_dtype = prepared.value_dtype.lower().replace(" ", "")
-    if normalized_dtype.startswith("int"):
-        digest = _trino_qdigest_agg_bigint(value)
-    elif normalized_dtype.startswith("float32"):
-        digest = _trino_qdigest_agg_real(value)
-    elif normalized_dtype.startswith("float"):
-        digest = _trino_qdigest_agg(value)
-    else:
-        raise AttributionBasisMismatchError(
-            message="qdigest attribution value type is not supported by the persisted method",
-            expected="Trino bigint, double, or real source value",
-            received=prepared.value_dtype,
-            location="session.attribute qdigest evidence",
-        )
-    return table.group_by(list(axis_columns)).aggregate(__qdigest=digest)
+    return table
 
 
-def _qdigest_partition_counts(
+def _native_percentile_partition_counts(
     prepared: PreparedEvidenceV1,
     *,
     axis_columns: Sequence[str],
     bucket_value: object | None,
     session: Session,
 ) -> dict[tuple[object, ...], int]:
-    table = prepared.table
-    if prepared.bucket_column is not None:
-        bucket_field = table[prepared.bucket_column]
-        table = table.filter(
-            bucket_field.isnull()
-            if _is_missing(bucket_value)
-            else bucket_field == ibis.literal(bucket_value)
-        )
-    table = table.filter(table[prepared.value_column].notnull())
+    table = _native_percentile_scope(prepared, bucket_value=bucket_value)
     expression = table.group_by(list(axis_columns)).aggregate(
         __count=table[prepared.value_column].count()
     )
@@ -1214,17 +1171,39 @@ def _quantile_execution_evidence(*, seed_fingerprint: str | None) -> QuantileRes
     )
 
 
-def _qdigest_coalition_evaluator(
+def trino_native_percentile_coalition_expression(
+    current_values: Any,
+    baseline_values: Any,
+    *,
+    value_column: str,
+    q: float,
+) -> Any:
+    """Compile one Trino native approx_percentile replacement coalition."""
+    coalition = ibis.union(
+        current_values.select(value_column),
+        baseline_values.select(value_column),
+        distinct=False,
+    )
+    return coalition.aggregate(value=coalition[value_column].approx_quantile(q))
+
+
+def _native_percentile_coalition_evaluator(
     *,
     partitions: Sequence[tuple[object, ...]],
-    current_sketches: Any,
-    baseline_sketches: Any,
+    current_values: Any,
+    baseline_values: Any,
+    current_endpoint: float,
+    baseline_endpoint: float,
     prefix_axes: Sequence[str],
     q: float,
     prepared: PreparedEvidenceV1,
     session: Session,
 ) -> Any:
-    evaluated: dict[frozenset[int], int | float] = {}
+    full_coalition = frozenset(range(len(partitions)))
+    evaluated: dict[frozenset[int], int | float] = {
+        frozenset(): baseline_endpoint,
+        full_coalition: current_endpoint,
+    }
 
     def evaluate(selected: frozenset[int]) -> int | float:
         if selected in evaluated:
@@ -1233,36 +1212,42 @@ def _qdigest_coalition_evaluator(
         baseline_partitions = [
             partition for index, partition in enumerate(partitions) if index not in selected
         ]
-        current_selected = current_sketches.filter(
-            _or_partition_predicates(current_sketches, prefix_axes, current_partitions)
-        ).select("__qdigest")
-        baseline_selected = baseline_sketches.filter(
-            _or_partition_predicates(baseline_sketches, prefix_axes, baseline_partitions)
-        ).select("__qdigest")
-        coalition = ibis.union(current_selected, baseline_selected, distinct=False)
-        expression = trino_qdigest_coalition_expression(
-            coalition,
-            sketch_column="__qdigest",
+        current_selected = current_values.filter(
+            _or_partition_predicates(current_values, prefix_axes, current_partitions)
+        )
+        baseline_selected = baseline_values.filter(
+            _or_partition_predicates(baseline_values, prefix_axes, baseline_partitions)
+        )
+        expression = trino_native_percentile_coalition_expression(
+            current_selected,
+            baseline_selected,
+            value_column=prepared.value_column,
             q=q,
-            value_dtype=prepared.value_dtype,
         )
         frame = _run_dataframe(expression, prepared, session)
         value = frame.iloc[0]["value"] if len(frame) else None
         if value is None or pd.isna(value):
             raise AttributionDistributionError(
-                message="qdigest coalition has no distribution",
-                expected="at least one sketch in every evaluated coalition",
+                message="native percentile coalition has no distribution",
+                expected="at least one non-null value in every evaluated coalition",
                 received="empty distribution",
-                location="session.attribute qdigest coalition",
+                location="session.attribute native percentile coalition",
                 context={"reason": "empty_coalition_distribution"},
             )
         scalar_value = value.item() if hasattr(value, "item") else value
         if isinstance(scalar_value, bool) or not isinstance(scalar_value, (int, float)):
             raise AttributionDistributionError(
-                message="qdigest coalition returned a non-numeric quantile",
-                expected="Trino bigint, double, or real value_at_quantile result",
+                message="native percentile coalition returned a non-numeric quantile",
+                expected="a numeric Trino approx_percentile result",
                 received=type(scalar_value).__name__,
-                location="session.attribute qdigest coalition",
+                location="session.attribute native percentile coalition",
+            )
+        if not math.isfinite(float(scalar_value)):
+            raise AttributionDistributionError(
+                message="native percentile coalition returned a non-finite quantile",
+                expected="a finite Trino approx_percentile result",
+                received=repr(scalar_value),
+                location="session.attribute native percentile coalition",
             )
         evaluated[selected] = scalar_value
         return evaluated[selected]
@@ -1270,7 +1255,7 @@ def _qdigest_coalition_evaluator(
     return evaluate
 
 
-def attribute_qdigest_quantile(
+def attribute_native_percentile_quantile(
     *,
     current: MetricFrame,
     baseline: MetricFrame,
@@ -1281,22 +1266,44 @@ def attribute_qdigest_quantile(
     source_delta_ref: str,
     session: Session,
 ) -> NonAdditiveAttributionResultV1:
-    """Evaluate Trino qdigest coalitions without materializing sketch payloads."""
+    """Evaluate Trino replacement coalitions with native approx_percentile."""
     current_prepared = _prepared_evidence(current, basis=basis, axis_ids=axis_ids, session=session)
     baseline_prepared = _prepared_evidence(
         baseline, basis=basis, axis_ids=axis_ids, session=session
     )
     reproduction = basis.reproduction
     if reproduction.status != "reproducible":
-        raise AssertionError("blocked qdigest basis reached execution")
+        raise AssertionError("blocked native percentile basis reached execution")
     for prepared in (current_prepared, baseline_prepared):
         if prepared.value_dtype != reproduction.source_dtype:
             raise AttributionBasisMismatchError(
-                message="active qdigest value type differs from the persisted attribution basis",
+                message=(
+                    "active native percentile value type differs from the persisted "
+                    "attribution basis"
+                ),
                 expected=reproduction.source_dtype,
                 received=prepared.value_dtype,
-                location="session.attribute qdigest replay",
+                location="session.attribute native percentile replay",
             )
+    if (
+        current_prepared.datasource_name != baseline_prepared.datasource_name
+        or current_prepared.axis_columns != baseline_prepared.axis_columns
+        or current_prepared.bucket_column != baseline_prepared.bucket_column
+    ):
+        raise AttributionBasisMismatchError(
+            message="current and baseline native percentile replay scopes differ",
+            expected=(
+                f"datasource={current_prepared.datasource_name!r} "
+                f"axes={current_prepared.axis_columns!r} "
+                f"bucket={current_prepared.bucket_column!r}"
+            ),
+            received=(
+                f"datasource={baseline_prepared.datasource_name!r} "
+                f"axes={baseline_prepared.axis_columns!r} "
+                f"bucket={baseline_prepared.bucket_column!r}"
+            ),
+            location="session.attribute native percentile replay",
+        )
     all_axes = list(current_prepared.axis_columns)
     resolutions = (
         [all_axes]
@@ -1309,14 +1316,20 @@ def attribute_qdigest_quantile(
     reconciliations: list[AttributionResolutionReconciliationV1] = []
     q = basis.effective_q
     for prefix_axes in resolutions:
-        for current_bucket, baseline_bucket, target_delta in endpoint_buckets:
-            current_counts = _qdigest_partition_counts(
+        for (
+            current_bucket,
+            baseline_bucket,
+            current_endpoint,
+            baseline_endpoint,
+            target_delta,
+        ) in endpoint_buckets:
+            current_counts = _native_percentile_partition_counts(
                 current_prepared,
                 axis_columns=prefix_axes,
                 bucket_value=current_bucket,
                 session=session,
             )
-            baseline_counts = _qdigest_partition_counts(
+            baseline_counts = _native_percentile_partition_counts(
                 baseline_prepared,
                 axis_columns=prefix_axes,
                 bucket_value=baseline_bucket,
@@ -1334,26 +1347,22 @@ def attribute_qdigest_quantile(
                     else "partition_limit_exceeded"
                 )
                 raise AttributionDistributionError(
-                    message="qdigest attribution partition admission failed",
+                    message="native percentile attribution partition admission failed",
                     expected=f"1 <= partitions <= {_MAX_QUANTILE_PARTITIONS}",
                     received=f"partitions={partition_count}",
-                    location="session.attribute qdigest partition admission",
+                    location="session.attribute native percentile partition admission",
                     context={"reason": reason, "axis_prefix": prefix_axes},
                 )
-            current_sketches = _qdigest_partition_sketches(
-                current_prepared,
-                axis_columns=prefix_axes,
-                bucket_value=current_bucket,
+            current_values = _native_percentile_scope(current_prepared, bucket_value=current_bucket)
+            baseline_values = _native_percentile_scope(
+                baseline_prepared, bucket_value=baseline_bucket
             )
-            baseline_sketches = _qdigest_partition_sketches(
-                baseline_prepared,
-                axis_columns=prefix_axes,
-                bucket_value=baseline_bucket,
-            )
-            evaluate = _qdigest_coalition_evaluator(
+            evaluate = _native_percentile_coalition_evaluator(
                 partitions=partitions,
-                current_sketches=current_sketches,
-                baseline_sketches=baseline_sketches,
+                current_values=current_values,
+                baseline_values=baseline_values,
+                current_endpoint=current_endpoint,
+                baseline_endpoint=baseline_endpoint,
                 prefix_axes=prefix_axes,
                 q=q,
                 prepared=current_prepared,
@@ -1409,13 +1418,15 @@ def attribute_qdigest_quantile(
             endpoint_residual = target_delta - reproduction_delta
             if max(abs(residual), abs(endpoint_residual)) > _RECONCILIATION_TOLERANCE:
                 raise AttributionDistributionError(
-                    message="qdigest coalition endpoints do not reproduce observed endpoints",
+                    message=(
+                        "native percentile coalition endpoints do not reproduce observed endpoints"
+                    ),
                     expected=f"residual <= {_RECONCILIATION_TOLERANCE}",
                     received=(
                         f"allocation_residual={abs(residual)!r} "
                         f"endpoint_residual={abs(endpoint_residual)!r}"
                     ),
-                    location="session.attribute qdigest endpoint reproduction",
+                    location="session.attribute native percentile endpoint reproduction",
                     context={"reason": "endpoint_reproduction_mismatch"},
                 )
             prefix_refs = tuple(
@@ -1480,7 +1491,7 @@ __all__ = [
     "NonAdditiveAttributionResultV1",
     "attribute_distinct",
     "attribute_exact_quantile",
-    "attribute_qdigest_quantile",
-    "trino_qdigest_coalition_expression",
+    "attribute_native_percentile_quantile",
+    "trino_native_percentile_coalition_expression",
     "weighted_linear_quantile",
 ]

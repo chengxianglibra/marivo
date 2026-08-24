@@ -7,10 +7,7 @@ import marivo.analysis as mv
 from marivo.analysis import attribution_contract
 from marivo.analysis.attribution_contract import build_attribution_basis
 from marivo.analysis.intents._nonadditive_attribution import (
-    _trino_qdigest_agg,
-    _trino_qdigest_agg_bigint,
-    _trino_qdigest_agg_real,
-    trino_qdigest_coalition_expression,
+    trino_native_percentile_coalition_expression,
 )
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.refs import RefPayloadV1, SemanticKind
@@ -126,7 +123,7 @@ def test_observe_compare_persist_graph_owned_distinct_basis(
         session.attribute(delta, axes=[region])
 
 
-def test_quantile_basis_admits_trino_qdigest_and_blocks_clickhouse_reservoir() -> None:
+def test_quantile_basis_admits_trino_native_percentile_and_blocks_clickhouse_reservoir() -> None:
     graph = _percentile_graph()
     trino = build_attribution_basis(
         graph,
@@ -141,58 +138,38 @@ def test_quantile_basis_admits_trino_qdigest_and_blocks_clickhouse_reservoir() -
 
     assert trino is not None and trino.kind == "quantile"
     assert trino.reproduction.status == "reproducible"
-    assert trino.reproduction.distribution_representation == "mergeable_sketch"
+    assert trino.reproduction.source_method == "approx_percentile"
+    assert trino.reproduction.distribution_representation == "native_percentile_replay"
     assert trino.reproduction.source_dtype == "float64"
+    assert (
+        attribution_contract.required_attribute_method(trino)
+        == "quantile_trino_approx_percentile/v1"
+    )
     assert clickhouse is not None and clickhouse.kind == "quantile"
     assert clickhouse.reproduction.status == "blocked"
     assert clickhouse.reproduction.blocker == "non_mergeable_sample"
 
 
-def test_trino_qdigest_adapter_compiles_aggregate_merge_and_value_evaluator() -> None:
-    table = ibis.table({"value": "float64", "partition": "string"}, name="facts")
-    sketches = table.group_by("partition").aggregate(__qdigest=_trino_qdigest_agg(table.value))
-    expression = trino_qdigest_coalition_expression(
-        sketches,
-        sketch_column="__qdigest",
+@pytest.mark.parametrize("value_dtype", ["float64", "int64", "float32"])
+def test_trino_native_percentile_adapter_compiles_union_all_replay(value_dtype: str) -> None:
+    current = ibis.table({"value": value_dtype}, name="current_values")
+    baseline = ibis.table({"value": value_dtype}, name="baseline_values")
+    expression = trino_native_percentile_coalition_expression(
+        current,
+        baseline,
+        value_column="value",
         q=0.95,
     )
 
     sql = ibis.to_sql(expression, dialect="trino").upper()
-    assert "QDIGEST_AGG" in sql
-    assert "MERGE" in sql
-    assert "VALUE_AT_QUANTILE" in sql
-
-    integer_table = ibis.table({"value": "int64", "partition": "string"}, name="facts")
-    integer_sketches = integer_table.group_by("partition").aggregate(
-        __qdigest=_trino_qdigest_agg_bigint(integer_table.value)
-    )
-    integer_expression = trino_qdigest_coalition_expression(
-        integer_sketches,
-        sketch_column="__qdigest",
-        q=0.95,
-        value_dtype="int64",
-    )
-    integer_sql = ibis.to_sql(integer_expression, dialect="trino").upper()
-    assert "QDIGEST_AGG" in integer_sql
-    assert "VALUE_AT_QUANTILE" in integer_sql
-    assert "QDIGEST_AGG(CAST" not in integer_sql
-
-    real_table = ibis.table({"value": "float32", "partition": "string"}, name="facts")
-    real_sketches = real_table.group_by("partition").aggregate(
-        __qdigest=_trino_qdigest_agg_real(real_table.value)
-    )
-    real_expression = trino_qdigest_coalition_expression(
-        real_sketches,
-        sketch_column="__qdigest",
-        q=0.95,
-        value_dtype="float32",
-    )
-    real_sql = ibis.to_sql(real_expression, dialect="trino").upper()
-    assert real_expression.value.type().is_float32()
-    assert "QDIGEST_AGG(CAST" not in real_sql
+    assert "APPROX_PERCENTILE" in sql
+    assert "UNION ALL" in sql
+    assert "QDIGEST_AGG" not in sql
+    assert "TDIGEST_AGG" not in sql
+    assert "MERGE(" not in sql
 
 
-def test_trino_qdigest_basis_blocks_unsupported_unsigned_source_type() -> None:
+def test_trino_native_percentile_basis_blocks_unsupported_unsigned_source_type() -> None:
     basis = build_attribution_basis(
         _percentile_graph(),
         source_dtype="uint64",
@@ -202,3 +179,15 @@ def test_trino_qdigest_basis_blocks_unsupported_unsigned_source_type() -> None:
     assert basis is not None and basis.kind == "quantile"
     assert basis.reproduction.status == "blocked"
     assert basis.reproduction.blocker == "matching_evaluator_unavailable"
+
+
+def test_legacy_qdigest_distribution_representation_is_not_accepted() -> None:
+    with pytest.raises(ValueError):
+        attribution_contract.ReproducibleQuantileAttributionV1.model_validate(
+            {
+                "source_mode": "approximate",
+                "source_method": "qdigest",
+                "source_dtype": "float64",
+                "distribution_representation": "mergeable_sketch",
+            }
+        )

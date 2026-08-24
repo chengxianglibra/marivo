@@ -118,7 +118,7 @@ class ReproducibleQuantileAttributionV1(BaseModel):
     source_mode: Literal["exact", "approximate"]
     source_method: str
     source_dtype: str
-    distribution_representation: Literal["exact_value_frequency", "mergeable_sketch"]
+    distribution_representation: Literal["exact_value_frequency", "native_percentile_replay"]
 
 
 class BlockedQuantileAttributionReproductionV1(BaseModel):
@@ -178,7 +178,7 @@ INSTALLED_ATTRIBUTE_METHODS = frozenset(
     {
         "distinct_membership/v1",
         "quantile_exact_value_frequency/v1",
-        "quantile_trino_qdigest/v1",
+        "quantile_trino_approx_percentile/v1",
     }
 )
 
@@ -190,9 +190,9 @@ def required_attribute_method(basis: AttributionBasisV1) -> str:
     reproduction = basis.reproduction
     if (
         reproduction.status == "reproducible"
-        and reproduction.distribution_representation == "mergeable_sketch"
+        and reproduction.distribution_representation == "native_percentile_replay"
     ):
-        return "quantile_trino_qdigest/v1"
+        return "quantile_trino_approx_percentile/v1"
     return "quantile_exact_value_frequency/v1"
 
 
@@ -343,14 +343,14 @@ def build_attribution_basis(
             source_dtype=source_dtype,
             distribution_representation="exact_value_frequency",
         )
-    elif capability.mode == "approximate" and capability.method == "qdigest":
+    elif capability.mode == "approximate" and capability.method == "approx_percentile":
         normalized_dtype = source_dtype.lower().replace(" ", "")
         if normalized_dtype.startswith(("int", "float")):
             quantile_reproduction = ReproducibleQuantileAttributionV1(
                 source_mode="approximate",
                 source_method=capability.method,
                 source_dtype=source_dtype,
-                distribution_representation="mergeable_sketch",
+                distribution_representation="native_percentile_replay",
             )
         else:
             quantile_reproduction = BlockedQuantileAttributionReproductionV1(
