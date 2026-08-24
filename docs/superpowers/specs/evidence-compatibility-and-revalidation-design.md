@@ -1,6 +1,6 @@
 # Marivo Evidence Compatibility and Revalidation — 设计
 
-状态：设计提案，尚未实现
+状态：Slice 0 已实现；Slice 1–4 尚未实现
 
 ## 文档目的
 
@@ -689,6 +689,12 @@ SourceHealthReport overload。
 
 交付结果是准确 inventory 和测试，不新增公共 API。
 
+实施结果见
+[Slice 0 Contract Inventory](evidence-compatibility-and-revalidation-slice-0-inventory.md)。
+当前 13 个 Artifact family、23 个 concrete FrameMeta variant 均可通过 direct scoped identity
+或 exact source Artifact lineage 建立 authority；Slice 2 只需 normalization，不需要 schema
+cutover。
+
 ### Slice 1：Evidence Compatibility
 
 - 实现 subject/scope/semantic-authority comparator 和 epistemic projection；
@@ -706,7 +712,7 @@ SourceHealthReport overload。
 - 增加 `ArtifactRevalidation` 与 `session.revalidate(...)`；
 - 明确不接收 SourceHealthReport、不访问 datasource；
 - 保持结果 ephemeral，不改写 Artifact；
-- 根据 Slice 0 结论执行唯一一次必要 schema cutover。
+- 根据 Slice 0 inventory 只实现 normalization，不执行 schema cutover。
 
 ### Slice 3：Operator Admission
 
