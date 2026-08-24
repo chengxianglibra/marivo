@@ -407,7 +407,7 @@ Graph-owned attribution bases also admit three non-additive aggregate roots:
 | --- | --- | --- |
 | `count_distinct(key)` | Distinct membership allocation | Scalar keys only. `(key, partition)` deduplication, membership degree, and `1 / degree` allocation execute in the datasource; raw keys never cross the artifact boundary. |
 | DuckDB `median` / `percentile(q)` | Exact value-frequency replacement game | Linear weighted order statistics; exact Shapley through 8 partitions, 128 deterministic permutations for 9–64, and a 250,000 frequency-row cap. |
-| Trino `median` / `percentile(q)` | Mergeable qdigest replacement game | `qdigest_agg -> merge -> value_at_quantile` stays server-side and preserves the admitted bigint/double/real source type. Endpoint reproduction is mandatory; source error remains unknown. |
+| Trino `median` / `percentile(q)` | Native `approx_percentile` replacement game | Intermediate coalitions combine current selected rows with baseline unselected rows through `UNION ALL` and replay Trino's native aggregate. Full and empty coalitions reuse the independently observed current and baseline endpoints, so reconciliation remains exact while the source approximation error remains unknown. |
 | ClickHouse reservoir quantile | — | Blocked because the sampled states are not an admitted mergeable distribution contract. |
 
 These methods independently replay an unsegmented `observe -> compare` endpoint;
@@ -454,7 +454,7 @@ condition, and persisted ratio/weighted-mean component paths remain available.
 | Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
 | Graph-owned `count_distinct` | Supported by distinct membership when the key type is reproducible. |
-| Graph-owned `median` / `percentile(q)` | Supported by exact value-frequency or Trino qdigest when the persisted basis admits the installed method. |
+| Graph-owned `median` / `percentile(q)` | Supported by exact value-frequency or Trino native `approx_percentile` replay when the persisted basis admits the installed method. |
 | Other `non_additive` without supported component math | Rejected, including opaque/tier-2 means, min, max, unsupported quantile sources, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
 

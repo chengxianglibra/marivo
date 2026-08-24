@@ -455,7 +455,7 @@ component paths remain available.
 | Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
 | Tier-1 `mean` over a measure | Automatically lowered to `sum(measure)` / `count_non_null(measure)` and supported by weighted mix attribution. |
 | Graph-owned `count_distinct` | Distinct membership allocation for reproducible scalar keys; raw distinct keys remain in the datasource. |
-| Graph-owned `median` / `percentile(q)` | Exact DuckDB value-frequency or mergeable Trino qdigest replacement attribution. ClickHouse reservoir sampling remains blocked. |
+| Graph-owned `median` / `percentile(q)` | Exact DuckDB value-frequency or native Trino `approx_percentile` replacement attribution. ClickHouse reservoir sampling remains blocked. |
 | Other `non_additive` metrics | Rejected, including opaque/tier-2 means, min, max, unsupported quantile sources, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected. Re-run `observe` and `compare` before retrying. |
 
@@ -511,7 +511,10 @@ Count-distinct membership is deduplicated and allocated in the datasource as
 telemetry, logs, or errors. Quantiles replay an independent unsegmented endpoint
 instead of summing segmented point estimates. DuckDB uses exact value-frequency
 evidence with exact Shapley through 8 partitions and 128 deterministic
-permutations through 64; Trino merges qdigest sketches server-side. Empty
+permutations through 64. Trino evaluates intermediate replacement coalitions by
+combining current selected rows with baseline unselected rows through `UNION ALL`
+and applying native `approx_percentile`; full and empty coalitions reuse the
+independently observed endpoints. Empty
 intermediate coalitions, more than 64 partitions, more than 250,000 frequency
 rows, or failure to reproduce the independent endpoint block the call and do
 not persist an attribution artifact.

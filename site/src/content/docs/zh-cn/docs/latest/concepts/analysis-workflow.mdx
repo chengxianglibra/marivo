@@ -387,7 +387,7 @@ observe 来补齐轴。`DeltaFrame.show()` 会直接显示归因是支持还是 
 | 组件-感知 `ratio` / `weighted_mean` | 支持比率/加权混合归因。 |
 | 基于度量的 Tier-1 `mean` | observe 时自动展开为 `sum(measure)` / `count_non_null(measure)`，并支持加权混合归因。 |
 | 图-owned `count_distinct` | 对可重现的标量键使用 distinct membership；distinct 原始键始终留在数据源。 |
-| 图-owned `median` / `percentile(q)` | 支持 DuckDB 精确值-frequency 或 Trino mergeable qdigest replacement；ClickHouse reservoir sampling 保持 blocked。 |
+| 图-owned `median` / `percentile(q)` | 支持 DuckDB 精确值-frequency 或 Trino 原生 `approx_percentile` replacement；ClickHouse reservoir sampling 保持 blocked。 |
 | 其他 `non_additive` 指标 | 拒绝，包括 opaque/tier-2 mean、min、max、不受支持的分位数来源与不可加 linear 组合。 |
 | 缺少可加性元数据 | 拒绝；重新执行 `observe` 和 `compare` 后再归因。 |
 
@@ -434,7 +434,9 @@ attribution = session.attribute(delta, axes=[region])
 `1 / membership_degree` 分配；原始键不进入 frame、job、血缘、证据、
 遥测、日志或错误。分位数会独立重放无业务维度的 endpoint，而不是汇总
 segmented point estimate。DuckDB 对值-frequency 使用精确 Shapley（不超过 8 个
-分区）或 128 次确定性 permutation（9–64 个）；Trino 在服务端 merge qdigest。
+分区）或 128 次确定性 permutation（9–64 个）。Trino 对中间 replacement coalition
+通过 `UNION ALL` 合并 current 已选行与 baseline 未选行，再执行原生
+`approx_percentile`；full/empty coalition 复用独立 observe 的端点。
 任一中间 coalition 为空、分区超过 64、frequency 行超过 250,000，或无法复现
 独立 endpoint 时，本次调用结构化阻塞且不持久化归因产物。
 

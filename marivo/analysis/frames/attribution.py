@@ -180,7 +180,7 @@ class QuantileReplacementEvidenceV1(BaseModel):
     q: float = Field(ge=0.0, le=1.0)
     source_mode: Literal["exact", "approximate"]
     source_method: str
-    distribution_representation: Literal["exact_value_frequency", "mergeable_sketch"]
+    distribution_representation: Literal["exact_value_frequency", "native_percentile_replay"]
     coalition: Literal["exact_shapley", "permutation_shapley", "mixed"]
     evaluated_partition_count: int = Field(ge=0)
     permutation_count: int = Field(ge=0)
