@@ -719,7 +719,7 @@ def test_missing_filter_dimension_fails_during_load_with_focused_repair(
     assert error.repair.help_target.canonical_id == "where"
 
 
-def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factory) -> None:
+def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "datasources/warehouse.py": (
@@ -741,11 +741,16 @@ def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factor
                 "    additivity='non_additive',\n"
                 "    unit='s',\n"
                 ")\n"
+                "median_elapsed_time = ms.aggregate(\n"
+                "    name='median_elapsed_time', measure=elapsed_time, agg='median', unit='s'\n"
+                ")\n"
+                "p50_elapsed_time = ms.aggregate(\n"
+                "    name='p50_elapsed_time', measure=elapsed_time,\n"
+                "    agg=('percentile', 0.5), unit='s'\n"
+                ")\n"
                 "p95_elapsed_time = ms.aggregate(\n"
-                "    name='p95_elapsed_time',\n"
-                "    measure=elapsed_time,\n"
-                "    agg=('percentile', 0.95),\n"
-                "    unit='s',\n"
+                "    name='p95_elapsed_time', measure=elapsed_time,\n"
+                "    agg=('percentile', 0.95), unit='s'\n"
                 ")\n"
             ),
         }
@@ -757,11 +762,19 @@ def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factor
             assert database is None
             return ibis.table({"elapsed_time": "float64"}, name=name)
 
+    sql_by_metric: dict[str, str] = {}
     with _patch_connection_service(project, lambda _: _TrinoCompileBackend()):
-        metric_expr = _materialize_metric(project, "sales.p95_elapsed_time")
+        for metric_id in (
+            "sales.median_elapsed_time",
+            "sales.p50_elapsed_time",
+            "sales.p95_elapsed_time",
+        ):
+            sql_by_metric[metric_id] = ibis.trino.compile(_materialize_metric(project, metric_id))
 
-    sql = ibis.trino.compile(metric_expr)
-    assert "APPROX_PERCENTILE" in sql.upper()
+    assert all("APPROX_PERCENTILE" in sql.upper() for sql in sql_by_metric.values())
+    assert "CAST(0.5 AS DOUBLE)" in sql_by_metric["sales.median_elapsed_time"]
+    assert "CAST(0.5 AS DOUBLE)" in sql_by_metric["sales.p50_elapsed_time"]
+    assert "CAST(0.95 AS DOUBLE)" in sql_by_metric["sales.p95_elapsed_time"]
 
 
 def test_duckdb_percentile_aggregate_keeps_exact_quantile(

@@ -568,6 +568,9 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
 
+`agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
+编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
+
 #### Count 指标 —— `ms.count`
 
 需要统计实体行数时使用 `ms.count`，不要为了计行数额外声明冗余度量。这个辅助函数
