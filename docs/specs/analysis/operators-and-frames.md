@@ -110,6 +110,12 @@ This is the single analysis API an agent learns on the main path. Each entry is 
 | `session.forecast(history, ...)` | `ForecastFrame` | Project an observed history frame forward. |
 | `session.assess_quality(artifact)` | `QualityReport` | Explicit quality/coverage/comparability assessment. |
 
+`compare` normalizes both numeric operands to `float64` before subtraction so
+nullable or backend-native unsigned integers cannot wrap when the result is
+negative. Presence-aware zero filling still distinguishes matched, new, and
+churned rows. Attribution reconciliation proves that contributions match the
+persisted `DeltaFrame`; it does not reinterpret or repair an upstream delta.
+
 An operator earns a place here only if it reduces agent steps without hiding
 judgment, fixes an output family, names a computation task (not a primitive
 alias), fails more instructively than the primitive, or is itself an

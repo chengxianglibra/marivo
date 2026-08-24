@@ -757,6 +757,25 @@ def test_metric_delta_quality_validates_row_contract(tmp_path):
     assert corrupted_report.meta.overall_status == "blocking"
     assert "delta_math_invalid" in {issue.kind for issue in corrupted_report.meta.issues}
 
+    unsigned_rows = pd.DataFrame(
+        {
+            "current": pd.Series([0], dtype="UInt64"),
+            "baseline": pd.Series([4], dtype="UInt64"),
+        }
+    )
+    unsigned_rows["delta"] = unsigned_rows["current"] - unsigned_rows["baseline"]
+    unsigned_rows["pct_change"] = unsigned_rows["delta"].astype("float64") / 4.0
+    unsigned_rows["pct_change_status"] = "computed"
+    unsigned_corruption = DeltaFrame(
+        _df=unsigned_rows,
+        meta=delta.meta.model_copy(update={"ref": "frame_delta_unsigned_corrupted"}),
+    )
+
+    unsigned_report = session.assess_quality(unsigned_corruption)
+    unsigned_math_check = unsigned_report.to_pandas().set_index("check_kind").loc["delta_math"]
+    assert unsigned_math_check["severity"] == "blocking"
+    assert unsigned_report.meta.overall_status == "blocking"
+
 
 def test_quality_report_render_surfaces_check_results(tmp_path):
     session = session_attach.get_or_create(name="demo")

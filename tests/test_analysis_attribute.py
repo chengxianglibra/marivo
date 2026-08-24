@@ -21,7 +21,7 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
 from tests.ref_helpers import make_ref
-from tests.shared_fixtures import make_test_delta_contract
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
 @pytest.fixture(autouse=True)
@@ -155,6 +155,71 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert recovered_quality.meta.report_shape == "attribution"
     quality_job = session.job(quality.meta.produced_by_job)
     assert quality_job["subject"]["kind"] == "delta_metric"
+
+
+def test_attribute_reconciles_nullable_unsigned_one_sided_segments() -> None:
+    session = mv.session.get_or_create(name="demo")
+    axes = {
+        "region": {
+            "role": "dimension",
+            "column": "region",
+            "ref": "sales.orders.region",
+        }
+    }
+    current = make_metric_frame(
+        pd.DataFrame(
+            {
+                "region": ["stable", "new"],
+                "value": pd.Series([7, 3], dtype="UInt64"),
+            }
+        ),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame(
+            {
+                "region": ["stable", "churned"],
+                "value": pd.Series([5, 4], dtype="UInt64"),
+            }
+        ),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+
+    delta = session.compare(current, baseline)
+    attribution = session.attribute(
+        delta,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    delta_rows = delta.to_pandas().set_index("region")
+    assert delta_rows["delta"].to_dict() == {"churned": -4.0, "new": 3.0, "stable": 2.0}
+    rows = attribution.to_pandas().set_index("region")
+    assert rows["contribution"].to_dict() == {
+        "churned": -4.0,
+        "new": 3.0,
+        "stable": 2.0,
+    }
+    assert rows.loc["churned", "share_of_negative_pool"] == pytest.approx(1.0)
+    assert rows.loc["new", "share_of_positive_pool"] == pytest.approx(0.6)
+    assert rows.loc["stable", "share_of_positive_pool"] == pytest.approx(0.4)
+    assert rows["share_of_total_delta"].to_dict() == {
+        "churned": -4.0,
+        "new": 3.0,
+        "stable": 2.0,
+    }
+    assert attribution.meta.reconciliation is not None
+    assert attribution.meta.reconciliation.status == "reconciled"
+    assert attribution.meta.reconciliation.residual == pytest.approx(0.0)
 
 
 def test_generic_attribution_quality_reports_row_and_reconciliation_corruption() -> None:

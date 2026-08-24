@@ -6,6 +6,14 @@ import numpy as np
 import pandas as pd
 
 PCT_CHANGE_STATUS_COLUMN = "pct_change_status"
+DELTA_MATH_CONTRACT_VERSION = "float64/v1"
+
+
+def _float64_numeric(series: pd.Series) -> pd.Series:
+    """Normalize one delta operand before any signed arithmetic."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    values = numeric.to_numpy(dtype="float64", na_value=float("nan"))
+    return pd.Series(values, index=series.index, name=series.name, dtype="float64")
 
 
 def compute_delta_columns(
@@ -18,8 +26,8 @@ def compute_delta_columns(
     status_column: str = PCT_CHANGE_STATUS_COLUMN,
 ) -> pd.DataFrame:
     """Compute delta, pct_change, and pct_change_status in-place."""
-    current = pd.to_numeric(df[current_column], errors="coerce")
-    baseline = pd.to_numeric(df[baseline_column], errors="coerce")
+    current = _float64_numeric(df[current_column])
+    baseline = _float64_numeric(df[baseline_column])
     delta = current - baseline
 
     df[current_column] = current

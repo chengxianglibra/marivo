@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from dataclasses import replace
 from datetime import datetime
@@ -22,6 +23,7 @@ from marivo.analysis._cumulative import (
     canonical_comparable_period_anchor,
     canonical_cumulative_expression_fingerprint,
 )
+from marivo.analysis.delta_math import DELTA_MATH_CONTRACT_VERSION, compute_delta_columns
 from marivo.analysis.errors import (
     AnalysisError,
     AttributionMaterializationError,
@@ -1516,7 +1518,7 @@ def test_compare_grain_to_date_delta_carries_marker(tmp_path, monkeypatch) -> No
 
 
 def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatch) -> None:
-    """A current cumulative delta replays one missing business dimension."""
+    """A current cumulative delta safely replays unsigned business levels."""
     session = _session(tmp_path, monkeypatch)
     metric = session.catalog.require(ref_factory.metric("sales.cum_gmv")).ref
     current = session.observe(
@@ -1529,6 +1531,18 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     )
     delta = compare(current, baseline, session=session)
     region = session.catalog.require(ref_factory.dimension("sales.orders.region")).ref
+
+    attribute_module = importlib.import_module("marivo.analysis.intents.attribute")
+    delta_math_calls = 0
+
+    def compute_unsigned_delta(dataframe: pd.DataFrame) -> pd.DataFrame:
+        nonlocal delta_math_calls
+        delta_math_calls += 1
+        dataframe["current"] = dataframe["current"].astype("UInt64")
+        dataframe["baseline"] = dataframe["baseline"].astype("UInt64")
+        return compute_delta_columns(dataframe)
+
+    monkeypatch.setattr(attribute_module, "compute_delta_columns", compute_unsigned_delta)
 
     drivers = attribute(delta, axes=[region], session=session)
     by_region = dict(
@@ -1544,8 +1558,10 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
         "EU": pytest.approx(7.0),
         "US": pytest.approx(0.0),
     }
+    assert delta_math_calls == 1
     assert drivers.meta.method == "sum"
     assert "cumulative_route" not in drivers.meta.params
+    assert drivers.meta.params["delta_math_contract"] == DELTA_MATH_CONTRACT_VERSION
     assert drivers.meta.method_evidence is not None
     assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
     quality = session.assess_quality(drivers)

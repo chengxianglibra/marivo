@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pandas as pd
 import pytest
 
@@ -97,6 +99,24 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "pct_change": pytest.approx(-1.0),
         "pct_change_status": "computed",
     }
+
+
+def test_compare_cache_identity_includes_delta_math_contract(monkeypatch) -> None:
+    compare_module = importlib.import_module("marivo.analysis.intents.compare")
+    session = session_attach.get_or_create(name="demo")
+    current = _segmented_metric(session, [{"region": "NORTH", "value": 7}])
+    baseline = _segmented_metric(session, [{"region": "NORTH", "value": 5}])
+
+    first = compare(current, baseline, alignment=window_bucket(), session=session)
+    first_job = session.job(first.meta.produced_by_job)
+    assert first_job["params"]["delta_math_contract"] == "float64/v1"
+
+    monkeypatch.setattr(compare_module, "DELTA_MATH_CONTRACT_VERSION", "float64/v2")
+    second = compare(current, baseline, alignment=window_bucket(), session=session)
+
+    assert second.ref != first.ref
+    second_job = session.job(second.meta.produced_by_job)
+    assert second_job["params"]["delta_math_contract"] == "float64/v2"
 
 
 def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments():
