@@ -24,6 +24,7 @@ from marivo.analysis.cumulative_attribution import (
     DirectCumulativeAttributionV1,
     select_cumulative_attribution_route,
 )
+from marivo.analysis.delta_math import DELTA_MATH_CONTRACT_VERSION, compute_delta_columns
 from marivo.analysis.errors import (
     AttributeAdmissionBlockedError,
     AttributionMaterializationError,
@@ -359,7 +360,7 @@ def _attribute_direct_cumulative_business_axes(
     aligned = pd.concat(aligned_parts, ignore_index=True)
     aligned["current"] = pd.to_numeric(aligned["current"], errors="raise").fillna(0.0)
     aligned["baseline"] = pd.to_numeric(aligned["baseline"], errors="raise").fillna(0.0)
-    aligned["delta"] = aligned["current"] - aligned["baseline"]
+    compute_delta_columns(aligned)
     bucket_column = parent_current_time
     if mode is None:
         output = _single_axis_sum_output(
@@ -424,6 +425,7 @@ def _attribute_direct_cumulative_business_axes(
             "source_ref": frame.ref,
             "axes": axis_ids,
             "mode": mode,
+            "delta_math_contract": DELTA_MATH_CONTRACT_VERSION,
         },
         sources=[frame, current, baseline],
         metric_ids=[frame.meta.metric_id],

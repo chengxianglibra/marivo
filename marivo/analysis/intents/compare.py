@@ -35,7 +35,11 @@ from marivo.analysis.cumulative_attribution import (
     cumulative_over_ref,
     derive_cumulative_bridge,
 )
-from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
+from marivo.analysis.delta_math import (
+    DELTA_MATH_CONTRACT_VERSION,
+    PCT_CHANGE_STATUS_COLUMN,
+    compute_delta_columns,
+)
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
@@ -1538,6 +1542,7 @@ def compare(
     params: dict[str, Any] = {
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
+        "delta_math_contract": DELTA_MATH_CONTRACT_VERSION,
         "alignment": alignment_dump,
         "additivity": additivity,
         "aggregation": aggregation,
