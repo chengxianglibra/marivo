@@ -79,6 +79,27 @@ print(trace.derivation.rule_id, trace.source_fields)
 
 追踪是审计记录，不是系统生成的主张或判断。
 
+## 跨 Finding 综合前检查兼容性
+
+当一个结论组合两条或更多 Finding 时，即使它们来自同一 Artifact 或同一分析轮次，也先检查
+精确 selection：
+
+```python
+compatibility = session.evidence.compatibility(
+    finding_ids=[finding_a.finding_id, finding_b.finding_id],
+)
+compatibility.show()
+```
+
+输入必须是 1–20 个唯一 Finding id；输入顺序不表达语义，所有 Finding pair 都会被检查。
+不可变结果会比较受治理的 subject identity、scope 和当前 semantic definition，并汇总
+quality、evidence status、epistemic kinds、类型化 issues，以及各 operator 的完整推断边界集合。
+
+只有 `status == "compatible"` 时才继续机械综合。`incompatible` 表示已知矛盾或 blocking
+quality/evidence issue；`indeterminate` 表示 Marivo 无法证明 subject、scope、operator rule
+或当前 semantic authority，不能跨过未知边界继续推断。compatibility 不判断因果、业务重要性、
+freshness 或 intended use，也不会修改 Artifact 或 evidence store。
+
 ## 用有界分页恢复会话
 
 列表读取默认有界，并按最新记录优先：
@@ -109,7 +130,7 @@ if digests.has_more:
 - `ComparabilityIssue`：不兼容或近似的比较；
 - `EvidenceAvailabilityIssue`：提取、摘要或存储降级。
 
-切换 A 是破坏性切换：非 v3 证据存储，以及包含已移除证据字段的 frame
+切换 A 是破坏性切换：非 v4 证据存储，以及包含已移除证据字段的 frame
 sidecar，都会被拒绝。应重新创建分析会话；Marivo 不迁移或重新解释判断
 时代的状态。
 

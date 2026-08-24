@@ -202,6 +202,14 @@ session inspection, frame summaries, recent jobs, evidence digests, and findings
 before loading exact supporting artifacts. Historical conclusions and chat or
 script summaries are navigation aids, not current evidence.
 
+Before combining two or more Findings, including Findings from the same
+artifact or analysis round, read
+`marivo.help("analysis.session.evidence.compatibility")` and run the public
+compatibility check over the exact Finding ids. Continue mechanical synthesis
+only when it is compatible. Split or repair an incompatible selection; stop and
+disclose an indeterminate selection instead of inferring through its unknown
+authority or rule boundary.
+
 ### Structured repair and stopping
 
 Follow the structured repair or focused help for a failed public capability.

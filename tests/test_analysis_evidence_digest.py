@@ -7,7 +7,10 @@ from datetime import datetime, timedelta
 import pytest
 
 from marivo._compat import UTC
-from marivo.analysis.evidence.digest import build_artifact_digest
+from marivo.analysis.evidence.digest import (
+    build_artifact_digest,
+    inference_boundaries_for_operator,
+)
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     AnomalyCandidateFindingValue,
@@ -246,6 +249,13 @@ def test_correlation_digest_states_missing_inference_without_upgrading_it() -> N
         "interval_not_computed",
         "causal_effect_not_estimated",
     }
+    complete_boundaries = inference_boundaries_for_operator(
+        "correlate",
+        (finding,),
+        omitted_item_count=1,
+    )
+    assert len(complete_boundaries) == 4
+    assert complete_boundaries[0].kind == "full_distribution_not_in_digest"
     rendered = digest.render()
     assert "primary_driver" not in rendered
     assert "root cause" not in rendered

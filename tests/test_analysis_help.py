@@ -23,6 +23,8 @@ from marivo.analysis.constraints import CONSTRAINTS, ConstraintId
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
+    EvidenceIntegrityError,
+    EvidenceSelectionError,
     MetricNotFoundError,
 )
 from marivo.analysis.frames.base import BaseFrame
@@ -480,6 +482,25 @@ def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
         "EvidenceAvailabilityIssue",
     ):
         assert variant in issue_type
+
+    compatibility_text = _text("session.evidence.compatibility")
+    assert "finding_ids: Sequence[str]" in compatibility_text
+    assert "Output type: EvidenceCompatibility" in compatibility_text
+    assert "immutable_metadata" in compatibility_text
+    assert "Read bound: bounded" in compatibility_text
+
+    compatibility_type = _text("EvidenceCompatibility")
+    for field in (
+        "status",
+        "finding_ids",
+        "subject_status",
+        "scope_status",
+        "semantic_status",
+        "issues",
+        "boundaries",
+        "fingerprint",
+    ):
+        assert field in compatibility_type
 
 
 def test_focused_help_signature_matches_inspect() -> None:
@@ -1151,6 +1172,13 @@ def test_error_class_help_shows_static_fields() -> None:
     assert "Every metric-expression leaf must resolve to an analysis-ready governed ref." in text
 
 
+@pytest.mark.parametrize("error_type", (EvidenceSelectionError, EvidenceIntegrityError))
+def test_compatibility_error_help_is_structured(error_type: type[AnalysisError]) -> None:
+    text = _text(error_type)
+    assert error_type.__name__ in text
+    assert "base: AnalysisError" in text
+
+
 def test_error_instance_help_shows_concrete_repair() -> None:
     err = MetricNotFoundError(
         message="metric not found",
@@ -1540,7 +1568,12 @@ def test_analysis_all_is_pinned() -> None:
         "DriverAxisSelection",
         "DroppedBefore",
         "EvidenceAvailabilityIssue",
+        "EvidenceCompatibility",
+        "EvidenceCompatibilityIssue",
         "EvidenceDerivationTrace",
+        "EvidenceIntegrityError",
+        "EvidenceRuleIssue",
+        "EvidenceSelectionError",
         "EventOccurrenceBounds",
         "EventFrame",
         "EventPattern",

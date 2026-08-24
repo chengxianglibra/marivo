@@ -93,6 +93,18 @@ def test_analysis_skill_package_layout() -> None:
     assert sorted(path.name for path in ANALYSIS_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
 
+def test_analysis_skill_gates_cross_finding_synthesis_on_compatibility() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+    normalized = " ".join(text.split())
+
+    assert 'marivo.help("analysis.session.evidence.compatibility")' in text
+    assert "Before combining two or more Findings" in normalized
+    assert "including Findings from the same artifact or analysis round" in normalized
+    assert "exact Finding ids" in text
+    assert "Split or repair an incompatible selection" in normalized
+    assert "stop and disclose an indeterminate selection" in normalized
+
+
 def test_semantic_skill_package_layout() -> None:
     assert sorted(path.name for path in SEMANTIC_SKILL_DIR.iterdir()) == ["SKILL.md"]
 

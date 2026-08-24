@@ -12,6 +12,8 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import (
     AnalysisError,
+    EvidenceIntegrityError,
+    EvidenceSelectionError,
     HelpTargetError,
     MetricNotFoundError,
     WindowInvalidError,
@@ -126,6 +128,12 @@ def test_nested_evidence_target() -> None:
     assert result.descriptor.id == "session.evidence.findings"
 
 
+def test_nested_evidence_compatibility_target() -> None:
+    result = resolve_help_target("session.evidence.compatibility")
+    assert result.kind == "descriptor"
+    assert result.descriptor.id == "session.evidence.compatibility"
+
+
 @pytest.mark.parametrize(
     "target",
     (
@@ -138,6 +146,9 @@ def test_nested_evidence_target() -> None:
         "CandidateResolutionIssue",
         "ArtifactDigestPage",
         "FindingPage",
+        "EvidenceCompatibility",
+        "EvidenceCompatibilityIssue",
+        "EvidenceRuleIssue",
         "FrameSummaryPage",
         "PointAnomalySelection",
     ),
@@ -370,6 +381,12 @@ def test_error_subclass_resolves() -> None:
 
 def test_error_subclass_window_invalid() -> None:
     result = resolve_help_target(WindowInvalidError)
+    assert result.kind == "error_contract"
+
+
+@pytest.mark.parametrize("error_type", (EvidenceSelectionError, EvidenceIntegrityError))
+def test_evidence_compatibility_errors_resolve(error_type: type[AnalysisError]) -> None:
+    result = resolve_help_target(error_type)
     assert result.kind == "error_contract"
 
 

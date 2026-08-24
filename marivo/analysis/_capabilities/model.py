@@ -266,6 +266,7 @@ class ReadCapability(CapabilityBase):
     )
     read_bound: Literal["bounded", "terminal"] = "bounded"
     produced_input_family: InputFamily | None = None
+    output_type: str = ""
 
 
 @dataclass(frozen=True)

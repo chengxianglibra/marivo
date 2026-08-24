@@ -200,6 +200,10 @@ asks to refresh/recompute; it reads persisted state:
   `session.evidence.findings(...) -> FindingPage` — bounded audit reads;
   `digest(ref)`, `finding(id)`, and `trace(id)` are exact reads. See
   [`evidence-access-surface.md`](evidence-access-surface.md).
+- `session.evidence.compatibility(finding_ids=[...]) -> EvidenceCompatibility`
+  — read-only, selection-wide compatibility over 1–20 canonical Findings; it
+  evaluates every pair, validates current semantic authority, and fails closed
+  without changing the evidence ledger.
 
 `analysis_purpose`, accepted by every operator, is persisted on the frame and
 surfaced in `frame_summaries()` so a later turn can tell why a frame was produced.

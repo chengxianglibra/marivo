@@ -33,6 +33,14 @@ JsonValue = TypeAliasType(  # type: ignore[misc]
 )
 EvidenceStatus = Literal["complete", "partial", "unavailable"]
 EvidenceCompleteness = EvidenceStatus
+EvidenceCompatibilityStatus = Literal["compatible", "incompatible", "indeterminate"]
+CompatibilityDimensionStatus = Literal["compatible", "incompatible", "indeterminate"]
+CompatibilityQualityStatus = Literal[
+    "ready",
+    "needs_attention",
+    "not_ready",
+    "not_assessed",
+]
 EpistemicKind = Literal[
     "observed",
     "algebraic",
@@ -982,6 +990,12 @@ EvidenceAvailabilityIssueKind = Literal[
     "evidence_store_unavailable",
     "evidence_digest_unavailable",
 ]
+EvidenceRuleIssueKind = Literal[
+    "semantic_authority_unknown",
+    "unknown_subject_rule",
+    "unknown_scope_rule",
+    "unknown_operator_evidence_rule",
+]
 
 
 class DataQualityIssue(_FrozenModel):
@@ -1019,6 +1033,116 @@ class EvidenceAvailabilityIssue(_FrozenModel):
     fallback: RawFallback
     stable_error_category: str
     repair: AnalysisRepair | None = None
+
+
+class EvidenceRuleIssue(_FrozenModel):
+    """One fail-closed compatibility rule result not expressible by artifact issues."""
+
+    issue_id: str
+    kind: EvidenceRuleIssueKind
+    severity: IssueSeverity
+    expected: str
+    received: str
+    repair: AnalysisRepair
+
+
+EvidenceCompatibilityDetail = Annotated[
+    DataQualityIssue | ComparabilityIssue | EvidenceAvailabilityIssue | EvidenceRuleIssue,
+    Field(discriminator="kind"),
+]
+EvidenceCompatibilityIssueKind: TypeAlias = (
+    DataQualityIssueKind
+    | ComparabilityIssueKind
+    | EvidenceAvailabilityIssueKind
+    | EvidenceRuleIssueKind
+)
+
+
+class EvidenceCompatibilityIssue(_FrozenModel):
+    """Attribute one compatibility detail to one Finding or one Finding pair."""
+
+    finding_ids: tuple[str, ...]
+    artifact_refs: tuple[str, ...]
+    detail: EvidenceCompatibilityDetail
+
+    @model_validator(mode="after")
+    def _validate_attribution(self) -> EvidenceCompatibilityIssue:
+        if len(self.finding_ids) not in {1, 2}:
+            raise ValueError("compatibility issues require one or two finding ids")
+        if tuple(sorted(set(self.finding_ids))) != self.finding_ids:
+            raise ValueError("compatibility issue finding ids must be unique and sorted")
+        if not 1 <= len(self.artifact_refs) <= 2:
+            raise ValueError("compatibility issues require one or two artifact refs")
+        if tuple(sorted(set(self.artifact_refs))) != self.artifact_refs:
+            raise ValueError("compatibility issue artifact refs must be unique and sorted")
+        return self
+
+
+class EvidenceCompatibility(_FrozenModel):
+    """Bounded terminal result for one canonical Finding selection."""
+
+    compatibility_version: Literal["v1"] = "v1"
+    status: EvidenceCompatibilityStatus
+    finding_ids: tuple[str, ...]
+    artifact_refs: tuple[str, ...]
+    session_id: str
+    subject_status: CompatibilityDimensionStatus
+    scope_status: CompatibilityDimensionStatus
+    semantic_status: CompatibilityDimensionStatus
+    evidence_status: EvidenceStatus
+    quality_status: CompatibilityQualityStatus
+    epistemic_kinds: tuple[EpistemicKind, ...]
+    issues: tuple[EvidenceCompatibilityIssue, ...] = ()
+    boundaries: tuple[InferenceBoundary, ...] = ()
+    evaluated_pair_count: int = Field(ge=0)
+    omitted_issue_count: int = Field(ge=0)
+    omitted_issue_kinds: tuple[EvidenceCompatibilityIssueKind, ...] = ()
+    fingerprint: str
+
+    @model_validator(mode="after")
+    def _validate_bounds(self) -> EvidenceCompatibility:
+        if not 1 <= len(self.finding_ids) <= 20:
+            raise ValueError("compatibility results require between one and twenty findings")
+        if tuple(sorted(set(self.finding_ids))) != self.finding_ids:
+            raise ValueError("compatibility result finding ids must be unique and sorted")
+        if not 1 <= len(self.artifact_refs) <= 20:
+            raise ValueError("compatibility results require between one and twenty artifact refs")
+        if tuple(sorted(set(self.artifact_refs))) != self.artifact_refs:
+            raise ValueError("compatibility result artifact refs must be unique and sorted")
+        expected_pairs = len(self.finding_ids) * (len(self.finding_ids) - 1) // 2
+        if self.evaluated_pair_count != expected_pairs:
+            raise ValueError("evaluated_pair_count must cover every Finding pair")
+        if len(self.issues) > 20:
+            raise ValueError("compatibility results retain at most twenty issues")
+        selected_findings = set(self.finding_ids)
+        selected_artifacts = set(self.artifact_refs)
+        if any(not set(issue.finding_ids) <= selected_findings for issue in self.issues):
+            raise ValueError("compatibility issue findings must belong to the selection")
+        if any(not set(issue.artifact_refs) <= selected_artifacts for issue in self.issues):
+            raise ValueError("compatibility issue artifacts must belong to the selection")
+        if tuple(sorted(set(self.omitted_issue_kinds))) != self.omitted_issue_kinds:
+            raise ValueError("omitted issue kinds must be unique and sorted")
+        if len({boundary.kind for boundary in self.boundaries}) != len(self.boundaries):
+            raise ValueError("compatibility boundaries must have distinct kinds")
+        if not self.fingerprint:
+            raise ValueError("compatibility fingerprint must be non-empty")
+        return self
+
+    def __repr__(self) -> str:
+        return result_repr(
+            f"EvidenceCompatibility status={self.status} findings={len(self.finding_ids)} "
+            f"issues={len(self.issues)} omitted={self.omitted_issue_count}"
+        )
+
+    def render(self, *, max_output_bytes: int | None = 8_000) -> str:
+        """Render this bounded compatibility result without reading persisted state."""
+        from marivo.analysis.evidence.summary import render_evidence_compatibility
+
+        return render_evidence_compatibility(self, max_output_bytes=max_output_bytes)
+
+    def show(self, *, max_output_bytes: int | None = 8_000) -> None:
+        """Print this bounded compatibility result."""
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 ArtifactIssue = Annotated[
@@ -1134,6 +1258,8 @@ __all__ = [
     "AssociationFindingValue",
     "ChangeFact",
     "ComparabilityIssue",
+    "CompatibilityDimensionStatus",
+    "CompatibilityQualityStatus",
     "ContributionFact",
     "ContributionFindingValue",
     "DataQualityIssue",
@@ -1147,8 +1273,15 @@ __all__ = [
     "EventJourneyObservationValue",
     "EventSubject",
     "EvidenceAvailabilityIssue",
+    "EvidenceCompatibility",
+    "EvidenceCompatibilityDetail",
+    "EvidenceCompatibilityIssue",
+    "EvidenceCompatibilityIssueKind",
+    "EvidenceCompatibilityStatus",
     "EvidenceCompleteness",
     "EvidenceDerivationTrace",
+    "EvidenceRuleIssue",
+    "EvidenceRuleIssueKind",
     "EvidenceScope",
     "EvidenceScopeAdapter",
     "EvidenceStatus",
