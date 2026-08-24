@@ -2298,6 +2298,12 @@ def _build_registry() -> CapabilityRegistry:
 
     evidence_specs: tuple[tuple[str, str, str, str], ...] = (
         (
+            "session.evidence.compatibility",
+            "session.evidence.compatibility(finding_ids=[...])",
+            "session.evidence.compatibility",
+            "Check one canonical Finding selection for mechanical compatibility.",
+        ),
+        (
             "session.evidence.digests",
             "session.evidence.digests(...) ",
             "session.evidence.digests",
@@ -2344,6 +2350,9 @@ def _build_registry() -> CapabilityRegistry:
                 receiver_family="EvidenceNamespace",
                 result_kind="immutable_metadata",
                 read_bound="bounded",
+                output_type=(
+                    "EvidenceCompatibility" if cap_id == "session.evidence.compatibility" else ""
+                ),
             )
         )
 

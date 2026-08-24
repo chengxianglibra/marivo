@@ -11,6 +11,7 @@ from marivo.analysis import errors as errors
 from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
 from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
+from marivo.analysis.errors import EvidenceIntegrityError, EvidenceSelectionError
 from marivo.analysis.event import (
     CompletenessDeclaration,
     EventOccurrenceBounds,
@@ -38,7 +39,10 @@ from marivo.analysis.evidence import (
     ContributionFact,
     DataQualityIssue,
     EvidenceAvailabilityIssue,
+    EvidenceCompatibility,
+    EvidenceCompatibilityIssue,
     EvidenceDerivationTrace,
+    EvidenceRuleIssue,
     Finding,
     FindingPage,
     ForecastOutput,
@@ -221,7 +225,12 @@ __all__ = [
     "EventWatermarkRequest",
     "EveryStart",
     "EvidenceAvailabilityIssue",
+    "EvidenceCompatibility",
+    "EvidenceCompatibilityIssue",
     "EvidenceDerivationTrace",
+    "EvidenceIntegrityError",
+    "EvidenceRuleIssue",
+    "EvidenceSelectionError",
     "Finding",
     "FindingPage",
     "FirstPerSubject",

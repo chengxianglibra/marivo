@@ -1439,6 +1439,14 @@ class FindingNotFoundError(AnalysisError): ...
 class EvidenceDigestNotAvailableError(AnalysisError): ...
 
 
+class EvidenceSelectionError(AnalysisError):
+    """A compatibility selection is empty, duplicated, oversized, or malformed."""
+
+
+class EvidenceIntegrityError(AnalysisError):
+    """Committed evidence cannot be resolved to one intact canonical graph."""
+
+
 class CumulativeFrameUnsupportedError(AnalysisError):
     """Intent received a cumulative frame outside the supported intent boundary."""
 

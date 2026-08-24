@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     AnomalyCandidate,
@@ -18,6 +20,9 @@ from marivo.analysis.evidence.types import (
     EventSubject,
     EventTimeToEventObservationValue,
     EvidenceAvailabilityIssue,
+    EvidenceCompatibility,
+    EvidenceCompatibilityIssue,
+    EvidenceRuleIssue,
     EvidenceSubject,
     ForecastOutput,
     FunnelAttributionObservationValue,
@@ -351,9 +356,79 @@ def render_artifact_digest(digest: ArtifactDigest, *, max_output_bytes: int | No
     return card.render(max_output_bytes=max_output_bytes)
 
 
+def _render_compatibility_issue(issue: EvidenceCompatibilityIssue) -> str:
+    attribution = ",".join(issue.finding_ids)
+    detail = issue.detail
+    if isinstance(detail, EvidenceRuleIssue):
+        body = f"expected={detail.expected}; received={detail.received}"
+    else:
+        body = render_artifact_issue(cast("ArtifactIssue", detail))
+    return f"{detail.kind} findings={attribution}: {body}"
+
+
+def render_evidence_compatibility(
+    result: EvidenceCompatibility,
+    *,
+    max_output_bytes: int | None = 8_000,
+) -> str:
+    """Render the fixed 5/5/3 compatibility projection."""
+    card = Card(
+        identity=(
+            f"EvidenceCompatibility status={result.status} "
+            f"findings={len(result.finding_ids)} fingerprint={result.fingerprint}"
+        ),
+        available=(".finding_ids", ".artifact_refs", ".model_dump()", ".show()"),
+    )
+    card.field(
+        "dimensions",
+        (
+            f"subject={result.subject_status} scope={result.scope_status} "
+            f"semantic={result.semantic_status} evidence={result.evidence_status} "
+            f"quality={result.quality_status} pairs={result.evaluated_pair_count}"
+        ),
+    )
+    card.listing("finding ids", result.finding_ids[:5])
+    if len(result.finding_ids) > 5:
+        card.field("finding ids omitted", str(len(result.finding_ids) - 5))
+    if result.issues:
+        card.listing(
+            "issues",
+            (_render_compatibility_issue(issue) for issue in result.issues[:5]),
+        )
+    hidden_issue_count = max(0, len(result.issues) - 5) + result.omitted_issue_count
+    if hidden_issue_count:
+        card.field(
+            "issues omitted",
+            (
+                f"count={hidden_issue_count} "
+                f"kinds={','.join(result.omitted_issue_kinds) or 'retained_result_bound'}"
+            ),
+        )
+    if result.boundaries:
+        card.listing(
+            "inference boundaries",
+            (
+                f"{boundary.kind}: reason={boundary.reason} "
+                f"required={','.join(boundary.required_evidence)}"
+                for boundary in result.boundaries[:3]
+            ),
+        )
+    if len(result.boundaries) > 3:
+        card.field("boundaries omitted", str(len(result.boundaries) - 3))
+    card.field(
+        "exact fallback",
+        (
+            "finding=session.evidence.finding(<finding_id>); "
+            "artifact=session.get_frame(<artifact_ref>)"
+        ),
+    )
+    return card.render(max_output_bytes=max_output_bytes)
+
+
 __all__ = [
     "render_artifact_digest",
     "render_digest_item",
     "render_digest_selection",
+    "render_evidence_compatibility",
     "render_evidence_subject",
 ]

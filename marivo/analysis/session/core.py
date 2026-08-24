@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence import (
         ArtifactDigest,
         ArtifactDigestPage,
+        EvidenceCompatibility,
         EvidenceDerivationTrace,
         Finding,
         FindingPage,
@@ -2652,6 +2653,36 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import build_evidence_trace
 
         return build_evidence_trace(store=self._require_store(), finding_id=finding_id)
+
+    def compatibility(self, finding_ids: Sequence[str]) -> EvidenceCompatibility:
+        """Check one canonical Finding selection for mechanical compatibility.
+
+        Args:
+            finding_ids: Between one and twenty unique Finding identities from
+                this Session. Input order has no semantic meaning.
+
+        Returns:
+            An immutable bounded compatibility result covering every Finding
+            and Finding pair.
+
+        Example:
+            compatibility = session.evidence.compatibility(
+                finding_ids=[finding_a.finding_id, finding_b.finding_id],
+            )
+            compatibility.show()
+
+        Constraints:
+            This check does not judge intended use, causality, importance, or
+            datasource freshness. Invalid selections and corrupted canonical
+            evidence fail with structured analysis errors.
+        """
+        from marivo.analysis._evidence_compatibility import evaluate_compatibility
+
+        return evaluate_compatibility(
+            session=self._session,
+            store=self._require_store(),
+            finding_ids=finding_ids,
+        )
 
     def _require_store(self) -> EvidenceStore:
         from marivo.analysis.errors import EvidenceStoreUnavailableError

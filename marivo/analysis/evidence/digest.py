@@ -489,11 +489,24 @@ def _build_item(entry: _RuleEntry, finding: Finding, scope: EvidenceScope) -> Di
     raise TypeError(f"unsupported finding value: {type(value).__name__}")
 
 
-def _boundaries(
-    operator: str, items: tuple[DigestItem, ...], omitted: int
+def inference_boundaries_for_operator(
+    operator: str,
+    findings: Iterable[Finding],
+    *,
+    omitted_item_count: int = 0,
 ) -> tuple[InferenceBoundary, ...]:
+    """Return the complete inference-boundary projection for one operator.
+
+    Artifact digests retain only the first three entries; selection-wide
+    compatibility consumes this complete result so display bounds never erase
+    an epistemic boundary.
+    """
+    operator = _OPERATOR_ALIASES.get(operator, operator)
+    if operator not in _RULES:
+        raise ValueError(f"no evidence rule registered for operator {operator!r}")
+    finding_values = tuple(finding.value for finding in findings)
     result: list[InferenceBoundary] = []
-    if omitted:
+    if omitted_item_count:
         result.append(
             InferenceBoundary(
                 kind="full_distribution_not_in_digest",
@@ -502,8 +515,10 @@ def _boundaries(
             )
         )
     if operator == "correlate":
-        associations = [item for item in items if isinstance(item, AssociationFact)]
-        if any(item.p_value is None for item in associations):
+        associations = [
+            value for value in finding_values if isinstance(value, AssociationFindingValue)
+        ]
+        if any(value.p_value is None for value in associations):
             result.append(
                 InferenceBoundary(
                     kind="significance_not_computed",
@@ -511,7 +526,7 @@ def _boundaries(
                     required_evidence=("significance_statistic",),
                 )
             )
-        if any(item.confidence_interval is None for item in associations):
+        if any(value.confidence_interval is None for value in associations):
             result.append(
                 InferenceBoundary(
                     kind="interval_not_computed",
@@ -550,7 +565,8 @@ def _boundaries(
             )
         )
     elif operator == "hypothesis_test" and any(
-        isinstance(item, TestDecision) and item.confidence_interval is None for item in items
+        isinstance(value, TestFindingValue) and value.confidence_interval is None
+        for value in finding_values
     ):
         result.append(
             InferenceBoundary(
@@ -590,7 +606,10 @@ def _boundaries(
                 required_evidence=("additional_quality_check",),
             )
         )
-    return tuple(result[:_BOUNDARY_LIMIT])
+    distinct: dict[str, InferenceBoundary] = {}
+    for boundary in result:
+        distinct.setdefault(boundary.kind, boundary)
+    return tuple(distinct.values())
 
 
 def build_artifact_digest(
@@ -628,7 +647,11 @@ def build_artifact_digest(
     retained = all_items[:_ITEM_LIMIT]
     omitted_items = all_items[_ITEM_LIMIT:]
     omitted_kinds = tuple(dict.fromkeys(item.kind for item in omitted_items))
-    boundaries = _boundaries(operator_name, retained, len(omitted_items))
+    boundaries = inference_boundaries_for_operator(
+        operator_name,
+        ordered,
+        omitted_item_count=len(omitted_items),
+    )[:_BOUNDARY_LIMIT]
     fallback_reasons: list[FallbackReason] = ["unregistered_question"]
     if omitted_items:
         fallback_reasons.append("omitted_item_detail")
@@ -661,4 +684,4 @@ def build_artifact_digest(
     return digest.model_copy(update={"fingerprint": make_digest_fingerprint(digest)})
 
 
-__all__ = ["build_artifact_digest"]
+__all__ = ["build_artifact_digest", "inference_boundaries_for_operator"]

@@ -189,6 +189,39 @@ If the evidence store is unavailable, all list and exact evidence reads raise
 store matched no records,” never “the store could not be read.” Missing exact
 digests and findings raise their typed not-available/not-found errors.
 
+## Selection-wide compatibility
+
+Before mechanically combining Finding evidence, submit the exact ids to the
+single compatibility entrypoint:
+
+```python
+compatibility = session.evidence.compatibility(
+    finding_ids=[finding_a.finding_id, finding_b.finding_id],
+)
+compatibility.show()
+```
+
+The selection contains 1–20 unique ids, has no anchor, and is normalized by id;
+every Finding pair is evaluated symmetrically. `EvidenceCompatibility` reports
+subject, scope, current semantic authority, quality, evidence status, epistemic
+kinds, complete operator inference boundaries, and issues attributed to exactly
+one Finding or one Finding pair. Mixed epistemic kinds are disclosed but are not
+an intended-use judgment.
+
+Known contradictions and blocking quality/evidence issues produce
+`incompatible`. Unknown subject/scope/operator rules or semantic authority that
+cannot be proven produce `indeterminate`; they never default to compatible.
+The result retains at most 20 sorted issues after status and fingerprint are
+computed over the complete issue set. Its renderer shows at most five Finding
+ids, five issues, and three boundaries with exact omission counts.
+
+Compatibility is a read-only, ephemeral check. It does not modify Artifacts or
+the evidence ledger, access datasource health, judge freshness or causality, or
+perform Artifact revalidation. Invalid selections raise
+`EvidenceSelectionError`; missing or cross-Session ids raise
+`FindingNotFoundError`; broken committed identity, derivation, source refs, or
+sidecar/ledger agreement raise `EvidenceIntegrityError`.
+
 ## Commit and persistence
 
 `judgment.db` remains the on-disk filename for existing session layouts, but its

@@ -90,6 +90,31 @@ print(trace.derivation.rule_id, trace.source_fields)
 
 The trace is an audit record, not a system-generated claim or judgment.
 
+## Check compatibility before combining findings
+
+When a conclusion combines two or more Findings, including Findings from the
+same artifact or analysis round, check the exact selection first:
+
+```python
+compatibility = session.evidence.compatibility(
+    finding_ids=[finding_a.finding_id, finding_b.finding_id],
+)
+compatibility.show()
+```
+
+The input is 1–20 unique Finding ids. Input order is irrelevant, and every pair
+is checked. The immutable result compares governed subject identity, scope, and
+current semantic definitions; it also aggregates quality, evidence status,
+epistemic kinds, typed issues, and the operators' complete inference-boundary
+set.
+
+Proceed with mechanical synthesis only for `status == "compatible"`.
+`incompatible` identifies a known contradiction or blocking quality/evidence
+issue. `indeterminate` means Marivo cannot prove a subject, scope, operator rule,
+or current semantic authority; do not infer through it. Compatibility does not
+judge causality, business importance, freshness, or intended use, and it does
+not mutate artifacts or evidence.
+
 ## Recover a session with bounded pages
 
 List reads are bounded and newest-first:
@@ -122,7 +147,7 @@ no records.
 - `ComparabilityIssue` for incompatible or approximate comparisons;
 - `EvidenceAvailabilityIssue` for extraction, digest, or store degradation.
 
-The current cutover is destructive: non-v3 evidence stores and frame sidecars containing
+The current cutover is destructive: non-v4 evidence stores and frame sidecars containing
 removed evidence fields are rejected. Recreate the analysis session; Marivo
 does not migrate or reinterpret judgment-era state.
 

@@ -845,6 +845,8 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     if isinstance(desc, ReadCapability):
         lines.append(f"  Result kind: {desc.result_kind}")
         lines.append(f"  Read bound: {desc.read_bound}")
+        if desc.output_type:
+            lines.append(f"  Output type: {desc.output_type}")
 
     if isinstance(desc, RecoveryCapability):
         if desc.restored_family:

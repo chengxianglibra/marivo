@@ -1,6 +1,6 @@
 # Marivo Evidence Compatibility and Revalidation — 设计
 
-状态：Slice 0 已实现；Slice 1–4 尚未实现
+状态：Slice 0–1 已实现；Slice 2–4 尚未实现
 
 ## 文档目的
 
@@ -696,6 +696,9 @@ SourceHealthReport overload。
 cutover。
 
 ### Slice 1：Evidence Compatibility
+
+状态：已实现（evidence schema v4 保持不变；未提前公开
+`ArtifactAuthorityContext`、revalidation 或 operator admission）。
 
 - 实现 subject/scope/semantic-authority comparator 和 epistemic projection；
 - 实现 canonical Finding batch load 和 integrity checks；

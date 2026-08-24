@@ -19,6 +19,7 @@ def test_evidence_namespace_exposes_bounded_audit_and_exact_reads(tmp_path, monk
         "finding",
         "digest",
         "trace",
+        "compatibility",
     ):
         assert callable(getattr(session.evidence, name))
 

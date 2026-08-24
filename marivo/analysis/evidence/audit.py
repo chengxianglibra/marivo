@@ -174,6 +174,33 @@ def get_finding(*, store: EvidenceStore, finding_id: str) -> Finding:
     return _row_to_finding(row)
 
 
+def get_findings_batch(
+    *,
+    store: EvidenceStore,
+    session_id: str,
+    finding_ids: tuple[str, ...],
+) -> tuple[Finding, ...]:
+    """Load one normalized Finding selection in a single canonical read."""
+    placeholders = ",".join("?" for _ in finding_ids)
+    rows = list(
+        store.read().execute(
+            f"SELECT * FROM findings WHERE session_id = ? AND finding_id IN ({placeholders})",
+            (session_id, *finding_ids),
+        )
+    )
+    by_id = {str(row["finding_id"]): _row_to_finding(row) for row in rows}
+    missing = tuple(finding_id for finding_id in finding_ids if finding_id not in by_id)
+    if missing:
+        missing_id = missing[0]
+        raise FindingNotFoundError(
+            message=f"finding {missing_id!r} does not exist in the current session",
+            expected="an existing canonical finding id owned by the current session",
+            received=missing_id,
+            location="session.evidence.compatibility",
+        )
+    return tuple(by_id[finding_id] for finding_id in finding_ids)
+
+
 def get_digest(*, store: EvidenceStore, artifact_ref: str) -> ArtifactDigest:
     """Return one persisted digest without rebuilding it from findings."""
     row = (
@@ -245,6 +272,7 @@ __all__ = [
     "build_evidence_trace",
     "get_digest",
     "get_finding",
+    "get_findings_batch",
     "query_digests",
     "query_findings",
 ]
