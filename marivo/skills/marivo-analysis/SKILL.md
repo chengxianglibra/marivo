@@ -103,6 +103,11 @@ contributes evidence. Use `.contract()` when the next mechanically valid action
 is unknown. Choose subsequent operators from the question and the artifact in
 hand rather than following a fixed operator recipe.
 
+Before treating a required calculation as custom, classify its analytical
+intent against the current capability map. Stay in typed flow whenever Marivo
+expresses that intent; convenience or a small remaining step does not make the
+calculation custom.
+
 Batch compatible operations into one decision round. Prefer the smallest chain
 that supports a required answer, and stop expanding the analysis when another
 result cannot materially change the answer or its limitations.
@@ -165,10 +170,11 @@ Do not query business rows through Ibis, DuckDB, pandas readers, backend
 connections, private datasource handles, or ad hoc SQL to bypass Marivo.
 
 Use `frame.to_pandas()` only after a bounded typed artifact establishes the
-semantic inputs, scope, and evidence chain, and only for an intentionally custom
-or unsupported terminal calculation. Keep that calculation in the same
-rerunnable step script as the conversion. Do not export and reload artifact
-rows, and never feed a terminal result back into typed analysis.
+semantic inputs, scope, and evidence chain, and only when the capability check
+above establishes that the intended analysis method is outside Marivo's
+governed typed surface. Keep that calculation in the same rerunnable step script
+as the conversion. Do not export and reload artifact rows, and never feed a
+terminal result back into typed analysis.
 
 ### Evidence continuity and recovery
 
