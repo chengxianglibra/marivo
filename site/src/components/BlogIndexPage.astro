@@ -4,6 +4,8 @@ import agentFlowEn from '../assets/blog/agent-analysis-flow-en.png';
 import agentFlowZh from '../assets/blog/agent-analysis-flow.png';
 import analysisDslEn from '../assets/blog/analysis-dsl-agent-loop-en.png';
 import analysisDslZh from '../assets/blog/analysis-dsl-agent-loop.png';
+import evidenceEngineEn from '../assets/blog/evidence-engine-results-are-not-conclusions-en.png';
+import evidenceEngineZh from '../assets/blog/evidence-engine-result-to-evidence.png';
 import semanticContractEn from '../assets/blog/semantic-layer-contract-en.png';
 import semanticContractZh from '../assets/blog/semantic-layer-contract.png';
 import '../styles/blog.css';
@@ -27,27 +29,35 @@ const copy = isZh
   ? {
       lang: 'zh-CN', description: 'Marivo Blog：分享产品设计、分析实践、版本演进与社区动态。', homeLabel: 'Marivo 主页', navLabel: 'Blog 导航', language: 'English',
       headline: ['记录 Marivo 的设计、', '实践与演进。'], intro: '这里收录设计思想、真实分析实践、版本变化和社区故事。我们既讨论为什么这样设计，也记录 Marivo 如何进入具体的数据项目，以及它在使用中学到了什么。',
-      meta: '最新文章 · 设计', date: '2026.08.14', articleTitle: 'Analysis DSL：约束分析动作，而不是约束 Agent\u00a0推理', articleSummary: '语义层定义完成后，怎样让它真正进入每一步计算？这篇文章讨论 Marivo 如何用可以检查和追踪的分析动作降低 Agent 的负担，同时保留开放的判断空间。', read: '阅读文章', imageAlt: 'Marivo Analysis DSL 的类型化分析主路径，以及 raw_sql 与 to_pandas 两条逃生通道',
+      meta: '最新文章 · 设计', date: '2026.08.24', articleTitle: 'Evidence Engine：结果回答了什么，证据就只支持什么', articleSummary: '分析跑出了一个数，为什么还不能直接把它当成结论？这篇文章讨论 Marivo 如何让事实可引用、可核查，又不会在转述中被悄悄扩大含义。', read: '阅读文章', imageAlt: '结构化分析结果被提取为少量有来路、有边界的证据，Agent 与业务负责人在证据之上形成判断',
       footer: '让智能自由探索，让约束守住事实。', home: '主页',
     }
   : {
       lang: 'en', description: 'The Marivo Blog covers product design, analytical practice, releases, and community updates.', homeLabel: 'Marivo home', navLabel: 'Blog navigation', language: '简体中文',
       headline: ['The design, practice,', 'and evolution of Marivo.'], intro: 'Essays on product design, field experience, release changes, and the community around Marivo. We explain the decisions behind the system and examine how they hold up in real data projects.',
-      meta: 'Latest · Design', date: '2026.08.14', articleTitle: 'Analysis DSL: Constrain Analytical Actions, Not Agent Reasoning', articleSummary: 'A semantic layer defines trusted business objects. This article explains how Marivo makes those objects govern every analytical action while leaving hypotheses, direction, and interpretation to the agent.', read: 'Read article', imageAlt: 'The typed path in Marivo Analysis DSL with raw_sql and to_pandas as terminal escape hatches',
+      meta: 'Latest · Design', date: '2026.08.24', articleTitle: 'Evidence Engine: Results Are Not Conclusions', articleSummary: 'A result can be correct and still be overstated in the retelling. This article explains how Marivo makes evidence traceable and keeps every claim within what the result actually supports.', read: 'Read article', imageAlt: 'A typed analytical result becomes findings and a bounded digest before an agent and a human form a judgment',
       footer: 'Let intelligence explore. Let constraints keep it grounded.', home: 'Home',
     };
 const featured = isZh
   ? {
-      url: `${blogUrl}analysis-dsl-constrains-actions-not-agent-reasoning/`,
-      image: analysisDslZh,
+      url: `${blogUrl}evidence-engine-results-are-not-conclusions/`,
+      image: evidenceEngineZh,
     }
   : {
-      url: `${blogUrl}analysis-dsl-constrains-actions-not-agent-reasoning/`,
-      image: analysisDslEn,
+      url: `${blogUrl}evidence-engine-results-are-not-conclusions/`,
+      image: evidenceEngineEn,
     };
 const archiveLabel = isZh ? '更多文章' : 'More articles';
 const articles = isZh
   ? [
+      {
+        url: `${blogUrl}analysis-dsl-constrains-actions-not-agent-reasoning/`,
+        image: analysisDslZh,
+        meta: '设计 · Analysis DSL',
+        date: '2026.08.14',
+        title: 'Analysis DSL：约束分析动作，而不是约束 Agent 推理',
+        summary: '语义层定义完成后，怎样让它真正进入每一步计算？Marivo 用可以检查和追踪的分析动作守住执行边界，同时保留开放的判断空间。',
+      },
       {
         url: `${blogUrl}semantic-layer-as-an-agent-contract/`,
         image: semanticContractZh,
@@ -66,6 +76,14 @@ const articles = isZh
       },
     ]
   : [
+      {
+        url: `${blogUrl}analysis-dsl-constrains-actions-not-agent-reasoning/`,
+        image: analysisDslEn,
+        meta: 'Design · Analysis DSL',
+        date: '2026.08.14',
+        title: 'Analysis DSL: Constrain Analytical Actions, Not Agent Reasoning',
+        summary: 'How Marivo makes semantic objects govern each analytical action while leaving hypotheses, direction, and interpretation to the agent.',
+      },
       {
         url: `${blogUrl}semantic-layer-as-an-agent-contract/`,
         image: semanticContractEn,
