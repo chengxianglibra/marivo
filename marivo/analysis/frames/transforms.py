@@ -44,10 +44,13 @@ class _FrameTransforms(Generic[TFrame]):
             A transformed frame of the same family as the receiver.
 
         Example:
-            >>> focused = frame.transform.filter(predicate=lambda df: df["value"] > 0)
+            >>> value_column = frame.value_columns[0] if isinstance(frame, mv.MetricFrame) else "delta"
+            >>> focused = frame.transform.filter(predicate=lambda df: df[value_column] > 0)
 
         Constraints:
-            Requires the frame's owning session to be current and writable.
+            The predicate receives the same public columns exposed by
+            ``frame.columns`` and ``frame.to_pandas()``. Requires the frame's
+            owning session to be current and writable.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_filter
@@ -158,10 +161,10 @@ class _FrameTransforms(Generic[TFrame]):
             )
 
     def topk(self, *, by: str, limit: int, analysis_purpose: str | None = None) -> TFrame:
-        """Keep the largest `limit` rows ordered by a persisted column.
+        """Keep the largest `limit` rows ordered by a public frame column.
 
         Args:
-            by: Persisted frame column to sort descending.
+            by: Public frame column to sort descending.
             limit: Positive row count to keep.
             analysis_purpose: Optional durable label explaining why this
                 transform exists.
@@ -170,10 +173,12 @@ class _FrameTransforms(Generic[TFrame]):
             A transformed frame of the same family as the receiver.
 
         Example:
-            >>> biggest = delta.transform.topk(by="delta", limit=10)
+            >>> value_column = frame.value_columns[0] if isinstance(frame, mv.MetricFrame) else "delta"
+            >>> biggest = frame.transform.topk(by=value_column, limit=10)
 
         Constraints:
-            `by` is a raw column name, not a catalog ref.
+            `by` is taken from `frame.columns`, not the canonical stored schema
+            or a catalog ref.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_topk
@@ -195,10 +200,10 @@ class _FrameTransforms(Generic[TFrame]):
             )
 
     def bottomk(self, *, by: str, limit: int, analysis_purpose: str | None = None) -> TFrame:
-        """Keep the smallest `limit` rows ordered by a persisted column.
+        """Keep the smallest `limit` rows ordered by a public frame column.
 
         Args:
-            by: Persisted frame column to sort ascending.
+            by: Public frame column to sort ascending.
             limit: Positive row count to keep.
             analysis_purpose: Optional durable label explaining why this
                 transform exists.
@@ -207,10 +212,12 @@ class _FrameTransforms(Generic[TFrame]):
             A transformed frame of the same family as the receiver.
 
         Example:
-            >>> declines = delta.transform.bottomk(by="delta", limit=10)
+            >>> value_column = frame.value_columns[0] if isinstance(frame, mv.MetricFrame) else "delta"
+            >>> smallest = frame.transform.bottomk(by=value_column, limit=10)
 
         Constraints:
-            For deltas, the largest decline is the most-negative `delta`.
+            `by` is taken from `frame.columns`. For deltas, the largest decline
+            is the most-negative `delta`.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_bottomk
@@ -239,12 +246,13 @@ class _FrameTransforms(Generic[TFrame]):
         rank_column: str = "rank",
         analysis_purpose: str | None = None,
     ) -> TFrame:
-        """Add a rank column ordered by a persisted value column.
+        """Add a rank column ordered by a public frame column.
 
         Args:
-            by: Persisted frame column to rank descending.
+            by: Public frame column to rank descending.
             method: Tie-handling method: `ordinal`, `dense`, `min`, or `max`.
-            rank_column: New output column name.
+            rank_column: New public output column name. ``value`` is reserved
+                for canonical MetricFrame persistence.
             analysis_purpose: Optional durable label explaining why this
                 transform exists.
 
@@ -252,10 +260,14 @@ class _FrameTransforms(Generic[TFrame]):
             A transformed frame of the same family as the receiver.
 
         Example:
-            >>> ranked = frame.transform.rank(by="value", method="dense", rank_column="rank")
+            >>> value_column = frame.value_columns[0] if isinstance(frame, mv.MetricFrame) else "delta"
+            >>> ranked = frame.transform.rank(
+            ...     by=value_column, method="dense", rank_column="rank"
+            ... )
 
         Constraints:
-            `rank_column` must not already exist.
+            `by` is taken from `frame.columns`; `rank_column` must not already
+            exist and cannot use a canonical storage-reserved name.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_rank

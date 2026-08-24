@@ -595,6 +595,14 @@ def _raise_unreachable_scope(
     """Turn per-leaf path failures into one graph-level scope blocker."""
 
     missing_components = [metric_id for metric_id, _exc in failures]
+    failure_causes = [
+        {
+            "metric": metric_id,
+            "code": exc._context.get("code"),
+            "candidates": exc._context.get("candidates", {}),
+        }
+        for metric_id, exc in failures
+    ]
     if dimensions:
         dimension_id = _input_id(dimensions[0])
         column = dimension_id.rsplit(".", 1)[-1]
@@ -614,6 +622,7 @@ def _raise_unreachable_scope(
                 "dimension": dimension_id,
                 "missing_components": missing_components,
                 "resolved_components": resolved_components,
+                "failure_causes": failure_causes,
             },
             repair=[],
         )
@@ -636,6 +645,7 @@ def _raise_unreachable_scope(
                 "filter_key": filter_key,
                 "missing_components": missing_components,
                 "resolved_components": resolved_components,
+                "failure_causes": failure_causes,
             },
             repair=[],
         )

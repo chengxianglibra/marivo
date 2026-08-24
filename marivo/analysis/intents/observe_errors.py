@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, NoReturn
 
 from marivo._compat import StrEnum
-from marivo.analysis.errors import MetricShapeUnsupportedError
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    MetricShapeUnsupportedError,
+    _DerivedFields,
+)
+from marivo.introspection.live.model import LiveHelpTarget
 
 ObserveErrorCode = Literal[
     "missing-additivity",
@@ -82,6 +88,69 @@ class RepairAction:
 
 class ObservePlanningError(MetricShapeUnsupportedError):
     """Machine-readable observe planner rejection."""
+
+    def _derive_fields(self) -> _DerivedFields:
+        code = self._context.get("code")
+        if code not in {"component-axis-unreachable", "component-filter-unreachable"}:
+            return _DerivedFields()
+
+        candidates = self._context.get("candidates")
+        if not isinstance(candidates, Mapping):
+            return _DerivedFields()
+        is_filter = code == "component-filter-unreachable"
+        scope_name = "filter" if is_filter else "dimension"
+        scope_key = "filter_key" if is_filter else "dimension"
+        requested = candidates.get(scope_key)
+        missing = candidates.get("missing_components")
+        if not isinstance(requested, str) or not isinstance(missing, list):
+            return _DerivedFields()
+
+        missing_ids = tuple(str(item) for item in missing)
+        missing_preview = missing_ids[:10]
+        raw_causes = candidates.get("failure_causes")
+        cause_items = raw_causes if isinstance(raw_causes, list) else []
+        failure_codes = {
+            cause.get("code")
+            for cause in cause_items
+            if isinstance(cause, Mapping) and isinstance(cause.get("code"), str)
+        }
+        if failure_codes & {"field-ref-ambiguous", "path-ambiguous"}:
+            action = (
+                "Disambiguate the existing field or relationship paths for each listed "
+                "metric leaf; author a new relationship only for a leaf explicitly marked "
+                "path-missing, reload the semantic catalog, then retry the same "
+                "session.observe call."
+            )
+        elif "field-ref-not-found" in failure_codes:
+            action = (
+                f"Correct or author the requested field {requested!r} for every listed "
+                "metric leaf, add governed relationships only where the retained cause is "
+                "path-missing, reload the semantic catalog, then retry the same "
+                "session.observe call."
+            )
+        else:
+            action = (
+                f"Author a governed relationship path that makes {requested!r} reachable "
+                "from every listed metric leaf, reload the semantic catalog, then retry "
+                "the same session.observe call."
+            )
+        received = f"{requested!r} is unreachable from metric leaves {list(missing_preview)!r}"
+        if len(missing_ids) > len(missing_preview):
+            received += f" (+{len(missing_ids) - len(missing_preview)} more)"
+        return _DerivedFields(
+            expected=(
+                f"observation {scope_name} {requested!r} reachable from every metric leaf "
+                "through governed semantic relationships"
+            ),
+            received=received,
+            location="session.observe slice_by" if is_filter else "session.observe dimensions",
+            repair=AnalysisRepair(
+                kind="semantic_authoring",
+                action=action,
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                candidates=missing_preview,
+            ),
+        )
 
 
 def raise_observe_planning_error(

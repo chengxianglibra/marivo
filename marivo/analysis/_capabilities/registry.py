@@ -1458,7 +1458,12 @@ def _build_registry() -> CapabilityRegistry:
     shared_transform_ops: tuple[
         tuple[str, str, frozenset[InputFamily], Mapping[str, frozenset[InputFamily]]], ...
     ] = (
-        ("filter", "Filter rows using a boolean predicate.", _MF_OR_DF, {}),
+        (
+            "filter",
+            "Filter rows using a boolean predicate over public frame columns.",
+            _MF_OR_DF,
+            {},
+        ),
         (
             "slice",
             "Filter rows by catalog-backed axis values.",
@@ -1472,9 +1477,20 @@ def _build_registry() -> CapabilityRegistry:
             _MF_OR_DF,
             {"drop_axes": _FIELD_SEMANTIC},
         ),
-        ("topk", "Keep the largest rows ordered by a column.", _MF_OR_DF, {}),
-        ("bottomk", "Keep the smallest rows ordered by a column.", _MF_OR_DF, {}),
-        ("rank", "Add a rank column ordered by a value column.", _MF_OR_DF, {}),
+        ("topk", "Keep the largest rows ordered by a public frame column.", _MF_OR_DF, {}),
+        (
+            "bottomk",
+            "Keep the smallest rows ordered by a public frame column.",
+            _MF_OR_DF,
+            {},
+        ),
+        (
+            "rank",
+            "Add a rank column ordered by a public frame column; value is reserved "
+            "for canonical MetricFrame storage and cannot be used as rank_column.",
+            _MF_OR_DF,
+            {},
+        ),
         (
             "window",
             "Restrict to a half-open time window.",

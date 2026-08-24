@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from time import monotonic
@@ -1642,6 +1642,15 @@ def _series_supports_range_slice(series: pd.Series) -> bool:
     return all(isinstance(value, (date, datetime, pd.Timestamp)) for value in non_null)
 
 
+def _public_column_mapping(
+    frame: TransformFrame,
+    df: pd.DataFrame,
+) -> dict[str, Hashable]:
+    """Map the frame's public column names to its canonical stored columns."""
+
+    return dict(zip(frame._public_column_names(), df.columns, strict=True))
+
+
 def _op_filter(
     frame: TransformFrame,
     *,
@@ -1655,7 +1664,10 @@ def _op_filter(
         )
 
     df = frame._dataframe_copy()
-    mask = predicate(df)
+    column_mapping = _public_column_mapping(frame, df)
+    public_df = df.copy()
+    public_df.columns = list(column_mapping)
+    mask = predicate(public_df)
     if not isinstance(mask, pd.Series):
         raise TransformArgError(
             message="transform(op='filter') predicate must return a pandas Series",
@@ -1703,7 +1715,7 @@ def _ordered_take(
     if not isinstance(by, str):
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires by to be a column name",
-            hint=f"Pass by='value' or another persisted frame column for {op_name}.",
+            hint=(f"Pass by=frame.value_columns[0] or another public frame column for {op_name}."),
             context={
                 "op": op_name,
                 "argument": "by",
@@ -1719,15 +1731,23 @@ def _ordered_take(
         )
 
     df = frame._dataframe_copy()
-    if by not in df.columns:
+    column_mapping = _public_column_mapping(frame, df)
+    if by not in column_mapping:
+        public_columns = list(column_mapping)
         raise TransformArgError(
             message=f"transform(op='{op_name}') by column {by!r} is not present",
-            hint=f"Choose one of the persisted frame columns: {', '.join(map(str, df.columns))}.",
-            context={"op": op_name, "argument": "by", "by": by, "columns": list(df.columns)},
+            hint=f"Choose one of the public frame columns: {', '.join(public_columns)}.",
+            context={
+                "op": op_name,
+                "argument": "by",
+                "by": by,
+                "columns": public_columns,
+            },
         )
+    canonical_by = cast("str", column_mapping[by])
 
     sorted_df = (
-        df.sort_values(by=by, ascending=ascending, na_position="last")
+        df.sort_values(by=canonical_by, ascending=ascending, na_position="last")
         .head(limit)
         .reset_index(drop=True)
     )
@@ -1756,7 +1776,7 @@ def _op_rank(
     if not isinstance(by, str):
         raise TransformArgError(
             message="transform(op='rank') requires by to be a column name",
-            hint="Pass by='value' or another persisted frame column for rank.",
+            hint="Pass by=frame.value_columns[0] or another public frame column for rank.",
             context={"op": "rank", "argument": "by", "actual_type": type(by).__name__},
         )
 
@@ -1791,20 +1811,48 @@ def _op_rank(
         )
 
     df = frame._dataframe_copy()
-    if by not in df.columns:
+    column_mapping = _public_column_mapping(frame, df)
+    if by not in column_mapping:
+        public_columns = list(column_mapping)
         raise TransformArgError(
             message=f"transform(op='rank') by column {by!r} is not present",
-            hint=f"Choose one of the persisted frame columns: {', '.join(map(str, df.columns))}.",
-            context={"op": "rank", "argument": "by", "by": by, "columns": list(df.columns)},
+            hint=f"Choose one of the public frame columns: {', '.join(public_columns)}.",
+            context={
+                "op": "rank",
+                "argument": "by",
+                "by": by,
+                "columns": public_columns,
+            },
         )
-    if rank_column in df.columns:
+    canonical_by = cast("str", column_mapping[by])
+    if rank_column in column_mapping:
         raise TransformArgError(
             message=f"transform(op='rank') rank_column {rank_column!r} already exists",
             hint="Choose a new rank_column name that does not overwrite an existing column.",
-            context={"op": "rank", "argument": "rank_column", "rank_column": rank_column},
+            context={
+                "op": "rank",
+                "argument": "rank_column",
+                "rank_column": rank_column,
+                "columns": list(column_mapping),
+            },
+        )
+    if rank_column in df.columns:
+        raise TransformArgError(
+            message=(
+                f"transform(op='rank') rank_column {rank_column!r} is reserved by "
+                "canonical frame storage"
+            ),
+            hint="Choose a new public rank_column name other than the reserved name.",
+            context={
+                "op": "rank",
+                "argument": "rank_column",
+                "rank_column": rank_column,
+                "columns": list(column_mapping),
+                "reserved_columns": [rank_column],
+            },
         )
 
-    by_values = df[by]
+    by_values = df[canonical_by]
     null_count = int(by_values.isna().sum())
     non_finite_count = 0
     if pd.api.types.is_numeric_dtype(by_values):
@@ -1824,7 +1872,9 @@ def _op_rank(
         )
 
     ranked = df.copy()
-    ranked[rank_column] = ranked[by].rank(method=pandas_method, ascending=False).astype(int)
+    ranked[rank_column] = (
+        ranked[canonical_by].rank(method=pandas_method, ascending=False).astype(int)
+    )
     return (
         ranked,
         {},
@@ -2633,6 +2683,7 @@ def _persist_transform_frame(
                 job_ref=job_ref,
                 inputs=source_refs,
                 params_digest=_params_digest(normalized_params),
+                params=normalized_params,
                 analysis_purpose=analysis_purpose,
             ),
         ],

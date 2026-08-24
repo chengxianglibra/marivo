@@ -1,5 +1,6 @@
 """MetricFrame arity accessors, gate, and projection."""
 
+import textwrap
 from datetime import datetime
 
 import pandas as pd
@@ -9,10 +10,12 @@ import marivo.analysis as mv
 from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.analysis.session._layout import read_job_record
 from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import (
     make_test_metric_meta_contract,
     make_test_multi_metric_contract,
+    rendered_help,
 )
 
 
@@ -329,6 +332,82 @@ def test_projection_returns_arity_1_frame(sales_session):
             },
         },
     }
+
+
+def test_projected_frame_transforms_use_only_public_columns(sales_session):
+    from marivo.analysis.errors import TransformArgError
+
+    revenue = _fused(sales_session).metric("sales.revenue")
+    value_column = revenue.value_columns[0]
+    assert value_column == "revenue"
+
+    seen_columns: list[str] = []
+
+    def positive_values(data: pd.DataFrame) -> pd.Series:
+        seen_columns.extend(str(column) for column in data.columns)
+        return data[value_column] > 10
+
+    filtered = revenue.transform.filter(predicate=positive_values)
+    top = revenue.transform.topk(by=value_column, limit=1)
+    bottom = revenue.transform.bottomk(by=value_column, limit=1)
+    ranked = revenue.transform.rank(by=value_column, method="dense")
+
+    assert seen_columns == revenue.columns
+    assert filtered.to_pandas()[value_column].tolist() == [50.0]
+    assert top.to_pandas()[value_column].tolist() == [50.0]
+    assert bottom.to_pandas()[value_column].tolist() == [10.0]
+    assert ranked.to_pandas()["rank"].tolist() == [2, 1]
+    assert sales_session.get_frame(top.ref).columns == ["bucket_start", value_column]
+    assert top.lineage.steps[-1].params["by"] == value_column
+    assert read_job_record(sales_session._layout, top.meta.produced_by_job)["params"]["by"] == (
+        value_column
+    )
+
+    with pytest.raises(TransformArgError) as exc_info:
+        revenue.transform.topk(by="value", limit=1)
+
+    err = exc_info.value
+    assert err._context["columns"] == revenue.columns
+    assert "value" not in err._context["columns"]
+    assert value_column in str(err)
+
+    with pytest.raises(TransformArgError) as rank_exc_info:
+        revenue.transform.rank(by=value_column, rank_column="value")
+
+    rank_err = rank_exc_info.value
+    assert "reserved by canonical frame storage" in str(rank_err)
+    assert rank_err._context["columns"] == revenue.columns
+    assert rank_err._context["reserved_columns"] == ["value"]
+
+
+@pytest.mark.parametrize(
+    ("target", "result_name"),
+    [
+        ("transform.filter", "focused"),
+        ("transform.topk", "biggest"),
+        ("transform.bottomk", "smallest"),
+        ("transform.rank", "ranked"),
+    ],
+)
+def test_transform_live_help_example_executes_on_projected_frame(
+    sales_session,
+    target: str,
+    result_name: str,
+) -> None:
+    frame = _fused(sales_session).metric("sales.revenue")
+    delta = sales_session.compare(frame, frame).transform.filter(
+        predicate=lambda data: data["delta"].notna()
+    )
+    help_text = rendered_help(target, owner="analysis")
+    example = help_text.split("  Example:\n", 1)[1].split("\n\n", 1)[0]
+
+    for receiver in (frame, delta):
+        namespace: dict[str, object] = {"frame": receiver, "mv": mv}
+
+        exec(textwrap.dedent(example), namespace)
+
+        result = namespace[result_name]
+        assert isinstance(result, type(receiver))
 
 
 def test_projection_on_arity_1_returns_self(sales_session):

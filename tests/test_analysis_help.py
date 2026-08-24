@@ -876,6 +876,23 @@ def test_single_metric_gated_intent_help_declares_arity_precondition(target: str
     assert "arity=1" in text
 
 
+@pytest.mark.parametrize(
+    "target",
+    ["transform.filter", "transform.topk", "transform.bottomk", "transform.rank"],
+)
+def test_transform_help_uses_public_value_columns(target: str) -> None:
+    text = _text(target)
+
+    assert 'frame.value_columns[0] if isinstance(frame, mv.MetricFrame) else "delta"' in text
+    assert 'by="value"' not in text
+    assert 'data["value"]' not in text
+    assert "public frame column" in text or "public columns" in text
+
+    if target == "transform.rank":
+        assert "value is reserved" in text
+        assert "canonical MetricFrame storage" in text
+
+
 def test_assess_quality_help_declares_exact_artifact_shapes() -> None:
     text = _text("assess_quality")
 
@@ -1006,8 +1023,8 @@ def test_constructor_descriptors_declare_direct_input_families() -> None:
         ("attribute", "attribution", "delta"),
         ("forecast", "forecast", "history"),
         ("discover.driver_axes", "candidates", "country"),
-        ("transform.topk", "biggest", "delta"),
-        ("transform.bottomk", "declines", "delta"),
+        ("transform.topk", "biggest", "frame"),
+        ("transform.bottomk", "smallest", "frame"),
     ),
 )
 def test_focused_operator_postconditions_follow_registered_call_result(

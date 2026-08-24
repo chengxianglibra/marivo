@@ -11,7 +11,10 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo._compat import UTC
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.intents.observe_errors import ObservePlanningError
+from marivo.analysis.intents.observe_errors import (
+    ObservePlanningError,
+    raise_observe_planning_error,
+)
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
 
@@ -744,17 +747,39 @@ def test_component_axis_unreachable_raises(tmp_path):
     con.raw_sql("CREATE TABLE sessions (session_id INTEGER)")
     con.raw_sql("CREATE TABLE users (user_id INTEGER, country VARCHAR)")
 
+    session = _session(con)
     with pytest.raises(ObservePlanningError) as exc_info:
-        observe(
+        session.observe(
             make_ref("sales.gmv_per_session", SemanticKind.METRIC),
             dimensions=[make_ref("sales.users.country", SemanticKind.DIMENSION)],
-            session=_session(con),
         )
 
-    details = exc_info.value._context
+    error = exc_info.value
+    details = error._context
     assert details["code"] == "component-axis-unreachable"
+    assert details["schema_version"] == "observe-error/v1"
     assert "sales.session_count" in details["candidates"]["missing_components"]
     assert any(c["metric"] == "sales.gmv" for c in details["candidates"]["resolved_components"])
+    assert details["candidates"]["failure_causes"] == [
+        {
+            "metric": "sales.session_count",
+            "code": "path-missing",
+            "candidates": {
+                "from_dataset": "sales.sessions",
+                "to_dataset": "sales.users",
+            },
+        }
+    ]
+    assert error.expected is not None and "sales.users.country" in error.expected
+    assert error.received is not None and "sales.session_count" in error.received
+    assert error.location == "session.observe dimensions"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert error.repair.help_target.surface == "analysis"
+    assert error.repair.help_target.canonical_id == "observe"
+    assert error.repair.candidates == ("sales.session_count",)
+    assert "Repair:" in str(error)
+    assert "Help: marivo.help('analysis.observe')" in str(error)
 
 
 def test_component_filter_unreachable_raises(tmp_path):
@@ -764,16 +789,62 @@ def test_component_filter_unreachable_raises(tmp_path):
     con.raw_sql("CREATE TABLE sessions (session_id INTEGER)")
     con.raw_sql("CREATE TABLE users (user_id INTEGER, country VARCHAR)")
 
+    session = _session(con)
     with pytest.raises(ObservePlanningError) as exc_info:
-        observe(
+        session.observe(
             make_ref("sales.gmv_per_session", SemanticKind.METRIC),
             slice_by={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
-            session=_session(con),
         )
-    details = exc_info.value._context
+    error = exc_info.value
+    details = error._context
     assert details["code"] == "component-filter-unreachable"
+    assert details["schema_version"] == "observe-error/v1"
     assert details["candidates"]["filter_key"] == "sales.users.country"
     assert "sales.session_count" in details["candidates"]["missing_components"]
+    assert details["candidates"]["failure_causes"][0]["code"] == "path-missing"
+    assert error.expected is not None and "sales.users.country" in error.expected
+    assert error.received is not None and "sales.session_count" in error.received
+    assert error.location == "session.observe slice_by"
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert error.repair.help_target.surface == "analysis"
+    assert error.repair.help_target.canonical_id == "observe"
+    assert error.repair.candidates == ("sales.session_count",)
+    assert "Repair:" in str(error)
+    assert "Help: marivo.help('analysis.observe')" in str(error)
+
+
+def test_component_unreachable_ambiguity_does_not_recommend_another_path():
+    with pytest.raises(ObservePlanningError) as exc_info:
+        raise_observe_planning_error(
+            code="component-axis-unreachable",
+            message="x",
+            candidates={
+                "dimension": "sales.users.country",
+                "missing_components": ["sales.session_count"],
+                "resolved_components": [],
+                "failure_causes": [
+                    {
+                        "metric": "sales.session_count",
+                        "code": "path-ambiguous",
+                        "candidates": {
+                            "paths": [
+                                ["sales.sessions_to_users_a"],
+                                ["sales.sessions_to_users_b"],
+                            ]
+                        },
+                    }
+                ],
+            },
+            repair=[],
+        )
+
+    error = exc_info.value
+    assert error.repair is not None
+    assert error.repair.kind == "semantic_authoring"
+    assert "Disambiguate the existing field or relationship paths" in error.repair.action
+    assert "author a new relationship only" in error.repair.action
+    assert "Author a governed relationship path that makes" not in error.repair.action
 
 
 def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
