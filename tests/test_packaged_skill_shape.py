@@ -90,12 +90,7 @@ def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
 
 
 def test_analysis_skill_package_layout() -> None:
-    assert sorted(path.name for path in ANALYSIS_SKILL_DIR.iterdir()) == [
-        "SKILL.md",
-        "references",
-    ]
-    references = ANALYSIS_SKILL_DIR / "references"
-    assert sorted(path.name for path in references.iterdir()) == ["runtime-metric-closeout.md"]
+    assert sorted(path.name for path in ANALYSIS_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
 
 def test_semantic_skill_package_layout() -> None:
