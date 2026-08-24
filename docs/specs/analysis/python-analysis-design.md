@@ -467,6 +467,10 @@ This overview is the entry point. The focused specs:
 - [`evidence-access-surface.md`](evidence-access-surface.md) — typed findings,
   bounded artifact digests, inference boundaries, session audit pages, the v3
   `judgment.db` ledger, and the agent-owned judgment boundary.
+- [`evidence-compatibility-and-revalidation-design.md`](../../superpowers/specs/evidence-compatibility-and-revalidation-design.md)
+  — the proposed selection-wide Finding compatibility, Artifact
+  identity/semantic/evidence revalidation, normalized authority identity, and
+  shared operator admission contract.
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket
   computation, and calendar alignment.
