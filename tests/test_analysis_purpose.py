@@ -127,7 +127,7 @@ def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_
         analysis_purpose="generate revenue breakdown by region",
     )
 
-    transformed = parent.transform.topk(by="value", limit=1)
+    transformed = parent.transform.topk(by=parent.value_columns[0], limit=1)
 
     assert parent.meta.analysis_purpose == "generate revenue breakdown by region"
     assert transformed.meta.analysis_purpose is None

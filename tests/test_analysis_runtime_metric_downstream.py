@@ -51,7 +51,7 @@ def test_runtime_frame_uses_ordinary_quality_and_transform_state(runtime_session
     )
 
     quality = runtime_session.assess_quality(frame)
-    top = frame.transform.topk(by="value", limit=1)
+    top = frame.transform.topk(by=frame.value_columns[0], limit=1)
 
     assert quality.meta.source_refs == [frame.ref]
     assert top.meta.metric_identity == frame.meta.metric_identity

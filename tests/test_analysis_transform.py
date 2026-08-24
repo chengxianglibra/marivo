@@ -321,7 +321,7 @@ def test_frame_transform_methods_preserve_family(tmp_path):
     metric = _make_time_series(tmp_path)
     delta = _make_topk_delta_time_series()
 
-    metric_out = metric.transform.topk(by="value", limit=1)
+    metric_out = metric.transform.topk(by=metric.value_columns[0], limit=1)
     delta_out = delta.transform.bottomk(by="delta", limit=1)
 
     assert isinstance(metric_out, MetricFrame)
@@ -353,7 +353,8 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
         grain=mv.grain("day"),
     )
-    filtered = series.transform.filter(predicate=lambda d: d["value"] > 10)
+    value_column = series.value_columns[0]
+    filtered = series.transform.filter(predicate=lambda d: d[value_column] > 10)
     assert filtered.to_pandas()[filtered.value_columns[0]].tolist() == [40.0, 60.0]
     assert filtered.value_columns == ("revenue",)
     assert filtered.columns == ["bucket_start", "revenue"]
@@ -366,13 +367,13 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     windowed = series.transform.window(window=mv.time_scope(start="2026-07-02", end="2026-07-03"))
     assert windowed.to_pandas()[windowed.value_columns[0]].tolist() == [60.0]
 
-    top = series.transform.topk(by="value", limit=1)
+    top = series.transform.topk(by=value_column, limit=1)
     assert top.to_pandas()[top.value_columns[0]].tolist() == [60.0]
 
-    bottom = series.transform.bottomk(by="value", limit=1)
+    bottom = series.transform.bottomk(by=value_column, limit=1)
     assert bottom.to_pandas()[bottom.value_columns[0]].tolist() == [40.0]
 
-    ranked = series.transform.rank(by="value", method="dense", rank_column="r")
+    ranked = series.transform.rank(by=value_column, method="dense", rank_column="r")
     assert ranked.to_pandas()["r"].tolist() == [2, 1]
 
     segmented = make_metric_frame(
@@ -541,14 +542,22 @@ def test_transform_cross_session_rejected(tmp_path):
     session_b = session_attach.get_or_create(name="other", backends={"warehouse": lambda: con})
 
     with pytest.raises(CrossSessionFrameError):
-        _active_transform(frame_a, op="filter", predicate=lambda d: d["value"] > 0)
+        _active_transform(
+            frame_a,
+            op="filter",
+            predicate=lambda d: d[frame_a.value_columns[0]] > 0,
+        )
 
 
 def test_transform_lineage_and_job_record_persist(tmp_path):
     frame = _make_time_series(tmp_path)
     session = session_attach.current()
 
-    out = _active_transform(frame, op="filter", predicate=lambda d: d["value"] > 10)
+    out = _active_transform(
+        frame,
+        op="filter",
+        predicate=lambda d: d[frame.value_columns[0]] > 10,
+    )
 
     assert out.lineage.steps[-1].intent == "transform"
     assert out.lineage.steps[-1].inputs == [frame.ref]
@@ -1112,7 +1121,11 @@ def test_transform_filter_preserves_metric_frame(tmp_path):
     df = frame.to_pandas()
     original_len = len(df)
 
-    filtered = _active_transform(frame, op="filter", predicate=lambda d: d["value"] > 15)
+    filtered = _active_transform(
+        frame,
+        op="filter",
+        predicate=lambda d: d[frame.value_columns[0]] > 15,
+    )
 
     assert isinstance(filtered, MetricFrame)
     assert filtered.meta.kind == "metric_frame"
@@ -1152,7 +1165,7 @@ def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
             frame,
             op="filter",
             slice_by={"value": 10},
-            predicate=lambda d: d["value"] > 0,
+            predicate=lambda d: d[frame.value_columns[0]] > 0,
         )
     message = str(excinfo.value)
     assert "slice_by" in message
@@ -1174,21 +1187,21 @@ def test_transform_filter_rejects_non_default_rank_kwargs(tmp_path, kwargs, name
 
 def test_transform_topk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
-    top = _active_transform(frame, op="topk", by="value", limit=1)
+    top = _active_transform(frame, op="topk", by=frame.value_columns[0], limit=1)
     assert top.meta.row_count == 1
     assert top.to_pandas()[top.value_columns[0]].tolist() == [20.0]
 
 
 def test_transform_bottomk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
-    bottom = _active_transform(frame, op="bottomk", by="value", limit=1)
+    bottom = _active_transform(frame, op="bottomk", by=frame.value_columns[0], limit=1)
     assert bottom.meta.row_count == 1
     assert bottom.to_pandas()[bottom.value_columns[0]].tolist() == [10.0]
 
 
 def test_transform_rank_appends_rank_column(tmp_path):
     frame = _make_time_series(tmp_path)
-    ranked = _active_transform(frame, op="rank", by="value")
+    ranked = _active_transform(frame, op="rank", by=frame.value_columns[0])
     df = ranked.to_pandas()
     assert "rank" in df.columns
     expected = (
@@ -1199,7 +1212,12 @@ def test_transform_rank_appends_rank_column(tmp_path):
 
 def test_transform_rank_custom_column_name(tmp_path):
     frame = _make_time_series(tmp_path)
-    ranked = _active_transform(frame, op="rank", by="value", rank_column="r")
+    ranked = _active_transform(
+        frame,
+        op="rank",
+        by=frame.value_columns[0],
+        rank_column="r",
+    )
     assert "r" in ranked.to_pandas().columns
 
 
@@ -1224,14 +1242,14 @@ def test_transform_rank_rejects_null_by_values():
     )
 
     with pytest.raises(TransformArgError) as excinfo:
-        _active_transform(frame, op="rank", by="value")
+        _active_transform(frame, op="rank", by=frame.value_columns[0])
 
     err = excinfo.value
     assert "rank" in str(err)
     assert "by" in str(err)
     assert "null" in str(err) or "non-finite" in str(err)
     assert err._context["op"] == "rank"
-    assert err._context["by"] == "value"
+    assert err._context["by"] == frame.value_columns[0]
 
 
 def test_transform_rank_dense_method_uses_dense_tie_ranks():
@@ -1246,7 +1264,12 @@ def test_transform_rank_dense_method_uses_dense_tie_ranks():
         session=session,
     )
 
-    ranked = _active_transform(frame, op="rank", by="value", method="dense")
+    ranked = _active_transform(
+        frame,
+        op="rank",
+        by=frame.value_columns[0],
+        method="dense",
+    )
 
     assert ranked.to_pandas()["rank"].tolist() == [1, 1, 2]
 
@@ -1272,7 +1295,7 @@ def test_transform_topk_requires_positive_limit(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        _active_transform(frame, op="topk", by="value", limit=0)
+        _active_transform(frame, op="topk", by=frame.value_columns[0], limit=0)
 
 
 def test_transform_topk_rejects_unknown_column(tmp_path):
@@ -1661,7 +1684,7 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
         }
     )
 
-    out = frame.transform.topk(by="value", limit=1)
+    out = frame.transform.topk(by=frame.value_columns[0], limit=1)
 
     assert out.meta.component_ref is None
     assert out.meta.composition is None
@@ -2182,7 +2205,7 @@ def test_transform_persists_artifact_job_lineage_and_empty_digest(tmp_path):
     frame = _make_time_series(tmp_path)
     session = session_attach.current()
 
-    out = frame.transform.topk(by="value", limit=1)
+    out = frame.transform.topk(by=frame.value_columns[0], limit=1)
 
     stored_df, stored_meta = read_frame_from_disk(session._layout, out.ref)
     assert isinstance(stored_df, pd.DataFrame)

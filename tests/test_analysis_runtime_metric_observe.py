@@ -997,8 +997,9 @@ def test_callback_transforms_are_incomparable(runtime_session) -> None:
         mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
     )
 
-    first = source.transform.filter(predicate=lambda data: data["value"] >= 0)
-    second = source.transform.filter(predicate=lambda data: data["value"] >= 80)
+    value_column = source.value_columns[0]
+    first = source.transform.filter(predicate=lambda data: data[value_column] >= 0)
+    second = source.transform.filter(predicate=lambda data: data[value_column] >= 80)
 
     assert first.meta.comparable_value_semantics is None
     assert second.meta.comparable_value_semantics is None

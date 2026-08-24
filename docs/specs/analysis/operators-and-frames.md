@@ -658,11 +658,15 @@ Every public read of a single-metric `MetricFrame` uses the metric name for its
 value column. This includes `show()` / `render()`, `.columns`, iteration,
 `contract().artifact_schema`, `frame[metric_name]`, and `to_pandas()`, and remains
 true after transforms. The typed runtime and persisted frame keep the canonical
-internal `value` column; transform predicates and operator implementations use
-that internal schema. If a metric short name collides with an axis column, the
-public value column uses the qualified metric id with `.` replaced by `__`.
+internal `value` column, but every public transform input uses the same public
+schema as frame reads. Filter predicates receive public column names, and
+`topk`, `bottomk`, and `rank` accept only names from `frame.columns`; operator
+implementations map those names to the canonical schema without exposing it. If
+a metric short name collides with an axis column, the public value column uses
+the qualified metric id with `.` replaced by `__`.
 If that qualified name also collides, Marivo appends a deterministic `#N`
-suffix until the public column name is unique.
+suffix until the public column name is unique. The canonical `value` name is not
+a public input alias and remains reserved as a `rank_column` output name.
 
 ### The mechanical contract
 

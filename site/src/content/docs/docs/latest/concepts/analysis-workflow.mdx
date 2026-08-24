@@ -290,10 +290,13 @@ output column, the exact `session.catalog.<collection>.get("<path>")`
 reacquisition call, and its focused catalog help target. Use
 `artifact.contract().show()` for these complete mechanical details.
 
-Typed transforms still use the internal canonical `value` column. For example,
-`frame.transform.filter(predicate=lambda data: data["value"] > 0)` remains valid;
-afterward, read the result with `filtered[filtered.value_columns[0]]` or
-`filtered.to_pandas()`.
+Typed transform inputs use the same public columns as every frame read. Resolve
+the metric value name with `value_column = frame.value_columns[0]`, then use it
+in calls such as
+`frame.transform.filter(predicate=lambda data: data[value_column] > 0)` or
+`frame.transform.topk(by=value_column, limit=10)`. The canonical internal
+`value` name is a persistence detail and is not a public transform alias; it
+also remains reserved as a `rank_column` output name.
 
 ```python
 report = session.observe(

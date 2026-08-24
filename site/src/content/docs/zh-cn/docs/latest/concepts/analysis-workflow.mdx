@@ -239,9 +239,12 @@ arity-1 frame，对单个指标做 drill-down。
 `session.catalog.<collection>.get("<path>")` 重新获取调用及对应专项目录
 帮助目标。需要这些完整机械信息时，使用 `artifact.contract().show()`。
 
-类型化变换内部仍使用规范 `value` 列。例如
-`frame.transform.filter(predicate=lambda data: data["value"] > 0)` 仍然有效；
-之后可通过 `filtered[filtered.value_columns[0]]` 或 `filtered.to_pandas()` 读取结果。
+类型化变换的输入使用与所有 frame 读取路径相同的公开列名。先通过
+`value_column = frame.value_columns[0]` 获取指标值列，再调用
+`frame.transform.filter(predicate=lambda data: data[value_column] > 0)` 或
+`frame.transform.topk(by=value_column, limit=10)`。规范内部列名 `value` 仅是
+持久化细节，不是公开 transform 别名；它同时保留为不可用于 `rank_column`
+输出的名称。
 
 ```python
 report = session.observe(
