@@ -1,0 +1,82 @@
+---
+slug: docs/latest/release-notes/0.4.11
+title: Marivo 0.4.11
+description: Release notes for Marivo 0.4.11.
+---
+
+Marivo 0.4.11 makes semantic authoring and datasource evidence more explicit
+for agents, while tightening typed analysis transforms and repair guidance.
+
+## Highlights
+
+- Agent-native semantic authoring now follows a smaller public contract centered
+  on current catalogs, one coherent semantic slice, `ms.load()`, exact
+  `catalog.require(...)`, and scoped readiness. Preview and source-health checks
+  remain explicit evidence branches rather than hidden authoring stages.
+- `catalog.source_health(...)` provides an explicit report for current source or
+  data drift. It can check connectivity and authoritative schema/capabilities,
+  or run bounded declared data checks without changing readiness or analysis
+  inputs.
+- Datasource inspection and discovery now expose bounded contracts, named
+  retained rows, metric preview sampling, and clearer partition/snapshot
+  recovery. Agents can distinguish a truncated partition from semantic modeling
+  that is still pending.
+- Typed analysis now exposes clearer compatibility and projection repairs for
+  time grains, metric bindings, and transforms. Delta arithmetic also stays
+  safe for unsigned inputs instead of wrapping on negative results.
+
+## Changed
+
+- Datasource credentials use explicit `*_env` references; implicit environment
+  fallback is no longer part of datasource authoring or doctor checks.
+- Bounded `show()` and `contract()` guidance is more consistent across
+  datasource, semantic, and analysis results. Custom analysis is an explicit
+  terminal exit, with the typed chain and its evidence boundary kept clear.
+- The packaged `marivo-semantic` and `marivo-analysis` skills now focus on the
+  current modeling, evidence, repair, and handoff boundaries instead of
+  duplicating a legacy operator ladder.
+
+## Fixed
+
+- Unsigned delta calculations no longer overflow when the change is negative.
+- Analysis transforms preserve the frame family and reject incompatible metric
+  or time-axis operations with actionable repairs.
+- Datasource and snapshot recovery paths now preserve the exact bounded scope
+  and report whether data was truncated, retained, or still requires semantic
+  modeling.
+
+## Documentation
+
+- The semantic and analysis guides document explicit source health, snapshot and
+  partition recovery, metric preview sampling, time-grain compatibility,
+  structured transform repairs, and terminal custom-analysis boundaries.
+
+## Installation
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+In mainland China, use:
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+For manual installation:
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for each datasource you plan to use. Marivo 0.4.11
+requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)

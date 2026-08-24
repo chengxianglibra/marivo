@@ -1,0 +1,76 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.11
+title: Marivo 0.4.11
+description: Marivo 0.4.11 发布说明。
+---
+
+Marivo 0.4.11 让面向 agent 的语义编写和 datasource 证据更加明确，同时收紧 typed
+analysis 的变换与修复指引。
+
+## 重点
+
+- 面向 agent 的语义编写现在围绕更小的公开契约展开：读取当前 catalog、编写一个完整的
+  semantic slice、调用 `ms.load()`、使用准确的 `catalog.require(...)`，再进行 scoped
+  readiness。Preview 和 source health 是显式的证据分支，不再是隐藏的 authoring stage。
+- `catalog.source_health(...)` 提供独立的当前 source 或数据漂移报告。它可以检查连接和权威
+  schema/capability，也可以在有界 scope 内执行显式声明的数据检查，且不会改变 readiness
+  或 analysis 输入。
+- Datasource inspection 和 discovery 现在提供有界 contract、命名的 retained rows、metric
+  preview sampling，以及更清晰的 partition/snapshot recovery。Agent 可以区分 partition 被
+  截断和语义建模仍待完成。
+- Typed analysis 现在为 time grain、metric binding 和 transform 提供更清晰的兼容性与
+  projection 修复指引；对 unsigned 输入的 delta 运算在负向变化时也不会发生回绕。
+
+## 变更
+
+- Datasource credential 使用显式的 `*_env` 引用；隐式的环境变量 fallback 不再属于
+  datasource authoring 或 doctor 检查的一部分。
+- Datasource、semantic 和 analysis 结果的有界 `show()` / `contract()` 指引更加一致。
+  Custom analysis 是明确的 terminal exit，typed chain 与 evidence boundary 保持清晰。
+- 打包的 `marivo-semantic` 和 `marivo-analysis` skill 现在聚焦当前的建模、证据、修复和
+  handoff 边界，不再复制旧的 operator ladder。
+
+## 修复
+
+- Unsigned delta 计算在负向变化时不再溢出。
+- Analysis transform 保持 frame family，并对不兼容的 metric 或 time axis 操作返回可执行
+  的修复指引。
+- Datasource 和 snapshot recovery 现在保留准确的有界 scope，并报告数据是被截断、已保留，
+  还是仍需要语义建模。
+
+## 文档
+
+- 语义与分析指南补充了显式 source health、snapshot 和 partition recovery、metric preview
+  sampling、time-grain compatibility、结构化 transform 修复，以及 terminal custom-analysis
+  边界。
+
+## 安装
+
+国内网络建议运行：
+
+```bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+```
+
+也可以使用标准安装器：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+手动安装：
+
+```bash
+pip install marivo
+```
+
+请为计划使用的数据源安装对应后端扩展。Marivo 0.4.11 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)
