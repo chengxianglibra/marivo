@@ -625,6 +625,9 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
 
+`agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
+both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
+
 #### Count metrics — `ms.count`
 
 Use `ms.count` instead of declaring a redundant measure just to count entity

@@ -775,6 +775,8 @@ class Materializer:
         if agg_name == "mean":
             return column.mean()
         if agg_name == "median":
+            if profile is not None and profile.percentile_uses_approx_quantile:
+                return column.approx_quantile(0.5)
             return column.median()
         if agg_name == "percentile":
             if profile is not None and profile.percentile_uses_approx_quantile:
