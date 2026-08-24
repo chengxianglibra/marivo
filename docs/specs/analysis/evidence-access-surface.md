@@ -1,6 +1,6 @@
 # Analysis evidence access surface
 
-Status: implemented contract for Cutover A.
+Status: implemented contract.
 
 This document defines the deterministic evidence surface exposed by
 `marivo.analysis`. Marivo is a pure Python analysis library: it does not call an
@@ -49,8 +49,8 @@ The digest is an immutable commit-time snapshot with:
 | `digest_version` | Digest projection contract version; current producers emit `v2`. |
 | `artifact_ref` | Exact source artifact identity. |
 | `operator` | Operator, version, artifact family, and semantic shape. |
-| `subject` | Metric-shaped subject and analysis axis. |
-| `scope` | Existing metric ids, segment keys, window, and assumptions. |
+| `subject` | Closed metric, Event, Lifecycle, or SubjectSet subject and analysis axis. |
+| `scope` | Closed metric, Event journey/reducer, Lifecycle replay/reducer, or SubjectSet scope. |
 | `items` | At most five typed operator-local items. |
 | `boundaries` | At most three explicit prohibited inference upgrades. |
 | `omissions` | Retained and omitted item counts and kinds. |
@@ -114,9 +114,19 @@ no generic message/payload issue and no issue resolution lifecycle. A typed
 `AnalysisRepair` may describe how to retry a failing capability; it is local
 error recovery, not a persisted next-step recommendation.
 
-`AnalysisScope` is the renamed metric-shaped scope needed by artifacts and
-digests. Cutover A adds no Event/Lifecycle scope variant and no
-`compatible_with()` method.
+`EvidenceScope` is the closed `kind`-discriminated union for persisted analysis
+scope:
+
+| `kind` | Variant | Use |
+| --- | --- | --- |
+| `metric` | `AnalysisScope` | metric artifacts |
+| `event` | `EventAnalysisScope` | Event journeys |
+| `event_funnel` | `EventFunnelAnalysisScope` | Event funnel reducers |
+| `event_time_to_event` | `EventTimeToEventAnalysisScope` | Event time-to-event reducers |
+| `lifecycle` | `LifecycleAnalysisScope` | Lifecycle replay and reducers |
+| `subject_set` | `SubjectSetAnalysisScope` | persisted subject selections |
+
+No scope variant exposes a `compatible_with()` method.
 
 ## Session recovery and audit
 
@@ -182,7 +192,7 @@ digests and findings raise their typed not-available/not-found errors.
 ## Commit and persistence
 
 `judgment.db` remains the on-disk filename for existing session layouts, but its
-schema v3 stores only:
+schema v4 stores only:
 
 - artifacts;
 - typed findings;
@@ -196,7 +206,7 @@ identity. Every subject includes the owning session/artifact scope, so evidence
 from different sessions cannot merge merely because value expressions match.
 
 Artifact, findings, digest, and issues commit in one transaction. There is no
-phase-two judgment transaction. Only schema v3 is accepted: every non-v3
+phase-two judgment transaction. Only schema v4 is accepted: every non-v4
 `judgment.db` raises `SchemaVersionMismatchError` and must be replaced by a
 fresh analysis session.
 
