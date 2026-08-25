@@ -17,6 +17,7 @@ from marivo.analysis.errors import (
     InvalidEventMatchingPolicyError,
     ModelStateMismatchError,
     PatternStepMismatchError,
+    SessionLockedByAnotherProcessError,
     SubjectSetMismatchError,
     WindowInvalidError,
 )
@@ -592,6 +593,7 @@ def select_subjects(
         frame = cast(
             "SubjectSet",
             commit_result(
+                session=resolved_session,
                 store=evidence_store,
                 frames_dir=resolved_session._layout.frames_dir,
                 frame=frame,
@@ -624,6 +626,8 @@ def select_subjects(
                 "queries": [],
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_subject_commit(
             session=resolved_session,

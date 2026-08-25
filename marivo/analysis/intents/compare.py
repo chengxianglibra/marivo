@@ -51,6 +51,7 @@ from marivo.analysis.errors import (
     CrossSessionFrameError,
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
+    SessionLockedByAnotherProcessError,
 )
 from marivo.analysis.evidence.identity import make_component_artifact_id
 from marivo.analysis.evidence.pipeline import (
@@ -1798,6 +1799,7 @@ def compare(
     evidence_store = session._evidence_store()
     try:
         commit_result(
+            session=session,
             store=evidence_store,
             frames_dir=session._layout.frames_dir,
             frame=output_frame,
@@ -1836,6 +1838,8 @@ def compare(
                 "semantic_project_root": str(session.catalog._project.semantic_root),
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_compare_commit(
             session=session,

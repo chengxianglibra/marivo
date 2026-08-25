@@ -278,9 +278,41 @@ def load_canonical_artifact_evidence(
     session: Session,
     store: EvidenceStore,
     frame: BaseFrame,
+    _recovery_data_path: Path | None = None,
+    _recovery_content_hash: str | None = None,
 ) -> CanonicalArtifactEvidence:
     """Load and cross-check one committed Artifact without mutating it."""
-    canonical_frame, session_row = load_canonical_frame_identity(session=session, frame=frame)
+    if _recovery_data_path is None:
+        canonical_frame, session_row = load_canonical_frame_identity(session=session, frame=frame)
+        canonical_path = session.project_root / session_row["path"]
+    else:
+        if frame.meta.session_id != session.id:
+            raise CrossSessionFrameError(
+                message=(
+                    f"revalidate frame belongs to session {frame.meta.session_id!r}, "
+                    f"not {session.id!r}"
+                )
+            )
+        canonical_frame = frame
+        canonical_path = _recovery_data_path
+        expected_content_hash = compute_frame_content_hash(
+            meta=canonical_frame.meta,
+            data_path=canonical_path,
+        )
+        if (
+            canonical_frame.meta.content_hash != expected_content_hash
+            or _recovery_content_hash != expected_content_hash
+        ):
+            raise FrameCacheCorruptedError(
+                message=f"frame '{canonical_frame.ref}' content identity is corrupt",
+                context={
+                    "ref": canonical_frame.ref,
+                    "cause": "artifact content hash mismatch",
+                    "expected_content_hash": expected_content_hash,
+                    "sidecar_content_hash": canonical_frame.meta.content_hash,
+                    "recovery_content_hash": _recovery_content_hash,
+                },
+            )
     artifact_ref = canonical_frame.meta.artifact_id or canonical_frame.meta.ref
 
     conn = store.read()
@@ -556,7 +588,6 @@ def load_canonical_artifact_evidence(
         )
 
     frame_path = Path(str(artifact_row["frame_path"]))
-    canonical_path = session.project_root / session_row["path"]
     if frame_path.resolve() != canonical_path.resolve():
         raise _integrity_error(
             artifact_ref=artifact_ref,

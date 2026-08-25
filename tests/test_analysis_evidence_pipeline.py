@@ -14,6 +14,7 @@ import marivo.analysis.evidence.pipeline as pipeline_module
 from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import MeasureBindingV1
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
+from marivo.analysis.errors import SessionLockedByAnotherProcessError
 from marivo.analysis.evidence.audit import query_findings
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -170,6 +171,7 @@ def _commit(tmp_path: Path, *, emit_evidence: bool = True, store=True, ordinal: 
     frame = _frame(tmp_path, ordinal=ordinal)
     try:
         result = commit_result(
+            session=None,
             store=evidence_store,
             frames_dir=tmp_path / "frames",
             frame=frame,
@@ -193,6 +195,7 @@ def _commit_attribution(tmp_path: Path):
     frame = _attribution_frame(tmp_path)
     try:
         result = commit_result(
+            session=None,
             store=evidence_store,
             frames_dir=tmp_path / "frames",
             frame=frame,
@@ -243,6 +246,7 @@ def test_multi_metric_commit_persists_and_renders_metric_input_order(tmp_path: P
     frame, metric_ids = _multi_metric_frame(tmp_path)
     try:
         result = commit_result(
+            session=None,
             store=store,
             frames_dir=tmp_path / "frames",
             frame=frame,
@@ -452,6 +456,7 @@ def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
     monkeypatch.setattr("marivo.analysis.evidence.pipeline._atomic_write_meta", fail_meta)
     with pytest.raises(OSError, match="meta write failed"):
         commit_result(
+            session=None,
             store=store,
             frames_dir=tmp_path / "frames",
             frame=_frame(tmp_path),
@@ -466,6 +471,7 @@ def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
 
     monkeypatch.setattr("marivo.analysis.evidence.pipeline._atomic_write_meta", original)
     retried = commit_result(
+        session=None,
         store=store,
         frames_dir=tmp_path / "frames",
         frame=_frame(tmp_path),
@@ -479,6 +485,130 @@ def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
     assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 1
     assert retried.evidence_status == "complete"
     store.close()
+
+
+def test_meta_is_published_before_complete_evidence_becomes_visible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ledger commit is the publication marker only after meta is durable."""
+    store = open_evidence_store(tmp_path / "judgment.db")
+    original = pipeline_module._atomic_write_meta
+    observed_artifact_counts: list[int] = []
+
+    def inspect_before_meta(path, payload):
+        observed_artifact_counts.append(
+            store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0]
+        )
+        original(path, payload)
+
+    monkeypatch.setattr(pipeline_module, "_atomic_write_meta", inspect_before_meta)
+    try:
+        result = commit_result(
+            session=None,
+            store=store,
+            frames_dir=tmp_path / "frames",
+            frame=_frame(tmp_path),
+            step_type="observe",
+            inputs=CommitInputs(input_refs=[]),
+            params=CommitParams(values={"metric": "sales.revenue"}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+            subject=Subject(analysis_axis="scalar"),
+            extractor_family="metric_frame",
+        )
+        assert observed_artifact_counts == [0]
+        assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 1
+        assert (tmp_path / "frames" / result.ref / "meta.json").is_file()
+    finally:
+        store.close()
+
+
+def test_meta_interrupt_never_publishes_complete_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = open_evidence_store(tmp_path / "judgment.db")
+
+    def interrupt_meta(_path, _payload):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline_module, "_atomic_write_meta", interrupt_meta)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            commit_result(
+                session=None,
+                store=store,
+                frames_dir=tmp_path / "frames",
+                frame=_frame(tmp_path),
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values={"metric": "sales.revenue"}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+                subject=Subject(analysis_axis="scalar"),
+                extractor_family="metric_frame",
+            )
+        assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+    finally:
+        store.close()
+
+
+def test_parquet_interrupt_never_publishes_sidecar_or_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = open_evidence_store(tmp_path / "judgment.db")
+
+    def interrupt_replace(_source, target):
+        if Path(target).name == "data.parquet":
+            raise OSError("injected parquet replace failure")
+        raise AssertionError(f"unexpected replace target: {target}")
+
+    monkeypatch.setattr(pipeline_module.os, "replace", interrupt_replace)
+    try:
+        with pytest.raises(OSError, match="injected parquet replace failure"):
+            commit_result(
+                session=None,
+                store=store,
+                frames_dir=tmp_path / "frames",
+                frame=_frame(tmp_path),
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values={"metric": "sales.revenue"}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+                subject=Subject(analysis_axis="scalar"),
+                extractor_family="metric_frame",
+            )
+        assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+        assert list((tmp_path / "frames").rglob("meta.json")) == []
+        assert list((tmp_path / "frames").rglob("*.tmp")) == []
+    finally:
+        store.close()
+
+
+def test_evidence_lock_is_typed_and_not_downgraded_to_unavailable(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "judgment.db"
+    first = open_evidence_store(db_path)
+    second = open_evidence_store(db_path, busy_timeout_ms=50)
+    try:
+        with (
+            first.transaction(immediate=True),
+            pytest.raises(SessionLockedByAnotherProcessError),
+        ):
+            commit_result(
+                session=None,
+                store=second,
+                frames_dir=tmp_path / "frames",
+                frame=_frame(tmp_path),
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values={"metric": "sales.revenue"}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+                subject=Subject(analysis_axis="scalar"),
+                extractor_family="metric_frame",
+            )
+        assert second.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+    finally:
+        second.close()
+        first.close()
 
 
 def test_repeated_commit_reuses_existing_projection_without_rewriting_meta(
@@ -584,6 +714,7 @@ def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
     evidence_store = open_evidence_store(tmp_path / "judgment.db")
     try:
         result = commit_result(
+            session=None,
             store=evidence_store,
             frames_dir=tmp_path / "frames",
             frame=frame,
@@ -687,6 +818,7 @@ def test_funnel_step_extract_failure_repair_help_target_is_resolvable(
     frame = _frame(tmp_path)
     try:
         result = commit_result(
+            session=None,
             store=evidence_store,
             frames_dir=tmp_path / "frames",
             frame=frame,
@@ -737,6 +869,7 @@ def test_select_metric_digest_failure_repair_help_target_is_resolvable(
     frame = _frame(tmp_path)
     try:
         result = commit_result(
+            session=None,
             store=evidence_store,
             frames_dir=tmp_path / "frames",
             frame=frame,

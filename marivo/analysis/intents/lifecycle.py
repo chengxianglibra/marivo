@@ -18,6 +18,7 @@ from marivo.analysis.errors import (
     InvalidLifecycleSeedError,
     RepairKind,
     SemanticKindMismatchError,
+    SessionLockedByAnotherProcessError,
     WindowInvalidError,
 )
 from marivo.analysis.event import CompletenessDeclaration
@@ -713,6 +714,7 @@ def replay(
         frame = cast(
             "LifecycleFrame",
             commit_result(
+                session=resolved_session,
                 store=evidence_store,
                 frames_dir=resolved_session._layout.frames_dir,
                 frame=frame,
@@ -747,6 +749,8 @@ def replay(
                 "queries": [query.to_dict() for query in queries],
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_replay_commit(
             session=resolved_session,

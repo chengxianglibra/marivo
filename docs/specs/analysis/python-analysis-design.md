@@ -468,10 +468,13 @@ This overview is the entry point. The focused specs:
   bounded artifact digests, inference boundaries, session audit pages, the v4
   `judgment.db` ledger, and the agent-owned judgment boundary.
 - [`evidence-compatibility-and-revalidation-design.md`](../../superpowers/specs/evidence-compatibility-and-revalidation-design.md)
-  — implemented Slice 1 selection-wide Finding compatibility and Slice 2
-  Artifact identity/semantic/evidence revalidation, plus implemented Slice 3
-  registry-owned operator admission over the same private authority context and
-  comparator. No public authority context was added.
+  — implemented Slice 1 selection-wide Finding compatibility, Slice 2 Artifact
+  identity/semantic/evidence revalidation, Slice 3 registry-owned operator
+  admission, and Slice 4 adversarial persistence/recovery guarantees, including
+  retry-time index withdrawal, validation-before-recovery publication, and
+  stable Artifact pagination identity. All reuse the same private authority
+  context and comparator; no public authority context or persistence schema was
+  added.
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket
   computation, and calendar alignment.

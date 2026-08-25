@@ -356,6 +356,7 @@ def test_candidate_reentry_fails_closed_when_source_authority_is_unavailable(tmp
     selected = candidates.select(item_id=str(candidates.to_pandas().iloc[0]["item_id"]))
     source_ref = source.meta.artifact_id or source.meta.ref
     session._store.delete_artifact(session.id, source_ref)
+    (session._layout.frames_dir / source_ref / "data.parquet").unlink()
 
     with pytest.raises(ArtifactAuthorityUnknownError) as exc_info:
         session.observe(selected)

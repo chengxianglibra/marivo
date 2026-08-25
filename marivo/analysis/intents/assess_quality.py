@@ -292,6 +292,7 @@ def assess_quality(
     result = cast(
         "QualityReport",
         commit_result(
+            session=session,
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=result,

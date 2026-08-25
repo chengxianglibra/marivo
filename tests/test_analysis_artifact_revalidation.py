@@ -13,6 +13,8 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis as mv
+import marivo.analysis._artifact_integrity as artifact_integrity_module
+import marivo.analysis.evidence.pipeline as pipeline_module
 import marivo.semantic as ms
 from marivo._compat import UTC
 from marivo.analysis._artifact_revalidation import _evidence_satisfies_contract
@@ -21,11 +23,13 @@ from marivo.analysis.errors import (
     EvidenceIntegrityError,
     EvidenceStoreUnavailableError,
     FrameCacheCorruptedError,
+    FrameRefNotFound,
     SchemaVersionMismatchError,
 )
 from marivo.analysis.evidence.identity import canonical_json, make_issue_id
 from marivo.analysis.evidence.types import EvidenceAvailabilityIssue, RawFallback
 from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
+from marivo.analysis.intents._observe_persist import _commit_observe_metric_frame
 from marivo.analysis.session._runtime import persist_frame
 from marivo.semantic.catalog import SemanticKind
 from tests.ref_helpers import make_ref
@@ -327,6 +331,187 @@ def test_store_unavailable_and_cross_session_fail_with_existing_typed_errors(
     session._judgment_store_unavailable = True
     with pytest.raises(EvidenceStoreUnavailableError):
         session.revalidate(frame)
+
+
+def test_committed_ledger_recovers_missing_session_store_registration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frame = _observe(session)
+    original_registration = session._store.get_artifact(session.id, frame.ref)
+    assert original_registration is not None
+    session._store.delete_artifact(session.id, frame.ref)
+    assert session._store.get_artifact(session.id, frame.ref) is None
+    original_validate = artifact_integrity_module.load_canonical_artifact_evidence
+    validation_observations: list[object | None] = []
+
+    def validate_before_publication(**kwargs):
+        validation_observations.append(session._store.get_artifact(session.id, frame.ref))
+        return original_validate(**kwargs)
+
+    monkeypatch.setattr(
+        artifact_integrity_module,
+        "load_canonical_artifact_evidence",
+        validate_before_publication,
+    )
+
+    recovered = session.get_frame(frame.ref)
+
+    registration = session._store.get_artifact(session.id, frame.ref)
+    assert registration is not None
+    assert validation_observations == [None]
+    assert registration["content_hash"] == frame.meta.content_hash
+    assert registration["created_at"] == original_registration["created_at"]
+    assert recovered.ref == frame.ref
+    assert session.revalidate(recovered).status == "admissible"
+
+
+def test_recovery_preserves_artifact_page_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    first = _observe(session, start="2026-07-01", end="2026-07-15")
+    _observe(session, start="2026-07-16", end="2026-07-31")
+    before = [
+        (row["artifact_id"], row["created_at"])
+        for row in session._store.page_artifacts(
+            session.id,
+            kind=None,
+            evidence_status=None,
+            limit=10,
+            after=None,
+        )
+    ]
+
+    session._store.delete_artifact(session.id, first.ref)
+    session.get_frame(first.ref)
+
+    after = [
+        (row["artifact_id"], row["created_at"])
+        for row in session._store.page_artifacts(
+            session.id,
+            kind=None,
+            evidence_status=None,
+            limit=10,
+            after=None,
+        )
+    ]
+    assert after == before
+
+
+def test_unavailable_retry_hides_stale_registration_before_complete_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    template = _observe(session)
+    original_insert = pipeline_module._insert_projection
+
+    def fail_first_projection(*_args, **_kwargs):
+        raise OSError("evidence projection unavailable")
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", fail_first_projection)
+    first = _commit_observe_metric_frame(
+        session=session,
+        frame=template,
+        params={"retry_seam": True},
+        metric_id="sales.revenue",
+        model_name="sales",
+        stored_where={},
+        semantic_kind="scalar",
+    )
+    assert first.evidence_status == "unavailable"
+    assert session._store.get_artifact(session.id, first.ref) is not None
+
+    observations: list[tuple[str, int, object | None]] = []
+
+    def inspect_before_projection(store, **kwargs):
+        artifact_ref = str(kwargs["artifact_id"])
+        meta_path = session._layout.frames_dir / artifact_ref / "meta.json"
+        sidecar_status = json.loads(meta_path.read_text())["evidence_status"]
+        ledger_rows = (
+            store.read()
+            .execute(
+                "SELECT count(*) FROM artifacts WHERE artifact_id = ?",
+                (artifact_ref,),
+            )
+            .fetchone()[0]
+        )
+        registration = session._store.get_artifact(session.id, artifact_ref)
+        observations.append((sidecar_status, ledger_rows, registration))
+        with pytest.raises(FrameRefNotFound):
+            session.get_frame(artifact_ref)
+        return original_insert(store, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", inspect_before_projection)
+    retried = _commit_observe_metric_frame(
+        session=session,
+        frame=first,
+        params={"retry_seam": True},
+        metric_id="sales.revenue",
+        model_name="sales",
+        stored_where={},
+        semantic_kind="scalar",
+    )
+
+    assert retried.ref == first.ref
+    assert retried.evidence_status == "complete"
+    assert observations == [("complete", 0, None)]
+    registration = session._store.get_artifact(session.id, retried.ref)
+    assert registration is not None
+    assert registration["evidence_status"] == "complete"
+
+
+def test_corrupt_recovery_marker_never_registers_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frame = _observe(session)
+    session._store.delete_artifact(session.id, frame.ref)
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    meta_path.write_text("{interrupted")
+
+    with pytest.raises(FrameCacheCorruptedError):
+        session.get_frame(frame.ref)
+
+    assert session._store.get_artifact(session.id, frame.ref) is None
+
+
+def test_recovery_marker_rejects_non_current_evidence_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frame = _observe(session)
+    session._store.delete_artifact(session.id, frame.ref)
+    store = session._evidence_store()
+    assert store is not None
+    store.read().execute("PRAGMA user_version = 3")
+
+    with pytest.raises(SchemaVersionMismatchError):
+        session.get_frame(frame.ref)
+
+    assert session._store.get_artifact(session.id, frame.ref) is None
+
+
+def test_recovery_marker_rejects_complete_artifact_with_missing_findings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    frame = _observe(session)
+    store = session._evidence_store()
+    assert store is not None
+    store.read().execute("DELETE FROM findings WHERE artifact_id = ?", (frame.ref,))
+    session._store.delete_artifact(session.id, frame.ref)
+
+    with pytest.raises(EvidenceIntegrityError):
+        session.get_frame(frame.ref)
+
+    assert session._store.get_artifact(session.id, frame.ref) is None
 
 
 def test_sidecar_ledger_and_content_corruption_fail_closed(

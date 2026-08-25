@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
@@ -23,7 +23,11 @@ from marivo.analysis._cumulative import (
     CumulativeAlignmentV1,
 )
 from marivo.analysis._semantic_persistence import SlicePredicateV1
-from marivo.analysis.errors import AnalysisRepair, FrameMetaInvalidError
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    FrameMetaInvalidError,
+    SessionLockedByAnotherProcessError,
+)
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.composition import (
     DecompositionExtractionContract,
@@ -92,6 +96,7 @@ from marivo.analysis.frames._meta_defaults import (
 from marivo.analysis.frames.base import (
     CURRENT_ARTIFACT_SCHEMA_VERSION,
     BaseFrame,
+    BaseFrameMeta,
     _FrameAuxiliaryReceipt,
 )
 from marivo.analysis.frames.lifecycle import LifecycleFrameMetaVariant
@@ -110,6 +115,9 @@ from marivo.semantic.metric_graph import (
 )
 from marivo.semantic.metric_graph_canonical import canonical_value
 from marivo.telemetry import staged
+
+if TYPE_CHECKING:
+    from marivo.analysis.session.core import Session
 
 
 class CommitInputs(BaseModel):
@@ -1325,6 +1333,7 @@ def subject_set_subject_for_frame(frame: BaseFrame) -> SubjectSetSubject:
 @staged("evidence")
 def commit_result(
     *,
+    session: Session | None,
     store: EvidenceStore | None,
     frames_dir: Path,
     frame: BaseFrame,
@@ -1359,6 +1368,8 @@ def commit_result(
         meta_path=meta_path,
     )
     if reused is not None:
+        if session is not None and session._store.get_artifact(session.id, artifact_id) is None:
+            return session.get_frame(artifact_id)
         return reused
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
@@ -1466,7 +1477,71 @@ def commit_result(
             )
         )
 
-    projection_inserted = False
+    def build_meta() -> BaseFrameMeta:
+        meta_update: dict[str, Any] = {
+            "ref": artifact_id,
+            "artifact_id": artifact_id,
+            "evidence_status": status,
+            "analysis_scope": scope,
+            "quality_summary": quality,
+            "evidence_digest": digest,
+            "issues": tuple(issues),
+        }
+        if getattr(frame.meta, "expression_graph", None) is not None:
+            meta_update.update(
+                {
+                    "expression_graph_ref": f"{artifact_id}#expression-graph",
+                    "presentation_ref": f"{artifact_id}#presentation",
+                    "replay_graph_ref": f"{artifact_id}#replay-graph",
+                    "quality_ref": f"{artifact_id}#quality",
+                }
+            )
+        if getattr(frame.meta, "comparable_value_semantics", None) is not None:
+            meta_update["comparable_value_semantics_ref"] = (
+                f"{artifact_id}#comparable-value-semantics"
+            )
+        if hasattr(frame.meta, "affordances"):
+            meta_update["affordances"] = []
+        result = frame.meta.model_copy(update=meta_update)
+        result = frame._bind_auxiliary_receipts(result, tuple(auxiliary_receipts))
+        result = result.model_copy(
+            update={
+                "byte_size": parquet_path.stat().st_size
+                + sum(item.byte_size for item in auxiliary_receipts)
+            }
+        )
+        return result.model_copy(
+            update={"content_hash": compute_frame_content_hash(meta=result, data_path=parquet_path)}
+        )
+
+    # A ledger row is the publication marker. Withdraw an older Session Store
+    # registration for the same deterministic ref before publishing a new
+    # complete sidecar, otherwise a retry could expose that sidecar through the
+    # stale registration before its canonical evidence exists.
+    new_meta = build_meta()
+    withdrawn_registration: dict[str, object] | None = None
+    if session is not None:
+        existing_registration = session._store.get_artifact(session.id, artifact_id)
+        if existing_registration is not None:
+            withdrawn_registration = dict(existing_registration)
+            session._store.delete_artifact(session.id, artifact_id)
+    try:
+        _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
+    except BaseException:
+        if session is not None and withdrawn_registration is not None:
+            session._store.record_artifact(
+                session_id=str(withdrawn_registration["session_id"]),
+                artifact_id=str(withdrawn_registration["artifact_id"]),
+                kind=str(withdrawn_registration["kind"]),
+                path=str(withdrawn_registration["path"]),
+                meta_path=str(withdrawn_registration["meta_path"]),
+                content_hash=cast("str | None", withdrawn_registration["content_hash"]),
+                produced_by_job=cast("str | None", withdrawn_registration["produced_by_job"]),
+                evidence_status=str(withdrawn_registration["evidence_status"]),
+                created_at=str(withdrawn_registration["created_at"]),
+            )
+        raise
+
     if store is not None:
         try:
             _insert_projection(
@@ -1487,7 +1562,8 @@ def commit_result(
                 issues=issues,
                 committed_at=now,
             )
-            projection_inserted = True
+        except SessionLockedByAnotherProcessError:
+            raise
         except Exception as exc:
             status = "unavailable"
             findings = []
@@ -1499,50 +1575,8 @@ def commit_result(
                     stable_error_category=type(exc).__name__,
                 )
             )
-
-    meta_update: dict[str, Any] = {
-        "ref": artifact_id,
-        "artifact_id": artifact_id,
-        "evidence_status": status,
-        "analysis_scope": scope,
-        "quality_summary": quality,
-        "evidence_digest": digest,
-        "issues": tuple(issues),
-    }
-    if getattr(frame.meta, "expression_graph", None) is not None:
-        meta_update.update(
-            {
-                "expression_graph_ref": f"{artifact_id}#expression-graph",
-                "presentation_ref": f"{artifact_id}#presentation",
-                "replay_graph_ref": f"{artifact_id}#replay-graph",
-                "quality_ref": f"{artifact_id}#quality",
-            }
-        )
-    if getattr(frame.meta, "comparable_value_semantics", None) is not None:
-        meta_update["comparable_value_semantics_ref"] = f"{artifact_id}#comparable-value-semantics"
-    if hasattr(frame.meta, "affordances"):
-        meta_update["affordances"] = []
-    new_meta = frame.meta.model_copy(update=meta_update)
-    new_meta = frame._bind_auxiliary_receipts(
-        new_meta,
-        tuple(auxiliary_receipts),
-    )
-    new_meta = new_meta.model_copy(
-        update={
-            "byte_size": parquet_path.stat().st_size
-            + sum(item.byte_size for item in auxiliary_receipts)
-        }
-    )
-    new_meta = new_meta.model_copy(
-        update={"content_hash": compute_frame_content_hash(meta=new_meta, data_path=parquet_path)}
-    )
-
-    try:
-        _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
-    except BaseException:
-        if store is not None and projection_inserted:
-            _remove_projection(store, artifact_id)
-        raise
+            new_meta = build_meta()
+            _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
     frame.meta = new_meta
     return frame
 

@@ -19,6 +19,7 @@ from marivo.analysis.errors import (
     InvalidSubjectAxisError,
     PatternStepMismatchError,
     SemanticKindMismatchError,
+    SessionLockedByAnotherProcessError,
 )
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -566,6 +567,7 @@ def attribute_funnel(
         committed = cast(
             "AttributionFrame",
             commit_result(
+                session=session,
                 store=evidence_store,
                 frames_dir=session._layout.frames_dir,
                 frame=frame,
@@ -605,6 +607,8 @@ def attribute_funnel(
                 "semantic_project_root": str(session.catalog.semantic_root),
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback(
             session=session,

@@ -129,14 +129,22 @@ and live outside analysis). The layout, owned by `PersistenceLayout`:
 ```
 
 Writes are atomic (temp file + `os.replace`) so an interrupted turn never leaves a
-partial `meta.json` or parquet. Paths recorded in the store are **project-relative**
-(via `PersistenceLayout.relative_path`), so the `.marivo/` tree stays valid if the
-project directory is moved.
+partial `meta.json` or parquet. Evidence-backed Artifacts publish in one order:
+data/auxiliary files and `meta.json`, then the one-transaction evidence projection,
+then the Session Store index. A committed schema-v4 evidence Artifact row is the
+recovery marker for interruption before the final index write; exact recovery
+validates its session, canonical path, schemas, content hashes, evidence status,
+and digest before restoring the missing index row. Files without either an index
+row or that committed marker remain unreachable orphans. Paths recorded in the
+Session Store are **project-relative** (via `PersistenceLayout.relative_path`), so
+the `.marivo/` tree stays valid if the project directory is moved.
 
 ### The session store schema
 
-`session_store.db` is a single WAL-mode SQLite database — the authoritative index
-for sessions, the current-session pointer, artifacts, and jobs:
+`session_store.db` is a single WAL-mode SQLite database — the ordinary authoritative
+index for sessions, the current-session pointer, artifacts, and jobs. Its Artifact
+row may be reconstructed only from the exact committed evidence marker described
+above; arbitrary frame directories never populate it:
 
 | Table | Columns | Role |
 | --- | --- | --- |
@@ -241,6 +249,11 @@ can reuse upstream work:
 - the failed step's operator, expected/received, and repair hints (structured
   error);
 - the job record with its `status`, retrievable via `recent_jobs()` / `job(id)`.
+
+SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger raise
+`SessionLockedByAnotherProcessError`. They are not silently retried, overwritten,
+or downgraded to `evidence_status="unavailable"`. A failed final index write leaves
+the already committed evidence marker recoverable on the next exact read or retry.
 
 There is no non-raising batch API on the default surface; a future advanced
 `StepOutcome` / `try_*` path, if added, would not change the terminal artifact

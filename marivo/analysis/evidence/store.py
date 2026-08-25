@@ -109,23 +109,21 @@ class EvidenceStore:
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[_Transaction]:
+        began = False
         try:
             self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-        except sqlite3.OperationalError as exc:
-            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            began = True
+            yield _Transaction(self._conn)
+            self._conn.execute("COMMIT")
+        except BaseException as exc:
+            if began and self._conn.in_transaction:
+                self._conn.execute("ROLLBACK")
+            if isinstance(exc, sqlite3.OperationalError) and _is_lock_error(exc):
                 raise SessionLockedByAnotherProcessError(
                     message=f"judgment.db locked: {self.db_path}",
-                    context={"db_path": str(self.db_path)},
+                    context={"db_path": str(self.db_path), "cause": str(exc)},
                 ) from exc
             raise
-        tx = _Transaction(self._conn)
-        try:
-            yield tx
-        except BaseException:
-            self._conn.execute("ROLLBACK")
-            raise
-        else:
-            self._conn.execute("COMMIT")
 
     def read(self) -> sqlite3.Connection:
         """Return the connection used by bounded read adapters."""
@@ -138,6 +136,11 @@ class EvidenceStore:
 def _initialize_v4(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA_V4)
     conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
+
+
+def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
 
 
 def open_evidence_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> EvidenceStore:

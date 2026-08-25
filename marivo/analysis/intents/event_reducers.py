@@ -13,6 +13,7 @@ from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     InvalidEventMatchingPolicyError,
     PatternStepMismatchError,
+    SessionLockedByAnotherProcessError,
     SubjectSetMismatchError,
 )
 from marivo.analysis.event import FirstPerSubject, PatternStep, _event_repair
@@ -204,6 +205,7 @@ def _commit_reducer(
         committed = cast(
             "EventFrame",
             commit_result(
+                session=session,
                 store=evidence_store,
                 frames_dir=session._layout.frames_dir,
                 frame=frame,
@@ -236,6 +238,8 @@ def _commit_reducer(
                 "queries": queries,
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_reducer_commit(
             session=session,

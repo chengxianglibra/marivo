@@ -15,6 +15,7 @@ from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AnalysisRepair,
     InvalidDistributionInstantsError,
+    SessionLockedByAnotherProcessError,
     SubjectSetMismatchError,
 )
 from marivo.analysis.evidence.pipeline import (
@@ -252,6 +253,7 @@ def _commit_reducer(
         committed = cast(
             "LifecycleFrame",
             commit_result(
+                session=session,
                 store=evidence_store,
                 frames_dir=session._layout.frames_dir,
                 frame=frame,
@@ -284,6 +286,8 @@ def _commit_reducer(
                 "queries": queries,
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_reducer_commit(
             session=session,

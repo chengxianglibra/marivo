@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
     AnalysisRepair,
     EventCoverageUnknownError,
     FunnelComparisonMismatchError,
+    SessionLockedByAnotherProcessError,
 )
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -314,6 +315,7 @@ def compare_funnels(
         committed = cast(
             "DeltaFrame",
             commit_result(
+                session=session,
                 store=evidence_store,
                 frames_dir=session._layout.frames_dir,
                 frame=frame,
@@ -350,6 +352,8 @@ def compare_funnels(
                 "semantic_project_root": str(session.catalog.semantic_root),
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback(
             session=session,
