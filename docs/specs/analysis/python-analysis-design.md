@@ -319,8 +319,11 @@ method/mode admission state. New generic artifacts persist typed axes, mode,
 `causal_claim="none"`, and discriminated method evidence; semantics are never
 inferred from free-form params. Graph-owned non-additive bases replay an
 independent unsegmented endpoint. Their multi-axis layout is either `joint` or
-independent `multiresolution`, where every ordered semantic-ref prefix is a
-separately recomputed and reconciled game rather than a rollup.
+`hierarchy`. Typed resolution evidence distinguishes rollup-safe additive
+prefixes from independent non-additive prefixes, where every ordered
+semantic-ref prefix is a separately recomputed and reconciled game. Native
+`top_k` selection happens before attribution and represents the remainder as a
+masked Other player rather than a result residual.
 
 `mv.dropped_before(step=...)` is the only Phase 2 SubjectSelection. It accepts
 one exact non-initial PatternStep from a first-per-subject journey, selects only

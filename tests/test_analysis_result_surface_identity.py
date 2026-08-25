@@ -54,7 +54,7 @@ def test_attribution_frame_identity_includes_kind_and_method() -> None:
             params={"by": "region"},
             semantic_kind="segmented",
             semantic_model="sales",
-            row_contract_version="generic-attribution-rows/v2",
+            row_contract_version="generic-attribution-rows/v3",
             axis_bindings=(
                 AttributionAxisBindingV1(
                     ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),

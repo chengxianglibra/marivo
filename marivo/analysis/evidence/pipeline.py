@@ -714,6 +714,7 @@ def _extract_findings(
         if not isinstance(contribution_column, str) or contribution_column not in df.columns:
             return []
         method_evidence = getattr(meta, "method_evidence", None)
+        resolution_evidence = getattr(meta, "resolution_evidence", None)
         source_error_bound = (
             method_evidence.source_error_bound
             if method_evidence is not None
@@ -740,8 +741,10 @@ def _extract_findings(
                     reconciliation.residual if reconciliation is not None else None
                 ),
                 ordered_axis_refs=tuple(binding.ref for binding in axis_bindings),
-                ordered_prefix_rows=attribution_mode in {"hierarchy", "multiresolution"},
-                rollup_safe=(method_evidence is None and attribution_mode != "multiresolution"),
+                ordered_prefix_rows=attribution_mode == "hierarchy",
+                rollup_safe=(
+                    resolution_evidence.rollup_safe if resolution_evidence is not None else True
+                ),
                 causal_claim=getattr(meta, "causal_claim", "none"),
                 source_error_bound=source_error_bound,
             ),

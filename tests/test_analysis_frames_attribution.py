@@ -1,5 +1,6 @@
 """AttributionFrame metadata, immutability, persistence, and load dispatch."""
 
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -17,6 +18,7 @@ from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionFrameMeta,
     AttributionReconciliation,
+    AttributionTopKSelectionV1,
 )
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
@@ -65,7 +67,7 @@ def _meta(session_id="sess_x", project_root="/p", row_count=1):
         params={"by": "region", "value": "delta"},
         semantic_kind="segmented",
         semantic_model="sales",
-        row_contract_version="generic-attribution-rows/v2",
+        row_contract_version="generic-attribution-rows/v3",
         axis_bindings=(
             AttributionAxisBindingV1(
                 ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
@@ -138,7 +140,7 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     assert list(loaded.to_pandas()["region"]) == ["north", "south"]
 
 
-def test_load_v2_attribution_rows_rejects_missing_required_column() -> None:
+def test_load_v3_attribution_rows_rejects_missing_required_column() -> None:
     session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
@@ -155,7 +157,7 @@ def test_load_v2_attribution_rows_rejects_missing_required_column() -> None:
         project_root=str(session.project_root),
     ).model_copy(
         update={
-            "row_contract_version": "generic-attribution-rows/v2",
+            "row_contract_version": "generic-attribution-rows/v3",
             "axis_bindings": (
                 AttributionAxisBindingV1(
                     ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),
@@ -178,6 +180,67 @@ def test_load_v2_attribution_rows_rejects_missing_required_column() -> None:
 
     with pytest.raises(FrameMetaInvalidError, match="corrupt generic attribution rows"):
         session.get_frame(written.ref)
+
+
+def test_load_v3_attribution_rows_rejects_non_null_other_axis_cell() -> None:
+    session = session_attach.get_or_create(name="demo")
+    df = pd.DataFrame(
+        {
+            "region": ["masked-but-not-null"],
+            "attribution_other_mask": [1],
+            "contribution": [8.0],
+            "share_of_total_delta": [1.0],
+            "share_of_positive_pool": [1.0],
+            "share_of_negative_pool": [None],
+            "rank": [1],
+        }
+    )
+    meta = _meta(session_id=session.id, project_root=str(session.project_root)).model_copy(
+        update={
+            "top_k_selection": AttributionTopKSelectionV1(
+                limit=1,
+                score_method="metric_magnitude",
+                original_partition_count=2,
+                effective_partition_count=2,
+            )
+        }
+    )
+    written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
+
+    with pytest.raises(FrameMetaInvalidError, match="corrupt generic attribution rows") as exc_info:
+        session.get_frame(written.ref)
+
+    assert exc_info.value._context["reason"] == (
+        "attribution Other mask bit requires a null axis cell"
+    )
+
+
+def test_load_v2_attribution_rows_requires_rerunning_hierarchy() -> None:
+    session = session_attach.get_or_create(name="demo")
+    df = pd.DataFrame(
+        {
+            "region": ["north"],
+            "contribution": [8.0],
+            "share_of_total_delta": [1.0],
+            "share_of_positive_pool": [1.0],
+            "share_of_negative_pool": [None],
+            "rank": [1],
+        }
+    )
+    meta = _meta(session_id=session.id, project_root=str(session.project_root))
+    written = persist_frame(session, AttributionFrame(_df=df, meta=meta))
+    meta_path = session._layout.frames_dir / written.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    payload["row_contract_version"] = "generic-attribution-rows/v2"
+    payload["attribution_mode"] = "multiresolution"
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError) as exc_info:
+        session.get_frame(written.ref)
+
+    assert exc_info.value.repair is not None
+    assert "Re-run session.attribute" in exc_info.value.repair.action
+    assert "mode='hierarchy'" in exc_info.value.repair.action
 
 
 def test_attribution_shape_reads_method():

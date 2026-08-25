@@ -19,7 +19,7 @@ AttributionShape: TypeAlias = Literal[
     "distinct_membership",
     "quantile_replacement",
 ]
-AttributionMode: TypeAlias = Literal["joint", "hierarchy", "multiresolution"]
+AttributionMode: TypeAlias = Literal["joint", "hierarchy"]
 
 
 class AggregateAttributionAuthorityV1(BaseModel):

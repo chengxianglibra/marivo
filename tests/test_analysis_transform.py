@@ -210,7 +210,7 @@ def _make_attribution_frame(tmp_path) -> AttributionFrame:
             params={"source": source.ref},
             semantic_kind=source.meta.semantic_kind,
             semantic_model=source.meta.semantic_model,
-            row_contract_version="generic-attribution-rows/v2",
+            row_contract_version="generic-attribution-rows/v3",
             axis_bindings=(
                 AttributionAxisBindingV1(
                     ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.driver")),

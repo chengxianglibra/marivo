@@ -135,6 +135,44 @@ def test_quantile_partition_limit_precedes_frequency_materialization(
     assert exc_info.value.kind == "partition_limit_exceeded"
 
 
+def test_quantile_top_k_applies_before_partition_admission(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    project = semantic_project_factory(nonadditive_attribution_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE orders (created_at DATE, region VARCHAR, channel VARCHAR, "
+        "user_id INTEGER, amount DOUBLE)"
+    )
+    values = ",".join(
+        f"(DATE '2026-01-01', 'r{index}', 'web', {index}, {index})" for index in range(65)
+    )
+    backend.raw_sql(f"INSERT INTO orders VALUES {values}")
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
+    metric = session.catalog.require(make_ref("sales.median_amount", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+
+    result = session.attribute(session.compare(current, baseline), axes=[region], top_k=5)
+
+    assert len(result.to_pandas()) == 6
+    other = result.to_pandas().query("attribution_other_mask == 1")
+    assert len(other) == 1
+    assert other["contribution_std_error"].notna().all()
+    assert result.meta.top_k_selection is not None
+    assert result.meta.top_k_selection.original_partition_count == 65
+    assert result.meta.top_k_selection.effective_partition_count == 6
+    assert result.meta.method_evidence is not None
+    assert result.meta.method_evidence.coalition == "exact_shapley"
+
+
 def test_permutation_uncertainty_is_separate_from_source_error(
     semantic_project_factory,
     monkeypatch,
@@ -173,7 +211,7 @@ def test_permutation_uncertainty_is_separate_from_source_error(
     assert result.to_pandas()["contribution_std_error"].max() > 0
 
 
-def test_multiresolution_quantile_preserves_each_scope_execution_method(
+def test_hierarchy_quantile_preserves_each_scope_execution_method(
     semantic_project_factory,
     monkeypatch,
 ) -> None:
@@ -205,11 +243,14 @@ def test_multiresolution_quantile_preserves_each_scope_execution_method(
     result = session.attribute(
         session.compare(current, baseline),
         axes=[region, channel],
-        mode="multiresolution",
+        mode="hierarchy",
     )
     evidence = result.meta.method_evidence
 
     assert evidence is not None and evidence.kind == "quantile_replacement"
+    assert result.meta.resolution_evidence is not None
+    assert result.meta.resolution_evidence.resolution_semantics == "independent"
+    assert result.meta.resolution_evidence.rollup_safe is False
     assert evidence.coalition == "mixed"
     assert [
         item.quantile_execution.coalition
@@ -293,6 +334,7 @@ def test_native_percentile_replay_reuses_observed_endpoints_and_reconciles(
     monkeypatch.setattr(_nonadditive_attribution, "_run_dataframe", _run_intermediate)
     evaluate = _nonadditive_attribution._native_percentile_coalition_evaluator(
         partitions=(("CN",), ("US",)),
+        partition_members=None,
         current_values=current_values,
         baseline_values=baseline_values,
         current_endpoint=1.79,
@@ -318,6 +360,49 @@ def test_native_percentile_replay_reuses_observed_endpoints_and_reconciles(
     assert standard_errors == [0.0, 0.0]
     assert seed is None
     assert len(executed) == 2
+
+
+def test_native_percentile_top_k_expands_other_to_raw_partitions(monkeypatch) -> None:
+    values = ibis.table({"region": "string", "value": "float64"}, name="values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    predicates: list[tuple[tuple[object, ...], ...]] = []
+
+    def record_predicate(table, columns, partitions):
+        predicates.append(tuple(partitions))
+        return ibis.literal(True)
+
+    monkeypatch.setattr(_nonadditive_attribution, "_or_partition_predicates", record_predicate)
+    monkeypatch.setattr(
+        _nonadditive_attribution,
+        "_run_dataframe",
+        lambda *args, **kwargs: pd.DataFrame({"value": [2.0]}),
+    )
+    evaluate = _nonadditive_attribution._native_percentile_coalition_evaluator(
+        partitions=(("US", 0), (None, 1)),
+        partition_members={
+            ("US", 0): (("US",),),
+            (None, 1): (("CN",), ("DE",)),
+        },
+        current_values=values,
+        baseline_values=values,
+        current_endpoint=3.0,
+        baseline_endpoint=1.0,
+        prefix_axes=("region",),
+        q=0.90,
+        prepared=prepared,
+        session=object(),
+    )
+
+    assert evaluate(frozenset({1})) == 2.0
+    assert predicates == [(("CN",), ("DE",)), (("US",),)]
 
 
 def test_quantile_endpoint_buckets_preserve_aligned_endpoint_values() -> None:

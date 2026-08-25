@@ -1141,6 +1141,7 @@ class Session(RenderableResult):
         *,
         axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
         mode: AttributionMode | None = None,
+        top_k: int | None = None,
         target: FunnelLossRate | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
@@ -1196,10 +1197,13 @@ class Session(RenderableResult):
             axes: One or more exact current-catalog dimension/time-dimension
                 entries or refs to attribute over.
             mode: For metric deltas, defaults to ``"joint"`` when multiple axes
-                are supplied. ``"hierarchy"`` returns ordered prefix rows, and
-                supported non-additive methods also accept ``"multiresolution"``.
+                are supplied. ``"hierarchy"`` returns ordered prefix rows;
+                typed resolution evidence states whether they are rollup-safe.
                 Omit for a single axis. Funnel deltas still require an explicit
                 ``"joint"`` or ``"hierarchy"`` mode for multiple axes.
+            top_k: Optional positive number of named members retained per parent.
+                Remaining members become one governed Other player selected once
+                over the complete current-plus-baseline comparison scope.
             target: Required only for ``DeltaFrame[funnel]``; pass one exact
                 ``mv.funnel_loss_rate(step=...)`` target.
             analysis_purpose: Optional durable label explaining why this
@@ -1239,11 +1243,19 @@ class Session(RenderableResult):
         from marivo.analysis.errors import (
             AnalysisRepair,
             FunnelAttributionUnsupportedError,
+            SemanticKindMismatchError,
         )
+        from marivo.analysis.intents._attribution_topk import validate_top_k
         from marivo.introspection.live.model import LiveHelpTarget
 
         validate_capability_inputs("attribute", session=self, frame=frame)
+        validated_top_k = validate_top_k(top_k)
         if frame.meta.semantic_kind == "funnel":
+            if validated_top_k is not None:
+                raise SemanticKindMismatchError(
+                    message="attribute top_k is not applicable to funnel attribution",
+                    context={"argument": "top_k", "reason": "top_k_not_applicable"},
+                )
             from marivo.analysis.intents.funnel_attribute import attribute_funnel
 
             with _track_session_operation(
@@ -1292,6 +1304,8 @@ class Session(RenderableResult):
             effective_mode = "joint"
         if effective_mode is not None:
             attrs["marivo.analysis.attribution_mode"] = effective_mode
+        if validated_top_k is not None:
+            attrs["marivo.analysis.top_k"] = validated_top_k
         with _track_session_operation(
             self,
             "marivo.analysis.attribute",
@@ -1303,6 +1317,7 @@ class Session(RenderableResult):
                 frame,
                 axes=axes,
                 mode=effective_mode,
+                top_k=validated_top_k,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )

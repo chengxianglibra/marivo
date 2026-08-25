@@ -776,9 +776,11 @@ def test_attribute_help_explains_additivity_boundary() -> None:
 def test_attribution_mode_help_is_self_contained_and_not_in_root_index() -> None:
     text = _text("AttributionMode")
 
-    assert 'mode="joint" | mode="hierarchy" | mode="multiresolution"' in text
+    assert 'mode="joint" | mode="hierarchy"' in text
+    assert "multiresolution" not in text
+    assert "top_k" in _text("attribute")
     assert "one additive row per complete axis combination" in text
-    assert "independently recomputes each ordered prefix" in text
+    assert "independently reconciled at every prefix" in text
     assert "Metric session.attribute calls default to joint for multiple axes" in text
     assert "Funnel attribution and decompose still require an explicit multi-axis mode" in text
     assert "Omit mode for one axis" in text

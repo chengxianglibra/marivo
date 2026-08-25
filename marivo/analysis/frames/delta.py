@@ -135,7 +135,7 @@ def _attribute_admission(meta: DeltaFrameMeta) -> AttributeAdmissionV1:
         multiple_axes_default="joint",
     )
     nonadditive_modes = AttributeModeAdmissionV1(
-        multiple_axes=("joint", "multiresolution"),
+        multiple_axes=("joint", "hierarchy"),
         multiple_axes_default="joint",
     )
     basis = meta.attribution_basis

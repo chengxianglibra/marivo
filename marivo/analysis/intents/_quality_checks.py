@@ -678,7 +678,7 @@ def run_attribution_checks(frame: AttributionFrame) -> list[dict[str, str]]:
         reconciliation_invalid = 1
     else:
         reconciled_rows = df
-        if meta.attribution_mode in {"hierarchy", "multiresolution"}:
+        if meta.attribution_mode == "hierarchy":
             if ATTRIBUTION_LEVEL_COLUMN not in df.columns or df.empty:
                 reconciliation_invalid += 1
                 reconciled_rows = df.iloc[0:0]

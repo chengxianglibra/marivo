@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, cast
@@ -28,6 +28,7 @@ from marivo.analysis.frames.base import (
     BaseFrame,
     BaseFrameMeta,
     _ArtifactSemanticBinding,
+    _preview_cell,
     assert_attribution_shape,
 )
 from marivo.analysis.frames.event import CoverageBasis, SubjectAxisBinding
@@ -44,6 +45,7 @@ from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_OTHER_MASK_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
 )
 
@@ -135,33 +137,76 @@ class AttributionResolutionReconciliationV1(BaseModel):
     quantile_execution: QuantileResolutionExecutionV1 | None = None
 
 
-class CompleteMultiresolutionScopeV1(BaseModel):
+class CompleteHierarchyScopeV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: Literal["complete"] = "complete"
 
 
-class SelectedMultiresolutionScopeV1(BaseModel):
+class SelectedHierarchyScopeV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: Literal["selected"] = "selected"
     axis_refs: tuple[RefPayloadV1, ...] = Field(min_length=1)
 
 
-MultiresolutionScopeV1: TypeAlias = Annotated[
-    CompleteMultiresolutionScopeV1 | SelectedMultiresolutionScopeV1,
+HierarchyScopeV1: TypeAlias = Annotated[
+    CompleteHierarchyScopeV1 | SelectedHierarchyScopeV1,
     Field(discriminator="kind"),
 ]
 
 
-class IndependentMultiresolutionEvidenceV1(BaseModel):
+class RollupHierarchyEvidenceV1(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True
     )
-    schema_: Literal["independent-multiresolution/v1"] = Field(
-        default="independent-multiresolution/v1", alias="schema"
+    schema_: Literal["rollup-hierarchy/v1"] = Field(default="rollup-hierarchy/v1", alias="schema")
+    resolution_semantics: Literal["rollup"] = "rollup"
+    rollup_safe: Literal[True] = True
+    scope: HierarchyScopeV1
+
+
+class IndependentHierarchyEvidenceV1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True
     )
+    schema_: Literal["independent-hierarchy/v1"] = Field(
+        default="independent-hierarchy/v1", alias="schema"
+    )
+    resolution_semantics: Literal["independent"] = "independent"
     rollup_safe: Literal[False] = False
-    scope: MultiresolutionScopeV1
+    scope: HierarchyScopeV1
     resolution_reconciliations: tuple[AttributionResolutionReconciliationV1, ...]
+
+
+HierarchyResolutionEvidenceV1: TypeAlias = Annotated[
+    RollupHierarchyEvidenceV1 | IndependentHierarchyEvidenceV1,
+    Field(discriminator="resolution_semantics"),
+]
+
+
+class AttributionTopKSelectionV1(BaseModel):
+    """Closed selection evidence for one native attribution Top-K grouping."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True
+    )
+    schema_: Literal["attribution-top-k-selection/v1"] = Field(
+        default="attribution-top-k-selection/v1", alias="schema"
+    )
+    limit: int = Field(gt=0)
+    score_method: Literal[
+        "metric_magnitude",
+        "denominator_exposure",
+        "weight_exposure",
+        "observed_membership",
+        "non_null_observations",
+    ]
+    scope: Literal["current_plus_baseline_full_comparison"] = (
+        "current_plus_baseline_full_comparison"
+    )
+    stable_across_buckets: Literal[True] = True
+    other_policy: Literal["k_named_plus_other"] = "k_named_plus_other"
+    original_partition_count: int = Field(ge=0)
+    effective_partition_count: int = Field(ge=0)
 
 
 class DistinctMembershipEvidenceV1(BaseModel):
@@ -171,7 +216,6 @@ class DistinctMembershipEvidenceV1(BaseModel):
     source_basis_fingerprint: str
     overlap_key_count: int = Field(ge=0)
     identities_persisted: Literal[False] = False
-    multiresolution: IndependentMultiresolutionEvidenceV1 | None = None
 
 
 class QuantileReplacementEvidenceV1(BaseModel):
@@ -188,7 +232,6 @@ class QuantileReplacementEvidenceV1(BaseModel):
     source_error_bound: float | None = None
     operator_version: Literal["quantile-replacement/v1"] = "quantile-replacement/v1"
     scope_reconciliations: tuple[AttributionResolutionReconciliationV1, ...] = Field(min_length=1)
-    multiresolution: IndependentMultiresolutionEvidenceV1 | None = None
 
 
 def summarize_quantile_resolution_executions(
@@ -370,14 +413,6 @@ AttributionMethodEvidenceV1: TypeAlias = Annotated[
 ]
 
 
-def _multiresolution_evidence(
-    evidence: AttributionMethodEvidenceV1 | None,
-) -> IndependentMultiresolutionEvidenceV1 | None:
-    if isinstance(evidence, DistinctMembershipEvidenceV1 | QuantileReplacementEvidenceV1):
-        return evidence.multiresolution
-    return None
-
-
 class AttributionFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
@@ -395,17 +430,19 @@ class AttributionFrameMeta(BaseFrameMeta):
     semantic_model: str
     reconciliation: AttributionReconciliation | None = None
     row_contract_version: Literal[
-        "generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"
+        "generic-attribution-rows/v3", "cumulative-flow-attribution-rows/v1"
     ]
     causal_claim: Literal["none"] = "none"
     axis_bindings: tuple[AttributionAxisBindingV1, ...] = ()
     attribution_mode: AttributionMode | None = None
     bucket_column: str | None = None
     method_evidence: AttributionMethodEvidenceV1 | None = None
+    resolution_evidence: HierarchyResolutionEvidenceV1 | None = None
+    top_k_selection: AttributionTopKSelectionV1 | None = None
     source_attribution_ref: str | None = None
 
     @model_validator(mode="after")
-    def _validate_generic_v2(self) -> AttributionFrameMeta:
+    def _validate_generic_v3(self) -> AttributionFrameMeta:
         cumulative_evidence = (
             self.method_evidence
             if isinstance(
@@ -443,7 +480,7 @@ class AttributionFrameMeta(BaseFrameMeta):
         if self.method in {"distinct_membership", "quantile_replacement"} and (
             self.method_evidence is None
         ):
-            raise ValueError("non-additive attribution rows v2 require typed method evidence")
+            raise ValueError("non-additive attribution rows v3 require typed method evidence")
         if (
             self.method_evidence is not None
             and cumulative_evidence is None
@@ -457,11 +494,11 @@ class AttributionFrameMeta(BaseFrameMeta):
             "distinct_membership",
             "quantile_replacement",
         }:
-            raise ValueError("generic attribution rows v2 require a canonical method shape")
+            raise ValueError("generic attribution rows v3 require a canonical method shape")
         if len(self.axis_bindings) == 1 and self.attribution_mode is not None:
             raise ValueError("single-axis generic attribution omits mode")
         if not self.axis_bindings:
-            raise ValueError("generic attribution rows v2 require at least one typed axis")
+            raise ValueError("generic attribution rows v3 require at least one typed axis")
         if len({(item.ref.kind, item.ref.path) for item in self.axis_bindings}) != len(
             self.axis_bindings
         ):
@@ -470,28 +507,22 @@ class AttributionFrameMeta(BaseFrameMeta):
             raise ValueError("generic attribution axis output columns must be unique")
         if len(self.axis_bindings) > 1 and self.attribution_mode is None:
             raise ValueError("multi-axis generic attribution requires a typed mode")
-        if self.method in {"distinct_membership", "quantile_replacement"}:
-            if self.attribution_mode == "hierarchy":
-                raise ValueError("non-additive attribution forbids hierarchy mode")
-        elif self.attribution_mode == "multiresolution":
-            raise ValueError("rollup-safe attribution forbids multiresolution mode")
-        multiresolution = (
-            self.method_evidence.multiresolution
-            if isinstance(
-                self.method_evidence,
-                DistinctMembershipEvidenceV1 | QuantileReplacementEvidenceV1,
-            )
-            else None
-        )
-        if (self.attribution_mode == "multiresolution") != (multiresolution is not None):
-            raise ValueError("multiresolution mode and method evidence must agree")
-        if multiresolution is not None and self.method_evidence is not None:
-            reconciliations = multiresolution.resolution_reconciliations
+        hierarchy = self.resolution_evidence
+        if (self.attribution_mode == "hierarchy") != (hierarchy is not None):
+            raise ValueError("hierarchy mode and resolution evidence must agree")
+        nonadditive = self.method in {"distinct_membership", "quantile_replacement"}
+        if hierarchy is not None and nonadditive != (
+            hierarchy.resolution_semantics == "independent"
+        ):
+            raise ValueError("hierarchy resolution semantics disagree with attribution method")
+        if (
+            isinstance(hierarchy, IndependentHierarchyEvidenceV1)
+            and self.method_evidence is not None
+        ):
+            reconciliations = hierarchy.resolution_reconciliations
             if self.method_evidence.kind == "quantile_replacement":
                 if reconciliations != self.method_evidence.scope_reconciliations:
-                    raise ValueError(
-                        "quantile multiresolution and scope reconciliations must agree"
-                    )
+                    raise ValueError("quantile hierarchy and scope reconciliations must agree")
             elif any(item.quantile_execution is not None for item in reconciliations):
                 raise ValueError("distinct reconciliation cannot carry quantile execution evidence")
         if self.method_evidence is not None and self.method_evidence.kind == "quantile_replacement":
@@ -509,7 +540,7 @@ class AttributionFrameMeta(BaseFrameMeta):
             if observed != summary:
                 raise ValueError("quantile method evidence does not summarize its scope executions")
         if self.reconciliation is None:
-            raise ValueError("generic attribution rows v2 require typed reconciliation")
+            raise ValueError("generic attribution rows v3 require typed reconciliation")
         return self
 
 
@@ -803,7 +834,7 @@ def _validate_cumulative_partition_rows(
 
 def _validate_row_ranks(meta: AttributionFrameMeta, dataframe: Any) -> None:
     group_columns = [] if meta.bucket_column is None else [meta.bucket_column]
-    if meta.attribution_mode in {"hierarchy", "multiresolution"}:
+    if meta.attribution_mode == "hierarchy":
         group_columns.append(ATTRIBUTION_LEVEL_COLUMN)
     groups = (
         ((None, dataframe),)
@@ -826,7 +857,9 @@ def _validate_scope_reconciliations(
 ) -> None:
     axis_refs = tuple(binding.ref for binding in meta.axis_bindings)
     bucket_column = meta.bucket_column
-    has_levels = meta.attribution_mode == "multiresolution"
+    has_levels = meta.attribution_mode == "hierarchy" and isinstance(
+        meta.resolution_evidence, IndependentHierarchyEvidenceV1
+    )
     observed_keys: set[tuple[int, tuple[tuple[str, JsonScalar], ...]]] = set()
     for _, row in dataframe.iterrows():
         level = int(row[ATTRIBUTION_LEVEL_COLUMN]) if has_levels else len(axis_refs)
@@ -885,9 +918,68 @@ def _validate_scope_reconciliations(
         raise ValueError("attribution rows and typed reconciliation scopes differ")
 
 
+def _same_axis_value(left: object, right: object) -> bool:
+    left_missing = bool(pd.isna(cast("Any", left)))
+    right_missing = bool(pd.isna(cast("Any", right)))
+    if left_missing or right_missing:
+        return left_missing and right_missing
+    return bool(left == right)
+
+
+def _validate_rollup_hierarchy_rows(meta: AttributionFrameMeta, dataframe: Any) -> None:
+    hierarchy = meta.resolution_evidence
+    if not isinstance(hierarchy, RollupHierarchyEvidenceV1) or hierarchy.scope.kind != "complete":
+        return
+    axis_columns = tuple(binding.output_column for binding in meta.axis_bindings)
+    matched_children: set[int] = set()
+    for level in range(1, len(axis_columns)):
+        parents = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == level]
+        children = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == level + 1]
+        prefix_columns = axis_columns[:level]
+        prefix_mask = (1 << level) - 1
+        for _, parent in parents.iterrows():
+            matched = children
+            if meta.bucket_column is not None:
+                parent_bucket = parent[meta.bucket_column]
+                matched = matched[
+                    matched[meta.bucket_column].map(
+                        lambda value, expected=parent_bucket: _same_axis_value(value, expected)
+                    )
+                ]
+            for column in prefix_columns:
+                parent_value = parent[column]
+                matched = matched[
+                    matched[column].map(
+                        lambda value, expected=parent_value: _same_axis_value(value, expected)
+                    )
+                ]
+            if ATTRIBUTION_OTHER_MASK_COLUMN in dataframe.columns:
+                parent_mask = int(parent[ATTRIBUTION_OTHER_MASK_COLUMN]) & prefix_mask
+                matched = matched[
+                    matched[ATTRIBUTION_OTHER_MASK_COLUMN].map(
+                        lambda value, mask=prefix_mask, expected=parent_mask: (
+                            int(value) & mask == expected
+                        )
+                    )
+                ]
+            if matched.empty:
+                raise ValueError("rollup hierarchy parent has no displayed children")
+            matched_children.update(int(index) for index in matched.index)
+            if not math.isclose(
+                float(parent["contribution"]),
+                float(matched["contribution"].sum()),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError("rollup hierarchy parent contribution differs from children")
+        if matched_children != {int(index) for index in children.index}:
+            raise ValueError("rollup hierarchy child has no displayed parent")
+        matched_children.clear()
+
+
 def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any) -> None:
-    """Fail closed when persisted generic v2 rows contradict typed metadata."""
-    if meta.row_contract_version != "generic-attribution-rows/v2":
+    """Fail closed when persisted generic v3 rows contradict typed metadata."""
+    if meta.row_contract_version != "generic-attribution-rows/v3":
         return
     columns = {str(column) for column in dataframe.columns}
     axis_columns = tuple(binding.output_column for binding in meta.axis_bindings)
@@ -901,13 +993,17 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     }
     if meta.bucket_column is not None:
         required.add(meta.bucket_column)
+    if meta.top_k_selection is not None:
+        required.add(ATTRIBUTION_OTHER_MASK_COLUMN)
+    elif ATTRIBUTION_OTHER_MASK_COLUMN in columns:
+        raise ValueError("attribution Other mask requires typed Top-K selection evidence")
     prefix_columns = {
         ATTRIBUTION_LEVEL_COLUMN,
         ATTRIBUTION_AXIS_COLUMN,
         ATTRIBUTION_DRIVER_COLUMN,
         ATTRIBUTION_PATH_COLUMN,
     }
-    if meta.attribution_mode in {"hierarchy", "multiresolution"}:
+    if meta.attribution_mode == "hierarchy":
         required.update(prefix_columns)
     elif columns & prefix_columns:
         raise ValueError("single-axis and joint attribution rows forbid prefix coordinates")
@@ -946,31 +1042,62 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
             "generic attribution row columns mismatch: "
             f"missing={missing!r} forbidden={present_forbidden!r}"
         )
+    if meta.top_k_selection is not None:
+        masks = pd.to_numeric(dataframe[ATTRIBUTION_OTHER_MASK_COLUMN], errors="raise")
+        mask_values: list[int] = []
+        for value in masks:
+            if pd.isna(value):
+                raise ValueError("attribution Other mask must contain finite integers")
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("attribution Other mask must contain finite integers") from exc
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                raise ValueError("attribution Other mask must contain finite integers")
+            mask = int(numeric)
+            if mask < 0 or mask >= (1 << len(axis_columns)):
+                raise ValueError("attribution Other mask exceeds the typed axis range")
+            mask_values.append(mask)
+        for row_position, mask in enumerate(mask_values):
+            level = (
+                int(dataframe[ATTRIBUTION_LEVEL_COLUMN].iloc[row_position])
+                if meta.attribution_mode == "hierarchy"
+                else len(axis_columns)
+            )
+            if mask >= (1 << level):
+                raise ValueError("attribution Other mask exceeds its hierarchy row prefix")
+            for axis_position, column in enumerate(axis_columns[:level]):
+                if mask & (1 << axis_position) and not pd.isna(
+                    dataframe[column].iloc[row_position]
+                ):
+                    raise ValueError("attribution Other mask bit requires a null axis cell")
     _validate_row_ranks(meta, dataframe)
-    if meta.attribution_mode == "multiresolution":
-        evidence = meta.method_evidence
-        multiresolution = _multiresolution_evidence(evidence)
-        assert multiresolution is not None
+    hierarchy = meta.resolution_evidence
+    if meta.attribution_mode == "hierarchy":
+        assert hierarchy is not None
         valid_levels = set(range(1, len(axis_columns) + 1))
         observed_levels = {
             int(value) for value in dataframe[ATTRIBUTION_LEVEL_COLUMN].dropna().unique()
         }
-        scope = multiresolution.scope
+        scope = hierarchy.scope
         expected_levels = valid_levels if scope.kind == "complete" else {len(scope.axis_refs)}
         if observed_levels != expected_levels:
-            raise ValueError("multiresolution row levels do not match typed scope")
+            raise ValueError("hierarchy row levels do not match typed scope")
         for _, row in dataframe.iterrows():
             level = int(row[ATTRIBUTION_LEVEL_COLUMN])
             if row[ATTRIBUTION_AXIS_COLUMN] != axis_columns[level - 1]:
-                raise ValueError("multiresolution row axis does not match its ordered prefix")
+                raise ValueError("hierarchy row axis does not match its ordered prefix")
             for column in axis_columns[level:]:
                 if not pd.isna(row[column]):
-                    raise ValueError("multiresolution row has a value beyond its prefix")
-        _validate_scope_reconciliations(
-            meta,
-            dataframe,
-            multiresolution.resolution_reconciliations,
-        )
+                    raise ValueError("hierarchy row has a value beyond its prefix")
+        if isinstance(hierarchy, IndependentHierarchyEvidenceV1):
+            _validate_scope_reconciliations(
+                meta,
+                dataframe,
+                hierarchy.resolution_reconciliations,
+            )
+        else:
+            _validate_rollup_hierarchy_rows(meta, dataframe)
     elif meta.method_evidence is not None and meta.method_evidence.kind == "quantile_replacement":
         _validate_scope_reconciliations(
             meta,
@@ -984,7 +1111,7 @@ def validate_generic_attribution_rows(meta: AttributionFrameMeta, dataframe: Any
     reconciliation = meta.reconciliation
     assert reconciliation is not None
     reconciled_rows = dataframe
-    if meta.attribution_mode in {"hierarchy", "multiresolution"}:
+    if meta.attribution_mode == "hierarchy":
         reconciled_level = int(dataframe[ATTRIBUTION_LEVEL_COLUMN].max())
         reconciled_rows = dataframe[dataframe[ATTRIBUTION_LEVEL_COLUMN] == reconciled_level]
     nonadditive = meta.method in {"distinct_membership", "quantile_replacement"}
@@ -1270,31 +1397,50 @@ class AttributionFrame(BaseFrame):
                         f"partitions={len(evidence.partitions)}"
                     ),
                 )
-            multiresolution = _multiresolution_evidence(evidence)
-            if multiresolution is not None:
-                scope = multiresolution.scope
-                selected = (
-                    ""
+        hierarchy = (
+            self.meta.resolution_evidence if isinstance(self.meta, AttributionFrameMeta) else None
+        )
+        if hierarchy is not None:
+            scope = hierarchy.scope
+            selected = (
+                ""
+                if scope.kind == "complete"
+                else " selected=" + ",".join(ref.path for ref in scope.axis_refs)
+            )
+            card.field(
+                "hierarchy",
+                (
+                    f"resolution_semantics={hierarchy.resolution_semantics} "
+                    f"rollup_safe={str(hierarchy.rollup_safe).lower()}"
+                    + (
+                        f" resolutions={len(hierarchy.resolution_reconciliations)}"
+                        if isinstance(hierarchy, IndependentHierarchyEvidenceV1)
+                        else ""
+                    )
+                    + selected
+                ),
+            )
+            card.field(
+                "row_arithmetic",
+                (
+                    "complete rows are not additive across resolutions; select one "
+                    "exact prefix with at_resolution(axes=[...])"
+                    if scope.kind == "complete" and not hierarchy.rollup_safe
+                    else "parent rows equal the sum of their displayed children"
                     if scope.kind == "complete"
-                    else " selected=" + ",".join(ref.path for ref in scope.axis_refs)
-                )
-                card.field(
-                    "multiresolution",
-                    (
-                        "rollup_safe=false "
-                        f"resolutions={len(multiresolution.resolution_reconciliations)}"
-                        f"{selected}"
-                    ),
-                )
-                card.field(
-                    "row_arithmetic",
-                    (
-                        "complete rows are not additive across resolutions; select one "
-                        "exact prefix with at_resolution(axes=[...])"
-                        if scope.kind == "complete"
-                        else "selected rows may be summed once per comparison bucket"
-                    ),
-                )
+                    else "selected rows may be summed once per comparison bucket"
+                ),
+            )
+        if isinstance(self.meta, AttributionFrameMeta) and self.meta.top_k_selection is not None:
+            selection = self.meta.top_k_selection
+            card.field(
+                "top_k",
+                (
+                    f"limit={selection.limit} score={selection.score_method} "
+                    f"partitions={selection.original_partition_count}->"
+                    f"{selection.effective_partition_count} other=mask"
+                ),
+            )
         reconciliation = self.meta.reconciliation
         if reconciliation is None:
             self._append_evidence_sections(card)
@@ -1338,6 +1484,33 @@ class AttributionFrame(BaseFrame):
         """Return the canonical mathematical allocation shape."""
         return cast("AttributionShape", self.meta.method)
 
+    def _preview_rows_provider(self) -> Iterator[tuple[str, ...]]:
+        """Render masked null axis cells as Other without changing persisted values."""
+        if not isinstance(self.meta, AttributionFrameMeta):
+            yield from super()._preview_rows_provider()
+            return
+        dataframe = self._df
+        columns = self._public_column_names()
+        axis_indexes = {
+            binding.output_column: columns.index(binding.output_column)
+            for binding in self.meta.axis_bindings
+            if binding.output_column in columns
+        }
+        mask_index = (
+            columns.index(ATTRIBUTION_OTHER_MASK_COLUMN)
+            if ATTRIBUTION_OTHER_MASK_COLUMN in columns
+            else None
+        )
+        for raw_row in dataframe.itertuples(index=False, name=None):
+            row = list(raw_row[: len(columns)])
+            if mask_index is not None:
+                mask = int(row[mask_index])
+                for axis_position, binding in enumerate(self.meta.axis_bindings):
+                    column_index = axis_indexes.get(binding.output_column)
+                    if column_index is not None and mask & (1 << axis_position):
+                        row[column_index] = "Other"
+            yield tuple(str(_preview_cell(value)) for value in row)
+
     @property
     def attribution_mode(self) -> AttributionMode | None:
         """The multi-axis row layout, distinct from attribution math ``method``."""
@@ -1371,29 +1544,26 @@ class AttributionFrame(BaseFrame):
         """Select one exact ordered semantic-ref prefix without executing a query."""
         if self.meta.semantic_kind == "funnel_loss_rate":
             raise AttributionResolutionError(
-                message="at_resolution requires generic multiresolution attribution",
-                expected="AttributionFrame attribution_mode='multiresolution'",
+                message="at_resolution requires generic hierarchy attribution",
+                expected="AttributionFrame attribution_mode='hierarchy'",
                 received="funnel_loss_rate",
                 location="AttributionFrame.at_resolution",
             )
-        evidence = self.meta.method_evidence
-        if self.meta.attribution_mode != "multiresolution" or evidence is None:
+        hierarchy = (
+            self.meta.resolution_evidence if isinstance(self.meta, AttributionFrameMeta) else None
+        )
+        if self.meta.attribution_mode != "hierarchy" or hierarchy is None:
             raise AttributionResolutionError(
-                message="at_resolution requires a complete multiresolution attribution frame",
-                expected="attribution_mode='multiresolution'",
+                message="at_resolution requires a complete hierarchy attribution frame",
+                expected="attribution_mode='hierarchy'",
                 received=repr(self.meta.attribution_mode),
                 location="AttributionFrame.at_resolution",
             )
-        multiresolution = _multiresolution_evidence(evidence)
-        if multiresolution is None or multiresolution.scope.kind != "complete":
+        if hierarchy.scope.kind != "complete":
             raise AttributionResolutionError(
                 message="this attribution frame already has a selected resolution",
-                expected="multiresolution.scope.kind='complete'",
-                received=(
-                    "missing"
-                    if multiresolution is None
-                    else f"scope.kind={multiresolution.scope.kind!r}"
-                ),
+                expected="resolution_evidence.scope.kind='complete'",
+                received=f"scope.kind={hierarchy.scope.kind!r}",
                 location="AttributionFrame.at_resolution",
             )
         from marivo.analysis.semantic_inputs import normalize_dimension_input
@@ -1437,42 +1607,74 @@ class AttributionFrame(BaseFrame):
         selected_df = self._dataframe_copy()
         if ATTRIBUTION_LEVEL_COLUMN not in selected_df.columns:
             raise AttributionResolutionError(
-                message="multiresolution rows are missing the required level coordinate",
-                expected="generic-attribution-rows/v2 with level",
+                message="hierarchy rows are missing the required level coordinate",
+                expected="generic-attribution-rows/v3 with level",
                 received=repr(list(selected_df.columns)),
                 location="AttributionFrame.at_resolution",
             )
         selected_df = selected_df[selected_df[ATTRIBUTION_LEVEL_COLUMN] == level].reset_index(
             drop=True
         )
-        selected_reconciliations = tuple(
-            item
-            for item in multiresolution.resolution_reconciliations
-            if item.axis_refs == requested_refs
-        )
-        common = AttributionReconciliation(
-            partition_count=sum(item.partition_count for item in selected_reconciliations),
-            total_delta=sum(item.total_delta for item in selected_reconciliations),
-            contribution_sum=sum(item.contribution_sum for item in selected_reconciliations),
-            residual=sum(item.residual for item in selected_reconciliations),
-            max_abs_residual=max(
-                (item.max_abs_residual for item in selected_reconciliations),
-                default=0.0,
-            ),
-        )
-        selected_multiresolution = multiresolution.model_copy(
-            update={
-                "scope": SelectedMultiresolutionScopeV1(axis_refs=requested_refs),
-                "resolution_reconciliations": selected_reconciliations,
-            }
-        )
-        evidence_update: dict[str, object] = {"multiresolution": selected_multiresolution}
-        if evidence.kind == "quantile_replacement":
-            evidence_update["scope_reconciliations"] = selected_reconciliations
-            evidence_update.update(
-                summarize_quantile_resolution_executions(selected_reconciliations)
+        selected_reconciliations: tuple[AttributionResolutionReconciliationV1, ...] = ()
+        selected_evidence = self.meta.method_evidence
+        if isinstance(hierarchy, IndependentHierarchyEvidenceV1):
+            selected_reconciliations = tuple(
+                item
+                for item in hierarchy.resolution_reconciliations
+                if item.axis_refs == requested_refs
             )
-        selected_evidence = evidence.model_copy(update=evidence_update)
+            common = AttributionReconciliation(
+                partition_count=sum(item.partition_count for item in selected_reconciliations),
+                total_delta=sum(item.total_delta for item in selected_reconciliations),
+                contribution_sum=sum(item.contribution_sum for item in selected_reconciliations),
+                residual=sum(item.residual for item in selected_reconciliations),
+                max_abs_residual=max(
+                    (item.max_abs_residual for item in selected_reconciliations),
+                    default=0.0,
+                ),
+            )
+            if selected_evidence is not None and selected_evidence.kind == "quantile_replacement":
+                selected_evidence = selected_evidence.model_copy(
+                    update={
+                        "scope_reconciliations": selected_reconciliations,
+                        **summarize_quantile_resolution_executions(selected_reconciliations),
+                    }
+                )
+            selected_hierarchy: HierarchyResolutionEvidenceV1 = hierarchy.model_copy(
+                update={
+                    "scope": SelectedHierarchyScopeV1(axis_refs=requested_refs),
+                    "resolution_reconciliations": selected_reconciliations,
+                }
+            )
+        else:
+            bucket_reconciliations: tuple[AttributionBucketReconciliationV1, ...] = ()
+            if self.meta.bucket_column is not None:
+                bucket_column = self.meta.bucket_column
+                bucket_reconciliations = tuple(
+                    AttributionBucketReconciliationV1(
+                        bucket_key=((bucket_column, _reconciliation_bucket_scalar(bucket)),),
+                        row_count=len(rows),
+                        total_delta=float(rows["contribution"].sum()),
+                        contribution_sum=float(rows["contribution"].sum()),
+                        residual=0.0,
+                        tolerance=1e-9,
+                    )
+                    for bucket, rows in selected_df.groupby(bucket_column, dropna=False, sort=True)
+                )
+            contribution_sum = float(selected_df["contribution"].sum())
+            common = AttributionReconciliation(
+                partition_count=(
+                    1 if self.meta.bucket_column is None else len(bucket_reconciliations)
+                ),
+                total_delta=contribution_sum if self.meta.bucket_column is None else None,
+                contribution_sum=(contribution_sum if self.meta.bucket_column is None else None),
+                residual=0.0 if self.meta.bucket_column is None else None,
+                max_abs_residual=0.0,
+                bucket_reconciliations=bucket_reconciliations,
+            )
+            selected_hierarchy = hierarchy.model_copy(
+                update={"scope": SelectedHierarchyScopeV1(axis_refs=requested_refs)}
+            )
         selected_digest = self.meta.evidence_digest
         if selected_digest is not None:
             from marivo.analysis.evidence.identity import make_digest_fingerprint
@@ -1514,6 +1716,7 @@ class AttributionFrame(BaseFrame):
                 "content_hash": None,
                 "source_attribution_ref": self.meta.artifact_id or self.ref,
                 "method_evidence": selected_evidence,
+                "resolution_evidence": selected_hierarchy,
                 "reconciliation": common,
                 "evidence_digest": selected_digest,
             }
@@ -1523,15 +1726,13 @@ class AttributionFrame(BaseFrame):
     def contract(self) -> ArtifactContract:
         """Return the mechanical contract, marking selected views non-canonical."""
         contract = super().contract()
-        multiresolution = (
-            None
-            if self.meta.semantic_kind == "funnel_loss_rate"
-            else _multiresolution_evidence(self.meta.method_evidence)
+        hierarchy = (
+            self.meta.resolution_evidence if isinstance(self.meta, AttributionFrameMeta) else None
         )
         if (
             self.meta.semantic_kind != "funnel_loss_rate"
-            and multiresolution is not None
-            and multiresolution.scope.kind == "complete"
+            and hierarchy is not None
+            and hierarchy.scope.kind == "complete"
         ):
             from marivo.analysis.frames.base import ArtifactAffordance, ArtifactCallOption
 
@@ -1553,7 +1754,11 @@ class AttributionFrame(BaseFrame):
             )
             contract = contract.model_copy(
                 update={
-                    "row_arithmetic": "not_additive_across_resolutions",
+                    "row_arithmetic": (
+                        "additive_at_deepest_level"
+                        if hierarchy.rollup_safe
+                        else "not_additive_across_resolutions"
+                    ),
                     "affordances": (
                         *contract.affordances,
                         ArtifactAffordance(
@@ -1568,8 +1773,8 @@ class AttributionFrame(BaseFrame):
             )
         if (
             self.meta.semantic_kind != "funnel_loss_rate"
-            and multiresolution is not None
-            and multiresolution.scope.kind == "selected"
+            and hierarchy is not None
+            and hierarchy.scope.kind == "selected"
         ):
             return contract.model_copy(
                 update={

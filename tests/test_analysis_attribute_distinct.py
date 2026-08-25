@@ -53,7 +53,90 @@ def test_count_distinct_overlap_reconciles_independent_endpoint(
     assert result.meta.method_evidence.identities_persisted is False
 
 
-def test_count_distinct_multiresolution_recomputes_each_prefix(
+def test_count_distinct_top_k_groups_membership_before_allocation(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    project = semantic_project_factory(nonadditive_attribution_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE orders (created_at DATE, region VARCHAR, channel VARCHAR, "
+        "user_id INTEGER, amount DOUBLE)"
+    )
+    backend.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(DATE '2026-01-01', 'US', 'web', 1, 10),"
+        "(DATE '2026-01-02', 'US', 'store', 2, 20),"
+        "(DATE '2026-01-03', 'CN', 'web', 3, 30),"
+        "(DATE '2025-01-01', 'US', 'web', 1, 5),"
+        "(DATE '2025-01-02', 'CN', 'store', 4, 15)"
+    )
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
+    metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
+
+    result = session.attribute(session.compare(current, baseline), axes=[region], top_k=1)
+
+    rows = result.to_pandas()
+    assert set(rows["attribution_other_mask"]) == {0, 1}
+    assert rows["contribution"].sum() == pytest.approx(1.0)
+    assert result.meta.top_k_selection is not None
+    assert result.meta.top_k_selection.score_method == "observed_membership"
+    assert result.meta.top_k_selection.effective_partition_count == 2
+
+
+def test_count_distinct_hierarchy_top_k_scores_each_prefix_membership(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    project = semantic_project_factory(nonadditive_attribution_project_files())
+    monkeypatch.chdir(project.workspace_dir)
+    backend = ibis.duckdb.connect(":memory:")
+    backend.raw_sql(
+        "CREATE TABLE orders (created_at DATE, region VARCHAR, channel VARCHAR, "
+        "user_id INTEGER, amount DOUBLE)"
+    )
+    backend.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(DATE '2026-01-01', 'A', 'x', 1, 1),"
+        "(DATE '2026-01-01', 'A', 'x', 2, 1),"
+        "(DATE '2026-01-01', 'A', 'y', 1, 1),"
+        "(DATE '2026-01-01', 'A', 'y', 2, 1),"
+        "(DATE '2026-01-01', 'B', 'x', 3, 1),"
+        "(DATE '2026-01-01', 'B', 'x', 4, 1),"
+        "(DATE '2026-01-01', 'B', 'x', 5, 1)"
+    )
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: backend})
+    metric = session.catalog.require(make_ref("sales.unique_users", SemanticKind.METRIC)).ref
+    region = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
+    channel = session.catalog.require(make_ref("sales.orders.channel", SemanticKind.DIMENSION)).ref
+    current = session.observe(
+        metric, time_scope=mv.time_scope(start="2026-01-01", end="2026-02-01")
+    )
+    baseline = session.observe(
+        metric, time_scope=mv.time_scope(start="2025-01-01", end="2025-02-01")
+    )
+
+    result = session.attribute(
+        session.compare(current, baseline),
+        axes=[region, channel],
+        mode="hierarchy",
+        top_k=1,
+    )
+
+    level_one = result.to_pandas().query("attribution_level == 1")
+    named = level_one.loc[level_one["attribution_other_mask"] == 0, "region"]
+    assert named.tolist() == ["B"]
+
+
+def test_count_distinct_hierarchy_recomputes_each_prefix(
     semantic_project_factory,
     monkeypatch,
 ) -> None:
@@ -85,11 +168,17 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
     result = session.attribute(
         session.compare(current, baseline),
         axes=[region, channel],
-        mode="multiresolution",
+        mode="hierarchy",
+        top_k=1,
     )
 
     rows = result.to_pandas()
-    assert result.attribution_mode == "multiresolution"
+    assert result.attribution_mode == "hierarchy"
+    assert result.meta.resolution_evidence is not None
+    assert result.meta.resolution_evidence.resolution_semantics == "independent"
+    assert result.meta.resolution_evidence.rollup_safe is False
+    assert result.meta.top_k_selection is not None
+    assert "attribution_other_mask" in rows
     assert rows.groupby("attribution_level")["contribution"].sum().to_dict() == pytest.approx(
         {1: 0.0, 2: 0.0}
     )
@@ -118,8 +207,8 @@ def test_count_distinct_multiresolution_recomputes_each_prefix(
     )
     assert set(region_rows.to_pandas()["attribution_level"]) == {1}
     assert region_rows.meta.method_evidence is not None
-    assert region_rows.meta.method_evidence.multiresolution is not None
-    assert region_rows.meta.method_evidence.multiresolution.scope.kind == "selected"
+    assert region_rows.meta.resolution_evidence is not None
+    assert region_rows.meta.resolution_evidence.scope.kind == "selected"
 
     corrupted = result.to_pandas()
     corrupted.loc[corrupted["attribution_level"] == 1, "contribution"] = 999.0
