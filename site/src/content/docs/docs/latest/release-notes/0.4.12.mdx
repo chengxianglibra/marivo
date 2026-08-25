@@ -1,0 +1,86 @@
+---
+slug: docs/latest/release-notes/0.4.12
+title: Marivo 0.4.12
+description: Release notes for Marivo 0.4.12.
+---
+
+Marivo 0.4.12 makes evidence combination and recovered-artifact checks fail
+closed, adds execution-time semantic authority admission, and keeps Trino
+quantile attribution on native aggregates.
+
+## Highlights
+
+- session.evidence.compatibility(...) provides one selection-wide, read-only
+  check before Findings are combined. It evaluates governed subject and scope
+  identity, current semantic authority, evidence status, quality, epistemic
+  kinds, and operator inference boundaries, returning bounded typed issues
+  instead of defaulting unknown cases to compatible.
+- session.revalidate(frame) verifies a recovered Artifact's persisted identity,
+  evidence, and current scoped semantic authority without changing the Artifact
+  or querying datasource health. Its admissible, stale, and indeterminate
+  states make the recovery decision explicit.
+- Artifact-consuming capabilities now declare whether they require
+  semantic_current authority or only materialized_only committed values.
+  Confirmed drift and unprovable authority produce typed errors with concrete
+  repairs, while materialized-only reducers, transforms, projections, and
+  terminal reads retain their valid continuations.
+- Trino median and percentile attribution now replays intermediate coalitions
+  with native approx_percentile over selected and baseline rows. Independently
+  observed endpoints still provide exact reconciliation while source
+  approximation error remains explicit.
+
+## Changed
+
+- Evidence scopes use a closed set of metric, Event, Lifecycle, and SubjectSet
+  variants, with canonical authority normalization shared by compatibility,
+  revalidation, and operator admission.
+- The evidence store contract is aligned with the current schema v4 and
+  persisted authority paths. Corrupt identity, unavailable stores, and
+  unprovable authority are kept distinct and fail closed.
+- Focused analysis help and API documentation now expose evidence
+  compatibility, Artifact revalidation, authority policies, and their typed
+  recovery contracts.
+
+## Fixed
+
+- Trino percentile attribution no longer reconstructs coalition distributions
+  through QDigest merging; it uses the admitted native aggregate path.
+- Trino median lowers through the same APPROX_PERCENTILE(0.5) contract as
+  percentile, keeping observe and attribution semantics consistent.
+- Artifact-bearing operators reject confirmed stale dependencies or unknown
+  authority before execution instead of silently relying on outdated evidence.
+
+## Documentation
+
+- Added the bilingual Evidence Engine design article and diagrams.
+- Updated the analysis evidence, recovery, semantic authority, and quantile
+  attribution documentation to match the runtime contracts.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.12 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)

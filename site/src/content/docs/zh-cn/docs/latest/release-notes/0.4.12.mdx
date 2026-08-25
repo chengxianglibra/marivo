@@ -1,0 +1,78 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.12
+title: Marivo 0.4.12
+description: Marivo 0.4.12 发布说明。
+---
+
+Marivo 0.4.12 让证据组合和恢复后的 Artifact 检查在无法证明时安全阻断，
+新增执行时的语义权威准入，并让 Trino 分位数归因继续使用原生聚合。
+
+## 重点
+
+- session.evidence.compatibility(...) 提供在组合多个 Finding 前使用的、面向整个选择集合的
+  只读检查。它会评估受治理的 subject 和 scope、当前语义权威、evidence status、质量、
+  认识论类型以及操作符推断边界；对于无法证明的情况返回有界的类型化问题，不会默认判定为
+  可兼容。
+- session.revalidate(frame) 检查恢复后的 Artifact 的持久化身份、证据和当前有界语义权威，
+  不会修改 Artifact，也不会查询 datasource health。admissible、stale 和 indeterminate
+  状态让恢复决策保持明确。
+- 使用 Artifact 的 capability 现在明确声明需要 semantic_current 权威，还是只消费已经提交
+  的 materialized_only 值。已确认的漂移和无法证明的权威会返回带具体修复方式的类型化错误；
+  只消费物化值的 reducer、transform、projection 和 terminal read 仍保留有效的后续操作。
+- Trino 的 median 和 percentile 归因现在通过原生 approx_percentile，在选中行和基线行上重放
+  中间 coalition。独立观测的端点仍负责精确对账，同时明确保留 source approximation error。
+
+## 变更
+
+- Evidence scope 使用 metric、Event、Lifecycle 和 SubjectSet 的封闭变体；compatibility、
+  revalidation 和 operator admission 共享规范化的 authority 判断。
+- Evidence store 契约与当前 schema v4 以及持久化 authority 路径保持一致。损坏的身份、不可用
+  的 store 和无法证明的 authority 被区分处理，并全部安全阻断。
+- Focused analysis help 和 API 文档现在说明 evidence compatibility、Artifact revalidation、
+  authority policy 及其类型化恢复契约。
+
+## 修复
+
+- Trino percentile attribution 不再通过合并 QDigest 重建 coalition distribution，而是使用已准入
+  的原生聚合路径。
+- Trino median 与 percentile 使用相同的 APPROX_PERCENTILE(0.5) 契约，保持 observe 和
+  attribution 语义一致。
+- 使用 Artifact 的操作符会在执行前拒绝已确认的 stale dependency 或未知 authority，不再静默
+  依赖过期证据。
+
+## 文档
+
+- 新增中英文 Evidence Engine 设计文章及配图。
+- 更新 analysis evidence、recovery、semantic authority 和 quantile attribution 文档，使其
+  与当前运行时契约一致。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.12 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)
