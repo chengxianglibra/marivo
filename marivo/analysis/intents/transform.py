@@ -2861,6 +2861,7 @@ def _persist_transform_frame(
         frame = cast(
             "MetricFrame",
             commit_result(
+                session=session,
                 store=session._evidence_store(),
                 frames_dir=session._layout.frames_dir,
                 frame=frame,
@@ -2887,6 +2888,7 @@ def _persist_transform_frame(
         frame = cast(
             "DeltaFrame",
             commit_result(
+                session=session,
                 store=session._evidence_store(),
                 frames_dir=session._layout.frames_dir,
                 frame=frame,

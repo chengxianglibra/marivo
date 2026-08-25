@@ -123,7 +123,7 @@ def _atomic_write_text(path: Path, data: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_name, path)
-    except Exception:
+    except BaseException:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
         raise
@@ -242,7 +242,7 @@ def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
             use_dictionary=False,
         )
         os.replace(tmp_name, path)
-    except Exception:
+    except BaseException:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
         raise

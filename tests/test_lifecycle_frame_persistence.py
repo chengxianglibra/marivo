@@ -394,6 +394,7 @@ def test_lifecycle_history_evidence_commit_writes_and_reuses_trace(tmp_path):
     anchors = CommitSemanticAnchors.from_frame(first)
 
     committed = commit_result(
+        session=None,
         store=None,
         frames_dir=frames_dir,
         frame=first,
@@ -412,6 +413,7 @@ def test_lifecycle_history_evidence_commit_writes_and_reuses_trace(tmp_path):
     assert committed.meta.content_hash.startswith("sha256:")
 
     reused = commit_result(
+        session=None,
         store=None,
         frames_dir=frames_dir,
         frame=_history_frame(session),

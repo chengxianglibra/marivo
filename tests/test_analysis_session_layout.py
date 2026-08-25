@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
+import marivo.analysis.session._layout as layout_module
 from marivo._compat import UTC
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -58,6 +59,21 @@ def test_atomic_write_text_replaces_existing(tmp_path):
     _atomic_write_text(target, "v1")
     _atomic_write_text(target, "v2")
     assert target.read_text() == "v2"
+
+
+def test_interrupted_atomic_text_replace_preserves_original_and_cleans_temp(tmp_path, monkeypatch):
+    target = tmp_path / "meta.json"
+    target.write_text("original")
+
+    def interrupt_replace(_source, _target):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(layout_module.os, "replace", interrupt_replace)
+    with pytest.raises(KeyboardInterrupt):
+        _atomic_write_text(target, "replacement")
+
+    assert target.read_text() == "original"
+    assert list(tmp_path.glob(".tmp_*")) == []
 
 
 # -- Job records --
@@ -153,6 +169,25 @@ def test_atomic_write_parquet_disables_dictionary_encoding(tmp_path):
         for encoding in parquet_file.metadata.row_group(0).column(col).encodings
     }
     assert not any("DICTIONARY" in encoding for encoding in encodings)
+
+
+def test_interrupted_atomic_parquet_replace_preserves_original_and_cleans_temp(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "data.parquet"
+    original = pd.DataFrame({"x": [1]})
+    replacement = pd.DataFrame({"x": [2]})
+    _atomic_write_parquet(original, target)
+
+    def interrupt_replace(_source, _target):
+        raise OSError("injected replace failure")
+
+    monkeypatch.setattr(layout_module.os, "replace", interrupt_replace)
+    with pytest.raises(OSError, match="injected replace failure"):
+        _atomic_write_parquet(replacement, target)
+
+    assert pd.read_parquet(target).equals(original)
+    assert list(tmp_path.glob(".tmp_*")) == []
 
 
 def test_read_parquet_frame_retries_dictionary_bounds(tmp_path, monkeypatch):

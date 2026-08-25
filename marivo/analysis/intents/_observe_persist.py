@@ -367,6 +367,7 @@ def _commit_observe_metric_frame(
     result = cast(
         "MetricFrame",
         commit_result(
+            session=session,
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=frame,

@@ -1,6 +1,6 @@
 # Marivo Evidence Compatibility and Revalidation — 设计
 
-状态：Slice 0–3 已实现；Slice 4 尚未实现
+状态：Slice 0–4 已实现
 
 ## 文档目的
 
@@ -586,6 +586,17 @@ AuthorityContext 和 comparator，但不能各自实现一套规则。
 如果测试证明 Frame persistence 与 evidence commit 之间存在可观察的半提交窗口，应先补
 recovery marker/commit protocol，而不是引入高层并发调度抽象。
 
+Slice 4 的对抗性测试证明旧顺序会先发布 ledger、后写 sidecar。当前协议固定为：原子写
+Frame 文件和 sidecar → 单事务提交 evidence projection → 写 Session Store index。完整的
+schema-v4 Artifact ledger row 复用为 recovery marker；若最后一步被中断，exact recovery
+只有在 session、canonical path、schema、frame/content hash、evidence status、Digest、
+Finding 和 Issue 全部一致时才恢复 index，并保留 sidecar 的 canonical `created_at` 作为
+分页排序键。若同一 deterministic ref 从 unavailable 状态重试，旧 Session Store index
+必须先撤销，新的 complete sidecar 才能发布；因此 ledger 提交前的并发读取只能看到
+不可见 orphan，而不能借旧 index 读取缺失 canonical evidence 的 complete Artifact。
+无 ledger 的孤儿文件保持不可见，lock/timeout 抛
+`SessionLockedByAnotherProcessError`，不降级或静默重试。该修复不增加 schema 或 marker 表。
+
 ## 公共错误模型
 
 新增错误继续继承 `AnalysisError`，并遵守 expected / received / repair：
@@ -731,6 +742,10 @@ Artifact/evidence schema，也未引入 SourceHealth）。
 - 对所有 Artifact family 做 continuation/admission matrix tests。
 
 ### Slice 4：Persistence Adversarial Tests
+
+状态：已实现（Artifact schema v10 与 evidence schema v4 保持不变；schema-v4 Artifact
+ledger row 在 sidecar 原子落盘后成为恢复标记，缺失的 Session Store index 只在完整
+canonical evidence 校验成功后恢复；恢复不会改变 Artifact 分页顺序）。
 
 - 覆盖 evidence store unavailable、SQLite lock/timeout、文件中断写、sidecar corruption；
 - 验证不存在 complete Artifact + missing canonical evidence 的静默状态；

@@ -302,10 +302,15 @@ fingerprint; delta subjects record the ordered current/baseline comparison
 identity. Every subject includes the owning session/artifact scope, so evidence
 from different sessions cannot merge merely because value expressions match.
 
-Artifact, findings, digest, and issues commit in one transaction. There is no
-phase-two judgment transaction. Only schema v4 is accepted: every non-v4
-`judgment.db` raises `SchemaVersionMismatchError` and must be replaced by a
-fresh analysis session.
+Artifact, findings, digest, and issues commit in one transaction, after the frame
+bytes and sidecar have been atomically published. That schema-v4 Artifact row is
+also the recovery marker when interruption occurs before the Session Store index
+write; recovery validates the sidecar, frame hash, digest, session, and canonical
+path before restoring the index. There is no phase-two judgment transaction or
+parallel marker schema. Only schema v4 is accepted: every non-v4 `judgment.db`
+raises `SchemaVersionMismatchError` and must be replaced by a fresh analysis
+session. SQLite lock/timeout failures remain typed execution errors and are never
+converted into empty evidence or an unavailable Artifact.
 
 The digest serialized into frame metadata and the digest stored in SQLite are
 the same normalized value and fingerprint. Sidecars containing removed

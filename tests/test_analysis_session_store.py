@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 
+from marivo.analysis.errors import SessionLockedByAnotherProcessError
 from marivo.analysis.session._store import SessionStore, SessionSummary
 
 # ---------------------------------------------------------------------------
@@ -52,6 +54,44 @@ def test_connection_enables_busy_timeout(store: SessionStore) -> None:
     with store._connect() as conn:
         timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
     assert timeout == 5000
+
+
+def test_lock_contention_raises_typed_without_overwriting(
+    project_root: Path,
+) -> None:
+    first = SessionStore(project_root=project_root)
+    row = first.get_or_insert_session(name="locked", question=None, cwd=project_root)
+    first.record_artifact(
+        session_id=row["id"],
+        artifact_id="art_locked",
+        kind="metric_frame",
+        path="frames/original/data.parquet",
+        meta_path="frames/original/meta.json",
+        content_hash="sha256:original",
+        produced_by_job=None,
+    )
+    second = SessionStore(project_root=project_root, busy_timeout_ms=50)
+    blocker = sqlite3.connect(str(first.db_path), isolation_level=None)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        with pytest.raises(SessionLockedByAnotherProcessError):
+            second.record_artifact(
+                session_id=row["id"],
+                artifact_id="art_locked",
+                kind="metric_frame",
+                path="frames/replacement/data.parquet",
+                meta_path="frames/replacement/meta.json",
+                content_hash="sha256:replacement",
+                produced_by_job=None,
+            )
+        blocker.execute("ROLLBACK")
+        artifact = first.get_artifact(row["id"], "art_locked")
+        assert artifact is not None
+        assert artifact["content_hash"] == "sha256:original"
+    finally:
+        if blocker.in_transaction:
+            blocker.execute("ROLLBACK")
+        blocker.close()
 
 
 def test_connection_enables_foreign_keys(store: SessionStore) -> None:

@@ -513,6 +513,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
     result = cast(
         "MetricFrame",
         commit_result(
+            session=session,
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=projected,

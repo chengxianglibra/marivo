@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from marivo._compat import UTC
+from marivo.analysis.errors import SessionLockedByAnotherProcessError
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
 
@@ -99,6 +100,11 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
+
+
 class SessionStore:
     """SQLite-backed store for analysis session metadata.
 
@@ -117,11 +123,17 @@ class SessionStore:
         ... )
     """
 
-    def __init__(self, project_root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        project_root: str | Path | None = None,
+        *,
+        busy_timeout_ms: int = 5000,
+    ) -> None:
         if project_root is None:
             self._project_root = resolve_project_root()
         else:
             self._project_root = Path(project_root).resolve()
+        self._busy_timeout_ms = busy_timeout_ms
         # Eagerly ensure the database and directory exist.
         with self._connect():
             pass
@@ -139,17 +151,31 @@ class SessionStore:
         """Yield a connection with WAL, busy_timeout, and foreign keys enabled."""
         path = self.db_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(path))
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.executescript(_SCHEMA)
-        conn.row_factory = sqlite3.Row
+        conn: sqlite3.Connection | None = None
         try:
+            conn = sqlite3.connect(
+                str(path),
+                timeout=self._busy_timeout_ms / 1000,
+            )
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript(_SCHEMA)
+            conn.row_factory = sqlite3.Row
             yield conn
             conn.commit()
+        except BaseException as exc:
+            if conn is not None and conn.in_transaction:
+                conn.rollback()
+            if isinstance(exc, sqlite3.OperationalError) and _is_lock_error(exc):
+                raise SessionLockedByAnotherProcessError(
+                    message=f"session_store.db locked: {path}",
+                    context={"db_path": str(path), "cause": str(exc)},
+                ) from exc
+            raise
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     @staticmethod
     def _fetchone(
@@ -402,6 +428,7 @@ class SessionStore:
         content_hash: str | None,
         produced_by_job: str | None,
         evidence_status: str = "unavailable",
+        created_at: str | None = None,
     ) -> None:
         """Insert an artifact row.
 
@@ -413,8 +440,11 @@ class SessionStore:
             meta_path: Project-relative path to the artifact metadata.
             content_hash: Optional content hash for integrity checks.
             produced_by_job: Optional job id that produced this artifact.
+            evidence_status: Canonical evidence availability state.
+            created_at: Canonical artifact creation time. Defaults to the
+                registration time for callers without persisted metadata.
         """
-        now = _now_iso()
+        committed_at = created_at or _now_iso()
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO artifacts (session_id, artifact_id, kind, path, meta_path, "
@@ -428,7 +458,7 @@ class SessionStore:
                     meta_path,
                     content_hash,
                     evidence_status,
-                    now,
+                    committed_at,
                     produced_by_job,
                 ),
             )

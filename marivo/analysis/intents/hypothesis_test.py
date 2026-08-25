@@ -236,6 +236,7 @@ def hypothesis_test(
     frame = cast(
         "HypothesisTestResult",
         commit_result(
+            session=session,
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=frame,

@@ -140,3 +140,47 @@ def test_lock_contention_raises_typed(tmp_path: Path) -> None:
     finally:
         second.close()
         first.close()
+
+
+def test_commit_busy_rolls_back_and_raises_typed(tmp_path: Path) -> None:
+    store = open_evidence_store(tmp_path / "judgment.db")
+    real_connection = store._conn
+
+    class BusyCommitConnection:
+        @property
+        def in_transaction(self):
+            return real_connection.in_transaction
+
+        def execute(self, sql, params=()):
+            if sql == "COMMIT":
+                raise sqlite3.OperationalError("database is busy")
+            return real_connection.execute(sql, params)
+
+    store._conn = BusyCommitConnection()  # type: ignore[assignment]
+    try:
+        with (
+            pytest.raises(SessionLockedByAnotherProcessError),
+            store.transaction(immediate=True) as tx,
+        ):
+            tx.execute(
+                "INSERT INTO artifacts "
+                "(artifact_id, session_id, step_type, artifact_type, "
+                "artifact_schema_version, subject_payload, lineage_payload, "
+                "evidence_status, committed_at_us) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "art_busy",
+                    "sess_1",
+                    "observe",
+                    "metric_frame",
+                    "v4",
+                    "{}",
+                    "{}",
+                    "complete",
+                    1,
+                ),
+            )
+        assert real_connection.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+    finally:
+        store._conn = real_connection
+        store.close()

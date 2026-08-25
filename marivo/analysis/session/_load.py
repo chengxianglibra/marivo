@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
@@ -21,10 +23,13 @@ from marivo.analysis.candidate_identity import (
 from marivo.analysis.errors import (
     AnalysisRepair,
     CrossSessionFrameError,
+    EvidenceStoreUnavailableError,
     FrameCacheCorruptedError,
     FrameMetaInvalidError,
     FrameRefNotFound,
+    SchemaVersionMismatchError,
 )
+from marivo.analysis.evidence.store import EXPECTED_SCHEMA_VERSION
 from marivo.analysis.frames._content_hash import (
     compute_file_content_hash,
     compute_frame_content_hash,
@@ -132,6 +137,68 @@ _CURRENT_METRIC_FRAME_FIELDS = frozenset(
         "status_time_dimension_ref",
     }
 )
+
+
+def _evidence_recovery_marker(session: Session, ref: str) -> sqlite3.Row | None:
+    """Return one committed evidence row that can recover a missing session index."""
+    db_path = session._layout.session_dir / "judgment.db"
+    if not db_path.is_file():
+        return None
+    store = session._evidence_store()
+    if store is None:
+        raise EvidenceStoreUnavailableError(
+            message=f"cannot recover artifact {ref!r} because judgment.db is unavailable",
+            context={"artifact_ref": ref, "db_path": str(db_path)},
+        )
+    try:
+        connection = store.read()
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if user_version != EXPECTED_SCHEMA_VERSION:
+            raise SchemaVersionMismatchError(
+                message=(
+                    f"judgment.db schema version {user_version} is unsupported; "
+                    f"this release requires a fresh v{EXPECTED_SCHEMA_VERSION} evidence store"
+                ),
+                context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
+            )
+        row = connection.execute(
+            "SELECT * FROM artifacts WHERE session_id = ? AND artifact_id = ?",
+            (session.id, ref),
+        ).fetchone()
+    except SchemaVersionMismatchError:
+        raise
+    except sqlite3.Error as exc:
+        raise EvidenceStoreUnavailableError(
+            message=f"cannot read judgment.db while recovering artifact {ref!r}",
+            context={
+                "artifact_ref": ref,
+                "db_path": str(db_path),
+                "cause": str(exc),
+            },
+        ) from exc
+    if row is None:
+        return None
+    expected_data_path = (session._layout.frames_dir / ref / "data.parquet").resolve()
+    recorded_data_path = Path(str(row["frame_path"])).resolve()
+    if recorded_data_path != expected_data_path:
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' evidence marker points outside its canonical path",
+            context={
+                "ref": ref,
+                "expected_path": str(expected_data_path),
+                "recorded_path": str(recorded_data_path),
+            },
+        )
+    if row["artifact_schema_version"] != "v4":
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' evidence marker uses an unsupported artifact projection",
+            context={
+                "ref": ref,
+                "expected_artifact_schema_version": "v4",
+                "received_artifact_schema_version": row["artifact_schema_version"],
+            },
+        )
+    return cast("sqlite3.Row", row)
 
 
 def _contains_semantic_grain(value: Any) -> bool:
@@ -543,39 +610,52 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if isinstance(ref, ArtifactRef):
         ref = ref.ref
 
-    # Check the store first — the artifacts table is the source of truth.
+    # The Session Store is the ordinary index. A fully committed evidence row
+    # can recover a missing index entry after interruption between the ledger
+    # transaction and Session Store registration.
     artifact_row = session._store.get_artifact(session.id, ref)
+    recovery_marker: sqlite3.Row | None = None
+    if artifact_row is None:
+        recovery_marker = _evidence_recovery_marker(session, ref)
+    registered_content_hash: object | None
     if artifact_row is not None:
         # Use store-registered paths to locate the on-disk data.
         meta_path = session.project_root / artifact_row["meta_path"]
-        if not meta_path.is_file():
-            raise FrameCacheCorruptedError(
-                message=f"frame '{ref}' is registered but meta file is missing",
-                context={"ref": ref, "meta_path": str(meta_path)},
-            )
         data_path = session.project_root / artifact_row["path"]
-        if not data_path.is_file():
-            raise FrameCacheCorruptedError(
-                message=f"frame '{ref}' is registered but data file is missing",
-                context={"ref": ref, "data_path": str(data_path)},
-            )
-        try:
-            from marivo.analysis.session._layout import _read_parquet_frame
-
-            df = _read_parquet_frame(data_path)
-            meta = json.loads(meta_path.read_text())
-        except Exception as exc:
-            raise FrameCacheCorruptedError(
-                message=f"frame '{ref}' exists on disk but cannot be loaded",
-                context={"ref": ref, "cause": str(exc)},
-            ) from exc
+        registered_content_hash = artifact_row["content_hash"]
+    elif recovery_marker is not None:
+        meta_path = session._layout.frames_dir / ref / "meta.json"
+        data_path = session._layout.frames_dir / ref / "data.parquet"
+        registered_content_hash = None
     else:
-        # No store row — the frame is not registered in the session's artifacts
-        # table, so it cannot be loaded through this session.
+        # No index or committed evidence marker: unregistered files are orphans,
+        # not loadable artifacts.
         raise FrameRefNotFound(
             message=f"no frame '{ref}' under session {session.id!r}",
             context={"session_id": session.id, "ref": ref},
         )
+    if not meta_path.is_file():
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' is committed but meta file is missing",
+            context={"ref": ref, "meta_path": str(meta_path)},
+        )
+    if not data_path.is_file():
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' is committed but data file is missing",
+            context={"ref": ref, "data_path": str(data_path)},
+        )
+    try:
+        from marivo.analysis.session._layout import _read_parquet_frame
+
+        df = _read_parquet_frame(data_path)
+        meta = json.loads(meta_path.read_text())
+        if recovery_marker is not None:
+            registered_content_hash = meta.get("content_hash")
+    except Exception as exc:
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' exists on disk but cannot be loaded",
+            context={"ref": ref, "cause": str(exc)},
+        ) from exc
 
     artifact_schema_version = meta.get("artifact_schema_version")
     if artifact_schema_version != CURRENT_ARTIFACT_SCHEMA_VERSION:
@@ -1153,14 +1233,14 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
         if (
             parsed_meta.content_hash != expected_parent_hash
-            or artifact_row["content_hash"] != expected_parent_hash
+            or registered_content_hash != expected_parent_hash
         ):
             raise FrameCacheCorruptedError(
                 message=f"frame '{ref}' Lifecycle content identity is corrupt",
                 context={"ref": ref, "cause": "parent artifact content hash mismatch"},
             )
         auxiliary_frames[manifest.filename] = trace
-    return cast(
+    loaded_frame = cast(
         "BaseFrame",
         frame_cls(
             _df=df,
@@ -1168,3 +1248,80 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             _auxiliary_frames=auxiliary_frames,
         ),
     )
+    if recovery_marker is not None:
+        expected_content_hash = compute_frame_content_hash(
+            meta=parsed_meta,
+            data_path=data_path,
+        )
+        evidence_status = recovery_marker["evidence_status"]
+        sidecar_digest = parsed_meta.evidence_digest
+        try:
+            marker_store = session._evidence_store()
+            if marker_store is None:
+                raise EvidenceStoreUnavailableError(
+                    message=(
+                        f"cannot finalize recovery for artifact {ref!r} because "
+                        "judgment.db is unavailable"
+                    ),
+                    context={"artifact_ref": ref},
+                )
+            digest_row = (
+                marker_store.read()
+                .execute(
+                    "SELECT digest_payload, fingerprint FROM artifact_digests "
+                    "WHERE artifact_id = ? AND session_id = ?",
+                    (ref, session.id),
+                )
+                .fetchone()
+            )
+        except EvidenceStoreUnavailableError:
+            raise
+        except sqlite3.Error as exc:
+            raise EvidenceStoreUnavailableError(
+                message=f"cannot finalize evidence recovery for artifact {ref!r}",
+                context={"artifact_ref": ref, "cause": str(exc)},
+            ) from exc
+        digest_mismatch = (
+            evidence_status == "complete" and (sidecar_digest is None or digest_row is None)
+        ) or (
+            sidecar_digest is not None
+            and (
+                digest_row is None
+                or digest_row["fingerprint"] != sidecar_digest.fingerprint
+                or json.loads(digest_row["digest_payload"])
+                != sidecar_digest.model_dump(mode="json")
+            )
+        )
+        if (
+            evidence_status not in {"complete", "partial", "unavailable"}
+            or parsed_meta.evidence_status != evidence_status
+            or parsed_meta.content_hash != expected_content_hash
+            or compute_file_content_hash(data_path).removeprefix("sha256:")
+            != recovery_marker["frame_sha"]
+            or digest_mismatch
+        ):
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' evidence recovery marker failed integrity validation",
+                context={"ref": ref, "cause": "sidecar and evidence marker mismatch"},
+            )
+        from marivo.analysis._artifact_integrity import load_canonical_artifact_evidence
+
+        load_canonical_artifact_evidence(
+            session=session,
+            store=marker_store,
+            frame=loaded_frame,
+            _recovery_data_path=data_path,
+            _recovery_content_hash=expected_content_hash,
+        )
+        session._store.record_artifact(
+            session_id=session.id,
+            artifact_id=ref,
+            kind=parsed_meta.kind,
+            path=session._layout.relative_path(data_path),
+            meta_path=session._layout.relative_path(meta_path),
+            content_hash=expected_content_hash,
+            produced_by_job=parsed_meta.produced_by_job,
+            evidence_status=parsed_meta.evidence_status,
+            created_at=parsed_meta.created_at.isoformat(),
+        )
+    return loaded_frame

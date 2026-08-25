@@ -21,6 +21,7 @@ from marivo.analysis.errors import (
     InvalidEventMatchingPolicyError,
     InvalidEventPatternError,
     PatternStepMismatchError,
+    SessionLockedByAnotherProcessError,
 )
 from marivo.analysis.event import (
     CompletenessDeclaration,
@@ -1050,6 +1051,7 @@ def match(
         frame = cast(
             "EventFrame",
             commit_result(
+                session=resolved_session,
                 store=evidence_store,
                 frames_dir=resolved_session._layout.frames_dir,
                 frame=frame,
@@ -1084,6 +1086,8 @@ def match(
                 "queries": [query.to_dict() for query in queries],
             },
         )
+    except SessionLockedByAnotherProcessError:
+        raise
     except BaseException:
         _rollback_event_commit(
             session=resolved_session,
