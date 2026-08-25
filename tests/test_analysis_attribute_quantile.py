@@ -324,15 +324,19 @@ def test_native_percentile_replay_reuses_observed_endpoints_and_reconciles(
         bucket_column=None,
         datasource_name="warehouse",
     )
-    intermediate_values = iter((1.80, 2.20))
     executed = []
 
     def _run_intermediate(*args, **kwargs):
         executed.append(args[0])
-        return pd.DataFrame({"value": [next(intermediate_values)]})
+        return pd.DataFrame({"coalition_0": [1.80], "coalition_1": [2.20]})
 
     monkeypatch.setattr(_nonadditive_attribution, "_run_dataframe", _run_intermediate)
-    evaluate = _nonadditive_attribution._native_percentile_coalition_evaluator(
+    plan = _nonadditive_attribution._plan_shapley(
+        2,
+        seed_material="native-percentile-endpoint-regression",
+    )
+    values = _nonadditive_attribution._native_percentile_coalition_values(
+        plan=plan,
         partitions=(("CN",), ("US",)),
         partition_members=None,
         current_values=current_values,
@@ -345,21 +349,19 @@ def test_native_percentile_replay_reuses_observed_endpoints_and_reconciles(
         session=object(),
     )
 
-    assert evaluate(frozenset()) == 2.25
-    assert evaluate(frozenset({0, 1})) == 1.79
-    assert executed == []
+    assert values[frozenset()] == 2.25
+    assert values[frozenset({0, 1})] == 1.79
 
-    contributions, standard_errors, seed = _nonadditive_attribution._shapley_from_evaluator(
-        2,
-        evaluate=evaluate,
-        seed_material="native-percentile-endpoint-regression",
+    contributions, standard_errors, seed = _nonadditive_attribution._shapley_from_values(
+        plan,
+        coalition_values=values,
     )
 
     target_delta = 1.79 - 2.25
     assert sum(contributions) == pytest.approx(target_delta, abs=1e-12)
     assert standard_errors == [0.0, 0.0]
     assert seed is None
-    assert len(executed) == 2
+    assert len(executed) == 1
 
 
 def test_native_percentile_top_k_expands_other_to_raw_partitions(monkeypatch) -> None:
@@ -383,9 +385,16 @@ def test_native_percentile_top_k_expands_other_to_raw_partitions(monkeypatch) ->
     monkeypatch.setattr(
         _nonadditive_attribution,
         "_run_dataframe",
-        lambda *args, **kwargs: pd.DataFrame({"value": [2.0]}),
+        lambda *args, **kwargs: pd.DataFrame({"coalition_0": [2.0]}),
     )
-    evaluate = _nonadditive_attribution._native_percentile_coalition_evaluator(
+    plan = _nonadditive_attribution.ShapleyPlanV1(
+        partition_count=2,
+        coalitions=(frozenset({1}),),
+        permutation_orders=(),
+        seed_fingerprint=None,
+    )
+    evaluated = _nonadditive_attribution._native_percentile_coalition_values(
+        plan=plan,
         partitions=(("US", 0), (None, 1)),
         partition_members={
             ("US", 0): (("US",),),
@@ -401,8 +410,271 @@ def test_native_percentile_top_k_expands_other_to_raw_partitions(monkeypatch) ->
         session=object(),
     )
 
-    assert evaluate(frozenset({1})) == 2.0
+    assert evaluated[frozenset({1})] == 2.0
     assert predicates == [(("CN",), ("DE",)), (("US",),)]
+
+
+@pytest.mark.parametrize(
+    ("partition_count", "expected_batches"),
+    [(7, 1), (8, 2), (9, None)],
+)
+def test_native_percentile_coalitions_execute_in_128_state_batches(
+    partition_count: int,
+    expected_batches: int | None,
+    monkeypatch,
+) -> None:
+    values = ibis.table({"region": "string", "value": "float64"}, name="values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    plan = _nonadditive_attribution._plan_shapley(
+        partition_count,
+        seed_material="exact-batch-count",
+    )
+    batch_sizes: list[int] = []
+
+    def compile_batch(*args, coalitions, **kwargs):
+        batch_size = len(coalitions)
+        batch_sizes.append(batch_size)
+        return object()
+
+    def run_batch(*args, **kwargs):
+        batch_size = batch_sizes[-1]
+        return pd.DataFrame({f"coalition_{index}": [float(index)] for index in range(batch_size)})
+
+    monkeypatch.setattr(
+        _nonadditive_attribution,
+        "trino_native_percentile_coalitions_expression",
+        compile_batch,
+    )
+    monkeypatch.setattr(_nonadditive_attribution, "_run_dataframe", run_batch)
+    evaluated = _nonadditive_attribution._native_percentile_coalition_values(
+        plan=plan,
+        partitions=tuple((f"p{index}",) for index in range(partition_count)),
+        partition_members=None,
+        current_values=values,
+        baseline_values=values,
+        current_endpoint=10.0,
+        baseline_endpoint=1.0,
+        prefix_axes=("region",),
+        q=0.90,
+        prepared=prepared,
+        session=object(),
+    )
+
+    if partition_count <= 8:
+        assert len(plan.coalitions) == 2**partition_count - 2
+        assert len(evaluated) == 2**partition_count
+    else:
+        expected_batches = (len(plan.coalitions) + 127) // 128
+        assert len(evaluated) == len(plan.coalitions) + 2
+        assert plan.seed_fingerprint is not None
+    assert len(batch_sizes) == expected_batches
+    assert all(size <= 128 for size in batch_sizes)
+
+
+def test_native_percentile_combines_current_and_baseline_partition_counts(
+    monkeypatch,
+) -> None:
+    values = ibis.table({"region": "string", "value": "float64"}, name="values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    executed = []
+
+    def run_counts(expression, *args, **kwargs):
+        executed.append(expression)
+        return pd.DataFrame(
+            {
+                "__marivo_attribution_period": ["current", "current", "baseline"],
+                "region": ["CN", None, "US"],
+                "__count": [3, 2, 5],
+            }
+        )
+
+    monkeypatch.setattr(_nonadditive_attribution, "_run_dataframe", run_counts)
+    current, baseline = _nonadditive_attribution._native_percentile_partition_counts(
+        values,
+        values,
+        axis_columns=("region",),
+        prepared=prepared,
+        session=object(),
+    )
+
+    assert current == {("CN",): 3, (None,): 2}
+    assert baseline == {("US",): 5}
+    assert len(executed) == 1
+    sql = ibis.to_sql(executed[0], dialect="trino").upper()
+    assert sql.count("UNION ALL") == 1
+    assert "GROUP BY" in sql
+
+
+@pytest.mark.parametrize(
+    ("returned_value", "expected_kind"),
+    [
+        (None, "empty_coalition_distribution"),
+        (float("nan"), "empty_coalition_distribution"),
+        ("not-numeric", "attribution_distribution"),
+        (True, "attribution_distribution"),
+        (float("inf"), "attribution_distribution"),
+    ],
+)
+def test_native_percentile_batch_rejects_invalid_coalition_values(
+    returned_value: object,
+    expected_kind: str,
+    monkeypatch,
+) -> None:
+    values = ibis.table({"region": "string", "value": "float64"}, name="values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    plan = _nonadditive_attribution.ShapleyPlanV1(
+        partition_count=2,
+        coalitions=(frozenset({0}),),
+        permutation_orders=(),
+        seed_fingerprint=None,
+    )
+    monkeypatch.setattr(
+        _nonadditive_attribution,
+        "_run_dataframe",
+        lambda *args, **kwargs: pd.DataFrame({"coalition_0": [returned_value]}),
+    )
+
+    with pytest.raises(mv.errors.AttributionDistributionError) as exc_info:
+        _nonadditive_attribution._native_percentile_coalition_values(
+            plan=plan,
+            partitions=(("CN",), ("US",)),
+            partition_members=None,
+            current_values=values,
+            baseline_values=values,
+            current_endpoint=1.0,
+            baseline_endpoint=0.0,
+            prefix_axes=("region",),
+            q=0.90,
+            prepared=prepared,
+            session=object(),
+        )
+
+    assert exc_info.value.kind == expected_kind
+
+
+def test_native_percentile_batch_accepts_zero_values_and_zero_delta(monkeypatch) -> None:
+    values = ibis.table({"region": "string", "value": "float64"}, name="values")
+    prepared = _nonadditive_attribution.PreparedEvidenceV1(
+        table=values,
+        value_column="value",
+        value_dtype="float64",
+        axis_columns=("region",),
+        axis_bindings=(),
+        bucket_column=None,
+        datasource_name="warehouse",
+    )
+    plan = _nonadditive_attribution._plan_shapley(2, seed_material="zero-delta")
+    monkeypatch.setattr(
+        _nonadditive_attribution,
+        "_run_dataframe",
+        lambda *args, **kwargs: pd.DataFrame({"coalition_0": [0.0], "coalition_1": [0.0]}),
+    )
+    evaluated = _nonadditive_attribution._native_percentile_coalition_values(
+        plan=plan,
+        partitions=(("CN",), ("US",)),
+        partition_members=None,
+        current_values=values,
+        baseline_values=values,
+        current_endpoint=0.0,
+        baseline_endpoint=0.0,
+        prefix_axes=("region",),
+        q=0.90,
+        prepared=prepared,
+        session=object(),
+    )
+    contributions, errors, _ = _nonadditive_attribution._shapley_from_values(
+        plan,
+        coalition_values=evaluated,
+    )
+
+    assert contributions == [0.0, 0.0]
+    assert errors == [0.0, 0.0]
+
+
+def test_permutation_shapley_plan_deduplicates_requests_without_changing_math() -> None:
+    partition_count = 9
+    plan = _nonadditive_attribution._plan_shapley(
+        partition_count,
+        seed_material="permutation-batch-regression",
+    )
+
+    def coalition_value(selected: frozenset[int]) -> float:
+        return float(sum((index + 1) ** 2 for index in selected) + len(selected) ** 3)
+
+    values = {
+        selected: coalition_value(selected)
+        for selected in (frozenset(), *plan.coalitions, frozenset(range(partition_count)))
+    }
+    contributions, standard_errors, seed = _nonadditive_attribution._shapley_from_values(
+        plan,
+        coalition_values=values,
+    )
+
+    scalar_samples: list[list[float]] = [[] for _ in range(partition_count)]
+    for order in plan.permutation_orders:
+        selected: frozenset[int] = frozenset()
+        previous = coalition_value(selected)
+        for index in order:
+            selected = selected | {index}
+            current = coalition_value(selected)
+            scalar_samples[index].append(current - previous)
+            previous = current
+    scalar_means = [sum(samples) / len(samples) for samples in scalar_samples]
+    scalar_errors = []
+    for samples, mean in zip(scalar_samples, scalar_means, strict=True):
+        variance = sum((sample - mean) ** 2 for sample in samples) / (len(samples) - 1)
+        scalar_errors.append((variance / len(samples)) ** 0.5)
+
+    requested_path_steps = len(plan.permutation_orders) * (partition_count - 1)
+    assert len(plan.coalitions) < requested_path_steps
+    assert contributions == scalar_means
+    assert standard_errors == scalar_errors
+    assert seed is not None and seed.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "endpoint_rows",
+    [
+        {"current": [1.0], "baseline": [0.0]},
+        {"current": [float("nan")], "baseline": [0.0], "delta": [1.0]},
+        {"current": [1.0], "baseline": [float("inf")], "delta": [1.0]},
+        {"current": [1.0], "baseline": [0.0], "delta": [None]},
+    ],
+)
+def test_quantile_endpoint_buckets_reject_missing_or_non_finite_values(
+    endpoint_rows: dict[str, list[object]],
+) -> None:
+    endpoint = SimpleNamespace(
+        ref="delta:invalid-p90",
+        _dataframe_copy=lambda: pd.DataFrame(endpoint_rows),
+    )
+
+    with pytest.raises(mv.errors.AttributionMaterializationError):
+        _nonadditive_attribution._endpoint_buckets(endpoint, bucket_column=None)
 
 
 def test_quantile_endpoint_buckets_preserve_aligned_endpoint_values() -> None:
