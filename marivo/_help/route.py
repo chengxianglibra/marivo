@@ -21,7 +21,7 @@ from marivo.introspection.live.resolve import (
 )
 
 _SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
-_GLOBAL_TOPICS = frozenset({"authoring", "load"})
+_GLOBAL_TOPICS = ("authoring", "load", "targets")
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
@@ -96,6 +96,28 @@ def _qualified_string(target: str) -> tuple[HelpSurface, str] | None:
     return prefix, remainder
 
 
+def canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Project canonical public string targets from the live help surfaces."""
+    groups: list[tuple[str, tuple[str, ...]]] = [("Global", _GLOBAL_TOPICS)]
+    for owner in _SURFACES:
+        surface = _native_surface(owner)
+        native_targets = (
+            *surface.registry.canonical_ids(),
+            *surface.type_index.values(),
+            *(error_type.__name__ for error_type in surface.error_types.values()),
+        )
+        qualified_targets = tuple(
+            dict.fromkeys(
+                (
+                    owner,
+                    *(f"{owner}.{target}" for target in native_targets),
+                )
+            )
+        )
+        groups.append((owner.title(), qualified_targets))
+    return tuple(groups)
+
+
 def route_help_target(target: object | None) -> HelpRoute:
     """Resolve one public target without rendering or invoking domain behavior."""
     if target is None:
@@ -124,6 +146,8 @@ def route_help_target(target: object | None) -> HelpRoute:
                     ),
                 )
             return route
+        if target in _GLOBAL_TOPICS:
+            return TopicHelpRoute(cast("GlobalTopic", target))
     routes: list[NativeHelpRoute] = []
     errors: list[Exception] = []
     for owner in _SURFACES:
@@ -143,8 +167,6 @@ def route_help_target(target: object | None) -> HelpRoute:
     if len(routes) == 1:
         return routes[0]
     if len(routes) > 1:
-        if isinstance(target, str) and target in _GLOBAL_TOPICS:
-            return TopicHelpRoute(cast("GlobalTopic", target))
         candidates = tuple(
             f"{route.owner}.{route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name}"
             for route in routes

@@ -43,9 +43,19 @@ reusable meaning and no current authority already settles it.
 package path, and project state before handing off to Python. Use the
 environment's own `marivo` executable when it is not activated.
 `marivo.help(...)` is the sole public focused-help coordinator. Qualified
-`datasource.*`, `semantic.*`, and `analysis.*` content remains owned by its
-native registry; `md` and `ms` execute domain operations and intentionally have
-no `.help()` aliases.
+`datasource.*`, `semantic.*`, `analysis.*`, and `ontology.*` content remains
+owned by its native registry; `md` and `ms` execute domain operations and
+intentionally have no `.help()` aliases. Read the installed version's complete
+canonical string inventory before selecting a focused target:
+
+```python
+import marivo
+
+marivo.help("targets")
+```
+
+Use the fully qualified names it prints instead of depending on short-name
+disambiguation.
 
 Datasource authoring errors display a stable code and stage. When bounded
 acquisition fails during execution, retry that exact acquisition at most once
