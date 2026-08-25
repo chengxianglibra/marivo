@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Literal, cast
 
 from marivo._compat import UTC
+from marivo.analysis._artifact_authority import candidate_readiness_fingerprint
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.candidate_identity import semantic_hypothesis_item_id
 from marivo.analysis.candidate_lineage import (
@@ -58,7 +59,6 @@ from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKin
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import DerivedMetricDetails, SimpleMetricDetails
 from marivo.semantic.metric_graph import CatalogMetricIdentity
-from marivo.semantic.metric_graph_canonical import fingerprint
 
 _MAX_EXCLUSIONS = 20
 
@@ -223,16 +223,7 @@ def _payload_ref(payload: RefPayloadV1) -> Ref[SemanticKindTag]:
     return factory(payload.path)
 
 
-def _readiness_fingerprint(session: Session, metric_ref: Ref[MetricKind]) -> tuple[bool, str]:
-    report = session.catalog.readiness(refs=[metric_ref])
-    payload = {
-        "catalog_definition_fingerprint": session.catalog.definition_fingerprint,
-        "metric_ref": RefPayloadV1.from_ref(metric_ref).to_dict(),
-        "status": report.status,
-        "blockers": [{"kind": item.kind, "refs": list(item.refs)} for item in report.blockers],
-        "warnings": [{"kind": item.kind, "refs": list(item.refs)} for item in report.warnings],
-    }
-    return report.status != "blocked", fingerprint(payload)
+_readiness_fingerprint = candidate_readiness_fingerprint
 
 
 def _edge_context(edge: SemanticEdgeIR) -> SemanticEdgeContext:

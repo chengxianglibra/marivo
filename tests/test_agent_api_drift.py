@@ -311,6 +311,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "ArtifactDigest",
         "ArtifactDigestPage",
         "ArtifactIssue",
+        "ArtifactRevalidation",
         "AssociationFact",
         "CandidateOrigin",
         "CandidateResolutionIssue",

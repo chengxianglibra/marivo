@@ -134,6 +134,12 @@ def test_nested_evidence_compatibility_target() -> None:
     assert result.descriptor.id == "session.evidence.compatibility"
 
 
+def test_session_revalidate_target() -> None:
+    result = resolve_help_target("session.revalidate")
+    assert result.kind == "descriptor"
+    assert result.descriptor.id == "session.revalidate"
+
+
 @pytest.mark.parametrize(
     "target",
     (
@@ -145,6 +151,7 @@ def test_nested_evidence_compatibility_target() -> None:
         "CandidateOrigin",
         "CandidateResolutionIssue",
         "ArtifactDigestPage",
+        "ArtifactRevalidation",
         "FindingPage",
         "EvidenceCompatibility",
         "EvidenceCompatibilityIssue",

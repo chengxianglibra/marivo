@@ -187,6 +187,11 @@ asks to refresh/recompute; it reads persisted state:
   from `data.parquet` + `meta.json`; the result can be passed to any operator.
   Raises `FrameRefNotFound`, `CrossSessionFrameError`, or
   `FrameCacheCorruptedError`.
+- `session.revalidate(frame) -> ArtifactRevalidation` — perform a bounded,
+  read-only check of canonical Artifact identity, current scoped semantic
+  authority, and evidence v4 consistency. `stale` takes precedence over
+  `indeterminate`; this check does not query datasource health or prove source
+  freshness.
 - `session.frame_summaries(*, kind=None, evidence_status=None, limit=20,
   cursor=None) -> FrameSummaryPage` — a bounded newest-first keyset page of
   `FrameSummaryEntry` values (`ref`, `kind`, `metric_id`, `semantic_kind`,

@@ -115,6 +115,35 @@ or current semantic authority; do not infer through it. Compatibility does not
 judge causality, business importance, freshness, or intended use, and it does
 not mutate artifacts or evidence.
 
+## Revalidate a recovered artifact
+
+After restoring an exact artifact, check whether its persisted identity,
+current scoped semantic authority, and evidence still agree:
+
+```python
+frame = session.get_frame(artifact_ref)
+revalidation = session.revalidate(frame)
+revalidation.show()
+```
+
+Proceed only when `status == "admissible"`. `stale` means at least one governed
+dependency has confirmed drift and the producing branch should be rerun.
+`indeterminate` means current authority cannot be proven or the retained
+evidence does not satisfy its contract. Complete evidence is accepted; partial
+evidence is accepted only when every availability issue is a warning and the
+explicit fallback retains safe rows. Unavailable evidence is indeterminate.
+
+The result is immutable, bounded, and ephemeral. Its stable fingerprint does
+not include the UTC check time. Revalidation does not change the artifact or
+ledger and does not query datasource or source health, so it does not prove
+source freshness. Broken evidence identity raises `EvidenceIntegrityError`;
+an unavailable evidence store raises `EvidenceStoreUnavailableError`.
+
+Linked `ComponentFrame` and `CoverageFrame` sidecars have no independent
+evidence projection. Revalidation verifies their own persisted identity and
+their canonical parent evidence, then returns their healthy unavailable
+evidence state as `indeterminate`.
+
 ## Recover a session with bounded pages
 
 List reads are bounded and newest-first:

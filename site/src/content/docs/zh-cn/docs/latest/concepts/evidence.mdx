@@ -100,6 +100,31 @@ quality/evidence issue；`indeterminate` 表示 Marivo 无法证明 subject、sc
 或当前 semantic authority，不能跨过未知边界继续推断。compatibility 不判断因果、业务重要性、
 freshness 或 intended use，也不会修改 Artifact 或 evidence store。
 
+## 重新校验恢复的 Artifact
+
+恢复精确 Artifact 后，检查其持久化 identity、当前 scoped semantic authority 与 evidence
+是否仍然一致：
+
+```python
+frame = session.get_frame(artifact_ref)
+revalidation = session.revalidate(frame)
+revalidation.show()
+```
+
+只有 `status == "admissible"` 时才继续使用。`stale` 表示至少一个受治理依赖已确认漂移，
+应重新运行对应的生产分支；`indeterminate` 表示无法证明当前 authority，或保留的 evidence
+不满足契约。`complete` evidence 可通过；`partial` 只有在全部 availability issue 都是
+warning，且显式 fallback 保留安全 rows 时才可通过；`unavailable` 为 indeterminate。
+
+linked `ComponentFrame` 和 `CoverageFrame` sidecar 不拥有独立 evidence projection。
+Revalidation 会校验它们自身的持久化 identity 与 canonical parent evidence，再将健康的
+unavailable evidence 状态返回为 `indeterminate`。
+
+结果是不可变、有界且临时的；稳定 fingerprint 不包含 UTC 检查时间。revalidation 不修改
+Artifact 或 ledger，也不会查询 datasource 或 source health，因此不能证明 source freshness。
+损坏的 evidence identity 抛出 `EvidenceIntegrityError`；evidence store 不可用抛出
+`EvidenceStoreUnavailableError`。
+
 ## 用有界分页恢复会话
 
 列表读取默认有界，并按最新记录优先：

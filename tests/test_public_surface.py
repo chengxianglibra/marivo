@@ -137,6 +137,7 @@ ANALYSIS_PUBLIC = {
     "ArtifactDigest",
     "ArtifactDigestPage",
     "ArtifactIssue",
+    "ArtifactRevalidation",
     "AssociationFact",
     "CandidateOrigin",
     "CandidateResolutionIssue",

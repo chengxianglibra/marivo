@@ -34,6 +34,8 @@ JsonValue = TypeAliasType(  # type: ignore[misc]
 EvidenceStatus = Literal["complete", "partial", "unavailable"]
 EvidenceCompleteness = EvidenceStatus
 EvidenceCompatibilityStatus = Literal["compatible", "incompatible", "indeterminate"]
+ArtifactSemanticStatus = Literal["current", "stale", "indeterminate"]
+ArtifactRevalidationStatus = Literal["admissible", "stale", "indeterminate"]
 CompatibilityDimensionStatus = Literal["compatible", "incompatible", "indeterminate"]
 CompatibilityQualityStatus = Literal[
     "ready",
@@ -1151,6 +1153,68 @@ ArtifactIssue = Annotated[
 ]
 ArtifactIssueAdapter: TypeAdapter[ArtifactIssue] = TypeAdapter(ArtifactIssue)
 
+ArtifactRevalidationIssue = Annotated[
+    DataQualityIssue
+    | ComparabilityIssue
+    | EvidenceAvailabilityIssue
+    | CandidateResolutionIssue
+    | EvidenceRuleIssue,
+    Field(discriminator="kind"),
+]
+
+
+class ArtifactRevalidation(_FrozenModel):
+    """Ephemeral identity, semantic-authority, and evidence-integrity result."""
+
+    revalidation_version: Literal["v1"] = "v1"
+    artifact_ref: str
+    session_id: str
+    content_hash: str
+    artifact_schema_version: str
+    recorded_catalog_fingerprint: str | None = None
+    current_catalog_fingerprint: str
+    semantic_status: ArtifactSemanticStatus
+    evidence_status: EvidenceStatus
+    status: ArtifactRevalidationStatus
+    issues: tuple[ArtifactRevalidationIssue, ...] = ()
+    checked_at: datetime
+    authority_fingerprint: str
+    fingerprint: str
+
+    @model_validator(mode="after")
+    def _validate_result(self) -> ArtifactRevalidation:
+        if not self.artifact_ref or not self.session_id:
+            raise ValueError("revalidation identity fields must be non-empty")
+        if not self.content_hash or not self.artifact_schema_version:
+            raise ValueError("revalidation Artifact identity must be complete")
+        if not self.current_catalog_fingerprint:
+            raise ValueError("current catalog fingerprint must be non-empty")
+        if self.checked_at.tzinfo is None:
+            raise ValueError("checked_at must be timezone-aware")
+        if not self.authority_fingerprint or not self.fingerprint:
+            raise ValueError("revalidation fingerprints must be non-empty")
+        if self.semantic_status == "stale" and self.status != "stale":
+            raise ValueError("stale semantic authority must produce stale overall status")
+        if self.status == "admissible" and self.semantic_status != "current":
+            raise ValueError("admissible revalidation requires current semantic authority")
+        return self
+
+    def __repr__(self) -> str:
+        return result_repr(
+            f"ArtifactRevalidation status={self.status} ref={self.artifact_ref} "
+            f"semantic={self.semantic_status} evidence={self.evidence_status}"
+        )
+
+    def render(self, *, max_output_bytes: int | None = 8_000) -> str:
+        """Render this bounded result without reading persisted state."""
+        from marivo.analysis.evidence.summary import render_artifact_revalidation
+
+        return render_artifact_revalidation(self, max_output_bytes=max_output_bytes)
+
+    def show(self, *, max_output_bytes: int | None = 8_000) -> None:
+        """Print this bounded result."""
+        print(self.render(max_output_bytes=max_output_bytes))
+
 
 class DigestReadContract(_FrozenModel):
     exact_reads: tuple[str, ...]
@@ -1254,6 +1318,9 @@ __all__ = [
     "ArtifactDigestPage",
     "ArtifactIssue",
     "ArtifactIssueAdapter",
+    "ArtifactRevalidation",
+    "ArtifactRevalidationStatus",
+    "ArtifactSemanticStatus",
     "AssociationFact",
     "AssociationFindingValue",
     "ChangeFact",

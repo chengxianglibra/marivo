@@ -105,6 +105,19 @@ def test_analysis_skill_gates_cross_finding_synthesis_on_compatibility() -> None
     assert "stop and disclose an indeterminate selection" in normalized
 
 
+def test_analysis_skill_revalidates_recovered_artifacts_before_reuse() -> None:
+    text = (ANALYSIS_SKILL_DIR / "SKILL.md").read_text()
+    normalized = " ".join(text.split())
+
+    assert 'marivo.help("analysis.session.revalidate")' in text
+    assert "After restoring an old Artifact" in normalized
+    assert "session.get_frame(ref)" in text
+    assert "session.revalidate(frame)" in text
+    assert "does not prove datasource freshness" in normalized
+    assert "re-run a stale branch" in normalized.lower()
+    assert "stop and disclose an indeterminate branch" in normalized.lower()
+
+
 def test_semantic_skill_package_layout() -> None:
     assert sorted(path.name for path in SEMANTIC_SKILL_DIR.iterdir()) == ["SKILL.md"]
 
