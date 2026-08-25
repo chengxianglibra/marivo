@@ -85,8 +85,12 @@ _MAX_QUANTILE_PARTITIONS = 64
 _MAX_EXACT_QUANTILE_PARTITIONS = 8
 _MAX_FREQUENCY_ROWS = 250_000
 _PERMUTATION_COUNT = 128
+_NATIVE_PERCENTILE_BATCH_SIZE = 128
 _QUANTILE_OPERATOR_VERSION = "quantile-replacement/v1"
 _RECONCILIATION_TOLERANCE = 1e-9
+_NATIVE_PERCENTILE_PERIOD_COLUMN = "__marivo_attribution_period"
+_NATIVE_PERCENTILE_CURRENT_PERIOD = "current"
+_NATIVE_PERCENTILE_BASELINE_PERIOD = "baseline"
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,16 @@ class PreparedEvidenceV1:
     axis_bindings: tuple[AttributionAxisBindingV1, ...]
     bucket_column: str | None
     datasource_name: str
+
+
+@dataclass(frozen=True)
+class ShapleyPlanV1:
+    """Deterministic coalition requests and permutation paths for one game."""
+
+    partition_count: int
+    coalitions: tuple[frozenset[int], ...]
+    permutation_orders: tuple[tuple[int, ...], ...]
+    seed_fingerprint: str | None
 
 
 @dataclass(frozen=True)
@@ -1324,19 +1338,56 @@ def _native_percentile_scope(
     return table
 
 
+def _native_percentile_period_samples(
+    current_values: Any,
+    baseline_values: Any,
+    *,
+    columns: Sequence[str],
+) -> Any:
+    current = current_values.select(
+        *columns,
+        **{_NATIVE_PERCENTILE_PERIOD_COLUMN: ibis.literal(_NATIVE_PERCENTILE_CURRENT_PERIOD)},
+    )
+    baseline = baseline_values.select(
+        *columns,
+        **{_NATIVE_PERCENTILE_PERIOD_COLUMN: ibis.literal(_NATIVE_PERCENTILE_BASELINE_PERIOD)},
+    )
+    return ibis.union(current, baseline, distinct=False)
+
+
 def _native_percentile_partition_counts(
-    prepared: PreparedEvidenceV1,
+    current_values: Any,
+    baseline_values: Any,
     *,
     axis_columns: Sequence[str],
-    bucket_value: object | None,
+    prepared: PreparedEvidenceV1,
     session: Session,
-) -> dict[tuple[object, ...], int]:
-    table = _native_percentile_scope(prepared, bucket_value=bucket_value)
-    expression = table.group_by(list(axis_columns)).aggregate(
-        __count=table[prepared.value_column].count()
+) -> tuple[
+    dict[tuple[object, ...], int],
+    dict[tuple[object, ...], int],
+]:
+    samples = _native_percentile_period_samples(
+        current_values,
+        baseline_values,
+        columns=[*axis_columns, prepared.value_column],
+    )
+    expression = samples.group_by([_NATIVE_PERCENTILE_PERIOD_COLUMN, *axis_columns]).aggregate(
+        __count=samples[prepared.value_column].count()
     )
     frame = _run_dataframe(expression, prepared, session)
-    return {_partition_tuple(row, axis_columns): int(row["__count"]) for _, row in frame.iterrows()}
+    counts: dict[str, dict[tuple[object, ...], int]] = {
+        _NATIVE_PERCENTILE_CURRENT_PERIOD: {},
+        _NATIVE_PERCENTILE_BASELINE_PERIOD: {},
+    }
+    for _, row in frame.iterrows():
+        period = str(row[_NATIVE_PERCENTILE_PERIOD_COLUMN])
+        if period not in counts:
+            raise AssertionError(f"unexpected native percentile period {period!r}")
+        counts[period][_partition_tuple(row, axis_columns)] = int(row["__count"])
+    return (
+        counts[_NATIVE_PERCENTILE_CURRENT_PERIOD],
+        counts[_NATIVE_PERCENTILE_BASELINE_PERIOD],
+    )
 
 
 def _map_native_counts(
@@ -1371,13 +1422,57 @@ def _map_native_counts(
     return mapped_counts, {key: tuple(value) for key, value in members.items()}
 
 
-def _shapley_from_evaluator(
+def _plan_shapley(
     partition_count: int,
     *,
-    evaluate: Any,
     seed_material: str,
-) -> tuple[list[float], list[float], str | None]:
+) -> ShapleyPlanV1:
+    full_coalition = frozenset(range(partition_count))
     if partition_count <= _MAX_EXACT_QUANTILE_PARTITIONS:
+        exact_coalitions = tuple(
+            frozenset(selected)
+            for size in range(1, partition_count)
+            for selected in itertools.combinations(range(partition_count), size)
+        )
+        return ShapleyPlanV1(
+            partition_count=partition_count,
+            coalitions=exact_coalitions,
+            permutation_orders=(),
+            seed_fingerprint=None,
+        )
+    digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
+    rng = random.Random(int(digest, 16))
+    permutation_orders: list[tuple[int, ...]] = []
+    sampled_coalitions: set[frozenset[int]] = set()
+    for _ in range(_PERMUTATION_COUNT):
+        order = list(range(partition_count))
+        rng.shuffle(order)
+        permutation_orders.append(tuple(order))
+        selected: frozenset[int] = frozenset()
+        for index in order:
+            selected = selected | {index}
+            if selected != full_coalition:
+                sampled_coalitions.add(selected)
+    return ShapleyPlanV1(
+        partition_count=partition_count,
+        coalitions=tuple(
+            sorted(
+                sampled_coalitions,
+                key=lambda selected: (len(selected), tuple(sorted(selected))),
+            )
+        ),
+        permutation_orders=tuple(permutation_orders),
+        seed_fingerprint=f"sha256:{digest}",
+    )
+
+
+def _shapley_from_values(
+    plan: ShapleyPlanV1,
+    *,
+    coalition_values: dict[frozenset[int], int | float],
+) -> tuple[list[float], list[float], str | None]:
+    partition_count = plan.partition_count
+    if plan.seed_fingerprint is None:
         contributions = [0.0] * partition_count
         denominator = math.factorial(partition_count)
         for index in range(partition_count):
@@ -1389,28 +1484,25 @@ def _shapley_from_evaluator(
                 for subset in itertools.combinations(others, size):
                     selected_subset = frozenset(subset)
                     contributions[index] += weight * (
-                        evaluate(selected_subset | {index}) - evaluate(selected_subset)
+                        coalition_values[selected_subset | {index}]
+                        - coalition_values[selected_subset]
                     )
         return contributions, [0.0] * partition_count, None
-    digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
-    rng = random.Random(int(digest, 16))
     samples: list[list[float]] = [[] for _ in range(partition_count)]
-    for _ in range(_PERMUTATION_COUNT):
-        order = list(range(partition_count))
-        rng.shuffle(order)
+    for order in plan.permutation_orders:
         selected: frozenset[int] = frozenset()
-        previous = evaluate(selected)
+        previous = coalition_values[selected]
         for index in order:
             selected = selected | {index}
-            current = evaluate(selected)
+            current = coalition_values[selected]
             samples[index].append(current - previous)
             previous = current
-    means = [sum(values) / len(values) for values in samples]
+    means = [sum(item_samples) / len(item_samples) for item_samples in samples]
     standard_errors = []
-    for values, mean in zip(samples, means, strict=True):
-        variance = sum((value - mean) ** 2 for value in values) / (len(values) - 1)
-        standard_errors.append(math.sqrt(variance / len(values)))
-    return means, standard_errors, f"sha256:{digest}"
+    for item_samples, mean in zip(samples, means, strict=True):
+        variance = sum((value - mean) ** 2 for value in item_samples) / (len(item_samples) - 1)
+        standard_errors.append(math.sqrt(variance / len(item_samples)))
+    return means, standard_errors, plan.seed_fingerprint
 
 
 def _quantile_execution_evidence(*, seed_fingerprint: str | None) -> QuantileResolutionExecutionV1:
@@ -1426,24 +1518,71 @@ def _quantile_execution_evidence(*, seed_fingerprint: str | None) -> QuantileRes
     )
 
 
-def trino_native_percentile_coalition_expression(
+def _native_percentile_partition_members(
+    partitions: Sequence[tuple[object, ...]],
+    selected: frozenset[int],
+    *,
+    partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None,
+) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+    current_groups = [partitions[index] for index in sorted(selected)]
+    baseline_groups = [
+        partition for index, partition in enumerate(partitions) if index not in selected
+    ]
+
+    def expand(groups: Sequence[tuple[object, ...]]) -> list[tuple[object, ...]]:
+        return [
+            raw
+            for partition in groups
+            for raw in (
+                partition_members.get(partition, ())
+                if partition_members is not None
+                else (partition,)
+            )
+        ]
+
+    return expand(current_groups), expand(baseline_groups)
+
+
+def trino_native_percentile_coalitions_expression(
     current_values: Any,
     baseline_values: Any,
     *,
+    coalitions: Sequence[frozenset[int]],
+    partitions: Sequence[tuple[object, ...]],
+    partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None,
+    prefix_axes: Sequence[str],
     value_column: str,
     q: float,
 ) -> Any:
-    """Compile one Trino native approx_percentile replacement coalition."""
-    coalition = ibis.union(
-        current_values.select(value_column),
-        baseline_values.select(value_column),
-        distinct=False,
+    """Compile one batch of Trino native approx_percentile replacement coalitions."""
+    samples = _native_percentile_period_samples(
+        current_values,
+        baseline_values,
+        columns=[*prefix_axes, value_column],
     )
-    return coalition.aggregate(value=coalition[value_column].approx_quantile(q))
+    aggregates = {}
+    for index, selected in enumerate(coalitions):
+        current_partitions, baseline_partitions = _native_percentile_partition_members(
+            partitions,
+            selected,
+            partition_members=partition_members,
+        )
+        current_predicate = (
+            samples[_NATIVE_PERCENTILE_PERIOD_COLUMN] == _NATIVE_PERCENTILE_CURRENT_PERIOD
+        ) & _or_partition_predicates(samples, prefix_axes, current_partitions)
+        baseline_predicate = (
+            samples[_NATIVE_PERCENTILE_PERIOD_COLUMN] == _NATIVE_PERCENTILE_BASELINE_PERIOD
+        ) & _or_partition_predicates(samples, prefix_axes, baseline_partitions)
+        aggregates[f"coalition_{index}"] = samples[value_column].approx_quantile(
+            q,
+            where=current_predicate | baseline_predicate,
+        )
+    return samples.aggregate(**aggregates)
 
 
-def _native_percentile_coalition_evaluator(
+def _native_percentile_coalition_values(
     *,
+    plan: ShapleyPlanV1,
     partitions: Sequence[tuple[object, ...]],
     partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None,
     current_values: Any,
@@ -1454,79 +1593,52 @@ def _native_percentile_coalition_evaluator(
     q: float,
     prepared: PreparedEvidenceV1,
     session: Session,
-) -> Any:
+) -> dict[frozenset[int], int | float]:
     full_coalition = frozenset(range(len(partitions)))
     evaluated: dict[frozenset[int], int | float] = {
         frozenset(): baseline_endpoint,
         full_coalition: current_endpoint,
     }
-
-    def evaluate(selected: frozenset[int]) -> int | float:
-        if selected in evaluated:
-            return evaluated[selected]
-        current_groups = [partitions[index] for index in sorted(selected)]
-        baseline_groups = [
-            partition for index, partition in enumerate(partitions) if index not in selected
-        ]
-        current_partitions = [
-            raw
-            for partition in current_groups
-            for raw in (
-                partition_members.get(partition, ())
-                if partition_members is not None
-                else (partition,)
-            )
-        ]
-        baseline_partitions = [
-            raw
-            for partition in baseline_groups
-            for raw in (
-                partition_members.get(partition, ())
-                if partition_members is not None
-                else (partition,)
-            )
-        ]
-        current_selected = current_values.filter(
-            _or_partition_predicates(current_values, prefix_axes, current_partitions)
-        )
-        baseline_selected = baseline_values.filter(
-            _or_partition_predicates(baseline_values, prefix_axes, baseline_partitions)
-        )
-        expression = trino_native_percentile_coalition_expression(
-            current_selected,
-            baseline_selected,
+    for offset in range(0, len(plan.coalitions), _NATIVE_PERCENTILE_BATCH_SIZE):
+        batch = plan.coalitions[offset : offset + _NATIVE_PERCENTILE_BATCH_SIZE]
+        expression = trino_native_percentile_coalitions_expression(
+            current_values,
+            baseline_values,
+            coalitions=batch,
+            partitions=partitions,
+            partition_members=partition_members,
+            prefix_axes=prefix_axes,
             value_column=prepared.value_column,
             q=q,
         )
         frame = _run_dataframe(expression, prepared, session)
-        value = frame.iloc[0]["value"] if len(frame) else None
-        if value is None or pd.isna(value):
-            raise AttributionDistributionError(
-                message="native percentile coalition has no distribution",
-                expected="at least one non-null value in every evaluated coalition",
-                received="empty distribution",
-                location="session.attribute native percentile coalition",
-                context={"reason": "empty_coalition_distribution"},
-            )
-        scalar_value = value.item() if hasattr(value, "item") else value
-        if isinstance(scalar_value, bool) or not isinstance(scalar_value, (int, float)):
-            raise AttributionDistributionError(
-                message="native percentile coalition returned a non-numeric quantile",
-                expected="a numeric Trino approx_percentile result",
-                received=type(scalar_value).__name__,
-                location="session.attribute native percentile coalition",
-            )
-        if not math.isfinite(float(scalar_value)):
-            raise AttributionDistributionError(
-                message="native percentile coalition returned a non-finite quantile",
-                expected="a finite Trino approx_percentile result",
-                received=repr(scalar_value),
-                location="session.attribute native percentile coalition",
-            )
-        evaluated[selected] = scalar_value
-        return evaluated[selected]
-
-    return evaluate
+        for index, selected in enumerate(batch):
+            value = frame.iloc[0][f"coalition_{index}"] if len(frame) else None
+            if value is None or pd.isna(value):
+                raise AttributionDistributionError(
+                    message="native percentile coalition has no distribution",
+                    expected="at least one non-null value in every evaluated coalition",
+                    received="empty distribution",
+                    location="session.attribute native percentile coalition",
+                    context={"reason": "empty_coalition_distribution"},
+                )
+            scalar_value = value.item() if hasattr(value, "item") else value
+            if isinstance(scalar_value, bool) or not isinstance(scalar_value, (int, float)):
+                raise AttributionDistributionError(
+                    message="native percentile coalition returned a non-numeric quantile",
+                    expected="a numeric Trino approx_percentile result",
+                    received=type(scalar_value).__name__,
+                    location="session.attribute native percentile coalition",
+                )
+            if not math.isfinite(float(scalar_value)):
+                raise AttributionDistributionError(
+                    message="native percentile coalition returned a non-finite quantile",
+                    expected="a finite Trino approx_percentile result",
+                    received=repr(scalar_value),
+                    location="session.attribute native percentile coalition",
+                )
+            evaluated[selected] = scalar_value
+    return evaluated
 
 
 def attribute_native_percentile_quantile(
@@ -1608,16 +1720,15 @@ def attribute_native_percentile_quantile(
             baseline_endpoint,
             target_delta,
         ) in endpoint_buckets:
-            raw_current_counts = _native_percentile_partition_counts(
-                current_prepared,
-                axis_columns=prefix_axes,
-                bucket_value=current_bucket,
-                session=session,
+            current_values = _native_percentile_scope(current_prepared, bucket_value=current_bucket)
+            baseline_values = _native_percentile_scope(
+                baseline_prepared, bucket_value=baseline_bucket
             )
-            raw_baseline_counts = _native_percentile_partition_counts(
-                baseline_prepared,
+            raw_current_counts, raw_baseline_counts = _native_percentile_partition_counts(
+                current_values,
+                baseline_values,
                 axis_columns=prefix_axes,
-                bucket_value=baseline_bucket,
+                prepared=current_prepared,
                 session=session,
             )
             partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None = (
@@ -1661,23 +1772,6 @@ def attribute_native_percentile_quantile(
                     location="session.attribute native percentile partition admission",
                     context={"reason": reason, "axis_prefix": prefix_axes},
                 )
-            current_values = _native_percentile_scope(current_prepared, bucket_value=current_bucket)
-            baseline_values = _native_percentile_scope(
-                baseline_prepared, bucket_value=baseline_bucket
-            )
-            evaluate = _native_percentile_coalition_evaluator(
-                partitions=partitions,
-                partition_members=partition_members,
-                current_values=current_values,
-                baseline_values=baseline_values,
-                current_endpoint=current_endpoint,
-                baseline_endpoint=baseline_endpoint,
-                prefix_axes=prefix_axes,
-                q=q,
-                prepared=current_prepared,
-                session=session,
-            )
-
             seed_material = "|".join(
                 [
                     source_delta_ref,
@@ -1690,10 +1784,26 @@ def attribute_native_percentile_quantile(
                     _QUANTILE_OPERATOR_VERSION,
                 ]
             )
-            contributions, standard_errors, seed_fingerprint = _shapley_from_evaluator(
+            shapley_plan = _plan_shapley(
                 partition_count,
-                evaluate=evaluate,
                 seed_material=seed_material,
+            )
+            coalition_values = _native_percentile_coalition_values(
+                plan=shapley_plan,
+                partitions=partitions,
+                partition_members=partition_members,
+                current_values=current_values,
+                baseline_values=baseline_values,
+                current_endpoint=current_endpoint,
+                baseline_endpoint=baseline_endpoint,
+                prefix_axes=prefix_axes,
+                q=q,
+                prepared=current_prepared,
+                session=session,
+            )
+            contributions, standard_errors, seed_fingerprint = _shapley_from_values(
+                shapley_plan,
+                coalition_values=coalition_values,
             )
             execution = _quantile_execution_evidence(seed_fingerprint=seed_fingerprint)
             rows = []
@@ -1723,7 +1833,9 @@ def attribute_native_percentile_quantile(
                 ],
             )
             contribution_sum = float(piece["contribution"].sum())
-            reproduction_delta = evaluate(frozenset(range(partition_count))) - evaluate(frozenset())
+            reproduction_delta = (
+                coalition_values[frozenset(range(partition_count))] - coalition_values[frozenset()]
+            )
             residual = target_delta - contribution_sum
             endpoint_residual = target_delta - reproduction_delta
             if max(abs(residual), abs(endpoint_residual)) > _RECONCILIATION_TOLERANCE:
@@ -1804,6 +1916,6 @@ __all__ = [
     "attribute_distinct",
     "attribute_exact_quantile",
     "attribute_native_percentile_quantile",
-    "trino_native_percentile_coalition_expression",
+    "trino_native_percentile_coalitions_expression",
     "weighted_linear_quantile",
 ]

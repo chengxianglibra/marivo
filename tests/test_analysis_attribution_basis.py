@@ -7,7 +7,7 @@ import marivo.analysis as mv
 from marivo.analysis import attribution_contract
 from marivo.analysis.attribution_contract import build_attribution_basis
 from marivo.analysis.intents._nonadditive_attribution import (
-    trino_native_percentile_coalition_expression,
+    trino_native_percentile_coalitions_expression,
 )
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.refs import RefPayloadV1, SemanticKind
@@ -151,19 +151,30 @@ def test_quantile_basis_admits_trino_native_percentile_and_blocks_clickhouse_res
 
 
 @pytest.mark.parametrize("value_dtype", ["float64", "int64", "float32"])
-def test_trino_native_percentile_adapter_compiles_union_all_replay(value_dtype: str) -> None:
-    current = ibis.table({"value": value_dtype}, name="current_values")
-    baseline = ibis.table({"value": value_dtype}, name="baseline_values")
-    expression = trino_native_percentile_coalition_expression(
+def test_trino_native_percentile_adapter_compiles_batched_union_all_replay(
+    value_dtype: str,
+) -> None:
+    current_table = ibis.table({"region": "string", "value": value_dtype}, name="current_values")
+    baseline_table = ibis.table({"region": "string", "value": value_dtype}, name="baseline_values")
+    current = current_table.filter(current_table.value.notnull())
+    baseline = baseline_table.filter(baseline_table.value.notnull())
+    expression = trino_native_percentile_coalitions_expression(
         current,
         baseline,
+        coalitions=(frozenset({0}), frozenset({1})),
+        partitions=(("CN",), (None,)),
+        partition_members=None,
+        prefix_axes=("region",),
         value_column="value",
         q=0.95,
     )
 
     sql = ibis.to_sql(expression, dialect="trino").upper()
-    assert "APPROX_PERCENTILE" in sql
-    assert "UNION ALL" in sql
+    assert sql.count("APPROX_PERCENTILE") == 2
+    assert sql.count("FILTER(WHERE") == 2
+    assert sql.count("UNION ALL") == 1
+    assert "IS NOT NULL" in sql
+    assert "IS NULL" in sql
     assert "QDIGEST_AGG" not in sql
     assert "TDIGEST_AGG" not in sql
     assert "MERGE(" not in sql

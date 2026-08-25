@@ -407,7 +407,7 @@ Graph-owned attribution bases also admit three non-additive aggregate roots:
 | --- | --- | --- |
 | `count_distinct(key)` | Distinct membership allocation | Scalar keys only. `(key, partition)` deduplication, membership degree, and `1 / degree` allocation execute in the datasource; raw keys never cross the artifact boundary. |
 | DuckDB `median` / `percentile(q)` | Exact value-frequency replacement game | Linear weighted order statistics; exact Shapley through 8 partitions, 128 deterministic permutations for 9–64, and a 250,000 frequency-row cap. |
-| Trino `median` / `percentile(q)` | Native `approx_percentile` replacement game | Intermediate coalitions combine current selected rows with baseline unselected rows through `UNION ALL` and replay Trino's native aggregate. Full and empty coalitions reuse the independently observed current and baseline endpoints, so reconciliation remains exact while the source approximation error remains unknown. |
+| Trino `median` / `percentile(q)` | Native `approx_percentile` replacement game | Intermediate coalitions combine current selected rows with baseline unselected rows through `UNION ALL` and replay Trino's native aggregate. Within one comparison bucket and axis resolution, Marivo evaluates up to 128 coalitions per query with filtered aggregate states; larger games use multiple batches. Full and empty coalitions reuse the independently observed current and baseline endpoints, so reconciliation remains exact while the source approximation error remains unknown. |
 | ClickHouse reservoir quantile | — | Blocked because the sampled states are not an admitted mergeable distribution contract. |
 
 These methods independently replay an unsegmented `observe -> compare` endpoint;
@@ -423,6 +423,9 @@ across resolutions. Select one query-free immutable view with
 `frame.at_resolution(axes=[...])`; the selected rows may be summed once per
 comparison bucket. Empty intermediate quantile coalitions, endpoint mismatch,
 more than 64 partitions, or oversized distribution evidence fail closed.
+Partition discovery, Top-K selection, comparison buckets, and independent
+hierarchy resolutions remain separate query stages; batched coalition replay
+does not imply that the complete attribution operation executes as one query.
 
 `session.attribute(..., top_k=K)` selects K named members once over the complete
 current-plus-baseline comparison scope and maps the remainder to a real Other
