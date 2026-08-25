@@ -32,7 +32,11 @@ from marivo.analysis.frames.attribution import (
     AttributionFrameMeta,
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
+    AttributionTopKSelectionV1,
+    CompleteHierarchyScopeV1,
     CumulativeBusinessAxisEvidenceV1,
+    HierarchyResolutionEvidenceV1,
+    RollupHierarchyEvidenceV1,
     cumulative_reconciliation_from_partitions,
     reconcile_cumulative_business_evidence,
     validate_cumulative_flow_attribution_rows,
@@ -209,9 +213,11 @@ def persist_attribution_frame(
     mode: AttributionMode | None,
     bucket_column: str | None = None,
     method_evidence: AttributionMethodEvidenceV1 | None = None,
+    resolution_evidence: HierarchyResolutionEvidenceV1 | None = None,
+    top_k_selection: AttributionTopKSelectionV1 | None = None,
     row_contract_version: Literal[
-        "generic-attribution-rows/v2", "cumulative-flow-attribution-rows/v1"
-    ] = "generic-attribution-rows/v2",
+        "generic-attribution-rows/v3", "cumulative-flow-attribution-rows/v1"
+    ] = "generic-attribution-rows/v3",
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
     if isinstance(method_evidence, CumulativeBusinessAxisEvidenceV1):
@@ -231,6 +237,8 @@ def persist_attribution_frame(
             **params,
             "reconciliation": reconciliation.model_dump(mode="json"),
         }
+    if mode == "hierarchy" and resolution_evidence is None:
+        resolution_evidence = RollupHierarchyEvidenceV1(scope=CompleteHierarchyScopeV1())
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     source_refs = [source.meta.artifact_id or source.ref for source in sources]
@@ -287,6 +295,8 @@ def persist_attribution_frame(
         attribution_mode=mode,
         bucket_column=bucket_column,
         method_evidence=method_evidence,
+        resolution_evidence=resolution_evidence,
+        top_k_selection=top_k_selection,
     )
     if isinstance(method_evidence, CumulativeBusinessAxisEvidenceV1):
         validate_generic_attribution_rows(meta, df)

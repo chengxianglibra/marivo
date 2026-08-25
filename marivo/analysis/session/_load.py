@@ -819,6 +819,33 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         meta_cls = CumulativeDeltaFrameMetaV1
     if kind == "attribution_frame" and meta.get("semantic_kind") == "funnel_loss_rate":
         meta_cls = FunnelAttributionFrameMeta
+    if kind == "attribution_frame" and meta.get("semantic_kind") != "funnel_loss_rate":
+        row_contract = meta.get("row_contract_version")
+        supported_row_contracts = {
+            "generic-attribution-rows/v3",
+            "cumulative-flow-attribution-rows/v1",
+        }
+        if row_contract not in supported_row_contracts:
+            raise FrameMetaInvalidError(
+                message=f"frame '{ref}' uses an unsupported attribution row contract",
+                location=f"frame '{ref}' attribution row contract",
+                expected="generic-attribution-rows/v3",
+                received=row_contract or "<missing>",
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action=(
+                        f"Re-run session.attribute(...) for frame '{ref}' under the current "
+                        "contract. Use mode='hierarchy' for ordered-prefix output."
+                    ),
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+                    snippet="result = session.attribute(delta, axes=axes, mode='hierarchy')",
+                ),
+                context={
+                    "ref": ref,
+                    "row_contract_version": row_contract,
+                    "replacement_mode": "hierarchy",
+                },
+            )
     if kind == "candidate_set" and meta.get("shape") == "semantic_hypothesis":
         meta_cls = SemanticHypothesisCandidateSetMeta
     if (
@@ -1113,7 +1140,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         except ValueError as exc:
             row_family = (
                 "generic attribution rows"
-                if parsed_meta.row_contract_version == "generic-attribution-rows/v2"
+                if parsed_meta.row_contract_version == "generic-attribution-rows/v3"
                 else "cumulative flow attribution rows"
             )
             raise FrameMetaInvalidError(

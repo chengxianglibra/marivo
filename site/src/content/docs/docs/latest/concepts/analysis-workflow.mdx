@@ -468,7 +468,8 @@ by its repair.
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
 | `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
-| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | No | `"joint"` for multiple axes | Additive/component methods allow `joint` or `hierarchy`; non-additive methods allow `joint` or independent `multiresolution`. Single-axis calls ignore it. Read the delta admission for the legal pair and default. |
+| `mode` | `"joint" \| "hierarchy"` | No | `"joint"` for multiple axes | Selects the row layout. Typed resolution evidence says whether hierarchy prefixes are rollup-safe or independently reconciled. Single-axis calls ignore it. |
+| `top_k` | positive `int` | No | `None` | Keeps K named members per parent and groups the remainder into a governed Other player before attribution. Selection is fixed over the full current-plus-baseline comparison. |
 
 ```python
 attribution = session.attribute(delta, axes=[region, platform])
@@ -481,12 +482,14 @@ For the canonical single-axis case, omit `mode`:
 attribution = session.attribute(delta, axes=[region])
 ```
 
-For `joint`, contribution rows are additive and sum to the overall change. For
-`hierarchy`, parent rows repeat their descendants' total; sum only the deepest
-level when reconciling the change. Component-aware ratio and weighted-mean
+For `joint`, contribution rows sum to the overall change. `hierarchy` is a row
+layout: additive/component results carry `resolution_semantics="rollup"` and
+`rollup_safe=true`, while distinct/quantile results carry independent
+per-prefix reconciliations and `rollup_safe=false`. Sum only one selected level
+when reconciling the change. Component-aware ratio and weighted-mean
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
-Metric multi-axis calls default to `mode="joint"`; choose `hierarchy` or
-`multiresolution` explicitly when that layout is required. Omit `mode` for a
+Metric multi-axis calls default to `mode="joint"`; choose `hierarchy`
+explicitly when ordered prefixes are required. Omit `mode` for a
 single axis, where a supplied value has no effect. The effective multi-axis
 default is also available at
 `DeltaFrame.contract().attribute_admission.mode.multiple_axes_default`.
@@ -519,7 +522,7 @@ intermediate coalitions, more than 64 partitions, more than 250,000 frequency
 rows, or failure to reproduce the independent endpoint block the call and do
 not persist an attribution artifact.
 
-`mode="multiresolution"` recomputes every ordered axis prefix as an independent
+For non-additive `mode="hierarchy"`, every ordered axis prefix is an independent
 game. Complete rows are not additive across resolutions. Select one immutable,
 query-free view by exact semantic-ref prefix before consuming it:
 
@@ -527,6 +530,12 @@ query-free view by exact semantic-ref prefix before consuming it:
 regional = attribution.at_resolution(axes=[region])
 regional.to_pandas()  # sum once within each comparison bucket
 ```
+
+With `top_k=K`, ranking uses the metric's natural exposure over the combined
+current and baseline scope and remains fixed across comparison buckets. Other
+is a real player with contribution, rank, and standard error where applicable.
+Its axis cell remains null and `attribution_other_mask` records which axis bits
+are Other, preserving both real null values and a real member named `"Other"`.
 
 Contribution shares name their denominator explicitly:
 
@@ -616,7 +625,7 @@ may continue, but the limitation must be disclosed. A requested window beyond
 For a cumulative comparable-period `DeltaFrame`, the report reads the typed
 pairing evidence and surfaces matched-null, unpaired, and fallback counts.
 Metric `AttributionFrame` shapes (`scalar`, `time_series`, `segmented`, and
-`panel`) are also accepted, including generic-v2 and cumulative-flow rows. Their
+`panel`) are also accepted, including generic-v3 and cumulative-flow rows. Their
 fixed checks cover the row contract, finite contribution values, and typed
 reconciliation, including one persisted receipt per additive panel bucket. Empty
 attribution results produce a dedicated row-count warning rather than being

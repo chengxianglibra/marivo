@@ -933,13 +933,16 @@ def test_cumulative_weighted_business_axis_attribute_executes_supported_route(
     assert capability.business_axes.status == "supported"
 
     region = make_ref("sales.events.region", SemanticKind.DIMENSION)
-    drivers = attribute(delta, axes=[region], session=session)
+    drivers = attribute(delta, axes=[region], top_k=1, session=session)
 
     assert drivers.meta.method == "weighted_mix"
     assert drivers.meta.scope_delta_ref == (delta.meta.artifact_id or delta.ref)
     assert drivers.meta.source_refs[0] == (delta.meta.artifact_id or delta.ref)
     assert drivers.meta.method_evidence is not None
     assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
+    assert drivers.meta.top_k_selection is not None
+    assert drivers.meta.top_k_selection.score_method == "weight_exposure"
+    assert "attribution_other_mask" in drivers.to_pandas()
     assert "cumulative_route" not in drivers.meta.params
     assert "original_delta_ref" not in drivers.meta.params
     assert drivers.meta.reconciliation is not None

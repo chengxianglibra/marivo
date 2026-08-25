@@ -412,15 +412,31 @@ Graph-owned attribution bases also admit three non-additive aggregate roots:
 
 These methods independently replay an unsegmented `observe -> compare` endpoint;
 segmented point estimates are explanatory only and are never summed into the
-target delta. Non-additive multi-axis calls allow only `mode="joint"` or
-`mode="multiresolution"`. Multiresolution is **independent multiresolution
-attribution**: each exact ordered semantic-ref prefix is recomputed, ranked,
-and reconciled as a separate game. Complete rows must never be summed across
-resolutions. Omitting `mode` selects `joint`; `multiresolution` remains an
-explicit choice. Select one query-free immutable view with
+target delta. Non-additive multi-axis calls use the same `mode="joint"` or
+`mode="hierarchy"` layouts as additive methods. Hierarchy is a row layout, not
+an additivity claim: typed resolution evidence marks additive/component
+hierarchies as `resolution_semantics="rollup", rollup_safe=true`, while
+distinct/quantile hierarchies use `resolution_semantics="independent",
+rollup_safe=false` and recompute, rank, and reconcile each ordered semantic-ref
+prefix as a separate game. Independent complete rows must never be summed
+across resolutions. Select one query-free immutable view with
 `frame.at_resolution(axes=[...])`; the selected rows may be summed once per
 comparison bucket. Empty intermediate quantile coalitions, endpoint mismatch,
 more than 64 partitions, or oversized distribution evidence fail closed.
+
+`session.attribute(..., top_k=K)` selects K named members once over the complete
+current-plus-baseline comparison scope and maps the remainder to a real Other
+player before attribution arithmetic. Selection uses metric magnitude for
+sum/cumulative sum, denominator or weight exposure for component metrics,
+observed membership for distinct, and non-null sample count for quantiles.
+Multi-axis selection runs in axis order within every mapped parent, including
+Other. Distinct membership scores are recomputed at each axis prefix; leaf
+distinct counts are never summed into a parent score. Persisted rows keep Other axis cells null and encode its identity in
+`attribution_other_mask`, so a real null and a real string value `"Other"`
+remain distinct without coercing typed axis identities to a string sentinel.
+Quantile admission runs after
+this mapping. Funnel and cumulative accumulation-time attribution reject
+`top_k`.
 
 Every contribution row uses explicit denominators: `share_of_total_delta` is
 the signed contribution divided by the independently computed overall delta;
@@ -553,7 +569,7 @@ For a metric `DeltaFrame`, assessment validates the delta row contract. When the
 delta carries `CumulativeAlignmentV1`, the report reads that typed field directly
 and surfaces matched-null, unpaired, and fallback counts as explicit caveats.
 For a metric `AttributionFrame` (`scalar`, `time_series`, `segmented`, or
-`panel`), assessment validates the registered generic-v2 or cumulative-flow row
+`panel`), assessment validates the registered generic-v3 or cumulative-flow row
 contract, requires a non-empty result, validates finite contribution values, and
 checks every additive panel bucket against its persisted typed reconciliation
 receipt.

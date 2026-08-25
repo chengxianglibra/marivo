@@ -49,21 +49,18 @@ cumulative mathematical boundaries remain unchanged. `decompose` remains an
 internal primitive. No `attribute_distinct`, `attribute_percentile`,
 distribution frame, or public policy constructor is added.
 
-For these two new methods, an ordered-prefix result is explicitly requested as
-`mode="multiresolution"`, never `mode="hierarchy"`. Every prefix resolution is
-a separate attribution game that reconciles independently to the same observed
-delta. Prefix rows are not parent rollups and must not be summed across
-resolutions. The result reuses the existing flattened prefix-row columns but
-does not claim the additive parent-equals-descendants invariant. Existing
-rollup-safe methods retain `mode="hierarchy"`; the two public words therefore
-never denote method-dependent arithmetic.
+For these two methods, an ordered-prefix result uses `mode="hierarchy"`, the
+same public row layout as additive methods. Every prefix resolution is a
+separate attribution game that reconciles independently to the same observed
+delta. Typed resolution evidence, rather than the mode name, distinguishes
+`resolution_semantics="independent", rollup_safe=false` from additive
+`resolution_semantics="rollup", rollup_safe=true` rows.
 
 As a coupled public-contract cleanup, newly produced additive hierarchy frames
 use `attribution_shape="sum", attribution_mode="hierarchy"`; they no longer
-write the legacy mode-contaminated `method="ordered_hierarchy_sum"` tag. Older
-persisted frames remain readable through one public-property normalization to
-`sum`; `meta.method` retains the raw legacy tag for audit and their row values
-are not rewritten.
+write the removed mode-contaminated `method="ordered_hierarchy_sum"` tag. Old
+generic attribution artifacts fail closed and must be recomputed under the
+current v3 contract.
 
 This is deliberately a scalar-change attribution design. A future question
 about the whole distribution -- tail thickening, multimodality, divergence, or
@@ -201,10 +198,10 @@ method_evidence: q=0.95 source=exact/linear_interpolation coalition=permutation_
 reconciliation: status=reconciled ...
 ```
 
-For multi-resolution output the same card additionally states:
+For independent hierarchy output the same card additionally states:
 
 ```text
-multiresolution: rollup_safe=false resolutions=...
+hierarchy: resolution_semantics=independent rollup_safe=false resolutions=...
 reconciliation: status=reconciled scope=each_bucket_and_resolution ...
 ```
 
@@ -213,15 +210,10 @@ new public `as_*` narrowing methods are added in v1; adding two methods solely
 to mirror the tags would enlarge help and the frame protocol without enabling
 another legal continuation.
 
-`AttributionMode` becomes
-`Literal["joint", "hierarchy", "multiresolution"]`. `joint` remains legal for
-every supported aggregate. `hierarchy` remains the rollup-safe ordered-prefix
-layout for existing methods. `multiresolution` is the ordered-prefix layout for
-`count_distinct`, `median`, and `percentile`; each resolution is independent.
-For multiple axes the delta contract lists exactly the legal modes for its
-predicted shape. A distinct or quantile call with `mode="hierarchy"` fails
-before replay and repairs to `mode="multiresolution"`; an existing rollup-safe
-method does the inverse. Single-axis calls continue to omit `mode`.
+`AttributionMode` is `Literal["joint", "hierarchy"]`. `joint` remains legal for
+every supported aggregate. `hierarchy` always means ordered-prefix row layout;
+typed resolution evidence records whether the prefixes roll up or reconcile
+independently. Single-axis calls continue to omit `mode`.
 
 The closed generic shape type becomes:
 
@@ -238,12 +230,8 @@ AttributionShape = Literal[
 `attribution_shape` identifies mathematical allocation only;
 `attribution_mode` identifies the row layout and its arithmetic contract. New
 rollup-safe frames never emit
-`ordered_hierarchy_sum`. When loading an older frame with that persisted method,
-the public `attribution_shape` projection and `as_sum()` narrowing normalize it
-to `sum`; `repr`, `.show()`, and `.contract()` use that normalized shape,
-`.show()` renders `legacy_method=ordered_hierarchy_sum` once, and raw
-`meta.method` remains available for audit. No help text or new artifact teaches
-the legacy tag as a selectable shape.
+`ordered_hierarchy_sum`. Artifacts carrying that removed method belong to an old
+generic row contract and fail closed with a repair to recompute attribution.
 
 `DeltaFrame.predicted_attribution_shape()` remains a pure, query-free shape
 projection. It answers which mathematical allocation family `attribute` would
@@ -304,10 +292,9 @@ class BlockedAttributeAdmissionV1(BaseModel):
 `DeltaFrame.show()` renders this exact projection as bounded text. It may also
 render source method details, but it never prints `supported` merely because
 the persisted source is reproducible. `attribute` validates the same projection
-before replay. For distinct and quantile shapes, `multiple_axes` is
-`("joint", "multiresolution")`; for existing rollup-safe shapes it is
-`("joint", "hierarchy")`. The shape predictor does not construct or validate
-admission.
+before replay. Every admitted shape lists `multiple_axes` as
+`("joint", "hierarchy")`; typed output evidence determines hierarchy arithmetic.
+The shape predictor does not construct or validate admission.
 
 ## Persisted Admission Evidence
 
@@ -552,7 +539,7 @@ reconciliation. Only `contribution` and allocated values participate in the
 contract.
 
 Single-axis and joint modes use the same deepest-partition calculation.
-`mode="multiresolution"` recomputes membership degrees independently for each
+Non-additive `mode="hierarchy"` recomputes membership degrees independently for each
 ordered prefix resolution, then presents those separate games in the existing
 flattened prefix-row columns. Each resolution reconciles independently to the
 observed delta, but a prefix contribution is not the sum of its apparent
@@ -562,7 +549,7 @@ For example, if one key belongs to `A/x`, `A/y`, and `B/z`, the deepest game
 allocates `1/3` to each leaf while the `A`/`B` prefix game allocates `1/2` to
 each prefix. The `A` row is therefore `1/2`, not the `2/3` sum of its displayed
 children. `AttributionFrame.show()` and `.contract()` render
-`mode=multiresolution rollup_safe=false`; evidence extraction retains the
+`mode=hierarchy resolution_semantics=independent rollup_safe=false`; evidence extraction retains the
 resolution coordinate in every finding key and must never aggregate across
 resolutions. Within one comparison bucket and one selected resolution,
 contributions may be summed exactly once.
@@ -676,7 +663,7 @@ sketch does not provide a valid error bound, metadata records
 `source_error_bound=None` and the result carries a non-blocking evidence issue;
 Marivo does not manufacture confidence.
 
-`mode="multiresolution"` likewise evaluates a separate replacement game at each
+Non-additive `mode="hierarchy"` likewise evaluates a separate replacement game at each
 ordered prefix resolution. Shapley values from a deeper game do not generally
 roll up to the Shapley value of a
 coarser game, so `rollup_safe=false` applies here as well. Panel and time-series
@@ -688,6 +675,18 @@ entirely empty endpoint remains blocked by the same undefined-quantile rule as
 ## Attribution Result Metadata
 
 Keep the existing `AttributionFrame` family and generic dataframe protocol.
+
+Native `top_k` is applied before every attribution method. The K named members
+are selected once from the complete current-plus-baseline scope using metric
+magnitude, denominator/weight exposure, observed distinct membership, or
+non-null quantile sample count as appropriate. Multi-axis selection runs in
+axis order under each mapped parent, including Other. Other participates as a
+real composite player in distinct/quantile allocation and Shapley coalitions;
+it is never fabricated as a residual. Rows persist null axis cells plus an
+`attribution_other_mask` bitset, preserving real nulls and real `"Other"`
+members. Distinct scoring recomputes observed membership at every prefix rather
+than summing leaf distinct counts. Quantile partition admission runs after this
+mapping.
 Version its generic row contract and add one typed, discriminated method-
 evidence field to the existing metadata instead of adding two public frame
 families:
@@ -719,39 +718,39 @@ class QuantileResolutionExecutionV1(BaseModel):
     deterministic_seed_fingerprint: str | None = None
 
 
-MultiresolutionScopeV1 = Annotated[
-    CompleteMultiresolutionScopeV1 | SelectedMultiresolutionScopeV1,
+HierarchyScopeV1 = Annotated[
+    CompleteHierarchyScopeV1 | SelectedHierarchyScopeV1,
     Field(discriminator="kind"),
 ]
 
 
-class CompleteMultiresolutionScopeV1(BaseModel):
+class CompleteHierarchyScopeV1(BaseModel):
     kind: Literal["complete"]
 
 
-class SelectedMultiresolutionScopeV1(BaseModel):
+class SelectedHierarchyScopeV1(BaseModel):
     kind: Literal["selected"]
     axis_refs: tuple[RefPayloadV1, ...] = Field(min_length=1)
 
 
-class IndependentMultiresolutionEvidenceV1(BaseModel):
-    schema: Literal["independent-multiresolution/v1"]
+class IndependentHierarchyEvidenceV1(BaseModel):
+    schema: Literal["independent-hierarchy/v1"]
+    resolution_semantics: Literal["independent"]
     rollup_safe: Literal[False]
-    scope: MultiresolutionScopeV1
+    scope: HierarchyScopeV1
     resolution_reconciliations: tuple[AttributionResolutionReconciliationV1, ...]
 
 
 class AttributionFrameMeta(BaseFrameMeta):
     ...
-    row_contract_version: Literal["generic-attribution-rows/v2"] | None = None
+    row_contract_version: Literal["generic-attribution-rows/v3"] | None = None
     causal_claim: Literal["none"] = "none"
     method_evidence: AttributionMethodEvidenceV1 | None = None
 ```
 
 The distinct evidence records the allocation rule, source basis fingerprint,
-overlap-key count, `identities_persisted=False`, and an optional
-`IndependentMultiresolutionEvidenceV1` required exactly when
-`attribution_mode="multiresolution"`.
+overlap-key count, and `identities_persisted=False`. Independent hierarchy
+evidence is required exactly when non-additive `attribution_mode="hierarchy"`.
 
 The quantile evidence records the effective `q` derived from the validated
 aggregate authority, source mode/method/dtype, representation, exact,
@@ -760,21 +759,20 @@ count, deterministic seed fingerprint, source error bound when available,
 operator version, and every bucket/resolution reconciliation in
 `scope_reconciliations`. Each reconciliation carries its own exact or
 permutation execution evidence, so a mixed game is never represented as one
-global method. Multi-resolution mode additionally carries the same records in
-its required multi-resolution evidence; `at_resolution(...)` filters both
+global method. Hierarchy mode additionally carries the same records in its
+required independent resolution evidence; `at_resolution(...)` filters both
 collections and recomputes the bounded summary. The copied effective `q` is
 result evidence only; dispatch and execution never read it instead of the
 validated aggregate authority.
 
-`generic-attribution-rows/v2` closes the method-specific row schemas described
+`generic-attribution-rows/v3` closes the method-specific row schemas described
 above. Recovery validates required columns, forbidden method-only columns,
 axis coordinates, bucket coordinates, and resolution coordinates against
 `method_evidence` before constructing an `AttributionFrame`. Every newly
-persisted generic attribution frame writes v2. Legacy frames with no row version
-remain readable under the existing legacy path but are never used as templates
-for new artifacts.
+persisted generic attribution frame writes v3. V2 and multiresolution artifacts
+fail closed with a structured repair to re-run `attribute(..., mode="hierarchy")`.
 
-Multi-resolution v2 rows reuse the existing `level`, `axis`, `driver`, `path`,
+Hierarchy v3 rows reuse the existing `level`, `axis`, `driver`, `path`,
 and requested axis columns; single-axis and joint rows forbid those four generic
 prefix-row columns. This is a storage-layout rule only. `path` expresses
 navigation context and does not imply arithmetic parentage. Public consumption
@@ -797,8 +795,8 @@ residual                 = total_delta - contribution_sum
 status                   = reconciled only within the existing numeric tolerance
 ```
 
-For multi-resolution results,
-`method_evidence.multiresolution.resolution_reconciliations` additionally
+For independent hierarchy results,
+`resolution_evidence.resolution_reconciliations` additionally
 contains one record per `(comparison bucket, ordered axis-ref prefix)` in
 deterministic bucket/resolution order. Every record must reconcile
 independently. The common summary still describes only the deepest resolution
@@ -858,7 +856,7 @@ Session.attribute
   -> existing additive/component decompose path
      or _attribute_distinct_membership(...)
      or _attribute_quantile_replacement(...)
-  -> shared share, rank, independent-multiresolution, reconciliation,
+  -> shared share, rank, independent hierarchy, reconciliation,
      persistence helpers
   -> AttributionFrame
 ```
@@ -879,7 +877,7 @@ contains evidence it does not have.
 
 Reuse the existing replay, missing-axis normalization, comparison-bucket,
 flattened prefix-row presentation, persistence, and deepest-resolution
-reconciliation helpers. Add a private independent-multiresolution helper for
+reconciliation helpers. Add a private independent-hierarchy helper for
 per-resolution shares, ranks, and reconciliation; do not route these rows
 through an additive rollup helper. Extract other shared code only when both old
 and new paths need the same behavior.
@@ -893,7 +891,7 @@ fact is already known.
 | --- | --- |
 | Unsupported aggregate | Existing `AttributionAdditivityError`, with aggregate-specific repair |
 | Missing/legacy basis | Re-observe and compare; no inferred basis |
-| `hierarchy` requested for a distinct/quantile shape, or `multiresolution` requested for a rollup-safe shape | Structured mode error containing the delta contract's exact legal values |
+| Removed `multiresolution` mode requested | Structured repair to use `mode="hierarchy"` and inspect typed resolution evidence |
 | Persisted basis fails its frame artifact identity | Existing `FrameMetaInvalidError` during load; frame is not constructed |
 | Basis authority does not exactly match either source graph | `AttributionMaterializationError` with `recoverability_status="basis_source_graph_mismatch"` before replay or datasource access |
 | Non-replayable or missing source frame | `AttributionMaterializationError` naming the missing source ref |
@@ -1010,14 +1008,12 @@ resolution safely.
 - `DeltaFrame.predicted_attribution_shape()`, successful output
   `attribution_shape`, the closed type literal, help, and shape tests agree for
   all five methods, including blocked known bases; only `.contract()` owns
-  effective admission and repair. Legacy `ordered_hierarchy_sum` frames
-  normalize publicly to `sum`.
+  effective admission and repair.
 - `at_resolution(...)` accepts every exact ordered axis-ref prefix, rejects raw
   levels and invalid/reordered prefixes, preserves lineage/evidence, and returns
   rows whose contributions are safe to sum once per comparison bucket.
-- `AttributionMode` help and validation allow `joint|multiresolution` for the
-  two new shapes and `joint|hierarchy` for existing rollup-safe shapes; invalid
-  crossings fail before replay with the delta contract's exact repair.
+- `AttributionMode` help and validation expose only `joint|hierarchy`; typed
+  resolution evidence distinguishes independent from rollup-safe hierarchy.
 - The live-help canonical example observes an unsegmented scalar, then proves
   that `attribute(..., axes=[...])` performs the required axis replay.
 - Live-help registry, exports, generated API docs, English/Chinese docs,
@@ -1041,8 +1037,7 @@ resolution safely.
   admission projection, and aggregate-specific errors. The predictor remains
   independent of installed-runtime admission.
 - Normalize newly produced additive hierarchy shape metadata to
-  `shape=sum, mode=hierarchy`, with read-only public normalization for legacy
-  `ordered_hierarchy_sum` artifacts.
+  `shape=sum, mode=hierarchy`; old generic attribution artifacts fail closed.
 - Keep execution blocked for the new methods.
 
 This slice removes the current generic and misleading repair text before
@@ -1080,8 +1075,8 @@ The design is implemented when:
    independently observed distinct-count delta;
 3. median/percentile contributions are computed from reproducible distribution
    evidence and reconcile to the independently observed quantile delta;
-4. non-additive ordered-prefix results use `mode="multiresolution"`, never
-   `mode="hierarchy"`: every resolution reconciles, `rollup_safe=false` is
+4. non-additive ordered-prefix results use `mode="hierarchy"`: every resolution
+   reconciles, `resolution_semantics="independent"` and `rollup_safe=false` are
    visible, and no surface or evidence path treats parent-looking rows as sums
    of descendants;
 5. unsupported approximate quantile methods are visibly blocked before

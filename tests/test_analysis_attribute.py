@@ -14,7 +14,7 @@ from marivo.analysis.errors import (
     AttributionMaterializationError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.frames.attribution import AttributionFrame
+from marivo.analysis.frames.attribution import AttributionFrame, validate_generic_attribution_rows
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.intents._quality_checks import run_attribution_checks
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -127,7 +127,6 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     loaded = session.get_frame(out.ref)
     assert loaded.meta.driver_field == "region"
     assert list(loaded.to_pandas().columns) == list(result.columns)
-
     contract = out.contract()
     quality_affordance = next(
         item for item in contract.affordances if item.capability_id == "assess_quality"
@@ -155,6 +154,190 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert recovered_quality.meta.report_shape == "attribution"
     quality_job = session.job(quality.meta.produced_by_job)
     assert quality_job["subject"]["kind"] == "delta_metric"
+
+
+def test_attribute_single_axis_top_k_preserves_null_and_real_other_identity() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["A", "Other", None, "C", "D"],
+                "current": [100.0, 80.0, 60.0, 1.0, 0.0],
+                "baseline": [90.0, 70.0, 60.0, 0.0, 50.0],
+                "delta": [10.0, 10.0, 0.0, 1.0, -50.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        top_k=3,
+    )
+
+    rows = out.to_pandas().sort_values(
+        ["attribution_other_mask", "contribution"], ascending=[True, False]
+    )
+    assert out.meta.top_k_selection is not None
+    assert out.meta.top_k_selection.original_partition_count == 5
+    assert out.meta.top_k_selection.effective_partition_count == 4
+    assert rows.iloc[:2][["region", "attribution_other_mask", "contribution"]].to_dict(
+        "records"
+    ) == [
+        {"region": "A", "attribution_other_mask": 0, "contribution": 10.0},
+        {"region": "Other", "attribution_other_mask": 0, "contribution": 10.0},
+    ]
+    assert rows.iloc[2:]["region"].isna().all()
+    assert rows.iloc[2:][["attribution_other_mask", "contribution"]].to_dict("records") == [
+        {"attribution_other_mask": 0, "contribution": 0.0},
+        {"attribution_other_mask": 1, "contribution": -49.0},
+    ]
+    preview_rows = list(out._preview_rows_provider())
+    region_index = out.columns.index("region")
+    mask_index = out.columns.index("attribution_other_mask")
+    masked_preview = next(row for row in preview_rows if row[mask_index] == "1")
+    assert masked_preview[region_index] == "Other"
+
+
+def test_attribute_single_axis_top_k_preserves_large_integer_identities() -> None:
+    session = mv.session.get_or_create(name="demo")
+    first = 2**53
+    second = first + 1
+    third = first + 2
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": [first, second, third],
+                "current": [100.0, 90.0, 1.0],
+                "baseline": [0.0, 0.0, 0.0],
+                "delta": [100.0, 90.0, 1.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        top_k=2,
+    )
+
+    rows = out.to_pandas()
+    named = rows.loc[rows["attribution_other_mask"] == 0, "region"]
+    assert named.tolist() == [first, second]
+    assert str(named.dtype) == "Int64"
+    assert rows.loc[rows["attribution_other_mask"] == 1, "region"].isna().all()
+    assert out.meta.top_k_selection is not None
+    assert out.meta.top_k_selection.effective_partition_count == 3
+
+
+def test_attribute_hierarchy_top_k_selects_children_per_mapped_parent() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN", "CN", "DE", "DE"],
+                "platform": ["web", "store", "web", "store", "app", "store"],
+                "current": [100.0, 10.0, 80.0, 5.0, 60.0, 2.0],
+                "baseline": [90.0, 9.0, 70.0, 4.0, 50.0, 1.0],
+                "delta": [10.0, 1.0, 10.0, 1.0, 10.0, 1.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+        mode="hierarchy",
+        top_k=1,
+    )
+
+    deepest = out.to_pandas().query("attribution_level == 2")
+    assert set(deepest["attribution_other_mask"]) == {0, 1, 2, 3}
+    assert deepest["contribution"].sum() == pytest.approx(frame.to_pandas()["delta"].sum())
+    assert out.meta.resolution_evidence is not None
+    assert out.meta.resolution_evidence.resolution_semantics == "rollup"
+    assert out.meta.resolution_evidence.rollup_safe is True
+    assert "resolution_semantics=rollup rollup_safe=true" in out.render()
+    corrupted = out.to_pandas()
+    first_parent = corrupted.index[corrupted["attribution_level"] == 1][0]
+    corrupted.loc[first_parent, "attribution_other_mask"] = 2
+    with pytest.raises(ValueError, match="exceeds its hierarchy row prefix"):
+        validate_generic_attribution_rows(out.meta, corrupted)
+
+
+def test_attribute_joint_top_k_uses_the_same_ordered_parent_mapping() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN", "DE"],
+                "platform": ["web", "store", "web", "app"],
+                "current": [100.0, 10.0, 80.0, 60.0],
+                "baseline": [90.0, 9.0, 70.0, 50.0],
+                "delta": [10.0, 1.0, 10.0, 10.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+        mode="joint",
+        top_k=1,
+    )
+
+    rows = out.to_pandas()
+    assert set(rows["attribution_other_mask"]) == {0, 1, 2, 3}
+    assert rows["contribution"].sum() == pytest.approx(31.0)
+    assert out.meta.resolution_evidence is None
+
+
+def test_attribute_panel_top_k_uses_one_fixed_cross_bucket_selection() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(
+                    ["2026-07-01", "2026-07-01", "2026-07-02", "2026-07-02"],
+                    utc=True,
+                ),
+                "region": ["A", "B", "A", "B"],
+                "current": [100.0, 1.0, 1.0, 80.0],
+                "baseline": [90.0, 1.0, 1.0, 70.0],
+                "delta": [10.0, 0.0, 0.0, 10.0],
+            }
+        ),
+        semantic_kind="panel",
+    )
+    alignment = dict(frame.meta.alignment)
+    alignment["axes"] = {
+        **alignment["axes"],
+        "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+    }
+    frame.meta = frame.meta.model_copy(update={"alignment": alignment})
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        top_k=1,
+    )
+
+    rows = out.to_pandas()
+    for _, bucket_rows in rows.groupby("bucket_start"):
+        named = bucket_rows[bucket_rows["attribution_other_mask"] == 0]
+        assert named["region"].tolist() == ["A"]
+        assert set(bucket_rows["attribution_other_mask"]) == {0, 1}
 
 
 def test_attribute_reconciles_nullable_unsigned_one_sided_segments() -> None:
@@ -395,6 +578,21 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
     }.issubset(df.columns)
     assert df.loc[df["attribution_level"] == 2, "contribution"].sum() == pytest.approx(8.0)
     assert df.loc[df["attribution_level"] == 1, "platform"].isna().all()
+    assert out.meta.resolution_evidence is not None
+    assert out.meta.resolution_evidence.resolution_semantics == "rollup"
+    assert out.meta.resolution_evidence.rollup_safe is True
+    child_totals = df[df["attribution_level"] == 2].groupby("region")["contribution"].sum()
+    parent_totals = df[df["attribution_level"] == 1].set_index("region")["contribution"]
+    pd.testing.assert_series_equal(
+        child_totals.sort_index(), parent_totals.sort_index(), check_names=False
+    )
+    selected = out.at_resolution(axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
+    assert selected.to_pandas()["contribution"].sum() == pytest.approx(8.0)
+    assert selected.contract().row_arithmetic == "additive_once_per_comparison_bucket"
+    corrupted = out.to_pandas()
+    corrupted.loc[corrupted["attribution_level"] == 1, "contribution"] += 1.0
+    with pytest.raises(ValueError, match="parent contribution differs from children"):
+        validate_generic_attribution_rows(out.meta, corrupted)
 
 
 def test_attribute_multi_axis_defaults_to_joint() -> None:
@@ -431,12 +629,54 @@ def test_attribute_multi_axis_defaults_to_joint() -> None:
     assert df["contribution"].sum() == pytest.approx(8.0)
 
 
+def test_attribute_rejects_legacy_multiresolution_with_hierarchy_repair() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US"],
+                "delta": [1.0],
+            }
+        ),
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(
+            frame,
+            axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+            mode="multiresolution",  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.repair is not None
+    assert "mode='hierarchy'" in exc_info.value.repair.action
+    assert exc_info.value._context["replacement_mode"] == "hierarchy"
+
+
 def test_attribute_requires_explicit_axes() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [10.0]}))
 
     with pytest.raises(SemanticKindMismatchError, match="attribute requires at least one axis"):
         session.attribute(frame, axes=[])
+
+
+@pytest.mark.parametrize("top_k", [0, -1, True, 1.5])
+def test_attribute_rejects_invalid_top_k(top_k) -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US"], "delta": [1.0]}),
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(
+            frame,
+            axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+            top_k=top_k,
+        )
+
+    assert exc_info.value._context["reason"] == "invalid_top_k"
 
 
 def test_attribute_present_axes_delegates_to_decompose_without_materialization() -> None:
@@ -504,7 +744,10 @@ def test_attribute_rejects_duplicate_axes() -> None:
     assert exc_info.value._context["reason"] == "duplicate_axes"
 
 
-@pytest.mark.parametrize("axis_name", ["contribution", "rank", "share_of_total_delta"])
+@pytest.mark.parametrize(
+    "axis_name",
+    ["contribution", "rank", "share_of_total_delta", "attribution_other_mask"],
+)
 def test_attribute_rejects_reserved_single_axis_column(
     semantic_project_factory,
     axis_name: str,
@@ -564,6 +807,7 @@ def _reserved_axis_project(axis_name: str) -> str:
         ("joint", "value_effect"),
         ("joint", "mix_effect"),
         ("joint", "residual"),
+        ("joint", "attribution_other_mask"),
         ("hierarchy", "contribution"),
         ("hierarchy", "rank"),
         ("hierarchy", "value_effect"),
@@ -573,6 +817,7 @@ def _reserved_axis_project(axis_name: str) -> str:
         ("hierarchy", "attribution_axis"),
         ("hierarchy", "attribution_driver"),
         ("hierarchy", "attribution_path"),
+        ("hierarchy", "attribution_other_mask"),
     ],
 )
 def test_attribute_multi_axis_rejects_reserved_axis_column(

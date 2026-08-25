@@ -182,10 +182,7 @@ def _validate_mode(
     axis_ids: list[str], mode: AttributionMode | None
 ) -> Literal["joint", "hierarchy"] | None:
     try:
-        return cast(
-            "Literal['joint', 'hierarchy'] | None",
-            validate_attribution_mode(axis_ids, mode, intent="session.attribute"),
-        )
+        return validate_attribution_mode(axis_ids, mode, intent="session.attribute")
     except SemanticKindMismatchError as exc:
         raise FunnelAttributionUnsupportedError(
             message=str(exc),

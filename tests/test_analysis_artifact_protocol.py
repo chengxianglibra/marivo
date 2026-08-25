@@ -139,7 +139,7 @@ def _artifact_cases():
             params={"by": "region"},
             semantic_kind="segmented",
             semantic_model="sales",
-            row_contract_version="generic-attribution-rows/v2",
+            row_contract_version="generic-attribution-rows/v3",
             axis_bindings=(
                 AttributionAxisBindingV1(
                     ref=RefPayloadV1.from_ref(ref_factory.dimension("sales.orders.region")),

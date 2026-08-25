@@ -399,7 +399,8 @@ mean 展开使用度量的非空计数，而不是实体行数。对于被拒绝
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | 是 | — | 要归因的差值。 |
 | `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
-| `mode` | `"joint" \| "hierarchy" \| "multiresolution"` | 否 | 多轴默认为 `"joint"` | 可加/组件允许 `joint` 或 `hierarchy`；不可加允许 `joint` 或独立 `multiresolution`。单轴调用会忽略该参数。合法组合与默认值以差值 admission 为准。 |
+| `mode` | `"joint" \| "hierarchy"` | 否 | 多轴默认为 `"joint"` | 只选择行布局；typed resolution evidence 判断 hierarchy prefix 可否 rollup，或是否逐层独立对账。单轴调用会忽略该参数。 |
+| `top_k` | 正整数 | 否 | `None` | 每个父节点保留 K 个实名成员，其余成员在归因计算前合并为受治理的 Other；名单按完整 current+baseline 区间固定。 |
 
 ```python
 attribution = session.attribute(delta, axes=[region, platform])
@@ -412,11 +413,13 @@ attribution.show()
 attribution = session.attribute(delta, axes=[region])
 ```
 
-`joint` 的贡献行可直接求和并与总变化对齐。`hierarchy` 的父级行会重复
-子级总量，核对总变化时只对最深层求和。组件-感知的比率和加权平均
+`joint` 的贡献行可直接求和并与总变化对齐。`hierarchy` 只表示行布局：
+可加/组件结果记录 `resolution_semantics="rollup"`、`rollup_safe=true`；
+distinct/quantile 结果则逐 prefix 独立计算和对账，并记录 `rollup_safe=false`。
+核对总变化时只选择一个层级求和。组件-感知的比率和加权平均
 在两种模式下都会保留 `value_effect`、`mix_effect` 与 `residual`。
-指标多轴调用默认采用 `mode="joint"`；需要 `hierarchy` 或 `multiresolution`
-布局时再显式指定。单轴应省略 `mode`，即使传入也不会改变输出。多轴的有效
+指标多轴调用默认采用 `mode="joint"`；需要有序 prefix 布局时显式指定
+`hierarchy`。单轴应省略 `mode`，即使传入也不会改变输出。多轴的有效
 默认值也可从
 `DeltaFrame.contract().attribute_admission.mode.multiple_axes_default` 读取。
 单轴输出会保留解析后的维度列名（例如 `cluster`），因此可以直接按该列与来源
@@ -440,14 +443,20 @@ segmented point estimate。DuckDB 对值-frequency 使用精确 Shapley（不超
 任一中间 coalition 为空、分区超过 64、frequency 行超过 250,000，或无法复现
 独立 endpoint 时，本次调用结构化阻塞且不持久化归因产物。
 
-`mode="multiresolution"` 表示“独立多分辨率归因”：每个有序轴 prefix 都是独立重算、
-排名和对账的 game，完整结果不能跨解析求和。消费前用精确语义-引用 prefix
+不可加指标使用 `mode="hierarchy"` 时，每个有序轴 prefix 都是独立重算、
+排名和对账的 game，完整结果不能跨层级求和。消费前用精确语义-引用 prefix
 选择 immutable、无查询 view：
 
 ```python
 regional = attribution.at_resolution(axes=[region])
 regional.to_pandas()  # 每个 comparison bucket 只求和一次
 ```
+
+使用 `top_k=K` 时，Marivo 按指标的自然 exposure 在完整 current+baseline
+区间选出实名成员，并把同一名单固定应用到所有 comparison bucket。Other 是拥有
+贡献、rank（分位数方法还包含 standard error）的真实玩家；轴单元格保持 null，
+`attribution_other_mask` 按 axis 顺序记录 Other bit，因此真实 null 与真实字符串
+`"Other"` 都不会发生碰撞。
 
 贡献 share 会显式说明分母：
 
@@ -525,7 +534,7 @@ projection = session.forecast(history, horizon=30, measure_column=history.value_
 对于累计 comparable-周期 `DeltaFrame`，报告直接读取类型化 pairing
 证据，并呈现 matched-null、unpaired 和回退计数。
 指标归因的 `scalar`、`time_series`、`segmented` 与 `panel` 形状也可直接
-检查，包括 generic-v2 和 cumulative-flow 行契约。固定检查覆盖行契约、结果
+检查，包括 generic-v3 和 cumulative-flow 行契约。固定检查覆盖行契约、结果
 是否为空、贡献值是否为有限数，以及类型化 reconciliation receipt；additive
 panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门的行数检查给出
 warning，不会被误报为对账失败；漏斗损失率归因仍使用其专属组件、符号池、

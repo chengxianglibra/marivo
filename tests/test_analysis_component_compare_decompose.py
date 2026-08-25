@@ -517,6 +517,89 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
     assert df["contribution"].sum() == pytest.approx(0.175)
 
 
+@pytest.mark.parametrize(
+    ("composition_kind", "components", "numerator_column", "exposure_column", "score_method"),
+    [
+        (
+            "ratio",
+            {"numerator": "sales.failed_count", "denominator": "sales.total_count"},
+            "failed_count",
+            "total_count",
+            "denominator_exposure",
+        ),
+        (
+            "weighted_mean",
+            {"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
+            "weighted_failed",
+            "total_weight",
+            "weight_exposure",
+        ),
+    ],
+)
+def test_attribute_component_top_k_uses_natural_exposure_scale(
+    composition_kind,
+    components,
+    numerator_column,
+    exposure_column,
+    score_method,
+) -> None:
+    session = session_attach.get_or_create(name="demo")
+
+    def component_rows(north_numerator: float, south_numerator: float):
+        return [
+            {
+                "region": "NORTH",
+                numerator_column: north_numerator,
+                exposure_column: 1.0,
+                "failure_rate": north_numerator,
+            },
+            {
+                "region": "SOUTH",
+                numerator_column: south_numerator,
+                exposure_column: 100.0,
+                "failure_rate": south_numerator / 100.0,
+            },
+        ]
+
+    current = _component_aware_metric(
+        session,
+        ref="frame_current_top_k",
+        rows=[
+            {"region": "NORTH", "failure_rate": 1.0},
+            {"region": "SOUTH", "failure_rate": 0.2},
+        ],
+        component_rows=component_rows(1.0, 20.0),
+        composition_kind=composition_kind,
+        components=components,
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline_top_k",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.5},
+            {"region": "SOUTH", "failure_rate": 0.1},
+        ],
+        component_rows=component_rows(0.5, 10.0),
+        composition_kind=composition_kind,
+        components=components,
+    )
+
+    attribution = session.attribute(
+        session.compare(current, baseline),
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        top_k=1,
+    )
+
+    rows = attribution.to_pandas()
+    named = rows[rows["attribution_other_mask"] == 0]
+    assert named["region"].tolist() == ["SOUTH"]
+    assert set(rows["attribution_other_mask"]) == {0, 1}
+    assert attribution.meta.top_k_selection is not None
+    assert attribution.meta.top_k_selection.score_method == score_method
+    assert attribution.meta.reconciliation is not None
+    assert attribution.meta.reconciliation.max_abs_residual <= 1e-9
+
+
 def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
     session = session_attach.get_or_create(name="demo")
     components = {"numerator": "sales.weighted_failed", "weight": "sales.total_weight"}

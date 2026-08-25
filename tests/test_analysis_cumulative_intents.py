@@ -1617,6 +1617,12 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     assert quality.meta.report_shape == "attribution"
     assert quality.meta.overall_status == "ok"
 
+    top_k_drivers = attribute(delta, axes=[region], top_k=2, session=session)
+    top_k_rows = top_k_drivers.to_pandas()
+    assert top_k_drivers.meta.top_k_selection is not None
+    assert set(top_k_rows["attribution_other_mask"]).issubset({0, 1})
+    assert top_k_rows["contribution"].sum() == pytest.approx(25.0)
+
 
 def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, monkeypatch) -> None:
     """The exact cumulative over axis explains the base flow between cutoffs."""
@@ -1632,6 +1638,10 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     )
     delta = compare(current, baseline, session=session)
     order_date = session.catalog.require(ref_factory.time_dimension("sales.orders.order_date")).ref
+
+    with pytest.raises(mv.errors.SemanticKindMismatchError) as exc_info:
+        attribute(delta, axes=[order_date], top_k=1, session=session)
+    assert exc_info.value._context["reason"] == "top_k_not_applicable"
 
     flow = attribute(delta, axes=[order_date], session=session)
     rows = flow.to_pandas()

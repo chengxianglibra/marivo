@@ -32,11 +32,15 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
-from marivo.analysis.frames._attribution_columns import ATTRIBUTION_PATH_COLUMN
+from marivo.analysis.frames._attribution_columns import (
+    ATTRIBUTION_OTHER_MASK_COLUMN,
+    ATTRIBUTION_PATH_COLUMN,
+)
 from marivo.analysis.frames.attribution import (
     AllHistoryAnchorSemanticsV1,
     AttributionFrame,
     AttributionReconciliation,
+    AttributionTopKSelectionV1,
     CumulativeAllHistoryFlowEvidenceV1,
     CumulativeAllHistoryPartitionV1,
     CumulativeAttributionAnchorV1,
@@ -56,6 +60,7 @@ from marivo.analysis.frames.delta import (
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
+from marivo.analysis.intents._attribution_topk import build_top_k_map, validate_top_k
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
     persist_attribution_frame,
@@ -81,7 +86,6 @@ from marivo.analysis.intents.decompose import (
     _normalize_axis_boundary,
     _single_axis_sum_output,
     _validate_attribution_semantics,
-    decompose,
 )
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.windows.grain import Grain, to_temporal_grain
@@ -248,6 +252,7 @@ def _attribute_direct_cumulative_business_axes(
     baseline: MetricFrame,
     axis_ids: list[str],
     mode: AttributionMode | None,
+    top_k: int | None,
     analysis_purpose: str | None,
     session: Session,
 ) -> AttributionFrame:
@@ -362,18 +367,43 @@ def _attribute_direct_cumulative_business_axes(
     aligned["baseline"] = pd.to_numeric(aligned["baseline"], errors="raise").fillna(0.0)
     compute_delta_columns(aligned)
     bucket_column = parent_current_time
+    top_k_map = None
+    top_k_selection = None
+    if top_k is not None:
+        top_k_map = build_top_k_map(
+            current=aligned[[*axis_columns, "current"]].rename(
+                columns={"current": "__top_k_score"}
+            ),
+            baseline=aligned[[*axis_columns, "baseline"]].rename(
+                columns={"baseline": "__top_k_score"}
+            ),
+            axis_columns=axis_columns,
+            score_column="__top_k_score",
+            limit=top_k,
+        )
+        top_k_selection = AttributionTopKSelectionV1(
+            limit=top_k,
+            score_method="metric_magnitude",
+            original_partition_count=top_k_map.original_scope_count,
+            effective_partition_count=top_k_map.collapsed_scope_count,
+        )
     if mode is None:
         output = _single_axis_sum_output(
             aligned,
             axis_column=axis_columns[0],
             value_column="delta",
             bucket_column=bucket_column,
+            top_k_map=top_k_map,
         )
         driver_field = axis_columns[0]
     elif mode == "joint":
+        joint_df = top_k_map.map_frame(aligned) if top_k_map is not None else aligned
+        joint_axes = [*axis_columns]
+        if top_k_map is not None:
+            joint_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
         output = _multi_axis_joint_sum_output(
-            aligned,
-            axis_columns=axis_columns,
+            joint_df,
+            axis_columns=joint_axes,
             value_column="delta",
             bucket_column=bucket_column,
         )
@@ -384,6 +414,7 @@ def _attribute_direct_cumulative_business_axes(
             axis_columns=axis_columns,
             value_column="delta",
             bucket_column=bucket_column,
+            top_k_map=top_k_map,
         )
         driver_field = ATTRIBUTION_PATH_COLUMN
     output, reconciliation = _finalize_attribution_output(
@@ -425,6 +456,7 @@ def _attribute_direct_cumulative_business_axes(
             "source_ref": frame.ref,
             "axes": axis_ids,
             "mode": mode,
+            "top_k": top_k,
             "delta_math_contract": DELTA_MATH_CONTRACT_VERSION,
         },
         sources=[frame, current, baseline],
@@ -445,6 +477,7 @@ def _attribute_direct_cumulative_business_axes(
         mode=mode,
         bucket_column=bucket_column,
         method_evidence=evidence,
+        top_k_selection=top_k_selection,
     )
 
 
@@ -454,6 +487,7 @@ def _attribute_cumulative_business_axes(
     axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
     axis_ids: list[str],
     mode: AttributionMode | None,
+    top_k: int | None,
     analysis_purpose: str | None,
     session: Session,
 ) -> AttributionFrame:
@@ -495,6 +529,7 @@ def _attribute_cumulative_business_axes(
             baseline=expanded_baseline,
             axis_ids=axis_ids,
             mode=mode,
+            top_k=top_k,
             analysis_purpose=analysis_purpose,
             session=session,
         )
@@ -535,6 +570,7 @@ def _attribute_cumulative_business_axes(
         _method_evidence=method_evidence,
         _scope_frame=frame,
         _materialization_sources=(expanded_current, expanded_baseline),
+        _top_k=top_k,
     )
 
 
@@ -1144,6 +1180,7 @@ def _attribute_nonadditive(
     basis: DistinctAttributionBasisV1 | QuantileAttributionBasisV1,
     axis_ids: list[str],
     mode: AttributionMode | None,
+    top_k: int | None,
     analysis_purpose: str | None,
     session: Session,
 ) -> AttributionFrame:
@@ -1195,8 +1232,8 @@ def _attribute_nonadditive(
         alignment=recover_alignment_policy(frame),
         session=session,
     )
-    nonadditive_mode: Literal["joint", "multiresolution"] | None = (
-        mode if mode == "joint" or mode == "multiresolution" else None
+    nonadditive_mode: Literal["joint", "hierarchy"] | None = (
+        mode if mode == "joint" or mode == "hierarchy" else None
     )
     if isinstance(basis, DistinctAttributionBasisV1):
         result = attribute_distinct(
@@ -1206,6 +1243,7 @@ def _attribute_nonadditive(
             basis=basis,
             axis_ids=axis_ids,
             mode=nonadditive_mode,
+            top_k=top_k,
             source_delta_ref=frame.meta.artifact_id or frame.ref,
             session=session,
         )
@@ -1226,6 +1264,7 @@ def _attribute_nonadditive(
             basis=basis,
             axis_ids=axis_ids,
             mode=nonadditive_mode,
+            top_k=top_k,
             source_delta_ref=frame.meta.artifact_id or frame.ref,
             session=session,
         )
@@ -1236,6 +1275,7 @@ def _attribute_nonadditive(
         "axes": axis_ids,
         "mode": nonadditive_mode,
         "method": method,
+        "top_k": top_k,
     }
     extra_issues = []
     if (
@@ -1274,7 +1314,7 @@ def _attribute_nonadditive(
             result.axis_columns[0]
             if len(result.axis_columns) == 1
             else ATTRIBUTION_PATH_COLUMN
-            if nonadditive_mode == "multiresolution"
+            if nonadditive_mode == "hierarchy"
             else None
         ),
         value_column=None,
@@ -1292,6 +1332,8 @@ def _attribute_nonadditive(
         mode=nonadditive_mode,
         bucket_column=result.bucket_column,
         method_evidence=result.method_evidence,
+        resolution_evidence=result.resolution_evidence,
+        top_k_selection=result.top_k_selection,
     )
 
 
@@ -1300,12 +1342,14 @@ def attribute(
     *,
     axes: list[_SemanticInput[DimensionKind | TimeDimensionKind]],
     mode: AttributionMode | None = None,
+    top_k: int | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> AttributionFrame:
     """Attribute a DeltaFrame's movement over explicit deterministic axes."""
     resolved_session = resolve_session(session)
     ensure_session_can_execute(resolved_session)
+    validated_top_k = validate_top_k(top_k)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="attribute requires a DeltaFrame input")
     # This funnel gate must stay BEFORE the cumulative read below: cumulative
@@ -1355,8 +1399,14 @@ def attribute(
                 axes=axes,
                 axis_ids=axis_ids,
                 mode=validated_mode,
+                top_k=validated_top_k,
                 analysis_purpose=analysis_purpose,
                 session=resolved_session,
+            )
+        if validated_top_k is not None:
+            raise SemanticKindMismatchError(
+                message="attribute top_k is not applicable to cumulative accumulation-time attribution",
+                context={"argument": "top_k", "reason": "top_k_not_applicable"},
             )
         return _attribute_cumulative_accumulation_time(
             frame,
@@ -1409,12 +1459,13 @@ def attribute(
             basis=frame.meta.attribution_basis,
             axis_ids=axis_ids,
             mode=validated_mode,
+            top_k=validated_top_k,
             analysis_purpose=analysis_purpose,
             session=resolved_session,
         )
     missing_axes = _missing_axis_ids(frame, axis_ids)
     if not missing_axes:
-        return decompose(
+        return _decompose(
             frame,
             axes=axes,
             mode=validated_mode,
@@ -1425,6 +1476,7 @@ def attribute(
                 "materialization_status": "not_required",
                 "original_delta_ref": frame.ref,
             },
+            _top_k=validated_top_k,
         )
 
     _validate_attribution_semantics(frame, axes=axis_ids, session=resolved_session)
@@ -1459,7 +1511,7 @@ def attribute(
         alignment=alignment,
         session=resolved_session,
     )
-    return decompose(
+    return _decompose(
         expanded_delta,
         axes=axes,
         mode=validated_mode,
@@ -1475,4 +1527,5 @@ def attribute(
             "expanded_delta_ref": expanded_delta.ref,
             "alignment_policy": alignment.model_dump(mode="json"),
         },
+        _top_k=validated_top_k,
     )

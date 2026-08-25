@@ -17,6 +17,7 @@ from marivo.analysis.errors import (
     FunnelAttributionUnsupportedError,
     InvalidSubjectAxisError,
     PatternStepMismatchError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
@@ -99,6 +100,25 @@ def test_joint_mode_is_additive_and_reconciles_end_to_end(
         assert positive["share_of_positive_pool"].sum() == pytest.approx(1.0)
     if not negative.empty:
         assert negative["share_of_negative_pool"].sum() == pytest.approx(1.0)
+
+
+def test_funnel_attribute_rejects_top_k_before_execution(
+    funnel_session: Any,
+    payment_step: Any,
+    acquisition_channel_entry: Any,
+) -> None:
+    current, baseline = two_scope_funnel_frames(funnel_session)
+    delta = funnel_session.compare(current, baseline)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        funnel_session.attribute(
+            delta,
+            axes=[acquisition_channel_entry],
+            target=mv.funnel_loss_rate(step=payment_step),
+            top_k=3,
+        )
+
+    assert exc_info.value._context["reason"] == "top_k_not_applicable"
 
 
 def test_hierarchy_pool_shares_are_level_local_and_metadata_uses_deepest_pool(

@@ -7,7 +7,7 @@ import itertools
 import math
 import random
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
@@ -37,21 +37,30 @@ from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_OTHER_MASK_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
 )
 from marivo.analysis.frames.attribution import (
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
     AttributionResolutionReconciliationV1,
-    CompleteMultiresolutionScopeV1,
+    AttributionTopKSelectionV1,
+    CompleteHierarchyScopeV1,
     DistinctMembershipEvidenceV1,
-    IndependentMultiresolutionEvidenceV1,
+    HierarchyResolutionEvidenceV1,
+    IndependentHierarchyEvidenceV1,
     QuantileReplacementEvidenceV1,
     QuantileResolutionExecutionV1,
     summarize_quantile_resolution_executions,
 )
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.intents._attribution_topk import (
+    _OTHER_TOKEN,
+    AttributionTopKMapV1,
+    build_top_k_map,
+    build_top_k_map_from_level_scores,
+)
 from marivo.analysis.intents._metric_graph_plan import plan_metric_graph_observe
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
@@ -100,6 +109,129 @@ class NonAdditiveAttributionResultV1:
     bucket_column: str | None
     reconciliation: AttributionReconciliation
     method_evidence: AttributionMethodEvidenceV1
+    resolution_evidence: HierarchyResolutionEvidenceV1 | None = None
+    top_k_selection: AttributionTopKSelectionV1 | None = None
+
+
+def _top_k_score_frame(
+    prepared: PreparedEvidenceV1,
+    *,
+    session: Session,
+) -> pd.DataFrame:
+    value = prepared.value_column
+    filtered = prepared.table.filter(prepared.table[value].notnull())
+    grouped = filtered.group_by(list(prepared.axis_columns)).aggregate(
+        __top_k_score=filtered.count()
+    )
+    return _run_dataframe(grouped, prepared, session)
+
+
+def _distinct_top_k_level_scores(
+    prepared: PreparedEvidenceV1,
+    *,
+    session: Session,
+) -> list[pd.DataFrame]:
+    value = prepared.value_column
+    filtered = prepared.table.filter(prepared.table[value].notnull())
+    return [
+        _run_dataframe(
+            filtered.group_by(list(prepared.axis_columns[:level])).aggregate(
+                __top_k_score=filtered[value].nunique()
+            ),
+            prepared,
+            session,
+        )
+        for level in range(1, len(prepared.axis_columns) + 1)
+    ]
+
+
+def _build_nonadditive_top_k(
+    current: PreparedEvidenceV1,
+    baseline: PreparedEvidenceV1,
+    *,
+    top_k: int | None,
+    distinct: bool,
+    session: Session,
+) -> tuple[AttributionTopKMapV1 | None, AttributionTopKSelectionV1 | None]:
+    if top_k is None:
+        return None, None
+    axis_columns = list(current.axis_columns)
+    if distinct:
+        current_scores = _distinct_top_k_level_scores(current, session=session)
+        baseline_scores = _distinct_top_k_level_scores(baseline, session=session)
+        mapping = build_top_k_map_from_level_scores(
+            [
+                pd.concat([current_level, baseline_level], ignore_index=True)
+                for current_level, baseline_level in zip(
+                    current_scores, baseline_scores, strict=True
+                )
+            ],
+            axis_columns=axis_columns,
+            score_column="__top_k_score",
+            limit=top_k,
+        )
+    else:
+        mapping = build_top_k_map(
+            _top_k_score_frame(current, session=session),
+            _top_k_score_frame(baseline, session=session),
+            axis_columns=axis_columns,
+            score_column="__top_k_score",
+            limit=top_k,
+        )
+    return mapping, AttributionTopKSelectionV1(
+        limit=top_k,
+        score_method="observed_membership" if distinct else "non_null_observations",
+        original_partition_count=mapping.original_scope_count,
+        effective_partition_count=mapping.collapsed_scope_count,
+    )
+
+
+def _value_predicate(field: Any, value: object) -> Any:
+    return field.isnull() if _is_missing(value) else field == ibis.literal(value)
+
+
+def _mapped_parent_predicate(
+    table: Any,
+    mapping: AttributionTopKMapV1,
+    parent: tuple[tuple[str, str], ...],
+) -> Any:
+    predicate = ibis.literal(True)
+    current_parent: tuple[tuple[str, str], ...] = ()
+    for index, token in enumerate(parent):
+        field = table[mapping.axis_columns[index]]
+        kept = mapping.kept_by_level[index].get(current_parent, frozenset())
+        if token == _OTHER_TOKEN:
+            selected = ibis.literal(False)
+            for child in kept:
+                selected = selected | _value_predicate(field, mapping.value_by_token[child])
+            predicate = predicate & ~selected
+        else:
+            predicate = predicate & _value_predicate(field, mapping.value_by_token[token])
+        current_parent = (*current_parent, token)
+    return predicate
+
+
+def _apply_top_k_table(
+    table: Any,
+    mapping: AttributionTopKMapV1,
+    *,
+    level: int,
+) -> Any:
+    mutations: dict[str, Any] = {}
+    mask = ibis.literal(0)
+    for index, column in enumerate(mapping.axis_columns[:level]):
+        selected = ibis.literal(False)
+        field = table[column]
+        for parent, children in mapping.kept_by_level[index].items():
+            parent_predicate = _mapped_parent_predicate(table, mapping, parent)
+            for child in children:
+                selected = selected | (
+                    parent_predicate & _value_predicate(field, mapping.value_by_token[child])
+                )
+        mutations[column] = selected.ifelse(field, ibis.null().cast(field.type()))
+        mask = mask + selected.ifelse(0, 1 << index)
+    mutations[ATTRIBUTION_OTHER_MASK_COLUMN] = mask
+    return table.mutate(**mutations)
 
 
 def _source_graph(frame: MetricFrame, basis: Any) -> None:
@@ -303,7 +435,7 @@ def _bucket_rows(df: pd.DataFrame, column: str | None, value: object | None) -> 
 
 
 def _partition_tuple(row: pd.Series, columns: Sequence[str]) -> tuple[object, ...]:
-    return tuple(row[column] for column in columns)
+    return tuple(None if _is_missing(row[column]) else row[column] for column in columns)
 
 
 def _partition_mask(table: Any, columns: Sequence[str], partition: tuple[object, ...]) -> Any:
@@ -488,10 +620,33 @@ def _resolution_rows(
     out = piece.copy()
     for column in all_axis_columns[level:]:
         out[column] = pd.NA
+
+    def display_value(row: pd.Series, column: str, axis_position: int) -> object:
+        if ATTRIBUTION_OTHER_MASK_COLUMN in row.index and int(
+            row[ATTRIBUTION_OTHER_MASK_COLUMN]
+        ) & (1 << axis_position):
+            return "Other"
+        return row[column]
+
     out.insert(
-        0, ATTRIBUTION_PATH_COLUMN, out[list(prefix_columns)].astype(str).agg(" > ".join, axis=1)
+        0,
+        ATTRIBUTION_PATH_COLUMN,
+        out.apply(
+            lambda row: " > ".join(
+                str(display_value(row, column, index))
+                for index, column in enumerate(prefix_columns)
+            ),
+            axis=1,
+        ),
     )
-    out.insert(0, ATTRIBUTION_DRIVER_COLUMN, out[prefix_columns[-1]])
+    out.insert(
+        0,
+        ATTRIBUTION_DRIVER_COLUMN,
+        out.apply(
+            lambda row: display_value(row, prefix_columns[-1], level - 1),
+            axis=1,
+        ),
+    )
     out.insert(0, ATTRIBUTION_AXIS_COLUMN, prefix_columns[-1])
     out.insert(0, ATTRIBUTION_LEVEL_COLUMN, level)
     ordered = [
@@ -514,8 +669,9 @@ def attribute_distinct(
     endpoint_delta: DeltaFrame,
     basis: DistinctAttributionBasisV1,
     axis_ids: list[str],
-    mode: Literal["joint", "multiresolution"] | None,
+    mode: Literal["joint", "hierarchy"] | None,
     source_delta_ref: str,
+    top_k: int | None,
     session: Session,
 ) -> NonAdditiveAttributionResultV1:
     current_prepared = _prepared_evidence(current, basis=basis, axis_ids=axis_ids, session=session)
@@ -533,9 +689,16 @@ def attribute_distinct(
             location="session.attribute replay",
         )
     all_axes = list(current_prepared.axis_columns)
+    top_k_map, top_k_selection = _build_nonadditive_top_k(
+        current_prepared,
+        baseline_prepared,
+        top_k=top_k,
+        distinct=True,
+        session=session,
+    )
     resolutions = (
         [all_axes]
-        if mode != "multiresolution"
+        if mode != "hierarchy"
         else [all_axes[:level] for level in range(1, len(all_axes) + 1)]
     )
     bucket_column = current_prepared.bucket_column
@@ -544,15 +707,30 @@ def attribute_distinct(
     reconciliations: list[AttributionResolutionReconciliationV1] = []
     overlap_count = 0
     for prefix_axes in resolutions:
+        partition_axes = [*prefix_axes]
+        current_scope = current_prepared
+        baseline_scope = baseline_prepared
+        if top_k_map is not None:
+            partition_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
+            current_scope = replace(
+                current_prepared,
+                table=_apply_top_k_table(current_prepared.table, top_k_map, level=len(prefix_axes)),
+            )
+            baseline_scope = replace(
+                baseline_prepared,
+                table=_apply_top_k_table(
+                    baseline_prepared.table, top_k_map, level=len(prefix_axes)
+                ),
+            )
         current_rows, current_overlap = _distinct_scope(
-            current_prepared,
-            axis_columns=prefix_axes,
+            current_scope,
+            axis_columns=partition_axes,
             session=session,
             prefix="current",
         )
         baseline_rows, baseline_overlap = _distinct_scope(
-            baseline_prepared,
-            axis_columns=prefix_axes,
+            baseline_scope,
+            axis_columns=partition_axes,
             session=session,
             prefix="baseline",
         )
@@ -561,7 +739,7 @@ def attribute_distinct(
             piece = _merge_scope_rows(
                 current_rows,
                 baseline_rows,
-                axis_columns=prefix_axes,
+                axis_columns=partition_axes,
                 bucket_column=bucket_column,
                 current_bucket=current_bucket,
                 baseline_bucket=baseline_bucket,
@@ -572,6 +750,7 @@ def attribute_distinct(
                 group_columns=[
                     *([] if bucket_column is None else [bucket_column]),
                     *prefix_axes,
+                    *([ATTRIBUTION_OTHER_MASK_COLUMN] if top_k_map is not None else []),
                 ],
             )
             contribution_sum = float(piece["contribution"].sum())
@@ -609,7 +788,7 @@ def attribute_distinct(
                     max_abs_residual=abs(residual),
                 )
             )
-            if mode == "multiresolution":
+            if mode == "hierarchy":
                 piece = _resolution_rows(
                     piece,
                     all_axis_columns=all_axes,
@@ -625,18 +804,17 @@ def attribute_distinct(
         residual=sum(item.residual for item in deepest),
         max_abs_residual=max((item.max_abs_residual for item in deepest), default=0.0),
     )
-    multiresolution = (
-        IndependentMultiresolutionEvidenceV1(
-            scope=CompleteMultiresolutionScopeV1(),
+    hierarchy = (
+        IndependentHierarchyEvidenceV1(
+            scope=CompleteHierarchyScopeV1(),
             resolution_reconciliations=tuple(reconciliations),
         )
-        if mode == "multiresolution"
+        if mode == "hierarchy"
         else None
     )
     evidence = DistinctMembershipEvidenceV1(
         source_basis_fingerprint=cast("str", basis_fingerprint(basis)),
         overlap_key_count=overlap_count,
-        multiresolution=multiresolution,
     )
     return NonAdditiveAttributionResultV1(
         dataframe=output,
@@ -644,6 +822,8 @@ def attribute_distinct(
         bucket_column=bucket_column,
         reconciliation=common,
         method_evidence=evidence,
+        resolution_evidence=hierarchy,
+        top_k_selection=top_k_selection,
     )
 
 
@@ -847,7 +1027,8 @@ def _partition_distributions(
     if frame.empty:
         return result
     for partition, rows in frame.groupby(list(axis_columns), dropna=False, sort=True):
-        key = partition if isinstance(partition, tuple) else (partition,)
+        values = partition if isinstance(partition, tuple) else (partition,)
+        key = tuple(None if _is_missing(value) else value for value in values)
         result[key] = rows[["value", "frequency"]].reset_index(drop=True)
     return result
 
@@ -859,8 +1040,9 @@ def attribute_exact_quantile(
     endpoint_delta: DeltaFrame,
     basis: QuantileAttributionBasisV1,
     axis_ids: list[str],
-    mode: Literal["joint", "multiresolution"] | None,
+    mode: Literal["joint", "hierarchy"] | None,
     source_delta_ref: str,
+    top_k: int | None,
     session: Session,
 ) -> NonAdditiveAttributionResultV1:
     current_prepared = _prepared_evidence(current, basis=basis, axis_ids=axis_ids, session=session)
@@ -875,20 +1057,37 @@ def attribute_exact_quantile(
             location="session.attribute quantile replay",
         )
     all_axes = list(current_prepared.axis_columns)
+    top_k_map, top_k_selection = _build_nonadditive_top_k(
+        current_prepared,
+        baseline_prepared,
+        top_k=top_k,
+        distinct=False,
+        session=session,
+    )
     resolutions = (
         [all_axes]
-        if mode != "multiresolution"
+        if mode != "hierarchy"
         else [all_axes[:level] for level in range(1, len(all_axes) + 1)]
     )
     bucket_column = current_prepared.bucket_column
     endpoint_buckets = _endpoint_buckets(endpoint_delta, bucket_column=bucket_column)
-    _preflight_quantile_partition_limit(
-        current_keys=_quantile_partition_keys(current_prepared, session=session),
-        baseline_keys=_quantile_partition_keys(baseline_prepared, session=session),
-        resolutions=resolutions,
-        bucket_column=bucket_column,
-        endpoint_buckets=endpoint_buckets,
-    )
+    current_keys = _quantile_partition_keys(current_prepared, session=session)
+    baseline_keys = _quantile_partition_keys(baseline_prepared, session=session)
+    for prefix_axes in resolutions:
+        partition_axes = [*prefix_axes]
+        scoped_current_keys = current_keys
+        scoped_baseline_keys = baseline_keys
+        if top_k_map is not None:
+            partition_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
+            scoped_current_keys = top_k_map.map_frame(current_keys, level=len(prefix_axes))
+            scoped_baseline_keys = top_k_map.map_frame(baseline_keys, level=len(prefix_axes))
+        _preflight_quantile_partition_limit(
+            current_keys=scoped_current_keys,
+            baseline_keys=scoped_baseline_keys,
+            resolutions=[partition_axes],
+            bucket_column=bucket_column,
+            endpoint_buckets=endpoint_buckets,
+        )
     current_frequency = _frequency_frame(current_prepared, session=session)
     baseline_frequency = _frequency_frame(baseline_prepared, session=session)
     if len(current_frequency) + len(baseline_frequency) > _MAX_FREQUENCY_ROWS:
@@ -903,12 +1102,34 @@ def attribute_exact_quantile(
     reconciliations: list[AttributionResolutionReconciliationV1] = []
     q = basis.effective_q
     for prefix_axes in resolutions:
+        partition_axes = [*prefix_axes]
+        if top_k_map is not None:
+            partition_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
         for current_bucket, baseline_bucket, _, _, target_delta in endpoint_buckets:
             current_rows = _bucket_rows(current_frequency, bucket_column, current_bucket)
             baseline_rows = _bucket_rows(baseline_frequency, bucket_column, baseline_bucket)
-            current_distributions = _partition_distributions(current_rows, axis_columns=prefix_axes)
+            if top_k_map is not None:
+                current_rows = top_k_map.map_frame(current_rows, level=len(prefix_axes))
+                baseline_rows = top_k_map.map_frame(baseline_rows, level=len(prefix_axes))
+                current_rows = (
+                    current_rows.groupby([*partition_axes, "value"], dropna=False, sort=False)[
+                        "frequency"
+                    ]
+                    .sum()
+                    .reset_index()
+                )
+                baseline_rows = (
+                    baseline_rows.groupby([*partition_axes, "value"], dropna=False, sort=False)[
+                        "frequency"
+                    ]
+                    .sum()
+                    .reset_index()
+                )
+            current_distributions = _partition_distributions(
+                current_rows, axis_columns=partition_axes
+            )
             baseline_distributions = _partition_distributions(
-                baseline_rows, axis_columns=prefix_axes
+                baseline_rows, axis_columns=partition_axes
             )
             partitions = sorted(
                 set(current_distributions) | set(baseline_distributions),
@@ -978,7 +1199,7 @@ def attribute_exact_quantile(
                         "frequency"
                     ].sum()
                 )
-                row = dict(zip(prefix_axes, partition, strict=True))
+                row = dict(zip(partition_axes, partition, strict=True))
                 row.update(
                     {
                         "current_count": current_count,
@@ -997,6 +1218,7 @@ def attribute_exact_quantile(
                 group_columns=[
                     *([] if bucket_column is None else [bucket_column]),
                     *prefix_axes,
+                    *([ATTRIBUTION_OTHER_MASK_COLUMN] if top_k_map is not None else []),
                 ],
             )
             contribution_sum = float(piece["contribution"].sum())
@@ -1024,7 +1246,7 @@ def attribute_exact_quantile(
                     quantile_execution=execution,
                 )
             )
-            if mode == "multiresolution":
+            if mode == "hierarchy":
                 piece = _resolution_rows(
                     piece,
                     all_axis_columns=all_axes,
@@ -1040,12 +1262,12 @@ def attribute_exact_quantile(
         residual=sum(item.residual for item in deepest),
         max_abs_residual=max((item.max_abs_residual for item in deepest), default=0.0),
     )
-    multiresolution = (
-        IndependentMultiresolutionEvidenceV1(
-            scope=CompleteMultiresolutionScopeV1(),
+    hierarchy = (
+        IndependentHierarchyEvidenceV1(
+            scope=CompleteHierarchyScopeV1(),
             resolution_reconciliations=tuple(reconciliations),
         )
-        if mode == "multiresolution"
+        if mode == "hierarchy"
         else None
     )
     reproduction = basis.reproduction
@@ -1060,7 +1282,6 @@ def attribute_exact_quantile(
         **evidence_summary,
         source_error_bound=None,
         scope_reconciliations=tuple(reconciliations),
-        multiresolution=multiresolution,
     )
     return NonAdditiveAttributionResultV1(
         dataframe=output,
@@ -1068,6 +1289,8 @@ def attribute_exact_quantile(
         bucket_column=bucket_column,
         reconciliation=common,
         method_evidence=evidence,
+        resolution_evidence=hierarchy,
+        top_k_selection=top_k_selection,
     )
 
 
@@ -1114,6 +1337,38 @@ def _native_percentile_partition_counts(
     )
     frame = _run_dataframe(expression, prepared, session)
     return {_partition_tuple(row, axis_columns): int(row["__count"]) for _, row in frame.iterrows()}
+
+
+def _map_native_counts(
+    counts: dict[tuple[object, ...], int],
+    *,
+    mapping: AttributionTopKMapV1,
+    prefix_axes: list[str],
+) -> tuple[
+    dict[tuple[object, ...], int],
+    dict[tuple[object, ...], tuple[tuple[object, ...], ...]],
+]:
+    rows = [
+        {**dict(zip(prefix_axes, partition, strict=True)), "__count": count}
+        for partition, count in counts.items()
+    ]
+    frame = mapping.map_frame(
+        pd.DataFrame(rows, columns=[*prefix_axes, "__count"]),
+        level=len(prefix_axes),
+    )
+    partition_columns = [*prefix_axes, ATTRIBUTION_OTHER_MASK_COLUMN]
+    grouped = (
+        frame.groupby(partition_columns, dropna=False, sort=False)["__count"].sum().reset_index()
+    )
+    mapped_counts = {
+        _partition_tuple(row, partition_columns): int(row["__count"])
+        for _, row in grouped.iterrows()
+    }
+    members: dict[tuple[object, ...], list[tuple[object, ...]]] = {}
+    for raw_partition, (_, row) in zip(counts, frame.iterrows(), strict=True):
+        effective = _partition_tuple(row, partition_columns)
+        members.setdefault(effective, []).append(raw_partition)
+    return mapped_counts, {key: tuple(value) for key, value in members.items()}
 
 
 def _shapley_from_evaluator(
@@ -1190,6 +1445,7 @@ def trino_native_percentile_coalition_expression(
 def _native_percentile_coalition_evaluator(
     *,
     partitions: Sequence[tuple[object, ...]],
+    partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None,
     current_values: Any,
     baseline_values: Any,
     current_endpoint: float,
@@ -1208,9 +1464,27 @@ def _native_percentile_coalition_evaluator(
     def evaluate(selected: frozenset[int]) -> int | float:
         if selected in evaluated:
             return evaluated[selected]
-        current_partitions = [partitions[index] for index in sorted(selected)]
-        baseline_partitions = [
+        current_groups = [partitions[index] for index in sorted(selected)]
+        baseline_groups = [
             partition for index, partition in enumerate(partitions) if index not in selected
+        ]
+        current_partitions = [
+            raw
+            for partition in current_groups
+            for raw in (
+                partition_members.get(partition, ())
+                if partition_members is not None
+                else (partition,)
+            )
+        ]
+        baseline_partitions = [
+            raw
+            for partition in baseline_groups
+            for raw in (
+                partition_members.get(partition, ())
+                if partition_members is not None
+                else (partition,)
+            )
         ]
         current_selected = current_values.filter(
             _or_partition_predicates(current_values, prefix_axes, current_partitions)
@@ -1262,8 +1536,9 @@ def attribute_native_percentile_quantile(
     endpoint_delta: DeltaFrame,
     basis: QuantileAttributionBasisV1,
     axis_ids: list[str],
-    mode: Literal["joint", "multiresolution"] | None,
+    mode: Literal["joint", "hierarchy"] | None,
     source_delta_ref: str,
+    top_k: int | None,
     session: Session,
 ) -> NonAdditiveAttributionResultV1:
     """Evaluate Trino replacement coalitions with native approx_percentile."""
@@ -1305,9 +1580,16 @@ def attribute_native_percentile_quantile(
             location="session.attribute native percentile replay",
         )
     all_axes = list(current_prepared.axis_columns)
+    top_k_map, top_k_selection = _build_nonadditive_top_k(
+        current_prepared,
+        baseline_prepared,
+        top_k=top_k,
+        distinct=False,
+        session=session,
+    )
     resolutions = (
         [all_axes]
-        if mode != "multiresolution"
+        if mode != "hierarchy"
         else [all_axes[:level] for level in range(1, len(all_axes) + 1)]
     )
     bucket_column = current_prepared.bucket_column
@@ -1316,6 +1598,9 @@ def attribute_native_percentile_quantile(
     reconciliations: list[AttributionResolutionReconciliationV1] = []
     q = basis.effective_q
     for prefix_axes in resolutions:
+        partition_axes = [*prefix_axes]
+        if top_k_map is not None:
+            partition_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
         for (
             current_bucket,
             baseline_bucket,
@@ -1323,18 +1608,41 @@ def attribute_native_percentile_quantile(
             baseline_endpoint,
             target_delta,
         ) in endpoint_buckets:
-            current_counts = _native_percentile_partition_counts(
+            raw_current_counts = _native_percentile_partition_counts(
                 current_prepared,
                 axis_columns=prefix_axes,
                 bucket_value=current_bucket,
                 session=session,
             )
-            baseline_counts = _native_percentile_partition_counts(
+            raw_baseline_counts = _native_percentile_partition_counts(
                 baseline_prepared,
                 axis_columns=prefix_axes,
                 bucket_value=baseline_bucket,
                 session=session,
             )
+            partition_members: dict[tuple[object, ...], tuple[tuple[object, ...], ...]] | None = (
+                None
+            )
+            if top_k_map is not None:
+                current_counts, current_members = _map_native_counts(
+                    raw_current_counts, mapping=top_k_map, prefix_axes=prefix_axes
+                )
+                baseline_counts, baseline_members = _map_native_counts(
+                    raw_baseline_counts, mapping=top_k_map, prefix_axes=prefix_axes
+                )
+                merged_members: dict[tuple[object, ...], list[tuple[object, ...]]] = {}
+                for source in (current_members, baseline_members):
+                    for partition, members in source.items():
+                        target = merged_members.setdefault(partition, [])
+                        for member in members:
+                            if member not in target:
+                                target.append(member)
+                partition_members = {
+                    partition: tuple(members) for partition, members in merged_members.items()
+                }
+            else:
+                current_counts = raw_current_counts
+                baseline_counts = raw_baseline_counts
             partitions = sorted(
                 set(current_counts) | set(baseline_counts),
                 key=lambda values: tuple(repr(value) for value in values),
@@ -1359,6 +1667,7 @@ def attribute_native_percentile_quantile(
             )
             evaluate = _native_percentile_coalition_evaluator(
                 partitions=partitions,
+                partition_members=partition_members,
                 current_values=current_values,
                 baseline_values=baseline_values,
                 current_endpoint=current_endpoint,
@@ -1391,7 +1700,7 @@ def attribute_native_percentile_quantile(
             for partition, contribution, standard_error in zip(
                 partitions, contributions, standard_errors, strict=True
             ):
-                row = dict(zip(prefix_axes, partition, strict=True))
+                row = dict(zip(partition_axes, partition, strict=True))
                 row.update(
                     {
                         "current_count": current_counts.get(partition, 0),
@@ -1410,6 +1719,7 @@ def attribute_native_percentile_quantile(
                 group_columns=[
                     *([] if bucket_column is None else [bucket_column]),
                     *prefix_axes,
+                    *([ATTRIBUTION_OTHER_MASK_COLUMN] if top_k_map is not None else []),
                 ],
             )
             contribution_sum = float(piece["contribution"].sum())
@@ -1444,7 +1754,7 @@ def attribute_native_percentile_quantile(
                     quantile_execution=execution,
                 )
             )
-            if mode == "multiresolution":
+            if mode == "hierarchy":
                 piece = _resolution_rows(
                     piece,
                     all_axis_columns=all_axes,
@@ -1469,14 +1779,14 @@ def attribute_native_percentile_quantile(
         **evidence_summary,
         source_error_bound=None,
         scope_reconciliations=tuple(reconciliations),
-        multiresolution=(
-            IndependentMultiresolutionEvidenceV1(
-                scope=CompleteMultiresolutionScopeV1(),
-                resolution_reconciliations=tuple(reconciliations),
-            )
-            if mode == "multiresolution"
-            else None
-        ),
+    )
+    hierarchy = (
+        IndependentHierarchyEvidenceV1(
+            scope=CompleteHierarchyScopeV1(),
+            resolution_reconciliations=tuple(reconciliations),
+        )
+        if mode == "hierarchy"
+        else None
     )
     return NonAdditiveAttributionResultV1(
         dataframe=output,
@@ -1484,6 +1794,8 @@ def attribute_native_percentile_quantile(
         bucket_column=bucket_column,
         reconciliation=common,
         method_evidence=evidence,
+        resolution_evidence=hierarchy,
+        top_k_selection=top_k_selection,
     )
 
 

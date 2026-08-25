@@ -1189,7 +1189,7 @@ def _build_registry() -> CapabilityRegistry:
                 "reconciled contributions and explicit share denominators. The installed "
                 "automatic methods are additive/component allocation, exact distinct "
                 "membership, exact value-frequency quantiles, Trino native approx_percentile "
-                "replay, and "
+                "replay, and native Top-K grouping into a governed Other player, plus "
                 "typed cumulative endpoint/base-flow routes; non-mergeable reservoir quantiles "
                 "and unsupported cumulative route combinations remain blocked by the delta "
                 "contract."
@@ -1240,6 +1240,11 @@ def _build_registry() -> CapabilityRegistry:
                         "metric",
                         "region",
                     ),
+                ),
+                HelpExample(
+                    label="Keep named Top-K players and group the remainder",
+                    code="drivers = session.attribute(delta, axes=[region], top_k=5)",
+                    requires=("delta", "region"),
                 ),
                 HelpExample(
                     label="Attribute one funnel loss rate",
@@ -2166,12 +2171,13 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         ConstructorCapability(
             id="AttributionMode",
-            public_entrypoint=('mode="joint" | mode="hierarchy" | mode="multiresolution"'),
+            public_entrypoint=('mode="joint" | mode="hierarchy"'),
             help_target="AttributionMode",
             summary=(
                 "Multi-axis row layout: joint emits one additive row per complete axis "
-                "combination; hierarchy emits rollup-safe prefix rows; multiresolution "
-                "independently recomputes each ordered prefix for non-additive methods. "
+                "combination; hierarchy emits ordered prefix rows. Typed hierarchy evidence "
+                "marks additive/component results as rollup-safe and distinct/quantile "
+                "results as independently reconciled at every prefix. "
                 "Metric session.attribute calls default to joint for multiple axes. "
                 "Funnel attribution and decompose still require an explicit multi-axis mode. "
                 "Omit mode for one axis, where a supplied value has no effect. Mode is "
@@ -2182,7 +2188,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="grouped",
             constraint_ids=(),
             callable_path=None,
-            output_type='Literal["joint", "hierarchy", "multiresolution"]',
+            output_type='Literal["joint", "hierarchy"]',
         )
     )
 

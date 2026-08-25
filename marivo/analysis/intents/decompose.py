@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,7 @@ from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
+    ATTRIBUTION_OTHER_MASK_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
 )
 from marivo.analysis.frames.attribution import (
@@ -31,6 +32,7 @@ from marivo.analysis.frames.attribution import (
     AttributionFrame,
     AttributionMethodEvidenceV1,
     AttributionReconciliation,
+    AttributionTopKSelectionV1,
     _reconciliation_bucket_scalar,
 )
 from marivo.analysis.frames.base import BaseFrame
@@ -41,6 +43,7 @@ from marivo.analysis.frames.component import (
 )
 from marivo.analysis.frames.delta import CumulativeDeltaFrameMetaV1, DeltaFrame, DeltaFrameMeta
 from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
+from marivo.analysis.intents._attribution_topk import AttributionTopKMapV1, build_top_k_map
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
     persist_attribution_frame,
@@ -506,6 +509,14 @@ def _path_segment(value: Any) -> str:
     return str(value)
 
 
+def _hierarchy_display_value(row: pd.Series, column: str, axis_position: int) -> object:
+    if ATTRIBUTION_OTHER_MASK_COLUMN in row.index and int(row[ATTRIBUTION_OTHER_MASK_COLUMN]) & (
+        1 << axis_position
+    ):
+        return "Other"
+    return row[column]
+
+
 _ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
 _ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
 # Every decompose path keeps the dimension columns and the attribution base
@@ -514,6 +525,7 @@ _ATTRIBUTION_BASE_RESERVED_COLUMNS = frozenset(
     {
         _ATTRIBUTION_TOTAL_DELTA_COLUMN,
         _ATTRIBUTION_ONE_SIDED_COLUMN,
+        ATTRIBUTION_OTHER_MASK_COLUMN,
         "contribution",
         "rank",
         "share_of_negative_pool",
@@ -1147,6 +1159,7 @@ def _component_multi_axis_output(
     axis_columns: list[str],
     mode: AttributionMode,
     bucket_column: str | None,
+    top_k_map: AttributionTopKMapV1 | None = None,
 ) -> pd.DataFrame:
     """Produce joint or hierarchy component attribution, preserving panel buckets."""
     df = component._dataframe_copy()
@@ -1165,22 +1178,42 @@ def _component_multi_axis_output(
 
     def output_for_df(values: pd.DataFrame) -> pd.DataFrame:
         if mode == "joint":
-            return joint_for_df(values, axis_columns)
+            if top_k_map is None:
+                return joint_for_df(values, axis_columns)
+            mapped = top_k_map.map_frame(values)
+            return joint_for_df(mapped, [*axis_columns, ATTRIBUTION_OTHER_MASK_COLUMN])
         pieces: list[pd.DataFrame] = []
         for level in range(1, len(axis_columns) + 1):
             prefix = axis_columns[:level]
-            piece = joint_for_df(values, prefix)
-            effect_columns = [column for column in piece.columns if column not in prefix]
+            mapped = top_k_map.map_frame(values, level=level) if top_k_map is not None else values
+            group_columns = [*prefix]
+            if top_k_map is not None:
+                group_columns.append(ATTRIBUTION_OTHER_MASK_COLUMN)
+            piece = joint_for_df(mapped, group_columns)
+            effect_columns = [column for column in piece.columns if column not in group_columns]
             for axis_column in axis_columns[level:]:
                 piece[axis_column] = pd.NA
             piece.insert(
                 0,
                 ATTRIBUTION_PATH_COLUMN,
-                piece[prefix].apply(
-                    lambda row: " > ".join(_path_segment(value) for value in row), axis=1
+                piece.apply(
+                    lambda row, prefix=tuple(prefix): " > ".join(
+                        _path_segment(_hierarchy_display_value(row, column, index))
+                        for index, column in enumerate(prefix)
+                    ),
+                    axis=1,
                 ),
             )
-            piece.insert(0, ATTRIBUTION_DRIVER_COLUMN, piece[axis_columns[level - 1]])
+            piece.insert(
+                0,
+                ATTRIBUTION_DRIVER_COLUMN,
+                piece.apply(
+                    lambda row, axis_column=axis_columns[level - 1], axis_position=level - 1: (
+                        _hierarchy_display_value(row, axis_column, axis_position)
+                    ),
+                    axis=1,
+                ),
+            )
             piece.insert(0, ATTRIBUTION_AXIS_COLUMN, axis_columns[level - 1])
             piece.insert(0, ATTRIBUTION_LEVEL_COLUMN, level)
             pieces.append(
@@ -1191,6 +1224,7 @@ def _component_multi_axis_output(
                         ATTRIBUTION_DRIVER_COLUMN,
                         ATTRIBUTION_PATH_COLUMN,
                         *axis_columns,
+                        *([ATTRIBUTION_OTHER_MASK_COLUMN] if top_k_map is not None else []),
                         *effect_columns,
                     ]
                 ]
@@ -1322,6 +1356,7 @@ def _single_axis_sum_output(
     axis_column: str,
     value_column: str,
     bucket_column: str | None = None,
+    top_k_map: AttributionTopKMapV1 | None = None,
 ) -> pd.DataFrame:
     """Aggregate an additive delta while preserving its single dimension column."""
     _validate_attribution_axis_columns(
@@ -1329,6 +1364,8 @@ def _single_axis_sum_output(
         value_column=value_column,
         bucket_column=bucket_column,
     )
+    if top_k_map is not None:
+        df = top_k_map.map_frame(df)
     rows: list[dict[str, object]] = []
     bucket_values: list[object] = [None]
     if bucket_column is not None:
@@ -1337,8 +1374,11 @@ def _single_axis_sum_output(
     for bucket_value in bucket_values:
         bucket_df = df if bucket_column is None else df[df[bucket_column] == bucket_value]
         denominator = float(bucket_df[value_column].sum())
+        group_columns = [axis_column]
+        if top_k_map is not None:
+            group_columns.append(ATTRIBUTION_OTHER_MASK_COLUMN)
         grouped = (
-            bucket_df.groupby(axis_column, dropna=False)[value_column]
+            bucket_df.groupby(group_columns, dropna=False)[value_column]
             .sum()
             .reset_index()
             .rename(columns={value_column: "contribution"})
@@ -1357,6 +1397,8 @@ def _single_axis_sum_output(
                 _ATTRIBUTION_TOTAL_DELTA_COLUMN: denominator,
                 "rank": rank_val,
             }
+            if top_k_map is not None:
+                output_row[ATTRIBUTION_OTHER_MASK_COLUMN] = int(row[ATTRIBUTION_OTHER_MASK_COLUMN])
             if bucket_column is not None:
                 output_row[bucket_column] = bucket_value
             rows.append(output_row)
@@ -1370,11 +1412,15 @@ def _single_axis_sum_output(
         _ATTRIBUTION_TOTAL_DELTA_COLUMN,
         "rank",
     ]
+    if top_k_map is not None:
+        columns.insert(1, ATTRIBUTION_OTHER_MASK_COLUMN)
     if bucket_column is not None:
         columns = [bucket_column, *columns]
     output = pd.DataFrame(rows)
     if output.empty:
         output = pd.DataFrame(columns=columns)
+    elif top_k_map is not None:
+        output[axis_column] = output[axis_column].astype(df[axis_column].dtype)
     return output[columns]
 
 
@@ -1457,6 +1503,7 @@ def _multi_axis_hierarchy_output(
     axis_columns: list[str],
     value_column: str,
     bucket_column: str | None = None,
+    top_k_map: AttributionTopKMapV1 | None = None,
 ) -> pd.DataFrame:
     """Emit additive hierarchy rows while retaining every requested axis column."""
     rows: list[dict[str, object]] = []
@@ -1468,8 +1515,14 @@ def _multi_axis_hierarchy_output(
         denominator = float(bucket_df[value_column].sum())
         for level in range(1, len(axis_columns) + 1):
             prefix = axis_columns[:level]
+            level_df = (
+                top_k_map.map_frame(bucket_df, level=level) if top_k_map is not None else bucket_df
+            )
+            group_columns = [*prefix]
+            if top_k_map is not None:
+                group_columns.append(ATTRIBUTION_OTHER_MASK_COLUMN)
             grouped = (
-                bucket_df.groupby(prefix, dropna=False)[value_column]
+                level_df.groupby(group_columns, dropna=False)[value_column]
                 .sum()
                 .reset_index()
                 .rename(columns={value_column: "contribution"})
@@ -1483,9 +1536,12 @@ def _multi_axis_hierarchy_output(
                 output_row: dict[str, object] = {
                     ATTRIBUTION_LEVEL_COLUMN: level,
                     ATTRIBUTION_AXIS_COLUMN: axis_columns[level - 1],
-                    ATTRIBUTION_DRIVER_COLUMN: row[axis_columns[level - 1]],
+                    ATTRIBUTION_DRIVER_COLUMN: _hierarchy_display_value(
+                        row, axis_columns[level - 1], level - 1
+                    ),
                     ATTRIBUTION_PATH_COLUMN: " > ".join(
-                        _path_segment(row[column]) for column in prefix
+                        _path_segment(_hierarchy_display_value(row, column, index))
+                        for index, column in enumerate(prefix)
                     ),
                     "contribution": contribution,
                     "share_of_total_delta": row["share_of_total_delta"],
@@ -1499,6 +1555,10 @@ def _multi_axis_hierarchy_output(
                 }
                 for axis_column in axis_columns:
                     output_row[axis_column] = row[axis_column] if axis_column in prefix else pd.NA
+                if top_k_map is not None:
+                    output_row[ATTRIBUTION_OTHER_MASK_COLUMN] = int(
+                        row[ATTRIBUTION_OTHER_MASK_COLUMN]
+                    )
                 if bucket_column is not None:
                     output_row[bucket_column] = bucket_value
                 rows.append(output_row)
@@ -1518,12 +1578,67 @@ def _multi_axis_hierarchy_output(
         _ATTRIBUTION_TOTAL_DELTA_COLUMN,
         "rank",
     ]
+    if top_k_map is not None:
+        columns.insert(4 + len(axis_columns), ATTRIBUTION_OTHER_MASK_COLUMN)
     if bucket_column is not None:
         columns = [bucket_column, *columns]
     output = pd.DataFrame(rows)
     if output.empty:
         output = pd.DataFrame(columns=columns)
     return output[columns]
+
+
+def _additive_top_k_map(
+    frame: DeltaFrame,
+    *,
+    axis_columns: list[str],
+    top_k: int | None,
+    component: ComponentFrame | None,
+) -> tuple[AttributionTopKMapV1 | None, AttributionTopKSelectionV1 | None]:
+    if top_k is None:
+        return None, None
+    if component is None:
+        source = frame._dataframe_copy()
+        current_column = "current"
+        baseline_column = "baseline"
+        score_method: Literal["metric_magnitude", "denominator_exposure", "weight_exposure"] = (
+            "metric_magnitude"
+        )
+    else:
+        source = component._dataframe_copy()
+        if component.meta.composition_kind == "linear":
+            value_name = _infer_delta_value_column_name(component)
+            current_column = f"current_{value_name}"
+            baseline_column = f"baseline_{value_name}"
+            score_method = "metric_magnitude"
+        else:
+            role = _component_measure_role(component)
+            current_column = f"current_{role}"
+            baseline_column = f"baseline_{role}"
+            score_method = (
+                "weight_exposure"
+                if component.meta.composition_kind == "weighted_mean"
+                else "denominator_exposure"
+            )
+    current_scores = source[[*axis_columns, current_column]].rename(
+        columns={current_column: "__top_k_score"}
+    )
+    baseline_scores = source[[*axis_columns, baseline_column]].rename(
+        columns={baseline_column: "__top_k_score"}
+    )
+    mapping = build_top_k_map(
+        current_scores,
+        baseline_scores,
+        axis_columns=axis_columns,
+        score_column="__top_k_score",
+        limit=top_k,
+    )
+    return mapping, AttributionTopKSelectionV1(
+        limit=top_k,
+        score_method=score_method,
+        original_partition_count=mapping.original_scope_count,
+        effective_partition_count=mapping.collapsed_scope_count,
+    )
 
 
 def _decompose(
@@ -1537,6 +1652,7 @@ def _decompose(
     _analysis_purpose: str | None = None,
     _params_extra: dict[str, object] | None = None,
     _method_evidence: AttributionMethodEvidenceV1 | None = None,
+    _top_k: int | None = None,
     _scope_frame: DeltaFrame | None = None,
     _materialization_sources: tuple[BaseFrame, ...] = (),
 ) -> AttributionFrame:
@@ -1562,6 +1678,8 @@ def _decompose(
     axis_ids = _normalize_axes_boundary(session, axes, axis)
     validated_mode = validate_attribution_mode(axis_ids, mode, intent="decompose")
     params_extra = dict(_params_extra or {})
+    if _top_k is not None:
+        params_extra["top_k"] = _top_k
     ensure_frame_in_session(frame, session=session, label="decompose frame")
     persistence_sources: list[BaseFrame] = []
     seen_source_refs: set[str] = set()
@@ -1617,6 +1735,12 @@ def _decompose(
                     "available_component_columns": component_columns,
                 },
             )
+        top_k_map, top_k_selection = _additive_top_k_map(
+            frame,
+            axis_columns=component_axis_columns,
+            top_k=_top_k,
+            component=component,
+        )
         bucket_column = None
         if frame.meta.semantic_kind == "panel":
             bucket_column = _component_bucket_column(frame, component_columns)
@@ -1642,7 +1766,20 @@ def _decompose(
             bucket_column=bucket_column,
             extra_reserved_columns=component_extra_reserved,
         )
-        if validated_mode is None and component.meta.composition_kind == "linear":
+        if validated_mode is None and top_k_map is not None:
+            output = _component_multi_axis_output(
+                component=component,
+                axis_columns=component_axis_columns,
+                mode="joint",
+                bucket_column=bucket_column,
+                top_k_map=top_k_map,
+            )
+            method = (
+                "sum"
+                if component.meta.composition_kind == "linear"
+                else _component_method(component)
+            )
+        elif validated_mode is None and component.meta.composition_kind == "linear":
             output = _component_linear_output_for_df(
                 df=component._dataframe_copy(),
                 component=component,
@@ -1662,6 +1799,7 @@ def _decompose(
                 axis_columns=component_axis_columns,
                 mode=validated_mode,
                 bucket_column=bucket_column,
+                top_k_map=top_k_map,
             )
             method = (
                 "sum"
@@ -1716,8 +1854,15 @@ def _decompose(
             mode=validated_mode,
             bucket_column=bucket_column,
             method_evidence=_method_evidence,
+            top_k_selection=top_k_selection,
         )
 
+    top_k_map, top_k_selection = _additive_top_k_map(
+        frame,
+        axis_columns=axis_columns,
+        top_k=_top_k,
+        component=None,
+    )
     if validated_mode is not None:
         bucket_column = (
             _bucket_column_for_panel(frame) if frame.meta.semantic_kind == "panel" else None
@@ -1734,9 +1879,13 @@ def _decompose(
             extra_reserved_columns=multi_axis_extra_reserved,
         )
         if validated_mode == "joint":
+            joint_df = top_k_map.map_frame(source_df) if top_k_map is not None else source_df
+            joint_axes = [*axis_columns]
+            if top_k_map is not None:
+                joint_axes.append(ATTRIBUTION_OTHER_MASK_COLUMN)
             output = _multi_axis_joint_sum_output(
-                source_df,
-                axis_columns=axis_columns,
+                joint_df,
+                axis_columns=joint_axes,
                 value_column=value_column,
                 bucket_column=bucket_column,
             )
@@ -1748,6 +1897,7 @@ def _decompose(
                 axis_columns=axis_columns,
                 value_column=value_column,
                 bucket_column=bucket_column,
+                top_k_map=top_k_map,
             )
             driver_field = ATTRIBUTION_PATH_COLUMN
             method = "sum"
@@ -1793,6 +1943,7 @@ def _decompose(
             mode=validated_mode,
             bucket_column=bucket_column,
             method_evidence=_method_evidence,
+            top_k_selection=top_k_selection,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1803,6 +1954,7 @@ def _decompose(
             axis_column=axis_column,
             value_column=value_column,
             bucket_column=bucket_column,
+            top_k_map=top_k_map,
         )
         output, reconciliation = _finalize_attribution_output(
             output,
@@ -1844,6 +1996,7 @@ def _decompose(
             mode=None,
             bucket_column=bucket_column,
             method_evidence=_method_evidence,
+            top_k_selection=top_k_selection,
         )
 
     axis_column = axis_columns[0]
@@ -1851,6 +2004,7 @@ def _decompose(
         source_df,
         axis_column=axis_column,
         value_column=value_column,
+        top_k_map=top_k_map,
     )
     output, reconciliation = _finalize_attribution_output(output, bucket_column=None)
     params = {
@@ -1888,6 +2042,7 @@ def _decompose(
         mode=None,
         bucket_column=None,
         method_evidence=_method_evidence,
+        top_k_selection=top_k_selection,
     )
 
 

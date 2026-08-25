@@ -409,7 +409,7 @@ reported in typed method evidence rather than by multiplying public shape
 tags.
 
 Business-axis results retain
-`row_contract_version="generic-attribution-rows/v2"`. Accumulation-time results
+`row_contract_version="generic-attribution-rows/v3"`. Accumulation-time results
 use the distinct
 `row_contract_version="cumulative-flow-attribution-rows/v1"`; they do not
 pretend the additional temporal coordinates are an unchanged generic row.

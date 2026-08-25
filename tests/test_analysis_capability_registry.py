@@ -1043,7 +1043,7 @@ _REFLECTION_EXCLUDED: dict[str, str] = {
     # -- Per-class contract overrides: MetricFrame and DeltaFrame override
     #    BaseFrame.contract with their own gating logic, so their callable
     #    paths differ from the registered BaseFrame.contract canonical path.
-    #    AttributionFrame also specializes contract for multiresolution views.
+    #    AttributionFrame also specializes contract for hierarchy resolution views.
     "MetricFrame.contract": "override of BaseFrame.contract, registered via canonical path",
     "DeltaFrame.contract": "override of BaseFrame.contract, registered via canonical path",
     "AttributionFrame.contract": "override of BaseFrame.contract, registered via canonical path",
