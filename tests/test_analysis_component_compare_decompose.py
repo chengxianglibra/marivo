@@ -35,6 +35,13 @@ def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     bootstrap_sales_project(tmp_path)
+    datasets = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets.write_text(
+        datasets.read_text()
+        + "\n@ms.metric(entities=[orders], additivity='non_additive', name='failure_rate')\n"
+        + "def failure_rate(orders):\n"
+        + "    return orders.amount.mean()\n"
+    )
     yield
 
 
@@ -75,6 +82,7 @@ def _component_aware_metric(
                 metric_df,
                 metric_id="sales.failure_rate",
                 axes=axes,
+                session=session,
             ),
             axes=axes,
             measure={"name": "failure_rate"},
@@ -151,6 +159,7 @@ def _component_aware_metric_with_axes(
                 metric_df,
                 metric_id="sales.failure_rate",
                 axes=axes,
+                session=session,
             ),
             axes=axes,
             measure={"name": "failure_rate"},
@@ -323,6 +332,7 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
                 baseline_df,
                 metric_id="sales.failure_rate",
                 axes=baseline_axes,
+                session=session,
             ),
             axes=baseline_axes,
             measure={"name": "failure_rate"},
@@ -1235,7 +1245,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             ]
         ),
         meta=DeltaFrameMeta(
-            **make_test_delta_contract("sales.failure_rate"),
+            **make_test_delta_contract("sales.failure_rate", session=session),
             ref="frame_calendar_delta",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -1346,6 +1356,10 @@ def test_decompose_component_ratio_rejects_reserved_axis_column(
                 "@ms.dimension(entity=orders)\n"
                 "def contribution(orders):\n"
                 "    return orders.contribution\n"
+                "@ms.metric(entities=[orders], additivity='non_additive', "
+                "name='failure_rate')\n"
+                "def failure_rate(orders):\n"
+                "    return orders.amount.mean()\n"
             ),
         }
     )

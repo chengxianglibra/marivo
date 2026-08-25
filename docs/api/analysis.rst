@@ -32,7 +32,13 @@ follow the structured repair. Focused help is not required before every API
 call.
 
 Live help owns callable signatures, accepted input families, constraints, and
-recovery guidance.
+recovery guidance. Focused operator help also reports its closed Artifact
+authority policy. ``semantic_current`` consumers reject confirmed scoped drift
+with ``errors.ArtifactStaleError`` and unknown authority with
+``errors.ArtifactAuthorityUnknownError`` before execution. ``materialized_only``
+consumers retain committed-value and integrity checks without consulting the
+current catalog. ``contract()`` remains mechanical and does not perform
+currentness validation.
 
 Frames
 ------

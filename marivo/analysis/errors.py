@@ -1447,6 +1447,22 @@ class EvidenceIntegrityError(AnalysisError):
     """Committed evidence cannot be resolved to one intact canonical graph."""
 
 
+class ArtifactStaleError(AnalysisError):
+    """An operator requires current semantic authority for a stale Artifact."""
+
+    @property
+    def kind(self) -> str:
+        return "artifact_stale"
+
+
+class ArtifactAuthorityUnknownError(AnalysisError):
+    """An operator cannot establish required current Artifact authority."""
+
+    @property
+    def kind(self) -> str:
+        return "artifact_authority_unknown"
+
+
 class CumulativeFrameUnsupportedError(AnalysisError):
     """Intent received a cumulative frame outside the supported intent boundary."""
 

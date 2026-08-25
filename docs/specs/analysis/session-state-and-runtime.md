@@ -192,6 +192,14 @@ asks to refresh/recompute; it reads persisted state:
   authority, and evidence v4 consistency. `stale` takes precedence over
   `indeterminate`; this check does not query datasource health or prove source
   freshness.
+- Artifact-bearing execution uses the capability registry's closed authority
+  policy. `semantic_current` operators compare the committed Artifact's scoped
+  dependency closure with the current Session catalog before their business
+  logic and raise `mv.errors.ArtifactStaleError` or
+  `mv.errors.ArtifactAuthorityUnknownError`. `materialized_only` operators do
+  not perform catalog-current checks; their existing ownership, integrity,
+  shape, and content checks still apply. This admission is independent of
+  evidence coverage and datasource freshness.
 - `session.frame_summaries(*, kind=None, evidence_status=None, limit=20,
   cursor=None) -> FrameSummaryPage` — a bounded newest-first keyset page of
   `FrameSummaryEntry` values (`ref`, `kind`, `metric_id`, `semantic_kind`,

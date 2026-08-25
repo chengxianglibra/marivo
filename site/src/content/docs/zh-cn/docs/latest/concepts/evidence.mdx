@@ -125,6 +125,22 @@ Artifact 或 ledger，也不会查询 datasource 或 source health，因此不�
 损坏的 evidence identity 抛出 `EvidenceIntegrityError`；evidence store 不可用抛出
 `EvidenceStoreUnavailableError`。
 
+## 理解执行时 authority admission
+
+消费 Artifact 的 capability 会声明是否要求当前 semantic authority。`semantic_current`
+operator 会在业务逻辑之前检查 Artifact 的精确 scoped dependency closure。已确认 drift 抛出
+`mv.errors.ArtifactStaleError`；authority 缺失或无法证明时抛出
+`mv.errors.ArtifactAuthorityUnknownError`。structured error 会携带 capability、parameter、
+Artifact/source/definition refs、真实 recorded/current fingerprints 与可执行 repair。
+
+`materialized_only` operator 消费已提交数值，不读取当前 catalog。既有的 Session ownership、
+integrity、shape、coverage、content identity 与 operator-specific 检查仍然保留。因此封闭 reducer、
+transform、projection 和 terminal read 不会被无关 catalog 变化阻塞。
+
+focused operator help 会披露已登记的 authority requirement。Artifact 的 `.contract()` 仍只描述
+commit-time mechanical compatibility，不执行 currentness validation。执行准入不会调用
+`session.revalidate(...)`，不会检查 evidence coverage，也不会查询 datasource/source health。
+
 ## 用有界分页恢复会话
 
 列表读取默认有界，并按最新记录优先：

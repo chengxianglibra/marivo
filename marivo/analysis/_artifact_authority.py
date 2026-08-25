@@ -338,6 +338,7 @@ def authority_context(
     *,
     session: Session,
     frames: dict[str, BaseFrame] | None = None,
+    strict_source_identity: bool = True,
 ) -> ArtifactAuthorityContext:
     """Normalize one committed Artifact and its typed source closure."""
     frames = {} if frames is None else frames
@@ -363,6 +364,9 @@ def authority_context(
                     frame=session.get_frame(artifact_ref),
                 )
             except Exception as exc:
+                if not strict_source_identity:
+                    visiting.remove(artifact_ref)
+                    return
                 raise _integrity_error(
                     artifact_ref=artifact_ref,
                     expected="an intact source Artifact referenced by typed lineage",
@@ -386,7 +390,10 @@ def authority_context(
             return
         for binding in bindings:
             visit(binding.ref)
-            source_frame = frames[binding.ref]
+            source_frame = frames.get(binding.ref)
+            if source_frame is None:
+                source_refs.add(binding.ref)
+                continue
             if binding.fingerprint is not None and (
                 source_frame.meta.content_hash != binding.fingerprint
             ):

@@ -24,6 +24,7 @@ from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
     ArtifactAdmissionRule,
     ArtifactOutputContract,
+    AuthorityPolicy,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -708,6 +709,7 @@ def _build_registry() -> CapabilityRegistry:
                 "observe_time_grain_compatible",
             ),
             callable_path="marivo.analysis.session.core.Session.observe",
+            authority_policy="semantic_current",
             receiver="Session",
             accepted_inputs={
                 "metrics": frozenset(
@@ -769,6 +771,7 @@ def _build_registry() -> CapabilityRegistry:
                 "event_completeness_valid",
             ),
             callable_path="marivo.analysis.session.core.SessionEvents.match",
+            authority_policy="semantic_current",
             receiver="SessionEvents",
             accepted_inputs={
                 "pattern": frozenset({"EventPattern"}),
@@ -854,6 +857,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="direct",
             constraint_ids=("event_reducer_source_valid", "event_subject_axis_valid"),
             callable_path="marivo.analysis.session.core.SessionEvents.funnel",
+            authority_policy="semantic_current",
             receiver="SessionEvents",
             accepted_inputs={
                 "journeys": _EF,
@@ -891,6 +895,7 @@ def _build_registry() -> CapabilityRegistry:
                 "event_completeness_valid",
             ),
             callable_path="marivo.analysis.session.core.SessionLifecycle.replay",
+            authority_policy="semantic_current",
             receiver="SessionLifecycle",
             accepted_inputs={
                 "model": frozenset({"StateModelSemantic"}),
@@ -938,29 +943,33 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    lifecycle_reducer_specs = (
+    lifecycle_reducer_specs: tuple[tuple[str, str, str, AuthorityPolicy], ...] = (
         (
             "lifecycle.distribution",
             "Reduce replay history into dense point-in-time state distributions.",
             "marivo.analysis.session.core.SessionLifecycle.distribution",
+            "semantic_current",
         ),
         (
             "lifecycle.transitions",
             "Count dense modeled state pairs from committed replay history.",
             "marivo.analysis.session.core.SessionLifecycle.transitions",
+            "materialized_only",
         ),
         (
             "lifecycle.dwell",
             "Summarize completed and censored state intervals from committed history.",
             "marivo.analysis.session.core.SessionLifecycle.dwell",
+            "materialized_only",
         ),
         (
             "lifecycle.violations",
             "Expose the fixed-contract illegal modeled-Event trace from replay.",
             "marivo.analysis.session.core.SessionLifecycle.violations",
+            "materialized_only",
         ),
     )
-    for capability_id, summary, callable_path in lifecycle_reducer_specs:
+    for capability_id, summary, callable_path, authority_policy in lifecycle_reducer_specs:
         descriptors.append(
             OperatorCapability(
                 id=capability_id,
@@ -971,6 +980,7 @@ def _build_registry() -> CapabilityRegistry:
                 root_visibility="direct",
                 constraint_ids=("lifecycle_reducer_source_valid",),
                 callable_path=callable_path,
+                authority_policy=authority_policy,
                 receiver="SessionLifecycle",
                 accepted_inputs={"history": _LF},
                 artifact_admission={
@@ -1021,6 +1031,7 @@ def _build_registry() -> CapabilityRegistry:
                 "event_subject_axis_valid",
             ),
             callable_path="marivo.analysis.session.core.SessionEvents.time_to_event",
+            authority_policy="semantic_current",
             receiver="SessionEvents",
             accepted_inputs={
                 "journeys": _EF,
@@ -1048,6 +1059,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="direct",
             constraint_ids=("event_reducer_source_valid", "subject_selection_valid"),
             callable_path="marivo.analysis.session.core.Session.select_subjects",
+            authority_policy="semantic_current",
             receiver="Session",
             accepted_inputs={
                 "artifact": _EF | _LF,
@@ -1089,6 +1101,7 @@ def _build_registry() -> CapabilityRegistry:
                 "funnel_comparison_compatible",
             ),
             callable_path="marivo.analysis.session.core.Session.compare",
+            authority_policy="materialized_only",
             receiver="Session",
             accepted_inputs={
                 "current": _MF | _EF,
@@ -1195,6 +1208,7 @@ def _build_registry() -> CapabilityRegistry:
                 "funnel_attribution_reconciliation",
             ),
             callable_path="marivo.analysis.session.core.Session.attribute",
+            authority_policy="semantic_current",
             receiver="Session",
             accepted_inputs={
                 "frame": _DF,
@@ -1257,6 +1271,7 @@ def _build_registry() -> CapabilityRegistry:
                 "single_metric_input",
             ),
             callable_path="marivo.analysis.session.core.Session.correlate",
+            authority_policy="materialized_only",
             receiver="Session",
             accepted_inputs={
                 "a": _MF,
@@ -1296,6 +1311,7 @@ def _build_registry() -> CapabilityRegistry:
                 "single_metric_input",
             ),
             callable_path="marivo.analysis.session.core.Session.hypothesis_test",
+            authority_policy="materialized_only",
             receiver="Session",
             accepted_inputs={
                 "a": _MF,
@@ -1321,6 +1337,7 @@ def _build_registry() -> CapabilityRegistry:
             root_summary="Forecast a time-series or panel MetricFrame.",
             constraint_ids=("forecast_input_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.forecast",
+            authority_policy="materialized_only",
             receiver="Session",
             accepted_inputs={
                 "history": _MF,
@@ -1343,6 +1360,7 @@ def _build_registry() -> CapabilityRegistry:
             root_summary="Run fixed quality checks over supported analysis artifacts.",
             constraint_ids=("quality_target_shape",),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
+            authority_policy="materialized_only",
             receiver="Session",
             accepted_inputs={
                 "frame": _MF | _EF | _LF | _DF | _AF,
@@ -1416,6 +1434,7 @@ def _build_registry() -> CapabilityRegistry:
                 root_visibility="grouped",
                 constraint_ids=discover_constraints,
                 callable_path=f"marivo.analysis.session.core.SessionDiscoverNamespace.{objective}",
+                authority_policy="materialized_only",
                 receiver="SessionDiscoverNamespace",
                 accepted_inputs={
                     "source": source_families,
@@ -1440,6 +1459,7 @@ def _build_registry() -> CapabilityRegistry:
             callable_path=(
                 "marivo.analysis.session.core.SessionDiscoverNamespace.semantic_hypotheses"
             ),
+            authority_policy="semantic_current",
             receiver="SessionDiscoverNamespace",
             accepted_inputs={"source": _MF_OR_DF},
             artifact_admission={
@@ -1517,6 +1537,7 @@ def _build_registry() -> CapabilityRegistry:
                     "single_metric_input",
                 ),
                 callable_path=f"marivo.analysis.frames.transforms._FrameTransforms.{op_name}",
+                authority_policy="materialized_only",
                 receiver="MetricFrameTransforms|DeltaFrameTransforms",
                 accepted_inputs={
                     "receiver": families,
@@ -1542,6 +1563,7 @@ def _build_registry() -> CapabilityRegistry:
                 "single_metric_input",
             ),
             callable_path="marivo.analysis.frames.transforms.MetricFrameTransforms.normalize",
+            authority_policy="materialized_only",
             receiver="MetricFrameTransforms",
             accepted_inputs={
                 "receiver": _MF,
@@ -1562,6 +1584,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
             callable_path="marivo.analysis.frames.metric.MetricFrame.metric",
+            authority_policy="materialized_only",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
             output_contract=_output("MetricFrame"),
@@ -1578,6 +1601,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="grouped",
             constraint_ids=("component_frame_available",),
             callable_path="marivo.analysis.frames.metric.MetricFrame.components",
+            authority_policy="materialized_only",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
             output_contract=_output("ComponentFrame"),
@@ -1594,6 +1618,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.frames.metric.MetricFrame.coverage",
+            authority_policy="materialized_only",
             receiver="MetricFrame",
             accepted_inputs={"receiver": _MF},
             output_contract=_output("CoverageFrame", nullable=True),
@@ -1617,6 +1642,7 @@ def _build_registry() -> CapabilityRegistry:
             root_visibility="grouped",
             constraint_ids=("component_frame_available",),
             callable_path="marivo.analysis.frames.delta.DeltaFrame.components",
+            authority_policy="materialized_only",
             receiver="DeltaFrame",
             accepted_inputs={"receiver": _DF},
             output_contract=_output("ComponentFrame"),
@@ -2560,6 +2586,7 @@ def _finalize_registry(
     """Build indexes, validate uniqueness, and generate type algebra rows."""
 
     _validate_public_type_variants()
+    _validate_authority_policies(descriptors)
 
     # Validate no duplicate ids
     by_id: dict[str, CapabilityDescriptor] = {}
@@ -2632,6 +2659,22 @@ def _validate_input_producers(registry: CapabilityRegistry) -> None:
     if missing:
         raise ValueError(
             "analysis input families lack registered producers: " + ", ".join(sorted(missing))
+        )
+
+
+def _validate_authority_policies(
+    descriptors: tuple[CapabilityDescriptor, ...],
+) -> None:
+    """Fail closed when an operator carries an unknown authority policy."""
+    allowed = set(get_args(AuthorityPolicy))
+    invalid = tuple(
+        f"{descriptor.id}:{descriptor.authority_policy}"
+        for descriptor in descriptors
+        if isinstance(descriptor, OperatorCapability) and descriptor.authority_policy not in allowed
+    )
+    if invalid:
+        raise ValueError(
+            "analysis operators have unknown authority policies: " + ", ".join(invalid)
         )
 
 

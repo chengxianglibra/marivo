@@ -469,8 +469,9 @@ This overview is the entry point. The focused specs:
   `judgment.db` ledger, and the agent-owned judgment boundary.
 - [`evidence-compatibility-and-revalidation-design.md`](../../superpowers/specs/evidence-compatibility-and-revalidation-design.md)
   — implemented Slice 1 selection-wide Finding compatibility and Slice 2
-  Artifact identity/semantic/evidence revalidation, plus the proposed later
-  public authority context and shared operator admission contract.
+  Artifact identity/semantic/evidence revalidation, plus implemented Slice 3
+  registry-owned operator admission over the same private authority context and
+  comparator. No public authority context was added.
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket
   computation, and calendar alignment.

@@ -393,7 +393,7 @@ def test_distribution_rejects_invalid_instants_before_any_axis_query(
     assert error.repair.help_target.canonical_id == "lifecycle.distribution"
 
 
-def test_reducers_reject_non_history_and_stale_catalog_source(
+def test_reducers_reject_non_history_but_ignore_historical_catalog_fingerprint(
     semantic_project_factory,
     tmp_path,
     monkeypatch,
@@ -411,8 +411,8 @@ def test_reducers_reject_non_history_and_stale_catalog_source(
     history.meta = history.meta.model_copy(
         update={"catalog_definition_fingerprint": "sha256:stale"}
     )
-    with pytest.raises(SubjectSetMismatchError, match="stale semantic catalog"):
-        session.lifecycle.transitions(history)
+    transitions = session.lifecycle.transitions(history)
+    assert transitions.meta.semantic_kind == "transitions"
 
 
 def test_pure_reducers_keep_dense_zero_population_and_empty_trace() -> None:

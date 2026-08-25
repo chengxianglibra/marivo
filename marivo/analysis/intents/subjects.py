@@ -51,7 +51,6 @@ from marivo.analysis.session._runtime import (
 from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.analysis.subject import DroppedBefore, SubjectSelection
 from marivo.refs import RefPayloadV1
-from marivo.semantic.catalog import StateModelEntry
 
 
 def _subject_error(
@@ -76,7 +75,7 @@ def _subject_error(
 
 
 def _require_ownership(*, session: Session, artifact: EventFrame | LifecycleFrame) -> None:
-    """Reject any source artifact not owned by the current session and catalog."""
+    """Reject any source artifact not owned by the current session and project."""
     label = "journey" if type(artifact) is EventFrame else "replay history"
     kind = "an EventFrame" if type(artifact) is EventFrame else "a LifecycleFrame"
     if artifact.meta.session_id != session.id:
@@ -94,14 +93,6 @@ def _require_ownership(*, session: Session, artifact: EventFrame | LifecycleFram
             received="different_project",
             location="session.select_subjects.artifact",
             action=f"Rebuild the {label} from the current project catalog.",
-        )
-    if artifact.meta.catalog_definition_fingerprint != session.catalog.definition_fingerprint:
-        raise _subject_error(
-            message=f"The source {label} was produced from a different catalog definition.",
-            expected=f"{kind} built from the active catalog fingerprint",
-            received="catalog_definition_changed",
-            location="session.select_subjects.artifact",
-            action=f"Reload the active catalog and rebuild the source {label}.",
         )
 
 
@@ -342,7 +333,7 @@ def _require_lifecycle_source(
     artifact: LifecycleFrame,
     selection: SubjectSelection,
 ) -> tuple[InState, pd.Timestamp]:
-    """Validate one history artifact and its exact current-catalog state handle."""
+    """Validate one history artifact and its exact retained state handle."""
     _require_ownership(session=session, artifact=artifact)
     if artifact.meta.semantic_kind != "history":
         raise _subject_error(
@@ -363,24 +354,6 @@ def _require_lifecycle_source(
         )
 
     state_names = tuple(item.state.name for item in meta.states)
-    entry = session.catalog.state_models.get(meta.state_model_ref.path)
-    if not isinstance(entry, StateModelEntry):
-        raise _state_error(
-            message="The retained StateModel is no longer in the current catalog.",
-            expected=f"state_model:{meta.state_model_ref.path} in the active catalog",
-            received="state_model=absent",
-            location="session.select_subjects.artifact",
-            action="Reload the active catalog and replay the StateModel again.",
-            candidates=tuple(item.ref.key for item in session.catalog.state_models.items[:5]),
-        )
-    if entry.details().definition_fingerprint != meta.state_model_fingerprint:
-        raise _state_error(
-            message="The StateModel definition changed after the source replay.",
-            expected="the retained StateModel definition fingerprint",
-            received="state_model_definition_changed",
-            location="session.select_subjects.artifact",
-            action="Replay the current StateModel before selecting subjects.",
-        )
     if RefPayloadV1.from_ref(selection.state.model) != meta.state_model_ref:
         raise _state_error(
             message="The in_state handle belongs to a different StateModel.",

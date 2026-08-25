@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo._compat import UTC
 from marivo.analysis._cumulative import (
     BASELINE_EVALUATION_END_COLUMN,
@@ -895,6 +896,54 @@ def test_compare_all_history_level_change_is_allowed(tmp_path, monkeypatch) -> N
     assert delta.meta.cumulative_change is not None
     assert delta.meta.alignment["cumulative_pairs"]["matched_rows"] == 3
     assert isinstance(delta.meta.comparison_identity.semantics, ExactComparisonSemanticsV1)
+
+
+def test_materialized_compare_uses_retained_over_granularity_after_catalog_drift(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _all_history_shape_frame(
+        session,
+        semantic_kind="scalar",
+        rows=[
+            {
+                "value": 15.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-07-04", tz="UTC"),
+            }
+        ],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+    )
+    baseline = _all_history_shape_frame(
+        session,
+        semantic_kind="scalar",
+        rows=[
+            {
+                "value": 10.0,
+                EVALUATION_END_COLUMN: pd.Timestamp("2026-06-04", tz="UTC"),
+            }
+        ],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+    )
+    datasets = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets.write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "warehouse = ms.ref.datasource('warehouse')\n"
+        "orders = ms.entity("
+        "name='orders', datasource=warehouse, source=md.table('orders'))\n"
+    )
+    session._catalog = ms.load()
+
+    delta = session.compare(current, baseline)
+
+    assert delta.meta.cumulative_attribution is not None
+    bridge = delta.meta.cumulative_attribution.bridge
+    assert bridge.status == "available"
+    assert bridge.value.grain.count == 1
+    assert bridge.value.grain.unit == "day"
+    assert bridge.value.origin == "over_declared_granularity"
 
 
 def test_compare_trailing_same_anchor_allowed(tmp_path, monkeypatch) -> None:

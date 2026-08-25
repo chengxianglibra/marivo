@@ -26,7 +26,11 @@ from marivo.analysis._capabilities.validation import (
     classify_input_family,
     validate_capability_inputs,
 )
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.errors import (
+    AnalysisError,
+    AnalysisRepair,
+    ArtifactAuthorityUnknownError,
+)
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import SamplingPolicy, window_bucket
@@ -203,11 +207,12 @@ def test_gate_compare_rejects_wrong_alignment():
     )
 
 
-def test_gate_attribute_accepts_delta_frame():
+def test_gate_attribute_requires_session_bound_authority_for_delta_frame():
     session = session_attach.get_or_create(name="mtx")
     df = _delta_frame(session)
     axes = [make_ref("sales.orders.region", SemanticKind.DIMENSION)]
-    validate_capability_inputs("attribute", frame=df, axes=axes)
+    with pytest.raises(ArtifactAuthorityUnknownError):
+        validate_capability_inputs("attribute", frame=df, axes=axes)
 
 
 def test_gate_attribute_rejects_metric_frame():

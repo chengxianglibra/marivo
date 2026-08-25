@@ -13,6 +13,7 @@ import inspect
 from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
+    ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
     BoundaryCapability,
     CapabilityDescriptor,
@@ -825,7 +826,15 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         if shape_admission:
             lines.append("  Accepted artifact shapes:")
             lines.extend(shape_admission)
-        lines.append(f"  Output family: {_format_output_family(desc)}")
+        artifact_input = any(
+            family in ARTIFACT_FAMILIES
+            for families in desc.accepted_inputs.values()
+            for family in families
+        )
+        output = f"  Output family: {_format_output_family(desc)}"
+        if artifact_input:
+            output += f"; authority: {desc.authority_policy}"
+        lines.append(output)
 
     if isinstance(desc, BoundaryCapability):
         lines.append("")

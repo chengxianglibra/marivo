@@ -144,6 +144,28 @@ evidence projection. Revalidation verifies their own persisted identity and
 their canonical parent evidence, then returns their healthy unavailable
 evidence state as `indeterminate`.
 
+## Understand execution-time authority admission
+
+Artifact-consuming capabilities declare whether they require current semantic
+authority. A `semantic_current` operator checks the Artifact's exact scoped
+dependency closure before its business logic. Confirmed drift raises
+`mv.errors.ArtifactStaleError`; missing or unprovable authority raises
+`mv.errors.ArtifactAuthorityUnknownError`. The structured error includes the
+capability and parameter, Artifact/source/definition refs, real recorded and
+current fingerprints, and a repair.
+
+A `materialized_only` operator consumes committed values without consulting
+the current catalog. Existing Session ownership, integrity, shape, coverage,
+content identity, and operator-specific checks still apply. This is why closed
+reducers, transforms, projections, and terminal reads are not blocked by an
+unrelated catalog change.
+
+Focused operator help displays the registered authority requirement. An
+Artifact's `.contract()` continues to describe mechanical commit-time
+compatibility; it does not run currentness validation. Execution admission does
+not call `session.revalidate(...)`, inspect evidence coverage, or query
+datasource/source health.
+
 ## Recover a session with bounded pages
 
 List reads are bounded and newest-first:

@@ -704,6 +704,7 @@ class Session(RenderableResult):
 
         validate_capability_inputs(
             "select_subjects",
+            session=self,
             artifact=artifact,
             selection=selection,
         )
@@ -930,7 +931,10 @@ class Session(RenderableResult):
             attributes={"marivo.analysis.dimension_count": len(normalized_dimensions or [])},
         ) as telemetry_operation:
             validate_capability_inputs(
-                "observe", time_scope=normalized_time_scope, cohort=normalized_cohort
+                "observe",
+                session=self,
+                time_scope=normalized_time_scope,
+                cohort=normalized_cohort,
             )
             result = observe(
                 metrics,
@@ -1231,12 +1235,14 @@ class Session(RenderableResult):
             ...     analysis_purpose="按国家归因收入变化",
             ... )
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.errors import (
             AnalysisRepair,
             FunnelAttributionUnsupportedError,
         )
         from marivo.introspection.live.model import LiveHelpTarget
 
+        validate_capability_inputs("attribute", session=self, frame=frame)
         if frame.meta.semantic_kind == "funnel":
             from marivo.analysis.intents.funnel_attribute import attribute_funnel
 
@@ -1275,7 +1281,6 @@ class Session(RenderableResult):
                     ),
                 ),
             )
-        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.attribute import attribute
 
         semantic_kind = getattr(frame.meta, "semantic_kind", None)
@@ -1294,7 +1299,6 @@ class Session(RenderableResult):
             intent="attribute",
             attributes=attrs,
         ):
-            validate_capability_inputs("attribute", frame=frame)
             return attribute(
                 frame,
                 axes=axes,
@@ -1854,6 +1858,7 @@ class SessionEvents(RenderableResult):
 
         validate_capability_inputs(
             "events.match",
+            session=self._session,
             pattern=pattern,
             cohort_window=cohort_window,
             matching=matching,
@@ -1919,6 +1924,7 @@ class SessionEvents(RenderableResult):
 
         validate_capability_inputs(
             "events.funnel",
+            session=self._session,
             journeys=journeys,
             axes=axes,
         )
@@ -1977,6 +1983,7 @@ class SessionEvents(RenderableResult):
 
         validate_capability_inputs(
             "events.time_to_event",
+            session=self._session,
             journeys=journeys,
             start_step=start_step,
             end_step=end_step,
@@ -2098,6 +2105,7 @@ class SessionLifecycle(RenderableResult):
 
         validate_capability_inputs(
             "lifecycle.replay",
+            session=self._session,
             window=window,
             completeness=completeness,
             cohort=cohort,
@@ -2154,6 +2162,7 @@ class SessionLifecycle(RenderableResult):
 
         validate_capability_inputs(
             "lifecycle.distribution",
+            session=self._session,
             history=history,
             axes=axes,
         )
@@ -2327,6 +2336,7 @@ class SessionDiscoverNamespace:
             Requires a ready Session ontology binding. It never executes candidates,
             scores them, or creates causal evidence.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.semantic_hypotheses import semantic_hypotheses
 
         with _track_session_operation(
@@ -2335,6 +2345,11 @@ class SessionDiscoverNamespace:
             family="discover",
             intent="semantic_hypotheses",
         ):
+            validate_capability_inputs(
+                "discover.semantic_hypotheses",
+                session=self._session,
+                source=source,
+            )
             return semantic_hypotheses(source, limit=limit, session=self._session)
 
     def point_anomalies(

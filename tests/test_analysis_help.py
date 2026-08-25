@@ -531,6 +531,13 @@ def test_focused_help_signature_matches_inspect() -> None:
         assert param_name in text
 
 
+def test_focused_operator_help_discloses_registered_authority_policy() -> None:
+    assert "authority: semantic_current" in _text("events.match")
+    assert "authority: semantic_current" in _text("attribute")
+    assert "authority: materialized_only" in _text("compare")
+    assert "authority: materialized_only" in _text("transform.topk")
+
+
 def test_observe_capability_registers_only_the_plural_metrics_input() -> None:
     accepted_inputs = REGISTRY.by_id("observe").accepted_inputs
 

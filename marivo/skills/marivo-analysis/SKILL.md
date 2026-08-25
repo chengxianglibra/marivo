@@ -206,6 +206,14 @@ evidence can be restored. Revalidation proves persisted identity, current
 semantic authority, and evidence consistency; it does not prove datasource
 freshness.
 
+Artifact-consuming capabilities enforce their registered authority requirement
+at execution. Follow `ArtifactStaleError` or `ArtifactAuthorityUnknownError`
+repairs instead of recreating catalog-current checks or bypassing the typed
+operator. A materialized continuation may remain valid after catalog drift;
+use focused help to inspect that capability's requirement. Never treat
+`artifact.contract()` as current revalidation: it describes only mechanical
+commit-time compatibility.
+
 When resuming work, start with `marivo.help("analysis.recovery")`. Read bounded
 session inspection, frame summaries, recent jobs, evidence digests, and findings
 before loading exact supporting artifacts. Historical conclusions and chat or
