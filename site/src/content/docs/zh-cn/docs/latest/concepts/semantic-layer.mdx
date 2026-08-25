@@ -35,8 +35,17 @@ structured 错误提供。智能体可以先检查物理元数据并起草依赖
 `marivo doctor` 会确认当前解释器、已安装包版本、包路径和项目状态，然后交接到 Python。
 环境没有激活时，应使用该环境自己的 `marivo` 可执行文件。
 `marivo.help(...)` 是唯一公开的专项-帮助协调入口；限定后的 `datasource.*`、
-`semantic.*`、`analysis.*` 内容仍由各自原生 registry 拥有。`md` 和 `ms` 只执行所属
-领域能力，不提供独立的 `.help()` 别名。
+`semantic.*`、`analysis.*`、`ontology.*` 内容仍由各自原生 registry 拥有。`md` 和
+`ms` 只执行所属领域能力，不提供独立的 `.help()` 别名。选择 focused target 前，可以
+读取当前安装版本的完整 canonical string inventory：
+
+```python
+import marivo
+
+marivo.help("targets")
+```
+
+请使用清单中的完整限定名，不要依赖短名称自动消歧。
 
 数据源编写错误会显示稳定的代码和 stage。有界获取在执行阶段
 失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的获取最多重试一次；

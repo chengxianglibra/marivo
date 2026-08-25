@@ -32,6 +32,8 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, LiveHelpTarget
+from marivo.ontology._capabilities.registry import REGISTRY as ONTOLOGY_REGISTRY
+from marivo.ontology._capabilities.surface import ONTOLOGY_LIVE_SURFACE
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
@@ -39,13 +41,20 @@ _REGISTRIES = {
     "datasource": DATASOURCE_REGISTRY,
     "semantic": SEMANTIC_REGISTRY,
     "analysis": ANALYSIS_REGISTRY,
+    "ontology": ONTOLOGY_REGISTRY,
 }
 _SURFACES = {
     "datasource": DATASOURCE_LIVE_SURFACE,
     "semantic": SEMANTIC_LIVE_SURFACE,
     "analysis": ANALYSIS_LIVE_SURFACE,
+    "ontology": ONTOLOGY_LIVE_SURFACE,
 }
-_SURFACE_NAMES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis")
+_SURFACE_NAMES: tuple[HelpSurface, ...] = (
+    "datasource",
+    "semantic",
+    "analysis",
+    "ontology",
+)
 
 
 def _text(target: PublicHelpTarget = None) -> str:
@@ -72,8 +81,10 @@ def test_public_help_wraps_unexpected_surface_failure(
 
 
 def test_public_help_preserves_unknown_target_error() -> None:
-    with pytest.raises(MarivoHelpTargetError):
+    with pytest.raises(MarivoHelpTargetError) as captured:
         marivo.help("not-a-registered-target")
+
+    assert 'marivo.help("targets")' in str(captured.value)
 
 
 def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
@@ -112,6 +123,15 @@ def test_marivo_help_is_the_only_public_help_callable(
         assert not hasattr(surface, "help_text")
 
 
+def test_public_targets_help_prints_the_inventory_and_returns_none(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert marivo.help("targets") is None
+    output = capsys.readouterr().out
+    assert output.startswith("Marivo help targets\n")
+    assert output.rstrip().endswith("- ontology.OntologyHelpTargetError")
+
+
 def test_domain_help_attribute_raises_guiding_error() -> None:
     """mv.help raises a friendly AttributeError that points to marivo.help(...)."""
     with pytest.raises(AttributeError, match=r"marivo\.help"):
@@ -126,6 +146,7 @@ def test_root_help_identifies_coordinator_and_native_content_owners() -> None:
     assert "semantic.*   -> marivo.semantic capability registry" in text
     assert "analysis.*   -> marivo.analysis capability registry" in text
     assert "ontology.*   -> marivo.ontology capability registry" in text
+    assert 'marivo.help("targets")' in text
     assert "Domain modules expose no public .help alias" in text
 
 
@@ -242,6 +263,79 @@ def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -
     assert "governed raw SQL" in text
     assert "datasource_catalog = md.load()" in text
     assert "semantic_catalog = ms.load()" in text
+
+
+def _expected_canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    groups: list[tuple[str, tuple[str, ...]]] = [("Global", ("authoring", "load", "targets"))]
+    for owner in _SURFACE_NAMES:
+        surface = _SURFACES[owner]
+        native_targets = (
+            *surface.registry.canonical_ids(),
+            *surface.type_index.values(),
+            *(error_type.__name__ for error_type in surface.error_types.values()),
+        )
+        targets = tuple(dict.fromkeys((owner, *(f"{owner}.{target}" for target in native_targets))))
+        groups.append((owner.title(), targets))
+    return tuple(groups)
+
+
+def test_targets_help_is_the_complete_deterministic_canonical_string_inventory() -> None:
+    expected_groups = _expected_canonical_string_target_groups()
+    expected_lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
+    for index, (heading, targets) in enumerate(expected_groups):
+        expected_lines.append(heading)
+        expected_lines.extend(f"- {target}" for target in targets)
+        if index != len(expected_groups) - 1:
+            expected_lines.append("")
+
+    text = _text("targets")
+
+    assert route_help_target("targets") == TopicHelpRoute("targets")
+    assert text == "\n".join(expected_lines)
+    assert text == _text("targets")
+    assert text.endswith("- ontology.OntologyHelpTargetError")
+
+
+def test_every_inventory_target_resolves_without_aliases_or_ambiguity() -> None:
+    groups = _expected_canonical_string_target_groups()
+    targets = tuple(target for _heading, group in groups for target in group)
+
+    assert len(targets) == len(set(targets))
+    assert "analysis.Session.observe" not in targets
+    assert "analysis.session.observe" not in targets
+    assert all(not target.startswith(("mv.", "ms.", "md.", "mo.")) for target in targets)
+
+    global_targets = frozenset({"authoring", "load", "targets"})
+    surface_roots = frozenset(_SURFACE_NAMES)
+    for target in targets:
+        route = route_help_target(target)
+        if target in global_targets:
+            assert isinstance(route, TopicHelpRoute)
+            assert route.topic == target
+        elif target in surface_roots:
+            assert isinstance(route, SurfaceRootHelpRoute)
+            assert route.owner == target
+        else:
+            owner, separator, native_target = target.partition(".")
+            assert separator and native_target
+            assert owner in surface_roots
+            assert isinstance(route, NativeHelpRoute)
+            assert route.owner == owner
+
+
+def test_inventory_type_and_error_names_resolve_to_their_exact_contract_kinds() -> None:
+    for owner in _SURFACE_NAMES:
+        surface = _SURFACES[owner]
+        for type_name in dict.fromkeys(surface.type_index.values()):
+            route = route_help_target(f"{owner}.{type_name}")
+            assert isinstance(route, NativeHelpRoute)
+            assert route.resolved.kind == "type_contract"
+            assert route.resolved.type_name == type_name
+        for error_type in dict.fromkeys(surface.error_types.values()):
+            route = route_help_target(f"{owner}.{error_type.__name__}")
+            assert isinstance(route, NativeHelpRoute)
+            assert route.resolved.kind == "error_contract"
+            assert route.resolved.error_name == error_type.__name__
 
 
 @pytest.mark.parametrize(
@@ -389,6 +483,10 @@ def rendered_native_root(owner: HelpSurface) -> str:
         return render_root_help()
     if owner == "semantic":
         from marivo.semantic._capabilities.render import render_root_help
+
+        return render_root_help()
+    if owner == "ontology":
+        from marivo.ontology._capabilities.render import render_root_help
 
         return render_root_help()
     from marivo.analysis._capabilities.render import render_root_help

@@ -1,7 +1,9 @@
-"""Bounded global help topics."""
+"""Global help topics and the complete canonical target inventory."""
 
 from __future__ import annotations
 
+import marivo
+from marivo._help.route import canonical_string_target_groups
 from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.introspection.live.render import enforce_budget
 
@@ -35,6 +37,7 @@ def render_root() -> str:
                 "  Start:",
                 '    marivo.help("authoring")',
                 '    marivo.help("load")',
+                '    marivo.help("targets")',
                 "",
                 "  Datasource evidence:",
                 '    marivo.help("datasource.inspect")',
@@ -56,6 +59,18 @@ def render_root() -> str:
         ),
         root=True,
     )
+
+
+def render_targets() -> str:
+    """Render the complete finite inventory without focused-help truncation."""
+    lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
+    groups = canonical_string_target_groups()
+    for index, (heading, targets) in enumerate(groups):
+        lines.append(heading)
+        lines.extend(f"- {target}" for target in targets)
+        if index != len(groups) - 1:
+            lines.append("")
+    return "\n".join(lines)
 
 
 def render_authoring() -> str:

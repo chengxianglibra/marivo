@@ -8,7 +8,7 @@ from typing import Literal, TypeAlias
 from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 
-GlobalTopic = Literal["root", "authoring", "load"]
+GlobalTopic = Literal["root", "authoring", "load", "targets"]
 HelpOutcome = Literal["success", "unknown", "ambiguous"]
 
 
@@ -60,7 +60,7 @@ class MarivoHelpTargetError(ValueError):
         else:
             message = (
                 f"Marivo help target is not registered: received {self.received!r}. "
-                "Use marivo.help() to browse registered targets."
+                'Use marivo.help("targets") to browse canonical string targets.'
             )
         if candidates:
             message += f" Candidates: {', '.join(candidates)}."
