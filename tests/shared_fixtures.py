@@ -152,6 +152,7 @@ def make_test_metric_contract(
     metric_id: str,
     axes: dict[str, Any],
     where: dict[str, Any] | None = None,
+    session: Any | None = None,
 ) -> dict[str, Any]:
     """Build current typed identity/key/comparability state for synthetic frames."""
 
@@ -259,15 +260,42 @@ def make_test_metric_contract(
             body_digest=expression_fingerprint,
         ),
     )
+    dependency_digest_value = SemanticDependencyDigestV1(
+        schema="marivo.semantic_dependency_digest/v1",
+        entries=dependency_entries,
+        digest=f"sha256:{fingerprint(dependency_entries)}",
+    )
+    catalog_definition_fingerprint = fingerprint(("test-catalog", domain))
+    if session is not None:
+        from marivo.semantic.metric_graph_lowering import dependency_digest
+
+        try:
+            dependency_digest_value = dependency_digest(
+                session.catalog._reg,
+                sidecar=session.catalog._state.sidecar,
+                semantic_refs=(
+                    ref_factory.metric(metric_id),
+                    *(
+                        (
+                            ref_factory.time_dimension(binding.ref.path)
+                            if binding.role == "time_dimension"
+                            else ref_factory.dimension(binding.ref.path)
+                        )
+                        for binding in axis_bindings
+                    ),
+                ),
+            )
+            catalog_definition_fingerprint = session.catalog.definition_fingerprint
+        except Exception:
+            # Synthetic tests may intentionally name semantics absent from the
+            # fixture catalog. Their placeholder contract remains available for
+            # non-authority-focused paths.
+            pass
     return {
-        "catalog_definition_fingerprint": fingerprint(("test-catalog", domain)),
+        "catalog_definition_fingerprint": catalog_definition_fingerprint,
         "metric_identity": metric_identity,
         "metric_identities": (metric_identity,),
-        "semantic_dependency_digest": SemanticDependencyDigestV1(
-            schema="marivo.semantic_dependency_digest/v1",
-            entries=dependency_entries,
-            digest=f"sha256:{fingerprint(dependency_entries)}",
-        ),
+        "semantic_dependency_digest": dependency_digest_value,
         "key_schema": key_schema,
         "axis_bindings": tuple(axis_bindings),
         "slice_predicates": slice_predicates,
@@ -354,6 +382,7 @@ def make_test_delta_contract(
     current_artifact_id: str = "frame_current",
     baseline_artifact_id: str = "frame_baseline",
     status_time_dimension: str | None = None,
+    session: Any | None = None,
 ) -> dict[str, Any]:
     """Build current structured comparison identity for synthetic delta frames."""
 
@@ -388,8 +417,24 @@ def make_test_delta_contract(
         )
         for metric_identity in dict.fromkeys((current, baseline))
     )
+    catalog_definition_fingerprint = "sha256:test-catalog"
+    if session is not None:
+        from marivo.semantic.metric_graph_lowering import dependency_digest
+
+        try:
+            dependency_digests = tuple(
+                dependency_digest(
+                    session.catalog._reg,
+                    sidecar=session.catalog._state.sidecar,
+                    semantic_refs=(ref_factory.metric(metric_identity.metric_ref.path),),
+                )
+                for metric_identity in dict.fromkeys((current, baseline))
+            )
+            catalog_definition_fingerprint = session.catalog.definition_fingerprint
+        except Exception:
+            pass
     return {
-        "catalog_definition_fingerprint": "sha256:test-catalog",
+        "catalog_definition_fingerprint": catalog_definition_fingerprint,
         "source_dependency_digests": dependency_digests,
         "status_time_dimension_ref": (
             RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
@@ -602,6 +647,7 @@ def make_metric_frame(
         metric_id=metric_id,
         axes=axes,
         where=where,
+        session=session,
     )
     metric_contract["catalog_definition_fingerprint"] = session.catalog.definition_fingerprint
     meta = MetricFrameMeta(

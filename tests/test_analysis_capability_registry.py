@@ -20,6 +20,7 @@ from marivo.analysis._capabilities import (
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
     ArtifactOutputContract,
+    AuthorityPolicy,
     BoundaryCapability,
     CapabilityBase,
     CapabilityDescriptor,
@@ -160,6 +161,7 @@ def test_capability_descriptor_union_contains_all_kinds() -> None:
 )
 def test_descriptor_kind_default(cls: type[CapabilityBase], expected_kind: str) -> None:
     """Each descriptor variant defaults to its kind literal."""
+    variant_kwargs = {"authority_policy": "materialized_only"} if cls is OperatorCapability else {}
     instance = cls(
         id="test.capability",
         public_entrypoint="test.capability()",
@@ -167,6 +169,7 @@ def test_descriptor_kind_default(cls: type[CapabilityBase], expected_kind: str) 
         summary="test summary",
         root_group="typed_analysis",
         root_visibility="direct",
+        **variant_kwargs,  # type: ignore[arg-type]
     )
     assert instance.kind == expected_kind
 
@@ -186,7 +189,10 @@ _BASE_INIT_KWARGS: dict[str, str] = {
 
 _FROZEN_INSTANCES: list[object] = [
     CapabilityBase(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
-    OperatorCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
+    OperatorCapability(
+        **_BASE_INIT_KWARGS,  # type: ignore[arg-type]
+        authority_policy="materialized_only",
+    ),
     ConstructorCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
     ReadCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
     RecoveryCapability(**_BASE_INIT_KWARGS),  # type: ignore[call-arg]
@@ -298,6 +304,7 @@ def test_operator_capability_defaults() -> None:
         summary="test op",
         root_group="typed_analysis",
         root_visibility="direct",
+        authority_policy="materialized_only",
     )
     assert cap.receiver == ""
     assert cap.accepted_inputs == {}
@@ -418,6 +425,7 @@ def test_surface_limits_is_frozen() -> None:
 # ---------------------------------------------------------------------------
 
 _KERNEL_TYPE_NAMES = [
+    "AuthorityPolicy",
     "CapabilityBase",
     "OperatorCapability",
     "ConstructorCapability",
@@ -618,6 +626,58 @@ def test_all_expected_operator_ids_registered() -> None:
     ids = set(REGISTRY.capability_ids)
     missing = EXPECTED_OPERATOR_IDS - ids
     assert not missing, f"missing operator ids: {missing}"
+
+
+SEMANTIC_CURRENT_OPERATOR_IDS = {
+    "observe",
+    "events.match",
+    "events.funnel",
+    "events.time_to_event",
+    "lifecycle.replay",
+    "lifecycle.distribution",
+    "select_subjects",
+    "attribute",
+    "discover.semantic_hypotheses",
+}
+
+
+def test_operator_authority_policy_matrix_is_closed() -> None:
+    operators = {
+        descriptor.id: descriptor.authority_policy
+        for descriptor in REGISTRY.descriptors
+        if isinstance(descriptor, OperatorCapability)
+    }
+
+    assert set(get_args(AuthorityPolicy)) == {"semantic_current", "materialized_only"}
+    assert {
+        capability_id for capability_id, policy in operators.items() if policy == "semantic_current"
+    } == SEMANTIC_CURRENT_OPERATOR_IDS
+    assert all(policy in get_args(AuthorityPolicy) for policy in operators.values())
+    assert set(operators) - SEMANTIC_CURRENT_OPERATOR_IDS == {
+        capability_id
+        for capability_id, policy in operators.items()
+        if policy == "materialized_only"
+    }
+
+
+def test_operator_authority_policy_is_required_and_unknown_values_fail_closed() -> None:
+    from marivo.analysis._capabilities.registry import _validate_authority_policies
+
+    parameter = inspect.signature(OperatorCapability).parameters["authority_policy"]
+    assert parameter.default is inspect.Parameter.empty
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+    invalid = OperatorCapability(
+        id="test.invalid_authority",
+        public_entrypoint="session.invalid_authority()",
+        help_target="invalid_authority",
+        summary="test",
+        root_group="typed_analysis",
+        root_visibility="direct",
+        authority_policy="unknown",  # type: ignore[arg-type]
+    )
+    with pytest.raises(ValueError, match=r"test\.invalid_authority:unknown"):
+        _validate_authority_policies((invalid,))
 
 
 def test_all_expected_constructor_ids_registered() -> None:

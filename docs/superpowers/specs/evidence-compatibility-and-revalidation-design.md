@@ -1,6 +1,6 @@
 # Marivo Evidence Compatibility and Revalidation — 设计
 
-状态：Slice 0–2 已实现；Slice 3–4 尚未实现
+状态：Slice 0–3 已实现；Slice 4 尚未实现
 
 ## 文档目的
 
@@ -721,6 +721,9 @@ operator admission 或 authority policy registry）。
 - 根据 Slice 0 inventory 只实现 normalization，不执行 schema cutover。
 
 ### Slice 3：Operator Admission
+
+状态：已实现（复用 Slice 2 的 `ArtifactAuthorityContext` 与 semantic comparator；未修改
+Artifact/evidence schema，也未引入 SourceHealth）。
 
 - 将散落的 definition/catalog admission 迁移到共享 validator；
 - 为每个 capability 声明是否要求 semantic-current；

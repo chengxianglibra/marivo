@@ -1517,8 +1517,8 @@ def compare(
                 current_axis_bindings=current.meta.axis_bindings,
                 baseline_axis_bindings=baseline.meta.axis_bindings,
                 over_ref=current_over,
-                current_declared_over_grain=_declared_over_granularity(session, current_over),
-                baseline_declared_over_grain=_declared_over_granularity(session, baseline_over),
+                current_declared_over_grain=_retained_over_granularity(current, current_over),
+                baseline_declared_over_grain=_retained_over_granularity(baseline, baseline_over),
                 current_report_timezone=(_observe_report_tz(current) or session.report_tz_name),
                 baseline_report_timezone=(_observe_report_tz(baseline) or session.report_tz_name),
             )
@@ -1913,11 +1913,20 @@ def _observe_report_tz(frame: MetricFrame) -> str | None:
     return None
 
 
-def _declared_over_granularity(session: Session, over_ref: RefPayloadV1) -> str | None:
-    """Read the current time-dimension granularity used for scalar bridges."""
+def _retained_over_granularity(frame: MetricFrame, over_ref: RefPayloadV1) -> str | None:
+    """Read the recorded time-dimension granularity used for scalar bridges."""
 
-    member = session.catalog.require(ref_factory.time_dimension(over_ref.path))
-    granularity = getattr(member.details(), "granularity", None)
+    entry = next(
+        (
+            dependency
+            for dependency in frame.meta.semantic_dependency_digest.entries
+            if dependency.ref == over_ref
+        ),
+        None,
+    )
+    if entry is None:
+        return None
+    granularity = dict(entry.fields).get("granularity")
     return granularity if isinstance(granularity, str) and granularity else None
 
 

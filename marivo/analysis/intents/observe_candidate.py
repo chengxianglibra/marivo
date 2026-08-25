@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from marivo.analysis._capabilities.validation import validate_artifact_authority
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -18,7 +19,6 @@ from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.semantic_hypotheses import (
     _edge_context,
     _payload_ref,
-    _readiness_fingerprint,
     _scope_compatible,
 )
 from marivo.analysis.session.core import Session
@@ -74,6 +74,19 @@ def observe_candidate(
             "candidate payload does not match its persisted selected item",
             received="forged or stale candidate fields",
         )
+    validate_artifact_authority(
+        "observe",
+        "metrics",
+        recovered,
+        session=session,
+        required_semantic_refs=frozenset(
+            {
+                f"{payload.kind.value}:{payload.path}"
+                for payload in (candidate.source_metric_ref, candidate.metric_ref)
+            }
+        ),
+        required_source_refs=frozenset({recovered.meta.source_ref}),
+    )
     if (
         session._ontology_state != "ready"
         or session._ontology_catalog is None
@@ -83,11 +96,6 @@ def observe_candidate(
         raise _not_observable(
             "live ontology fingerprint no longer matches candidate creation",
             received=session._ontology_state,
-        )
-    if session.catalog.definition_fingerprint != candidate.semantic_catalog_fingerprint:
-        raise _not_observable(
-            "live semantic catalog fingerprint no longer matches candidate creation",
-            received=session.catalog.definition_fingerprint,
         )
     assert session._ontology_catalog is not None
     live_edge = next(
@@ -131,12 +139,6 @@ def observe_candidate(
             received=candidate.inherited_scope.fingerprint,
         )
     metric_ref = cast("Ref[MetricKind]", _payload_ref(candidate.metric_ref))
-    ready, readiness_fingerprint = _readiness_fingerprint(session, metric_ref)
-    if not ready or readiness_fingerprint != candidate.readiness_fingerprint:
-        raise _not_observable(
-            "candidate Metric readiness changed after discovery",
-            received=readiness_fingerprint,
-        )
     scope = candidate.inherited_scope
     compatible = _scope_compatible(
         session=session,

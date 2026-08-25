@@ -15,6 +15,8 @@ import marivo.analysis.session as session_attach
 import marivo.ontology as mo
 import marivo.semantic as ms
 from marivo.analysis.errors import (
+    ArtifactAuthorityUnknownError,
+    ArtifactStaleError,
     CandidateNotObservableError,
     CandidateScopeOverrideForbiddenError,
     FrameMetaInvalidError,
@@ -306,6 +308,64 @@ def test_semantic_hypothesis_end_to_end_and_candidate_origin(tmp_path) -> None:
     assert reverse.meta.resolution_summary.emitted_candidates == 0
 
 
+@pytest.mark.parametrize(
+    ("old", "new", "definition_ref"),
+    (
+        ("return orders.amount.sum()", "return orders.amount.mean()", "metric:sales.revenue"),
+        (
+            "return orders.amount.count()",
+            "return orders.amount.max()",
+            "metric:sales.order_count",
+        ),
+        (
+            "source=md.table('orders')",
+            "source=md.table('orders_v2')",
+            "entity:sales.orders",
+        ),
+    ),
+)
+def test_candidate_reentry_uses_shared_source_and_readiness_authority(
+    tmp_path,
+    old: str,
+    new: str,
+    definition_ref: str,
+) -> None:
+    _ready_project(tmp_path)
+    session = _session_with_orders(tmp_path)
+    source = session.observe(ms.ref.metric("sales.revenue"))
+    candidates = session.discover.semantic_hypotheses(source)
+    selected = candidates.select(item_id=str(candidates.to_pandas().iloc[0]["item_id"]))
+    datasets = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    datasets.write_text(datasets.read_text().replace(old, new))
+    session._catalog = ms.load()
+
+    with pytest.raises(ArtifactStaleError) as exc_info:
+        session.observe(selected)
+
+    error = exc_info.value
+    assert error._context["capability_id"] == "observe"
+    assert error._context["parameter"] == "metrics"
+    assert definition_ref in error._context["definition_refs"]
+
+
+def test_candidate_reentry_fails_closed_when_source_authority_is_unavailable(tmp_path) -> None:
+    _ready_project(tmp_path)
+    session = _session_with_orders(tmp_path)
+    source = session.observe(ms.ref.metric("sales.revenue"))
+    candidates = session.discover.semantic_hypotheses(source)
+    selected = candidates.select(item_id=str(candidates.to_pandas().iloc[0]["item_id"]))
+    source_ref = source.meta.artifact_id or source.meta.ref
+    session._store.delete_artifact(session.id, source_ref)
+
+    with pytest.raises(ArtifactAuthorityUnknownError) as exc_info:
+        session.observe(selected)
+
+    error = exc_info.value
+    assert error._context["capability_id"] == "observe"
+    assert error._context["parameter"] == "metrics"
+    assert source_ref in error._context["definition_refs"]
+
+
 def test_configured_empty_ontology_commits_empty_candidate_set(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     _add_order_count_metric(tmp_path)
@@ -397,25 +457,12 @@ def test_semantic_hypothesis_limit_is_closed(tmp_path, limit: object) -> None:
 def test_discovery_errors_for_absent_and_session_unavailable(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     _add_order_count_metric(tmp_path)
-    absent_backend = ibis.duckdb.connect(":memory:")
-    session = mv.session.get_or_create(
-        name="absent", backends={"warehouse": lambda: absent_backend}
-    )
+    session = _session_with_orders(tmp_path)
     source = session.observe  # retain a normal non-ontology callable path smoke check
     assert callable(source)
     assert session._ontology_state == "absent"
 
-    from tests.shared_fixtures import make_metric_frame
-
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "revenue"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=session,
-    )
+    frame = session.observe(ms.ref.metric("sales.revenue"))
     with pytest.raises(OntologyNotConfiguredError):
         session.discover.semantic_hypotheses(frame)
 
@@ -424,20 +471,9 @@ def test_discovery_errors_for_absent_and_session_unavailable(tmp_path) -> None:
         _valid_ontology_source().replace("sales.order_count", "sales.missing"),
     )
     session_attach._reset_process_state()
-    unavailable_backend = ibis.duckdb.connect(":memory:")
-    unavailable = mv.session.get_or_create(
-        name="unavailable", backends={"warehouse": lambda: unavailable_backend}
-    )
+    unavailable = _session_with_orders(tmp_path)
     assert unavailable._ontology_state == "unavailable"
-    unavailable_frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "revenue"},
-        semantic_kind="scalar",
-        semantic_model="sales",
-        session=unavailable,
-    )
+    unavailable_frame = unavailable.observe(ms.ref.metric("sales.revenue"))
     with pytest.raises(OntologyUnavailableError):
         unavailable.discover.semantic_hypotheses(unavailable_frame)
 

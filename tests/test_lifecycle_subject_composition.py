@@ -79,6 +79,47 @@ def _identities(subjects: SubjectSet) -> list[tuple[object, ...]]:
 
 
 @pytest.mark.parametrize(
+    ("reducer", "semantic_kind"),
+    (
+        ("transitions", "transitions"),
+        ("dwell", "dwell"),
+        ("violations", "violations"),
+    ),
+)
+def test_materialized_lifecycle_reducers_ignore_unrelated_catalog_drift(
+    semantic_project_factory: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reducer: str,
+    semantic_kind: str,
+) -> None:
+    session = _composition_session(
+        semantic_project_factory,
+        tmp_path,
+        monkeypatch,
+        name=f"lifecycle-materialized-{reducer}",
+    )
+    try:
+        history = _history(session, complete=True)
+        objects_file = tmp_path / "models" / "semantic" / "commerce" / "objects.py"
+        objects_file.write_text(
+            objects_file.read_text().replace(
+                'business_definition="Distinct orders."',
+                'business_definition="Governed distinct orders."',
+            )
+        )
+        session._catalog = ms.load()
+
+        result = getattr(session.lifecycle, reducer)(history)
+
+        assert result.meta.semantic_kind == semantic_kind
+        assert result.meta.source_history_ref == (history.meta.artifact_id or history.meta.ref)
+    finally:
+        session.close()
+        session_attach._reset_process_state()
+
+
+@pytest.mark.parametrize(
     ("state", "as_of", "expected"),
     [
         # window.start is the inclusive lower observation bound.
@@ -287,20 +328,22 @@ def test_in_state_rejects_a_state_handle_after_the_state_model_changed(
     )
     try:
         history = _history(session, complete=True)
-        stale = history.meta.model_copy(update={"state_model_fingerprint": "sha256:stale"})
-        drifted = type(history)(
-            _df=history._dataframe_copy(),
-            meta=stale,
-            _auxiliary_frames=dict(history._auxiliary_frames),
+        objects_file = tmp_path / "models" / "semantic" / "commerce" / "objects.py"
+        objects_file.write_text(
+            objects_file.read_text().replace(
+                "Commercial order lifecycle.",
+                "Updated commercial order lifecycle.",
+            )
         )
+        session._catalog = ms.load()
 
-        with pytest.raises(ModelStateMismatchError) as exc_info:
+        with pytest.raises(mv.errors.ArtifactStaleError) as exc_info:
             session.select_subjects(
-                drifted,
+                history,
                 selection=mv.in_state(_state("paid"), as_of="2026-07-10T00:00:00Z"),
             )
 
-        assert exc_info.value.received == "state_model_definition_changed"
+        assert "state_model:commerce.order_lifecycle" in str(exc_info.value.received)
         assert exc_info.value.location == "session.select_subjects.artifact"
     finally:
         session.close()

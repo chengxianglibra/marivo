@@ -64,8 +64,6 @@ from marivo.analysis.session.core import Session, ensure_session_can_execute
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
-from marivo.semantic.catalog import StateModelEntry
-from marivo.semantic.errors import SemanticRuntimeError
 
 LifecycleReducerHelpTarget: TypeAlias = Literal[
     "lifecycle.distribution",
@@ -153,37 +151,6 @@ def _require_history_source(
             action="Use the source LifecycleFrame[history], not a reducer output.",
         )
     history_meta = history.meta
-    if history_meta.catalog_definition_fingerprint != session.catalog.definition_fingerprint:
-        raise _source_error(
-            help_target=help_target,
-            message="The Lifecycle history was built from a stale semantic catalog.",
-            expected="the current catalog definition fingerprint",
-            received=history_meta.catalog_definition_fingerprint,
-            action="Replay the StateModel against the current catalog before reducing it.",
-        )
-    try:
-        model_entry = session.catalog.require(
-            ref_factory.state_model(history_meta.state_model_ref.path)
-        )
-    except SemanticRuntimeError as exc:
-        raise _source_error(
-            help_target=help_target,
-            message="The history StateModel is absent from the current catalog.",
-            expected="the exact retained StateModel in the current catalog",
-            received=history_meta.state_model_ref.path,
-            action="Inspect current StateModels and replay a current definition.",
-        ) from exc
-    if not isinstance(model_entry, StateModelEntry):
-        raise AssertionError(f"StateModel ref resolved to {type(model_entry).__name__}")
-    if model_entry.details().definition_fingerprint != history_meta.state_model_fingerprint:
-        raise _source_error(
-            help_target=help_target,
-            message="The history StateModel definition has changed.",
-            expected="the retained StateModel definition fingerprint",
-            received=model_entry.details().definition_fingerprint,
-            action="Replay the current StateModel before applying Lifecycle reducers.",
-        )
-
     source_ref = history_meta.artifact_id or history_meta.ref
     source_fingerprint = history_meta.content_hash
     registered = session._store.get_artifact(session.id, source_ref)

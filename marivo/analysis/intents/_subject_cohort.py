@@ -84,29 +84,6 @@ def _mismatch(
     )
 
 
-def _current_identity_signature(
-    catalog: SemanticCatalog,
-    *,
-    entity_path: str,
-) -> tuple[str, ...]:
-    registry = catalog._require_index().registry
-    entity = registry.entities.get(entity_path)
-    if entity is None:
-        return ()
-    return tuple(
-        (
-            component
-            if component in registry.dimensions
-            else (
-                f"{entity_path}.{component}"
-                if f"{entity_path}.{component}" in registry.dimensions
-                else component
-            )
-        )
-        for component in entity.primary_key
-    )
-
-
 def _require_current_artifact(
     *,
     session: Session,
@@ -168,15 +145,6 @@ def resolve_subject_cohort(
             location=f"session.{consumer}.cohort",
             action="Rebuild the SubjectSet from an artifact in the current project.",
         )
-    if cohort.meta.catalog_definition_fingerprint != session.catalog.definition_fingerprint:
-        raise _mismatch(
-            consumer=consumer,
-            message="The SubjectSet was produced from a different catalog definition.",
-            expected="a SubjectSet built from the active catalog fingerprint",
-            received="catalog_definition_changed",
-            location=f"session.{consumer}.cohort",
-            action="Reload the active catalog and rebuild the SubjectSet.",
-        )
     if cohort.meta.coverage_status != "ready":
         raise EventCoverageUnknownError(
             message="The SubjectSet contains coverage-censored selection truth.",
@@ -220,19 +188,6 @@ def resolve_subject_cohort(
         role="source",
     )
 
-    current_signature = _current_identity_signature(
-        session.catalog,
-        entity_path=cohort.meta.subject_entity_ref.path,
-    )
-    if current_signature != cohort.meta.subject_identity:
-        raise _mismatch(
-            consumer=consumer,
-            message="The SubjectSet identity signature is stale against the current catalog.",
-            expected=repr(current_signature),
-            received=repr(cohort.meta.subject_identity),
-            location=f"session.{consumer}.cohort.subject_identity",
-            action="Reload the current catalog and rebuild the SubjectSet.",
-        )
     if (
         expected_subject_entity is not None
         and cohort.meta.subject_entity_ref != expected_subject_entity

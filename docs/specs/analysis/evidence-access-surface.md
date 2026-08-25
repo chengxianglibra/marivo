@@ -264,6 +264,28 @@ independent evidence projection. Revalidation verifies their own Session Store
 and content identity plus the canonical parent evidence, then reports their
 healthy `evidence_status="unavailable"` as an indeterminate result.
 
+## Operator semantic admission
+
+Artifact-bearing operators declare one closed authority policy in the private
+capability registry. A `semantic_current` consumer checks the Artifact's
+canonical scoped dependency closure immediately before execution, using the
+same normalized authority context and semantic comparator as revalidation.
+Confirmed definition drift raises `mv.errors.ArtifactStaleError`; authority
+that cannot be established raises
+`mv.errors.ArtifactAuthorityUnknownError`. Both errors identify the capability,
+parameter, Artifact and source refs, affected definition refs, recorded/current
+fingerprints, and an executable repair.
+
+`materialized_only` consumers do not read current catalog authority. They still
+retain their existing Artifact integrity, Session ownership, shape, coverage,
+content identity, and operator-specific checks. This allows closed reducers,
+transforms, projections, and terminal reads to consume committed values without
+mistaking unrelated catalog drift for corruption. Admission never calls
+`session.revalidate(...)`, reads datasource health, or folds evidence coverage
+into execution eligibility. Focused help reports the registered authority
+policy; `artifact.contract()` remains a commit-time mechanical continuation
+contract and performs no currentness check.
+
 ## Commit and persistence
 
 `judgment.db` remains the on-disk filename for existing session layouts, but its

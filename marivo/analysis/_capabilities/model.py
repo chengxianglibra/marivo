@@ -20,6 +20,8 @@ from typing import Literal
 
 CapabilityKind = Literal["operator", "constructor", "read", "recovery", "boundary"]
 
+AuthorityPolicy = Literal["semantic_current", "materialized_only"]
+
 RootVisibility = Literal["direct", "grouped"]
 
 RootGroup = Literal[
@@ -207,9 +209,14 @@ class OperatorCapability(CapabilityBase):
         input families.
     output_contract:
         Closed family and any statically known artifact shape facts.
+    authority_policy:
+        Whether artifact-bearing inputs must prove current scoped semantic
+        authority before execution, or may be consumed only as committed
+        materialized values.
     """
 
     kind: Literal["operator"] = "operator"
+    authority_policy: AuthorityPolicy = field(kw_only=True)
     receiver: str = ""
     accepted_inputs: Mapping[str, frozenset[InputFamily]] = field(default_factory=dict)
     artifact_admission: Mapping[str, ArtifactAdmissionRule] = field(default_factory=dict)
