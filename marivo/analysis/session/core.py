@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence import (
         ArtifactDigest,
         ArtifactDigestPage,
+        ArtifactRevalidation,
         EvidenceCompatibility,
         EvidenceDerivationTrace,
         Finding,
@@ -557,6 +558,33 @@ class Session(RenderableResult):
         from marivo.analysis.session._load import load_frame
 
         return load_frame(ref, session=self)
+
+    def revalidate(self, frame: BaseFrame) -> ArtifactRevalidation:
+        """Revalidate one committed Artifact against current authority and evidence.
+
+        Args:
+            frame: A committed Frame owned by this Session. Recover an exact ref
+                with ``session.get_frame(ref)`` before calling this method.
+
+        Returns:
+            An immutable ArtifactRevalidation covering identity integrity,
+            current semantic authority, and persisted evidence integrity.
+
+        Example:
+            result = session.revalidate(session.get_frame(artifact_ref))
+            result.show()
+
+        Constraints:
+            Revalidation is read-only and does not query datasource health,
+            infer freshness, or modify the Artifact or evidence ledger.
+        """
+        from marivo.analysis._artifact_revalidation import evaluate_artifact_revalidation
+
+        return evaluate_artifact_revalidation(
+            session=self,
+            store=self.evidence._require_store(),
+            frame=frame,
+        )
 
     def frame_summaries(
         self,

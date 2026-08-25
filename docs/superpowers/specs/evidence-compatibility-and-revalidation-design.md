@@ -1,6 +1,6 @@
 # Marivo Evidence Compatibility and Revalidation — 设计
 
-状态：Slice 0–1 已实现；Slice 2–4 尚未实现
+状态：Slice 0–2 已实现；Slice 3–4 尚未实现
 
 ## 文档目的
 
@@ -709,6 +709,9 @@ cutover。
 - 同步 help、exports、spec 和 focused tests。
 
 ### Slice 2：Artifact Revalidation
+
+状态：已实现（Artifact schema v10 与 evidence schema v4 保持不变；未提前实现
+operator admission 或 authority policy registry）。
 
 - 实现 AuthorityContext；
 - 实现 identity、semantic 和 evidence revalidation；

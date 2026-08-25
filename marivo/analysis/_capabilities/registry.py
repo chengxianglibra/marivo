@@ -2294,6 +2294,26 @@ def _build_registry() -> CapabilityRegistry:
             )
         )
 
+    descriptors.append(
+        ReadCapability(
+            id="session.revalidate",
+            public_entrypoint="session.revalidate(frame)",
+            help_target="session.revalidate",
+            summary=(
+                "Revalidate one committed Artifact against current semantic authority "
+                "and persisted evidence integrity."
+            ),
+            root_group="recovery",
+            root_visibility="grouped",
+            constraint_ids=(),
+            callable_path="marivo.analysis.session.core.Session.revalidate",
+            receiver_family="Session",
+            result_kind="immutable_metadata",
+            read_bound="bounded",
+            output_type="ArtifactRevalidation",
+        )
+    )
+
     # -- Evidence namespace reads -----------------------------------------
 
     evidence_specs: tuple[tuple[str, str, str, str], ...] = (

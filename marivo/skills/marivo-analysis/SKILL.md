@@ -197,6 +197,15 @@ observation merely to obtain a new artifact id. Label new operations with a
 concise `analysis_purpose` and show only artifacts produced in the current
 round.
 
+After restoring an old Artifact with `session.get_frame(ref)`, read
+`marivo.help("analysis.session.revalidate")` and run
+`session.revalidate(frame)` before treating it as current evidence. Continue
+only when the result is admissible. Re-run a stale branch from its producing
+operator; stop and disclose an indeterminate branch until its authority or
+evidence can be restored. Revalidation proves persisted identity, current
+semantic authority, and evidence consistency; it does not prove datasource
+freshness.
+
 When resuming work, start with `marivo.help("analysis.recovery")`. Read bounded
 session inspection, frame summaries, recent jobs, evidence digests, and findings
 before loading exact supporting artifacts. Historical conclusions and chat or

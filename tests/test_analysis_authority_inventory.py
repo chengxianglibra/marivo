@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import get_args
 
 import marivo.analysis as mv
+from marivo.analysis._artifact_authority import (
+    ArtifactAuthorityContext,
+    CatalogOnlyDependencyAuthority,
+    ScopedDependencyAuthority,
+    UnresolvedDependencyAuthority,
+)
 from marivo.analysis._authority_inventory import (
     ARTIFACT_AUTHORITY_INVENTORY,
     COMMON_AUTHORITY_FIELDS,
@@ -193,3 +199,10 @@ def test_authority_inventory_remains_analysis_internal() -> None:
     assert "ArtifactAuthorityInventoryEntry" not in mv.__all__
     assert "ARTIFACT_AUTHORITY_INVENTORY" not in mv.__all__
     assert "artifact_authority_ref" not in mv.__all__
+    for private_type in (
+        ArtifactAuthorityContext,
+        ScopedDependencyAuthority,
+        CatalogOnlyDependencyAuthority,
+        UnresolvedDependencyAuthority,
+    ):
+        assert private_type.__name__ not in mv.__all__

@@ -11,7 +11,13 @@ from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from marivo.analysis._authority_inventory import ARTIFACT_AUTHORITY_INVENTORY
+from marivo.analysis._artifact_authority import (
+    ArtifactAuthorityContext,
+    ScopedDependencyAuthority,
+    authority_context,
+    evaluate_semantic_authority,
+)
+from marivo.analysis._artifact_integrity import finding_subject_matches_artifact
 from marivo.analysis.errors import (
     AnalysisRepair,
     EvidenceIntegrityError,
@@ -25,7 +31,6 @@ from marivo.analysis.evidence.identity import (
     canonical_json,
     canonical_subject_key,
     make_issue_id,
-    make_scope_fingerprint,
 )
 from marivo.analysis.evidence.store import EvidenceStore
 from marivo.analysis.evidence.types import (
@@ -48,7 +53,6 @@ from marivo.analysis.evidence.types import (
     EvidenceScope,
     EvidenceScopeAdapter,
     EvidenceStatus,
-    EvidenceSubject,
     EvidenceSubjectAdapter,
     Finding,
     InferenceBoundary,
@@ -62,19 +66,13 @@ from marivo.analysis.evidence.types import (
 from marivo.analysis.frames._content_hash import compute_file_content_hash
 from marivo.analysis.frames.base import BaseFrame
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import Ref, RefPayloadV1, SemanticKindTag
-from marivo.refs import ref as ref_factory
-from marivo.semantic.errors import SemanticError
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     CatalogMetricSubjectV1,
     DeltaMetricSubjectV1,
     RuntimeExpressionIdentity,
     RuntimeExpressionSubjectV1,
-    SemanticDependencyEntryV1,
 )
-from marivo.semantic.metric_graph_canonical import fingerprint as semantic_fingerprint
-from marivo.semantic.metric_graph_lowering import dependency_digest
 
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
@@ -101,23 +99,6 @@ _SCOPE_COMPARATOR_TYPES = (
 
 
 @dataclass(frozen=True, slots=True)
-class _SemanticDependency:
-    ref: RefPayloadV1
-    fingerprint: str
-    scheme: Literal["dependency_entry", "definition"]
-
-    @property
-    def key(self) -> str:
-        return f"{self.ref.kind.value}:{self.ref.path}"
-
-
-@dataclass(frozen=True, slots=True)
-class _SourceArtifactBinding:
-    ref: str
-    fingerprint: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class _CanonicalFinding:
     finding: Finding
     scope: EvidenceScope
@@ -127,7 +108,8 @@ class _CanonicalFinding:
     operator: str
     omitted_item_count: int
     frame: BaseFrame
-    dependencies: tuple[_SemanticDependency, ...]
+    authority: ArtifactAuthorityContext
+    dependencies: tuple[ScopedDependencyAuthority, ...]
     source_artifact_refs: tuple[str, ...]
     authority_complete: bool
 
@@ -220,229 +202,6 @@ def _store_read_error(*, store: EvidenceStore, cause: Exception) -> EvidenceStor
             "Restore the current Session evidence store, then retry the exact Finding selection."
         ),
         context={"db_path": str(store.db_path)},
-    )
-
-
-def _payload_ref(payload: RefPayloadV1) -> Ref[SemanticKindTag]:
-    factory = cast("Any", getattr(ref_factory, payload.kind.value))
-    return cast("Ref[SemanticKindTag]", factory(payload.path))
-
-
-def _entry_fingerprint(entry: SemanticDependencyEntryV1) -> str:
-    return semantic_fingerprint(entry)
-
-
-def _direct_dependencies(meta: object) -> tuple[_SemanticDependency, ...]:
-    result: list[_SemanticDependency] = []
-    digests: list[object] = []
-    direct_digest = getattr(meta, "semantic_dependency_digest", None)
-    if direct_digest is not None:
-        digests.append(direct_digest)
-    source_digests = getattr(meta, "source_dependency_digests", ())
-    if isinstance(source_digests, tuple):
-        digests.extend(source_digests)
-    for digest in digests:
-        for entry in getattr(digest, "entries", ()):
-            if isinstance(entry, SemanticDependencyEntryV1):
-                result.append(
-                    _SemanticDependency(
-                        ref=entry.ref,
-                        fingerprint=_entry_fingerprint(entry),
-                        scheme="dependency_entry",
-                    )
-                )
-
-    event_fingerprints = getattr(meta, "event_fingerprints", None)
-    if isinstance(event_fingerprints, dict):
-        for path, fingerprint in event_fingerprints.items():
-            result.append(
-                _SemanticDependency(
-                    ref=RefPayloadV1.from_ref(ref_factory.event(str(path))),
-                    fingerprint=str(fingerprint),
-                    scheme="definition",
-                )
-            )
-
-    for ref_field, fingerprint_field in (
-        ("state_model_ref", "state_model_fingerprint"),
-        ("target_state_model_ref", "target_state_model_fingerprint"),
-    ):
-        ref_payload = getattr(meta, ref_field, None)
-        fingerprint = getattr(meta, fingerprint_field, None)
-        if isinstance(ref_payload, RefPayloadV1) and isinstance(fingerprint, str):
-            result.append(
-                _SemanticDependency(
-                    ref=ref_payload,
-                    fingerprint=fingerprint,
-                    scheme="definition",
-                )
-            )
-
-    return tuple(
-        sorted(
-            set(result),
-            key=lambda item: (item.key, item.scheme, item.fingerprint),
-        )
-    )
-
-
-def _source_bindings_from_value(value: object) -> tuple[_SourceArtifactBinding, ...]:
-    if isinstance(value, str):
-        return (_SourceArtifactBinding(ref=value),)
-    if isinstance(value, tuple | list):
-        return tuple(binding for item in value for binding in _source_bindings_from_value(item))
-    result: list[_SourceArtifactBinding] = []
-    for ref_name, fingerprint_name in (
-        ("artifact_ref", "artifact_fingerprint"),
-        ("source_artifact_ref", "source_artifact_fingerprint"),
-    ):
-        candidate = getattr(value, ref_name, None)
-        fingerprint = getattr(value, fingerprint_name, None)
-        if isinstance(candidate, str):
-            result.append(
-                _SourceArtifactBinding(
-                    ref=candidate,
-                    fingerprint=fingerprint if isinstance(fingerprint, str) else None,
-                )
-            )
-    return tuple(result)
-
-
-def _typed_source_artifact_bindings(
-    meta: object,
-) -> tuple[_SourceArtifactBinding, ...] | None:
-    entry = next(
-        (item for item in ARTIFACT_AUTHORITY_INVENTORY if type(meta) is item.meta_type),
-        None,
-    )
-    if entry is None:
-        return None
-    bindings: list[_SourceArtifactBinding] = []
-    for field_name in entry.source_identity_fields:
-        if field_name.endswith("_fingerprint"):
-            continue
-        value = getattr(meta, field_name, None)
-        if field_name.endswith("_ref") and isinstance(value, str):
-            fingerprint_name = f"{field_name.removesuffix('_ref')}_fingerprint"
-            fingerprint = getattr(meta, fingerprint_name, None)
-            bindings.append(
-                _SourceArtifactBinding(
-                    ref=value,
-                    fingerprint=fingerprint if isinstance(fingerprint, str) else None,
-                )
-            )
-            continue
-        bindings.extend(_source_bindings_from_value(value))
-    return tuple(
-        sorted(
-            set(bindings),
-            key=lambda binding: (binding.ref, binding.fingerprint or ""),
-        )
-    )
-
-
-def _collect_dependencies(
-    *,
-    session: Session,
-    artifact_ref: str,
-    frames: dict[str, BaseFrame],
-    visiting: set[str] | None = None,
-) -> tuple[tuple[_SemanticDependency, ...], bool, tuple[str, ...]]:
-    visiting = set() if visiting is None else visiting
-    if artifact_ref in visiting:
-        raise _integrity_error(
-            artifact_ref=artifact_ref,
-            expected="acyclic typed source Artifact lineage",
-            received="source lineage cycle",
-        )
-    visiting.add(artifact_ref)
-    frame = frames.get(artifact_ref)
-    if frame is None:
-        try:
-            frame = session.get_frame(artifact_ref)
-        except Exception as exc:
-            raise _integrity_error(
-                artifact_ref=artifact_ref,
-                expected="an intact source Artifact referenced by typed lineage",
-                received=type(exc).__name__,
-                cause=exc,
-            ) from exc
-        frames[artifact_ref] = frame
-    result = list(_direct_dependencies(frame.meta))
-    source_bindings = _typed_source_artifact_bindings(frame.meta)
-    if source_bindings is None:
-        visiting.remove(artifact_ref)
-        return tuple(result), False, ()
-    complete = True
-    source_refs: list[str] = []
-    for binding in source_bindings:
-        dependencies, source_complete, nested_source_refs = _collect_dependencies(
-            session=session,
-            artifact_ref=binding.ref,
-            frames=frames,
-            visiting=visiting,
-        )
-        source_frame = frames[binding.ref]
-        if (
-            binding.fingerprint is not None
-            and source_frame.meta.content_hash != binding.fingerprint
-        ):
-            raise _integrity_error(
-                artifact_ref=binding.ref,
-                expected="the typed source Artifact to match its recorded content fingerprint",
-                received=(
-                    f"recorded={binding.fingerprint!r}, actual={source_frame.meta.content_hash!r}"
-                ),
-            )
-        result.extend(dependencies)
-        source_refs.extend((binding.ref, *nested_source_refs))
-        complete = complete and source_complete
-    visiting.remove(artifact_ref)
-    return (
-        tuple(
-            sorted(
-                set(result),
-                key=lambda item: (item.key, item.scheme, item.fingerprint),
-            )
-        ),
-        complete,
-        tuple(sorted(set(source_refs))),
-    )
-
-
-def _finding_subject_matches_artifact(
-    *,
-    finding: Finding,
-    artifact_subject: EvidenceSubject,
-    scope: EvidenceScope,
-) -> bool:
-    if finding.subject == artifact_subject:
-        return True
-    if not isinstance(finding.subject, Subject) or not isinstance(artifact_subject, Subject):
-        return False
-    if not isinstance(scope, AnalysisScope) or artifact_subject.typed_metric_subject is not None:
-        return False
-    if finding.subject.model_copy(update={"typed_metric_subject": None}) != artifact_subject:
-        return False
-    typed = finding.subject.typed_metric_subject
-    if isinstance(typed, CatalogMetricSubjectV1):
-        identity_present = any(
-            isinstance(identity, CatalogMetricIdentity) and identity.metric_ref == typed.metric_ref
-            for identity in scope.metric_identities
-        )
-    elif isinstance(typed, RuntimeExpressionSubjectV1):
-        identity_present = any(
-            isinstance(identity, RuntimeExpressionIdentity)
-            and identity.expression_fingerprint == typed.expression_fingerprint
-            for identity in scope.metric_identities
-        )
-    else:
-        return False
-    return (
-        typed.session_id == finding.session_id
-        and typed.artifact_id == finding.artifact_id
-        and typed.scope_fingerprint == make_scope_fingerprint(scope)
-        and identity_present
     )
 
 
@@ -574,7 +333,7 @@ def _load_canonical_selection(
                 received=type(exc).__name__,
                 cause=exc,
             ) from exc
-        if not _finding_subject_matches_artifact(
+        if not finding_subject_matches_artifact(
             finding=finding,
             artifact_subject=artifact_subject,
             scope=scope,
@@ -684,11 +443,16 @@ def _load_canonical_selection(
                 expected="matching sidecar and ledger quality summary",
                 received="quality summary mismatch",
             )
-        dependencies, authority_complete, source_artifact_refs = _collect_dependencies(
-            session=session,
-            artifact_ref=artifact_ref,
-            frames=frames,
+        authority = authority_context(frame, session=session, frames=frames)
+        dependencies = tuple(
+            dependency
+            for dependency in authority.semantic_dependencies
+            if isinstance(dependency, ScopedDependencyAuthority)
         )
+        authority_complete = bool(dependencies) and len(dependencies) == len(
+            authority.semantic_dependencies
+        )
+        source_artifact_refs = authority.source_refs
         operator = (
             selected_digest.operator.operator
             if selected_digest is not None
@@ -706,6 +470,7 @@ def _load_canonical_selection(
                     selected_digest.omissions.omitted_items if selected_digest is not None else 0
                 ),
                 frame=frame,
+                authority=authority,
                 dependencies=dependencies,
                 source_artifact_refs=source_artifact_refs,
                 authority_complete=authority_complete,
@@ -1035,52 +800,6 @@ def _comparability_issue(
     )
 
 
-def _current_dependencies(
-    record: _CanonicalFinding,
-    *,
-    session: Session,
-) -> tuple[dict[tuple[str, str], str], bool]:
-    current: dict[tuple[str, str], str] = {}
-    dependency_entries = tuple(
-        dependency for dependency in record.dependencies if dependency.scheme == "dependency_entry"
-    )
-    if dependency_entries:
-        reg = getattr(session.catalog, "_reg", None)
-        state = getattr(session.catalog, "_state", None)
-        if reg is None or state is None:
-            return current, False
-        try:
-            digest = dependency_digest(
-                reg,
-                sidecar=state.sidecar,
-                semantic_refs=tuple(
-                    _payload_ref(dependency.ref) for dependency in dependency_entries
-                ),
-            )
-        except (KeyError, SemanticError, TypeError, ValueError):
-            return current, False
-        current.update(
-            {
-                (f"{entry.ref.kind.value}:{entry.ref.path}", "dependency_entry"): (
-                    _entry_fingerprint(entry)
-                )
-                for entry in digest.entries
-            }
-        )
-    for dependency in record.dependencies:
-        if dependency.scheme != "definition":
-            continue
-        try:
-            details = session.catalog.require(_payload_ref(dependency.ref)).details()
-            fingerprint = getattr(details, "definition_fingerprint", None)
-        except SemanticError:
-            return current, False
-        if not isinstance(fingerprint, str):
-            return current, False
-        current[(dependency.key, dependency.scheme)] = fingerprint
-    return current, True
-
-
 def _deduplicate_issues(
     issues: Sequence[EvidenceCompatibilityIssue],
 ) -> tuple[EvidenceCompatibilityIssue, ...]:
@@ -1174,58 +893,42 @@ def evaluate_compatibility(
                     received=type(record.scope).__name__,
                 )
             )
-        if not record.authority_complete or not record.dependencies:
+        authority_evaluation = evaluate_semantic_authority(
+            record.authority,
+            session=session,
+        )
+        if authority_evaluation.status == "indeterminate":
             semantic_indeterminate = True
             issues.append(
                 _rule_issue(
                     records=(record,),
                     kind="semantic_authority_unknown",
-                    expected="a complete typed semantic dependency closure",
-                    received="authority closure unavailable",
+                    expected="current canonical authority for every recorded dependency",
+                    received=(f"unresolved={authority_evaluation.indeterminate_definition_refs!r}"),
                 )
             )
-        else:
-            current, current_complete = _current_dependencies(record, session=session)
-            if not current_complete:
-                semantic_indeterminate = True
-                issues.append(
-                    _rule_issue(
-                        records=(record,),
-                        kind="semantic_authority_unknown",
-                        expected="current canonical authority for every recorded dependency",
-                        received="current authority unavailable",
-                    )
-                )
-            else:
-                drifted = tuple(
-                    sorted(
-                        dependency.key
-                        for dependency in record.dependencies
-                        if current.get((dependency.key, dependency.scheme))
-                        != dependency.fingerprint
-                    )
-                )
-                if drifted:
-                    semantic_incompatible = True
-                    refs = (record.finding.artifact_id,)
-                    detail = ComparabilityIssue(
-                        issue_id=make_issue_id(
-                            artifact_id=record.finding.artifact_id,
-                            kind=f"definition_drift_detected:{','.join(drifted)}",
-                            source_refs=refs,
-                        ),
-                        kind="definition_drift_detected",
-                        severity="blocking",
-                        source_refs=refs,
-                        left_scope=record.scope,
-                        right_scope=record.scope,
-                        definition_refs=drifted,
-                        repair=_compatibility_repair(
-                            "Re-run the source operator under the current semantic catalog before "
-                            "combining this Finding."
-                        ),
-                    )
-                    issues.append(_issue_wrapper((record,), detail))
+        elif authority_evaluation.status == "stale":
+            semantic_incompatible = True
+            drifted = authority_evaluation.drifted_definition_refs
+            refs = (record.finding.artifact_id,)
+            detail = ComparabilityIssue(
+                issue_id=make_issue_id(
+                    artifact_id=record.finding.artifact_id,
+                    kind=f"definition_drift_detected:{','.join(drifted)}",
+                    source_refs=refs,
+                ),
+                kind="definition_drift_detected",
+                severity="blocking",
+                source_refs=refs,
+                left_scope=record.scope,
+                right_scope=record.scope,
+                definition_refs=drifted,
+                repair=_compatibility_repair(
+                    "Re-run the source operator under the current semantic catalog before "
+                    "combining this Finding."
+                ),
+            )
+            issues.append(_issue_wrapper((record,), detail))
 
         for issue in record.issues:
             if isinstance(issue, (DataQualityIssue, ComparabilityIssue, EvidenceAvailabilityIssue)):

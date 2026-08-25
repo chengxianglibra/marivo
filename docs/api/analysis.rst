@@ -105,6 +105,7 @@ operator-local read model; it never performs cross-artifact judgment.
 
    Finding
    ArtifactDigest
+   ArtifactRevalidation
    EvidenceCompatibility
    EvidenceCompatibilityIssue
    EvidenceRuleIssue

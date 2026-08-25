@@ -9,6 +9,7 @@ from marivo.analysis.evidence.types import (
     AnomalyCandidate,
     ArtifactDigest,
     ArtifactIssue,
+    ArtifactRevalidation,
     AssociationFact,
     ChangeFact,
     ComparabilityIssue,
@@ -119,7 +120,9 @@ def render_artifact_issue(issue: ArtifactIssue) -> str:
             f"expectation={issue.expectation}"
         )
     if isinstance(issue, ComparabilityIssue):
-        details = ", ".join(issue.approximation_details or issue.incompatible_fields)
+        details = ", ".join(
+            issue.definition_refs or issue.approximation_details or issue.incompatible_fields
+        )
         return details or "artifact scopes are not exactly comparable"
     if isinstance(issue, EvidenceAvailabilityIssue):
         return (
@@ -425,8 +428,75 @@ def render_evidence_compatibility(
     return card.render(max_output_bytes=max_output_bytes)
 
 
+def render_artifact_revalidation(
+    result: ArtifactRevalidation,
+    *,
+    max_output_bytes: int | None = 8_000,
+) -> str:
+    """Render the bounded Artifact revalidation projection."""
+    card = Card(
+        identity=(
+            f"ArtifactRevalidation status={result.status} ref={result.artifact_ref} "
+            f"fingerprint={result.fingerprint}"
+        ),
+        available=(".issues", ".model_dump()", ".show()"),
+    )
+    card.field(
+        "checks",
+        (
+            f"semantic={result.semantic_status} evidence={result.evidence_status} "
+            f"schema={result.artifact_schema_version}"
+        ),
+    )
+    card.field(
+        "catalog authority",
+        (
+            f"recorded={result.recorded_catalog_fingerprint or 'not_projected'} "
+            f"current={result.current_catalog_fingerprint} "
+            f"authority={result.authority_fingerprint}"
+        ),
+    )
+    if result.issues:
+        rendered_issues: list[str] = []
+        for issue in result.issues[:5]:
+            if isinstance(issue, EvidenceRuleIssue):
+                rendered = f"expected={issue.expected}; received={issue.received}"
+            else:
+                rendered = render_artifact_issue(issue)
+            repair = issue.repair
+            if repair is not None:
+                rendered = f"{rendered}; repair={repair.action}"
+                if repair.snippet:
+                    rendered = f"{rendered}; rerun={repair.snippet}"
+            rendered_issues.append(f"{issue.severity} {issue.kind}: {rendered}")
+        card.listing("issues", rendered_issues)
+    if len(result.issues) > 5:
+        card.field("issues omitted", str(len(result.issues) - 5))
+    card.field("checked at", result.checked_at.isoformat())
+    card.field(
+        "exact recovery",
+        (f"frame=session.get_frame({result.artifact_ref!r}); result=session.revalidate(frame)"),
+    )
+    if result.status == "stale":
+        card.field(
+            "rerun path",
+            "follow the blocking issue repair and re-run the producing operator",
+        )
+    elif result.status == "indeterminate":
+        card.field(
+            "repair path",
+            "restore the authority or evidence named by issues, or re-run the producer",
+        )
+    card.field(
+        "boundary",
+        "admissible does not mean datasource freshness or source currency",
+    )
+    return card.render(max_output_bytes=max_output_bytes)
+
+
 __all__ = [
     "render_artifact_digest",
+    "render_artifact_revalidation",
     "render_digest_item",
     "render_digest_selection",
     "render_evidence_compatibility",

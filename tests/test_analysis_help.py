@@ -502,6 +502,26 @@ def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
     ):
         assert field in compatibility_type
 
+    revalidation_text = _text("session.revalidate")
+    assert "frame: BaseFrame" in revalidation_text
+    assert "Output type: ArtifactRevalidation" in revalidation_text
+    assert "immutable_metadata" in revalidation_text
+    assert "Read bound: bounded" in revalidation_text
+
+    revalidation_type = _text("ArtifactRevalidation")
+    for field in (
+        "artifact_ref",
+        "content_hash",
+        "semantic_status",
+        "evidence_status",
+        "status",
+        "issues",
+        "checked_at",
+        "authority_fingerprint",
+        "fingerprint",
+    ):
+        assert field in revalidation_type
+
 
 def test_focused_help_signature_matches_inspect() -> None:
     text = _text("observe")
@@ -1555,6 +1575,7 @@ def test_analysis_all_is_pinned() -> None:
         "ArtifactDigest",
         "ArtifactDigestPage",
         "ArtifactIssue",
+        "ArtifactRevalidation",
         "AssociationFact",
         "CandidateOrigin",
         "CandidateResolutionIssue",

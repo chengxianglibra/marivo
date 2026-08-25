@@ -39,6 +39,7 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "evidence",
         "frame_summaries",
         "get_frame",
+        "revalidate",
         "jobs",
         "recent_jobs",
         "close",

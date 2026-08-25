@@ -222,6 +222,48 @@ perform Artifact revalidation. Invalid selections raise
 `FindingNotFoundError`; broken committed identity, derivation, source refs, or
 sidecar/ledger agreement raise `EvidenceIntegrityError`.
 
+## Artifact revalidation
+
+Revalidate an exact recovered or newly committed Artifact before relying on it
+as current evidence:
+
+```python
+frame = session.get_frame(artifact_ref)
+revalidation = session.revalidate(frame)
+revalidation.show()
+```
+
+`ArtifactRevalidation` is frozen, bounded, read-only, and ephemeral. It reports
+the Artifact identity, recorded and current catalog fingerprints, normalized
+authority fingerprint, `semantic_status`, `evidence_status`, overall `status`,
+typed issues, and a UTC-aware `checked_at`. Its stable `fingerprint` excludes
+`checked_at`, so repeated checks of unchanged authority and evidence return the
+same identity.
+
+Semantic status is `current`, `stale`, or `indeterminate`. A confirmed scoped
+dependency drift wins over unresolved authority, including for multi-source
+Artifacts. Overall status is `stale` when semantic authority is stale;
+otherwise it is `indeterminate` when authority cannot be proven or evidence
+does not satisfy the contract, and `admissible` only when both checks pass.
+Complete evidence satisfies the contract. Partial evidence does so only when
+all availability issues are warnings and its explicit fallback retains safe
+rows; unavailable evidence is indeterminate. Business data-quality issues are
+reported as evidence, not misclassified as store corruption.
+
+The read verifies Session Store registration, sidecar/parquet content identity,
+session ownership, Artifact and evidence schemas, lineage, digest, findings,
+issues, scope, quality, and evidence-status agreement. Broken committed
+evidence raises `EvidenceIntegrityError`; an unavailable evidence store raises
+`EvidenceStoreUnavailableError`; Frame content or schema damage keeps the
+existing typed Frame errors. Revalidation never changes the Frame, its sidecar,
+digest, findings, hashes, or ledger, and never queries datasource or source
+health. It therefore does not prove source freshness.
+
+Persisted linked `ComponentFrame` and `CoverageFrame` sidecars do not own an
+independent evidence projection. Revalidation verifies their own Session Store
+and content identity plus the canonical parent evidence, then reports their
+healthy `evidence_status="unavailable"` as an indeterminate result.
+
 ## Commit and persistence
 
 `judgment.db` remains the on-disk filename for existing session layouts, but its
