@@ -1,0 +1,72 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.14
+title: Marivo 0.4.14
+description: Marivo 0.4.14 发布说明。
+---
+
+Marivo 0.4.14 补全面向 agent 的能力发现，强化 evidence identity 和 recovery，使命名
+session 的复用支持更新并保持事务一致，同时避免 credential cache 故障阻断成功的连接。
+
+## 重点
+
+- `marivo.help("targets")` 现在会从 live registry 暴露 canonical discovery index，其中包括
+  完整的 authoring surface map 和 analysis policy family。Focused help 可以解析已注册的
+  public type、error 和 member target，并提供确定性的 contract 与 repair guidance。
+- 从 source-row coordinate 派生的 evidence identity 现在使用带版本的 typed identity。null、空
+  字符串、布尔值、数值、时间值以及包含分隔符的值都会保持区分；不支持的复合 coordinate 会
+  直接安全失败，不再退回有损的字符串 identity。
+- Named session 现在通过稳定的 name 查找同一个 immutable session ID；复用时显式提供的
+  question 会更新当前 guiding question。Session question、metadata 和 current-session pointer
+  会以事务方式发布，telemetry 只会记录已完成 operation 的 question application 结果。
+
+## 变更
+
+- `MARIVO_PERSIST_CREDENTIALS` 替代 `MARIVO_PERSIST_SECRETS`。自动缓存已验证的环境凭据现在
+  是 best effort：用户全局 cache 写入失败时只记录经过清理的 warning，不会把成功的 datasource
+  test 或 analysis execution 变成失败；显式 persistence 调用仍保持严格行为。
+- Public help root 继续保持在可发现 capability 范围内，而 focused lookup 保留从 live result
+  继续操作所需的 type、error 和 member contract。
+
+## 修复
+
+- Evidence projection 失败时，现在可以留下带类型的 unavailable Artifact marker，而不会伪造
+  finding 或 digest。后续需要 evidence 的 retry 可以原子替换该 marker；替换失败时会恢复之前
+  的 sidecar 和 Session Store registration。
+- Source-row identity 不再因 null 与空值、显示文本相同但类型不同的值，或坐标分隔符出现在值
+  中而发生碰撞。
+
+## 文档
+
+- 更新 analysis workflow、semantic layer、evidence persistence 与 recovery、telemetry 和
+  capability discovery 文档。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.14 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/latest/concepts/evidence/)

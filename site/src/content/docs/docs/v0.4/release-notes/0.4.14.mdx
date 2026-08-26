@@ -1,0 +1,78 @@
+---
+slug: docs/v0.4/release-notes/0.4.14
+title: Marivo 0.4.14
+description: Release notes for Marivo 0.4.14.
+---
+
+Marivo 0.4.14 completes agent-facing capability discovery, hardens evidence
+identity and recovery, makes named session reuse updateable and transactional,
+and keeps credential-cache failures from blocking successful connections.
+
+## Highlights
+
+- `marivo.help("targets")` now exposes the canonical discovery index from the
+  live registries, including complete authoring surface maps and analysis policy
+  families. Focused help resolves registered public types, errors, and member
+  targets with deterministic contracts and repair guidance.
+- Evidence derived from source-row coordinates now uses versioned typed
+  identities. Null, empty strings, booleans, numeric and temporal values, and
+  delimiter-bearing values remain distinct; unsupported composite coordinates
+  fail closed instead of falling back to lossy string identity.
+- Named sessions now use stable names to find one immutable session ID, while an
+  explicit question updates the current guiding question on reuse. Session
+  question, metadata, and current-session pointer publish transactionally, and
+  telemetry records question application only for completed operations.
+
+## Changed
+
+- `MARIVO_PERSIST_CREDENTIALS` replaces `MARIVO_PERSIST_SECRETS`. Automatic
+  caching of validated environment credentials is best effort: a user-global
+  cache write failure emits a sanitized warning without turning a successful
+  datasource test or analysis execution into a failure. Explicit persistence
+  calls remain strict.
+- Public help roots now stay bounded to discoverable capabilities while focused
+  lookups retain the richer type, error, and member contracts needed to continue
+  from a live result.
+
+## Fixed
+
+- Evidence projection failures can now leave a typed unavailable Artifact marker
+  without fabricating findings or a digest. A later evidence-requesting retry
+  can replace that marker atomically; failed replacement restores the prior
+  sidecar and Session Store registration.
+- Source-row identity no longer collides for null versus empty values, typed
+  values with the same display text, or values containing coordinate delimiters.
+
+## Documentation
+
+- Updated the analysis workflow, semantic layer, evidence persistence and
+  recovery, telemetry, and capability-discovery documentation.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.14 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)
