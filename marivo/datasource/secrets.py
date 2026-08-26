@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 import tempfile
@@ -19,6 +20,8 @@ from marivo.datasource.errors import (
 )
 
 _INSECURE_SECRET_FILE_BITS = stat.S_IRWXG | stat.S_IRWXO
+
+_logger = logging.getLogger("marivo.datasource.secrets")
 
 
 class SecretProvider(Protocol):
@@ -197,3 +200,17 @@ def persist_backend_env_sourced(backend: object) -> None:
     resolved = getattr(backend, _ENV_SOURCED_SECRETS_ATTR, ())
     if isinstance(resolved, tuple):
         persist_env_sourced(resolved)
+
+
+def try_persist_backend_env_sourced(backend: object) -> bool:
+    """Best-effort persistence for automatically cached backend secrets."""
+    try:
+        persist_backend_env_sourced(backend)
+    except Exception as exc:
+        _logger.warning(
+            "Validated datasource secrets could not be cached; "
+            "continuing without persistence (error_type=%s)",
+            type(exc).__name__,
+        )
+        return False
+    return True

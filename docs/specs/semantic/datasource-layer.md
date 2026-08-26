@@ -173,11 +173,14 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
   references. It does not scan ambient `MARIVO_<DATASOURCE>_<FIELD>` variables;
   when a connection field is omitted, the selected Ibis backend owns its default
   or required-field behavior.
-- **Post-validation caching.** After a *validated* round trip — `md.test(ref)`
-  (or a successful `md.connect`) — env-sourced secrets are cached in plaintext at
-  user-global `~/.marivo/secrets.toml` so later sessions can connect without the
-  env var re-exported. This is a deliberate, documented convenience, gated by the
-  guards below.
+- **Post-validation caching.** After a *validated* round trip — `md.test(ref)` or
+  the first successful analysis execution in a session — Marivo attempts to cache
+  env-sourced secrets in plaintext at user-global `~/.marivo/secrets.toml` so later
+  sessions can connect without the env var re-exported. This is a deliberate,
+  documented convenience, gated by the guards below.
+- **Best-effort writes.** A cache write failure emits a sanitized warning but does
+  not invalidate a successful connection test or analysis execution. Automatic
+  caching does not fall back to project-local storage.
 - **Guards.** Persistence is disabled when `MARIVO_PERSIST_SECRETS=0` or `CI` is
   set. The cache file is written atomically at mode `0o600`, its parent at
   `0o700`, and Marivo refuses to write it anywhere inside a git repository.
@@ -432,10 +435,11 @@ md.test(spec.ref).show()  # validated live round trip
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
-code (`connection_open_failed`, `connection_roundtrip_failed`, or
-`secret_persistence_failed`), backend exception type/code/name, and a sanitized
-message. `.repair` provides the focused help target and action. Successful
-results prove only that the current datasource connection test passed.
+code (`connection_open_failed` or `connection_roundtrip_failed`), backend
+exception type/code/name, and a sanitized message. `.repair` provides the focused
+help target and action. Secret-cache write warnings do not change a successful
+result. Successful results prove only that the current datasource connection test
+passed.
 
 ## Inspection and evidence snapshots
 

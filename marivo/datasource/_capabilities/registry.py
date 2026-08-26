@@ -292,7 +292,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "test",
             "marivo.datasource.manage.test",
-            "Round-trip a datasource and cache validated env secrets.",
+            "Round-trip a datasource and best-effort cache validated env secrets.",
             output="DatasourceTestResult",
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,

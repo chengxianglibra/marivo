@@ -316,8 +316,11 @@ supported aggregation and a native temporal column instead.
 Sensitive fields are authored as `*_env` references that name an environment
 variable — `user_env="TRINO_USER"`, `password_env="MYSQL_PASSWORD"`. Putting a
 secret literal in a datasource field raises an error. Marivo resolves `*_env`
-values through `os.environ` → `~/.marivo/secrets.toml` and caches resolved secrets
-there after a validated `md.test(...)` round-trip.
+values through `os.environ` → `~/.marivo/secrets.toml` and attempts to cache
+resolved secrets there after a validated `md.test(...)` round-trip or the first
+successful analysis execution in a session. Cache write failures emit a sanitized
+warning but do not fail the successful connection test or analysis execution, and
+Marivo does not fall back to project-local secret storage.
 :::
 
 ```python

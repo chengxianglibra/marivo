@@ -310,8 +310,9 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     assert persisted == []
 
 
-def test_datasource_test_classifies_open_and_secret_persistence_failures(
+def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     from marivo.datasource import manage as manage_mod
 
@@ -347,14 +348,30 @@ def test_datasource_test_classifies_open_and_secret_persistence_failures(
     monkeypatch.setattr(
         manage_mod._secrets,
         "persist_backend_env_sourced",
-        lambda _backend: (_ for _ in ()).throw(PermissionError("cache denied")),
+        lambda _backend: (_ for _ in ()).throw(
+            PermissionError(
+                "cache denied for /Users/alice/.marivo/secrets.toml password=super-secret"
+            )
+        ),
     )
-    persistence_failure = md.test("wh")
+    caplog.set_level("WARNING", logger="marivo.datasource.secrets")
+    cache_failure = md.test("wh")
 
-    assert persistence_failure.failure is not None
-    assert persistence_failure.failure.code == "secret_persistence_failed"
-    assert persistence_failure.repair is not None
-    assert persistence_failure.repair.kind == "environment"
+    assert cache_failure.ok is True
+    assert cache_failure.failure is None
+    assert cache_failure.repair is None
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "marivo.datasource.secrets"
+    ]
+    assert warnings == [
+        "Validated datasource secrets could not be cached; "
+        "continuing without persistence (error_type=PermissionError)"
+    ]
+    assert "cache denied" not in warnings[0]
+    assert "/Users/alice" not in warnings[0]
+    assert "super-secret" not in warnings[0]
 
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:
