@@ -135,7 +135,6 @@ class DatasourceFailure:
     code: Literal[
         "connection_open_failed",
         "connection_roundtrip_failed",
-        "secret_persistence_failed",
     ]
     exception_type: str
     backend_code: str | None
@@ -552,7 +551,6 @@ def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
 DatasourceFailureCode: TypeAlias = Literal[
     "connection_open_failed",
     "connection_roundtrip_failed",
-    "secret_persistence_failed",
 ]
 
 
@@ -564,15 +562,6 @@ def _connection_repair(
     existing = getattr(exc, "repair", None)
     if isinstance(existing, AuthoringRepair):
         return existing
-    if failure_code == "secret_persistence_failed":
-        return repair(
-            kind="environment",
-            canonical_id="test",
-            action=(
-                "Fix the user-global secret cache location or permissions, then retest "
-                "the datasource."
-            ),
-        )
     return repair(
         kind="reconnect",
         canonical_id="test",
@@ -596,7 +585,7 @@ def _datasource_failure(
 
 
 def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
-    """Round-trip the backend and persist validated env secrets.
+    """Round-trip the backend and best-effort cache validated env secrets.
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
@@ -611,8 +600,9 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
 
     Constraints:
         On success, env-sourced secrets that resolved correctly are
-        persisted to the user-global plaintext cache. The backend is
-        always disconnected.
+        offered to the user-global plaintext cache. Cache write failures
+        emit a warning without changing the successful result. The backend
+        is always disconnected.
     """
     datasource_name = _datasource_name(name)
     start = time.perf_counter()
@@ -622,8 +612,7 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
         backend = connect(datasource_name)
         failure_code = "connection_roundtrip_failed"
         backend.raw_sql("SELECT 1")
-        failure_code = "secret_persistence_failed"
-        _secrets.persist_backend_env_sourced(backend)
+        _secrets.try_persist_backend_env_sourced(backend)
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,

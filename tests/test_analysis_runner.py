@@ -248,6 +248,52 @@ def test_execute_persists_backend_env_sourced_secrets_once_after_success(
     assert calls == [backend]
 
 
+def test_execute_ignores_secret_cache_failure_and_attempts_once(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[object] = []
+
+    class FakeBackend:
+        def execute(self, expr):
+            return 1
+
+    backend = FakeBackend()
+    cache = _runtime(lambda name: backend)
+
+    def fail_to_persist(received: object) -> None:
+        calls.append(received)
+        raise PermissionError(
+            "cache denied for /Users/alice/.marivo/secrets.toml password=super-secret"
+        )
+
+    monkeypatch.setattr(
+        datasource_registry._secrets,
+        "persist_backend_env_sourced",
+        fail_to_persist,
+    )
+    caplog.set_level("WARNING", logger="marivo.datasource.secrets")
+
+    first = execute(object(), datasource_name="warehouse", cache=cache)
+    second = execute(object(), datasource_name="warehouse", cache=cache)
+
+    assert isinstance(first, ExecutionResult)
+    assert isinstance(second, ExecutionResult)
+    assert calls == [backend]
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "marivo.datasource.secrets"
+    ]
+    assert warnings == [
+        "Validated datasource secrets could not be cached; "
+        "continuing without persistence (error_type=PermissionError)"
+    ]
+    assert "cache denied" not in warnings[0]
+    assert "/Users/alice" not in warnings[0]
+    assert "super-secret" not in warnings[0]
+
+
 def test_execute_prefixes_compiled_sql_with_session_comment():
     class FakeBackend:
         def __init__(self):

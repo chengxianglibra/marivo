@@ -294,9 +294,11 @@ SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 会
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、
 `password_env="MYSQL_PASSWORD"`。把密钥明文写进数据源字段会报错。Marivo 通过
 `os.environ` → `~/.marivo/secrets.toml` 解析 `*_env` 值，并在一次通过验证的
-`md.test(...)` 往返之后把解析到的密钥缓存到那里。Marivo 只解析显式声明的引用：
-不会扫描环境中的 `MARIVO_<DATASOURCE>_<FIELD>` 变量；连接字段省略后，由所选
-Ibis 后端决定其默认值或必填规则。
+`md.test(...)` 往返之后，或会话中第一次分析执行成功之后，尝试把解析到的密钥缓存
+到那里。缓存写入失败只会产生脱敏 warning，不会让已经成功的连接测试或分析执行
+失败；Marivo 也不会回退到项目目录存储密钥。Marivo 只解析显式声明的引用：不会扫描环境中的
+`MARIVO_<DATASOURCE>_<FIELD>` 变量；连接字段省略后，由所选 Ibis 后端决定其默认值
+或必填规则。
 :::
 
 ```python

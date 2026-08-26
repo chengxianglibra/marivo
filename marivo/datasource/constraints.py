@@ -147,7 +147,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("datasources", "session"),
         "Datasource secret environment variables must be available at runtime.",
         "The datasource contract stores secret references, not plaintext credentials.",
-        "Export the referenced environment variable or validate and remember it with md.test(...).",
+        "Export the referenced environment variable or validate it with md.test(...), which attempts to cache it.",
     ),
     ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(
         ConstraintId.DATASOURCE_BACKEND_SUPPORTED,

@@ -82,6 +82,37 @@ def test_persist_writes_owner_only_secret_file(fake_home: Path) -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_strict_backend_persistence_propagates_cache_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Backend:
+        pass
+
+    backend = Backend()
+    secrets.remember_env_sourced(
+        backend,
+        (
+            secrets.ResolvedSecret(
+                name="TRINO_PASSWORD",
+                value="stored-secret",
+                provider=secrets.EnvProvider(),
+            ),
+        ),
+    )
+
+    def fail_to_persist(
+        _cache: secrets.LocalPlaintextCache,
+        _name: str,
+        _value: str,
+    ) -> None:
+        raise PermissionError("cache denied")
+
+    monkeypatch.setattr(secrets.LocalPlaintextCache, "persist", fail_to_persist)
+
+    with pytest.raises(PermissionError, match="cache denied"):
+        secrets.persist_backend_env_sourced(backend)
+
+
 def test_loose_permissions_refuse_read(fake_home: Path) -> None:
     path = _write_store(fake_home, '"TRINO_PASSWORD" = "cached"\n', mode=0o644)
 

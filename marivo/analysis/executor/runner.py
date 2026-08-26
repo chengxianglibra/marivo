@@ -284,7 +284,7 @@ def execute(
                 backend.compile = original_compile_attr
 
     if cache.should_mark_validated(datasource_name):
-        _secrets.persist_backend_env_sourced(backend)
+        _secrets.try_persist_backend_env_sourced(backend)
         cache.mark_validated(datasource_name)
     if isinstance(raw, pd.DataFrame):
         df = raw
