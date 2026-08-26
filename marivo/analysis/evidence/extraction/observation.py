@@ -10,7 +10,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.extraction._coordinates import normalize_coordinate_value
+from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
 from marivo.analysis.evidence.types import (
     DerivationRule,
     Finding,
@@ -104,7 +105,17 @@ def extract_metric_value_findings(
         findings: list[Finding] = []
         for _, row in df.iterrows():
             bucket_key = _bucket_key(row[time_column])
-            canonical_item_key = _key(f"buckets:{bucket_key}")
+            key_context: dict[str, Any] = {
+                "semantic_kind": semantic_kind,
+                "bucket": row[time_column],
+            }
+            if item_key_prefix is not None:
+                key_context["item_key_prefix"] = item_key_prefix
+            canonical_item_key = make_typed_item_key(
+                namespace="metric_value_row",
+                context=key_context,
+                coordinates={},
+            )
             findings.append(
                 Finding(
                     finding_id=make_finding_id(artifact_id, "metric_value", canonical_item_key),
@@ -121,7 +132,7 @@ def extract_metric_value_findings(
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.metric_value",
-                        rule_version="v2",
+                        rule_version="v3",
                         operator="observe",
                         source_fields=(time_column, measure_column),
                         source_finding_refs=(),
@@ -141,16 +152,27 @@ def extract_metric_value_findings(
         )
         findings = []
         for row_index, row in df.iterrows():
-            keys: dict[str, JsonScalar] = {column: str(row[column]) for column in key_columns}
+            identity_keys = {column: row[column] for column in key_columns}
+            keys: dict[str, JsonScalar] = {
+                column: normalize_coordinate_value(row[column]) for column in key_columns
+            }
             bucket = (
                 _bucket_key(row[time_column])
                 if semantic_kind == "panel" and time_column is not None
                 else None
             )
-            stable_parts = [f"{key}={keys[key]}" for key in sorted(keys)]
-            if bucket is not None:
-                stable_parts.append(f"bucket={bucket}")
-            item_key = _key("rows:" + ("|".join(stable_parts) or str(row_index)))
+            key_context = {"semantic_kind": semantic_kind}
+            if item_key_prefix is not None:
+                key_context["item_key_prefix"] = item_key_prefix
+            if bucket is not None and time_column is not None:
+                key_context["bucket"] = row[time_column]
+            if not keys:
+                key_context["row_index"] = row_index
+            item_key = make_typed_item_key(
+                namespace="metric_value_row",
+                context=key_context,
+                coordinates=identity_keys,
+            )
             findings.append(
                 Finding(
                     finding_id=make_finding_id(artifact_id, "metric_value", item_key),
@@ -168,7 +190,7 @@ def extract_metric_value_findings(
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.metric_value",
-                        rule_version="v2",
+                        rule_version="v3",
                         operator="observe",
                         source_fields=(*key_columns, measure_column),
                         source_finding_refs=(),
@@ -295,7 +317,9 @@ def _segmented_digest(
     )
     items: list[tuple[dict[str, JsonScalar], float | None]] = []
     for _, row in df.iterrows():
-        keys: dict[str, JsonScalar] = {col: str(row[col]) for col in key_columns}
+        keys: dict[str, JsonScalar] = {
+            col: normalize_coordinate_value(row[col]) for col in key_columns
+        }
         value = _clean_float(row[measure_column]) if measure_column in df.columns else None
         items.append((keys, value))
     present = [v for _, v in items if v is not None]
@@ -328,7 +352,9 @@ def _panel_digest(
     bucket_keys = sorted({_bucket_key(v) for v in df[time_column]}) if has_time else []
     totals: dict[str, tuple[dict[str, JsonScalar], float | None]] = {}
     for _, row in df.iterrows():
-        keys: dict[str, JsonScalar] = {col: str(row[col]) for col in key_columns}
+        keys: dict[str, JsonScalar] = {
+            col: normalize_coordinate_value(row[col]) for col in key_columns
+        }
         key_json = json.dumps(keys, sort_keys=True)
         value = _clean_float(row[measure_column]) if measure_column in df.columns else None
         _, prior = totals.get(key_json, (keys, None))

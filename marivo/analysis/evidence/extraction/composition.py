@@ -9,7 +9,8 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.extraction._coordinates import normalize_coordinate_value
+from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
 from marivo.analysis.evidence.types import (
     ContributionFindingValue,
     DerivationRule,
@@ -20,7 +21,6 @@ from marivo.analysis.evidence.types import (
 from marivo.analysis.frames._attribution_columns import ATTRIBUTION_LEVEL_COLUMN
 from marivo.refs import RefPayloadV1
 
-_ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
 _RESERVED_COLUMNS = {
     "dimension",
     "contribution_value",
@@ -54,34 +54,16 @@ class DecompositionExtractionContract:
     source_error_bound: float | None = None
 
 
-def _escape(value: Any) -> str:
-    text = "" if value is None else str(value)
-    for raw, encoded in _ESCAPE_CHARS:
-        text = text.replace(raw, encoded)
-    return text
-
-
 def _is_missing(value: Any) -> bool:
     return bool(pd.isna(value)) if not isinstance(value, (list, tuple, dict)) else False
 
 
-def _json_value(value: Any) -> Any:
-    if _is_missing(value):
-        return None
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    item = getattr(value, "item", None)
-    if callable(item):
-        try:
-            return item()
-        except (TypeError, ValueError):
-            pass
-    return value
-
-
 def _key_tuple(dimension: str, keys: dict[str, Any]) -> str:
-    parts = [f"{_escape(k)}={_escape(v)}" for k, v in sorted(keys.items())]
-    return f"{_escape(dimension)}|" + "|".join(parts)
+    return make_typed_item_key(
+        namespace="decomposition_item",
+        context={"dimension": dimension},
+        coordinates=keys,
+    )
 
 
 def _to_float(value: Any) -> float | None:
@@ -122,8 +104,11 @@ def extract_decomposition_findings(
         )
         if contract is None:
             dimension = str(row.get("dimension", ""))
+            identity_keys = {
+                column: row[column] for column in df.columns if column not in _RESERVED_COLUMNS
+            }
             keys = {
-                column: _json_value(row[column])
+                column: normalize_coordinate_value(row[column])
                 for column in df.columns
                 if column not in _RESERVED_COLUMNS
             }
@@ -144,8 +129,11 @@ def extract_decomposition_findings(
                 else contract.dimension_name
             )
             dimension = contract.dimension_name
+            identity_keys = {
+                column: row[column] for column in contract.key_columns if column in df.columns
+            }
             keys = {
-                column: _json_value(row[column])
+                column: normalize_coordinate_value(row[column])
                 for column in contract.key_columns
                 if column in df.columns
             }
@@ -160,7 +148,7 @@ def extract_decomposition_findings(
             reconciliation_residual = contract.reconciliation_residual
         item_key = _key_tuple(
             identity_dimension if contract is not None else dimension,
-            keys,
+            identity_keys,
         )
         findings.append(
             Finding(
@@ -199,7 +187,7 @@ def extract_decomposition_findings(
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.contribution",
-                    rule_version="v2",
+                    rule_version="v3",
                     operator="attribute",
                     source_fields=tuple(str(column) for column in df.columns),
                     source_finding_refs=(),

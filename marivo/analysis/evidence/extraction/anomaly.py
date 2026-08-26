@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
 from marivo.analysis.evidence.types import (
     AnomalyCandidateFindingValue,
     DerivationRule,
@@ -53,7 +53,20 @@ def extract_anomaly_candidate_findings(
     ranked_rows.sort(key=lambda entry: -(_to_float(entry[1].get("score")) or 0.0))
     for rank, (idx, row) in enumerate(ranked_rows, start=1):
         candidate_ref = _json_value(row["candidate_ref"]) if "candidate_ref" in row.index else None
-        item_key = str(candidate_ref) if candidate_ref else f"row:{idx}"
+        if candidate_ref is None:
+            candidate_identity = f"row:{idx}"
+            item_key = make_typed_item_key(
+                namespace="anomaly_candidate",
+                context={"identity_source": "row_index"},
+                coordinates={"row_index": idx},
+            )
+        else:
+            candidate_identity = str(candidate_ref)
+            item_key = make_typed_item_key(
+                namespace="anomaly_candidate",
+                context={"identity_source": "candidate_ref"},
+                coordinates={"candidate_ref": candidate_ref},
+            )
         findings.append(
             Finding(
                 finding_id=make_finding_id(
@@ -68,7 +81,7 @@ def extract_anomaly_candidate_findings(
                 subject=subject,
                 canonical_item_key=item_key,
                 value=AnomalyCandidateFindingValue(
-                    candidate_ref=item_key,
+                    candidate_ref=candidate_identity,
                     score=_to_float(row.get("score")),
                     detector=str(row.get("detector") or "point_anomaly_detector"),
                     threshold=_to_float(row.get("threshold")),
@@ -88,7 +101,7 @@ def extract_anomaly_candidate_findings(
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.anomaly_candidate",
-                    rule_version="v2",
+                    rule_version="v3",
                     operator="discover",
                     source_fields=tuple(str(column) for column in df.columns),
                     source_finding_refs=(),

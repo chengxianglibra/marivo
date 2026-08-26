@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
+
+import numpy as np
+import pandas as pd
+
 from marivo.analysis.evidence.identity import (
     canonical_json,
     canonical_subject_key,
@@ -9,6 +14,7 @@ from marivo.analysis.evidence.identity import (
     make_digest_fingerprint,
     make_digest_item_id,
     make_finding_id,
+    make_typed_item_key,
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.semantic.metric_graph import RuntimeExpressionSubjectV1
@@ -38,6 +44,52 @@ def test_artifact_finding_and_item_ids_are_deterministic() -> None:
         source_finding_refs=(finding,),
     )
     assert item.startswith("itm_")
+
+
+def test_typed_item_keys_preserve_scalar_types_and_structure() -> None:
+    values = (None, "", 1, "1", 1.0, "1.0", True, "True")
+    keys = {make_typed_item_key(namespace="row", coordinates={"value": value}) for value in values}
+    assert len(keys) == len(values)
+
+    first = make_typed_item_key(
+        namespace="row",
+        coordinates={"left": "a|right=b=c", "right": "d"},
+    )
+    second = make_typed_item_key(
+        namespace="row",
+        coordinates={"left": "a", "right": "b=c|right=d"},
+    )
+    assert first != second
+    assert first == make_typed_item_key(
+        namespace="row",
+        coordinates={"right": "d", "left": "a|right=b=c"},
+    )
+
+
+def test_typed_item_keys_preserve_temporal_types_before_json_projection() -> None:
+    timestamp = pd.Timestamp("2026-08-01T00:00:00")
+    timestamp_text = timestamp.isoformat()
+    day = date(2026, 8, 1)
+
+    assert make_typed_item_key(
+        namespace="row", coordinates={"value": timestamp}
+    ) != make_typed_item_key(namespace="row", coordinates={"value": timestamp_text})
+    assert make_typed_item_key(namespace="row", coordinates={"value": day}) != (
+        make_typed_item_key(namespace="row", coordinates={"value": day.isoformat()})
+    )
+    assert make_typed_item_key(namespace="row", coordinates={"value": pd.NA}) == (
+        make_typed_item_key(namespace="row", coordinates={"value": None})
+    )
+    numpy_timestamp = np.datetime64("2026-08-01T00:00:00.000000000")
+    assert make_typed_item_key(
+        namespace="row", coordinates={"value": numpy_timestamp}
+    ) == make_typed_item_key(namespace="row", coordinates={"value": timestamp})
+    assert make_typed_item_key(
+        namespace="row", coordinates={"value": numpy_timestamp}
+    ) != make_typed_item_key(
+        namespace="row",
+        coordinates={"value": numpy_timestamp.astype("int64").item()},
+    )
 
 
 def test_runtime_subject_key_never_merges_across_sessions() -> None:

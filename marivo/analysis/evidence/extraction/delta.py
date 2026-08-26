@@ -17,7 +17,8 @@ from marivo.analysis._cumulative import (
     AllHistoryPairAlignmentV1,
     CumulativePairSummaryV1,
 )
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.extraction._coordinates import normalize_coordinate_value
+from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
 from marivo.analysis.evidence.types import DeltaFindingValue, DerivationRule, Finding, Subject
 
 
@@ -93,23 +94,6 @@ def _cumulative_pair_evidence(
     if isinstance(pairs, CumulativePairSummaryV1):
         payload["fallback_rows"] = pairs.fallback_rows
     return payload
-
-
-_ESCAPE_CHARS = (("%", "%25"), ("=", "%3D"), ("|", "%7C"))
-
-
-def _escape_seg_component(value: Any) -> str:
-    text = "" if value is None else str(value)
-    for raw, encoded in _ESCAPE_CHARS:
-        text = text.replace(raw, encoded)
-    return text
-
-
-def _segment_stable_key(keys: dict[str, Any]) -> str:
-    parts = [
-        f"{_escape_seg_component(k)}={_escape_seg_component(v)}" for k, v in sorted(keys.items())
-    ]
-    return "|".join(parts)
 
 
 def _delta_kind(
@@ -226,9 +210,13 @@ def extract_delta_findings(
             raise ValueError("segmented delta extraction requires dimension_columns")
         findings: list[Finding] = []
         for _, row in df.iterrows():
-            keys = {col: row[col] for col in dimension_columns}
-            seg_key = _segment_stable_key(keys)
-            canonical_item_key = f"rows:{seg_key}"
+            identity_keys = {col: row[col] for col in dimension_columns}
+            keys = {col: normalize_coordinate_value(row[col]) for col in dimension_columns}
+            canonical_item_key = make_typed_item_key(
+                namespace="delta_row",
+                context={"semantic_kind": semantic_kind},
+                coordinates=identity_keys,
+            )
             current = _to_float(row.get("current"))
             baseline = _to_float(row.get("baseline"))
             delta_val = _to_float(row.get("delta"))
@@ -256,7 +244,7 @@ def extract_delta_findings(
                         direction=_classify_direction(delta_val, current, baseline),
                         presence=_row_presence(row, current, baseline),
                         unit=unit,
-                        dimension_keys={k: str(v) for k, v in keys.items()},
+                        dimension_keys=keys,
                         current_evaluation_end=_timestamp_text(
                             row.get(CURRENT_EVALUATION_END_COLUMN)
                         ),
@@ -270,7 +258,7 @@ def extract_delta_findings(
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
-                        rule_version="v2",
+                        rule_version="v3",
                         operator="compare",
                         source_fields=(
                             *dimension_columns,
@@ -310,18 +298,23 @@ def extract_delta_findings(
             raise ValueError("panel delta extraction requires dimension_columns")
         findings = []
         for _, row in df.iterrows():
-            keys = {column: row[column] for column in (dimension_columns or [])}
+            identity_keys = {column: row[column] for column in (dimension_columns or [])}
+            keys = {
+                column: normalize_coordinate_value(row[column])
+                for column in (dimension_columns or [])
+            }
             bucket = _timestamp_text(row[time_column])
-            baseline_bucket = (
-                _timestamp_text(row[baseline_time_column])
-                if baseline_time_column is not None
-                else None
-            )
-            stable_parts = [f"{key}={_escape_seg_component(keys[key])}" for key in sorted(keys)]
-            stable_parts.append(f"bucket={_escape_seg_component(bucket)}")
+            key_context: dict[str, Any] = {
+                "semantic_kind": semantic_kind,
+                "bucket": row[time_column],
+            }
             if baseline_time_column is not None:
-                stable_parts.append(f"baseline_bucket={_escape_seg_component(baseline_bucket)}")
-            canonical_item_key = "rows:" + "|".join(stable_parts)
+                key_context["baseline_bucket"] = row[baseline_time_column]
+            canonical_item_key = make_typed_item_key(
+                namespace="delta_row",
+                context=key_context,
+                coordinates=identity_keys,
+            )
             current = _to_float(row.get("current"))
             baseline = _to_float(row.get("baseline"))
             delta_val = _to_float(row.get("delta"))
@@ -349,7 +342,7 @@ def extract_delta_findings(
                         direction=_classify_direction(delta_val, current, baseline),
                         presence=_row_presence(row, current, baseline),
                         unit=unit,
-                        dimension_keys={key: str(value) for key, value in keys.items()},
+                        dimension_keys=keys,
                         bucket=bucket,
                         current_evaluation_end=_timestamp_text(
                             row.get(CURRENT_EVALUATION_END_COLUMN)
@@ -364,7 +357,7 @@ def extract_delta_findings(
                     ),
                     derivation=DerivationRule(
                         rule_id="extract.delta",
-                        rule_version="v4",
+                        rule_version="v5",
                         operator="compare",
                         source_fields=(
                             *(dimension_columns or []),

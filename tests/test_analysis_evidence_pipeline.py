@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -31,6 +34,7 @@ from marivo.analysis.frames.attribution import (
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.analysis.session._store import SessionStore
 from marivo.refs import RefPayloadV1
 from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import make_test_metric_contract, make_test_multi_metric_contract
@@ -337,6 +341,175 @@ def test_projection_write_failure_keeps_artifact_usable_and_marks_store_unavaila
         assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
     finally:
         store.close()
+
+
+def test_integrity_failure_persists_unavailable_marker_and_retries_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = pipeline_module._insert_projection
+    calls = 0
+
+    def fail_complete_projection_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.IntegrityError("injected canonical key collision")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", fail_complete_projection_once)
+    failed, store = _commit(tmp_path)
+    assert store is not None
+    try:
+        issue = next(
+            item
+            for item in failed.meta.issues
+            if isinstance(item, EvidenceAvailabilityIssue)
+            and item.kind == "evidence_store_unavailable"
+        )
+        assert failed.evidence_status == "unavailable"
+        assert issue.stable_error_category == "IntegrityError"
+        assert issue.repair is not None
+        assert issue.repair.kind == "retry"
+        assert (
+            store.read()
+            .execute(
+                "SELECT evidence_status FROM artifacts WHERE artifact_id = ?",
+                (failed.ref,),
+            )
+            .fetchone()[0]
+            == "unavailable"
+        )
+        assert store.read().execute("SELECT count(*) FROM findings").fetchone()[0] == 0
+        assert store.read().execute("SELECT count(*) FROM artifact_digests").fetchone()[0] == 0
+        issue_row = (
+            store.read()
+            .execute(
+                "SELECT issue_payload FROM artifact_issues WHERE artifact_id = ?",
+                (failed.ref,),
+            )
+            .fetchone()
+        )
+        sidecar = json.loads(
+            (tmp_path / "frames" / failed.ref / "meta.json").read_text(encoding="utf-8")
+        )
+        assert json.loads(issue_row["issue_payload"]) == sidecar["issues"][0]
+    finally:
+        store.close()
+
+    retried, retried_store = _commit(tmp_path)
+    assert retried_store is not None
+    try:
+        assert retried.ref == failed.ref
+        assert retried.evidence_status == "complete"
+        assert retried.evidence_digest is not None
+        assert retried_store.read().execute("SELECT count(*) FROM findings").fetchone()[0] == 2
+        assert (
+            retried_store.read().execute("SELECT count(*) FROM artifact_digests").fetchone()[0] == 1
+        )
+        assert (
+            retried_store.read().execute("SELECT count(*) FROM artifact_issues").fetchone()[0] == 0
+        )
+    finally:
+        retried_store.close()
+
+
+@pytest.mark.parametrize("failure_kind", ["write", "lock"])
+def test_unavailable_retry_failure_restores_sidecar_and_registration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    original = pipeline_module._insert_projection
+    calls = 0
+
+    def fail_complete_projection_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.IntegrityError("injected canonical key collision")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", fail_complete_projection_once)
+    failed, store = _commit(tmp_path)
+    assert store is not None
+    artifact_id = failed.ref
+    meta_path = tmp_path / "frames" / artifact_id / "meta.json"
+    previous_meta = meta_path.read_bytes()
+    previous_issue = (
+        store.read()
+        .execute(
+            "SELECT issue_payload FROM artifact_issues WHERE artifact_id = ?",
+            (artifact_id,),
+        )
+        .fetchone()["issue_payload"]
+    )
+    store.close()
+
+    session_store = SessionStore(project_root=tmp_path)
+    with session_store._connect() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, name, question, cwd, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "sess_1",
+                "retry",
+                None,
+                str(tmp_path),
+                "2026-07-18T00:00:00+00:00",
+                "2026-07-18T00:00:00+00:00",
+            ),
+        )
+    session_store.record_artifact(
+        session_id="sess_1",
+        artifact_id=artifact_id,
+        kind=failed.meta.kind,
+        path=f"frames/{artifact_id}/data.parquet",
+        meta_path=f"frames/{artifact_id}/meta.json",
+        content_hash=failed.meta.content_hash,
+        produced_by_job=failed.meta.produced_by_job,
+        evidence_status=failed.evidence_status,
+        created_at=failed.meta.created_at.isoformat(),
+    )
+    previous_registration = dict(session_store.get_artifact("sess_1", artifact_id))
+
+    def fail_retry_projection(*_args, **_kwargs):
+        if failure_kind == "lock":
+            raise SessionLockedByAnotherProcessError(message="injected evidence lock")
+        raise OSError("injected evidence write failure")
+
+    monkeypatch.setattr(pipeline_module, "_insert_projection", fail_retry_projection)
+    evidence_store = open_evidence_store(tmp_path / "judgment.db")
+    frame = _frame(tmp_path)
+    session = SimpleNamespace(id="sess_1", _store=session_store)
+    expected_error = SessionLockedByAnotherProcessError if failure_kind == "lock" else OSError
+    try:
+        with pytest.raises(expected_error):
+            commit_result(
+                session=cast("Any", session),
+                store=evidence_store,
+                frames_dir=tmp_path / "frames",
+                frame=frame,
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values={"metric": "sales.revenue", "ordinal": 0}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+                subject=Subject(analysis_axis="scalar"),
+                extractor_family="metric_frame",
+            )
+
+        assert meta_path.read_bytes() == previous_meta
+        current_issue = (
+            evidence_store.read()
+            .execute(
+                "SELECT issue_payload FROM artifact_issues WHERE artifact_id = ?",
+                (artifact_id,),
+            )
+            .fetchone()["issue_payload"]
+        )
+        assert current_issue == previous_issue
+        assert dict(session_store.get_artifact("sess_1", artifact_id)) == previous_registration
+    finally:
+        evidence_store.close()
 
 
 def test_digest_failure_retains_typed_findings_and_marks_partial(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
@@ -198,7 +198,10 @@ def test_time_series_delta_identity_uses_both_comparison_coordinates() -> None:
 
     assert len({finding.canonical_item_key for finding in findings}) == 2
     assert all(
-        "bucket=|baseline_bucket=2025-06-0" in finding.canonical_item_key for finding in findings
+        '"name":"bucket","type":"null"' in finding.canonical_item_key
+        and '"name":"baseline_bucket","type":"datetime","value":"2025-06-0'
+        in finding.canonical_item_key
+        for finding in findings
     )
     assert all(finding.value.bucket is None for finding in findings)
     assert all(
@@ -253,8 +256,137 @@ def test_panel_delta_identity_preserves_segment_and_paired_coordinates() -> None
 
     assert len({finding.canonical_item_key for finding in findings}) == 2
     assert all(
-        finding.canonical_item_key.startswith("rows:region=north|bucket=|") for finding in findings
+        finding.canonical_item_key.startswith("typed-coordinate/v1:")
+        and '"name":"region","type":"string","value":"north"' in finding.canonical_item_key
+        for finding in findings
     )
+
+
+def test_source_row_extractors_do_not_collapse_distinct_coordinates() -> None:
+    subject = make_test_subject(metric_id="revenue", analysis_axis="segment")
+    collision_rows = pd.DataFrame(
+        {
+            "left": ["a|right=b=c", "a"],
+            "right": ["d", "b=c|right=d"],
+            "value": [1.0, 2.0],
+        }
+    )
+    observations = extract_metric_value_findings(
+        df=collision_rows,
+        artifact_id="art_observe_collision",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="segmented",
+        measure_column="value",
+        dimension_columns=["left", "right"],
+        committed_at=_now(),
+    )
+    assert len({finding.canonical_item_key for finding in observations}) == 2
+
+    deltas = extract_delta_findings(
+        df=pd.DataFrame(
+            {
+                "department": [None, ""],
+                "current": [3.0, 2.0],
+                "baseline": [1.0, 1.0],
+                "delta": [2.0, 1.0],
+                "pct_change": [2.0, 1.0],
+            }
+        ),
+        artifact_id="art_delta_collision",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="change"),
+        semantic_kind="segmented",
+        dimension_columns=["department"],
+        committed_at=_now(),
+    )
+    assert len({finding.canonical_item_key for finding in deltas}) == 2
+    assert {finding.value.dimension_keys["department"] for finding in deltas} == {None, ""}
+
+    contributions = extract_decomposition_findings(
+        df=pd.DataFrame(
+            {
+                "dimension": ["department", "department"],
+                "cluster": ["k8spublic-public1", "k8spublic-public1"],
+                "department": [None, ""],
+                "contribution_value": [-955.0, 6520.0],
+                "contribution_share": [None, None],
+            }
+        ),
+        artifact_id="art_attribution_collision",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="decomposition"),
+        committed_at=_now(),
+        scope_delta_ref="art_delta",
+    )
+    assert len({finding.canonical_item_key for finding in contributions}) == 2
+    assert len({finding.finding_id for finding in contributions}) == 2
+
+    forecasts = extract_forecast_point_findings(
+        df=pd.DataFrame(
+            {
+                "bucket_start": ["2026-08-01", "2026-08-01"],
+                "bucket_end": ["2026-08-02", "2026-08-02"],
+                "left": ["a|right=b=c", "a"],
+                "right": ["d", "b=c|right=d"],
+                "predicted_value": [12.0, 13.0],
+                "horizon_index": [1, 2],
+            }
+        ),
+        artifact_id="art_forecast_collision",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="forecast"),
+        committed_at=_now(),
+        model="naive",
+        training_scope=make_test_analysis_scope("revenue"),
+    )
+    assert len({finding.canonical_item_key for finding in forecasts}) == 2
+
+    candidates = extract_anomaly_candidate_findings(
+        df=pd.DataFrame(
+            {"candidate_ref": ["row:1", None], "score": [2.0, 1.0]},
+            index=[0, 1],
+        ),
+        artifact_id="art_candidate_collision",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="anomaly"),
+        committed_at=_now(),
+    )
+    assert [finding.value.candidate_ref for finding in candidates] == ["row:1", "row:1"]
+    assert len({finding.canonical_item_key for finding in candidates}) == 2
+
+
+def test_observation_temporal_dimension_keeps_identity_type_and_json_value() -> None:
+    findings = extract_metric_value_findings(
+        df=pd.DataFrame(
+            {
+                "period": pd.Series(
+                    [date(2026, 8, 1), "2026-08-01"],
+                    dtype="object",
+                ),
+                "value": [1.0, 2.0],
+            }
+        ),
+        artifact_id="art_observe_temporal_dimension",
+        session_id="sess_1",
+        subject=make_test_subject(metric_id="revenue", analysis_axis="segment"),
+        semantic_kind="segmented",
+        measure_column="value",
+        dimension_columns=["period"],
+        committed_at=_now(),
+    )
+
+    assert len({finding.canonical_item_key for finding in findings}) == 2
+    assert any(
+        '"name":"period","type":"date"' in finding.canonical_item_key for finding in findings
+    )
+    assert any(
+        '"name":"period","type":"string"' in finding.canonical_item_key for finding in findings
+    )
+    assert [finding.value.dimension_keys for finding in findings] == [
+        {"period": "2026-08-01"},
+        {"period": "2026-08-01"},
+    ]
 
 
 def test_contribution_has_rank_and_method_but_no_driver_role() -> None:
