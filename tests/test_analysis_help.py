@@ -176,6 +176,13 @@ def test_root_help_entries_are_the_registry_discovery_groups() -> None:
     )
 
 
+def test_root_help_exposes_policy_family_topics() -> None:
+    text = _text()
+
+    assert 'marivo.help("analysis.alignment")' in text
+    assert 'marivo.help("analysis.sampling")' in text
+
+
 def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
     text = _text()
     for fake_entrypoint in (
@@ -257,6 +264,14 @@ def test_alignment_help_exposes_closed_admission_matrix() -> None:
     assert "MetricFrame.compare day-grain time-series or panel" in text
     assert "EventFrame.compare     alignment=None" in text
     assert "holiday_aligned" not in text
+
+
+def test_sampling_help_exposes_sampling_policy_without_promoting_the_type() -> None:
+    text = _text("sampling")
+
+    assert 'Entrypoint: marivo.help("analysis.sampling")' in text
+    assert "mv.SamplingPolicy(...)" in text
+    assert "[SamplingPolicy]" in text
 
 
 def test_working_day_progress_help_exposes_schedule_example_and_constraints() -> None:

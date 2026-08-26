@@ -10,7 +10,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
-from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
+from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.constraints import iter_constraints
 
 if TYPE_CHECKING:
@@ -98,25 +98,13 @@ def render_root_help() -> str:
             continue
         lines.append(f"  {label}:")
         for descriptor in descriptors:
-            output = descriptor.output_family or "None"
-            effects = descriptor.effects
-            assert effects is not None
-            effect_values = (
-                *(value for value in (effects.data_access, effects.connection) if value != "none"),
-                *effects.mutations,
-                *effects.flags,
-            )
-            badges = ", ".join(effect_values) or "none"
-            lines.append(f"    {descriptor.canonical_id:<34} [output: {output}; effects: {badges}]")
+            lines.append(f"    {descriptor.canonical_id:<34} {descriptor.summary}")
     lines.extend(
         (
             "",
             "Identity handoff: pass a current CatalogEntry directly to preview, "
             "source health, readiness, or qualifying analysis APIs; use entry.ref or "
             "ms.ref.<kind>(path) for persisted, configured, or already-known identity.",
-            "",
-            "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
-            "Errors: " + ", ".join(ERROR_TYPES),
             "",
             'Call marivo.help("semantic.<target>") for a capability, public type, result, or semantic error.',
         )

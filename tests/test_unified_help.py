@@ -263,6 +263,9 @@ def test_global_authoring_routes_exploration_and_exact_project_catalog_reads() -
     assert "governed raw SQL" in text
     assert "datasource_catalog = md.load()" in text
     assert "semantic_catalog = ms.load()" in text
+    assert "Full public capability maps:" in text
+    for owner in ("datasource", "semantic", "ontology"):
+        assert f'marivo.help("{owner}")' in text
 
 
 def _expected_canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -298,8 +301,11 @@ def test_every_inventory_target_resolves_without_aliases_or_ambiguity() -> None:
     groups = _expected_canonical_string_target_groups()
     targets = tuple(target for _heading, group in groups for target in group)
 
-    assert len(targets) == 118
+    assert len(targets) == 120
     assert len(targets) == len(set(targets))
+    assert "analysis.alignment" in targets
+    assert "analysis.sampling" in targets
+    assert "analysis.SamplingPolicy" not in targets
     assert "analysis.Session.observe" not in targets
     assert "analysis.session.observe" not in targets
     assert all(not target.startswith(("mv.", "ms.", "md.", "mo.")) for target in targets)

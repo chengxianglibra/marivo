@@ -23,6 +23,7 @@ from marivo.analysis._capabilities.model import (
     SameAsInputFamily,
 )
 from marivo.analysis._capabilities.registry import (
+    _EXPLICIT_GROUPING_MEMBER_TARGETS,
     PUBLIC_FRAME_METHODS,
     PUBLIC_FRAME_PROPERTIES,
     PUBLIC_TYPE_VARIANTS,
@@ -535,17 +536,8 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     """Return the real registered members taught by a non-invokable topic."""
     if desc.callable_path is not None:
         return []
-    if desc.id == "alignment":
-        member_targets = frozenset(
-            {
-                "window_bucket",
-                "day_of_week",
-                "period_progress",
-                "period_correspondence",
-                "occurrence_progress",
-                "working_day_progress",
-            }
-        )
+    member_targets = _EXPLICIT_GROUPING_MEMBER_TARGETS.get(desc.id)
+    if member_targets is not None:
         return sorted(
             (
                 candidate

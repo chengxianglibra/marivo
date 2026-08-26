@@ -69,7 +69,8 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的
 一条从获取 session、`marivo.help(metric)` 检查当前指标、限定范围的 readiness 门禁，
 到 `session.observe(...)` 和 `frame.show()` 的首次观测路径。用
 `marivo.help("analysis.events")` 或 `marivo.help("analysis.lifecycle")` 浏览已注册
-命名空间的真实成员。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
+命名空间的真实成员；支持策略家族分别通过 `marivo.help("analysis.alignment")` 和
+`marivo.help("analysis.sampling")` 发现。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
 `marivo.help("analysis.observe")`、`marivo.help("analysis.compare")`、
 `marivo.help("analysis.MetricFrame")` 等专项主题。
 失败后按照结构化修复指引继续。每个专项帮助主题都自包含一次正确的最小调用，但不是

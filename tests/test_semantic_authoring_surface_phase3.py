@@ -183,14 +183,18 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     assert "dimension" in str(exc_info.value)
 
 
-def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() -> None:
+def test_phase3_public_help_routes_measure_details_and_current_metric_shape() -> None:
     from tests.shared_fixtures import rendered_help
 
     assert hasattr(ms, "MeasureDetails")
 
     index = rendered_help(owner="semantic")
-    assert "MeasureDetails" in index
+    assert "MeasureDetails" not in index
     assert "measure" in index
+
+    measure_details = rendered_help(ms.MeasureDetails, owner="semantic")
+    assert "MeasureDetails" in measure_details
+    assert "Public consumption: show, render" in measure_details
 
     measure_topic = rendered_help("measure", owner="semantic")
     assert "Declare a calculated measure" in measure_topic

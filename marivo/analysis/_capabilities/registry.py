@@ -42,6 +42,25 @@ from marivo.introspection.live.reflect import callable_identity
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
+# Registered members whose public family names cannot be inferred from dotted
+# capability-id prefixes. This remains the one owner for both discovery and
+# focused grouping-page expansion.
+_EXPLICIT_GROUPING_MEMBER_TARGETS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "alignment": frozenset(
+            {
+                "window_bucket",
+                "day_of_week",
+                "period_progress",
+                "period_correspondence",
+                "occurrence_progress",
+                "working_day_progress",
+            }
+        ),
+        "sampling": frozenset({"SamplingPolicy"}),
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Public type/member contracts
 # ---------------------------------------------------------------------------
@@ -406,6 +425,9 @@ class CapabilityRegistry:
                 return "recovery"
             except KeyError:
                 return None
+        for topic, member_targets in _EXPLICIT_GROUPING_MEMBER_TARGETS.items():
+            if descriptor.help_target in member_targets:
+                return topic
         parts = descriptor.id.split(".")
         for end in range(len(parts) - 1, 0, -1):
             topic = ".".join(parts[:end])
@@ -2565,6 +2587,14 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "alignment",
             "Closed temporal alignment policy family and its operator admission matrix.",
+            "policies_builders",
+        )
+    )
+
+    descriptors.append(
+        _make_grouping_descriptor(
+            "sampling",
+            "Closed hypothesis-test sampling policy family.",
             "policies_builders",
         )
     )

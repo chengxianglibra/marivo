@@ -142,6 +142,19 @@ def test_registry_covers_every_datasource_callable_once() -> None:
     assert len(REGISTRY.callable_ids()) == len(set(REGISTRY.callable_ids()))
 
 
+def test_every_discoverable_capability_belongs_to_one_root_group() -> None:
+    groups = (
+        REGISTRY.group("declare_manage"),
+        REGISTRY.group("physical_sources"),
+        REGISTRY.group("inspect_scope"),
+        REGISTRY.group("acquire_project"),
+        REGISTRY.group("diagnostics_boundaries"),
+    )
+    grouped_ids = {descriptor.canonical_id for group in groups for descriptor in group}
+
+    assert set(REGISTRY.discovery_ids()) <= grouped_ids
+
+
 @pytest.mark.parametrize(("canonical_id", "expected"), EXPECTED_EFFECTS.items())
 def test_registry_effects_match_phase2_inventory(
     canonical_id: str, expected: AuthoringEffects

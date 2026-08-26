@@ -49,6 +49,11 @@ marivo.help("targets")
 public type、error 和 member target 仍可查询 focused help；它们不会进入 discovery index，
 以保持有界的渐进披露。
 
+每个原生 surface 根页都会展示当前 Marivo 版本、Python 可执行文件和包路径，再通过 capability
+摘要引导下一次 focused 查询，而不会展开完整的 public type 或 error algebra。Ontology 构造器的
+focused help 负责精确 entrypoint、签名、输出、约束和声明示例；ontology type 与 error 的
+focused help 负责公开消费方式和 structured repair 细节。
+
 数据源编写错误会显示稳定的代码和 stage。有界获取在执行阶段
 失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的获取最多重试一次；
 调用者声明的读取次数、行数与超时上限优先。如果相同的 structured 代码和后端名称

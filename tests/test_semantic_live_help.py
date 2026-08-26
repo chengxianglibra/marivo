@@ -34,6 +34,23 @@ def test_root_help_within_line_budget() -> None:
     assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
 
 
+def test_root_help_contains_every_public_authoring_primitive() -> None:
+    text = _text()
+    assert "where" in text
+    assert "work_schedule" in text
+
+
+def test_root_help_explains_capabilities_without_expanding_leaf_algebra() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    text = _text()
+
+    for canonical_id in REGISTRY.discovery_ids():
+        assert REGISTRY.by_canonical_id(canonical_id).summary in text
+    assert "Consumed types:" not in text
+    assert "Errors:" not in text
+
+
 def test_help_text_none_returns_root() -> None:
     text = _text()
     assert "marivo.semantic" in text
