@@ -95,6 +95,30 @@ def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
     assert "delete and recreate" in str(exc_info.value)
 
 
+def test_reopen_conflicting_timezone_does_not_update_question(monkeypatch):
+    from marivo.analysis.errors import SessionTimezoneConflict
+
+    monkeypatch.setenv("TZ", "UTC")
+    created = session_attach.get_or_create(
+        name="demo",
+        question="original",
+        report_timezone="Asia/Shanghai",
+    )
+    meta_before = _read_session_meta(created)
+    session_attach._reset_process_state()
+
+    with pytest.raises(SessionTimezoneConflict):
+        session_attach.get_or_create(
+            name="demo",
+            question="replacement",
+            report_timezone="UTC",
+        )
+
+    persisted = session_attach.get_or_create(name="demo")
+    assert persisted.question == "original"
+    assert _read_session_meta(persisted)["question"] == meta_before["question"]
+
+
 def test_create_does_not_initialize_legacy_calendar_directory(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     s = session_attach.get_or_create(name="demo")

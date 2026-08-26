@@ -471,7 +471,6 @@ def _session_creation_attributes(
     db_path = root / STATE_DIR / "analysis" / "session_store.db"
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
-        attrs["marivo.session.question_applied"] = requested is not None
         return attrs
     try:
         with sqlite3.connect(str(db_path)) as connection:
@@ -482,7 +481,6 @@ def _session_creation_attributes(
         return attrs
     created = row is None
     attrs["marivo.session.created"] = created
-    attrs["marivo.session.question_applied"] = created and requested is not None
     if row is not None and isinstance(row[0], str) and row[0]:
         attrs["marivo.session.question"] = row[0]
     return attrs
@@ -725,6 +723,7 @@ class _Operation:
     capability_kind: str
     root: Path
     attributes: dict[str, TelemetryValue]
+    question_requested: bool | None = None
     defer_start_write: bool = False
     operation_id: str = field(default_factory=lambda: f"op_{uuid.uuid4().hex}")
     started: float = field(default_factory=monotonic)
@@ -801,6 +800,8 @@ class _Operation:
             _ACTIVE_OPERATIONS.reset(self._stack_token)
         status = "error" if exc is not None else "ok"
         attrs = self._common_attributes(status=status)
+        if self.question_requested is not None:
+            attrs["marivo.session.question_applied"] = self.question_requested and exc is None
         attrs["marivo.operation.duration_ms"] = int((monotonic() - self.started) * 1000)
         for phase, duration_ms in sorted(self.phase_durations_ms.items()):
             attrs[f"marivo.phase.{phase}.duration_ms"] = duration_ms
@@ -908,6 +909,11 @@ def tracked_capability(
                 capability_kind=capability_kind,
                 root=root,
                 attributes=attrs,
+                question_requested=(
+                    arguments.get("question") is not None
+                    if capability_id == "session.get_or_create"
+                    else None
+                ),
                 defer_start_write=surface == "cli" and capability_id == "init",
             )
             with operation:

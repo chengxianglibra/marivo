@@ -135,6 +135,115 @@ def test_different_question_keeps_original(store: SessionStore, project_root: Pa
     assert row["question"] == "q1"
 
 
+def test_activate_session_updates_question_and_preserves_creation_metadata(
+    store: SessionStore, project_root: Path
+) -> None:
+    original = store.get_or_insert_session(name="s", question="q1", cwd=project_root)
+
+    with store.activate_session(session_id=original["id"], question_update="q2") as updated:
+        assert updated["question"] == "q2"
+
+    assert updated["id"] == original["id"]
+    assert updated["name"] == original["name"]
+    assert updated["cwd"] == original["cwd"]
+    assert updated["created_at"] == original["created_at"]
+    assert updated["updated_at"] > original["updated_at"]
+    assert updated["question"] == "q2"
+
+
+def test_activate_session_accepts_empty_string(store: SessionStore, project_root: Path) -> None:
+    original = store.get_or_insert_session(name="s", question="q1", cwd=project_root)
+
+    with store.activate_session(session_id=original["id"], question_update="") as updated:
+        assert updated["question"] == ""
+
+    assert store.get_current_session_id() == original["id"]
+
+
+def test_activate_session_preserves_artifact_and_job_rows(
+    store: SessionStore, project_root: Path
+) -> None:
+    session = store.get_or_insert_session(name="s", question="q1", cwd=project_root)
+    store.record_job(
+        session_id=session["id"],
+        job_id="j1",
+        intent="observe",
+        status="completed",
+        started_at="2026-01-01T00:00:00+00:00",
+        finished_at="2026-01-01T00:01:00+00:00",
+        output_artifact_id="a1",
+        record_path="jobs/j1.json",
+    )
+    store.record_artifact(
+        session_id=session["id"],
+        artifact_id="a1",
+        kind="metric_frame",
+        path="frames/a1/data.parquet",
+        meta_path="frames/a1/meta.json",
+        content_hash="sha256:original",
+        produced_by_job="j1",
+        evidence_status="complete",
+        created_at="2026-01-01T00:01:00+00:00",
+    )
+    job_before = store.get_job(session["id"], "j1")
+    artifact_before = store.get_artifact(session["id"], "a1")
+    assert job_before is not None
+    assert artifact_before is not None
+
+    with store.activate_session(session_id=session["id"], question_update="q2"):
+        pass
+
+    job_after = store.get_job(session["id"], "j1")
+    artifact_after = store.get_artifact(session["id"], "a1")
+    assert job_after is not None
+    assert artifact_after is not None
+    assert dict(job_after) == dict(job_before)
+    assert dict(artifact_after) == dict(artifact_before)
+
+
+def test_activate_session_lock_contention_preserves_original(
+    project_root: Path,
+) -> None:
+    first = SessionStore(project_root=project_root)
+    row = first.get_or_insert_session(name="locked", question="original", cwd=project_root)
+    second = SessionStore(project_root=project_root, busy_timeout_ms=50)
+    blocker = sqlite3.connect(str(first.db_path), isolation_level=None)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        with (
+            pytest.raises(SessionLockedByAnotherProcessError),
+            second.activate_session(session_id=row["id"], question_update="replacement"),
+        ):
+            pass
+        blocker.execute("ROLLBACK")
+        persisted = first.get_session_by_id(row["id"])
+        assert persisted is not None
+        assert persisted["question"] == "original"
+    finally:
+        if blocker.in_transaction:
+            blocker.execute("ROLLBACK")
+        blocker.close()
+
+
+def test_activate_session_rolls_back_when_publication_fails(
+    store: SessionStore, project_root: Path
+) -> None:
+    row = store.get_or_insert_session(name="s", question="original", cwd=project_root)
+
+    with (
+        pytest.raises(OSError, match="publication failed"),
+        store.activate_session(session_id=row["id"], question_update="replacement") as updated,
+    ):
+        assert updated["question"] == "replacement"
+        raise OSError("publication failed")
+
+    persisted = store.get_session_by_id(row["id"])
+    assert persisted is not None
+    assert persisted["question"] == "original"
+    assert persisted["updated_at"] == row["updated_at"]
+    assert store.get_current_session_id() is None
+
+
 def test_duplicate_create_race_handled_gracefully(store: SessionStore, project_root: Path) -> None:
     # Simulate a race: insert directly, then call get_or_insert_session
     with store._connect() as conn:

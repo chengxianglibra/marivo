@@ -18,8 +18,9 @@ consumed by operators, the report timezone, and the persistence layout;
 every operator is a method on it. Sessions are created and resumed through the
 narrow `mv.session` module facade, never constructed directly.
 
-Read-only identity properties: `session.id` (a `sess_<hex>` id), `session.name`,
-`session.question`, `session.cwd`, `session.project_root`, `session.catalog`,
+Read-only identity properties are `session.id` (a `sess_<hex>` id) and
+`session.name`. Other read-only public properties include `session.question`
+(the current guiding question), `session.cwd`, `session.project_root`, `session.catalog`,
 `session.created_at`, `session.updated_at`, `session.tz` / `session.report_tz`
 (plus `report_tz_name` / `report_tz_resolution` / `report_tz_warning`),
 and `session.is_read_only`.
@@ -42,9 +43,9 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
 
 - `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — the default entry. The first call with a name creates the session; later calls
-  attach only when an explicit question exactly matches the persisted question,
-  or when question is omitted for deliberate name-based recovery. Either way it
-  becomes the current session.
+  attach to the same immutable session id. An explicit string becomes the current
+  guiding question, while omitting `question` preserves the persisted value.
+  Either way the named session becomes current.
 - `mv.session.resume(session_id, *, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — explicitly resume one current-project session by its immutable `sess_...` id.
   It never changes the persisted name, question, or report timezone.
@@ -63,14 +64,14 @@ names `archive`, `attach`, `create`, `switch`, `active` are gone):
 - `mv.session.delete(name) -> None` — permanently remove a session and its
   on-disk data; a no-op for unknown names.
 
-`report_timezone` is persisted on first create; reopening with a conflicting value
-raises `SessionTimezoneConflict` (see
+`name` is the stable API lookup key and `session.id` remains the immutable
+persistence identity. Updating the current question never rewrites existing jobs,
+Artifacts, Evidence, lineage, or their `analysis_purpose`. `report_timezone` is
+persisted on first create; reopening with a conflicting value raises
+`SessionTimezoneConflict` (see
 [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md)). `backends`
 and `backend_factory` are mutually exclusive; supplying both raises
-`SessionStateError`. Reusing a name with a different explicit question, including
-when the persisted question is `None`, raises `SessionQuestionMismatchError`
-before the session is touched or made current. Its repair offers the explicit
-choices to resume the existing `session_id` or create a new stable name.
+`SessionStateError`.
 
 ```python
 import marivo.analysis as mv

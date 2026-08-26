@@ -26,7 +26,6 @@ from marivo.analysis.errors import (
     NoActiveSessionError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
-    SessionQuestionMismatchError,
     SessionStateError,
     SliceAmbiguousError,
     SliceEmptyResultError,
@@ -57,7 +56,6 @@ def test_base_is_exception():
         NoActiveSessionError,
         NoBackendFactoryError,
         SemanticKindMismatchError,
-        SessionQuestionMismatchError,
         SessionStateError,
         SourceBindingError,
         SliceAmbiguousError,
@@ -293,6 +291,12 @@ def test_transform_op_unsupported_error_removed_from_public_errors() -> None:
     import marivo.analysis.errors as errors
 
     assert not hasattr(errors, "TransformOpUnsupportedError")
+
+
+def test_session_question_mismatch_error_removed_from_public_errors() -> None:
+    import marivo.analysis.errors as errors
+
+    assert not hasattr(errors, "SessionQuestionMismatchError")
 
 
 def test_help_target_error_is_analysis_error() -> None:

@@ -401,7 +401,7 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
     assert "secret-account" not in text
 
 
-def test_session_question_conflict_and_explicit_resume_semantics(
+def test_session_question_update_and_explicit_resume_semantics(
     telemetry_project: Path,
 ) -> None:
     first = mv.session.get_or_create(
@@ -410,13 +410,17 @@ def test_session_question_conflict_and_explicit_resume_semantics(
         backend_factory=lambda _name: None,
         use_datasources=False,
     )
-    with pytest.raises(mv.errors.SessionQuestionMismatchError):
-        mv.session.get_or_create(
-            name="demo",
-            question="Rejected replacement",
-            backend_factory=lambda _name: None,
-            use_datasources=False,
-        )
+    updated = mv.session.get_or_create(
+        name="demo",
+        question="Replacement question",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+    omitted = mv.session.get_or_create(
+        name="demo",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
     resumed = mv.session.resume(
         first.id,
         backend_factory=lambda _name: None,
@@ -424,23 +428,60 @@ def test_session_question_conflict_and_explicit_resume_semantics(
     )
 
     path = _event_path(telemetry_project)
-    assert resumed.id == first.id
+    assert updated.id == omitted.id == resumed.id == first.id
+    assert updated.question == omitted.question == resumed.question == "Replacement question"
     calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
-    assert len(calls) == 4
+    assert len(calls) == 6
     assert calls[0]["marivo.session.created"] is True
-    assert calls[0]["marivo.session.question_applied"] is True
+    assert "marivo.session.question_applied" not in calls[0]
+    assert calls[1]["marivo.session.question_applied"] is True
     assert calls[1]["marivo.session.question"] == "Original question"
     assert calls[2]["marivo.session.created"] is False
-    assert calls[2]["marivo.session.question_applied"] is False
-    assert calls[2]["marivo.session.requested_question"] == "Rejected replacement"
+    assert "marivo.session.question_applied" not in calls[2]
+    assert calls[2]["marivo.session.requested_question"] == "Replacement question"
     assert calls[2]["marivo.session.question"] == "Original question"
-    assert calls[3]["marivo.operation.status"] == "error"
-    assert calls[3]["marivo.error.class"] == "SessionQuestionMismatchError"
+    assert calls[3]["marivo.operation.status"] == "ok"
+    assert calls[3]["marivo.session.question_applied"] is True
+    assert calls[3]["marivo.session.question"] == "Replacement question"
+    assert calls[4]["marivo.session.created"] is False
+    assert "marivo.session.question_applied" not in calls[4]
+    assert calls[4]["marivo.session.question"] == "Replacement question"
+    assert calls[5]["marivo.session.question_applied"] is False
+    assert calls[5]["marivo.session.question"] == "Replacement question"
 
     resume_calls = [_attrs(record) for record in _capability_records(path, "session.resume")]
     assert len(resume_calls) == 2
     assert resume_calls[-1]["marivo.operation.status"] == "ok"
     assert resume_calls[-1]["marivo.session.id"] == first.id
+
+
+def test_failed_session_question_update_reports_not_applied(
+    telemetry_project: Path,
+) -> None:
+    mv.session.get_or_create(
+        name="demo",
+        question="Original question",
+        report_timezone="UTC",
+        backend_factory=lambda _name: None,
+        use_datasources=False,
+    )
+
+    with pytest.raises(mv.errors.SessionTimezoneConflict):
+        mv.session.get_or_create(
+            name="demo",
+            question="Replacement question",
+            report_timezone="Asia/Shanghai",
+            backend_factory=lambda _name: None,
+            use_datasources=False,
+        )
+
+    path = _event_path(telemetry_project)
+    calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
+    assert len(calls) == 4
+    assert "marivo.session.question_applied" not in calls[-2]
+    assert calls[-1]["marivo.operation.status"] == "error"
+    assert calls[-1]["marivo.session.question_applied"] is False
+    assert mv.session.inspect("demo").summary.question == "Original question"
 
 
 def test_analysis_purpose_and_repair_survive_pre_persistence_failure(
