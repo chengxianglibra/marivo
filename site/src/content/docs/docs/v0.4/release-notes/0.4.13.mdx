@@ -1,0 +1,86 @@
+---
+slug: docs/v0.4/release-notes/0.4.13
+title: Marivo 0.4.13
+description: Release notes for Marivo 0.4.13.
+---
+
+Marivo 0.4.13 makes multi-axis attribution more useful with typed hierarchy and
+Top-K grouping, improves native Trino percentile execution, and hardens
+agent-facing help and artifact recovery.
+
+## Highlights
+
+- `session.attribute(..., top_k=K)` now supports fixed, governed Top-K
+  selection across single-axis, joint, and hierarchy attribution. It ranks over
+  the combined current and baseline scope and represents the remainder as an
+  explicit Other player; null values and a real member named `Other` remain
+  distinguishable.
+- Multi-axis attribution now uses typed hierarchy semantics. `mode="hierarchy"`
+  preserves ordered prefixes and per-level reconciliation, including separate
+  resolution semantics for additive/component results and distinct/quantile
+  results.
+- Trino percentile attribution now plans deterministic Shapley coalitions and
+  evaluates native `approx_percentile` in bounded batches, reusing independently
+  observed endpoints while preserving reconciliation and approximation-error
+  evidence.
+- Semi-additive percentile folds now resolve from measure-owned temporal
+  contracts consistently across catalog and runtime planning. Trino sampled
+  percentile folds use `APPROX_PERCENTILE`, and readiness blocks unobservable
+  fold definitions with repair guidance.
+
+## Changed
+
+- `marivo.help("targets")` lists the complete canonical string targets from the
+  installed live registries, including surface, capability, type, and error
+  targets. Unknown-target errors point to this inventory.
+- Attribution results retain typed Top-K selection, hierarchy paths, Other
+  masks, resolution semantics, and reconciliation metadata so downstream reads
+  can distinguish selection and aggregation behavior.
+- Artifact persistence publication and recovery are session-aware. Missing
+  session index entries can be recovered only from a committed schema-v4
+  evidence marker after path, content-hash, and canonical-integrity checks;
+  SQLite lock and busy conditions produce structured lock errors.
+
+## Fixed
+
+- Interrupted Artifact publication no longer restores an unvalidated
+  registration or loses artifact pagination identity during recovery.
+- Trino native percentile coalition evaluation avoids unbounded per-coalition
+  execution while retaining endpoint and error semantics.
+- Percentile fold planning no longer drops measure-owned temporal semantics in
+  nested, derived, or runtime expressions; conflicting or unobservable status
+  axes fail closed.
+
+## Documentation
+
+- Updated the analysis workflow, semantic layer, evidence persistence and
+  recovery, help-target, and quantile attribution documentation.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.13 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)
