@@ -1,0 +1,77 @@
+---
+slug: zh-cn/docs/v0.4/release-notes/0.4.13
+title: Marivo 0.4.13
+description: Marivo 0.4.13 发布说明。
+---
+
+Marivo 0.4.13 让多轴归因支持 typed hierarchy 和 Top-K 分组，提升 Trino
+原生分位数执行效率，并强化面向 agent 的帮助与 Artifact recovery。
+
+## 重点
+
+- `session.attribute(..., top_k=K)` 现在支持单轴、joint 和 hierarchy 归因中的固定、受治理
+  Top-K 选择。排名基于完整的 current 与 baseline 范围，并把其余成员表示为显式的 Other
+  player；真实的 null 值和名为 `Other` 的真实成员仍然可以区分。
+- 多轴归因现在使用 typed hierarchy 语义。`mode="hierarchy"` 保留有序 prefix 和逐层对账，
+  并区分可加/组件结果与 distinct/quantile 结果各自的 resolution 语义。
+- Trino 分位数归因现在会规划确定性的 Shapley coalition，并以有界批次执行原生
+  `approx_percentile`；独立观测的 endpoint 会被复用，同时保留 reconciliation 和
+  approximation-error evidence。
+- Semi-additive 分位数 fold 现在在 catalog 和 runtime planning 中一致地从 measure-owned
+  temporal contract 解析。Trino sampled percentile fold 使用 `APPROX_PERCENTILE`；无法观测
+  的 fold 定义会在 readiness 阶段安全阻断并给出修复指引。
+
+## 变更
+
+- `marivo.help("targets")` 会从已安装版本的 live registry 列出完整 canonical string target，
+  包括 surface、capability、type 和 error target。未知 target 的错误会指向这份清单。
+- Attribution result 会保留类型化的 Top-K selection、hierarchy path、Other mask、resolution
+  semantics 和 reconciliation metadata，让后续读取可以区分 selection 与 aggregation 行为。
+- Artifact persistence 的发布和 recovery 现在具有 session 感知能力。缺失的 session index 只会
+  在已提交的 schema-v4 evidence marker 通过 path、content hash 和 canonical integrity 检查后恢复；
+  SQLite 的 lock/busy 状态会转换为结构化 lock error。
+
+## 修复
+
+- 被中断的 Artifact publication 不再恢复未经验证的 registration，也不会在 recovery 时丢失
+  artifact pagination identity。
+- Trino 原生 percentile coalition evaluation 不再执行无界的逐 coalition 查询，同时保留
+  endpoint 和 error semantics。
+- Percentile fold planning 不再丢失 nested、derived 或 runtime expression 中由 measure 拥有的
+  temporal semantics；冲突或无法观测的 status axis 会安全阻断。
+
+## 文档
+
+- 更新 analysis workflow、semantic layer、evidence persistence 与 recovery、help target 和
+  quantile attribution 文档。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.13 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/v0.4/installation/)
+- [快速开始](/zh-cn/docs/v0.4/quick-start/)
+- [语义层](/zh-cn/docs/v0.4/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/v0.4/concepts/readiness/)
+- [分析流程](/zh-cn/docs/v0.4/concepts/analysis-workflow/)
+- [证据](/zh-cn/docs/v0.4/concepts/evidence/)
