@@ -140,6 +140,17 @@ row or that committed marker remain unreachable orphans. Paths recorded in the
 Session Store are **project-relative** (via `PersistenceLayout.relative_path`), so
 the `.marivo/` tree stays valid if the project directory is moved.
 
+If a non-lock projection transaction fails but `judgment.db` can still accept a
+fresh transaction, Marivo commits an `evidence_status="unavailable"` Artifact row
+and the exact `evidence_store_unavailable` issue without findings or a digest. That
+row is a truthful recovery marker, but it is not an immutable reuse hit when a
+later invocation requests evidence: the same deterministic Artifact ref retries
+the complete projection and atomically replaces the unavailable marker. If even
+the fallback transaction cannot be written for a first publication, the unavailable
+sidecar remains the only durable failure record. A failed retry of an existing
+unavailable marker instead restores its prior sidecar and Session Store registration
+before raising, preserving sidecar/ledger/index agreement.
+
 ### The session store schema
 
 `session_store.db` is a single WAL-mode SQLite database — the ordinary authoritative
@@ -255,6 +266,8 @@ SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger r
 `SessionLockedByAnotherProcessError`. They are not silently retried, overwritten,
 or downgraded to `evidence_status="unavailable"`. A failed final index write leaves
 the already committed evidence marker recoverable on the next exact read or retry.
+Projection integrity failures are distinct from environment or permission failures:
+their typed repair directs a projection retry with the current Marivo build.
 
 There is no non-raising batch API on the default surface; a future advanced
 `StepOutcome` / `try_*` path, if added, would not change the terminal artifact

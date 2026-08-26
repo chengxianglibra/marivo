@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from marivo.analysis.errors import FindingExtractionFailedError
-from marivo.analysis.evidence.identity import make_finding_id
+from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     DerivationRule,
@@ -41,10 +41,6 @@ def _to_int(value: Any) -> int | None:
         return None
 
 
-def _bucket_key(start: Any, end: Any) -> str:
-    return f"{start}|{end}"
-
-
 _VALUE_COLUMNS = {
     "actual",
     "error",
@@ -57,13 +53,19 @@ _VALUE_COLUMNS = {
 
 def _item_key(row: pd.Series[Any], columns: pd.Index) -> str:
     """Return a stable bucket key that also separates panel members."""
-    bucket = _bucket_key(row.get("bucket_start"), row.get("bucket_end"))
-    dimensions = [
-        f"{column}={row.get(column)}"
+    dimensions = {
+        str(column): row.get(column)
         for column in columns
         if column not in _VALUE_COLUMNS and column not in {"bucket_start", "bucket_end"}
-    ]
-    return "|".join([bucket, *dimensions])
+    }
+    return make_typed_item_key(
+        namespace="forecast_point",
+        context={
+            "bucket_start": row.get("bucket_start"),
+            "bucket_end": row.get("bucket_end"),
+        },
+        coordinates=dimensions,
+    )
 
 
 def extract_forecast_point_findings(
@@ -127,7 +129,7 @@ def extract_forecast_point_findings(
                 ),
                 derivation=DerivationRule(
                     rule_id="extract.forecast_point",
-                    rule_version="v2",
+                    rule_version="v3",
                     operator="forecast",
                     source_fields=tuple(str(column) for column in df.columns),
                     source_finding_refs=(),

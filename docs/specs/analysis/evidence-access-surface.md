@@ -302,6 +302,14 @@ fingerprint; delta subjects record the ordered current/baseline comparison
 identity. Every subject includes the owning session/artifact scope, so evidence
 from different sessions cannot merge merely because value expressions match.
 
+Finding families that derive identity from source-row coordinates encode
+`canonical_item_key` as versioned canonical JSON with explicit null, string,
+boolean, integer, float, and temporal scalar tags. Coordinate names and values are
+encoded structurally rather than joined with delimiters, so null and empty string,
+typed values with the same display text, and values containing `=` or `|` remain
+distinct. Unsupported composite coordinate values fail extraction instead of
+falling back to lossy `str(...)` identity.
+
 Artifact, findings, digest, and issues commit in one transaction, after the frame
 bytes and sidecar have been atomically published. That schema-v4 Artifact row is
 also the recovery marker when interruption occurs before the Session Store index
@@ -311,6 +319,15 @@ parallel marker schema. Only schema v4 is accepted: every non-v4 `judgment.db`
 raises `SchemaVersionMismatchError` and must be replaced by a fresh analysis
 session. SQLite lock/timeout failures remain typed execution errors and are never
 converted into empty evidence or an unavailable Artifact.
+
+After a non-lock projection failure, a still-writable ledger receives a separate
+fallback transaction containing only the unavailable Artifact and its typed issues.
+Findings and digest remain absent. A later evidence-requesting retry republishes the
+same deterministic ref instead of reusing that failure marker; a completely
+unwritable ledger leaves only the unavailable sidecar when no prior marker exists.
+If replacement of an existing unavailable marker cannot commit, Marivo restores
+the prior sidecar and Session Store registration before raising, so recovery never
+observes a new sidecar paired with the old ledger issue.
 
 The digest serialized into frame metadata and the digest stored in SQLite are
 the same normalized value and fingerprint. Sidecars containing removed

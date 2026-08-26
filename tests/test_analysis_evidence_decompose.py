@@ -179,7 +179,53 @@ def test_hierarchy_finding_key_carries_level_axis_driver_path() -> None:
     # Each key must carry the hierarchy layout columns so level-1 and level-2
     # rows stay distinct even when a child's axis value is null.
     for (key,) in keys:
-        assert "attribution_level=" in key
-        assert "attribution_axis=" in key
-        assert "attribution_driver=" in key
-        assert "attribution_path=" in key
+        assert '"name":"attribution_level"' in key
+        assert '"name":"attribution_axis"' in key
+        assert '"name":"attribution_driver"' in key
+        assert '"name":"attribution_path"' in key
+
+
+def test_joint_attribution_persists_null_and_empty_dimension_values() -> None:
+    session = session_attach.get_or_create(name="joint_null_empty_evidence")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "country": ["US", "US"],
+                "platform": [None, ""],
+                "delta": [-955.0, 6520.0],
+            }
+        ),
+    )
+
+    attribution = session.attribute(
+        frame,
+        axes=[
+            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
+        ],
+        mode="joint",
+    )
+
+    with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
+        rows = conn.execute(
+            "SELECT canonical_item_key FROM findings "
+            "WHERE artifact_id=? AND finding_type='decomposition_item'",
+            (attribution.ref,),
+        ).fetchall()
+        artifact_status = conn.execute(
+            "SELECT evidence_status FROM artifacts WHERE artifact_id=?",
+            (attribution.ref,),
+        ).fetchone()
+
+    assert attribution.evidence_status == "complete"
+    assert artifact_status == ("complete",)
+    assert len(rows) == 2
+    assert len({row[0] for row in rows}) == 2
+    assert attribution.evidence_digest is not None
+    assert {item.dimension_keys["platform"] for item in attribution.evidence_digest.items} == {
+        None,
+        "",
+    }
+    assert attribution.meta.reconciliation is not None
+    assert attribution.meta.reconciliation.residual == pytest.approx(0.0)

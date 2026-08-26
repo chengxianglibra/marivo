@@ -7,7 +7,9 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
@@ -346,6 +348,22 @@ def _atomic_write_meta(meta_path: Path, meta_dict: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, meta_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Atomically restore an already-serialized artifact file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -1018,21 +1036,29 @@ def _store_failure_issue(
     artifact_id: str,
     operator: str,
     stable_error_category: str,
+    integrity_failure: bool = False,
 ) -> EvidenceAvailabilityIssue:
     """Build an evidence_store_unavailable issue carrying a typed repair.
 
-    Issue #73: the store stage of the shared commit path is unavailable (either
-    the evidence store was never configured or its projection write failed), so
-    the blocking issue carries an environment repair telling the agent what to
-    restore before retrying.
+    Integrity failures are deterministic projection failures, not evidence-store
+    permission failures. Other categories retain the environment repair because
+    the store is absent or could not complete a write.
     """
-    return _issue(
-        artifact_id,
-        "evidence_store_unavailable",
-        failed_stage="store",
-        findings_available=False,
-        stable_error_category=stable_error_category,
-        repair=AnalysisRepair(
+    repair = (
+        AnalysisRepair(
+            kind="retry",
+            action=(
+                f"evidence projection integrity failed ({stable_error_category}); "
+                f"re-run {operator} with the current Marivo build so the artifact "
+                "projection and findings are regenerated."
+            ),
+            help_target=LiveHelpTarget(
+                surface="analysis",
+                canonical_id=_help_canonical_id(operator),
+            ),
+        )
+        if integrity_failure
+        else AnalysisRepair(
             kind="environment",
             action=(
                 f"evidence store is unavailable ({stable_error_category}); ensure "
@@ -1043,7 +1069,15 @@ def _store_failure_issue(
                 surface="analysis",
                 canonical_id=_help_canonical_id(operator),
             ),
-        ),
+        )
+    )
+    return _issue(
+        artifact_id,
+        "evidence_store_unavailable",
+        failed_stage="store",
+        findings_available=False,
+        stable_error_category=stable_error_category,
+        repair=repair,
     )
 
 
@@ -1069,12 +1103,25 @@ def _insert_projection(
     committed_at_us = to_microseconds_utc(committed_at)
     with store.transaction(immediate=True) as tx:
         tx.execute(
-            """INSERT OR REPLACE INTO artifacts
+            """INSERT INTO artifacts
                (artifact_id, session_id, step_type, artifact_type,
                 artifact_schema_version, subject_payload, lineage_payload,
                 analysis_scope, quality_summary, evidence_status,
                 frame_path, frame_sha, committed_at_us)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(artifact_id) DO UPDATE SET
+                 session_id = excluded.session_id,
+                 step_type = excluded.step_type,
+                 artifact_type = excluded.artifact_type,
+                 artifact_schema_version = excluded.artifact_schema_version,
+                 subject_payload = excluded.subject_payload,
+                 lineage_payload = excluded.lineage_payload,
+                 analysis_scope = excluded.analysis_scope,
+                 quality_summary = excluded.quality_summary,
+                 evidence_status = excluded.evidence_status,
+                 frame_path = excluded.frame_path,
+                 frame_sha = excluded.frame_sha,
+                 committed_at_us = excluded.committed_at_us""",
             (
                 artifact_id,
                 session_id,
@@ -1173,6 +1220,7 @@ def _reuse_committed_result(
     artifact_id: str,
     parquet_path: Path,
     meta_path: Path,
+    retry_store_failure: bool,
 ) -> BaseFrame | None:
     """Return an already committed immutable artifact without rewriting it."""
     if not parquet_path.is_file() or not meta_path.is_file():
@@ -1180,11 +1228,26 @@ def _reuse_committed_result(
     if store is not None:
         row = (
             store.read()
-            .execute("SELECT 1 FROM artifacts WHERE artifact_id = ?", (artifact_id,))
+            .execute(
+                "SELECT evidence_status FROM artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            )
             .fetchone()
         )
         if row is None:
             return None
+        if retry_store_failure and row["evidence_status"] == "unavailable":
+            issue = (
+                store.read()
+                .execute(
+                    "SELECT 1 FROM artifact_issues "
+                    "WHERE artifact_id = ? AND kind = 'evidence_store_unavailable' LIMIT 1",
+                    (artifact_id,),
+                )
+                .fetchone()
+            )
+            if issue is not None:
+                return None
     try:
         persisted_payload = json.loads(meta_path.read_text(encoding="utf-8"))
         if persisted_payload.get("artifact_schema_version") != CURRENT_ARTIFACT_SCHEMA_VERSION:
@@ -1369,11 +1432,28 @@ def commit_result(
         artifact_id=artifact_id,
         parquet_path=parquet_path,
         meta_path=meta_path,
+        retry_store_failure=emit_evidence,
     )
     if reused is not None:
         if session is not None and session._store.get_artifact(session.id, artifact_id) is None:
             return session.get_frame(artifact_id)
         return reused
+    previous_projection_exists = False
+    previous_meta_bytes: bytes | None = None
+    if store is not None:
+        with suppress(sqlite3.DatabaseError):
+            previous_projection_exists = (
+                store.read()
+                .execute(
+                    "SELECT 1 FROM artifacts WHERE artifact_id = ?",
+                    (artifact_id,),
+                )
+                .fetchone()
+                is not None
+            )
+    if previous_projection_exists and meta_path.is_file():
+        with suppress(OSError):
+            previous_meta_bytes = meta_path.read_bytes()
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
     auxiliary_receipts: list[_FrameAuxiliaryReceipt] = []
@@ -1528,21 +1608,32 @@ def commit_result(
         if existing_registration is not None:
             withdrawn_registration = dict(existing_registration)
             session._store.delete_artifact(session.id, artifact_id)
+
+    def restore_withdrawn_registration() -> None:
+        if session is None or withdrawn_registration is None:
+            return
+        session._store.record_artifact(
+            session_id=str(withdrawn_registration["session_id"]),
+            artifact_id=str(withdrawn_registration["artifact_id"]),
+            kind=str(withdrawn_registration["kind"]),
+            path=str(withdrawn_registration["path"]),
+            meta_path=str(withdrawn_registration["meta_path"]),
+            content_hash=cast("str | None", withdrawn_registration["content_hash"]),
+            produced_by_job=cast("str | None", withdrawn_registration["produced_by_job"]),
+            evidence_status=str(withdrawn_registration["evidence_status"]),
+            created_at=str(withdrawn_registration["created_at"]),
+        )
+
+    def restore_previous_publication() -> None:
+        if not previous_projection_exists or previous_meta_bytes is None:
+            return
+        _atomic_write_bytes(meta_path, previous_meta_bytes)
+        restore_withdrawn_registration()
+
     try:
         _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
     except BaseException:
-        if session is not None and withdrawn_registration is not None:
-            session._store.record_artifact(
-                session_id=str(withdrawn_registration["session_id"]),
-                artifact_id=str(withdrawn_registration["artifact_id"]),
-                kind=str(withdrawn_registration["kind"]),
-                path=str(withdrawn_registration["path"]),
-                meta_path=str(withdrawn_registration["meta_path"]),
-                content_hash=cast("str | None", withdrawn_registration["content_hash"]),
-                produced_by_job=cast("str | None", withdrawn_registration["produced_by_job"]),
-                evidence_status=str(withdrawn_registration["evidence_status"]),
-                created_at=str(withdrawn_registration["created_at"]),
-            )
+        restore_withdrawn_registration()
         raise
 
     if store is not None:
@@ -1566,20 +1657,54 @@ def commit_result(
                 committed_at=now,
             )
         except SessionLockedByAnotherProcessError:
+            restore_previous_publication()
             raise
         except Exception as exc:
-            status = "unavailable"
-            findings = []
-            digest = None
-            issues.append(
-                _store_failure_issue(
+            try:
+                status = "unavailable"
+                findings = []
+                digest = None
+                store_issue = _store_failure_issue(
                     artifact_id=artifact_id,
                     operator=_operator_for(step_type, extractor_family),
                     stable_error_category=type(exc).__name__,
+                    integrity_failure=isinstance(exc, sqlite3.IntegrityError),
                 )
-            )
-            new_meta = build_meta()
-            _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
+                issues.append(store_issue)
+                new_meta = build_meta()
+                _atomic_write_meta(meta_path, new_meta.model_dump(mode="json"))
+            except BaseException:
+                restore_previous_publication()
+                raise
+            try:
+                _insert_projection(
+                    store,
+                    artifact_id=artifact_id,
+                    session_id=frame.meta.session_id,
+                    step_type=step_type,
+                    extractor_family=extractor_family,
+                    subject=subject,
+                    lineage_payload=canonical_json(frame.meta.lineage),
+                    scope=scope,
+                    quality=quality,
+                    status=status,
+                    frame_path=str(parquet_path),
+                    frame_sha=frame_sha,
+                    findings=[],
+                    digest=None,
+                    issues=issues,
+                    committed_at=now,
+                )
+            except SessionLockedByAnotherProcessError:
+                restore_previous_publication()
+                raise
+            except Exception:
+                if previous_projection_exists:
+                    restore_previous_publication()
+                    raise
+                # The sidecar remains the only durable failure record when the
+                # evidence store cannot even commit its unavailable projection.
+                pass
     frame.meta = new_meta
     return frame
 
