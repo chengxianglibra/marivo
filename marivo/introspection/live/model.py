@@ -109,6 +109,10 @@ class LiveSurfaceRegistry(Protocol[DescriptorT_co]):
         """Return canonical help ids in deterministic registry order."""
         ...
 
+    def discovery_ids(self) -> tuple[str, ...]:
+        """Return canonical ids intended for progressive public discovery."""
+        ...
+
     def by_canonical_id(self, canonical_id: str) -> DescriptorT_co:
         """Return the original native descriptor for a canonical id."""
         ...

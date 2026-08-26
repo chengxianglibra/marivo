@@ -92,7 +92,7 @@ def help(target: PublicHelpTarget = None) -> None:
     target:
         ``None`` for the global index, a registered string, callable, type,
         result, error, exact semantic ``Ref``, or loaded ``CatalogEntry``. Use
-        ``"targets"`` to list every canonical string target in this version.
+        ``"targets"`` to list the canonical discovery targets in this version.
 
     Returns
     -------

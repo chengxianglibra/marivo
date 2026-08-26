@@ -129,7 +129,7 @@ def test_public_targets_help_prints_the_inventory_and_returns_none(
     assert marivo.help("targets") is None
     output = capsys.readouterr().out
     assert output.startswith("Marivo help targets\n")
-    assert output.rstrip().endswith("- ontology.OntologyHelpTargetError")
+    assert output.rstrip().endswith("- ontology.related_to")
 
 
 def test_domain_help_attribute_raises_guiding_error() -> None:
@@ -269,17 +269,15 @@ def _expected_canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ..
     groups: list[tuple[str, tuple[str, ...]]] = [("Global", ("authoring", "load", "targets"))]
     for owner in _SURFACE_NAMES:
         surface = _SURFACES[owner]
-        native_targets = (
-            *surface.registry.canonical_ids(),
-            *surface.type_index.values(),
-            *(error_type.__name__ for error_type in surface.error_types.values()),
+        targets = (
+            owner,
+            *(f"{owner}.{target}" for target in surface.registry.discovery_ids()),
         )
-        targets = tuple(dict.fromkeys((owner, *(f"{owner}.{target}" for target in native_targets))))
         groups.append((owner.title(), targets))
     return tuple(groups)
 
 
-def test_targets_help_is_the_complete_deterministic_canonical_string_inventory() -> None:
+def test_targets_help_is_the_deterministic_canonical_discovery_index() -> None:
     expected_groups = _expected_canonical_string_target_groups()
     expected_lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
     for index, (heading, targets) in enumerate(expected_groups):
@@ -293,13 +291,14 @@ def test_targets_help_is_the_complete_deterministic_canonical_string_inventory()
     assert route_help_target("targets") == TopicHelpRoute("targets")
     assert text == "\n".join(expected_lines)
     assert text == _text("targets")
-    assert text.endswith("- ontology.OntologyHelpTargetError")
+    assert text.endswith("- ontology.related_to")
 
 
 def test_every_inventory_target_resolves_without_aliases_or_ambiguity() -> None:
     groups = _expected_canonical_string_target_groups()
     targets = tuple(target for _heading, group in groups for target in group)
 
+    assert len(targets) == 118
     assert len(targets) == len(set(targets))
     assert "analysis.Session.observe" not in targets
     assert "analysis.session.observe" not in targets
@@ -323,19 +322,64 @@ def test_every_inventory_target_resolves_without_aliases_or_ambiguity() -> None:
             assert route.owner == owner
 
 
-def test_inventory_type_and_error_names_resolve_to_their_exact_contract_kinds() -> None:
+def test_type_and_error_names_remain_resolvable_without_joining_discovery() -> None:
+    inventory = {
+        target
+        for _heading, targets in _expected_canonical_string_target_groups()
+        for target in targets
+    }
     for owner in _SURFACE_NAMES:
         surface = _SURFACES[owner]
         for type_name in dict.fromkeys(surface.type_index.values()):
+            assert f"{owner}.{type_name}" not in inventory
             route = route_help_target(f"{owner}.{type_name}")
             assert isinstance(route, NativeHelpRoute)
             assert route.resolved.kind == "type_contract"
             assert route.resolved.type_name == type_name
         for error_type in dict.fromkeys(surface.error_types.values()):
+            assert f"{owner}.{error_type.__name__}" not in inventory
             route = route_help_target(f"{owner}.{error_type.__name__}")
             assert isinstance(route, NativeHelpRoute)
             assert route.resolved.kind == "error_contract"
             assert route.resolved.error_name == error_type.__name__
+
+
+def test_receiver_members_and_grouped_leaves_resolve_without_joining_discovery() -> None:
+    inventory = {
+        target
+        for _heading, targets in _expected_canonical_string_target_groups()
+        for target in targets
+    }
+    for target in (
+        "datasource.SourceInspection.sample",
+        "semantic.readiness",
+        "analysis.transform.filter",
+        "analysis.session.evidence.trace",
+        "analysis.MetricFrame.as_time_series",
+    ):
+        assert target not in inventory
+        assert isinstance(route_help_target(target), NativeHelpRoute)
+
+    assert "analysis.transform" in inventory
+    assert "analysis.recovery" in inventory
+    assert "analysis.artifacts" in inventory
+
+
+def test_model_state_handle_has_one_semantic_help_owner() -> None:
+    handle = ms.ModelStateHandle(
+        model=ms.ref.state_model("sales.order_lifecycle"),
+        name="paid",
+    )
+
+    semantic_text = _text("semantic.ModelStateHandle")
+    assert _text(ms.ModelStateHandle) == semantic_text
+    assert _text(handle) == semantic_text
+
+    with pytest.raises(MarivoHelpTargetError) as captured:
+        route_help_target("analysis.ModelStateHandle")
+
+    assert captured.value.outcome == "unknown"
+    assert captured.value.candidates[0] == "semantic.ModelStateHandle"
 
 
 @pytest.mark.parametrize(

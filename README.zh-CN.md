@@ -107,8 +107,9 @@ marivo.help("semantic.metric")
 marivo.help("analysis.observe")
 ```
 
-`marivo.help("targets")` 会列出当前安装版本支持的全部 canonical string targets。
-请统一使用其中的完整限定名，不要依赖短名称自动消歧。
+`marivo.help("targets")` 会列出当前安装版本的 canonical discovery index。
+请统一使用其中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
+public type、error 和 member target 仍可直接查询 focused help。
 
 如果项目已经包含 `marivo.toml` 和 `models/`，直接复用现有语义层。新项目只需告诉智能体要使用的数据源和业务目标，再在分析前确认智能体提出的指标含义。
 

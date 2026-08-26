@@ -60,7 +60,7 @@ class MarivoHelpTargetError(ValueError):
         else:
             message = (
                 f"Marivo help target is not registered: received {self.received!r}. "
-                'Use marivo.help("targets") to browse canonical string targets.'
+                'Use marivo.help("targets") to browse canonical discovery targets.'
             )
         if candidates:
             message += f" Candidates: {', '.join(candidates)}."

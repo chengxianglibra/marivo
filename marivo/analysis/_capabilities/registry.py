@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
+    ROOT_GROUP_ORDER,
     ArtifactAdmissionRule,
     ArtifactOutputContract,
     AuthorityPolicy,
@@ -394,6 +395,68 @@ class CapabilityRegistry:
     @property
     def help_targets(self) -> tuple[str, ...]:
         return tuple(d.help_target for d in self._descriptors)
+
+    def grouping_topic_for(self, descriptor: CapabilityDescriptor) -> str | None:
+        """Return the registered drill-down topic for one grouped descriptor."""
+        if descriptor.root_visibility != "grouped":
+            return None
+        if descriptor.id.startswith("session.") and descriptor.root_group == "recovery":
+            try:
+                self.by_help_target("recovery")
+                return "recovery"
+            except KeyError:
+                return None
+        parts = descriptor.id.split(".")
+        for end in range(len(parts) - 1, 0, -1):
+            topic = ".".join(parts[:end])
+            try:
+                grouping = self.by_help_target(topic)
+            except KeyError:
+                continue
+            if grouping.callable_path is None and grouping.root_group == descriptor.root_group:
+                return topic
+        if descriptor.id.startswith("BaseFrame."):
+            try:
+                self.by_help_target("artifacts")
+                return "artifacts"
+            except KeyError:
+                return None
+        return None
+
+    def discovery_groups(
+        self,
+    ) -> tuple[tuple[RootGroup, tuple[CapabilityDescriptor, ...]], ...]:
+        """Return root-ordered capability groups for progressive discovery."""
+        groups: list[tuple[RootGroup, tuple[CapabilityDescriptor, ...]]] = []
+        seen_targets: set[str] = set()
+        for group in ROOT_GROUP_ORDER:
+            descriptors = tuple(
+                descriptor for descriptor in self._descriptors if descriptor.root_group == group
+            )
+            visible: list[CapabilityDescriptor] = []
+            for descriptor in (
+                descriptor for descriptor in descriptors if descriptor.root_visibility == "direct"
+            ):
+                if descriptor.help_target not in seen_targets:
+                    seen_targets.add(descriptor.help_target)
+                    visible.append(descriptor)
+            for descriptor in descriptors:
+                topic = self.grouping_topic_for(descriptor)
+                if topic is None or topic in seen_targets:
+                    continue
+                seen_targets.add(topic)
+                visible.append(self.by_help_target(topic))
+            if visible:
+                groups.append((group, tuple(visible)))
+        return tuple(groups)
+
+    def discovery_ids(self) -> tuple[str, ...]:
+        """Return direct capabilities and one drill-down topic per grouped family."""
+        return tuple(
+            descriptor.help_target
+            for _group, descriptors in self.discovery_groups()
+            for descriptor in descriptors
+        )
 
     @property
     def constructor_consumers(self) -> Mapping[str, tuple[str, ...]]:

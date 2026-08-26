@@ -1,4 +1,4 @@
-"""Global help topics and the complete canonical target inventory."""
+"""Global help topics and the canonical discovery index."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def render_root() -> str:
 
 
 def render_targets() -> str:
-    """Render the complete finite inventory without focused-help truncation."""
+    """Render the finite discovery index without focused-help truncation."""
     lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
     groups = canonical_string_target_groups()
     for index, (heading, targets) in enumerate(groups):
