@@ -41,8 +41,9 @@ failed declaration remain recorded.
 
 Session-bound events can include the persisted `session.question`. Analysis
 operations include `analysis_purpose` when supplied, and `md.raw_sql(...)`
-includes its required `reason`. Session creation records whether the requested
-question was applied or ignored because an existing session was resumed.
+includes its required `reason`. Completed session acquisition events record
+whether the session was created and whether an explicit requested question was
+applied as the current value; omitting `question` preserves the persisted value.
 
 Input summaries can include canonical metric, dimension, datasource, semantic,
 and artifact identifiers together with counts, types, options, limits, and

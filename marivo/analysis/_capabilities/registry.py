@@ -2266,7 +2266,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.get_or_create",
             "mv.session.get_or_create(...)",
             "session.get_or_create",
-            "Attach to an existing session or create a new one.",
+            "Create or reuse a named session and apply an explicit current question.",
             "recovery",
             "Session",
             "session_name",

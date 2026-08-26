@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from marivo._compat import UTC
-from marivo.analysis.errors import SessionLockedByAnotherProcessError
+from marivo.analysis.errors import SessionLockedByAnotherProcessError, SessionNotFoundError
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
 
@@ -250,6 +250,60 @@ class SessionStore:
             inserted = self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (sid,))
             assert inserted is not None  # just inserted the row, must exist
             return inserted
+
+    @contextmanager
+    def activate_session(
+        self,
+        *,
+        session_id: str,
+        question_update: str | None,
+    ) -> Iterator[sqlite3.Row]:
+        """Publish one session activation in a single database transaction.
+
+        The transaction holds an immediate write lock while the caller publishes
+        derived filesystem metadata. If that publication raises, the question,
+        timestamp, and current pointer all roll back together. An omitted
+        ``question_update`` touches the session without replacing its question.
+
+        Args:
+            session_id: Immutable session id.
+            question_update: Explicit current guiding question, including an
+                empty string, or ``None`` to preserve the persisted value.
+
+        Yields:
+            The refreshed session row to publish to derived metadata.
+
+        Raises:
+            SessionNotFoundError: The session no longer exists.
+        """
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (session_id,))
+            if existing is None:
+                raise SessionNotFoundError(
+                    message=f"session {session_id!r} was not found while activating it",
+                    context={"session_id": session_id},
+                )
+
+            now = _now_iso()
+            if question_update is None:
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                    (now, session_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE sessions SET question = ?, updated_at = ? WHERE id = ?",
+                    (question_update, now, session_id),
+                )
+            row = self._fetchone(conn, "SELECT * FROM sessions WHERE id = ?", (session_id,))
+            assert row is not None
+            conn.execute(
+                "INSERT OR REPLACE INTO runtime_state (key, value) "
+                "VALUES ('current_session_id', ?)",
+                (session_id,),
+            )
+            yield row
 
     def get_session_by_name(self, name: str) -> sqlite3.Row | None:
         """Look up a session row by name.

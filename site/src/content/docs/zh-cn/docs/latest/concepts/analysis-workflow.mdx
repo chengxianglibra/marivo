@@ -104,14 +104,14 @@ revenue.details().show()     # 读取定义、候选轴和 measure lineage
 region.details().show()
 ```
 
-每项调查应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建该名称；之后仅在
-显式 question 未变化，或调用方有意省略 `question` 时附着到已有会话。会话的精简 API 为
-`get_or_create`、`resume(session_id)`、`current()`、`recent()`、`inspect(name)` 和
-`delete(name)`。
+每个持续推进的分析工作区应使用一个稳定且可区分的会话名称。`get_or_create` 首次创建
+该名称，之后附着到同一个不可变 session id。显式传入的 `question` 会成为会话当前的
+引导问题；有意省略时则保留已保存的值。会话的精简 API 为 `get_or_create`、
+`resume(session_id)`、`current()`、`recent()`、`inspect(name)` 和 `delete(name)`。
 
-复用同名会话但显式传入不同的 `question` 会抛出 `SessionQuestionMismatchError`；已保存的
-question 为空时也同样处理。请按结构化 repair 选择：调用 `resume(session_id)` 明确继续
-现有调查，或为新问题选择一个新的稳定名称。
+更新当前问题不会改写已有 artifact、job、evidence、lineage 或其中的
+`analysis_purpose`。如果工作需要独立的历史，而不只是更换当前问题，请使用新的稳定
+会话名称。
 
 `repr(session)` 会引导调用 `session.show()`；该方法打印包含问题、读写状态、报告时区、
 时间戳、已注册直接操作、命名空间以及目录/job/frame 检查入口的有界

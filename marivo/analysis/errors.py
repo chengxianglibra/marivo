@@ -1176,42 +1176,6 @@ class NoActiveSessionError(AnalysisError): ...
 class SessionStateError(AnalysisError): ...
 
 
-class SessionQuestionMismatchError(SessionStateError):
-    """A session name is already bound to a different analysis question."""
-
-    def _derive_fields(self) -> _DerivedFields:
-        session_id = self._context.get("session_id", "<session-id>")
-        persisted = self._context.get("persisted_question")
-        requested = self._context.get("requested_question")
-        return _DerivedFields(
-            expected=f"question={persisted!r}",
-            received=f"question={requested!r}",
-            location="mv.session.get_or_create(question=...)",
-            repair=AnalysisRepair(
-                kind="user_choice",
-                action=(
-                    "Resume the existing session by id, or choose a new stable "
-                    "session name for the requested question."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="recovery"),
-                snippet=(
-                    'repair_choice = "<resume-existing-or-create-new>"\n'
-                    'if repair_choice == "resume-existing":\n'
-                    f"    session = mv.session.resume({session_id!r})\n"
-                    'elif repair_choice == "create-new":\n'
-                    "    session = mv.session.get_or_create(\n"
-                    '        "<new-stable-session-name>",\n'
-                    f"        question={requested!r},\n"
-                    "    )\n"
-                    "else:\n"
-                    "    raise ValueError(\n"
-                    "        \"Set repair_choice to 'resume-existing' or 'create-new'.\"\n"
-                    "    )"
-                ),
-            ),
-        )
-
-
 class SourceBindingError(SessionStateError): ...
 
 

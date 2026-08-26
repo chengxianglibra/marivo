@@ -130,16 +130,17 @@ revenue.details().show()     # definition, candidate axes, and measure lineage
 region.details().show()
 ```
 
-Use one stable, distinguishable session name for each investigation.
-`get_or_create` creates that name once and later attaches when the explicit
-question is unchanged, or when `question` is deliberately omitted. The narrow
-session API is `get_or_create`, `resume(session_id)`, `current()`, `recent()`,
-`inspect(name)`, and `delete(name)`.
+Use one stable, distinguishable session name for each persistent analysis
+workspace. `get_or_create` creates that name once and later attaches to the same
+immutable session id. An explicit `question` becomes the session's current
+guiding question; deliberately omitting it preserves the persisted value. The
+narrow session API is `get_or_create`, `resume(session_id)`, `current()`,
+`recent()`, `inspect(name)`, and `delete(name)`.
 
-Reusing a session name with a different explicit `question` raises
-`SessionQuestionMismatchError`, including when the persisted question is empty.
-Follow its structured repair: call `resume(session_id)` to deliberately continue
-the existing investigation, or choose a new stable name for the new question.
+Updating the current question does not rewrite existing artifacts, jobs,
+evidence, lineage, or their `analysis_purpose`. Use a new stable session name
+when the work should have an independent history rather than merely a new
+current question.
 
 `repr(session)` points to `session.show()`. Call it for a bounded state card
 with the question, read/write status, report timezone, timestamps, and the
