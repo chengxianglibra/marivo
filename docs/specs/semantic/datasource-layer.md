@@ -181,7 +181,7 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
 - **Best-effort writes.** A cache write failure emits a sanitized warning but does
   not invalidate a successful connection test or analysis execution. Automatic
   caching does not fall back to project-local storage.
-- **Guards.** Persistence is disabled when `MARIVO_PERSIST_SECRETS=0` or `CI` is
+- **Guards.** Persistence is disabled when `MARIVO_PERSIST_CREDENTIALS=0` or `CI` is
   set. The cache file is written atomically at mode `0o600`, its parent at
   `0o700`, and Marivo refuses to write it anywhere inside a git repository.
   Insecure permissions on an existing cache raise

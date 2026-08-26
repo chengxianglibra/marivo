@@ -87,7 +87,7 @@ class LocalPlaintextCache:
                 tmp_path.unlink()
 
     def persistence_enabled(self) -> bool:
-        if os.environ.get("MARIVO_PERSIST_SECRETS") == "0":
+        if os.environ.get("MARIVO_PERSIST_CREDENTIALS") == "0":
             return False
         return not os.environ.get("CI")
 
