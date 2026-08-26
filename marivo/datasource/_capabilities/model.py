@@ -43,6 +43,14 @@ class DatasourceCapabilityRegistry:
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(descriptor.canonical_id for descriptor in self._descriptors)
 
+    def discovery_ids(self) -> tuple[str, ...]:
+        """Return public capabilities that are not receiver-member drill-downs."""
+        return tuple(
+            descriptor.canonical_id
+            for descriptor in self._descriptors
+            if descriptor.kind != "method"
+        )
+
     def callable_ids(self) -> tuple[str, ...]:
         return tuple(
             descriptor.canonical_id

@@ -153,6 +153,29 @@ def test_root_help_contains_all_direct_capabilities() -> None:
         assert rendered in text, f"missing direct capability: {desc.help_target}"
 
 
+def test_root_help_entries_are_the_registry_discovery_groups() -> None:
+    root = _text()
+    capability_text = root.split("Capabilities:\n", 1)[1].split(
+        '\nCall marivo.help("analysis.<target>")',
+        1,
+    )[0]
+    rendered_entries = tuple(
+        line.strip() for line in capability_text.splitlines() if line.startswith("    ")
+    )
+    expected_entries = tuple(
+        f"{descriptor.public_entrypoint:<44} {descriptor.root_summary or descriptor.summary}".strip()
+        for _group, descriptors in REGISTRY.discovery_groups()
+        for descriptor in descriptors
+    )
+
+    assert rendered_entries == expected_entries
+    assert REGISTRY.discovery_ids() == tuple(
+        descriptor.help_target
+        for _group, descriptors in REGISTRY.discovery_groups()
+        for descriptor in descriptors
+    )
+
+
 def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
     text = _text()
     for fake_entrypoint in (

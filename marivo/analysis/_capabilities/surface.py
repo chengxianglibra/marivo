@@ -90,7 +90,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
         SessionLifecycle,
     )
     from marivo.analysis.subject import DroppedBefore
-    from marivo.semantic.state_model import ModelStateHandle
 
     return MappingProxyType(
         {
@@ -155,7 +154,6 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             AlignmentPolicy: "AlignmentPolicy",
             ArtifactRef: "ArtifactRef",
             FunnelLossRate: "FunnelLossRate",
-            ModelStateHandle: "ModelStateHandle",
             EventWatermarkRequest: "EventWatermarkRequest",
             EventWatermarkReceipt: "EventWatermarkReceipt",
             cast("type", ArtifactIssue): "ArtifactIssue",

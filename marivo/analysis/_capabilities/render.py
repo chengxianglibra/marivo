@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
-    ROOT_GROUP_ORDER,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -248,39 +247,11 @@ def render_root_help() -> str:
 
     # Capability groups
     lines.append("Capabilities:")
-    for group in ROOT_GROUP_ORDER:
-        group_descs = [d for d in REGISTRY.descriptors if d.root_group == group]
-        if not group_descs:
-            continue
-
-        # Separate direct entries from grouped entries.
-        direct_descs = [d for d in group_descs if d.root_visibility == "direct"]
-        grouped_descs = [d for d in group_descs if d.root_visibility == "grouped"]
-
-        # Collect the unique grouping topics (e.g. "discover", "transform").
-        seen_topics: set[str] = set()
-        topic_descs: list[CapabilityDescriptor] = []
-        for desc in grouped_descs:
-            topic = _grouping_topic_for(desc)
-            if topic is not None and topic not in seen_topics:
-                seen_topics.add(topic)
-                topic_descs.append(REGISTRY.by_help_target(topic))
-
-        # Skip groups that have no visible entries (no direct, no topic).
-        if not direct_descs and not topic_descs:
-            continue
-
+    for group, descriptors in REGISTRY.discovery_groups():
         label = _GROUP_LABELS.get(group, group.replace("_", " ").title())
         lines.append(f"  {label} [{group}]:")
-
-        # Direct entries get their own line.
-        for desc in direct_descs:
+        for desc in descriptors:
             lines.append(f"    {desc.public_entrypoint:<44} {desc.root_summary or desc.summary}")
-
-        # Grouped entries with a topic collapse to the topic.
-        for desc in topic_descs:
-            lines.append(f"    {desc.public_entrypoint:<44} {desc.root_summary or desc.summary}")
-
         lines.append("")
 
     # Drill-down instruction
@@ -292,49 +263,6 @@ def render_root_help() -> str:
         max_lines=SURFACE_LIMITS.root_help_max_lines,
         max_codepoints=SURFACE_LIMITS.root_help_max_codepoints,
     )
-
-
-def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
-    """Return the grouping topic for a grouped descriptor, or None.
-
-    Grouped descriptors that share a prefix (e.g. ``discover.*``,
-    ``transform.*``) collapse to the prefix topic.  Other grouped
-    descriptors (e.g. ``MetricFrame.as_scalar``) do not have a
-    grouping topic and are omitted from the root index.
-    """
-    if desc.root_visibility != "grouped":
-        return None
-    # Session recovery members collapse under the recovery topic, not under
-    # the session grouping entry: that grouping mirrors the recovery root
-    # group (a navigation-only anchor) and never renders a root line itself.
-    # This check must run BEFORE the prefix-collapse loop below: the session
-    # grouping now sits in the same root group as its members, so the loop
-    # would otherwise match it first and drop session.evidence.* / session.*
-    # (11 descriptors) under the session topic instead of recovery.
-    if desc.id.startswith("session.") and desc.root_group == "recovery":
-        try:
-            REGISTRY.by_help_target("recovery")
-            return "recovery"
-        except KeyError:
-            return None
-    # Collapse under the longest registered prefix in the same root group.
-    parts = desc.id.split(".")
-    for end in range(len(parts) - 1, 0, -1):
-        topic = ".".join(parts[:end])
-        try:
-            grouping = REGISTRY.by_help_target(topic)
-        except KeyError:
-            continue
-        if grouping.callable_path is None and grouping.root_group == desc.root_group:
-            return topic
-    # BaseFrame.show, BaseFrame.contract collapse under artifacts.
-    if desc.id.startswith("BaseFrame."):
-        try:
-            REGISTRY.by_help_target("artifacts")
-            return "artifacts"
-        except KeyError:
-            return None
-    return None
 
 
 # ---------------------------------------------------------------------------

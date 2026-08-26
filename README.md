@@ -137,9 +137,11 @@ marivo.help("semantic.metric")
 marivo.help("analysis.observe")
 ```
 
-`marivo.help("targets")` lists every canonical string target supported by the
-installed Marivo version. Use the fully qualified names it prints instead of
-depending on short-name disambiguation.
+`marivo.help("targets")` lists the installed Marivo version's canonical
+discovery index. Use the fully qualified names it prints instead of depending
+on short-name disambiguation. Focused help also accepts registered public types,
+errors, and member targets when they are already known or obtained from a live
+result.
 
 If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.
 For a new project, tell the agent which datasource and business outcome you need, then

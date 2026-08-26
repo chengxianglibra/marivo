@@ -97,25 +97,35 @@ def _qualified_string(target: str) -> tuple[HelpSurface, str] | None:
 
 
 def canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Project canonical public string targets from the live help surfaces."""
+    """Project the canonical discovery index from the live help surfaces."""
     groups: list[tuple[str, tuple[str, ...]]] = [("Global", _GLOBAL_TOPICS)]
     for owner in _SURFACES:
         surface = _native_surface(owner)
-        native_targets = (
-            *surface.registry.canonical_ids(),
-            *surface.type_index.values(),
-            *(error_type.__name__ for error_type in surface.error_types.values()),
-        )
-        qualified_targets = tuple(
-            dict.fromkeys(
-                (
-                    owner,
-                    *(f"{owner}.{target}" for target in native_targets),
-                )
-            )
+        qualified_targets = (
+            owner,
+            *(f"{owner}.{target}" for target in surface.registry.discovery_ids()),
         )
         groups.append((owner.title(), qualified_targets))
     return tuple(groups)
+
+
+def _exact_cross_surface_candidates(
+    target: str,
+    *,
+    excluded_owner: HelpSurface,
+) -> tuple[str, ...]:
+    candidates: list[str] = []
+    for owner in _SURFACES:
+        if owner == excluded_owner:
+            continue
+        route = _resolve_one(target, owner)
+        if route is None:
+            continue
+        resolved = route.resolved
+        native_target = resolved.canonical_id or resolved.type_name or resolved.error_name
+        if native_target is not None:
+            candidates.append(f"{owner}.{native_target}")
+    return tuple(candidates)
 
 
 def route_help_target(target: object | None) -> HelpRoute:
@@ -138,12 +148,24 @@ def route_help_target(target: object | None) -> HelpRoute:
                     resolve_live_target(native_target, _native_surface(owner))
                 except _native_target_error(owner) as error:
                     qualified_errors.append(error)
+                candidates = tuple(
+                    dict.fromkeys(
+                        (
+                            *_exact_cross_surface_candidates(
+                                native_target,
+                                excluded_owner=owner,
+                            ),
+                            *(
+                                f"{owner}.{candidate}"
+                                for candidate in _suggestions(qualified_errors)
+                            ),
+                        )
+                    )
+                )[: SURFACE_LIMITS.help_suggestion_limit]
                 raise MarivoHelpTargetError(
                     target=target,
                     outcome="unknown",
-                    candidates=tuple(
-                        f"{owner}.{candidate}" for candidate in _suggestions(qualified_errors)
-                    ),
+                    candidates=candidates,
                 )
             return route
         if target in _GLOBAL_TOPICS:

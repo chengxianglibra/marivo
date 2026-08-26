@@ -85,6 +85,10 @@ class OntologyRegistry:
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(self._by_id)
 
+    def discovery_ids(self) -> tuple[str, ...]:
+        """Return every ontology capability because the surface is already bounded."""
+        return self.canonical_ids()
+
     def by_canonical_id(self, canonical_id: str) -> OntologyDescriptor:
         try:
             return self._by_id[canonical_id]

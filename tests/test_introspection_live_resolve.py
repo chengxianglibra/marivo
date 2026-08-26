@@ -42,6 +42,9 @@ class _FakeRegistry:
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(c.canonical_id for c in self._caps)
 
+    def discovery_ids(self) -> tuple[str, ...]:
+        return self.canonical_ids()
+
     def by_canonical_id(self, canonical_id: str) -> AuthoringCapability:
         return self._by_id[canonical_id]
 
