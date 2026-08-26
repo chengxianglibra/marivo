@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
 from marivo._authoring.model import AuthoringEffects
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,20 @@ class OntologyDescriptor:
     callable_path: str | None
     summary: str
     body: tuple[str, ...]
+    output_family: str
+    constraints: tuple[str, ...]
+    minimal_example: str
     effects: AuthoringEffects
+
+
+@dataclass(frozen=True)
+class OntologyTypeContract:
+    """Stable public fields and flow edges for one ontology runtime type."""
+
+    name: str
+    producers: tuple[LiveHelpTarget, ...]
+    public_properties: tuple[str, ...] = ()
+    public_methods: tuple[str, ...] = ()
 
 
 _LOCAL = AuthoringEffects(data_access="local_metadata_read", connection="none")
@@ -38,9 +52,18 @@ _DESCRIPTORS = (
             "Source: models/ontology.py",
             "Construct edges only with mo.influences(...) or mo.related_to(...).",
             "All endpoints are exact EntityRef, MeasureRef, or MetricRef values.",
-            "ontology = mo.load(semantic=session.catalog)",
-            "ontology.show()",
             "Ontology supplies discovery context only; it cannot execute semantic meaning.",
+        ),
+        output_family="OntologyCatalog",
+        constraints=(
+            "semantic must be an exact current SemanticCatalog.",
+            "Only models/ontology.py is read; an absent source returns configured=False.",
+            "Every endpoint must resolve in the supplied catalog; invalid sources return no partial catalog.",
+        ),
+        minimal_example=(
+            "semantic_catalog = ms.load()\n"
+            "ontology = mo.load(semantic=semantic_catalog)\n"
+            "ontology.show()"
         ),
         effects=_LOCAL,
     ),
@@ -57,6 +80,25 @@ _DESCRIPTORS = (
             "The relation is a hypothesis and does not assert causality.",
             "It does not encode effect size, confidence, evidence, joins, filters, or SQL.",
         ),
+        output_family="SemanticEdgeRef",
+        constraints=(
+            "name is a unique lowercase dotted snake_case identity.",
+            "driver is an EntityRef, MeasureRef, or MetricRef; outcome is an EntityRef or MetricRef.",
+            "ai_context requires a non-empty business_definition.",
+            "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
+        ),
+        minimal_example=(
+            "driver = ms.ref.metric('sales.refund_rate')\n"
+            "outcome = ms.ref.metric('sales.healthy_order_rate')\n"
+            "edge = mo.influences(\n"
+            "    name='refund_pressure',\n"
+            "    driver=driver,\n"
+            "    outcome=outcome,\n"
+            "    ai_context=ms.ai_context(\n"
+            "        business_definition='Refunds may degrade order health.'\n"
+            "    ),\n"
+            ")"
+        ),
         effects=_AUTHOR,
     ),
     OntologyDescriptor(
@@ -70,6 +112,25 @@ _DESCRIPTORS = (
             "Discovery proposes the endpoint opposite exactly one matching source anchor.",
             "Swapped endpoints are the same canonical pair; identical endpoints are rejected.",
             "It does not imply joinability or statistical association.",
+        ),
+        output_family="SemanticEdgeRef",
+        constraints=(
+            "name is a unique lowercase dotted snake_case identity.",
+            "left and right are distinct EntityRef, MeasureRef, or MetricRef values.",
+            "ai_context requires a non-empty business_definition.",
+            "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
+        ),
+        minimal_example=(
+            "left = ms.ref.metric('sales.refund_rate')\n"
+            "right = ms.ref.metric('sales.support_ticket_rate')\n"
+            "edge = mo.related_to(\n"
+            "    name='refund_and_support_pressure',\n"
+            "    left=left,\n"
+            "    right=right,\n"
+            "    ai_context=ms.ai_context(\n"
+            "        business_definition='Both describe order friction.'\n"
+            "    ),\n"
+            ")"
         ),
         effects=_AUTHOR,
     ),
@@ -114,4 +175,60 @@ class OntologyRegistry:
 REGISTRY = OntologyRegistry()
 
 
-__all__ = ["REGISTRY", "OntologyDescriptor", "OntologyRegistry"]
+def _type_contracts() -> Mapping[type, OntologyTypeContract]:
+    from marivo.ontology.catalog import OntologyCatalog
+    from marivo.ontology.types import SemanticEdgeRef
+
+    return MappingProxyType(
+        {
+            OntologyCatalog: OntologyTypeContract(
+                name="OntologyCatalog",
+                producers=(LiveHelpTarget(surface="ontology", canonical_id="authoring"),),
+                public_properties=(
+                    "configured",
+                    "definition_fingerprint",
+                    "semantic_catalog_fingerprint",
+                    "source_location",
+                    "edge_count",
+                ),
+                public_methods=("render", "show"),
+            ),
+            SemanticEdgeRef: OntologyTypeContract(
+                name="SemanticEdgeRef",
+                producers=(
+                    LiveHelpTarget(surface="ontology", canonical_id="influences"),
+                    LiveHelpTarget(surface="ontology", canonical_id="related_to"),
+                ),
+                public_properties=("kind", "path", "key"),
+                public_methods=("to_dict",),
+            ),
+        }
+    )
+
+
+TYPE_CONTRACTS = _type_contracts()
+
+
+def _error_types() -> Mapping[str, type]:
+    from marivo.ontology import errors
+
+    return MappingProxyType(
+        {
+            name: value
+            for name, value in vars(errors).items()
+            if isinstance(value, type) and issubclass(value, errors.OntologyError)
+        }
+    )
+
+
+ERROR_TYPES = _error_types()
+
+
+__all__ = [
+    "ERROR_TYPES",
+    "REGISTRY",
+    "TYPE_CONTRACTS",
+    "OntologyDescriptor",
+    "OntologyRegistry",
+    "OntologyTypeContract",
+]

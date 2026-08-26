@@ -59,6 +59,15 @@ def test_root_group_order_matches_expected_teaching_order() -> None:
     assert ROOT_GROUP_ORDER == EXPECTED_ROOT_GROUPS
 
 
+def test_policy_families_have_explicit_discovery_topics() -> None:
+    discovery_ids = REGISTRY.discovery_ids()
+
+    assert "alignment" in discovery_ids
+    assert "sampling" in discovery_ids
+    assert "day_of_week" not in discovery_ids
+    assert "SamplingPolicy" not in discovery_ids
+
+
 def test_root_group_order_has_no_duplicates() -> None:
     assert len(set(ROOT_GROUP_ORDER)) == len(ROOT_GROUP_ORDER)
 

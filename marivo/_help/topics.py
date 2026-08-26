@@ -96,6 +96,11 @@ def render_authoring() -> str:
                 '  Datasource evidence and scope: marivo.help("datasource.authoring")',
                 '  Semantic source and validation: marivo.help("semantic.authoring")',
                 '  Optional ontology context: marivo.help("ontology.authoring")',
+                "",
+                "  Full public capability maps:",
+                '    marivo.help("datasource")',
+                '    marivo.help("semantic")',
+                '    marivo.help("ontology")',
             )
         )
     )

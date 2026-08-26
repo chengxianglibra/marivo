@@ -181,6 +181,7 @@ def validate_semantic_live_surface() -> None:
     group_ids = tuple(member.canonical_id for member in group_members)
     assert len(group_ids) == len(set(group_ids))
     assert set(group_ids) <= set(canonical_ids)
+    assert set(REGISTRY.discovery_ids()) <= set(group_ids)
 
     for contract in TYPE_CONTRACTS.values():
         assert all(

@@ -9,7 +9,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import cast
 
-from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext
+from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext, _repair
 from marivo.ontology.errors import (
     InvalidOntologyRefError,
     InvalidSemanticEdgeError,
@@ -38,6 +38,9 @@ def _validation_error(
         location=edge.location,
         expected=expected,
         received=received,
+        repair=_repair(
+            "Replace the endpoint with the exact .ref from the supplied current semantic catalog."
+        ),
     )
 
 
@@ -70,6 +73,9 @@ def _execution_error(path: Path, error: Exception) -> OntologyError:
         expected="a valid models/ontology.py module",
         received=type(error).__name__,
         location=SourceLocation(file=str(path), line=0),
+        repair=_repair(
+            "Fix models/ontology.py so it imports and declares every edge successfully."
+        ),
     )
 
 
@@ -179,6 +185,9 @@ def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
             message="mo.load requires an exact SemanticCatalog",
             expected="SemanticCatalog from ms.load() or session.catalog",
             received=type(semantic).__name__,
+            repair=_repair(
+                "Pass the exact SemanticCatalog returned by ms.load() or session.catalog."
+            ),
         )
     source = semantic.workspace_dir / _ONTOLOGY_SOURCE
     if not source.is_file():
