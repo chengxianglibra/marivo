@@ -97,6 +97,11 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_COLLECTION_PROPERTIES,
     CATALOG_MEMBER_CONTRACTS,
 )
+from marivo.semantic._metric_resolution import (
+    fold_input_to_ir,
+    resolve_aggregate_temporal_contract,
+    resolve_metric_temporal_contract,
+)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
@@ -126,7 +131,6 @@ from marivo.semantic.ir import (
     RatioComposition,
     RelationshipIR,
     SampleIntervalIR,
-    SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
     SqlProvenance,
@@ -3430,6 +3434,7 @@ def _metric_expression_row(
     metric: MetricIR,
     *,
     path: str,
+    registry: Registry,
 ) -> tuple[str, str, str, str]:
     metric_ref = _make_ref(metric.semantic_id, SemanticKind.METRIC).key
     expression: str
@@ -3470,12 +3475,14 @@ def _metric_expression_row(
         if target is None:
             raise AssertionError(f"aggregate metric has no target: {metric.semantic_id}")
         base_inputs = target.key
-        time_fold = metric.time_fold
-        if time_fold is not None:
-            expression += f"; fold={time_fold.label()}"
-            if metric.status_time_dimension is not None:
-                over = _make_ref(metric.status_time_dimension, SemanticKind.TIME_DIMENSION).key
-                expression += f" over={over}"
+        temporal_contract = resolve_metric_temporal_contract(metric, registry)
+        if temporal_contract is not None:
+            expression += f"; fold={temporal_contract.fold.label()}"
+            over = _make_ref(
+                temporal_contract.status_time_dimension,
+                SemanticKind.TIME_DIMENSION,
+            ).key
+            expression += f" over={over}"
     else:
         expression = "expression_body"
     rendered_filter = _format_metric_filter(metric.filter)
@@ -3521,7 +3528,9 @@ def _metric_analysis_metadata(
         if current.semantic_id in active:
             raise AssertionError(f"metric composition cycle reached catalog: {current.semantic_id}")
         next_active = active | {current.semantic_id}
-        expression_tree_rows.append(_metric_expression_row(current, path=expression_path))
+        expression_tree_rows.append(
+            _metric_expression_row(current, path=expression_path, registry=registry)
+        )
         for entity_id in current.entities:
             effective_entity_ids.setdefault(entity_id, None)
         if current.measure is not None:
@@ -3650,6 +3659,7 @@ def _build_metric_object(
     )
     parity_status = propagated_parity_status(project, m_ir.semantic_id)
     add = m_ir.additivity
+    temporal_contract = resolve_metric_temporal_contract(m_ir, reg)
     if m_ir.metric_type == "derived":
         assert m_ir.composition is not None, (
             f"Derived metric {m_ir.semantic_id!r} has no composition IR"
@@ -3672,8 +3682,10 @@ def _build_metric_object(
             linear_terms=linear_terms,
             required_relationships=required_rels,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
-            fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
-            status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
+            fold=(temporal_contract.fold.label() if temporal_contract is not None else None),
+            status_time_dimension=(
+                temporal_contract.status_time_dimension if temporal_contract is not None else None
+            ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
             provenance=m_ir.provenance,
@@ -3703,8 +3715,10 @@ def _build_metric_object(
             ),
             measure=_make_ref(m_ir.measure, SemanticKind.MEASURE) if m_ir.measure else None,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
-            fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
-            status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
+            fold=(temporal_contract.fold.label() if temporal_contract is not None else None),
+            status_time_dimension=(
+                temporal_contract.status_time_dimension if temporal_contract is not None else None
+            ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
             provenance=m_ir.provenance,
@@ -5264,13 +5278,34 @@ class SemanticCatalog(RenderableResult):
                 )
 
         from marivo.semantic.metric_graph_canonical import fingerprint
-        from marivo.semantic.readiness import ReadinessIssue
+        from marivo.semantic.readiness import (
+            ReadinessIssue,
+            _temporal_contract_unobservable_issue,
+        )
         from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
 
         registry = self._require_index().registry
         sidecar = self._project._expression_sidecar
         graph_blocked: set[int] = set()
         graph_issues: list[ReadinessIssue] = []
+
+        def runtime_aggregates(value: RuntimeMetricExpr) -> Iterator[RuntimeAggregateExpr]:
+            if isinstance(value, RuntimeAggregateExpr):
+                yield value
+                return
+            if isinstance(value, RuntimeSliceExpr):
+                if type(value.metric) is not Ref:
+                    yield from runtime_aggregates(value.metric)
+                return
+            if isinstance(value, RuntimeRatioExpr):
+                for component in (value.numerator, value.denominator):
+                    if type(component) is not Ref:
+                        yield from runtime_aggregates(component)
+                return
+            if isinstance(value, RuntimeLinearExpr):
+                for component in (*value.add, *value.subtract):
+                    if type(component) is not Ref:
+                        yield from runtime_aggregates(component)
 
         def runtime_key(value: RuntimeMetricExpr, *, index: int) -> str:
             try:
@@ -5372,6 +5407,40 @@ class SemanticCatalog(RenderableResult):
             else:
                 valid_forest_inputs.append(expression)
                 valid_forest_indices.append(index)
+                root_key = runtime_key(expression, index=index)
+                checked_temporal_contracts: set[tuple[str, str, str]] = set()
+                for aggregate in runtime_aggregates(expression):
+                    measure = registry.measures.get(aggregate.measure.path)
+                    if measure is None:
+                        continue
+                    temporal_contract = resolve_aggregate_temporal_contract(
+                        measure.additivity,
+                        fold_override=fold_input_to_ir(aggregate.fold),
+                    )
+                    if temporal_contract is None:
+                        continue
+                    contract_key = (
+                        measure.entity,
+                        temporal_contract.status_time_dimension,
+                        temporal_contract.fold.label(),
+                    )
+                    if contract_key in checked_temporal_contracts:
+                        continue
+                    checked_temporal_contracts.add(contract_key)
+                    issue = _temporal_contract_unobservable_issue(
+                        path=root_key,
+                        temporal_contract=temporal_contract,
+                        root_entity=measure.entity,
+                        registry=registry,
+                    )
+                    if issue is not None:
+                        graph_blocked.add(index)
+                        graph_issues.append(
+                            replace(
+                                issue,
+                                catalog_definition_fingerprint=self.definition_fingerprint,
+                            )
+                        )
 
         for index, value in enumerate(normalized_inputs):
             if type(value) is Ref and value.kind is SemanticKind.METRIC:

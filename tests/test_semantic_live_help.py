@@ -137,6 +137,9 @@ def test_where_is_registered_help_target_and_count_teaches_filter() -> None:
     aggregate_text = _text("aggregate")
     assert "filter" in aggregate_text.lower()
     assert "ms.where" in aggregate_text
+    assert "TimeFold optional" in aggregate_text
+    assert "time_fold_valid" in aggregate_text
+    assert "time_fold_requires_semi_additive" in aggregate_text
 
 
 def test_help_resolves_type_target() -> None:

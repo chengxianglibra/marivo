@@ -9,8 +9,13 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
 from marivo._compat import UTC
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.intents.observe_errors import ObservePlanningError
+from marivo.analysis.intents.sampled_fold import compile_fold
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.ir import TimeFoldIR
+from marivo.semantic.metric_graph import AggregateNodeV1
 from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_test_metric_meta_contract
 
@@ -131,6 +136,26 @@ def _bootstrap_bandwidth(
         "def province(bandwidth_samples):\n"
         "    return bandwidth_samples.province\n"
         "\n"
+        "sample_value = ms.measure_column(\n"
+        "    name='sample_value',\n"
+        "    entity=bandwidth_samples,\n"
+        "    column='upstream_bw_var',\n"
+        "    additivity=ms.semi_additive(\n"
+        "        over=sample_ts, fold=('percentile', 0.95)\n"
+        "    ),\n"
+        ")\n"
+        "\n"
+        "inherited_folded_mean = ms.aggregate(\n"
+        "    name='inherited_folded_mean', measure=sample_value, agg='mean'\n"
+        ")\n"
+        "\n"
+        "explicit_folded_mean = ms.aggregate(\n"
+        "    name='explicit_folded_mean',\n"
+        "    measure=sample_value,\n"
+        "    agg='mean',\n"
+        "    fold=('percentile', 0.5),\n"
+        ")\n"
+        "\n"
         "@ms.metric(\n"
         "    entities=[bandwidth_samples],\n"
         "    additivity=ms.semi_additive(over=sample_ts, fold='mean'),\n"
@@ -190,6 +215,18 @@ def _bootstrap_bandwidth(
         "    name='p95_utilization',\n"
         "    numerator=upstream_bw_p95,\n"
         "    denominator=reserved_bw,\n"
+        ")\n"
+        "\n"
+        "mean_utilization = ms.ratio(\n"
+        "    name='mean_utilization',\n"
+        "    numerator=upstream_bw,\n"
+        "    denominator=reserved_bw,\n"
+        ")\n"
+        "\n"
+        "ms.ratio(\n"
+        "    name='nested_utilization',\n"
+        "    numerator=ms.ref.metric('sales.p95_utilization'),\n"
+        "    denominator=mean_utilization,\n"
         ")\n"
     )
 
@@ -385,6 +422,127 @@ def test_sampled_percentile_fold_uses_space_aggregated_series(sampled_bandwidth_
     assert frame.meta.quantile_method == "linear_interpolation"
 
 
+def _root_aggregate(frame) -> AggregateNodeV1:
+    graph = frame.meta.expression_graph
+    assert graph is not None
+    root = next(record.node for record in graph.nodes if record.node_id == graph.roots[0])
+    assert isinstance(root, AggregateNodeV1)
+    return root
+
+
+def test_tier1_mean_inherits_measure_percentile_fold(sampled_bandwidth_project) -> None:
+    session = sampled_bandwidth_project
+    metric_ref = make_ref("sales.inherited_folded_mean", SemanticKind.METRIC)
+
+    details = session.catalog.require(metric_ref).details()
+    assert details.additivity == "non_additive"
+    assert details.fold == "percentile(0.95)"
+    assert details.status_time_dimension == "sales.bandwidth_samples.sample_ts"
+
+    frame = session.observe(
+        metric_ref,
+        time_scope=mv.time_scope(start="2026-01-01T00:00:00", end="2026-01-01T01:00:00"),
+        grain=mv.grain("hour"),
+    )
+
+    assert _metric_pandas(frame)["value"].iloc[0] == pytest.approx(114.5 / 3.0)
+    assert frame.meta.additivity == "non_additive"
+    assert frame.meta.fold["fold_kind"] == "percentile"
+    assert frame.meta.fold["time_fold"] == "percentile(0.95)"
+    assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
+    assert frame.meta.quantile_mode == "exact"
+    assert frame.meta.quantile_method == "linear_interpolation"
+    assert frame.meta.composition is None
+    assert "component_lowering" not in frame.meta.lineage.steps[0].params
+    assert _root_aggregate(frame).fold == ("percentile", 0.95)
+
+
+def test_tier1_mean_explicit_fold_overrides_measure_fold(sampled_bandwidth_project) -> None:
+    session = sampled_bandwidth_project
+    measure = session.catalog.require(ms.ref.measure("sales.bandwidth_samples.sample_value")).ref
+    runtime = mv.runtime_metric.aggregate(
+        measure,
+        agg="mean",
+        fold=("percentile", 0.5),
+        label="runtime_folded_mean",
+    )
+    scope = mv.time_scope(start="2026-01-01T00:00:00", end="2026-01-01T01:00:00")
+
+    catalog_frame = session.observe(
+        make_ref("sales.explicit_folded_mean", SemanticKind.METRIC),
+        time_scope=scope,
+        grain=mv.grain("hour"),
+    )
+    runtime_frame = session.observe(runtime, time_scope=scope, grain=mv.grain("hour"))
+
+    assert _metric_pandas(catalog_frame)["value"].iloc[0] == pytest.approx(65.0 / 3.0)
+    assert runtime_frame.to_pandas()["runtime_folded_mean"].iloc[0] == pytest.approx(65.0 / 3.0)
+    for frame in (catalog_frame, runtime_frame):
+        assert frame.meta.additivity == "non_additive"
+        assert frame.meta.fold["time_fold"] == "percentile(0.5)"
+        assert frame.meta.composition is None
+        assert "component_lowering" not in frame.meta.lineage.steps[0].params
+        assert _root_aggregate(frame).fold == ("percentile", 0.5)
+
+
+@pytest.mark.parametrize("q", [0.5, 0.95])
+def test_trino_sampled_percentile_compiles_to_approx_percentile(q: float) -> None:
+    table = ibis.table({"value": "float64", "sample_point": "timestamp"}, name="samples")
+    folded = compile_fold(
+        table.value,
+        table.sample_point,
+        TimeFoldIR(kind="percentile", q=q),
+        profile=require_profile_for_backend_type("trino"),
+    )
+
+    sql = ibis.to_sql(table.aggregate(result=folded), dialect="trino")
+
+    assert "APPROX_PERCENTILE" in sql.upper()
+    assert str(q) in sql
+
+
+def test_duckdb_sampled_percentile_stays_exact_and_preserves_null_zero() -> None:
+    table = ibis.memtable(
+        {"value": [None, 0.0, 10.0], "sample_point": [1, 2, 3]},
+        schema={"value": "float64", "sample_point": "int64"},
+    )
+    folded = compile_fold(
+        table.value,
+        table.sample_point,
+        TimeFoldIR(kind="percentile", q=0.5),
+        profile=require_profile_for_backend_type("duckdb"),
+    )
+
+    assert ibis.duckdb.connect(":memory:").execute(table.aggregate(result=folded)).iloc[0, 0] == 5.0
+
+    all_null = ibis.memtable(
+        {"value": [None, None], "sample_point": [1, 2]},
+        schema={"value": "float64", "sample_point": "int64"},
+    )
+    all_null_fold = compile_fold(
+        all_null.value,
+        all_null.sample_point,
+        TimeFoldIR(kind="percentile", q=0.95),
+        profile=require_profile_for_backend_type("duckdb"),
+    )
+    result = (
+        ibis.duckdb.connect(":memory:").execute(all_null.aggregate(result=all_null_fold)).iloc[0, 0]
+    )
+    assert result != result
+
+
+def test_sampled_percentile_fails_before_compilation_without_capability() -> None:
+    table = ibis.table({"value": "float64", "sample_point": "timestamp"}, name="samples")
+
+    with pytest.raises(AnalysisError, match="quantile sampled fold is not registered"):
+        compile_fold(
+            table.value,
+            table.sample_point,
+            TimeFoldIR(kind="percentile", q=0.95),
+            profile=require_profile_for_backend_type("sqlite"),
+        )
+
+
 def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth_project) -> None:
     frame = sampled_bandwidth_project.observe(
         make_ref("sales.p95_utilization", SemanticKind.METRIC),
@@ -398,6 +556,19 @@ def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth
     assert coverage_df["coverage_ratio"].iloc[0] == 1.0
     components = frame.components().to_pandas()
     assert {"upstream_bw_p95", "reserved_bw", "p95_utilization"}.issubset(components.columns)
+
+
+def test_nested_catalog_ratio_recursively_inherits_status_axis(
+    sampled_bandwidth_project,
+) -> None:
+    frame = sampled_bandwidth_project.observe(
+        make_ref("sales.nested_utilization", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-01-01T00:00:00", end="2026-01-01T01:00:00"),
+        grain=mv.grain("hour"),
+    )
+
+    assert _metric_pandas(frame)["value"].iloc[0] == pytest.approx(114.5 / 390.0)
+    assert frame.meta.axes["time"]["ref"] == "sales.bandwidth_samples.sample_ts"
 
 
 def test_compare_folded_ratio_persists_component_delta(sampled_bandwidth_project) -> None:
@@ -563,6 +734,40 @@ def _comparability_issues(frame) -> list:
         issue
         for issue in frame.meta.issues
         if issue.kind == "comparability_approximate" and issue.severity == "warning"
+    ]
+
+
+def test_missing_sample_points_report_partial_without_fabricating_values(
+    sampled_bandwidth_partial_coverage_project,
+) -> None:
+    frame = sampled_bandwidth_partial_coverage_project.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-01-01T00:00:00", end="2026-01-01T01:00:00"),
+        grain=mv.grain("hour"),
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+
+    values = _metric_pandas(frame).sort_values("province").reset_index(drop=True)
+    assert values[["province", "value"]].to_dict("records") == [
+        {"province": "beijing", "value": 300.0},
+        {"province": "shanghai", "value": 90.0},
+    ]
+    coverage = frame.coverage().to_pandas().sort_values("province").reset_index(drop=True)
+    assert coverage[["province", "actual_samples", "coverage_ratio", "coverage_status"]].to_dict(
+        "records"
+    ) == [
+        {
+            "province": "beijing",
+            "actual_samples": 12,
+            "coverage_ratio": 1.0,
+            "coverage_status": "complete",
+        },
+        {
+            "province": "shanghai",
+            "actual_samples": 6,
+            "coverage_ratio": 0.5,
+            "coverage_status": "partial",
+        },
     ]
 
 

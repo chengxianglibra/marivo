@@ -283,6 +283,23 @@ def test_runtime_metric_temporal_preflight_does_not_mask_unknown_measure(
     assert captures == []
 
 
+def test_runtime_fold_override_requires_semi_additive_measure(runtime_session) -> None:
+    amount = _named_measure_ref(runtime_session, "amount_measure")
+    expression = mv.runtime_metric.aggregate(
+        amount,
+        agg="mean",
+        fold=("percentile", 0.95),
+        label="invalid_folded_mean",
+    )
+
+    with pytest.raises(ObservePlanningError) as exc_info:
+        runtime_session.observe(expression)
+
+    assert exc_info.value._context["code"] == "runtime-metric-fold-requires-semi-additive"
+    assert exc_info.value._context["repair"][0]["action"] == "remove_argument"
+    assert exc_info.value._context["repair"][0]["arg"] == "fold"
+
+
 def test_observe_runtime_weighted_mean_uses_exact_paired_components(runtime_session) -> None:
     value = _named_measure_ref(runtime_session, "runtime_only_value_measure")
     weight = _named_measure_ref(runtime_session, "request_weight_measure")

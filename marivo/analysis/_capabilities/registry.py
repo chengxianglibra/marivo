@@ -2153,12 +2153,16 @@ def _build_registry() -> CapabilityRegistry:
                 constraint_ids=(
                     "runtime_metric_closed_algebra",
                     *(
-                        ("runtime_weighted_mean_valid",)
-                        if cap_id == "runtime_metric.weighted_mean"
+                        ("runtime_metric_fold_requires_semi_additive",)
+                        if cap_id == "runtime_metric.aggregate"
                         else (
-                            ("runtime_linear_units_commensurable",)
-                            if cap_id == "runtime_metric.linear"
-                            else ()
+                            ("runtime_weighted_mean_valid",)
+                            if cap_id == "runtime_metric.weighted_mean"
+                            else (
+                                ("runtime_linear_units_commensurable",)
+                                if cap_id == "runtime_metric.linear"
+                                else ()
+                            )
                         )
                     ),
                 ),

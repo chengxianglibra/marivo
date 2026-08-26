@@ -16,7 +16,9 @@ from marivo.semantic.errors import repair
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
+    from marivo.semantic._metric_resolution import MetricTemporalContract
     from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.validator import Registry
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
 ReadinessSeverity = Literal["blocker", "warning", "advisory"]
@@ -583,10 +585,78 @@ def _undeclared_naive_time_axis_issues(
     return blockers, warnings
 
 
+def _temporal_contract_unobservable_issue(
+    *,
+    path: str,
+    temporal_contract: MetricTemporalContract,
+    root_entity: str,
+    registry: Registry,
+) -> ReadinessIssue | None:
+    """Return one blocker when an effective temporal contract cannot be observed."""
+
+    from marivo.semantic.ir import SnapshotVersioningIR
+
+    time_fold = temporal_contract.fold
+    status_time_dimension = temporal_contract.status_time_dimension
+    dim_ir = registry.dimensions.get(status_time_dimension)
+    if dim_ir is None:
+        return None
+    parse = getattr(dim_ir, "parse", None)
+    sample_interval = getattr(parse, "sample_interval", None)
+    if sample_interval is not None:
+        return None
+
+    fold_kind = time_fold.kind
+    partition_field: str | None = None
+    entity_ir = registry.entities.get(root_entity)
+    if entity_ir is not None:
+        versioning = getattr(entity_ir, "versioning", None)
+        if isinstance(versioning, SnapshotVersioningIR):
+            partition_field = versioning.partition_field
+
+    if fold_kind in {"first", "last"} and partition_field == status_time_dimension:
+        return None
+
+    reason = (
+        "snapshot_versioning_missing"
+        if fold_kind in {"first", "last"}
+        else "unsampled_non_selection_fold"
+    )
+    return _issue(
+        "snapshot_fold_unobservable",
+        "blocker",
+        (path,),
+        (
+            f"{path} has no legal observe path: time_fold={fold_kind} over "
+            f"{status_time_dimension} requires a sample_interval on the status "
+            "time dimension or snapshot versioning bound to it; neither is declared."
+        ),
+        repair(
+            kind="reauthor",
+            canonical_id="metric",
+            action=(
+                "Declare sample_interval=(1, 'hour') (or another minute/hour interval) "
+                "on the status time dimension via parse=ms.timestamp(...), or bind "
+                "snapshot versioning with versioning=ms.snapshot(partition_field="
+                "<status_time_dimension>, grain='day') on the root entity for "
+                "first/last folds."
+            ),
+        ),
+        details={
+            "time_fold": fold_kind,
+            "status_time_dimension": status_time_dimension,
+            "root_entity": root_entity,
+            "snapshot_partition_field": partition_field,
+            "reason": reason,
+        },
+    )
+
+
 def _snapshot_fold_unobservable_issues(
     checked_refs: Iterable[str],
     kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
+    registry: Registry | None,
 ) -> list[ReadinessIssue]:
     """Return blockers for metrics whose time fold has no legal observe path.
 
@@ -598,31 +668,21 @@ def _snapshot_fold_unobservable_issues(
     ``snapshot-fold-deadlock`` error) and must be surfaced at readiness time
     rather than reported analysis_ready.
     """
-    from marivo.semantic.ir import SnapshotVersioningIR
+    from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
+    from marivo.semantic.ir import MetricIR
 
     blockers: list[ReadinessIssue] = []
+    if registry is None:
+        return blockers
     for ref in checked_refs:
         if kinds.get(ref) != SemanticKind.METRIC:
             continue
         metric = objects.get(ref)
-        if metric is None:
+        if not isinstance(metric, MetricIR):
             continue
-        time_fold = getattr(metric, "time_fold", None)
-        if time_fold is None:
+        temporal_contract = resolve_metric_temporal_contract(metric, registry)
+        if temporal_contract is None:
             continue
-        status_time_dimension = getattr(metric, "status_time_dimension", None)
-        if not isinstance(status_time_dimension, str) or not status_time_dimension:
-            continue
-
-        dim_ir = objects.get(_exact_key(status_time_dimension, SemanticKind.TIME_DIMENSION))
-        if dim_ir is None:
-            continue
-        parse = getattr(dim_ir, "parse", None)
-        sample_interval = getattr(parse, "sample_interval", None)
-        if sample_interval is not None:
-            continue  # a sampled status fold is always legal
-
-        fold_kind = getattr(time_fold, "kind", None)
         root_entity = getattr(metric, "root_entity", None)
         if not isinstance(root_entity, str) or not root_entity:
             entities = tuple(getattr(metric, "entities", ()))
@@ -631,51 +691,15 @@ def _snapshot_fold_unobservable_issues(
             else:
                 continue
 
-        partition_field: str | None = None
-        entity_ir = objects.get(_exact_key(root_entity, SemanticKind.ENTITY))
-        if entity_ir is not None:
-            versioning = getattr(entity_ir, "versioning", None)
-            if isinstance(versioning, SnapshotVersioningIR):
-                partition_field = versioning.partition_field
-
-        if fold_kind in {"first", "last"} and partition_field == status_time_dimension:
-            continue  # snapshot selection is legal
-
         path = _display_path(ref)
-        if fold_kind in {"first", "last"}:
-            reason = "snapshot_versioning_missing"
-        else:
-            reason = "unsampled_non_selection_fold"
-        blockers.append(
-            _issue(
-                "snapshot_fold_unobservable",
-                "blocker",
-                (path,),
-                (
-                    f"{path} has no legal observe path: time_fold={fold_kind} over "
-                    f"{status_time_dimension} requires a sample_interval on the status "
-                    "time dimension or snapshot versioning bound to it; neither is declared."
-                ),
-                repair(
-                    kind="reauthor",
-                    canonical_id="metric",
-                    action=(
-                        "Declare sample_interval=(1, 'hour') (or another minute/hour interval) "
-                        "on the status time dimension via parse=ms.timestamp(...), or bind "
-                        "snapshot versioning with versioning=ms.snapshot(partition_field="
-                        "<status_time_dimension>, grain='day') on the root entity for "
-                        "first/last folds."
-                    ),
-                ),
-                details={
-                    "time_fold": fold_kind,
-                    "status_time_dimension": status_time_dimension,
-                    "root_entity": root_entity,
-                    "snapshot_partition_field": partition_field,
-                    "reason": reason,
-                },
-            )
+        issue = _temporal_contract_unobservable_issue(
+            path=path,
+            temporal_contract=temporal_contract,
+            root_entity=root_entity,
+            registry=registry,
         )
+        if issue is not None:
+            blockers.append(issue)
     return blockers
 
 
@@ -831,7 +855,7 @@ def build_readiness_report(
     )
     blockers.extend(naive_time_axis_blockers)
     warnings.extend(naive_time_axis_warnings)
-    blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects))
+    blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects, reg))
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
     # preview output, a missing/stale certified artifact is a hard blocker

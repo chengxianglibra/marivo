@@ -780,6 +780,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
                 AuthoringInputRequirement(role="subject", family="Ref[measure]"),
                 AuthoringInputRequirement(role="dependency", family="AggFunc"),
+                _optional_input("dependency", "TimeFold"),
                 _optional_input("dependency", "WhereFilter"),
             ),
             effects=_AUTHOR,
@@ -787,6 +788,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "active_loader_context",
                 "composition_shape",
                 "measure_aggregation_valid",
+                "time_fold_valid",
+                "time_fold_requires_semi_additive",
             ),
             example=(
                 "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "

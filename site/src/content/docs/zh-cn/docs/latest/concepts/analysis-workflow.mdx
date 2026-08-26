@@ -301,6 +301,11 @@ frame = session.observe(gross_margin_rate, time_scope=window, grain=mv.grain("da
 该 label 成为稳定的公开值列 handle。下游操作根据持久化 frame 状态准入，不根据
 目录/运行时来源准入。
 
+`runtime_metric.aggregate` 与目录构建器使用同一时间契约：半可加度量提供
+status-time 轴和默认 fold，显式 `fold=` 会覆盖它。空间 `agg="mean"` 仍是
+non-additive，并先于时间 fold 执行；若度量不是半可加，fold 会携带修复提示被拒绝。
+在 Trino 上，sampled percentile fold 会编译为近似 `APPROX_PERCENTILE`。
+
 `runtime_metric.weighted_mean(value, weight)` 会自动完成行级乘权与成对聚合。
 两个度量必须属于同一实体和物理行粒度，权重必须为可加；无需预先
 定义 `SUM(value * weight)` 度量。

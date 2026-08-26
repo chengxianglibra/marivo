@@ -628,7 +628,8 @@ def aggregate(
     Args:
         measure: Exact loaded ``Ref[measure]`` to aggregate.
         agg: Registered aggregate kind, including ``("percentile", q)``.
-        fold: Optional authoring-aligned time fold.
+        fold: Optional temporal-fold override. A semi-additive measure supplies
+            the governed status-time axis and default fold when this is omitted.
         slice_by: Optional branch-local typed slice copied into the descriptor.
         label: Required presentation-only label and stable public value-column
             handle. It becomes the public value-column name on the observed
@@ -649,6 +650,8 @@ def aggregate(
     Constraints:
         Only governed measure and dimension refs are accepted. The constructor
         does not execute data, create catalog authority, or accept custom code.
+        A supplied fold requires a semi-additive measure; it overrides that
+        measure's default fold without changing spatial aggregation additivity.
     """
 
     if type(measure) is not Ref or measure.kind is not SemanticKind.MEASURE:

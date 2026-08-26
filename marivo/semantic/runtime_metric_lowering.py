@@ -9,7 +9,12 @@ from marivo.introspection._fuzzy import did_you_mean
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.ir import additivity_bucket
+from marivo.semantic._metric_resolution import (
+    fold_input_to_ir,
+    fold_ir_to_input,
+    resolve_aggregate_temporal_contract,
+)
+from marivo.semantic.ir import SemiAdditive, additivity_bucket
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CanonicalSliceEntryV1,
@@ -203,6 +208,51 @@ class _RuntimeGraphBuilder:
                 raise ValueError(f"runtime metric measure {measure_id!r} is not loaded")
             self.measure_dependencies.add(measure_id)
             self._record_dependency(expression.measure)
+            fold_override = fold_input_to_ir(expression.fold)
+            temporal_contract = resolve_aggregate_temporal_contract(
+                measure.additivity,
+                fold_override=fold_override,
+            )
+            if fold_override is not None and temporal_contract is None:
+                candidates = sorted(
+                    candidate.semantic_id
+                    for candidate in self.registry.measures.values()
+                    if isinstance(candidate.additivity, SemiAdditive)
+                )
+                repairs: tuple[Mapping[str, object], ...] = (
+                    {
+                        "action": "remove_argument",
+                        "target": "runtime_metric.aggregate",
+                        "arg": "fold",
+                        "value": None,
+                        "safety": "modeling_decision",
+                        "why": "a non-semi-additive measure has no governed temporal fold axis",
+                    },
+                )
+                if candidates:
+                    repairs += (
+                        {
+                            "action": "replace_measure_ref",
+                            "target": "runtime_metric.aggregate",
+                            "arg": "measure",
+                            "value": candidates[0],
+                            "safety": "modeling_decision",
+                            "why": "the replacement measure owns a status-time axis and fold",
+                        },
+                    )
+                raise RuntimeMetricLoweringError(
+                    code="runtime-metric-fold-requires-semi-additive",
+                    message=(
+                        "Runtime aggregate fold requires a semi-additive measure with a "
+                        "governed status-time axis."
+                    ),
+                    candidates={
+                        "measure_ref": RefPayloadV1.from_ref(expression.measure).to_dict(),
+                        "measure_additivity": additivity_bucket(measure.additivity),
+                        "semi_additive_measure_refs": candidates,
+                    },
+                    repairs=repairs,
+                )
             aggregate = AggregateNodeV1(
                 kind="aggregate",
                 target_ref=RefPayloadV1.from_ref(expression.measure),
@@ -210,7 +260,9 @@ class _RuntimeGraphBuilder:
                     self.registry, kind="measure", semantic_id=measure_id
                 ),
                 agg=expression.agg,
-                fold=expression.fold,
+                fold=fold_ir_to_input(
+                    temporal_contract.fold if temporal_contract is not None else None
+                ),
                 filter=(),
                 unit_override=None,
             )

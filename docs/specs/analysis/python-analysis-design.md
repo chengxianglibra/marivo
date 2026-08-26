@@ -412,8 +412,12 @@ Catalog and runtime roots lower to the same canonical expression graph. Runtime
 expressions may recursively contain other runtime expressions or catalog metric
 refs. Branch-local slices are pushed to reachable leaves for value identity;
 the outer `slice_by=` remains a distinct global scope. Every root is limited to
-depth 10 and the submitted pre-CSE forest to 256 occurrences. One forest must
-resolve within one semantic model and datasource compatibility domain. Missing
+depth 10 and the submitted pre-CSE forest to 256 occurrences. Runtime
+`aggregate` inherits a semi-additive
+measure's effective status axis and fold just like `ms.aggregate`; an explicit
+`fold=` overrides that default and is rejected for non-semi-additive measures.
+One forest must use one compatible temporal axis and resolve within one semantic
+model and datasource compatibility domain. Missing
 aligned keys are retained with null values rather than filled with zero.
 After physical aggregation, composition evaluators normalize numeric child
 values to `float64` before ratio or linear arithmetic while preserving typed

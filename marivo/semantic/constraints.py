@@ -849,9 +849,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_fold_requires_semi_additive",
         "assembly",
         ("metric",),
-        "time_fold is only valid on semi_additive metrics.",
-        "Additive metrics sum unconditionally; non-additive metrics cannot be folded.",
-        "Set additivity='semi_additive' when using time_fold, or remove time_fold from additive/non_additive metrics.",
+        "time_fold requires a governed semi-additive status-time contract.",
+        "A tier-1 aggregate may keep non-additive spatial semantics while inheriting the status axis and fold from its semi-additive measure.",
+        "Use a semi-additive measure or metric with a status-time axis, or remove the fold override.",
     ),
     ConstraintId.TIME_FOLD_SAMPLED_TIME_FIELD: _constraint(
         ConstraintId.TIME_FOLD_SAMPLED_TIME_FIELD,

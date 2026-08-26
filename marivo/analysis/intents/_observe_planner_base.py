@@ -778,6 +778,7 @@ def plan_base_observe(
                 "source": entity_details.source.to_dict(),
             }
         )
+    resolved_time_fold = getattr(metric_ir, "time_fold", None)
     return BaseObservePlan(
         root_entity=root,
         additivity=metric_ir.additivity,
@@ -800,13 +801,13 @@ def plan_base_observe(
                 if subject_cohort is not None
                 else None
             ),
-            "time_fold": metric_ir.time_fold.label() if metric_ir.time_fold is not None else None,
-            "status_time_dimension": metric_ir.status_time_dimension,
+            "time_fold": (resolved_time_fold.label() if resolved_time_fold is not None else None),
+            "status_time_dimension": getattr(metric_ir, "status_time_dimension", None),
         },
         warnings=plan_warnings,
         datasource_name=datasource_name,
         time_axis_timezone=time_axis_timezone,
-        status_time_dimension=metric_ir.status_time_dimension,
-        time_fold=metric_ir.time_fold,
+        status_time_dimension=getattr(metric_ir, "status_time_dimension", None),
+        time_fold=getattr(metric_ir, "time_fold", None),
         temporal_fold=temporal_fold,
     )

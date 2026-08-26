@@ -64,6 +64,7 @@ class ConstraintId(StrEnum):
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
     CUMULATIVE_ATTRIBUTION_ROUTE_COMPATIBLE = "cumulative_attribution_route_compatible"
     RUNTIME_METRIC_CLOSED_ALGEBRA = "runtime_metric_closed_algebra"
+    RUNTIME_METRIC_FOLD_REQUIRES_SEMI_ADDITIVE = "runtime_metric_fold_requires_semi_additive"
     RUNTIME_WEIGHTED_MEAN_VALID = "runtime_weighted_mean_valid"
     RUNTIME_LINEAR_UNITS_COMMENSURABLE = "runtime_linear_units_commensurable"
 
@@ -649,6 +650,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Runtime metrics use a closed recursive algebra over governed refs.",
         "Closed descriptors preserve typed planning, replay, lineage, units, and quality facts without creating catalog authority.",
         "Use exact Ref[measure], Ref[metric], Ref[dimension], or Ref[time_dimension] values and materialize the descriptor only through session.observe(...).",
+        help_target="runtime_metric",
+    ),
+    ConstraintId.RUNTIME_METRIC_FOLD_REQUIRES_SEMI_ADDITIVE: _constraint(
+        ConstraintId.RUNTIME_METRIC_FOLD_REQUIRES_SEMI_ADDITIVE,
+        "runtime-metric-fold-requires-semi-additive",
+        "runtime",
+        ("runtime_metric.aggregate", "RuntimeAggregateExpr"),
+        "Runtime aggregates inherit a semi-additive measure's default fold; an explicit fold only overrides that governed contract.",
+        "A semi-additive measure supplies the governed status-time axis and default fold; an explicit fold only overrides that default and cannot create an axis for another measure.",
+        "Use a semi-additive measure to inherit its fold, override that fold explicitly when needed, or omit fold for a non-semi-additive measure.",
         help_target="runtime_metric",
     ),
     ConstraintId.RUNTIME_WEIGHTED_MEAN_VALID: _constraint(

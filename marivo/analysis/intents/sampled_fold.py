@@ -107,7 +107,7 @@ def ensure_sampled_grain_supported(
 def ensure_status_time_dimension_matches(
     metric_ir: Any, requested_time_dimension: str | None
 ) -> None:
-    if getattr(metric_ir, "additivity", None) != "semi_additive":
+    if getattr(metric_ir, "time_fold", None) is None:
         return
     bound = metric_ir.status_time_dimension
     if bound is None:
@@ -149,7 +149,13 @@ def sample_set_digest(
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def compile_fold(value: Any, sample_point: Any, time_fold: Any) -> Any:
+def compile_fold(
+    value: Any,
+    sample_point: Any,
+    time_fold: Any,
+    *,
+    profile: EngineProfile,
+) -> Any:
     kind = time_fold.kind
     if kind == "mean":
         return value.mean()
@@ -162,6 +168,9 @@ def compile_fold(value: Any, sample_point: Any, time_fold: Any) -> Any:
     if kind == "last":
         return value.argmax(sample_point)
     if kind == "percentile":
+        quantile_capability(profile)
+        if profile.percentile_uses_approx_quantile:
+            return value.approx_quantile(time_fold.q)
         return value.quantile(time_fold.q)
     raise AnalysisError(message=f"unsupported time_fold kind {kind!r}")
 
