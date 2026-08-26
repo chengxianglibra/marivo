@@ -299,7 +299,10 @@ def _execute_sampled_base(
         phase_b_source = phase_a
         group_names = list(dimension_names)
     folded_value = compile_fold(
-        phase_b_source.value, phase_b_source.sample_point, metric_ir.time_fold
+        phase_b_source.value,
+        phase_b_source.sample_point,
+        metric_ir.time_fold,
+        profile=profile,
     )
     if group_names:
         grouped_expr = (

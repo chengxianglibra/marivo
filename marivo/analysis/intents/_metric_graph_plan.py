@@ -22,15 +22,19 @@ from marivo.analysis.runtime_metric import RuntimeMetricExpr
 from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic._filter_runtime import authored_filter_predicate
+from marivo.semantic._metric_resolution import (
+    fold_input_to_ir,
+    fold_ir_to_input,
+    resolve_aggregate_temporal_contract,
+    resolve_measure_aggregate_additivity,
+)
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
     SimpleMetricDetails,
 )
 from marivo.semantic.ir import (
-    AggregateFoldInput,
     CumulativeComposition,
-    SemiAdditive,
     TimeFoldIR,
     additivity_bucket,
 )
@@ -132,14 +136,6 @@ class _RuntimeWeightedMeanMetricAdapter:
     fanout_policy: str = "block"
 
 
-def _fold_ir(value: AggregateFoldInput) -> TimeFoldIR | None:
-    if value is None:
-        return None
-    if isinstance(value, tuple):
-        return TimeFoldIR(kind="percentile", q=value[1])
-    return TimeFoldIR(kind=value)
-
-
 def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: AggregateNodeV1) -> Any:
     if node.target_ref.kind is not SemanticKind.MEASURE:
         raise_observe_planning_error(
@@ -160,10 +156,11 @@ def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: Aggreg
             candidates={"measure_ref": node.target_ref.to_dict()},
             repair=[],
         )
-    inherited_fold = (
-        measure.additivity.fold if isinstance(measure.additivity, SemiAdditive) else None
+    temporal_contract = resolve_aggregate_temporal_contract(
+        measure.additivity,
+        fold_override=fold_input_to_ir(node.fold),
     )
-    effective_fold = _fold_ir(node.fold) or inherited_fold
+    resolved_additivity = resolve_measure_aggregate_additivity(node.agg, measure.additivity)
     return _RuntimeAggregateMetricAdapter(
         semantic_id=f"runtime.{node_id}",
         name="runtime_value",
@@ -172,14 +169,35 @@ def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: Aggreg
         entities=(measure.entity,),
         aggregation=node.agg,
         measure=measure.semantic_id,
-        additivity=additivity_bucket(measure.additivity),
+        additivity=additivity_bucket(resolved_additivity or "non_additive"),
         unit=node.unit_override
         or tier1_unit(node.agg[0] if isinstance(node.agg, tuple) else node.agg, measure.unit),
-        time_fold=effective_fold,
+        time_fold=temporal_contract.fold if temporal_contract is not None else None,
         status_time_dimension=(
-            measure.additivity.over if isinstance(measure.additivity, SemiAdditive) else None
+            temporal_contract.status_time_dimension if temporal_contract is not None else None
         ),
         runtime_measure_id=measure.semantic_id,
+    )
+
+
+def _validate_aggregate_temporal_contract(node: AggregateNodeV1, metric_ir: Any) -> None:
+    """Fail closed when graph and executable metric temporal semantics diverge."""
+
+    time_fold = getattr(metric_ir, "time_fold", None)
+    adapter_fold = fold_ir_to_input(time_fold)
+    status_time_dimension = getattr(metric_ir, "status_time_dimension", None)
+    if node.fold == adapter_fold and (node.fold is None or status_time_dimension):
+        return
+    raise_observe_planning_error(
+        code="metric-temporal-contract-drift",
+        message="Metric graph and executable temporal-fold semantics do not match.",
+        candidates={
+            "graph_fold": node.fold,
+            "adapter_fold": adapter_fold,
+            "status_time_dimension": status_time_dimension,
+            "metric": getattr(metric_ir, "semantic_id", None),
+        },
+        repair=[],
     )
 
 
@@ -905,6 +923,8 @@ def _plan_metric_expression_forest(
                 candidates={"node_id": value_node_id, "node_kind": value_node.kind},
                 repair=[],
             )
+        if isinstance(value_node, AggregateNodeV1):
+            _validate_aggregate_temporal_contract(value_node, metric_ir)
         leaf_where = _merge_leaf_where(where, local_where)
         _validate_authored_filter_types(
             node=value_node,

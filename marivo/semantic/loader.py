@@ -442,7 +442,7 @@ def _resolve_cumulative_over_axes(registry: Registry) -> None:
 
 
 def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
-    from marivo.semantic.ir import SemiAdditive
+    from marivo.semantic._metric_resolution import resolve_measure_aggregate_additivity
 
     if metric.weighted_mean is not None:
         value = registry.measures.get(metric.weighted_mean.value)
@@ -469,22 +469,11 @@ def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivit
         return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
     if measure_ir is None and getattr(measure, "additivity", None) is None:
         return None  # validator: MISSING_MEASURE_ADDITIVITY
-    if agg_name == "count":
-        return "additive"
-    if agg_name == "sum":
-        nature = (
-            measure_ir.additivity
-            if measure_ir is not None
-            else getattr(measure, "additivity", None)
-        )
-        if nature == "additive":
-            return "additive"
-        if isinstance(nature, SemiAdditive):
-            if metric.fold_override is not None:
-                return SemiAdditive(over=nature.over, fold=metric.fold_override)
-            return nature
-        return None  # non_additive measure + sum -> validator: INVALID_MEASURE_AGGREGATION
-    return "non_additive"  # mean/median/percentile/count_distinct/min/max
+    nature = (
+        measure_ir.additivity if measure_ir is not None else getattr(measure, "additivity", None)
+    )
+    assert nature is not None
+    return resolve_measure_aggregate_additivity(agg, nature)
 
 
 def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:

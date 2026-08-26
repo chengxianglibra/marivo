@@ -132,8 +132,9 @@ def aggregate(
 ) -> Ref[MetricKind]:
     """Declare a tier-1 simple metric: an aggregation over a measure.
 
-    The metric inherits its additivity nature from ``measure`` (resolved at load);
-    ``fold`` overrides the time-fold for semi-additive measures only. No function body.
+    ``agg`` determines the metric's spatial additivity at load. Independently, a
+    semi-additive ``measure`` contributes its status-time axis and default fold;
+    ``fold`` overrides that temporal fold. No function body.
 
     Args:
         name: Metric name (required).
@@ -142,7 +143,9 @@ def aggregate(
             ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
             ``("percentile", q)`` for the q-th percentile across rows in each
             query group.
-        fold: Time-axis fold override for semi-additive measures:
+        fold: Time-axis fold override for semi-additive measures. It does not
+            change aggregation additivity (for example, ``agg="mean"`` remains
+            non-additive while still folding its sampled time series):
             ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
             ``("percentile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
             collapses the ``over`` time axis. Distinct from

@@ -151,6 +151,63 @@ def test_runtime_expression_is_the_ready_input(semantic_project_factory) -> None
     assert report.to_dict()["analysis_ready_inputs"][0]["schema"] == "marivo.runtime_metric_expr/v1"
 
 
+def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN,
+            "sales/models.py": textwrap.dedent(
+                """\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+                snapshots = ms.entity(
+                    name="snapshots",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("snapshots"),
+                )
+                snapshot_date = ms.time_dimension_column(
+                    name="snapshot_date",
+                    entity=snapshots,
+                    column="snapshot_date",
+                    granularity="day",
+                )
+                value = ms.measure_column(
+                    name="value",
+                    entity=snapshots,
+                    column="value",
+                    additivity=ms.semi_additive(
+                        over=snapshot_date,
+                        fold=("percentile", 0.95),
+                    ),
+                )
+                """
+            ),
+        }
+    )
+    catalog = ms.SemanticCatalog(project)
+    expression = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.snapshots.value"),
+        agg="mean",
+        label="Runtime p95",
+    )
+
+    report = catalog.readiness(refs=[expression])
+
+    assert report.status == "blocked"
+    assert report.analysis_ready_inputs == ()
+    assert len(report.blockers) == 1
+    issue = report.blockers[0]
+    assert issue.kind == "snapshot_fold_unobservable"
+    assert issue.details == {
+        "time_fold": "percentile",
+        "status_time_dimension": "sales.snapshots.snapshot_date",
+        "root_entity": "sales.snapshots",
+        "snapshot_partition_field": None,
+        "reason": "unsampled_non_selection_fold",
+    }
+
+
 def test_direct_requests_only_are_ready_inputs(semantic_project_factory) -> None:
     project = _ready_project(semantic_project_factory)
 

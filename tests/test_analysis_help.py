@@ -430,6 +430,15 @@ def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
         assert "label: str" in text
 
 
+def test_runtime_aggregate_help_exposes_temporal_fold_contract() -> None:
+    text = _text("runtime_metric.aggregate")
+
+    assert "runtime_metric_fold_requires_semi_additive" in text
+    assert "semi-additive measure" in text
+    assert "default fold" in text
+    assert "explicit fold" in text
+
+
 def test_runtime_metric_group_help_lists_all_constructors() -> None:
     text = _text("runtime_metric")
     assert "mv.runtime_metric.aggregate(...)" in text

@@ -356,6 +356,13 @@ the stable public value-column handle when the expression is materialized as an
 observed root. Downstream operators use persisted frame state rather than
 catalog/runtime origin.
 
+`runtime_metric.aggregate` uses the same temporal contract as the catalog
+builder: a semi-additive measure contributes its status-time axis and default
+fold, while an explicit `fold=` overrides it. Spatial `agg="mean"` remains
+non-additive and is evaluated before the time fold. A fold on any other measure
+is rejected with a repair hint. On Trino, sampled percentile folds compile to
+approximate `APPROX_PERCENTILE`.
+
 `runtime_metric.weighted_mean(value, weight)` performs row-level multiplication
 and paired aggregation automatically. Both measures must have the same entity
 and physical row grain, and the weight must be additive; no precomputed

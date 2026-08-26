@@ -560,7 +560,8 @@ amount = ms.measure_column(
 
 #### 来自度量的简单指标 —— `ms.aggregate`
 
-聚合一个度量。无需请求体；可加性从度量继承。
+聚合一个度量，无需函数体。聚合方式决定空间可加性；半可加度量则独立提供
+status-time 轴和默认 fold，显式 `fold` 会覆盖这个时间 fold。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -579,6 +580,11 @@ us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=m
 
 `agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
 编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
+
+空间可加性与时间 fold 相互独立。尤其是 `agg="mean"` 仍为 `non_additive`；但当输入
+度量为半可加时，会先在每个采样点计算空间 mean，再执行继承或显式指定的时间 fold。
+Trino 的 sampled percentile fold 使用近似 `APPROX_PERCENTILE`，DuckDB 则保持精确
+percentile。若度量不是半可加，传入 `fold=` 会被拒绝。
 
 #### Count 指标 —— `ms.count`
 

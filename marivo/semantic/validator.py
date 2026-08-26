@@ -58,6 +58,7 @@ from marivo.semantic.ir import (
     TimestampParse,
     ValidityVersioningIR,
     WorkScheduleIR,
+    additivity_bucket,
     composition_components,
     is_time_bearing_format,
 )
@@ -1309,24 +1310,56 @@ def _filtered_domain_ref_warning(
 
 
 def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
-    from marivo.semantic.ir import DimensionKind, SemiAdditive
+    from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
+    from marivo.semantic.ir import DimensionKind
 
     for metric_id, metric_ir in registry.metrics.items():
-        add = metric_ir.additivity
-        if not isinstance(add, SemiAdditive):
+        temporal_contract = resolve_metric_temporal_contract(metric_ir, registry)
+        if metric_ir.fold_override is not None and temporal_contract is None:
+            target_id = metric_ir.aggregation_target or metric_ir.measure
+            target = registry.measures.get(target_id) if target_id is not None else None
+            if target is not None and target_id is not None:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
+                        message=(
+                            f"Metric {metric_id!r} declares a fold override for measure "
+                            f"{target_id!r}, but that measure is not semi-additive."
+                        ),
+                        refs=(metric_id, target_id),
+                        constraint_id=ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
+                        expected="a semi-additive measure with a governed status-time axis",
+                        received=f"measure additivity {target.additivity!r}",
+                        hint=(
+                            "Remove fold= or model the measure with "
+                            "ms.semi_additive(over=<time_dimension>, fold=<fold>)."
+                        ),
+                        details={
+                            "metric": metric_id,
+                            "measure": target_id,
+                            "measure_additivity": additivity_bucket(target.additivity),
+                        },
+                    )
+                )
             continue
-        field = registry.dimensions.get(add.over)
+        if temporal_contract is None:
+            continue
+        field = registry.dimensions.get(temporal_contract.status_time_dimension)
         if field is None or field.kind is not DimensionKind.TIME:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.INVALID_STATUS_TIME_DIMENSION,
                     message=(
-                        f"Metric {metric_id!r} is semi-additive over {add.over!r}, "
+                        f"Metric {metric_id!r} has a temporal fold over "
+                        f"{temporal_contract.status_time_dimension!r}, "
                         "which is not a declared time dimension."
                     ),
-                    refs=(metric_id, add.over),
+                    refs=(metric_id, temporal_contract.status_time_dimension),
                     constraint_id=ConstraintId.STATUS_TIME_DIMENSION_INVALID,
-                    details={"metric": metric_id, "over": add.over},
+                    details={
+                        "metric": metric_id,
+                        "over": temporal_contract.status_time_dimension,
+                    },
                 )
             )
 

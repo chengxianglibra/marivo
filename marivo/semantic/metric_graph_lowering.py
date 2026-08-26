@@ -11,13 +11,15 @@ from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic._metric_resolution import (
+    fold_ir_to_input,
+    resolve_metric_temporal_contract,
+)
 from marivo.semantic.ir import (
-    AggregateFoldInput,
     CumulativeComposition,
     LinearComposition,
     RatioComposition,
     SemiAdditive,
-    TimeFoldIR,
     WhereValue,
 )
 from marivo.semantic.metric_graph import (
@@ -160,16 +162,6 @@ def _additivity_value(additivity: object) -> object:
     return additivity
 
 
-def _time_fold_value(fold: TimeFoldIR | None) -> AggregateFoldInput:
-    if fold is None:
-        return None
-    if fold.kind == "percentile":
-        if fold.q is None:
-            raise AssertionError("percentile TimeFoldIR requires q")
-        return ("percentile", fold.q)
-    return fold.kind
-
-
 def _ref_payload(kind: str, path: str) -> RefPayloadV1:
     factories = {
         "domain": ref_factory.domain,
@@ -254,6 +246,7 @@ def _entry_for(
     bindings = body.bindings if body is not None else ()
     if semantic_kind == "metric":
         metric = registry.metrics[semantic_id]
+        temporal_contract = resolve_metric_temporal_contract(metric, registry)
         return SemanticDependencyEntryV1(
             ref=ref_payload,
             body_digest=metric.body_ast_hash,
@@ -282,6 +275,7 @@ def _entry_for(
                     else None
                 ),
                 fold_override=metric.fold_override,
+                temporal_contract=temporal_contract,
                 filter=metric.filter,
                 weighted_mean=(
                     (
@@ -768,6 +762,17 @@ class _CatalogGraphBuilder:
                         path=path,
                         message=f"aggregate metric {metric_id!r} has no valid target at {path}",
                     )
+                temporal_contract = resolve_metric_temporal_contract(metric, self.registry)
+                if metric.fold_override is not None and temporal_contract is None:
+                    _fail(
+                        kind="time_fold_requires_semi_additive",
+                        metric_id=metric_id,
+                        path=path,
+                        message=(
+                            f"aggregate metric {metric_id!r} declares a fold override but its "
+                            "measure is not semi-additive"
+                        ),
+                    )
                 node = AggregateNodeV1(
                     kind="aggregate",
                     target_ref=_ref_payload(target_kind, target_id),
@@ -777,7 +782,9 @@ class _CatalogGraphBuilder:
                         target=(target_kind, target_id),
                     ),
                     agg=metric.aggregation,
-                    fold=_time_fold_value(metric.fold_override),
+                    fold=fold_ir_to_input(
+                        temporal_contract.fold if temporal_contract is not None else None
+                    ),
                     filter=tuple(
                         CanonicalSliceEntryV1(
                             dimension_ref=_dimension_payload(

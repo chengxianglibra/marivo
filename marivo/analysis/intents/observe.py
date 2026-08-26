@@ -209,6 +209,10 @@ from marivo.refs import (
 from marivo.refs import (
     ref as ref_factory,
 )
+from marivo.semantic._metric_resolution import (
+    fold_input_to_ir,
+    resolve_aggregate_temporal_contract,
+)
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SimpleMetricDetails,
@@ -1553,7 +1557,7 @@ def observe(
         ]
         fold_meta = None
         if folded_leaves:
-            if is_catalog_root and metric_ir.metric_type == "simple":
+            if metric_ir.metric_type == "simple":
                 fold_meta = _build_fold_meta(
                     metric_ir,
                     catalog,
@@ -1729,7 +1733,7 @@ def observe(
             axis_bindings=_axis_bindings(session.catalog, root_execution.axes),
             slice_predicates=_slice_predicates(session.catalog, stored_where),
             status_time_dimension_ref=_status_time_dimension_payload(
-                metric_ir.status_time_dimension
+                getattr(metric_ir, "status_time_dimension", None)
             ),
             axes=root_execution.axes,
             measure={"name": metric_name},
@@ -1748,7 +1752,7 @@ def observe(
                         and _additivity_supports_sum_rollup(root_execution.additivity)
                     ),
                     status_time_dimension_ref=_status_time_dimension_payload(
-                        metric_ir.status_time_dimension
+                        getattr(metric_ir, "status_time_dimension", None)
                     ),
                     cumulative=cumulative_payload,
                 ),
@@ -1768,7 +1772,7 @@ def observe(
             ),
             additivity=_meta_additivity(root_execution.additivity),
             aggregation=_meta_aggregation(metric_ir.aggregation),
-            status_time_dimension=metric_ir.status_time_dimension,
+            status_time_dimension=getattr(metric_ir, "status_time_dimension", None),
             cumulative=cumulative_payload,
             temporal_contract=_build_frame_temporal_contract(
                 resolved_window=resolved_window,
@@ -2034,14 +2038,67 @@ def _preferred_status_time_dimension_for_metric(
 ) -> str | None:
     """Resolve the status time axis a metric wants to observe on.
 
-    Mirrors the single-metric observe injection: a semi-additive simple metric
-    prefers its own status_time_dimension; a derived metric prefers the first
-    component whose additivity is semi-additive (issue #36).  Runtime metrics
-    carry no catalog status axis and return ``None``.
+    Mirrors the single-metric observe injection: a folded simple metric prefers
+    its effective status_time_dimension; a derived or runtime expression
+    recursively requires one shared axis across all folded leaves.
 
     ``metric_ir`` may be passed in by a caller that already resolved the metric
     (single-metric observe), avoiding a redundant catalog parse.
     """
+    registry = catalog._require_index().registry
+
+    def catalog_axes(current: Any, *, active: frozenset[str]) -> set[str]:
+        semantic_id = str(current.semantic_id)
+        if semantic_id in active:
+            raise AssertionError(f"metric composition cycle reached observe: {semantic_id}")
+        if (
+            getattr(current, "time_fold", None) is not None
+            and getattr(current, "status_time_dimension", None) is not None
+        ):
+            return {str(current.status_time_dimension)}
+        if current.metric_type != "derived" or current.composition is None:
+            return set()
+        axes: set[str] = set()
+        next_active = active | {semantic_id}
+        for component_id in current.composition.components.values():
+            component_details = _catalog_object(
+                catalog, component_id, SemanticKind.METRIC
+            ).details()
+            assert isinstance(component_details, (SimpleMetricDetails, DerivedMetricDetails))
+            axes.update(catalog_axes(_planned_metric(component_details), active=next_active))
+        return axes
+
+    def runtime_axes(value: Ref[MetricKind] | RuntimeMetricExpr) -> set[str]:
+        if isinstance(value, RuntimeAggregateExpr):
+            measure = registry.measures.get(value.measure.path)
+            if measure is None:
+                return set()
+            temporal_contract = resolve_aggregate_temporal_contract(
+                measure.additivity,
+                fold_override=fold_input_to_ir(value.fold),
+            )
+            return (
+                {temporal_contract.status_time_dimension}
+                if temporal_contract is not None
+                else set()
+            )
+        if isinstance(value, RuntimeSliceExpr):
+            return runtime_axes(value.metric)
+        if isinstance(value, RuntimeRatioExpr):
+            return runtime_axes(value.numerator) | runtime_axes(value.denominator)
+        if isinstance(value, RuntimeLinearExpr):
+            axes: set[str] = set()
+            for component in (*value.add, *value.subtract):
+                axes.update(runtime_axes(component))
+            return axes
+        if isinstance(value, RuntimeWeightedMeanExpr):
+            return set()
+        normalized = normalize_metric_ref_input(catalog, value, argument="observe.metrics")
+        metric_id = _normalize_metric_boundary(catalog, normalized)
+        details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
+        assert isinstance(details, (SimpleMetricDetails, DerivedMetricDetails))
+        return catalog_axes(_planned_metric(details), active=frozenset())
+
     if isinstance(
         metric_input,
         RuntimeAggregateExpr
@@ -2050,31 +2107,28 @@ def _preferred_status_time_dimension_for_metric(
         | RuntimeWeightedMeanExpr
         | RuntimeLinearExpr,
     ):
-        return None
-    if metric_ir is None:
-        normalized = normalize_metric_ref_input(catalog, metric_input, argument="observe.metrics")
-        metric_id = _normalize_metric_boundary(catalog, normalized)
-        metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
-        assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
-        metric_ir = _planned_metric(metric_details)
-    if (
-        getattr(metric_ir, "additivity", None) == "semi_additive"
-        and getattr(metric_ir, "status_time_dimension", None) is not None
-    ):
-        return str(metric_ir.status_time_dimension)
-    if metric_ir.metric_type == "derived" and metric_ir.composition is not None:
-        for _role, component_id in metric_ir.composition.components.items():
-            component_details = _catalog_object(
-                catalog, component_id, SemanticKind.METRIC
-            ).details()
-            assert isinstance(component_details, (SimpleMetricDetails, DerivedMetricDetails))
-            component_ir = _planned_metric(component_details)
-            if (
-                getattr(component_ir, "additivity", None) == "semi_additive"
-                and getattr(component_ir, "status_time_dimension", None) is not None
-            ):
-                return str(component_ir.status_time_dimension)
-    return None
+        axes = runtime_axes(metric_input)
+    elif metric_ir is not None:
+        axes = catalog_axes(metric_ir, active=frozenset())
+    else:
+        axes = runtime_axes(metric_input)
+    if len(axes) > 1:
+        raise SemanticKindMismatchError(
+            message="one metric expression contains conflicting status time dimensions",
+            expected="one shared status time dimension across all folded leaves",
+            received=", ".join(sorted(axes)),
+            location="observe.metrics",
+            repair=AnalysisRepair(
+                kind="semantic_authoring",
+                action=(
+                    "Align the folded component metrics to one governed status-time axis, "
+                    "reload the catalog, then re-observe."
+                ),
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="metric"),
+            ),
+            context={"conflicting_status_time_dimensions": sorted(axes)},
+        )
+    return next(iter(axes), None)
 
 
 def _resolve_forest_status_time_dimension(

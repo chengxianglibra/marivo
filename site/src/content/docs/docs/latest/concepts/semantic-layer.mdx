@@ -618,7 +618,9 @@ existing builders cannot express the calculation.
 
 #### Simple metric from a measure — `ms.aggregate`
 
-Aggregates a measure. No body; additivity is inherited from the measure.
+Aggregates a measure without a body. The aggregation determines spatial
+additivity; independently, a semi-additive measure contributes its status-time
+axis and default fold. An explicit `fold` overrides that temporal fold.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -637,6 +639,13 @@ us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=m
 
 `agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
 both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
+
+Spatial additivity and temporal folding are independent. In particular,
+`agg="mean"` remains `non_additive`, but on a semi-additive measure it executes
+the spatial mean at each sample point and then applies the inherited or explicit
+time fold. Trino sampled percentile folds use approximate
+`APPROX_PERCENTILE`; DuckDB sampled percentile folds remain exact. Supplying
+`fold=` for a measure that is not semi-additive is rejected.
 
 #### Count metrics — `ms.count`
 

@@ -471,14 +471,16 @@ condition, and persisted ratio/weighted-mean component paths remain available.
 | `additive` | Supported by the sum/hierarchy paths. |
 | `semi_additive` | Supported on non-time axes; rejected when `axes` contains its `status_time_dimension`. |
 | Component-aware `ratio` / `weighted_mean` | Supported by ratio/weighted mix attribution. |
-| Tier-1 `mean` over a measure | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
+| Tier-1 `mean` over a measure without a temporal fold | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
+| Tier-1 `mean` with an inherited or explicit temporal fold | Keeps `non_additive` spatial semantics and executes spatial mean followed by the governed time fold; it is not component-lowered. |
 | Graph-owned `count_distinct` | Supported by distinct membership when the key type is reproducible. |
 | Graph-owned `median` / `percentile(q)` | Supported by exact value-frequency or Trino native `approx_percentile` replay when the persisted basis admits the installed method. |
 | Other `non_additive` without supported component math | Rejected, including opaque/tier-2 means, min, max, unsupported quantile sources, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
 
-The mean lowering is runtime-only and never substitutes entity row count for
-`count_non_null(measure)`. For a rejected metric, inspect
+The mean lowering is runtime-only, applies only when no temporal fold is
+resolved, and never substitutes entity row count for `count_non_null(measure)`.
+For a rejected metric, inspect
 `DeltaFrame.contract().attribute_admission`: re-observe legacy artifacts or
 author the aggregate-specific component/distribution evidence named by its
 repair. Existing non-linear sampled-fold validation still runs first.

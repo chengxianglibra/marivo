@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 
 import marivo.analysis as mv
+from marivo.semantic.errors import ErrorKind
 from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -21,6 +22,7 @@ from marivo.semantic.metric_graph_canonical import (
     canonical_bytes,
     fingerprint,
     metric_graph_from_bytes,
+    node_fingerprint,
 )
 from marivo.semantic.metric_graph_lowering import (
     MetricGraphLoweringError,
@@ -45,8 +47,21 @@ unit_price = ms.measure_column(
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="event_time", granularity="day"
 )
+sample_time = ms.time_dimension_column(
+    name="sample_time",
+    entity=orders,
+    column="sample_time",
+    granularity="minute",
+    parse=ms.datetime(timezone="UTC", sample_interval=(5, "minute")),
+)
 state = ms.dimension_column(name="state", entity=orders, column="state")
 type = ms.dimension_column(name="type", entity=orders, column="type")
+sample_value = ms.measure_column(
+    name="sample_value",
+    entity=orders,
+    column="sample_value",
+    additivity=ms.semi_additive(over=sample_time, fold=("percentile", 0.95)),
+)
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 revenue_alias = ms.aggregate(name="revenue_alias", measure=amount, agg="sum")
 failed_revenue = ms.aggregate(
@@ -62,6 +77,15 @@ share = ms.ratio(
     name="share", numerator=revenue, denominator=revenue, unit="%"
 )
 weighted = ms.weighted_mean(name="weighted", value=unit_price, weight=amount)
+inherited_folded_mean = ms.aggregate(
+    name="inherited_folded_mean", measure=sample_value, agg="mean"
+)
+explicit_folded_mean = ms.aggregate(
+    name="explicit_folded_mean",
+    measure=sample_value,
+    agg="mean",
+    fold=("percentile", 0.5),
+)
 net = ms.linear(name="net", add=[revenue, revenue_alias])
 mtd_revenue = ms.cumulative(
     name="mtd_revenue",
@@ -113,6 +137,55 @@ def test_catalog_aggregate_filter_and_explicit_unit_override_are_value_inputs(
     assert failed.filter[0].value == "FAILED"
     assert isinstance(share, RatioNodeV1)
     assert share.unit_override == "%"
+
+
+def test_folded_mean_keeps_non_additive_spatial_semantics_and_effective_graph_fold(
+    catalog_registry: Registry,
+) -> None:
+    inherited_metric = catalog_registry.metrics["test.inherited_folded_mean"]
+    explicit_metric = catalog_registry.metrics["test.explicit_folded_mean"]
+    inherited = _root_node(lower_catalog_metric(catalog_registry, "test.inherited_folded_mean"))
+    explicit = _root_node(lower_catalog_metric(catalog_registry, "test.explicit_folded_mean"))
+
+    assert inherited_metric.additivity == "non_additive"
+    assert explicit_metric.additivity == "non_additive"
+    assert isinstance(inherited, AggregateNodeV1)
+    assert isinstance(explicit, AggregateNodeV1)
+    assert inherited.fold == ("percentile", 0.95)
+    assert explicit.fold == ("percentile", 0.5)
+    assert inherited != explicit
+    assert node_fingerprint(inherited) != node_fingerprint(explicit)
+    assert node_fingerprint(inherited) != node_fingerprint(
+        dataclasses.replace(inherited, fold=None)
+    )
+
+
+def test_fold_override_requires_a_semi_additive_measure() -> None:
+    from tests.shared_fixtures import load_inline_semantic
+
+    source = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+events = ms.entity(
+    name="events", datasource=ms.ref.datasource("wh"), source=md.table("events")
+)
+amount = ms.measure_column(
+    name="amount", entity=events, column="amount", additivity="additive"
+)
+bad = ms.aggregate(
+    name="bad", measure=amount, agg="mean", fold=("percentile", 0.95)
+)
+"""
+
+    with load_inline_semantic(source, expect_errors=True) as result:
+        error = next(
+            item
+            for item in result.errors
+            if item.kind == ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE
+        )
+
+    assert error.constraint_id == "time_fold_requires_semi_additive"
+    assert error.details["measure_additivity"] == "additive"
 
 
 def test_catalog_membership_filter_uses_existing_canonical_slice_algebra(

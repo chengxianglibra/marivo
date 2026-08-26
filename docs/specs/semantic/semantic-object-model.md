@@ -366,6 +366,14 @@ bare `additivity="semi_additive"` metric without `status_time_dimension` is
 invalid. The status axis must be a true business as-of time (`snapshot_date`,
 `as_of_date`), not a technical write time (`created_at`, `ingest_time`).
 
+Tier-1 `ms.aggregate` resolves spatial additivity and temporal folding as two
+independent contracts. For example, `agg="mean"` remains `non_additive`, while a
+semi-additive input measure contributes its `over` status axis and default
+fold. An explicit metric `fold=` overrides that default. The effective fold is
+stored in the canonical metric graph, so inherited and explicit temporal
+semantics participate in artifact identity. A fold override on a measure that
+is not semi-additive is invalid.
+
 ## Weighted means
 
 `ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>)` is a tier-1
