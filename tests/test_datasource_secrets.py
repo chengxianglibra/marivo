@@ -20,7 +20,7 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.delenv("MARIVO_PERSIST_SECRETS", raising=False)
+    monkeypatch.delenv("MARIVO_PERSIST_CREDENTIALS", raising=False)
     return home
 
 
@@ -131,7 +131,7 @@ def test_path_guard_rejects_store_inside_git_repository(
     (repo_home / ".git").mkdir()
     monkeypatch.setattr(Path, "home", lambda: repo_home)
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.delenv("MARIVO_PERSIST_SECRETS", raising=False)
+    monkeypatch.delenv("MARIVO_PERSIST_CREDENTIALS", raising=False)
 
     with pytest.raises(DatasourceSecretStorePermissionsError) as exc_info:
         secrets.LocalPlaintextCache.default().persist("TRINO_PASSWORD", "secret")
@@ -144,7 +144,7 @@ def test_persistence_disabled_by_env_skips_writes_but_keeps_reads(
     fake_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = _write_store(fake_home, '"TRINO_PASSWORD" = "cached"\n')
-    monkeypatch.setenv("MARIVO_PERSIST_SECRETS", "0")
+    monkeypatch.setenv("MARIVO_PERSIST_CREDENTIALS", "0")
 
     cache = secrets.LocalPlaintextCache.default()
     cache.persist("TRINO_PASSWORD", "new-secret")
