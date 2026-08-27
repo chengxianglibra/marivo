@@ -102,7 +102,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     backend = _FakeBackend()
     import marivo.datasource.manage as registry_mod
 
-    monkeypatch.setattr(registry_mod, "connect", lambda _name: backend)
+    monkeypatch.setattr(registry_mod, "connect", lambda _name, **kwargs: backend)
 
     result = md.test("wh")
 
@@ -319,7 +319,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     monkeypatch.setattr(
         manage_mod,
         "connect",
-        lambda _name: (_ for _ in ()).throw(
+        lambda _name, **kwargs: (_ for _ in ()).throw(
             RuntimeError(
                 "connect postgresql://alice:uri-secret@db.example "
                 'password=super-secret "token":"json-secret"'
@@ -344,7 +344,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
         def disconnect(self) -> None:
             return None
 
-    monkeypatch.setattr(manage_mod, "connect", lambda _name: _FakeBackend())
+    monkeypatch.setattr(manage_mod, "connect", lambda _name, **kwargs: _FakeBackend())
     monkeypatch.setattr(
         manage_mod._secrets,
         "persist_backend_env_sourced",

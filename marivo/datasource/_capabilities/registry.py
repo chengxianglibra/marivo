@@ -282,7 +282,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "connect",
             "marivo.datasource.manage.connect",
-            "Open a managed live datasource connection.",
+            "Open a managed live datasource connection, bounded by a 30s wall-clock deadline (SQLite opens inline on the caller's thread).",
             output="DatasourceConnection",
             inputs=_inputs(("subject", "DatasourceName")),
             effects=_CONNECT,
@@ -292,7 +292,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "test",
             "marivo.datasource.manage.test",
-            "Round-trip a datasource and best-effort cache validated env secrets.",
+            "Round-trip a datasource within a 30s wall-clock deadline and best-effort cache validated env secrets.",
             output="DatasourceTestResult",
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
@@ -771,7 +771,14 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceFailure,
         "DatasourceFailure",
         ("test", "DatasourceCatalog.test"),
-        properties=("code", "exception_type", "backend_code", "backend_name", "message"),
+        properties=(
+            "code",
+            "exception_type",
+            "backend_code",
+            "backend_name",
+            "message",
+            "timeout_seconds",
+        ),
     )
     add(
         DatasourceTestResult,

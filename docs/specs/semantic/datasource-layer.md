@@ -431,13 +431,24 @@ md.test(spec.ref).show()  # validated live round trip
   the configured model roots, so a shared base project and a local overlay can
   coexist.
 - `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
-  a `DatasourceTestResult` and triggers post-validation secret caching.
+  a `DatasourceTestResult` and triggers post-validation secret caching. Both
+  accept a keyword-only `timeout_seconds` (default 30s) that bounds the connect
+  handshake and the `SELECT 1` round-trip with a Marivo-side wall-clock deadline.
+  When the deadline is exceeded the call fails closed — `md.connect` raises a
+  `DatasourceConnectionTimeoutError` and `md.test` returns a timeout failure —
+  rather than blocking indefinitely, regardless of whether the backend's own
+  query timeout is enforceable. A thread-affine backend (SQLite) is the one
+  exception: it opens a local file or in-memory database synchronously and
+  cannot block on a network handshake, so `md.connect` opens it inline on the
+  caller's thread and the wall-clock deadline does not apply.
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
-code (`connection_open_failed` or `connection_roundtrip_failed`), backend
-exception type/code/name, and a sanitized message. `.repair` provides the focused
-help target and action. Secret-cache write warnings do not change a successful
+code (`connection_open_failed`, `connection_roundtrip_failed`,
+`connection_timeout`, or `connection_roundtrip_timeout`), backend exception
+type/code/name, and a sanitized message. `.repair` provides the focused help
+target and action. The two timeout codes distinguish the connect handshake from
+the `SELECT 1` round-trip. Secret-cache write warnings do not change a successful
 result. Successful results prove only that the current datasource connection test
 passed.
 

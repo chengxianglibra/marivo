@@ -113,6 +113,25 @@ def repair(
     )
 
 
+def _connection_timeout_repair(
+    stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
+) -> AuthoringRepair:
+    """Return the canonical next-step repair for a connection timeout stage."""
+    if stage == "connection_timeout":
+        action = (
+            "The connection handshake did not complete within the deadline; "
+            "verify the host/gateway is reachable, then retry with a larger "
+            "timeout_seconds."
+        )
+    else:
+        action = (
+            "The SELECT 1 round-trip did not complete within the deadline; "
+            "verify the backend responds to queries, then retry with a larger "
+            "timeout_seconds."
+        )
+    return repair(kind="reconnect", canonical_id="test", action=action)
+
+
 class DatasourceError(Exception):
     """Base datasource error with the stable recovery field set."""
 
@@ -271,6 +290,47 @@ class DatasourceSchemaVersionError(DatasourceError):
 
 class DatasourceConnectionError(DatasourceError):
     pass
+
+
+class DatasourceConnectionTimeoutError(DatasourceConnectionError):
+    """A datasource connection phase exceeded its bounded wall-clock deadline.
+
+    Raised when either the backend-connect handshake or the ``SELECT 1``
+    round-trip exceeds ``timeout_seconds``. Carries the failed ``stage``
+    (``connection_timeout`` vs ``connection_roundtrip_timeout``), the configured
+    timeout, the measured elapsed time, and the datasource name so callers can
+    distinguish the two phases without parsing the message text.
+    """
+
+    def __init__(
+        self,
+        *,
+        stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
+        timeout_seconds: int,
+        elapsed_ms: int,
+        datasource_name: str,
+        location: str | None = None,
+    ) -> None:
+        self.stage = stage
+        self.timeout_seconds = timeout_seconds
+        self.elapsed_ms = elapsed_ms
+        self.datasource_name = datasource_name
+        phase = "connection handshake" if stage == "connection_timeout" else "SELECT 1 round-trip"
+        resolved_location = location or (
+            f"md.connect({datasource_name!r})"
+            if stage == "connection_timeout"
+            else f"md.test({datasource_name!r})"
+        )
+        super().__init__(
+            message=(
+                f"datasource {datasource_name!r} {stage} exceeded the "
+                f"{timeout_seconds}s deadline after {elapsed_ms}ms"
+            ),
+            expected=f"the {phase} to complete within timeout_seconds",
+            received=(f"no result after {elapsed_ms}ms (timeout_seconds={timeout_seconds})"),
+            location=resolved_location,
+            repair=_connection_timeout_repair(stage),
+        )
 
 
 class DatasourcePreviewError(DatasourceError):

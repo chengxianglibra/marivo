@@ -5,12 +5,13 @@ from __future__ import annotations
 import builtins
 import copy
 import re
+import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -26,6 +27,7 @@ from marivo.datasource.authoring import (
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
+    DatasourceConnectionTimeoutError,
     DatasourceError,
     DatasourceMissingError,
     DatasourceObservedEffects,
@@ -39,6 +41,24 @@ from marivo.render import Card, RenderableResult, result_repr
 
 RAW_SQL_DEFAULT_LIMIT = 100
 """Default row bound for ``md.raw_sql`` when the caller omits ``limit``."""
+
+DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
+"""Default wall-clock deadline for ``md.connect`` and ``md.test``.
+
+Bounds both the backend-connect handshake and the ``SELECT 1`` round-trip.
+Callers may override it with a keyword ``timeout_seconds``; a non-positive
+value is rejected before any connection is attempted.
+"""
+
+_THREAD_AFFINE_BACKEND_TYPES = frozenset({"sqlite"})
+"""Backend types whose connection object is bound to its creating thread.
+
+SQLite (opened via ``sqlite3.connect`` with the default ``check_same_thread``)
+raises if the connection is used from a thread other than the one that opened
+it. Such backends also open a local file or in-memory database synchronously
+and cannot block on a network handshake, so ``md.connect`` opens them inline on
+the caller's thread instead of on a deadline worker thread.
+"""
 
 
 def _truncation_warning(limit: int) -> str:
@@ -135,11 +155,14 @@ class DatasourceFailure:
     code: Literal[
         "connection_open_failed",
         "connection_roundtrip_failed",
+        "connection_timeout",
+        "connection_roundtrip_timeout",
     ]
     exception_type: str
     backend_code: str | None
     backend_name: str | None
     message: str
+    timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, repr=False)
@@ -482,11 +505,18 @@ def describe(name: str) -> DatasourceDescription:
     )
 
 
-def connect(name: str) -> DatasourceConnection:
+def connect(
+    name: str,
+    *,
+    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+) -> DatasourceConnection:
     """Open a context-manageable live ibis backend for a datasource.
 
     Args:
         name: The datasource name to connect to.
+        timeout_seconds: Wall-clock deadline for the backend-connect handshake.
+            Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive
+            value is rejected before any connection is attempted.
 
     Returns:
         A ``DatasourceConnection`` proxy that delegates backend methods and
@@ -503,8 +533,82 @@ def connect(name: str) -> DatasourceConnection:
         Env-sourced secrets used to open this backend are remembered on the
         connection object so that a subsequent round-trip validation can persist
         them via ``secrets.persist_backend_env_sourced``.
+
+        The connect handshake is fail-closed: if the backend cannot establish
+        within ``timeout_seconds`` a ``DatasourceConnectionTimeoutError`` with
+        ``stage="connection_timeout"`` is raised. The timeout is a Marivo-side
+        wall-clock bound and does not rely on the backend's own query timeout.
+
+        Thread-affine backends (SQLite) are opened inline on the calling thread
+        so the returned connection stays usable there; every other backend is
+        opened on a deadline worker thread so a hanging gateway fails closed
+        rather than blocking indefinitely.
     """
-    return _connect_internal(name)
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive.")
+    if _connect_runs_inline(name):
+        # SQLite opens a local file/in-memory database synchronously and cannot
+        # block on a network handshake; running it on a worker thread would hand
+        # back a connection bound to that thread, unusable from the caller.
+        return _connect_internal(name)
+    return cast(
+        "DatasourceConnection",
+        _run_with_deadline(
+            lambda: _connect_internal(name),
+            timeout_seconds=timeout_seconds,
+            stage="connection_timeout",
+            datasource_name=name,
+        ),
+    )
+
+
+def _run_with_deadline(
+    fn: Callable[[], Any],
+    *,
+    timeout_seconds: int,
+    stage: Literal["connection_timeout", "connection_roundtrip_timeout"],
+    datasource_name: str,
+) -> Any:
+    """Run *fn* on a worker thread and fail closed past ``timeout_seconds``.
+
+    The worker is a daemon thread, so a backend that blocks indefinitely in its
+    own connect/query call cannot keep the process alive. When the deadline is
+    exceeded the helper raises ``DatasourceConnectionTimeoutError`` rather than
+    blocking the caller; a backend that eventually completes on its own after
+    the deadline is abandoned (the caller already failed closed and no reference
+    is handed back).
+
+    Residual behavior: the thread cannot be forcibly killed, so an abandoned
+    worker that later completes its handshake may open a backend that is never
+    disconnected. That connection (or session) then lives until process exit;
+    callers in long-lived processes should treat a connection timeout as a
+    signal to bound their own retries rather than relying on this helper to
+    reclaim the leaked handle.
+    """
+    outcome: dict[str, Any] = {}
+
+    def _target() -> None:
+        try:
+            outcome["value"] = fn()
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=_target, daemon=True)
+    started = time.monotonic()
+    worker.start()
+    worker.join(timeout_seconds)
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    if worker.is_alive():
+        raise DatasourceConnectionTimeoutError(
+            stage=stage,
+            timeout_seconds=timeout_seconds,
+            elapsed_ms=elapsed_ms,
+            datasource_name=datasource_name,
+            location=f"md.connect({datasource_name!r})",
+        )
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
 
 
 def _connect_internal(
@@ -544,6 +648,15 @@ def _connect_internal(
     return connection
 
 
+def _connect_runs_inline(name: str) -> bool:
+    """Return True when the backend must be opened on the caller's thread."""
+    datasource = _store.load_one(name)
+    return (
+        datasource is not None
+        and getattr(datasource, "backend_type", None) in _THREAD_AFFINE_BACKEND_TYPES
+    )
+
+
 def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
     return _storage_name(value)
 
@@ -551,6 +664,8 @@ def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
 DatasourceFailureCode: TypeAlias = Literal[
     "connection_open_failed",
     "connection_roundtrip_failed",
+    "connection_timeout",
+    "connection_roundtrip_timeout",
 ]
 
 
@@ -562,6 +677,9 @@ def _connection_repair(
     existing = getattr(exc, "repair", None)
     if isinstance(existing, AuthoringRepair):
         return existing
+    # Timeout failures carry their own repair on DatasourceConnectionTimeoutError
+    # (see marivo.datasource.errors._connection_timeout_repair), which the
+    # ``existing`` check above returns before this point.
     return repair(
         kind="reconnect",
         canonical_id="test",
@@ -575,24 +693,146 @@ def _datasource_failure(
     code: DatasourceFailureCode,
 ) -> DatasourceFailure:
     summary = _backend_failure_summary(exc)
+    timeout_seconds = (
+        exc.timeout_seconds if isinstance(exc, DatasourceConnectionTimeoutError) else None
+    )
     return DatasourceFailure(
         code=code,
         exception_type=summary.exception_type,
         backend_code=summary.backend_code,
         backend_name=summary.backend_name,
         message=summary.message,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
+def _failure_code_for_phase(phase: str) -> DatasourceFailureCode:
+    """Map the round-trip phase in which an error surfaced to its failure code."""
+    if phase == "roundtrip":
+        return "connection_roundtrip_failed"
+    return "connection_open_failed"
+
+
+def _run_roundtrip_with_deadline(
+    fn: Callable[[dict[str, Any]], DatasourceTestResult],
+    *,
+    timeout_seconds: int,
+    datasource_name: str,
+) -> DatasourceTestResult:
+    """Run a full connectivity round-trip on one worker thread with a deadline.
+
+    ``fn`` performs connect + ``SELECT 1`` (+ optional secret persist) and
+    mutates ``state["backend"]`` and ``state["phase"]`` as it progresses. The
+    entire round-trip stays on a single worker thread so thread-affine backends
+    (SQLite) never cross a thread boundary.
+
+    When the deadline is exceeded the caller disconnects any backend that was
+    already opened (which also unblocks a parked network call) and returns a
+    typed timeout result whose ``code`` distinguishes the connect handshake from
+    the ``SELECT 1`` round-trip. A raised error is mapped to a failure code
+    using the phase it surfaced in.
+
+    Residual behavior: the worker cannot be forcibly killed. If it later
+    completes its ``SELECT 1`` after the caller has already returned a fail-closed
+    timeout, it may still reach the secret-persist phase and write the validated
+    env-sourced secret to the user-global cache. That side effect is benign but
+    arrives after the caller has observed failure; callers should not assume a
+    timed-out ``test`` implies no cache write.
+    """
+    state: dict[str, Any] = {"backend": None, "phase": "connection", "started": 0.0}
+    outcome: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            outcome["result"] = fn(state)
+        except BaseException as exc:
+            outcome["error"] = exc
+        finally:
+            backend = state.get("backend")
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    started = time.perf_counter()
+    state["started"] = started
+    thread.start()
+    thread.join(timeout_seconds)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+
+    if thread.is_alive():
+        stage: Literal["connection_timeout", "connection_roundtrip_timeout"] = (
+            "connection_timeout"
+            if state["phase"] == "connection"
+            else "connection_roundtrip_timeout"
+        )
+        exc = DatasourceConnectionTimeoutError(
+            stage=stage,
+            timeout_seconds=timeout_seconds,
+            elapsed_ms=elapsed_ms,
+            datasource_name=datasource_name,
+            location=f"md.test({datasource_name!r})",
+        )
+        backend = state.get("backend")
+        disconnect = getattr(backend, "disconnect", None)
+        if callable(disconnect):
+            with suppress(Exception):
+                disconnect()
+        return DatasourceTestResult(
+            name=datasource_name,
+            ok=False,
+            latency_ms=elapsed_ms,
+            failure=_datasource_failure(exc, code=stage),
+            repair=_connection_repair(exc, failure_code=stage),
+        )
+
+    if "error" in outcome:
+        exc = outcome["error"]
+        if isinstance(exc, DatasourceConnectionTimeoutError):
+            # The connect phase raised its own typed timeout before the outer
+            # deadline fired; keep the precise stage instead of the generic
+            # phase-based classification.
+            return DatasourceTestResult(
+                name=datasource_name,
+                ok=False,
+                latency_ms=elapsed_ms,
+                failure=_datasource_failure(exc, code=exc.stage),
+                repair=_connection_repair(exc, failure_code=exc.stage),
+            )
+        failure_code = _failure_code_for_phase(state["phase"])
+        return DatasourceTestResult(
+            name=datasource_name,
+            ok=False,
+            latency_ms=elapsed_ms,
+            failure=_datasource_failure(exc, code=failure_code),
+            repair=_connection_repair(exc, failure_code=failure_code),
+        )
+
+    return cast("DatasourceTestResult", outcome["result"])
+
+
+def test(
+    name: str | Ref[DatasourceKind],
+    *,
+    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+) -> DatasourceTestResult:
     """Round-trip the backend and best-effort cache validated env secrets.
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
+        timeout_seconds: Wall-clock deadline for the backend-connect handshake
+            and the ``SELECT 1`` round-trip. Defaults to
+            ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
+            rejected before any connection is attempted.
 
     Returns:
         A ``DatasourceTestResult`` with ok status, latency, structured failure,
-        and typed repair.
+        and typed repair. A timeout is reported as a structured failure whose
+        ``code`` is ``connection_timeout`` (handshake) or
+        ``connection_roundtrip_timeout`` (``SELECT 1``), with a truthful
+        ``latency_ms`` and a ``repair`` suggesting a larger timeout or a
+        reachability check.
 
     Example:
         >>> import marivo.datasource as md
@@ -603,17 +843,23 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
         offered to the user-global plaintext cache. Cache write failures
         emit a warning without changing the successful result. The backend
         is always disconnected.
+
+        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        by a Marivo-side wall-clock deadline; neither depends on the backend's
+        own query timeout. If the deadline is exceeded the call fails closed
+        rather than blocking indefinitely, even when the backend itself cannot
+        be interrupted.
     """
     datasource_name = _datasource_name(name)
-    start = time.perf_counter()
-    backend: Any | None = None
-    failure_code: DatasourceFailureCode = "connection_open_failed"
-    try:
-        backend = connect(datasource_name)
-        failure_code = "connection_roundtrip_failed"
-        backend.raw_sql("SELECT 1")
-        _secrets.try_persist_backend_env_sourced(backend)
-        latency_ms = int((time.perf_counter() - start) * 1000)
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive.")
+
+    def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
+        state["backend"] = connect(datasource_name, timeout_seconds=timeout_seconds)
+        state["phase"] = "roundtrip"
+        state["backend"].raw_sql("SELECT 1")
+        _secrets.try_persist_backend_env_sourced(state["backend"])
+        latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
@@ -621,26 +867,18 @@ def test(name: str | Ref[DatasourceKind]) -> DatasourceTestResult:
             failure=None,
             repair=None,
         )
-    except Exception as exc:
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        return DatasourceTestResult(
-            name=datasource_name,
-            ok=False,
-            latency_ms=latency_ms,
-            failure=_datasource_failure(exc, code=failure_code),
-            repair=_connection_repair(exc, failure_code=failure_code),
-        )
-    finally:
-        if backend is not None:
-            disconnect = getattr(backend, "disconnect", None)
-            if callable(disconnect):
-                with suppress(Exception):
-                    disconnect()
+
+    return _run_roundtrip_with_deadline(
+        roundtrip,
+        timeout_seconds=timeout_seconds,
+        datasource_name=datasource_name,
+    )
 
 
 def test_no_persist(
     name: str | Ref[DatasourceKind],
     *,
+    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
     include_semantic_layers: bool = False,
 ) -> DatasourceTestResult:
@@ -648,29 +886,40 @@ def test_no_persist(
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
+        timeout_seconds: Wall-clock deadline for the backend-connect handshake
+            and the ``SELECT 1`` round-trip. Defaults to
+            ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
+            rejected before any connection is attempted.
+        project_root: Optional project root for tests and embedded callers.
 
     Returns:
         A ``DatasourceTestResult`` with ok status, latency, structured failure,
-        and typed repair.
+        and typed repair. Timeouts are reported with the same structured
+        ``connection_timeout`` / ``connection_roundtrip_timeout`` codes as
+        ``md.test``.
 
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.
         Does not write ``~/.marivo/secrets.toml``. The backend is always
         disconnected.
+
+        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        by a Marivo-side wall-clock deadline; if the deadline is exceeded the
+        call fails closed rather than blocking indefinitely.
     """
     datasource_name = _datasource_name(name)
-    start = time.perf_counter()
-    backend: Any | None = None
-    failure_code: DatasourceFailureCode = "connection_open_failed"
-    try:
-        backend = _connect_internal(
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive.")
+
+    def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
+        state["backend"] = _connect_internal(
             datasource_name,
             project_root=project_root,
             include_semantic_layers=include_semantic_layers,
         )
-        failure_code = "connection_roundtrip_failed"
-        backend.raw_sql("SELECT 1")
-        latency_ms = int((time.perf_counter() - start) * 1000)
+        state["phase"] = "roundtrip"
+        state["backend"].raw_sql("SELECT 1")
+        latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
@@ -678,21 +927,12 @@ def test_no_persist(
             failure=None,
             repair=None,
         )
-    except Exception as exc:
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        return DatasourceTestResult(
-            name=datasource_name,
-            ok=False,
-            latency_ms=latency_ms,
-            failure=_datasource_failure(exc, code=failure_code),
-            repair=_connection_repair(exc, failure_code=failure_code),
-        )
-    finally:
-        if backend is not None:
-            disconnect = getattr(backend, "disconnect", None)
-            if callable(disconnect):
-                with suppress(Exception):
-                    disconnect()
+
+    return _run_roundtrip_with_deadline(
+        roundtrip,
+        timeout_seconds=timeout_seconds,
+        datasource_name=datasource_name,
+    )
 
 
 def _require_raw_sql_reason(reason: str) -> str:
