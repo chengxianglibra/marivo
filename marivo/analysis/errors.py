@@ -1407,6 +1407,41 @@ class EvidenceSelectionError(AnalysisError):
     """A compatibility selection is empty, duplicated, oversized, or malformed."""
 
 
+class EvidenceLimitError(AnalysisError):
+    """A bounded evidence page read received a ``limit`` outside ``[1, 100]``."""
+
+    def _derive_fields(self) -> _DerivedFields:
+        limit = self._context.get("limit")
+        location = self._context.get("location")
+        help_target_id = self._context.get("help_target_id")
+        default_limit = self._context.get("default_limit")
+        if not isinstance(location, str):
+            location = "session.evidence.findings(...)"
+        if not isinstance(help_target_id, str):
+            help_target_id = "session.evidence.findings"
+        if not isinstance(default_limit, int):
+            default_limit = 50
+        received = f"limit={limit!r}" if limit is not None else "limit out of range"
+        return _DerivedFields(
+            expected="limit within [1, 100]",
+            received=received,
+            location=location,
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    f"Pass limit in [1, 100] (default {default_limit}), then page with "
+                    "the returned has_more/next_cursor instead of raising the bound."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=help_target_id),
+                snippet=(
+                    f"page = {help_target_id}(limit={default_limit})\n"
+                    "while page.has_more:\n"
+                    f"    page = {help_target_id}(limit={default_limit}, cursor=page.next_cursor)"
+                ),
+            ),
+        )
+
+
 class EvidenceIntegrityError(AnalysisError):
     """Committed evidence cannot be resolved to one intact canonical graph."""
 

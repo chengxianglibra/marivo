@@ -681,15 +681,30 @@ return a `CandidateSet`. Scored objectives use deterministic score order;
 ontology hypotheses are unscored and use deterministic semantic identity order.
 Neither order is a recommendation from Marivo.
 
-| Helper | Source shape | Required | Key options |
-| --- | --- | --- | --- |
-| `point_anomalies` | `MetricFrame` time_series/panel | — | `value`, `threshold=3.0` |
-| `period_shifts` | `DeltaFrame` time_series/panel | ≥ 7 buckets | `value`, `threshold=2.0` |
-| `driver_axes` | `DeltaFrame` | `search_space` | `value`, `limit` |
-| `interesting_slices` | `MetricFrame` or `DeltaFrame` | — | `search_space`, `value`, `threshold=2.0`, `limit` |
-| `interesting_windows` | time_series/panel frame | — | `value`, `threshold=2.0` |
-| `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`, `value`, `threshold=3.0` |
-| `semantic_hypotheses` | arity-one catalog `MetricFrame` or same-Metric `DeltaFrame` | ready optional ontology | `limit=50` (`1..200`) |
+| Helper | Source shape | Required | Strategy (default; alternatives) | Key options |
+| --- | --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame` time_series/panel | — | `zscore`; `seasonal_robust_zscore` | `value`, `threshold=3.0` |
+| `period_shifts` | `DeltaFrame` time_series/panel | ≥ 7 buckets | `delta_window_zscore` | `value`, `threshold=2.0` |
+| `driver_axes` | `DeltaFrame` | `search_space` | `concentration` | `value`, `limit` |
+| `interesting_slices` | `MetricFrame` or `DeltaFrame` | — | `slice_zscore` | `search_space`, `value`, `threshold=2.0`, `limit` |
+| `interesting_windows` | time_series/panel frame | — | `global_zscore_runs` | `value`, `threshold=2.0` |
+| `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `mad` | `peer_scope`, `value`, `threshold=3.0` |
+| `semantic_hypotheses` | arity-one catalog `MetricFrame` or same-Metric `DeltaFrame` | ready optional ontology | unscored | `limit=50` (`1..200`) |
+
+Scored objectives pick one strategy per objective; only `point_anomalies` has a
+documented alternative (`seasonal_robust_zscore`, for strong weekly seasonality
+where anomalies would skew the global mean/std). Pass an unsupported strategy
+and discovery fails with a structured `SemanticKindMismatchError`.
+
+The three anomaly-shaped objectives are deliberately different:
+
+- `point_anomalies` finds **single points** that deviate from the series' own
+  baseline.
+- `period_shifts` finds a **local regime change** inside one delta series. A
+  sustained whole-window shift in the same direction belongs to `compare`, not
+  discovery.
+- `interesting_windows` compares **whole windows** of per-value behavior against
+  the frame, rather than hunting individual points or a single regime boundary.
 
 ```python
 series = session.observe(

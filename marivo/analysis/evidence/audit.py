@@ -11,6 +11,7 @@ from marivo._compat import UTC
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.errors import (
     EvidenceDigestNotAvailableError,
+    EvidenceLimitError,
     FindingNotFoundError,
 )
 from marivo.analysis.evidence.store import EvidenceStore
@@ -64,7 +65,15 @@ def query_findings(
 ) -> FindingPage:
     """Return one bounded newest-first page of canonical typed findings."""
     if not 1 <= limit <= 100:
-        raise ValueError("findings limit must be within [1, 100]")
+        raise EvidenceLimitError(
+            message="findings limit must be within [1, 100]",
+            context={
+                "limit": limit,
+                "location": "session.evidence.findings(...)",
+                "help_target_id": "session.evidence.findings",
+                "default_limit": 50,
+            },
+        )
     clauses = ["session_id = ?"]
     params: list[object] = [session_id]
     if artifact_ref is not None:
@@ -119,7 +128,15 @@ def query_digests(
     from marivo.analysis.evidence.identity import canonical_subject_key
 
     if not 1 <= limit <= 100:
-        raise ValueError("digests limit must be within [1, 100]")
+        raise EvidenceLimitError(
+            message="digests limit must be within [1, 100]",
+            context={
+                "limit": limit,
+                "location": "session.evidence.digests(...)",
+                "help_target_id": "session.evidence.digests",
+                "default_limit": 10,
+            },
+        )
     clauses = ["session_id = ?"]
     params: list[object] = [session_id]
     if operator is not None:

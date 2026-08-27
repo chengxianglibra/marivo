@@ -149,7 +149,9 @@ commit-time mechanical compatibility，不执行 currentness validation。执行
 
 ## 用有界分页恢复会话
 
-列表读取默认有界，并按最新记录优先：
+列表读取默认有界，并按最新记录优先。`session.evidence.findings` 的 `limit`
+范围为 `[1, 100]`（默认 `50`）；`session.evidence.digests` 同范围（默认 `10`）。
+超出范围的 `limit` 抛出 `EvidenceLimitError`，其中包含期望范围和可复制的修复建议。
 
 ```python
 frames = session.frame_summaries(limit=20)
@@ -160,6 +162,12 @@ if digests.has_more:
     digests = session.evidence.digests(
         limit=10,
         cursor=digests.next_cursor,
+    )
+
+if findings.has_more:
+    findings = session.evidence.findings(
+        limit=50,
+        cursor=findings.next_cursor,
     )
 ```
 
