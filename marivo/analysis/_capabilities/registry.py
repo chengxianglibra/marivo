@@ -32,6 +32,7 @@ from marivo.analysis._capabilities.model import (
     HelpExample,
     InputFamily,
     OperatorCapability,
+    ParameterHelpContract,
     ReadCapability,
     RecoveryCapability,
     RootGroup,
@@ -736,6 +737,32 @@ def _output(
     )
 
 
+def _parameter_help(
+    acquisition: str,
+    *qualified_targets: str,
+    derivable_from_current_artifact: bool = False,
+) -> ParameterHelpContract:
+    """Build one parameter-level acquisition contract from qualified targets."""
+
+    targets: list[LiveHelpTarget] = []
+    for qualified_target in qualified_targets:
+        surface, separator, canonical_id = qualified_target.partition(".")
+        if not separator or not canonical_id:
+            raise ValueError(f"invalid parameter help target: {qualified_target!r}")
+        if surface == "analysis":
+            owning_surface: Literal["analysis", "semantic"] = "analysis"
+        elif surface == "semantic":
+            owning_surface = "semantic"
+        else:
+            raise ValueError(f"invalid parameter help target: {qualified_target!r}")
+        targets.append(LiveHelpTarget(surface=owning_surface, canonical_id=canonical_id))
+    return ParameterHelpContract(
+        acquisition=acquisition,
+        help_targets=tuple(targets),
+        derivable_from_current_artifact=derivable_from_current_artifact,
+    )
+
+
 def _build_registry() -> CapabilityRegistry:
     """Build the complete immutable capability registry."""
 
@@ -805,6 +832,17 @@ def _build_registry() -> CapabilityRegistry:
                 "slice_by": _FIELD_SEMANTIC,
                 "time_dimension": frozenset({"TimeDimensionSemantic"}),
                 "cohort": _SS,
+            },
+            parameter_help={
+                "grain": _parameter_help(
+                    "build a builtin or certified semantic Grain",
+                    "analysis.grain",
+                    "semantic.calendar_grain",
+                ),
+                "expect_shape": _parameter_help(
+                    "choose one closed expected MetricFrame shape",
+                    "analysis.SemanticShape",
+                ),
             },
             artifact_admission={
                 "cohort": ArtifactAdmissionRule(
@@ -1067,7 +1105,14 @@ def _build_registry() -> CapabilityRegistry:
                 callable_path=callable_path,
                 authority_policy=authority_policy,
                 receiver="SessionLifecycle",
-                accepted_inputs={"history": _LF},
+                accepted_inputs={
+                    "history": _LF,
+                    **(
+                        {"axes": frozenset({"DimensionSemantic"})}
+                        if capability_id == "lifecycle.distribution"
+                        else {}
+                    ),
+                },
                 artifact_admission={
                     "history": ArtifactAdmissionRule(
                         semantic_shapes={"LifecycleFrame": frozenset({"history"})},
@@ -1121,6 +1166,20 @@ def _build_registry() -> CapabilityRegistry:
             accepted_inputs={
                 "journeys": _EF,
                 "axes": frozenset({"DimensionSemantic"}),
+            },
+            parameter_help={
+                "start_step": _parameter_help(
+                    "select one exact earlier step from journeys.meta.pattern.steps",
+                    "analysis.PatternStep",
+                    "analysis.step",
+                    derivable_from_current_artifact=True,
+                ),
+                "end_step": _parameter_help(
+                    "select one exact later step from journeys.meta.pattern.steps",
+                    "analysis.PatternStep",
+                    "analysis.step",
+                    derivable_from_current_artifact=True,
+                ),
             },
             artifact_admission={
                 "journeys": ArtifactAdmissionRule(
@@ -1299,6 +1358,12 @@ def _build_registry() -> CapabilityRegistry:
                 "frame": _DF,
                 "axes": _FIELD_SEMANTIC,
                 "target": frozenset({"FunnelLossRate"}),
+            },
+            parameter_help={
+                "mode": _parameter_help(
+                    "choose the closed multi-axis row layout or omit when allowed",
+                    "analysis.AttributionMode",
+                ),
             },
             artifact_admission={
                 "frame": ArtifactAdmissionRule(
@@ -1530,6 +1595,16 @@ def _build_registry() -> CapabilityRegistry:
                     "source": source_families,
                     **extra_inputs,
                 },
+                parameter_help=(
+                    {
+                        "strategy": _parameter_help(
+                            "choose the point-anomaly scoring strategy or omit for zscore",
+                            "analysis.PointAnomalyStrategy",
+                        )
+                    }
+                    if obj_id == "discover.point_anomalies"
+                    else {}
+                ),
                 output_contract=_output("CandidateSet"),
             )
         )
@@ -1633,6 +1708,24 @@ def _build_registry() -> CapabilityRegistry:
                     "receiver": families,
                     **extra_inputs,
                 },
+                parameter_help=(
+                    {
+                        "grain": _parameter_help(
+                            "build a coarser builtin or certified semantic Grain",
+                            "analysis.grain",
+                            "semantic.calendar_grain",
+                        )
+                    }
+                    if op_name == "rollup"
+                    else {
+                        "method": _parameter_help(
+                            "choose one closed tie-handling method",
+                            "analysis.RankMethod",
+                        )
+                    }
+                    if op_name == "rank"
+                    else {}
+                ),
                 output_contract=_output(SameAsInputFamily(parameter="receiver")),
             )
         )
@@ -1657,6 +1750,16 @@ def _build_registry() -> CapabilityRegistry:
             receiver="MetricFrameTransforms",
             accepted_inputs={
                 "receiver": _MF,
+            },
+            parameter_help={
+                "mode": _parameter_help(
+                    "choose one closed normalization mode",
+                    "analysis.NormalizeKind",
+                ),
+                "baseline": _parameter_help(
+                    "omit when allowed or build an exact numeric/row-selector mapping",
+                    "analysis.NormalizeBaseline",
+                ),
             },
             output_contract=_output("MetricFrame"),
         )
@@ -2281,6 +2384,69 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
+    value_contract_specs: tuple[tuple[str, str, str, str], ...] = (
+        (
+            "SemanticShape",
+            'expect_shape="scalar" | "time_series" | "segmented" | "panel"',
+            (
+                "Optional observe output-shape assertion. Omit it to accept the shape "
+                "derived from grain and dimensions."
+            ),
+            'Literal["scalar", "time_series", "segmented", "panel"]',
+        ),
+        (
+            "PointAnomalyStrategy",
+            'strategy="zscore" | "seasonal_robust_zscore"',
+            (
+                "Point-anomaly scoring kernel. Omit strategy for zscore; use "
+                "seasonal_robust_zscore for a day-of-week median/MAD baseline."
+            ),
+            'Literal["zscore", "seasonal_robust_zscore"]',
+        ),
+        (
+            "RankMethod",
+            'method="ordinal" | "dense" | "min" | "max"',
+            "Rank tie handling. Omit method for ordinal ranking.",
+            'Literal["ordinal", "dense", "min", "max"]',
+        ),
+        (
+            "NormalizeKind",
+            'mode="index" | "share" | "pct_change" | "per_unit" | "z_score"',
+            (
+                "Required metric normalization mode; there is no default. Only index and "
+                "per_unit accept baseline; per_unit requires it."
+            ),
+            'Literal["index", "share", "pct_change", "per_unit", "z_score"]',
+        ),
+        (
+            "NormalizeBaseline",
+            'baseline={"value": <number>} | {<axis_column>: <value>, ...}',
+            (
+                "Normalize index/per_unit denominator. Omit it for index to use the first "
+                "series-ordered row overall, or the first row per dimension group after time "
+                "ordering; per_unit requires it. Share, pct_change, and z_score reject it. "
+                'When supplied, pass {"value": <finite non-zero number>} or a non-empty '
+                "selector over persisted frame columns; grouped selectors choose a row within "
+                "each series and cannot include group axes."
+            ),
+            "dict[str, str | int | float | bool | None]",
+        ),
+    )
+    for target, entrypoint, summary, output_type in value_contract_specs:
+        descriptors.append(
+            ConstructorCapability(
+                id=target,
+                public_entrypoint=entrypoint,
+                help_target=target,
+                summary=summary,
+                root_group="policies_builders",
+                root_visibility="grouped",
+                callable_path=None,
+                output_type=output_type,
+                produced_input_family=None,
+            )
+        )
+
     # -- Recovery / reads: session lifecycle ------------------------------
 
     recovery_specs: tuple[tuple[str, str, str, str, str, str, str], ...] = (
@@ -2705,6 +2871,7 @@ def _finalize_registry(
         if desc.help_target in by_help_target:
             raise ValueError(f"duplicate help_target: {desc.help_target}")
         by_help_target[desc.help_target] = desc
+    _validate_parameter_help(descriptors)
 
     # Build callable identity index keyed by callable_path (canonical string).
     # Reject duplicates: two descriptors with the same callable_path is an
@@ -2763,6 +2930,25 @@ def _validate_input_producers(registry: CapabilityRegistry) -> None:
         raise ValueError(
             "analysis input families lack registered producers: " + ", ".join(sorted(missing))
         )
+
+
+def _validate_parameter_help(
+    descriptors: tuple[CapabilityDescriptor, ...],
+) -> None:
+    """Require complete canonical identities for parameter guidance."""
+
+    invalid: list[str] = []
+    for descriptor in descriptors:
+        if not isinstance(descriptor, OperatorCapability):
+            continue
+        for parameter, contract in descriptor.parameter_help.items():
+            if not parameter or not contract.acquisition.strip() or not contract.help_targets:
+                invalid.append(f"{descriptor.id}.{parameter}: incomplete parameter help")
+            for target in contract.help_targets:
+                if target.canonical_id is None:
+                    invalid.append(f"{descriptor.id}.{parameter}: target lacks canonical id")
+    if invalid:
+        raise ValueError("invalid analysis parameter help: " + ", ".join(sorted(invalid)))
 
 
 def _validate_authority_policies(

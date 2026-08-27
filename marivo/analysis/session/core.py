@@ -63,8 +63,8 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
     from marivo.analysis.frames.candidate import (
         CandidateSet,
-        CandidateStrategy,
         OntologyMetricCandidate,
+        PointAnomalyStrategy,
     )
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.event import EventFrame
@@ -1985,11 +1985,11 @@ class SessionEvents(RenderableResult):
             journey that reached ``start_step``.
 
         Example:
+            >>> start_step, end_step = journeys.meta.pattern.steps[:2]
             >>> elapsed = session.events.time_to_event(
             ...     journeys,
-            ...     start_step=checkout_step,
-            ...     end_step=payment_step,
-            ...     axes=[channel],
+            ...     start_step=start_step,
+            ...     end_step=end_step,
             ...     analysis_purpose="Measure checkout-to-payment elapsed time.",
             ... )
         """
@@ -2375,7 +2375,7 @@ class SessionDiscoverNamespace:
         threshold: float | None = None,
         # keep in sync with _DEFAULT_DISCOVER_LIMIT in marivo.analysis.intents.discover
         limit: int | None = 50,
-        strategy: CandidateStrategy | None = None,
+        strategy: PointAnomalyStrategy | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time-series points with unusual values.

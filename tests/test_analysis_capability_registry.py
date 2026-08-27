@@ -10,6 +10,7 @@ complete immutable capability registry with type algebra.
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from typing import get_args
@@ -1221,6 +1222,64 @@ def test_operator_accepted_input_keys_exist_in_installed_signature() -> None:
                 )
     assert not unaccounted, (
         "Accepted inputs advertise parameters the callable lacks:\n  " + "\n  ".join(unaccounted)
+    )
+
+
+def test_operator_parameter_help_keys_exist_in_installed_signature() -> None:
+    unaccounted: list[str] = []
+    for desc in REGISTRY.descriptors:
+        if desc.kind != "operator" or not desc.callable_path:
+            continue
+        try:
+            signature_names = _installed_signature_parameter_names(desc.callable_path)
+        except (ImportError, AttributeError, TypeError, ValueError):
+            continue
+        for parameter in desc.parameter_help:
+            if parameter not in signature_names:
+                unaccounted.append(
+                    f"{desc.id} parameter help {parameter!r} is not a parameter "
+                    f"of {desc.callable_path} (signature: {sorted(signature_names)})"
+                )
+    assert not unaccounted, "Parameter help keys drifted from signatures:\n  " + "\n  ".join(
+        unaccounted
+    )
+
+
+def test_opaque_operator_parameters_have_family_or_help_contracts() -> None:
+    """Named closed aliases must never rely on reflection-only type names."""
+
+    transparent_names = {
+        "Callable",
+        "DataFrame",
+        "Literal",
+        "None",
+        "Sequence",
+        "Series",
+    }
+    unaccounted: list[str] = []
+    for desc in REGISTRY.descriptors:
+        if desc.kind != "operator" or not desc.callable_path:
+            continue
+        from marivo.introspection.live.reflect import import_registered_callable
+
+        callable_obj = import_registered_callable(desc.callable_path)
+        for parameter in inspect.signature(callable_obj).parameters.values():
+            if parameter.name == "self" or parameter.name in desc.accepted_inputs:
+                continue
+            annotation = (
+                parameter.annotation
+                if isinstance(parameter.annotation, str)
+                else inspect.formatannotation(parameter.annotation)
+            )
+            named_types = set(re.findall(r"\b[A-Z][A-Za-z0-9_]*\b", annotation))
+            opaque_names = named_types - transparent_names
+            if opaque_names and parameter.name not in desc.parameter_help:
+                unaccounted.append(
+                    f"{desc.id}.{parameter.name}: annotation={annotation!r}, "
+                    f"opaque={sorted(opaque_names)!r}"
+                )
+    assert not unaccounted, "Opaque parameters lack Help construction routes:\n  " + "\n  ".join(
+        unaccounted
     )
 
 

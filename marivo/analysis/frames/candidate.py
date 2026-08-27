@@ -58,6 +58,7 @@ CandidateStrategy = Literal[
     "mad",
     "seasonal_robust_zscore",
 ]
+PointAnomalyStrategy = Literal["zscore", "seasonal_robust_zscore"]
 CandidateSourceKind = Literal["metric_frame", "delta_frame"]
 CandidateSemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 

@@ -268,6 +268,27 @@ def test_affordance_preserves_compare_parameter_roles_without_call_planner():
     assert not hasattr(affordance, "param_template")
 
 
+def test_metric_transform_affordances_expose_parameter_help_routes() -> None:
+    affordances = {item.capability_id: item for item in _metric_frame().contract().affordances}
+
+    rollup = {item.parameter: item for item in affordances["transform.rollup"].input_requirements}
+    assert rollup["grain"].accepted_families == ()
+    assert rollup["grain"].bindable_from_current_artifact is False
+    assert rollup["grain"].help_targets == (
+        "analysis.grain",
+        "semantic.calendar_grain",
+    )
+
+    rank = {item.parameter: item for item in affordances["transform.rank"].input_requirements}
+    assert rank["method"].help_targets == ("analysis.RankMethod",)
+
+    normalize = {
+        item.parameter: item for item in affordances["transform.normalize"].input_requirements
+    }
+    assert normalize["mode"].help_targets == ("analysis.NormalizeKind",)
+    assert normalize["baseline"].help_targets == ("analysis.NormalizeBaseline",)
+
+
 def test_affordance_and_contract_models_are_closed_and_immutable():
     requirement = ArtifactInputRequirement(
         parameter="source",
@@ -294,6 +315,19 @@ def test_affordance_and_contract_models_are_closed_and_immutable():
             accepted_families=("MetricFrame",),
             bindable_from_current_artifact=True,
             unexpected=True,  # type: ignore[call-arg]
+        )
+    with pytest.raises(ValidationError):
+        ArtifactInputRequirement(
+            parameter="mode",
+            accepted_families=(),
+            bindable_from_current_artifact=False,
+        )
+    with pytest.raises(ValidationError):
+        ArtifactInputRequirement(
+            parameter="step",
+            accepted_families=("EventFrame",),
+            bindable_from_current_artifact=False,
+            derivable_from_current_artifact=True,
         )
     with pytest.raises(ValidationError):
         contract.issues = ()  # type: ignore[misc]

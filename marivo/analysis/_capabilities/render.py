@@ -403,6 +403,14 @@ def _input_prerequisite_line(
     return None
 
 
+def _parameter_help_line(desc: OperatorCapability, parameter: str) -> str:
+    """Render one explicit construction/selection route for a parameter."""
+
+    contract = desc.parameter_help[parameter]
+    target_text = ", ".join(_help_call(target) for target in contract.help_targets)
+    return f"{parameter}: {contract.acquisition}; help: {target_text}"
+
+
 def _dotted_call_path(node: ast.expr) -> str | None:
     """Return one simple dotted callable path from an AST expression."""
 
@@ -480,9 +488,12 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
             seen.add(target)
             related.append(target)
 
-    if desc.help_target == "attribute":
-        _add("AttributionMode")
-    elif desc.help_target == "AttributionMode":
+    if isinstance(desc, OperatorCapability):
+        for contract in desc.parameter_help.values():
+            for target in contract.help_targets:
+                if target.surface == "analysis" and target.canonical_id is not None:
+                    _add(target.canonical_id)
+    if desc.help_target == "AttributionMode":
         _add("attribute")
 
     # Grouping-topic siblings (e.g. discover.*, transform.*).
@@ -821,6 +832,12 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             lines.append("")
             lines.append("  Prerequisites:")
             lines.extend(f"    {line}" for line in prerequisite_lines)
+        if desc.parameter_help:
+            lines.append("")
+            lines.append("  Parameter construction:")
+            lines.extend(
+                f"    {_parameter_help_line(desc, parameter)}" for parameter in desc.parameter_help
+            )
         if _has_semantic_object_handoff(desc):
             lines.extend(
                 (

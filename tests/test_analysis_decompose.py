@@ -273,7 +273,11 @@ def test_delta_contract_describes_multi_axis_attribution_mode():
     assert [
         (item.parameter, item.bindable_from_current_artifact)
         for item in affordance.input_requirements
-    ] == [("axes", False), ("frame", True)]
+    ] == [("axes", False), ("frame", True), ("mode", False)]
+    mode_requirement = next(
+        item for item in affordance.input_requirements if item.parameter == "mode"
+    )
+    assert mode_requirement.help_targets == ("analysis.AttributionMode",)
     admission = contract.attribute_admission
     assert admission is not None
     assert admission.status == "supported"

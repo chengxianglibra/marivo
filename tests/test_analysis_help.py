@@ -663,8 +663,9 @@ def test_phase2_event_focused_help_has_exact_examples_and_axis_kind() -> None:
 
     elapsed = _text("events.time_to_event")
     assert "session.events.time_to_event(" in elapsed
-    assert "start_step=checkout_step" in elapsed
-    assert "end_step=payment_step" in elapsed
+    assert "start_step, end_step = journeys.meta.pattern.steps[:2]" in elapsed
+    assert "start_step=start_step" in elapsed
+    assert "end_step=end_step" in elapsed
 
     selection = _text("select_subjects")
     assert "session.select_subjects(" in selection
@@ -1057,6 +1058,84 @@ def test_focused_help_teaches_semantic_and_constructor_prerequisites() -> None:
 
     assert 'session.catalog.state_models.get("<full semantic path>")' in replay
     assert "order_lifecycle = session.catalog.state_models.get" in replay
+
+
+def test_focused_help_routes_non_family_parameter_construction() -> None:
+    expected = {
+        "observe": (
+            'grain: build a builtin or certified semantic Grain; help: marivo.help("analysis.grain"), marivo.help("semantic.calendar_grain")',
+            'expect_shape: choose one closed expected MetricFrame shape; help: marivo.help("analysis.SemanticShape")',
+        ),
+        "events.time_to_event": (
+            "start_step: select one exact earlier step from journeys.meta.pattern.steps",
+            "end_step: select one exact later step from journeys.meta.pattern.steps",
+            'marivo.help("analysis.PatternStep")',
+            'marivo.help("analysis.step")',
+        ),
+        "attribute": ("mode: choose the closed multi-axis row layout",),
+        "discover.point_anomalies": ('marivo.help("analysis.PointAnomalyStrategy")',),
+        "transform.rollup": (
+            'marivo.help("analysis.grain")',
+            'marivo.help("semantic.calendar_grain")',
+        ),
+        "transform.rank": ('marivo.help("analysis.RankMethod")',),
+        "transform.normalize": (
+            'marivo.help("analysis.NormalizeKind")',
+            'marivo.help("analysis.NormalizeBaseline")',
+        ),
+    }
+    for target, fragments in expected.items():
+        text = _text(target)
+        assert "Parameter construction:" in text
+        for fragment in fragments:
+            assert fragment in text
+
+    distribution = _text("lifecycle.distribution")
+    assert "axes: DimensionSemantic (DimensionEntry | Ref[dimension])" in distribution
+    assert 'axes: select via session.catalog.dimensions.get("<full semantic path>")' in distribution
+
+
+@pytest.mark.parametrize(
+    ("target", "values"),
+    (
+        ("SemanticShape", ("scalar", "time_series", "segmented", "panel")),
+        ("PointAnomalyStrategy", ("zscore", "seasonal_robust_zscore")),
+        ("RankMethod", ("ordinal", "dense", "min", "max")),
+        ("NormalizeKind", ("index", "share", "pct_change", "per_unit", "z_score")),
+        ("NormalizeBaseline", ('{"value": <number>}', "axis_column")),
+    ),
+)
+def test_parameter_value_contracts_are_focused_only(
+    target: str,
+    values: tuple[str, ...],
+) -> None:
+    text = _text(target)
+    assert text.startswith(target)
+    for value in values:
+        assert value in text
+    assert target not in _text()
+
+
+def test_normalize_value_contracts_expose_exact_omission_and_mode_rules() -> None:
+    kind = _text("NormalizeKind")
+    assert "Required metric normalization mode; there is no default." in kind
+    assert "Only index and per_unit accept baseline; per_unit requires it." in kind
+
+    baseline = _text("NormalizeBaseline")
+    assert "Omit it for index to use the first series-ordered row overall" in baseline
+    assert "the first row per dimension group after time ordering" in baseline
+    assert "per_unit requires it" in baseline
+    assert "Share, pct_change, and z_score reject it" in baseline
+
+
+def test_every_parameter_help_target_resolves_on_its_owning_surface() -> None:
+    for descriptor in REGISTRY.descriptors:
+        if not isinstance(descriptor, OperatorCapability):
+            continue
+        for contract in descriptor.parameter_help.values():
+            for target in contract.help_targets:
+                assert target.canonical_id is not None
+                assert rendered_help(target.canonical_id, owner=target.surface)
 
 
 def test_every_operator_input_family_has_a_registered_acquisition_path() -> None:

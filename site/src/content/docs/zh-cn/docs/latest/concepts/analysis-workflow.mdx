@@ -73,8 +73,10 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。doctor 报告中的
 `marivo.help("analysis.sampling")` 发现。只有当对象契约不足，或第一次使用不熟悉的能力时，才查询
 `marivo.help("analysis.observe")`、`marivo.help("analysis.compare")`、
 `marivo.help("analysis.MetricFrame")` 等专项主题。
-失败后按照结构化修复指引继续。每个专项帮助主题都自包含一次正确的最小调用，但不是
-每次 API 调用的前置步骤。
+失败后按照结构化修复指引继续。每个专项帮助主题都自包含一次正确的最小调用：
+`Prerequisites` 路由带 family 的输入，`Parameter construction` 则把每个非 family
+的构造值或闭合取值路由到精确的下一步 `marivo.help(...)` target；但它不是每次 API
+调用的前置步骤。
 :::
 
 分析需要新建或刚修改的语义时，先完成最小依赖一致切片的编写收尾：加载当前目录 →
@@ -985,6 +987,11 @@ dropouts = session.select_subjects(
     selection=mv.dropped_before(step=payment_step),
 )
 ```
+
+如果从恢复后的 journey 继续，而不是沿用原脚本变量，应从
+`journeys.meta.pattern.steps` 选择精确保留的步骤，不能重建步骤，也不能用裸 key
+或数字位置代替类型化值。`events.time_to_event` 的专项 Help 会给出这一保留值路径
+以及 `PatternStep`/`step` 合同。
 
 `EventFrame[funnel]` 保留可加 counts、censoring-感知 rates 和 grouped
 对账证据。`EventFrame[time_to_event]` 精确保留来源的开始/end

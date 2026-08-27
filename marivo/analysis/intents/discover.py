@@ -32,6 +32,7 @@ from marivo.analysis.frames.candidate import (
     CandidateSetMeta,
     CandidateSourceKind,
     CandidateStrategy,
+    PointAnomalyStrategy,
     ScoredCandidateObjective,
     ScoredCandidateShape,
 )
@@ -413,7 +414,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
-        strategy: CandidateStrategy | None = None,
+        strategy: PointAnomalyStrategy | None = None,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
