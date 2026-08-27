@@ -600,7 +600,7 @@ def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path)
     assert mf.meta.window["end"] == "2025-08-01"
 
 
-def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_path):
+def test_observe_single_hour_partition_window_excludes_end_hour_bound(tmp_path):
     _bootstrap_sales_with_single_hour_partition_time_field(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_single_hour_partition_orders(con)
@@ -612,13 +612,14 @@ def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_
         session=s,
     )
 
-    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+    # Half-open [start, end): the hour bucket starting at end (14:00) is excluded.
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(10.0)
     assert mf.meta.window is not None
     assert mf.meta.window["start"] == "2024-10-11T03:00:00"
     assert mf.meta.window["end"] == "2025-07-31T14:00:00"
 
 
-def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(tmp_path):
+def test_observe_composite_hour_partition_window_excludes_end_hour_bound(tmp_path):
     _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_composite_hour_partition_orders(con)
@@ -631,7 +632,8 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
         session=s,
     )
 
-    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+    # Half-open [start, end): the hour bucket starting at end (14:00) is excluded.
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(10.0)
     assert mf.meta.window is not None
     assert mf.meta.window["start"] == "2024-10-11T03:00:00"
     assert mf.meta.window["end"] == "2025-07-31T14:00:00"

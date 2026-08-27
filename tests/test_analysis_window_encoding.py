@@ -149,7 +149,7 @@ def test_integer_yyyymmdd_partition_predicate_uses_unquoted_exclusive_end():
     assert "'20241011'" not in sql
 
 
-def test_string_yyyymmddhh_partition_predicate_uses_next_hour_exclusive_upper():
+def test_string_yyyymmddhh_partition_predicate_excludes_end_hour_bound():
     sql = _compile_window_filter(
         "string",
         "%Y%m%d%H",
@@ -158,7 +158,7 @@ def test_string_yyyymmddhh_partition_predicate_uses_next_hour_exclusive_upper():
         end="2025-07-31T14:00:00",
     )
     assert "\"log_hour\" >= '2024101103'" in sql
-    assert "\"log_hour\" < '2025073115'" in sql
+    assert "\"log_hour\" < '2025073114'" in sql
     assert "CAST" not in sql.upper()
 
 
@@ -171,7 +171,20 @@ def test_string_yyyymmddhh_partition_predicate_accepts_compact_hour_bounds():
         end="2025073114",
     )
     assert "\"log_hour\" >= '2024101103'" in sql
+    assert "\"log_hour\" < '2025073114'" in sql
+
+
+def test_string_yyyymmddhh_partition_predicate_advances_non_hour_end_bound():
+    sql = _compile_window_filter(
+        "string",
+        "%Y%m%d%H",
+        column="log_hour",
+        start="2024-10-11T03:00:00",
+        end="2025-07-31T14:30:00",
+    )
+    assert "\"log_hour\" >= '2024101103'" in sql
     assert "\"log_hour\" < '2025073115'" in sql
+    assert "CAST" not in sql.upper()
 
 
 def test_string_hour_precision_partition_predicate_supports_separator_formats():
@@ -197,11 +210,32 @@ def test_string_hour_precision_partition_predicate_supports_separator_formats():
         end="2025-07-31T14:00:00",
     )
     assert "\"log_hour\" >= '20241011-03'" in dashed
-    assert "\"log_hour\" < '20250731-15'" in dashed
+    assert "\"log_hour\" < '20250731-14'" in dashed
     assert "\"log_hour\" >= '2024-10-11-03'" in iso_dashed
-    assert "\"log_hour\" < '2025-07-31-15'" in iso_dashed
+    assert "\"log_hour\" < '2025-07-31-14'" in iso_dashed
     assert "\"log_hour\" >= '20241011T03'" in tee
-    assert "\"log_hour\" < '20250731T15'" in tee
+    assert "\"log_hour\" < '20250731T14'" in tee
+
+
+@pytest.mark.parametrize(
+    ("end", "report_tz", "expected_upper"),
+    [
+        ("2025-07-31T14:00:00", "UTC", "2025073114"),
+        ("2025-07-31T14:00:00", "Asia/Shanghai", "2025073114"),
+        ("2025-07-31T14:30:00", "America/New_York", "2025073115"),
+        ("2025-07-31T06:00:00+00:00", "Asia/Shanghai", "2025073114"),
+    ],
+)
+def test_hour_partition_predicate_end_bound_in_report_timezone(end, report_tz, expected_upper):
+    sql = _compile_window_filter(
+        "string",
+        "%Y%m%d%H",
+        column="log_hour",
+        start="2024-10-11T03:00:00",
+        end=end,
+        report_tz=ZoneInfo(report_tz),
+    )
+    assert f"\"log_hour\" < '{expected_upper}'" in sql
 
 
 def _compile_composite_window_filter(
@@ -247,7 +281,7 @@ def test_composite_string_hour_partition_predicate_uses_raw_fields():
     sql = _compile_composite_window_filter()
     assert "\"log_date\" = '20241011'" in sql
     assert "\"log_hour\" >= '03'" in sql
-    assert "\"log_hour\" < '15'" in sql
+    assert "\"log_hour\" < '14'" in sql
     assert "CAST" not in sql.upper()
 
 
@@ -258,7 +292,7 @@ def test_composite_integer_hour_partition_predicate_uses_unquoted_fields():
     )
     assert '"log_date" = 20241011' in sql
     assert '"log_hour" >= 3' in sql
-    assert '"log_hour" < 15' in sql
+    assert '"log_hour" < 14' in sql
     assert "'20241011'" not in sql
     assert "'03'" not in sql
 
@@ -273,6 +307,22 @@ def test_composite_cross_day_hour_partition_predicate_ors_day_clauses():
     assert "\"log_date\" > '20241011'" in sql
     assert "\"log_date\" < '20241013'" in sql
     assert "\"log_date\" = '20241013'" in sql
+    assert "\"log_hour\" < '02'" in sql
+
+
+def test_composite_hour_partition_predicate_advances_non_hour_end_bound():
+    sql = _compile_composite_window_filter(end="2024-10-11T14:30:00")
+    assert "\"log_date\" = '20241011'" in sql
+    assert "\"log_hour\" >= '03'" in sql
+    assert "\"log_hour\" < '15'" in sql
+
+
+def test_composite_hour_partition_predicate_cross_day_non_hour_end_bound():
+    sql = _compile_composite_window_filter(
+        start="2024-10-11T22:00:00",
+        end="2024-10-13T02:30:00",
+    )
+    assert "\"log_hour\" >= '22'" in sql
     assert "\"log_hour\" < '03'" in sql
 
 
@@ -349,7 +399,7 @@ def test_strptime_hour_uses_raw_string_comparison():
         report_tz=UTC_ZONE,
     )
     assert "\"log_hour\" >= '2024101103'" in sql
-    assert "\"log_hour\" < '2025073115'" in sql
+    assert "\"log_hour\" < '2025073114'" in sql
 
 
 def test_strptime_non_lexicographic_produces_correct_predicate():
