@@ -138,6 +138,28 @@ class ArtifactAdmissionRule:
 
 
 @dataclass(frozen=True)
+class ArtifactProducerEdge:
+    """One exact producer edge derived from an output contract."""
+
+    target: LiveHelpTarget
+    semantic_shapes: frozenset[str] = field(default_factory=frozenset)
+    matching_kinds: frozenset[str] = field(default_factory=frozenset)
+    nullable: bool = False
+    same_as_parameter: str | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactConsumerEdge:
+    """One exact parameter-level consumer edge derived from runtime admission."""
+
+    target: LiveHelpTarget
+    parameter: str
+    semantic_shapes: frozenset[str] = field(default_factory=frozenset)
+    matching_kinds: frozenset[str] = field(default_factory=frozenset)
+    coverage_statuses: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
 class ParameterHelpContract:
     """Construction or selection guidance for one non-family parameter.
 
@@ -149,6 +171,7 @@ class ParameterHelpContract:
 
     acquisition: str
     help_targets: tuple[LiveHelpTarget, ...]
+    required: bool = False
     derivable_from_current_artifact: bool = False
 
 
@@ -446,7 +469,39 @@ class AnalysisMethodFamily:
         return self.canonical_id
 
 
-AnalysisHelpDescriptor = CapabilityDescriptor | AnalysisNavigationTopic | AnalysisMethodFamily
+@dataclass(frozen=True)
+class AnalysisArtifactFamilyContract:
+    """One static public Artifact-family disclosure contract."""
+
+    canonical_id: str
+    artifact_family: ArtifactFamily
+    summary: str
+    epistemic_kinds: tuple[EpistemicKind, ...]
+    semantic_shapes: tuple[str, ...]
+    type_name: str
+    specialized_member_targets: tuple[LiveHelpTarget, ...]
+    public_entrypoint: None = field(default=None, init=False)
+    callable_path: None = field(default=None, init=False)
+
+    @property
+    def id(self) -> str:
+        """Return the native registry identity used by analysis internals."""
+
+        return self.canonical_id
+
+    @property
+    def help_target(self) -> str:
+        """Return the canonical public type target accepted by ``marivo.help``."""
+
+        return self.canonical_id
+
+
+AnalysisHelpDescriptor = (
+    CapabilityDescriptor
+    | AnalysisNavigationTopic
+    | AnalysisMethodFamily
+    | AnalysisArtifactFamilyContract
+)
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,8 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
+from types import MappingProxyType
 from typing import get_args
 
 import pytest
@@ -20,6 +21,7 @@ from marivo.analysis._capabilities import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
     AnalysisHelpRenderBudget,
     AnalysisHelpRenderClass,
@@ -70,9 +72,9 @@ def test_policy_families_have_explicit_discovery_topics() -> None:
     discovery_ids = REGISTRY.discovery_ids()
 
     assert "alignment" in discovery_ids
-    assert "sampling" in discovery_ids
+    assert "SamplingPolicy" in discovery_ids
     assert "day_of_week" not in discovery_ids
-    assert "SamplingPolicy" not in discovery_ids
+    assert "sampling" not in discovery_ids
 
 
 def test_root_group_order_has_no_duplicates() -> None:
@@ -110,7 +112,7 @@ def test_root_group_literal_matches_order() -> None:
 def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None:
     from marivo.analysis.frames.base import BaseFrame
 
-    assert tuple(topic.canonical_id for topic in REGISTRY.navigation_topics) == (
+    assert tuple(topic.canonical_id for topic in REGISTRY.navigation_topics[:6]) == (
         "entry",
         "methods",
         "inputs",
@@ -127,16 +129,16 @@ def test_native_root_topology_has_six_hubs_and_one_exact_terminal_edge() -> None
         "runtime",
         "boundary.to_pandas",
     )
-    assert all(topic.render_class == "decision_hub" for topic in REGISTRY.navigation_topics)
+    assert all(topic.render_class == "decision_hub" for topic in REGISTRY.navigation_topics[:6])
     assert all(topic.public_entrypoint is None for topic in REGISTRY.navigation_topics)
     assert all(topic.callable_path is None for topic in REGISTRY.navigation_topics)
     assert REGISTRY.by_id("boundary.to_pandas") is REGISTRY.by_callable(BaseFrame.to_pandas)
 
 
-def test_native_topology_is_inactive_until_the_public_cutover() -> None:
+def test_slice2_focused_topology_is_active_without_switching_the_root() -> None:
     assert "entry" not in REGISTRY.canonical_ids()
-    assert "methods" not in REGISTRY.canonical_ids()
-    assert "inputs" not in REGISTRY.canonical_ids()
+    assert "methods" in REGISTRY.canonical_ids()
+    assert "inputs" in REGISTRY.canonical_ids()
     assert "evidence" not in REGISTRY.canonical_ids()
     assert "runtime" not in REGISTRY.canonical_ids()
     assert "artifacts" in REGISTRY.canonical_ids()
@@ -144,7 +146,14 @@ def test_native_topology_is_inactive_until_the_public_cutover() -> None:
 
 def test_runtime_registry_iteration_contains_exact_capabilities_only() -> None:
     assert not any(
-        isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily))
+        isinstance(
+            descriptor,
+            (
+                AnalysisNavigationTopic,
+                AnalysisMethodFamily,
+                AnalysisArtifactFamilyContract,
+            ),
+        )
         for descriptor in REGISTRY.descriptors
     )
     assert isinstance(REGISTRY.by_canonical_id("artifacts"), AnalysisNavigationTopic)
@@ -183,6 +192,150 @@ def test_artifact_families_has_no_duplicates() -> None:
     assert len(set(ARTIFACT_FAMILIES)) == len(ARTIFACT_FAMILIES)
 
 
+def test_every_artifact_family_has_one_canonical_contract() -> None:
+    assert (
+        tuple(contract.artifact_family for contract in REGISTRY.artifact_contracts)
+        == ARTIFACT_FAMILIES
+    )
+    for contract in REGISTRY.artifact_contracts:
+        assert contract.canonical_id == contract.type_name == contract.artifact_family
+        assert REGISTRY.artifact_contract(contract.artifact_family) is contract
+        assert REGISTRY.by_help_target(contract.canonical_id) is contract
+        assert contract in REGISTRY.help_descriptors
+
+
+def test_artifact_algebra_expands_same_as_nullable_and_terminal_edges() -> None:
+    metric_producers = tuple(
+        target.canonical_id for target in REGISTRY.artifact_producers("MetricFrame")
+    )
+    delta_producers = tuple(
+        target.canonical_id for target in REGISTRY.artifact_producers("DeltaFrame")
+    )
+    family_preserving = tuple(
+        f"transform.{name}"
+        for name in ("filter", "slice", "rollup", "topk", "bottomk", "rank", "window")
+    )
+
+    assert metric_producers[0] == "observe"
+    assert all(target in metric_producers for target in family_preserving)
+    assert all(target in delta_producers for target in family_preserving)
+    assert "transform.normalize" in metric_producers
+    assert "transform.normalize" not in delta_producers
+    assert tuple(
+        target.canonical_id for target in REGISTRY.artifact_producers("CoverageFrame")
+    ) == ("MetricFrame.coverage",)
+    coverage = REGISTRY.by_help_target("MetricFrame.coverage")
+    assert isinstance(coverage, OperatorCapability)
+    assert coverage.output_contract.nullable is True
+    for family in ARTIFACT_FAMILIES:
+        assert "boundary.to_pandas" in tuple(
+            target.canonical_id for target in REGISTRY.artifact_consumers(family)
+        )
+
+
+def test_artifact_edges_preserve_output_and_admission_contracts() -> None:
+    coverage_producer = REGISTRY.artifact_producer_edges("CoverageFrame")[0]
+    assert coverage_producer.target.canonical_id == "MetricFrame.coverage"
+    assert coverage_producer.nullable is True
+
+    metric_transforms = {
+        edge.target.canonical_id: edge
+        for edge in REGISTRY.artifact_producer_edges("MetricFrame")
+        if edge.target.canonical_id and edge.target.canonical_id.startswith("transform.")
+    }
+    assert metric_transforms["transform.filter"].same_as_parameter == "receiver"
+
+    event_consumers = REGISTRY.artifact_consumer_edges("EventFrame")
+    compare_edges = tuple(edge for edge in event_consumers if edge.target.canonical_id == "compare")
+    assert tuple(edge.parameter for edge in compare_edges) == ("current", "baseline")
+    assert all(edge.semantic_shapes == frozenset({"funnel"}) for edge in compare_edges)
+    assert all(edge.matching_kinds == frozenset({"first_per_subject"}) for edge in compare_edges)
+    select_edge = next(
+        edge for edge in event_consumers if edge.target.canonical_id == "select_subjects"
+    )
+    assert select_edge.semantic_shapes == frozenset({"journey"})
+    assert select_edge.matching_kinds == frozenset({"first_per_subject"})
+
+
+def test_slice2_cross_links_are_explicit_immutable_and_budgeted() -> None:
+    assert tuple(target.canonical_id for target in REGISTRY.cross_links("artifacts.reading")) == (
+        "session.evidence.digest",
+        "session.evidence.findings",
+        "session.evidence.trace",
+        "boundary.to_pandas",
+    )
+    metric_routes = REGISTRY.cross_links("MetricFrame")
+    assert tuple(target.canonical_id for target in metric_routes) == (
+        "artifacts.reading",
+        "observe",
+        "transform",
+        "methods.change",
+        "methods.relationship_testing",
+        "forecast",
+        "assess_quality",
+        "discover",
+        "boundary.to_pandas",
+        "session.get_frame",
+    )
+    assert len(metric_routes) == REGISTRY.render_budget("public_type").max_outgoing_routes
+    for targets in REGISTRY.cross_link_index.values():
+        for target in targets:
+            if target.surface == "analysis" and target.canonical_id is not None:
+                try:
+                    REGISTRY.by_help_target(target.canonical_id)
+                except KeyError:
+                    import marivo.analysis as mv
+
+                    assert hasattr(mv, target.canonical_id)
+    with pytest.raises(TypeError):
+        REGISTRY.cross_link_index["MetricFrame"] = ()  # type: ignore[index]
+
+
+def test_slice2_discovery_owners_are_explicit_and_unique() -> None:
+    expected = {
+        "events.match": "events",
+        "events.watermark": "entry.event_observations",
+        "events.occurrence_bounds": "entry.event_observations",
+        "calendar.period": "inputs.scope",
+        "SamplingPolicy": "inputs",
+        "MetricFrame": "artifacts.metric_change",
+        "MetricFrame.coverage": "MetricFrame",
+        "boundary.to_pandas": "analysis",
+    }
+    for target, owner in expected.items():
+        resolved_owner = REGISTRY.discovery_owner(target)
+        assert resolved_owner is not None
+        assert resolved_owner.canonical_id == owner
+
+    for descriptor in REGISTRY.descriptors:
+        ordinary = descriptor.callable_path is not None or (
+            isinstance(descriptor, ConstructorCapability) and bool(descriptor.output_type)
+        )
+        if ordinary:
+            assert REGISTRY.discovery_owner(descriptor.help_target) is not None
+
+
+def test_slice2_family_membership_is_exact_and_ordered() -> None:
+    assert tuple(
+        target.canonical_id for target in REGISTRY.discovery_members("methods.change")
+    ) == ("compare", "attribute")
+    assert tuple(target.canonical_id for target in REGISTRY.discovery_members("events")) == (
+        "events.match",
+        "events.funnel",
+        "events.time_to_event",
+    )
+    assert tuple(target.canonical_id for target in REGISTRY.discovery_members("inputs.scope")) == (
+        "grain",
+        "time_scope",
+        "AbsoluteWindow",
+        "calendar.period",
+        "Session.source_bindings",
+    )
+    assert tuple(
+        target.canonical_id for target in REGISTRY.discovery_members("artifacts.reading")
+    ) == ("BaseFrame.show", "BaseFrame.contract")
+
+
 # ---------------------------------------------------------------------------
 # Descriptor kinds
 # ---------------------------------------------------------------------------
@@ -209,6 +362,7 @@ def test_analysis_help_descriptor_adds_native_topology_without_widening_capabili
         *get_args(CapabilityDescriptor),
         AnalysisNavigationTopic,
         AnalysisMethodFamily,
+        AnalysisArtifactFamilyContract,
     }
 
 
@@ -296,6 +450,15 @@ _FROZEN_INSTANCES: list[object] = [
         ),
         input_routes=(),
         output_routes=(),
+    ),
+    AnalysisArtifactFamilyContract(
+        canonical_id="MetricFrame",
+        artifact_family="MetricFrame",
+        summary="Test Artifact family.",
+        epistemic_kinds=("observed",),
+        semantic_shapes=("scalar",),
+        type_name="MetricFrame",
+        specialized_member_targets=(),
     ),
     AnalysisHelpRenderBudget(1, 1, 1, 0),
     SameAsInputFamily(parameter="receiver"),
@@ -549,6 +712,7 @@ _KERNEL_TYPE_NAMES = [
     "AnalysisHelpDescriptor",
     "AnalysisNavigationTopic",
     "AnalysisMethodFamily",
+    "AnalysisArtifactFamilyContract",
     "AnalysisHelpRenderBudget",
     "AnalysisHelpRenderClass",
     "EpistemicKind",
@@ -618,7 +782,9 @@ def test_registry_rejects_duplicate_callable_paths() -> None:
 def _validate_topology_fixture(
     *,
     navigation_topics: tuple[AnalysisNavigationTopic, ...] | None = None,
-    method_families: tuple[AnalysisMethodFamily, ...] = (),
+    method_families: tuple[AnalysisMethodFamily, ...] | None = None,
+    artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...] | None = None,
+    discovery_memberships: Mapping[str, tuple[LiveHelpTarget, ...]] | None = None,
     root_members: tuple[LiveHelpTarget, ...] | None = None,
     render_budgets: Mapping[
         AnalysisHelpRenderClass,
@@ -632,7 +798,15 @@ def _validate_topology_fixture(
         navigation_topics=(
             REGISTRY.navigation_topics if navigation_topics is None else navigation_topics
         ),
-        method_families=method_families,
+        method_families=(REGISTRY.method_families if method_families is None else method_families),
+        artifact_contracts=(
+            REGISTRY.artifact_contracts if artifact_contracts is None else artifact_contracts
+        ),
+        discovery_memberships=(
+            REGISTRY.discovery_memberships
+            if discovery_memberships is None
+            else discovery_memberships
+        ),
         root_members=REGISTRY.root_members if root_members is None else root_members,
         render_budgets=render_budgets,
     )
@@ -814,6 +988,188 @@ def test_registry_rejects_illegal_root_edge() -> None:
 
     with pytest.raises(ValueError, match="root edges"):
         _validate_topology_fixture(root_members=invalid_root)
+
+
+def test_registry_rejects_duplicate_discovery_ownership() -> None:
+    memberships = dict(REGISTRY.discovery_memberships)
+    memberships["inputs"] = (
+        *memberships["inputs"],
+        LiveHelpTarget(surface="analysis", canonical_id="observe"),
+    )
+
+    with pytest.raises(ValueError, match="duplicate analysis discovery owner"):
+        _validate_topology_fixture(discovery_memberships=memberships)
+
+
+def test_registry_rejects_missing_discovery_owner() -> None:
+    memberships = dict(REGISTRY.discovery_memberships)
+    memberships["methods"] = tuple(
+        target for target in memberships["methods"] if target.canonical_id != "observe"
+    )
+
+    with pytest.raises(ValueError, match="lack a discovery owner: observe"):
+        _validate_topology_fixture(discovery_memberships=memberships)
+
+
+def test_registry_rejects_dead_discovery_edge() -> None:
+    memberships = dict(REGISTRY.discovery_memberships)
+    memberships["inputs.scope"] = (
+        *memberships["inputs.scope"],
+        LiveHelpTarget(surface="analysis", canonical_id="missing.scope"),
+    )
+
+    with pytest.raises(ValueError, match="dead analysis discovery edge"):
+        _validate_topology_fixture(discovery_memberships=memberships)
+
+
+def test_registry_rejects_dead_method_family_cross_link() -> None:
+    change = REGISTRY.by_help_target("methods.change")
+    assert isinstance(change, AnalysisMethodFamily)
+    drifted = replace(
+        change,
+        input_routes=(LiveHelpTarget(surface="analysis", canonical_id="missing.input"),),
+    )
+    method_families = tuple(
+        drifted if family is change else family for family in REGISTRY.method_families
+    )
+
+    with pytest.raises(ValueError, match="dead method-family cross-link"):
+        _validate_topology_fixture(method_families=method_families)
+
+
+def test_registry_rejects_dead_and_over_budget_static_cross_links() -> None:
+    from marivo.analysis._capabilities.registry import _validate_cross_links
+
+    with pytest.raises(ValueError, match="dead cross-link"):
+        _validate_cross_links(
+            help_descriptors=REGISTRY.help_descriptors,
+            cross_links={
+                "artifacts.reading": (
+                    LiveHelpTarget(surface="analysis", canonical_id="missing.read"),
+                )
+            },
+            render_budgets=REGISTRY.render_budgets,
+        )
+
+    with pytest.raises(ValueError, match="exposes 11 routes"):
+        _validate_cross_links(
+            help_descriptors=REGISTRY.help_descriptors,
+            cross_links={
+                "MetricFrame": (
+                    *REGISTRY.cross_links("MetricFrame"),
+                    LiveHelpTarget(surface="analysis", canonical_id="MetricFrame"),
+                )
+            },
+            render_budgets=REGISTRY.render_budgets,
+        )
+
+
+def test_parameter_help_required_state_matches_live_defaults() -> None:
+    expected = {
+        ("observe", "grain"): False,
+        ("events.time_to_event", "start_step"): True,
+        ("events.time_to_event", "end_step"): True,
+        ("transform.normalize", "mode"): True,
+        ("transform.normalize", "baseline"): False,
+    }
+    for (target, parameter), required in expected.items():
+        descriptor = REGISTRY.by_help_target(target)
+        assert isinstance(descriptor, OperatorCapability)
+        assert descriptor.parameter_help[parameter].required is required
+
+
+def test_registry_rejects_parameter_name_and_default_drift() -> None:
+    from marivo.analysis._capabilities.registry import _validate_parameter_help
+
+    observe = REGISTRY.by_help_target("observe")
+    assert isinstance(observe, OperatorCapability)
+    grain = observe.parameter_help["grain"]
+
+    missing = replace(observe, parameter_help={"missing": grain})
+    with pytest.raises(ValueError, match="parameter is absent from live signature"):
+        _validate_parameter_help((missing,))
+
+    wrong_required = replace(
+        observe,
+        parameter_help={**observe.parameter_help, "grain": replace(grain, required=True)},
+    )
+    with pytest.raises(ValueError, match="required state disagrees with live default"):
+        _validate_parameter_help((wrong_required,))
+
+
+def test_registry_rejects_non_behavioral_derivation_witness() -> None:
+    from marivo.analysis._capabilities.registry import _validate_parameter_help
+
+    elapsed = REGISTRY.by_help_target("events.time_to_event")
+    assert isinstance(elapsed, OperatorCapability)
+    start_step = elapsed.parameter_help["start_step"]
+    drifted = replace(
+        elapsed,
+        parameter_help={
+            **elapsed.parameter_help,
+            "start_step": replace(
+                start_step,
+                acquisition="select journeys.meta.nonexistent",
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match="behavioral derivation witness failed"):
+        _validate_parameter_help((drifted,))
+
+
+def test_registry_rejects_artifact_output_shape_drift() -> None:
+    from marivo.analysis._capabilities.registry import _validate_artifact_contract_alignment
+
+    observe = REGISTRY.by_help_target("observe")
+    assert isinstance(observe, OperatorCapability)
+    drifted = replace(
+        observe,
+        output_contract=replace(
+            observe.output_contract,
+            semantic_shapes=frozenset({"unknown_shape"}),
+        ),
+    )
+    descriptors = tuple(
+        drifted if descriptor is observe else descriptor for descriptor in REGISTRY.descriptors
+    )
+    contracts = {contract.artifact_family: contract for contract in REGISTRY.artifact_contracts}
+
+    with pytest.raises(ValueError, match="output shapes drift from MetricFrame"):
+        _validate_artifact_contract_alignment(descriptors, contracts)
+
+
+def test_registry_rejects_artifact_public_member_drift() -> None:
+    from marivo.analysis._capabilities.registry import _validate_artifact_contract_alignment
+
+    contracts = {contract.artifact_family: contract for contract in REGISTRY.artifact_contracts}
+    metric = contracts["MetricFrame"]
+    contracts["MetricFrame"] = replace(
+        metric,
+        specialized_member_targets=metric.specialized_member_targets[:-1],
+    )
+
+    with pytest.raises(ValueError, match="specialized public-member allowlist drift"):
+        _validate_artifact_contract_alignment(REGISTRY.descriptors, contracts)
+
+
+def test_registry_rejects_nonexistent_artifact_public_property(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import marivo.analysis._capabilities.registry as registry_module
+    from marivo.analysis._capabilities.registry import _validate_artifact_public_members
+
+    properties = dict(registry_module.PUBLIC_FRAME_PROPERTIES)
+    properties["MetricFrame"] = (*properties["MetricFrame"], "does_not_exist")
+    monkeypatch.setattr(
+        registry_module,
+        "PUBLIC_FRAME_PROPERTIES",
+        MappingProxyType(properties),
+    )
+    contracts = {contract.artifact_family: contract for contract in REGISTRY.artifact_contracts}
+
+    with pytest.raises(ValueError, match=r"MetricFrame\.does_not_exist"):
+        _validate_artifact_public_members(contracts)
 
 
 def test_registry_by_id_returns_same_object() -> None:
@@ -1127,7 +1483,7 @@ def test_grouping_descriptors_are_not_invokable() -> None:
     ):
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} grouping must not be invokable"
-        if isinstance(desc, AnalysisNavigationTopic):
+        if isinstance(desc, (AnalysisNavigationTopic, AnalysisMethodFamily)):
             assert desc.public_entrypoint is None
         else:
             assert desc.public_entrypoint == f'marivo.help("analysis.{topic}")'

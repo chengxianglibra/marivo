@@ -26,6 +26,10 @@ from marivo._help.model import (
 )
 from marivo._help.render import PublicHelpTarget, render_help_text
 from marivo._help.route import _resolve_one, route_help_target
+from marivo.analysis._capabilities.model import (
+    ARTIFACT_FAMILIES,
+    AnalysisArtifactFamilyContract,
+)
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -279,8 +283,16 @@ def test_type_and_error_names_remain_exactly_resolvable() -> None:
         for type_name in dict.fromkeys(surface.type_index.values()):
             route = route_help_target(f"{owner}.{type_name}")
             assert isinstance(route, NativeHelpRoute)
-            assert route.resolved.kind == "type_contract"
-            assert route.resolved.type_name == type_name
+            if owner == "analysis" and type_name in ARTIFACT_FAMILIES:
+                assert route.resolved.kind == "descriptor"
+                assert isinstance(
+                    route.resolved.descriptor,
+                    AnalysisArtifactFamilyContract,
+                )
+                assert route.resolved.descriptor.type_name == type_name
+            else:
+                assert route.resolved.kind == "type_contract"
+                assert route.resolved.type_name == type_name
         for error_type in dict.fromkeys(surface.error_types.values()):
             route = route_help_target(f"{owner}.{error_type.__name__}")
             assert isinstance(route, NativeHelpRoute)

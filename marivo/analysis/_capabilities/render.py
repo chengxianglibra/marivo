@@ -14,9 +14,13 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
+    AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
+    AnalysisHelpRenderClass,
     AnalysisMethodFamily,
     AnalysisNavigationTopic,
+    ArtifactConsumerEdge,
+    ArtifactProducerEdge,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
@@ -26,7 +30,6 @@ from marivo.analysis._capabilities.model import (
     SameAsInputFamily,
 )
 from marivo.analysis._capabilities.registry import (
-    _EXPLICIT_GROUPING_MEMBER_TARGETS,
     PUBLIC_FRAME_METHODS,
     PUBLIC_FRAME_PROPERTIES,
     PUBLIC_TYPE_VARIANTS,
@@ -108,13 +111,47 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
     return normalized
 
 
-def _with_python_imports(text: str) -> str:
+def _enforce_analysis_render_budget(
+    text: str,
+    *,
+    render_class: AnalysisHelpRenderClass,
+    outgoing_routes: tuple[LiveHelpTarget, ...],
+    examples_or_snippets: int,
+) -> str:
+    """Enforce every dimension of one analysis-owned static render budget."""
+
+    budget = REGISTRY.render_budget(render_class)
+    unique_routes = {(target.surface, target.canonical_id) for target in outgoing_routes}
+    if len(unique_routes) > budget.max_outgoing_routes:
+        raise RuntimeError(
+            "analysis help exceeds its registered outgoing-route budget: "
+            f"{len(unique_routes)} > {budget.max_outgoing_routes}"
+        )
+    if examples_or_snippets > budget.max_examples_or_snippets:
+        raise RuntimeError(
+            "analysis help exceeds its registered example/snippet budget: "
+            f"{examples_or_snippets} > {budget.max_examples_or_snippets}"
+        )
+    return enforce_budget(
+        text,
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
+    )
+
+
+def _with_python_imports(
+    text: str,
+    *,
+    render_class: AnalysisHelpRenderClass | None = None,
+    outgoing_routes: tuple[LiveHelpTarget, ...] = (),
+    examples_or_snippets: int = 0,
+) -> str:
     """Prefix a focused page with the surface imports its text references."""
     lines = text.splitlines()
     imports = [_MARIVO_IMPORT, _ANALYSIS_IMPORT]
     if "ms." in text:
         imports.insert(0, _SEMANTIC_IMPORT)
-    return enforce_budget(
+    rendered = enforce_budget(
         "\n".join(
             (
                 lines[0],
@@ -126,6 +163,14 @@ def _with_python_imports(text: str) -> str:
         ),
         max_lines=SURFACE_LIMITS.focused_help_max_lines,
         max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
+    )
+    if render_class is None:
+        return rendered
+    return _enforce_analysis_render_budget(
+        rendered,
+        render_class=render_class,
+        outgoing_routes=outgoing_routes,
+        examples_or_snippets=examples_or_snippets,
     )
 
 
@@ -255,11 +300,7 @@ def render_root_help() -> str:
         label = _GROUP_LABELS.get(group, group.replace("_", " ").title())
         lines.append(f"  {label} [{group}]:")
         for desc in descriptors:
-            entrypoint = (
-                f'marivo.help("analysis.{desc.canonical_id}")'
-                if isinstance(desc, AnalysisNavigationTopic)
-                else desc.public_entrypoint
-            )
+            entrypoint = desc.public_entrypoint or (f'marivo.help("analysis.{desc.canonical_id}")')
             lines.append(f"    {entrypoint:<44} {REGISTRY.discovery_summary(desc)}")
         lines.append("")
 
@@ -481,13 +522,7 @@ def _assigned_result_name(code: str, *, public_entrypoint: str) -> str | None:
 
 
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
-    """Compute bounded related help targets for a descriptor.
-
-    Related targets are other capabilities that share an input family
-    or output family, or siblings under the same grouping topic (e.g.
-    other ``discover.*`` objectives).  The result is de-duplicated,
-    excludes the descriptor itself, and is capped at 5 entries.
-    """
+    """Return bounded explicit parameter links and discovery siblings."""
     related: list[str] = []
     seen: set[str] = set()
 
@@ -496,95 +531,27 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
             seen.add(target)
             related.append(target)
 
-    if isinstance(desc, OperatorCapability):
-        for contract in desc.parameter_help.values():
-            for target in contract.help_targets:
-                if target.surface == "analysis" and target.canonical_id is not None:
-                    _add(target.canonical_id)
-    if desc.help_target == "AttributionMode":
-        _add("attribute")
-
-    # Grouping-topic siblings (e.g. discover.*, transform.*).
-    for prefix in ("discover.", "transform.", "catalog.", "session.evidence."):
-        if desc.id.startswith(prefix):
-            for other in REGISTRY.descriptors:
-                if other.id.startswith(prefix) and other.id != desc.id:
-                    _add(other.help_target)
-            break
-
-    # Shared input families — other operators accepting the same family.
-    if isinstance(desc, (OperatorCapability, BoundaryCapability)):
-        desc_families: set[str] = set()
-        for families in desc.accepted_inputs.values():
-            desc_families.update(families)
-        for other in REGISTRY.descriptors:
-            if not isinstance(other, (OperatorCapability, BoundaryCapability)):
-                continue
-            if other.id == desc.id:
-                continue
-            other_families: set[str] = set()
-            for families in other.accepted_inputs.values():
-                other_families.update(families)
-            if desc_families & other_families:
-                _add(other.help_target)
-
-    # Shared output family — other operators producing the same family.
-    if isinstance(desc, OperatorCapability):
-        output = desc.output_family
-        output_str = (
-            _format_output_family(desc) if isinstance(output, SameAsInputFamily) else str(output)
-        )
-        for other in REGISTRY.descriptors:
-            if not isinstance(other, OperatorCapability):
-                continue
-            if other.id == desc.id:
-                continue
-            other_output = other.output_family
-            other_output_str = (
-                _format_output_family(other)
-                if isinstance(other_output, SameAsInputFamily)
-                else str(other_output)
-            )
-            if output_str == other_output_str:
-                _add(other.help_target)
+    for target in REGISTRY.cross_links(desc.help_target):
+        if target.surface == "analysis" and target.canonical_id is not None:
+            _add(target.canonical_id)
+    owner = REGISTRY.discovery_owner(desc.help_target)
+    if owner is not None and owner.canonical_id is not None:
+        for sibling in REGISTRY.discovery_members(owner.canonical_id):
+            if sibling.surface == "analysis" and sibling.canonical_id is not None:
+                _add(sibling.canonical_id)
 
     return related[:5]
 
 
-def _grouping_members(desc: AnalysisHelpDescriptor) -> list[CapabilityDescriptor]:
-    """Return the real registered members taught by a non-invokable topic."""
-    if desc.callable_path is not None:
-        return []
-    member_targets = _EXPLICIT_GROUPING_MEMBER_TARGETS.get(desc.id)
-    if member_targets is not None:
-        return sorted(
-            (
-                candidate
-                for candidate in REGISTRY.descriptors
-                if candidate.callable_path is not None and candidate.help_target in member_targets
-            ),
-            key=lambda item: item.help_target,
-        )
-    members: list[CapabilityDescriptor] = []
-    for candidate in REGISTRY.descriptors:
-        if candidate is desc or candidate.callable_path is None:
+def _grouping_members(desc: AnalysisHelpDescriptor) -> tuple[AnalysisHelpDescriptor, ...]:
+    """Return explicit registry-owned members in their declared order."""
+
+    members: list[AnalysisHelpDescriptor] = []
+    for target in REGISTRY.discovery_members(desc.canonical_id):
+        if target.surface != "analysis" or target.canonical_id is None:
             continue
-        if candidate.id.startswith(f"{desc.id}.") or (
-            desc.id == "artifacts"
-            and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
-        ):
-            members.append(candidate)
-    if desc.id == "artifacts":
-        read_order = {
-            "BaseFrame.show": 0,
-            "BaseFrame.contract": 1,
-            "boundary.to_pandas": 2,
-        }
-        return sorted(
-            members,
-            key=lambda item: (read_order.get(item.id, len(read_order)), item.help_target),
-        )
-    return sorted(members, key=lambda item: item.help_target)
+        members.append(REGISTRY.by_help_target(target.canonical_id))
+    return tuple(members)
 
 
 def _catalog_member_for_descriptor(desc: CapabilityDescriptor) -> CatalogMemberContract | None:
@@ -703,7 +670,7 @@ def _discover_strategy_lines(desc: OperatorCapability) -> list[str]:
 
 
 def _render_navigation_help(desc: AnalysisNavigationTopic) -> str:
-    """Preserve the current focused page until the public navigation cutover."""
+    """Render one bounded registry-owned decision or navigation page."""
 
     lines = [
         desc.canonical_id,
@@ -713,20 +680,59 @@ def _render_navigation_help(desc: AnalysisNavigationTopic) -> str:
         "  Members:",
     ]
     for member in _grouping_members(desc):
-        member_obj = _resolve_callable(member)
-        member_return_type = _property_return_type(member_obj)
-        if member_return_type is None:
-            lines.append(f"    {member.public_entrypoint}  [{member.help_target}]")
-        else:
+        entrypoint = member.public_entrypoint or (f'marivo.help("analysis.{member.canonical_id}")')
+        member_return_type: str | None = None
+        if isinstance(member, CapabilityDescriptor):
+            member_obj = _resolve_callable(member)
+            member_return_type = _property_return_type(member_obj)
+        if member_return_type is not None:
             lines.append(
-                f"    {member.public_entrypoint}  "
+                f"    {entrypoint}  "
                 f"(property -> {member_return_type}; inspect with .show())  "
                 f"[{member.help_target}]"
             )
+        else:
+            lines.append(f"    {entrypoint}  [{member.help_target}]")
+    cross_links = REGISTRY.cross_links(desc.canonical_id)
+    if cross_links:
+        lines.extend(("", "  Cross-links:"))
+        lines.extend(f"    {target.display}" for target in cross_links)
+    budget = REGISTRY.render_budget(desc.render_class)
     return enforce_budget(
         "\n".join(lines),
-        max_lines=SURFACE_LIMITS.focused_help_max_lines,
-        max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
+    )
+
+
+def _render_method_family_help(desc: AnalysisMethodFamily) -> str:
+    """Render deterministic computation facts without signatures or examples."""
+
+    lines = [
+        desc.canonical_id,
+        f'  Entrypoint: marivo.help("analysis.{desc.canonical_id}")',
+        f"  {desc.summary}",
+        "",
+        "  Epistemic kinds: " + ", ".join(desc.epistemic_kinds),
+        "",
+        "  Members:",
+    ]
+    lines.extend(
+        f'    marivo.help("analysis.{target.canonical_id}")'
+        for target in desc.members
+        if target.canonical_id is not None
+    )
+    if desc.input_routes:
+        lines.extend(("", "  Input contracts:"))
+        lines.extend(f"    {target.display}" for target in desc.input_routes)
+    if desc.output_routes:
+        lines.extend(("", "  Output contracts:"))
+        lines.extend(f"    {target.display}" for target in desc.output_routes)
+    budget = REGISTRY.render_budget("navigation")
+    return enforce_budget(
+        "\n".join(lines),
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
     )
 
 
@@ -735,7 +741,9 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
     if isinstance(desc, AnalysisNavigationTopic):
         return _render_navigation_help(desc)
     if isinstance(desc, AnalysisMethodFamily):
-        raise RuntimeError("analysis method-family rendering is not active in Slice 1")
+        return _render_method_family_help(desc)
+    if isinstance(desc, AnalysisArtifactFamilyContract):
+        return _render_artifact_type_help(desc)
 
     lines: list[str] = []
 
@@ -1032,6 +1040,175 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _producer_edge_text(edge: ArtifactProducerEdge) -> str:
+    qualifiers: list[str] = []
+    if edge.semantic_shapes:
+        qualifiers.append("shapes=" + "|".join(sorted(edge.semantic_shapes)))
+    if edge.matching_kinds:
+        qualifiers.append("matching=" + "|".join(sorted(edge.matching_kinds)))
+    if edge.same_as_parameter is not None:
+        qualifiers.append(f"same-as={edge.same_as_parameter}")
+    if edge.nullable:
+        qualifiers.append("nullable")
+    suffix = f" [{', '.join(qualifiers)}]" if qualifiers else ""
+    return f"{edge.target.display}{suffix}"
+
+
+def _consumer_edge_text(edge: ArtifactConsumerEdge) -> str:
+    qualifiers = [f"parameter={edge.parameter}"]
+    if edge.semantic_shapes:
+        qualifiers.append("shapes=" + "|".join(sorted(edge.semantic_shapes)))
+    if edge.matching_kinds:
+        qualifiers.append("matching=" + "|".join(sorted(edge.matching_kinds)))
+    if edge.coverage_statuses:
+        qualifiers.append("coverage=" + "|".join(sorted(edge.coverage_statuses)))
+    return f"{edge.target.display} [{', '.join(qualifiers)}]"
+
+
+def _render_artifact_type_help(contract: AnalysisArtifactFamilyContract) -> str:
+    """Render one complete static Artifact-family consumption contract."""
+
+    type_name = contract.type_name
+    props = tuple(
+        dict.fromkeys(
+            (
+                *PUBLIC_FRAME_PROPERTIES.get(type_name, ()),
+                *PUBLIC_FRAME_PROPERTIES.get("BaseFrame", ()),
+            )
+        )
+    )
+    lines = [
+        type_name,
+        f"  {contract.summary}",
+        "",
+        "  Epistemic kinds: " + ", ".join(contract.epistemic_kinds),
+    ]
+    if contract.semantic_shapes:
+        lines.extend(
+            (
+                "",
+                "  Closed shapes or variants: "
+                + ", ".join(f"{type_name}[{shape}]" for shape in contract.semantic_shapes),
+            )
+        )
+    if type_name == "SubjectSet":
+        lines.extend(("", "  Row contract:", "    subject_identity: governed identity tuple"))
+    if props:
+        lines.extend(("", "  Properties:", "    " + ", ".join(props)))
+    if contract.specialized_member_targets:
+        lines.extend(
+            (
+                "",
+                "  Methods:",
+                "    "
+                + ", ".join(target.display for target in contract.specialized_member_targets),
+            )
+        )
+    reading_members = tuple(
+        REGISTRY.by_help_target(target.canonical_id)
+        for target in REGISTRY.discovery_members("artifacts.reading")
+        if target.surface == "analysis" and target.canonical_id is not None
+    )
+    lines.extend(("", "  Common reads:"))
+    lines.append(
+        "    "
+        + ", ".join(
+            f"{member.public_entrypoint} -> {member.help_target}" for member in reading_members
+        )
+    )
+
+    producer_edges = REGISTRY.artifact_producer_edges(contract.artifact_family)
+    if producer_edges:
+        lines.extend(
+            (
+                "",
+                "  Produced by:",
+                "    " + "; ".join(_producer_edge_text(edge) for edge in producer_edges),
+            )
+        )
+
+    consumer_edges = REGISTRY.artifact_consumer_edges(contract.artifact_family)
+    if consumer_edges:
+        lines.extend(
+            (
+                "",
+                "  Consumed by in principle:",
+                "    " + "; ".join(_consumer_edge_text(edge) for edge in consumer_edges),
+            )
+        )
+
+    if type_name == "QualityReport":
+        lines.extend(
+            (
+                "",
+                "  Quality verdict:",
+                "    report.overall_status is the quality verdict; report.state is ArtifactState materialization metadata.",
+                "    Blocking correctness issues stop use; warnings remain advisory and",
+                "    must be disclosed when analysis continues.",
+            )
+        )
+
+    reading_links = REGISTRY.cross_links("artifacts.reading")
+    evidence_targets_values: list[LiveHelpTarget] = []
+    for target in reading_links:
+        if target.canonical_id is None:
+            continue
+        descriptor = REGISTRY.by_help_target(target.canonical_id)
+        if (
+            isinstance(descriptor, ReadCapability)
+            and descriptor.receiver_family == "EvidenceNamespace"
+        ):
+            evidence_targets_values.append(target)
+    evidence_targets = tuple(evidence_targets_values)
+    artifact_links = REGISTRY.cross_links(contract.canonical_id)
+    recovery_targets = tuple(
+        target
+        for target in artifact_links
+        if target.canonical_id is not None
+        and isinstance(REGISTRY.by_help_target(target.canonical_id), RecoveryCapability)
+    )
+    terminal_targets = tuple(
+        target
+        for target in artifact_links
+        if target.canonical_id is not None
+        and isinstance(REGISTRY.by_help_target(target.canonical_id), BoundaryCapability)
+    )
+    lines.extend(
+        (
+            "",
+            "  Typed Evidence reads:",
+            "    " + ", ".join(target.display for target in evidence_targets),
+        )
+    )
+    lines.extend(
+        ("", "  Recovery:", "    " + ", ".join(target.display for target in recovery_targets))
+    )
+    lines.extend(("", "  Terminal boundary:"))
+    lines.extend(
+        f"    {REGISTRY.by_help_target(target.canonical_id).public_entrypoint} -> {target.display}"
+        for target in terminal_targets
+        if target.canonical_id is not None
+    )
+    lines.extend(("", "  Help routes:"))
+    lines.extend(
+        f'    marivo.help("analysis.{target.canonical_id}")'
+        for target in artifact_links
+        if target.surface == "analysis" and target.canonical_id is not None
+    )
+    lines.extend(
+        (
+            "",
+            "  Static consumers are possibilities, not current admission; inspect the concrete Artifact with .contract().",
+        )
+    )
+    budget = REGISTRY.render_budget("public_type")
+    return enforce_budget(
+        "\n".join(lines),
+        max_lines=budget.max_lines,
+        max_codepoints=budget.max_codepoints,
+    )
+
+
 def _render_type_help(type_name: str) -> str:
     """Render focused help for a registered public type.
 
@@ -1039,6 +1216,9 @@ def _render_type_help(type_name: str) -> str:
     ``_NEXT_INTENTS``, ``_GATED_INTENTS``, private fields, or inherited
     Pydantic mechanics.
     """
+    if type_name in ARTIFACT_FAMILIES:
+        return _render_artifact_type_help(REGISTRY.artifact_contract(type_name))
+
     # Find the type object.
     type_obj: type | None = None
     for t, name in TYPE_REGISTRY.items():
@@ -1350,6 +1530,28 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _descriptor_render_budget(
+    descriptor: AnalysisHelpDescriptor,
+) -> tuple[AnalysisHelpRenderClass, tuple[LiveHelpTarget, ...], int] | None:
+    """Return the active Slice 2 render contract for one descriptor."""
+
+    if isinstance(descriptor, AnalysisNavigationTopic):
+        return (
+            descriptor.render_class,
+            (*descriptor.members, *REGISTRY.cross_links(descriptor.canonical_id)),
+            0,
+        )
+    if isinstance(descriptor, AnalysisMethodFamily):
+        return (
+            "navigation",
+            (*descriptor.members, *REGISTRY.cross_links(descriptor.canonical_id)),
+            0,
+        )
+    if isinstance(descriptor, AnalysisArtifactFamilyContract):
+        return "public_type", REGISTRY.cross_links(descriptor.canonical_id), 0
+    return None
+
+
 def render_help_target(
     resolved: (
         ResolvedLiveTarget[AnalysisHelpDescriptor] | ResolvedLiveTarget[CapabilityDescriptor]
@@ -1371,10 +1573,29 @@ def render_help_target(
         rendering, since the resolver only extracts the id/kind).
     """
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
-        return _with_python_imports(_render_descriptor_help(resolved.descriptor))
+        rendered = _render_descriptor_help(resolved.descriptor)
+        budget = _descriptor_render_budget(resolved.descriptor)
+        if budget is None:
+            return _with_python_imports(rendered)
+        render_class, routes, examples = budget
+        return _with_python_imports(
+            rendered,
+            render_class=render_class,
+            outgoing_routes=routes,
+            examples_or_snippets=examples,
+        )
 
     if resolved.kind == "type_contract" and resolved.type_name is not None:
-        return _with_python_imports(_render_type_help(resolved.type_name))
+        rendered = _render_type_help(resolved.type_name)
+        if resolved.type_name not in ARTIFACT_FAMILIES:
+            return _with_python_imports(rendered)
+        contract = REGISTRY.artifact_contract(resolved.type_name)
+        return _with_python_imports(
+            rendered,
+            render_class="public_type",
+            outgoing_routes=REGISTRY.cross_links(contract.canonical_id),
+            examples_or_snippets=0,
+        )
 
     if resolved.kind == "error_contract" and resolved.error_name is not None:
         return _with_python_imports(_render_error_contract(resolved.error_name))

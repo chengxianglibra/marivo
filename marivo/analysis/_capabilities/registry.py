@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import ast
 import builtins
+import inspect
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, get_args
@@ -24,13 +25,17 @@ from marivo.analysis._capabilities.model import (
     ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
     AnalysisHelpRenderBudget,
     AnalysisHelpRenderClass,
     AnalysisMethodFamily,
     AnalysisNavigationTopic,
     ArtifactAdmissionRule,
+    ArtifactConsumerEdge,
+    ArtifactFamily,
     ArtifactOutputContract,
+    ArtifactProducerEdge,
     AuthorityPolicy,
     BoundaryCapability,
     CapabilityDescriptor,
@@ -46,50 +51,9 @@ from marivo.analysis._capabilities.model import (
     SameAsInputFamily,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.introspection.live.reflect import callable_identity
+from marivo.introspection.live.reflect import callable_identity, import_registered_callable
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
-
-# Registered members whose public family names cannot be inferred from dotted
-# capability-id prefixes. This remains the one owner for both discovery and
-# focused grouping-page expansion.
-_EXPLICIT_GROUPING_MEMBER_TARGETS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {
-        "alignment": frozenset(
-            {
-                "window_bucket",
-                "day_of_week",
-                "period_progress",
-                "period_correspondence",
-                "occurrence_progress",
-                "working_day_progress",
-            }
-        ),
-        "sampling": frozenset({"SamplingPolicy"}),
-        "recovery": frozenset(
-            {
-                "session.current",
-                "session.delete",
-                "session.evidence.compatibility",
-                "session.evidence.digest",
-                "session.evidence.digests",
-                "session.evidence.finding",
-                "session.evidence.findings",
-                "session.evidence.trace",
-                "session.frame_summaries",
-                "session.get_frame",
-                "session.get_or_create",
-                "session.inspect",
-                "session.job",
-                "session.jobs",
-                "session.recent",
-                "session.recent_jobs",
-                "session.resume",
-                "session.revalidate",
-            }
-        ),
-    }
-)
 
 
 def _analysis_target(canonical_id: str) -> LiveHelpTarget:
@@ -98,6 +62,16 @@ def _analysis_target(canonical_id: str) -> LiveHelpTarget:
 
 def _semantic_target(canonical_id: str) -> LiveHelpTarget:
     return LiveHelpTarget(surface="semantic", canonical_id=canonical_id)
+
+
+_ARTIFACT_EVIDENCE_TARGETS: tuple[LiveHelpTarget, ...] = tuple(
+    _analysis_target(target)
+    for target in (
+        "session.evidence.digest",
+        "session.evidence.findings",
+        "session.evidence.trace",
+    )
+)
 
 
 _CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyType(
@@ -114,7 +88,7 @@ _CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyTy
             "window_bucket",
             "time_scope",
             "alignment",
-            "sampling",
+            "SamplingPolicy",
             "runtime_metric",
         ),
         "artifact_production": ("observe", "events.match", "lifecycle.replay"),
@@ -154,15 +128,7 @@ _CURRENT_ROOT_SUMMARIES: Mapping[str, str] = MappingProxyType(
     }
 )
 
-_CURRENT_FOCUSED_NAVIGATION_SUMMARIES: Mapping[str, str] = MappingProxyType(
-    {
-        "artifacts": (
-            "Read artifacts progressively: inspect bounded state, check mechanical "
-            "compatibility, then cross a terminal boundary only for intentionally "
-            "custom work."
-        ),
-    }
-)
+_CURRENT_FOCUSED_NAVIGATION_SUMMARIES: Mapping[str, str] = MappingProxyType({})
 
 _ROOT_HELP_MEMBERS: tuple[LiveHelpTarget, ...] = (
     _analysis_target("entry"),
@@ -264,6 +230,567 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
             ),
         ),
     )
+
+
+def _slice2_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
+    """Build explicit multi-member entry, input, and Artifact navigation."""
+
+    return (
+        AnalysisNavigationTopic(
+            canonical_id="entry.event_observations",
+            summary="Read bounded observed Event occurrence facts without matching journeys.",
+            render_class="navigation",
+            members=(
+                _analysis_target("events.watermark"),
+                _analysis_target("events.occurrence_bounds"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="catalog",
+            summary="Browse or require exact current reusable semantic inputs and readiness.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "catalog.domains",
+                    "catalog.datasources",
+                    "catalog.entities",
+                    "catalog.dimensions",
+                    "catalog.time_dimensions",
+                    "catalog.measures",
+                    "catalog.metrics",
+                    "catalog.relationships",
+                    "catalog.events",
+                    "catalog.state_models",
+                    "catalog.period_calendars",
+                    "catalog.temporal_sets",
+                    "catalog.work_schedules",
+                    "catalog.require",
+                    "catalog.readiness",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs.scope",
+            summary="Construct time, grain, governed-period, and execution scope inputs.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "grain",
+                    "time_scope",
+                    "AbsoluteWindow",
+                    "calendar.period",
+                    "Session.source_bindings",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="alignment",
+            summary="Construct an explicit temporal alignment policy for compatible Artifacts.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "window_bucket",
+                    "day_of_week",
+                    "period_progress",
+                    "period_correspondence",
+                    "occurrence_progress",
+                    "working_day_progress",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="runtime_metric",
+            summary="Compose one closed question-scoped runtime metric expression.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "runtime_metric.aggregate",
+                    "runtime_metric.slice",
+                    "runtime_metric.weighted_mean",
+                    "runtime_metric.ratio",
+                    "runtime_metric.linear",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs.events",
+            summary="Construct Event patterns, matching, completeness, and funnel target inputs.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "step",
+                    "sequence",
+                    "first_per_subject",
+                    "every_start",
+                    "declared_complete_through",
+                    "funnel_loss_rate",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs.subject_selection",
+            summary="Select subjects or construct an explicit Lifecycle replay seed.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("dropped_before", "in_state", "from_inception")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs.operator_options",
+            summary="Choose one closed analysis-method option value.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("AttributionMode", "SemanticShape", "PointAnomalyStrategy")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs.transform_options",
+            summary="Choose one closed transform option value.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("RankMethod", "NormalizeKind", "NormalizeBaseline")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts.metric_change",
+            summary="Inspect governed metric observation, change, and attribution families.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("MetricFrame", "DeltaFrame", "AttributionFrame")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts.event_lifecycle",
+            summary="Inspect Event, Lifecycle, and exact subject-cohort Artifact families.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("EventFrame", "LifecycleFrame", "SubjectSet")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts.discovery_inference",
+            summary="Inspect discovery, association, test, and forecast result families.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "CandidateSet",
+                    "AssociationResult",
+                    "HypothesisTestResult",
+                    "ForecastFrame",
+                )
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts.quality_projection",
+            summary="Inspect quality and bounded component or coverage projections.",
+            render_class="navigation",
+            members=tuple(
+                _analysis_target(target)
+                for target in ("QualityReport", "ComponentFrame", "CoverageFrame")
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts.reading",
+            summary=(
+                "Read progressively: repr -> show/render -> contract -> exact Evidence "
+                "or rows -> terminal exit."
+            ),
+            render_class="navigation",
+            members=(
+                _analysis_target("BaseFrame.show"),
+                _analysis_target("BaseFrame.contract"),
+            ),
+        ),
+    )
+
+
+def _slice2_method_families() -> tuple[AnalysisMethodFamily, ...]:
+    """Build explicit multi-member deterministic computation families."""
+
+    return (
+        AnalysisMethodFamily(
+            canonical_id="methods.change",
+            summary="Align compatible Artifacts into change facts and reconcile contributions.",
+            epistemic_kinds=("algebraic",),
+            members=(_analysis_target("compare"), _analysis_target("attribute")),
+            input_routes=(
+                _analysis_target("artifacts.metric_change"),
+                _analysis_target("artifacts.event_lifecycle"),
+                _analysis_target("alignment"),
+            ),
+            output_routes=(_analysis_target("artifacts.metric_change"),),
+        ),
+        AnalysisMethodFamily(
+            canonical_id="discover",
+            summary="Produce bounded candidates for one closed discovery objective.",
+            epistemic_kinds=("candidate",),
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "discover.point_anomalies",
+                    "discover.period_shifts",
+                    "discover.driver_axes",
+                    "discover.interesting_slices",
+                    "discover.interesting_windows",
+                    "discover.cross_sectional_outliers",
+                    "discover.semantic_hypotheses",
+                )
+            ),
+            input_routes=(_analysis_target("artifacts.metric_change"),),
+            output_routes=(_analysis_target("CandidateSet"),),
+        ),
+        AnalysisMethodFamily(
+            canonical_id="methods.relationship_testing",
+            summary="Measure association or evaluate one explicit paired hypothesis.",
+            epistemic_kinds=("association", "statistical_decision"),
+            members=(_analysis_target("correlate"), _analysis_target("hypothesis_test")),
+            input_routes=(
+                _analysis_target("MetricFrame"),
+                _analysis_target("alignment"),
+                _analysis_target("SamplingPolicy"),
+            ),
+            output_routes=(
+                _analysis_target("AssociationResult"),
+                _analysis_target("HypothesisTestResult"),
+            ),
+        ),
+        AnalysisMethodFamily(
+            canonical_id="events",
+            summary="Match and reduce governed Event journeys.",
+            epistemic_kinds=("observed", "algebraic"),
+            members=tuple(
+                _analysis_target(target)
+                for target in ("events.match", "events.funnel", "events.time_to_event")
+            ),
+            input_routes=(
+                _analysis_target("inputs.events"),
+                _analysis_target("inputs.scope"),
+            ),
+            output_routes=(_analysis_target("EventFrame"),),
+        ),
+        AnalysisMethodFamily(
+            canonical_id="lifecycle",
+            summary="Replay and reduce governed StateModel history.",
+            epistemic_kinds=("observed", "algebraic"),
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "lifecycle.replay",
+                    "lifecycle.distribution",
+                    "lifecycle.transitions",
+                    "lifecycle.dwell",
+                    "lifecycle.violations",
+                )
+            ),
+            input_routes=(
+                _analysis_target("inputs.scope"),
+                _analysis_target("inputs.subject_selection"),
+            ),
+            output_routes=(_analysis_target("LifecycleFrame"),),
+        ),
+        AnalysisMethodFamily(
+            canonical_id="transform",
+            summary="Reshape a MetricFrame or DeltaFrame without changing its family.",
+            epistemic_kinds=("algebraic",),
+            members=tuple(
+                _analysis_target(target)
+                for target in (
+                    "transform.filter",
+                    "transform.slice",
+                    "transform.rollup",
+                    "transform.topk",
+                    "transform.bottomk",
+                    "transform.rank",
+                    "transform.window",
+                    "transform.normalize",
+                )
+            ),
+            input_routes=(
+                _analysis_target("artifacts.metric_change"),
+                _analysis_target("inputs.scope"),
+                _analysis_target("inputs.transform_options"),
+            ),
+            output_routes=(_analysis_target("artifacts.metric_change"),),
+        ),
+    )
+
+
+def _artifact_contract(
+    family: ArtifactFamily,
+    summary: str,
+    epistemic_kinds: tuple[EpistemicKind, ...],
+    *,
+    shapes: tuple[str, ...] = (),
+    specialized_members: tuple[str, ...] = (),
+) -> AnalysisArtifactFamilyContract:
+    return AnalysisArtifactFamilyContract(
+        canonical_id=family,
+        artifact_family=family,
+        summary=summary,
+        epistemic_kinds=epistemic_kinds,
+        semantic_shapes=shapes,
+        type_name=family,
+        specialized_member_targets=tuple(
+            _analysis_target(target) for target in specialized_members
+        ),
+    )
+
+
+def _slice2_artifact_contracts() -> tuple[AnalysisArtifactFamilyContract, ...]:
+    """Build one native contract for every closed public Artifact family."""
+
+    metric_shapes = ("scalar", "time_series", "segmented", "panel")
+    return (
+        _artifact_contract(
+            "MetricFrame",
+            "Governed observed metric values with one closed semantic shape.",
+            ("observed",),
+            shapes=metric_shapes,
+            specialized_members=tuple(
+                f"MetricFrame.{member}"
+                for member in (
+                    "metric",
+                    "components",
+                    "coverage",
+                    "as_scalar",
+                    "as_time_series",
+                    "as_segmented",
+                    "as_panel",
+                )
+            ),
+        ),
+        _artifact_contract(
+            "EventFrame",
+            "Persisted Event journey, funnel, or time-to-event facts.",
+            ("observed", "algebraic"),
+            shapes=("journey", "funnel", "time_to_event"),
+        ),
+        _artifact_contract(
+            "LifecycleFrame",
+            "Persisted StateModel history or one closed reducer shape.",
+            ("observed", "algebraic"),
+            shapes=("history", "distribution", "transitions", "dwell", "violations"),
+        ),
+        _artifact_contract(
+            "SubjectSet",
+            "Exact persisted subject identities for a typed cohort handoff.",
+            ("selection",),
+            shapes=("subjects",),
+        ),
+        _artifact_contract(
+            "DeltaFrame",
+            "Aligned metric or funnel change facts.",
+            ("algebraic",),
+            shapes=(*metric_shapes, "funnel"),
+            specialized_members=tuple(
+                f"DeltaFrame.{member}"
+                for member in (
+                    "components",
+                    "predicted_attribution_shape",
+                    "as_scalar",
+                    "as_time_series",
+                    "as_segmented",
+                    "as_panel",
+                )
+            ),
+        ),
+        _artifact_contract(
+            "AttributionFrame",
+            "Reconciled arithmetic contribution facts.",
+            ("algebraic",),
+            shapes=(
+                "scalar",
+                "time_series",
+                "segmented",
+                "panel",
+                "funnel_loss_rate",
+                "sum",
+                "ratio_mix",
+                "weighted_mix",
+                "distinct_membership",
+                "quantile_replacement",
+            ),
+            specialized_members=tuple(
+                f"AttributionFrame.{member}"
+                for member in ("as_sum", "as_ratio_mix", "as_weighted_mix", "at_resolution")
+            ),
+        ),
+        _artifact_contract(
+            "ForecastFrame",
+            "Projected future metric buckets.",
+            ("projection",),
+            shapes=("time_series", "panel"),
+        ),
+        _artifact_contract(
+            "QualityReport",
+            "Fixed quality evaluations over one supported Artifact.",
+            ("quality_evaluation",),
+            shapes=PUBLIC_TYPE_VARIANTS["QualityReport"],
+        ),
+        _artifact_contract(
+            "CandidateSet",
+            "Bounded candidates for one closed discovery objective.",
+            ("candidate",),
+            shapes=(
+                "point_anomaly",
+                "period_shift",
+                "driver_axis",
+                "slice",
+                "window",
+                "cross_sectional_outlier",
+                "semantic_hypothesis",
+            ),
+            specialized_members=tuple(
+                f"CandidateSet.{member}"
+                for member in (
+                    "select",
+                    "as_point_anomaly",
+                    "as_period_shift",
+                    "as_driver_axis",
+                    "as_slice",
+                    "as_window",
+                    "as_cross_sectional_outlier",
+                    "as_semantic_hypothesis",
+                )
+            ),
+        ),
+        _artifact_contract(
+            "AssociationResult",
+            "Estimated association facts between observed metrics.",
+            ("association",),
+        ),
+        _artifact_contract(
+            "ComponentFrame",
+            "A bounded component projection from a supported parent.",
+            ("projection",),
+            shapes=metric_shapes,
+        ),
+        _artifact_contract(
+            "CoverageFrame",
+            "A bounded coverage projection from a supported parent.",
+            ("projection",),
+            shapes=("time_slot", "window_coverage"),
+        ),
+        _artifact_contract(
+            "HypothesisTestResult",
+            "A statistical decision under one declared paired test.",
+            ("statistical_decision",),
+            shapes=("single", "per_segment"),
+        ),
+    )
+
+
+def _slice2_discovery_memberships(
+    navigation_topics: tuple[AnalysisNavigationTopic, ...],
+    method_families: tuple[AnalysisMethodFamily, ...],
+    artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...],
+) -> Mapping[str, tuple[LiveHelpTarget, ...]]:
+    """Build the single-owner discovery projection without naming inference."""
+
+    navigation_by_id = {topic.canonical_id: topic for topic in navigation_topics}
+    family_by_id = {family.canonical_id: family for family in method_families}
+    contract_by_id = {contract.canonical_id: contract for contract in artifact_contracts}
+    memberships: dict[str, tuple[LiveHelpTarget, ...]] = {
+        "entry": (_analysis_target("entry.event_observations"),),
+        "entry.event_observations": navigation_by_id["entry.event_observations"].members,
+        "methods": tuple(
+            _analysis_target(target)
+            for target in (
+                "observe",
+                "methods.change",
+                "discover",
+                "methods.relationship_testing",
+                "forecast",
+                "assess_quality",
+                "events",
+                "lifecycle",
+                "select_subjects",
+                "transform",
+            )
+        ),
+        "inputs": tuple(
+            _analysis_target(target)
+            for target in (
+                "catalog",
+                "inputs.scope",
+                "alignment",
+                "SamplingPolicy",
+                "runtime_metric",
+                "inputs.events",
+                "inputs.subject_selection",
+                "inputs.operator_options",
+                "inputs.transform_options",
+            )
+        ),
+        "artifacts": tuple(
+            _analysis_target(target)
+            for target in (
+                "artifacts.metric_change",
+                "artifacts.event_lifecycle",
+                "artifacts.discovery_inference",
+                "artifacts.quality_projection",
+                "artifacts.reading",
+            )
+        ),
+        "Session": (_analysis_target("Session.render"), _analysis_target("Session.show")),
+        "recovery": tuple(
+            _analysis_target(target)
+            for target in (
+                "session.get_or_create",
+                "session.current",
+                "session.resume",
+                "session.recent",
+                "session.inspect",
+                "session.delete",
+                "session.jobs",
+                "session.recent_jobs",
+                "session.job",
+                "session.frame_summaries",
+                "session.get_frame",
+                "session.revalidate",
+                "session.evidence.compatibility",
+                "session.evidence.digests",
+                "session.evidence.findings",
+                "session.evidence.finding",
+                "session.evidence.digest",
+                "session.evidence.trace",
+            )
+        ),
+        "analysis": _ROOT_HELP_MEMBERS,
+    }
+    for owner_id in (
+        "catalog",
+        "inputs.scope",
+        "alignment",
+        "runtime_metric",
+        "inputs.events",
+        "inputs.subject_selection",
+        "inputs.operator_options",
+        "inputs.transform_options",
+        "artifacts.metric_change",
+        "artifacts.event_lifecycle",
+        "artifacts.discovery_inference",
+        "artifacts.quality_projection",
+        "artifacts.reading",
+    ):
+        memberships[owner_id] = navigation_by_id[owner_id].members
+    for owner_id, family in family_by_id.items():
+        memberships[owner_id] = family.members
+    for owner_id, contract in contract_by_id.items():
+        if contract.specialized_member_targets:
+            memberships[owner_id] = contract.specialized_member_targets
+    return MappingProxyType(memberships)
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +1003,43 @@ PUBLIC_TYPE_VARIANTS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 
+
+def _installed_artifact_types() -> Mapping[ArtifactFamily, type]:
+    """Return the installed public class for every closed Artifact family."""
+
+    from marivo.analysis.frames.association import AssociationResult
+    from marivo.analysis.frames.attribution import AttributionFrame
+    from marivo.analysis.frames.candidate import CandidateSet
+    from marivo.analysis.frames.component import ComponentFrame
+    from marivo.analysis.frames.coverage import CoverageFrame
+    from marivo.analysis.frames.delta import DeltaFrame
+    from marivo.analysis.frames.event import EventFrame
+    from marivo.analysis.frames.forecast import ForecastFrame
+    from marivo.analysis.frames.hypothesis import HypothesisTestResult
+    from marivo.analysis.frames.lifecycle import LifecycleFrame
+    from marivo.analysis.frames.metric import MetricFrame
+    from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.frames.subject import SubjectSet
+
+    return MappingProxyType(
+        {
+            "MetricFrame": MetricFrame,
+            "EventFrame": EventFrame,
+            "LifecycleFrame": LifecycleFrame,
+            "SubjectSet": SubjectSet,
+            "DeltaFrame": DeltaFrame,
+            "AttributionFrame": AttributionFrame,
+            "ForecastFrame": ForecastFrame,
+            "QualityReport": QualityReport,
+            "CandidateSet": CandidateSet,
+            "AssociationResult": AssociationResult,
+            "ComponentFrame": ComponentFrame,
+            "CoverageFrame": CoverageFrame,
+            "HypothesisTestResult": HypothesisTestResult,
+        }
+    )
+
+
 PUBLIC_OBJECT_CONTRACTS: Mapping[str, PublicObjectContract] = MappingProxyType(
     {
         "Session": PublicObjectContract(
@@ -595,11 +1159,27 @@ class CapabilityRegistry:
     _by_callable: Mapping[str, CapabilityDescriptor] = field(default_factory=dict)
     _navigation_topics: Mapping[str, AnalysisNavigationTopic] = field(default_factory=dict)
     _method_families: Mapping[str, AnalysisMethodFamily] = field(default_factory=dict)
+    _artifact_contracts: Mapping[str, AnalysisArtifactFamilyContract] = field(default_factory=dict)
     _root_members: tuple[LiveHelpTarget, ...] = field(default_factory=tuple)
     _render_budgets: Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget] = field(
         default_factory=dict
     )
     _constructor_consumers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    _discovery_owners: Mapping[str, LiveHelpTarget] = field(default_factory=dict)
+    _discovery_members: Mapping[str, tuple[LiveHelpTarget, ...]] = field(default_factory=dict)
+    _cross_links: Mapping[str, tuple[LiveHelpTarget, ...]] = field(default_factory=dict)
+    _artifact_producers: Mapping[ArtifactFamily, tuple[LiveHelpTarget, ...]] = field(
+        default_factory=dict
+    )
+    _artifact_consumers: Mapping[ArtifactFamily, tuple[LiveHelpTarget, ...]] = field(
+        default_factory=dict
+    )
+    _artifact_producer_edges: Mapping[ArtifactFamily, tuple[ArtifactProducerEdge, ...]] = field(
+        default_factory=dict
+    )
+    _artifact_consumer_edges: Mapping[ArtifactFamily, tuple[ArtifactConsumerEdge, ...]] = field(
+        default_factory=dict
+    )
     _algebra_rows: tuple[TypeAlgebraRow, ...] = field(default_factory=tuple)
 
     @property
@@ -642,6 +1222,12 @@ class CapabilityRegistry:
         return tuple(self._method_families.values())
 
     @property
+    def artifact_contracts(self) -> tuple[AnalysisArtifactFamilyContract, ...]:
+        """Return registered Artifact-family contracts in closed-family order."""
+
+        return tuple(self._artifact_contracts[family] for family in ARTIFACT_FAMILIES)
+
+    @property
     def root_members(self) -> tuple[LiveHelpTarget, ...]:
         """Return the final progressive analysis-root edges."""
 
@@ -668,20 +1254,63 @@ class CapabilityRegistry:
 
         return self._navigation_topics[canonical_id]
 
-    def grouping_topic_for(self, descriptor: CapabilityDescriptor) -> str | None:
-        """Preserve current grouping lookup until Slice 2 replaces it."""
+    def artifact_contract(self, family: str) -> AnalysisArtifactFamilyContract:
+        """Return one registered Artifact-family contract by family or type name."""
 
-        for topic, member_targets in _EXPLICIT_GROUPING_MEMBER_TARGETS.items():
-            if descriptor.help_target in member_targets:
-                return topic
-        if descriptor.id.startswith("session.") and descriptor.id != "session.get_or_create":
-            return "recovery"
-        for topic in ("catalog", "runtime_metric", "discover", "transform"):
-            if descriptor.id.startswith(f"{topic}."):
-                return topic
-        if descriptor.id.startswith("BaseFrame."):
-            return "artifacts"
-        return None
+        return self._artifact_contracts[family]
+
+    def discovery_owner(self, canonical_id: str) -> LiveHelpTarget | None:
+        """Return the single explicit discovery owner for one canonical target."""
+
+        return self._discovery_owners.get(canonical_id)
+
+    def discovery_members(self, owner_id: str) -> tuple[LiveHelpTarget, ...]:
+        """Return explicitly owned members without prefix inference."""
+
+        return self._discovery_members.get(owner_id, ())
+
+    @property
+    def discovery_memberships(self) -> Mapping[str, tuple[LiveHelpTarget, ...]]:
+        """Return the immutable owner-to-members discovery projection."""
+
+        return self._discovery_members
+
+    def cross_links(self, owner_id: str) -> tuple[LiveHelpTarget, ...]:
+        """Return immutable typed cross-links owned by one static Help target."""
+
+        return self._cross_links.get(owner_id, ())
+
+    @property
+    def cross_link_index(self) -> Mapping[str, tuple[LiveHelpTarget, ...]]:
+        """Return the complete immutable static cross-link projection."""
+
+        return self._cross_links
+
+    def artifact_producers(self, family: ArtifactFamily) -> tuple[LiveHelpTarget, ...]:
+        """Return exact producer targets derived from output contracts."""
+
+        return self._artifact_producers[family]
+
+    def artifact_consumers(self, family: ArtifactFamily) -> tuple[LiveHelpTarget, ...]:
+        """Return exact consumer targets derived from admitted inputs."""
+
+        return self._artifact_consumers[family]
+
+    def artifact_producer_edges(
+        self,
+        family: ArtifactFamily,
+    ) -> tuple[ArtifactProducerEdge, ...]:
+        """Return output-qualified producer edges for one Artifact family."""
+
+        return self._artifact_producer_edges[family]
+
+    def artifact_consumer_edges(
+        self,
+        family: ArtifactFamily,
+    ) -> tuple[ArtifactConsumerEdge, ...]:
+        """Return parameter- and admission-qualified consumer edges."""
+
+        return self._artifact_consumer_edges[family]
 
     def discovery_groups(
         self,
@@ -861,7 +1490,10 @@ class CapabilityRegistry:
     def by_id(self, capability_id: str) -> CapabilityDescriptor:
         """Return the descriptor with the given canonical id."""
         descriptor = self._by_id[capability_id]
-        if isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily)):
+        if isinstance(
+            descriptor,
+            (AnalysisNavigationTopic, AnalysisMethodFamily, AnalysisArtifactFamilyContract),
+        ):
             raise KeyError(capability_id)
         return descriptor
 
@@ -979,6 +1611,7 @@ def _output(
 def _parameter_help(
     acquisition: str,
     *qualified_targets: str,
+    required: bool = False,
     derivable_from_current_artifact: bool = False,
 ) -> ParameterHelpContract:
     """Build one parameter-level acquisition contract from qualified targets."""
@@ -998,6 +1631,7 @@ def _parameter_help(
     return ParameterHelpContract(
         acquisition=acquisition,
         help_targets=tuple(targets),
+        required=required,
         derivable_from_current_artifact=derivable_from_current_artifact,
     )
 
@@ -1038,6 +1672,9 @@ def _build_registry() -> CapabilityRegistry:
     descriptors: list[AnalysisHelpDescriptor] = []
     root_navigation_topics = _root_navigation_topics()
     root_navigation_by_id = {topic.canonical_id: topic for topic in root_navigation_topics}
+    slice2_navigation_topics = _slice2_navigation_topics()
+    slice2_method_families = _slice2_method_families()
+    slice2_artifact_contracts = _slice2_artifact_contracts()
 
     # -- Session operators ------------------------------------------------
 
@@ -1399,12 +2036,14 @@ def _build_registry() -> CapabilityRegistry:
                     "select one exact earlier step from journeys.meta.pattern.steps",
                     "analysis.PatternStep",
                     "analysis.step",
+                    required=True,
                     derivable_from_current_artifact=True,
                 ),
                 "end_step": _parameter_help(
                     "select one exact later step from journeys.meta.pattern.steps",
                     "analysis.PatternStep",
                     "analysis.step",
+                    required=True,
                     derivable_from_current_artifact=True,
                 ),
             },
@@ -1954,6 +2593,7 @@ def _build_registry() -> CapabilityRegistry:
                 "mode": _parameter_help(
                     "choose one closed normalization mode",
                     "analysis.NormalizeKind",
+                    required=True,
                 ),
                 "baseline": _parameter_help(
                     "omit when allowed or build an exact numeric/row-selector mapping",
@@ -2862,62 +3502,6 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         _make_grouping_descriptor(
-            "catalog",
-            "Browse the typed semantic catalog and all registered object collections.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "runtime_metric",
-            "Closed recursive runtime metric expression constructors.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "alignment",
-            "Closed temporal alignment policy family and its operator admission matrix.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "sampling",
-            "Closed hypothesis-test sampling policy family.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "discover",
-            "Objective helpers for deterministic candidate discovery.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "transform",
-            "Family-preserving reshape of a MetricFrame or DeltaFrame.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "events",
-            "Match and reduce typed Event journeys.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
-            "lifecycle",
-            "Replay and reduce typed StateModel history.",
-        )
-    )
-
-    descriptors.append(
-        _make_grouping_descriptor(
             "recovery",
             "Cross-script session, frame, and job recovery helpers.",
         )
@@ -2930,13 +3514,25 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    descriptors.append(root_navigation_by_id["artifacts"])
+    descriptors.extend(
+        root_navigation_by_id[target] for target in ("methods", "inputs", "artifacts")
+    )
+    descriptors.extend(slice2_navigation_topics)
+    descriptors.extend(slice2_method_families)
+    descriptors.extend(slice2_artifact_contracts)
 
     # -- Finalize: build indexes ------------------------------------------
 
     return _finalize_registry(
         tuple(descriptors),
-        navigation_topics=root_navigation_topics,
+        navigation_topics=(*root_navigation_topics, *slice2_navigation_topics),
+        method_families=slice2_method_families,
+        artifact_contracts=slice2_artifact_contracts,
+        discovery_memberships=_slice2_discovery_memberships(
+            (*root_navigation_topics, *slice2_navigation_topics),
+            slice2_method_families,
+            slice2_artifact_contracts,
+        ),
         root_members=_ROOT_HELP_MEMBERS,
     )
 
@@ -2964,6 +3560,8 @@ def _finalize_registry(
     *,
     navigation_topics: tuple[AnalysisNavigationTopic, ...] = (),
     method_families: tuple[AnalysisMethodFamily, ...] = (),
+    artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...] = (),
+    discovery_memberships: Mapping[str, tuple[LiveHelpTarget, ...]] = MappingProxyType({}),
     root_members: tuple[LiveHelpTarget, ...] = (),
     render_budgets: Mapping[
         AnalysisHelpRenderClass,
@@ -2975,7 +3573,10 @@ def _finalize_registry(
     descriptors = tuple(
         descriptor
         for descriptor in help_descriptors
-        if not isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily))
+        if not isinstance(
+            descriptor,
+            (AnalysisNavigationTopic, AnalysisMethodFamily, AnalysisArtifactFamilyContract),
+        )
     )
 
     _validate_public_type_variants()
@@ -2984,6 +3585,8 @@ def _finalize_registry(
         descriptors=descriptors,
         navigation_topics=navigation_topics,
         method_families=method_families,
+        artifact_contracts=artifact_contracts,
+        discovery_memberships=discovery_memberships,
         root_members=root_members,
         render_budgets=render_budgets,
     )
@@ -2993,7 +3596,10 @@ def _finalize_registry(
     for desc in help_descriptors:
         if desc.id in by_id:
             raise ValueError(f"duplicate capability id: {desc.id}")
-        if isinstance(desc, (AnalysisNavigationTopic, AnalysisMethodFamily)):
+        if isinstance(
+            desc,
+            (AnalysisNavigationTopic, AnalysisMethodFamily, AnalysisArtifactFamilyContract),
+        ):
             pass
         else:
             _validate_additional_examples(desc)
@@ -3037,6 +3643,25 @@ def _finalize_registry(
     # Generate type algebra rows
     capability_by_id = {descriptor.id: descriptor for descriptor in descriptors}
     algebra_rows = _generate_algebra_rows(descriptors, capability_by_id)
+    discovery_owners = _invert_discovery_memberships(discovery_memberships)
+    (
+        artifact_producers,
+        artifact_consumers,
+        artifact_producer_edges,
+        artifact_consumer_edges,
+    ) = _derive_artifact_algebra(descriptors)
+    cross_links = _derive_cross_links(
+        help_descriptors=help_descriptors,
+        method_families=method_families,
+        discovery_owners=discovery_owners,
+        producer_edges=artifact_producer_edges,
+        consumer_edges=artifact_consumer_edges,
+    )
+    _validate_cross_links(
+        help_descriptors=help_descriptors,
+        cross_links=cross_links,
+        render_budgets=render_budgets,
+    )
 
     registry = CapabilityRegistry(
         _help_descriptors=help_descriptors,
@@ -3050,9 +3675,19 @@ def _finalize_registry(
         _method_families=MappingProxyType(
             {family.canonical_id: family for family in method_families}
         ),
+        _artifact_contracts=MappingProxyType(
+            {contract.artifact_family: contract for contract in artifact_contracts}
+        ),
         _root_members=root_members,
         _render_budgets=MappingProxyType(dict(render_budgets)),
         _constructor_consumers=MappingProxyType(constructor_consumers_frozen),
+        _discovery_owners=MappingProxyType(discovery_owners),
+        _discovery_members=MappingProxyType(dict(discovery_memberships)),
+        _cross_links=MappingProxyType(cross_links),
+        _artifact_producers=MappingProxyType(artifact_producers),
+        _artifact_consumers=MappingProxyType(artifact_consumers),
+        _artifact_producer_edges=MappingProxyType(artifact_producer_edges),
+        _artifact_consumer_edges=MappingProxyType(artifact_consumer_edges),
         _algebra_rows=algebra_rows,
     )
     _validate_input_producers(registry)
@@ -3063,11 +3698,278 @@ def _target_key(target: LiveHelpTarget) -> tuple[str, str | None]:
     return target.surface, target.canonical_id
 
 
+def _invert_discovery_memberships(
+    memberships: Mapping[str, tuple[LiveHelpTarget, ...]],
+) -> dict[str, LiveHelpTarget]:
+    owners: dict[str, LiveHelpTarget] = {}
+    for owner_id, members in memberships.items():
+        owner = _analysis_target(owner_id)
+        for member in members:
+            if member.surface != "analysis" or member.canonical_id is None:
+                continue
+            previous = owners.get(member.canonical_id)
+            if previous is not None:
+                raise ValueError(
+                    "duplicate analysis discovery owner: "
+                    f"{member.canonical_id} ({previous.display}, {owner.display})"
+                )
+            owners[member.canonical_id] = owner
+    return owners
+
+
+def _derive_artifact_algebra(
+    descriptors: tuple[CapabilityDescriptor, ...],
+) -> tuple[
+    dict[ArtifactFamily, tuple[LiveHelpTarget, ...]],
+    dict[ArtifactFamily, tuple[LiveHelpTarget, ...]],
+    dict[ArtifactFamily, tuple[ArtifactProducerEdge, ...]],
+    dict[ArtifactFamily, tuple[ArtifactConsumerEdge, ...]],
+]:
+    """Derive complete qualified Artifact algebra from exact runtime contracts."""
+
+    artifact_families = frozenset(ARTIFACT_FAMILIES)
+    producer_edges: dict[ArtifactFamily, list[ArtifactProducerEdge]] = {
+        family: [] for family in ARTIFACT_FAMILIES
+    }
+    consumer_edges: dict[ArtifactFamily, list[ArtifactConsumerEdge]] = {
+        family: [] for family in ARTIFACT_FAMILIES
+    }
+    for descriptor in descriptors:
+        target = _analysis_target(descriptor.help_target)
+        if isinstance(descriptor, OperatorCapability):
+            output = descriptor.output_contract
+            output_family = output.family
+            if isinstance(output_family, SameAsInputFamily):
+                for family in descriptor.accepted_inputs.get(output_family.parameter, frozenset()):
+                    if family in artifact_families:
+                        producer_edges[family].append(
+                            ArtifactProducerEdge(
+                                target=target,
+                                semantic_shapes=output.semantic_shapes,
+                                matching_kinds=output.matching_kinds,
+                                nullable=output.nullable,
+                                same_as_parameter=output_family.parameter,
+                            )
+                        )
+            else:
+                producer_edges[output_family].append(
+                    ArtifactProducerEdge(
+                        target=target,
+                        semantic_shapes=output.semantic_shapes,
+                        matching_kinds=output.matching_kinds,
+                        nullable=output.nullable,
+                    )
+                )
+        elif (
+            isinstance(descriptor, BoundaryCapability)
+            and descriptor.direction == "governed_entry"
+            and descriptor.output_family in artifact_families
+        ):
+            producer_edges[descriptor.output_family].append(ArtifactProducerEdge(target=target))
+
+        if isinstance(descriptor, (OperatorCapability, BoundaryCapability)):
+            for parameter, families in descriptor.accepted_inputs.items():
+                admission = (
+                    descriptor.artifact_admission.get(parameter)
+                    if isinstance(descriptor, OperatorCapability)
+                    else None
+                )
+                for family in families:
+                    if family not in artifact_families:
+                        continue
+                    consumer_edges[family].append(
+                        ArtifactConsumerEdge(
+                            target=target,
+                            parameter=parameter,
+                            semantic_shapes=(
+                                admission.semantic_shapes.get(family, frozenset())
+                                if admission is not None
+                                else frozenset()
+                            ),
+                            matching_kinds=(
+                                admission.matching_kinds.get(family, frozenset())
+                                if admission is not None
+                                else frozenset()
+                            ),
+                            coverage_statuses=(
+                                admission.coverage_statuses.get(family, frozenset())
+                                if admission is not None
+                                else frozenset()
+                            ),
+                        )
+                    )
+
+    frozen_producer_edges = {
+        family: tuple(dict.fromkeys(producer_edges[family])) for family in ARTIFACT_FAMILIES
+    }
+    frozen_consumer_edges = {
+        family: tuple(dict.fromkeys(consumer_edges[family])) for family in ARTIFACT_FAMILIES
+    }
+
+    def targets(
+        values: Mapping[ArtifactFamily, tuple[ArtifactProducerEdge | ArtifactConsumerEdge, ...]],
+    ) -> dict[ArtifactFamily, tuple[LiveHelpTarget, ...]]:
+        return {
+            family: tuple(dict.fromkeys(edge.target for edge in values[family]))
+            for family in ARTIFACT_FAMILIES
+        }
+
+    return (
+        targets(frozen_producer_edges),
+        targets(frozen_consumer_edges),
+        frozen_producer_edges,
+        frozen_consumer_edges,
+    )
+
+
+def _artifact_algebra_route(
+    *,
+    artifact_family: ArtifactFamily,
+    target: LiveHelpTarget,
+    discovery_owners: Mapping[str, LiveHelpTarget],
+) -> LiveHelpTarget | None:
+    """Compress one exact algebra fact to its bounded discovery route."""
+
+    if target.canonical_id is None:
+        return target
+    if target.canonical_id == "boundary.to_pandas":
+        return target
+    owner = discovery_owners.get(target.canonical_id)
+    if owner is None or owner.canonical_id in {None, "analysis", "methods", "inputs"}:
+        return target
+    if owner.canonical_id == artifact_family:
+        return None
+    return owner
+
+
+def _derive_cross_links(
+    *,
+    help_descriptors: tuple[AnalysisHelpDescriptor, ...],
+    method_families: tuple[AnalysisMethodFamily, ...],
+    discovery_owners: Mapping[str, LiveHelpTarget],
+    producer_edges: Mapping[ArtifactFamily, tuple[ArtifactProducerEdge, ...]],
+    consumer_edges: Mapping[ArtifactFamily, tuple[ArtifactConsumerEdge, ...]],
+) -> dict[str, tuple[LiveHelpTarget, ...]]:
+    """Build immutable typed cross-links without renderer-owned route discovery."""
+
+    links: dict[str, list[LiveHelpTarget]] = {}
+
+    def add(owner_id: str, targets: tuple[LiveHelpTarget, ...]) -> None:
+        if targets:
+            links.setdefault(owner_id, []).extend(targets)
+
+    for descriptor in help_descriptors:
+        if isinstance(descriptor, OperatorCapability):
+            add(
+                descriptor.help_target,
+                tuple(
+                    target
+                    for contract in descriptor.parameter_help.values()
+                    for target in contract.help_targets
+                ),
+            )
+    for family in method_families:
+        add(family.canonical_id, (*family.input_routes, *family.output_routes))
+
+    add(
+        "artifacts.reading",
+        (*_ARTIFACT_EVIDENCE_TARGETS, _analysis_target("boundary.to_pandas")),
+    )
+    for artifact_family in ARTIFACT_FAMILIES:
+        routed_algebra_values: list[LiveHelpTarget] = []
+        for producer_edge in producer_edges[artifact_family]:
+            route = _artifact_algebra_route(
+                artifact_family=artifact_family,
+                target=producer_edge.target,
+                discovery_owners=discovery_owners,
+            )
+            if route is not None:
+                routed_algebra_values.append(route)
+        for consumer_edge in consumer_edges[artifact_family]:
+            route = _artifact_algebra_route(
+                artifact_family=artifact_family,
+                target=consumer_edge.target,
+                discovery_owners=discovery_owners,
+            )
+            if route is not None:
+                routed_algebra_values.append(route)
+        add(
+            artifact_family,
+            (
+                _analysis_target("artifacts.reading"),
+                *routed_algebra_values,
+                _analysis_target("session.get_frame"),
+            ),
+        )
+
+    return {owner_id: tuple(dict.fromkeys(targets)) for owner_id, targets in links.items()}
+
+
+def _render_class_for_descriptor(
+    descriptor: AnalysisHelpDescriptor,
+) -> AnalysisHelpRenderClass:
+    if isinstance(descriptor, AnalysisNavigationTopic):
+        return descriptor.render_class
+    if isinstance(descriptor, AnalysisMethodFamily):
+        return "navigation"
+    if isinstance(descriptor, AnalysisArtifactFamilyContract):
+        return "public_type"
+    return "exact_callable"
+
+
+def _validate_cross_links(
+    *,
+    help_descriptors: tuple[AnalysisHelpDescriptor, ...],
+    cross_links: Mapping[str, tuple[LiveHelpTarget, ...]],
+    render_budgets: Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget],
+) -> None:
+    """Reject dead, duplicate, or over-budget registry-owned cross-links."""
+
+    import marivo.analysis as mv
+
+    by_target = {descriptor.help_target: descriptor for descriptor in help_descriptors}
+    invalid: list[str] = []
+    for owner_id, targets in cross_links.items():
+        owner = by_target.get(owner_id)
+        if owner is None:
+            invalid.append(f"unknown cross-link owner {owner_id}")
+            continue
+        keys = tuple(_target_key(target) for target in targets)
+        if len(keys) != len(set(keys)):
+            invalid.append(f"duplicate cross-link under {owner_id}")
+        for target in targets:
+            if (
+                target.surface == "analysis"
+                and target.canonical_id not in by_target
+                and not (
+                    target.canonical_id is not None
+                    and "." not in target.canonical_id
+                    and hasattr(mv, target.canonical_id)
+                )
+            ):
+                invalid.append(f"dead cross-link {owner_id} -> {target.display}")
+        budget = render_budgets[_render_class_for_descriptor(owner)]
+        owned_members = (
+            owner.members
+            if isinstance(owner, (AnalysisNavigationTopic, AnalysisMethodFamily))
+            else ()
+        )
+        route_count = len({_target_key(target) for target in (*owned_members, *targets)})
+        if route_count > budget.max_outgoing_routes:
+            invalid.append(
+                f"{owner_id} exposes {route_count} routes > {budget.max_outgoing_routes}"
+            )
+    if invalid:
+        raise ValueError("invalid analysis cross-links: " + ", ".join(sorted(invalid)))
+
+
 def _validate_help_topology(
     *,
     descriptors: tuple[CapabilityDescriptor, ...],
     navigation_topics: tuple[AnalysisNavigationTopic, ...],
     method_families: tuple[AnalysisMethodFamily, ...],
+    artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...],
+    discovery_memberships: Mapping[str, tuple[LiveHelpTarget, ...]],
     root_members: tuple[LiveHelpTarget, ...],
     render_budgets: Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget],
 ) -> None:
@@ -3125,6 +4027,82 @@ def _validate_help_topology(
         if len(family.members) > render_budgets["navigation"].max_outgoing_routes:
             raise ValueError(f"method family exceeds route budget: {family.canonical_id}")
 
+    artifact_by_family: dict[ArtifactFamily, AnalysisArtifactFamilyContract] = {}
+    for contract in artifact_contracts:
+        if contract.canonical_id in topology_ids or contract.canonical_id in descriptor_ids:
+            raise ValueError(f"duplicate analysis help canonical id: {contract.canonical_id}")
+        topology_ids.add(contract.canonical_id)
+        if contract.public_entrypoint is not None or contract.callable_path is not None:
+            raise ValueError(
+                f"Artifact family contract must not be invokable: {contract.canonical_id}"
+            )
+        if (
+            contract.canonical_id != contract.type_name
+            or contract.type_name != contract.artifact_family
+        ):
+            raise ValueError(
+                f"Artifact family contract must use its canonical public type: "
+                f"{contract.canonical_id}"
+            )
+        if contract.artifact_family in artifact_by_family:
+            raise ValueError(f"duplicate Artifact family contract: {contract.artifact_family}")
+        if (
+            not contract.epistemic_kinds
+            or not set(contract.epistemic_kinds) <= allowed_epistemic_kinds
+        ):
+            raise ValueError(f"invalid Artifact epistemic kinds: {contract.canonical_id}")
+        if len(set(contract.semantic_shapes)) != len(contract.semantic_shapes):
+            raise ValueError(f"duplicate Artifact shapes: {contract.canonical_id}")
+        specialized_keys = tuple(
+            _target_key(target) for target in contract.specialized_member_targets
+        )
+        if len(set(specialized_keys)) != len(specialized_keys):
+            raise ValueError(f"duplicate Artifact specialized members: {contract.canonical_id}")
+        for target in contract.specialized_member_targets:
+            if target.surface != "analysis" or target.canonical_id not in descriptor_ids:
+                raise ValueError(f"unknown Artifact specialized member: {target.display}")
+            receiver, separator, member = target.canonical_id.partition(".")
+            if (
+                not separator
+                or receiver != contract.type_name
+                or member not in PUBLIC_FRAME_METHODS.get(contract.type_name, ())
+            ):
+                raise ValueError(
+                    f"Artifact specialized member is absent from the public allowlist: "
+                    f"{target.display}"
+                )
+        artifact_by_family[contract.artifact_family] = contract
+    if artifact_contracts and tuple(artifact_by_family) != ARTIFACT_FAMILIES:
+        raise ValueError("Artifact family contracts must cover the closed family order exactly")
+
+    known_analysis_targets = descriptor_ids | topology_ids
+    for family in method_families:
+        for route_kind, routes in (
+            ("input", family.input_routes),
+            ("output", family.output_routes),
+        ):
+            keys = tuple(_target_key(target) for target in routes)
+            if len(set(keys)) != len(keys):
+                raise ValueError(
+                    f"duplicate method-family {route_kind} cross-link: {family.canonical_id}"
+                )
+            for target in routes:
+                if (
+                    target.surface == "analysis"
+                    and target.canonical_id not in known_analysis_targets
+                ):
+                    raise ValueError(f"dead method-family cross-link: {target.display}")
+    if discovery_memberships:
+        _validate_discovery_memberships(
+            descriptors=descriptors,
+            artifact_contracts=artifact_contracts,
+            memberships=discovery_memberships,
+            known_analysis_targets=known_analysis_targets,
+        )
+    if artifact_contracts:
+        _validate_artifact_contract_alignment(descriptors, artifact_by_family)
+        _validate_artifact_public_members(artifact_by_family)
+
     if root_members:
         if root_members != _ROOT_HELP_MEMBERS:
             raise ValueError("analysis root edges must match the registered Slice 1 topology")
@@ -3156,6 +4134,139 @@ def _validate_topology_members(
         raise ValueError(f"analysis navigation member lacks a canonical id: {canonical_id}")
 
 
+def _validate_discovery_memberships(
+    *,
+    descriptors: tuple[CapabilityDescriptor, ...],
+    artifact_contracts: tuple[AnalysisArtifactFamilyContract, ...],
+    memberships: Mapping[str, tuple[LiveHelpTarget, ...]],
+    known_analysis_targets: set[str],
+) -> None:
+    """Require one explicit owner for every ordinary Slice 2 target."""
+
+    owners = _invert_discovery_memberships(memberships)
+    valid_owners = known_analysis_targets | set(PUBLIC_OBJECT_CONTRACTS) | {"analysis"}
+    for owner_id, members in memberships.items():
+        if owner_id not in valid_owners:
+            raise ValueError(f"unknown analysis discovery owner: {owner_id}")
+        keys = tuple(_target_key(target) for target in members)
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"duplicate discovery member under owner: {owner_id}")
+        for target in members:
+            if target.surface == "analysis" and target.canonical_id not in known_analysis_targets:
+                raise ValueError(f"dead analysis discovery edge: {target.display}")
+
+    ordinary_targets = {
+        descriptor.help_target
+        for descriptor in descriptors
+        if descriptor.callable_path is not None
+        or (isinstance(descriptor, ConstructorCapability) and bool(descriptor.output_type))
+    }
+    ordinary_targets.update(contract.canonical_id for contract in artifact_contracts)
+    missing = ordinary_targets - set(owners)
+    if missing:
+        raise ValueError("analysis targets lack a discovery owner: " + ", ".join(sorted(missing)))
+
+
+def _validate_artifact_contract_alignment(
+    descriptors: tuple[CapabilityDescriptor, ...],
+    contracts: Mapping[ArtifactFamily, AnalysisArtifactFamilyContract],
+) -> None:
+    """Fail on output, admission, shape, or public-member drift."""
+
+    artifact_families = frozenset(ARTIFACT_FAMILIES)
+    invalid: list[str] = []
+    for family, contract in contracts.items():
+        expected_members = tuple(
+            f"{family}.{member}" for member in PUBLIC_FRAME_METHODS.get(family, ())
+        )
+        actual_members = tuple(
+            target.canonical_id for target in contract.specialized_member_targets
+        )
+        if actual_members != expected_members:
+            invalid.append(f"{family}: specialized public-member allowlist drift")
+
+    for descriptor in descriptors:
+        if not isinstance(descriptor, OperatorCapability):
+            continue
+        output = descriptor.output_contract
+        if isinstance(output.family, SameAsInputFamily):
+            accepted = descriptor.accepted_inputs.get(output.family.parameter)
+            if accepted is None or not set(accepted) & artifact_families:
+                invalid.append(
+                    f"{descriptor.id}: SameAsInputFamily names no Artifact input parameter"
+                )
+        else:
+            family_contract = contracts.get(output.family)
+            if family_contract is None:
+                invalid.append(f"{descriptor.id}: unknown Artifact output family {output.family}")
+            elif output.semantic_shapes and not output.semantic_shapes <= set(
+                family_contract.semantic_shapes
+            ):
+                invalid.append(f"{descriptor.id}: output shapes drift from {output.family}")
+
+        for parameter, admission in descriptor.artifact_admission.items():
+            accepted = descriptor.accepted_inputs.get(parameter)
+            if accepted is None:
+                invalid.append(f"{descriptor.id}.{parameter}: admission lacks accepted input")
+                continue
+            admission_families = (
+                set(admission.semantic_shapes)
+                | set(admission.matching_kinds)
+                | set(admission.coverage_statuses)
+            )
+            if not admission_families <= set(accepted):
+                invalid.append(f"{descriptor.id}.{parameter}: admission family is not accepted")
+            for family, shapes in admission.semantic_shapes.items():
+                family_contract = contracts.get(family)
+                if family_contract is None:
+                    invalid.append(
+                        f"{descriptor.id}.{parameter}: unknown admission family {family}"
+                    )
+                elif family_contract.semantic_shapes and not shapes <= set(
+                    family_contract.semantic_shapes
+                ):
+                    invalid.append(
+                        f"{descriptor.id}.{parameter}: admission shapes drift from {family}"
+                    )
+    if invalid:
+        raise ValueError("invalid Artifact family contracts: " + ", ".join(sorted(invalid)))
+
+
+def _validate_artifact_public_members(
+    contracts: Mapping[ArtifactFamily, AnalysisArtifactFamilyContract],
+) -> None:
+    """Require every disclosed Artifact property and method to exist live."""
+
+    from marivo.analysis.frames.base import BaseFrame
+
+    installed = _installed_artifact_types()
+    invalid: list[str] = []
+    for family, contract in contracts.items():
+        artifact_type = installed.get(family)
+        if artifact_type is None or artifact_type.__name__ != contract.type_name:
+            invalid.append(f"{family}: installed public type is absent or renamed")
+            continue
+        properties = (
+            *PUBLIC_FRAME_PROPERTIES.get("BaseFrame", ()),
+            *PUBLIC_FRAME_PROPERTIES.get(family, ()),
+        )
+        for property_name in properties:
+            member = inspect.getattr_static(artifact_type, property_name, None)
+            if not isinstance(member, property):
+                invalid.append(f"{family}.{property_name}: public property is absent live")
+        for method_name in PUBLIC_FRAME_METHODS.get(family, ()):
+            member = inspect.getattr_static(artifact_type, method_name, None)
+            if member is None or not callable(getattr(artifact_type, method_name, None)):
+                invalid.append(f"{family}.{method_name}: public method is absent live")
+        for method_name in ("show", "contract"):
+            if not callable(getattr(artifact_type, method_name, None)):
+                invalid.append(f"{family}.{method_name}: inherited read is absent live")
+        if not issubclass(artifact_type, BaseFrame):
+            invalid.append(f"{family}: public Artifact does not inherit BaseFrame")
+    if invalid:
+        raise ValueError("invalid Artifact public members: " + ", ".join(sorted(invalid)))
+
+
 def _validate_input_producers(registry: CapabilityRegistry) -> None:
     """Require every closed operator input family to have a teaching path."""
 
@@ -3173,21 +4284,117 @@ def _validate_input_producers(registry: CapabilityRegistry) -> None:
         )
 
 
+DerivationWitness = Callable[[OperatorCapability, str, ParameterHelpContract], bool]
+
+
+def _event_pattern_step_witness(
+    descriptor: OperatorCapability,
+    parameter: str,
+    contract: ParameterHelpContract,
+) -> bool:
+    """Prove one reducer step can be selected from its journey Artifact."""
+
+    from marivo.analysis.event import EventPattern, PatternStep
+    from marivo.analysis.frames.event import EventFrameMeta
+
+    if "journeys.meta.pattern.steps" not in contract.acquisition:
+        return False
+    if descriptor.accepted_inputs.get("journeys") != frozenset({"EventFrame"}):
+        return False
+    admission = descriptor.artifact_admission.get("journeys")
+    if admission is None or admission.semantic_shapes.get("EventFrame") != frozenset({"journey"}):
+        return False
+    callable_obj = import_registered_callable(descriptor.callable_path or "")
+    if not callable(callable_obj):
+        return False
+    live_parameter = inspect.signature(callable_obj).parameters.get(parameter)
+    if live_parameter is None or live_parameter.annotation not in {PatternStep, "PatternStep"}:
+        return False
+    pattern_field = EventFrameMeta.model_fields.get("pattern")
+    steps_field = EventPattern.model_fields.get("steps")
+    return bool(
+        pattern_field is not None
+        and pattern_field.annotation is EventPattern
+        and steps_field is not None
+        and PatternStep in get_args(steps_field.annotation)
+    )
+
+
+_DERIVATION_WITNESSES: Mapping[tuple[str, str], DerivationWitness] = MappingProxyType(
+    {
+        ("events.time_to_event", "start_step"): _event_pattern_step_witness,
+        ("events.time_to_event", "end_step"): _event_pattern_step_witness,
+    }
+)
+
+
 def _validate_parameter_help(
     descriptors: tuple[CapabilityDescriptor, ...],
 ) -> None:
-    """Require complete canonical identities for parameter guidance."""
+    """Bind parameter guidance to installed signatures and resolvable targets."""
+
+    import marivo.analysis as mv
+    import marivo.semantic as ms
 
     invalid: list[str] = []
+    descriptor_targets = {descriptor.help_target for descriptor in descriptors}
+    derivable_claims: set[tuple[str, str]] = set()
     for descriptor in descriptors:
         if not isinstance(descriptor, OperatorCapability):
             continue
+        if descriptor.callable_path is None:
+            invalid.append(f"{descriptor.id}: parameter help requires an installed callable")
+            continue
+        callable_obj = import_registered_callable(descriptor.callable_path)
+        if not callable(callable_obj):
+            invalid.append(f"{descriptor.id}: registered parameter owner is not callable")
+            continue
+        signature = inspect.signature(callable_obj)
         for parameter, contract in descriptor.parameter_help.items():
             if not parameter or not contract.acquisition.strip() or not contract.help_targets:
                 invalid.append(f"{descriptor.id}.{parameter}: incomplete parameter help")
+            live_parameter = signature.parameters.get(parameter)
+            if live_parameter is None:
+                invalid.append(
+                    f"{descriptor.id}.{parameter}: parameter is absent from live signature"
+                )
+            elif contract.required != (live_parameter.default is inspect.Parameter.empty):
+                invalid.append(
+                    f"{descriptor.id}.{parameter}: required state disagrees with live default"
+                )
             for target in contract.help_targets:
                 if target.canonical_id is None:
                     invalid.append(f"{descriptor.id}.{parameter}: target lacks canonical id")
+                    continue
+                if target.surface == "analysis":
+                    resolved = target.canonical_id in descriptor_targets or hasattr(
+                        mv, target.canonical_id
+                    )
+                elif target.surface == "semantic":
+                    resolved = hasattr(ms, target.canonical_id)
+                else:
+                    resolved = False
+                if not resolved:
+                    invalid.append(
+                        f"{descriptor.id}.{parameter}: unresolved target {target.display}"
+                    )
+            if contract.derivable_from_current_artifact:
+                claim = (descriptor.id, parameter)
+                derivable_claims.add(claim)
+                witness = _DERIVATION_WITNESSES.get(claim)
+                if witness is None or not witness(descriptor, parameter, contract):
+                    invalid.append(
+                        f"{descriptor.id}.{parameter}: behavioral derivation witness failed"
+                    )
+    descriptor_ids = {descriptor.id for descriptor in descriptors}
+    applicable_witnesses = {
+        witness for witness in _DERIVATION_WITNESSES if witness[0] in descriptor_ids
+    }
+    if derivable_claims != applicable_witnesses:
+        invalid.append(
+            "derivable parameter claims lack exact behavioral witnesses: "
+            f"claims={sorted(derivable_claims)!r}, witnesses={sorted(applicable_witnesses)!r}"
+        )
     if invalid:
         raise ValueError("invalid analysis parameter help: " + ", ".join(sorted(invalid)))
 
