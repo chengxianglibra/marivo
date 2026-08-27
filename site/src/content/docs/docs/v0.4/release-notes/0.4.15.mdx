@@ -1,0 +1,85 @@
+---
+slug: docs/v0.4/release-notes/0.4.15
+title: Marivo 0.4.15
+description: Release notes for Marivo 0.4.15.
+---
+
+Marivo 0.4.15 makes analysis and datasource contracts more actionable,
+renders typed findings as bounded bilingual evidence, and hardens bounded
+probes and time-window execution.
+
+## Highlights
+
+- Focused `marivo.help("analysis.<target>")` now exposes exact parameter
+  construction routes for non-family values, including closed policy
+  vocabularies and retained `PatternStep` values from a journey artifact.
+  Agents can continue from `Prerequisites` and `Parameter construction`
+  without reconstructing typed inputs.
+- `Finding.render()` and `FindingPage.render()` now produce bounded, one-line
+  evidence statements in English or Chinese. Page rendering retains canonical
+  `finding_id` values, and delta statements can show exact half-open comparison
+  windows for follow-up reads.
+- `md.connect()` and `md.test()` now enforce a Marivo-side
+  connection/round-trip deadline (30 seconds by default, configurable with
+  keyword-only `timeout_seconds`). Timeout results distinguish the connection
+  handshake from the `SELECT 1` round-trip and provide structured repair
+  guidance.
+- `md.raw_sql()` now injects its probe limit into the same top-level `SELECT`
+  or set operation, preserving user `ORDER BY ... LIMIT` Top-N semantics while
+  retaining truncation detection.
+
+## Changed
+
+- Analysis capability registries now describe exact construction and selection
+  routes and closed value contracts for shape, anomaly strategy, ranking,
+  normalization, and normalization baselines; dynamic artifact contracts
+  retain derivable values for recovery.
+- Evidence delta payloads retain exact comparison windows, and finding
+  rendering covers typed variants without querying Session state or fabricating
+  labels.
+- Datasource failures expose timeout configuration and phase-specific codes;
+  thread-affine SQLite connections remain on the caller thread while network
+  backends fail closed on deadline.
+
+## Fixed
+
+- Hour-precision partition scans now treat end bounds as half-open at the exact
+  hour, avoiding inclusion of the end bucket and preventing pairing shortfalls.
+- Trino native percentile attribution reuses equivalent percentile fields and
+  coalition predicates within a batch, preventing regex-derived expression
+  traversal recursion while preserving results.
+
+## Documentation
+
+- Updated the analysis workflow, evidence, semantic-layer, and API
+  documentation, and documented the progressive semantic authoring help
+  design.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.15 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/v0.4/installation/)
+- [Quick Start](/docs/v0.4/quick-start/)
+- [Semantic Layer](/docs/v0.4/concepts/semantic-layer/)
+- [Readiness](/docs/v0.4/concepts/readiness/)
+- [Analysis Workflow](/docs/v0.4/concepts/analysis-workflow/)
+- [Evidence](/docs/v0.4/concepts/evidence/)

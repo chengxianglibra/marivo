@@ -1,0 +1,75 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.4.15
+title: Marivo 0.4.15
+description: Marivo 0.4.15 发布说明。
+---
+
+Marivo 0.4.15 让 analysis 和 datasource contract 更具可执行性，支持将 typed
+finding 渲染为有界的双语 evidence，并强化有界 probe 与时间窗口执行。
+
+## 重点
+
+- Focused `marivo.help("analysis.<target>")` 现在会为非 family value 提供精确的参数构造
+  路径，包括封闭的 policy vocabulary 以及从 journey artifact 保留的 `PatternStep`。Agent
+  可以沿着 `Prerequisites` 和 `Parameter construction` 继续操作，不必重新构造 typed input。
+- `Finding.render()` 和 `FindingPage.render()` 现在会生成有界的单行 evidence statement，支持
+  English 或 Chinese。Page rendering 会保留 canonical `finding_id`；delta statement 可以展示
+  用于后续读取的精确半开 comparison window。
+- `md.connect()` 和 `md.test()` 现在对 connection handshake 与 round-trip 施加 Marivo 侧
+  deadline（默认 30 秒，可通过 keyword-only `timeout_seconds` 配置）。Timeout result 会区分
+  connection handshake 和 `SELECT 1` round-trip，并提供结构化 repair guidance。
+- `md.raw_sql()` 现在把 probe limit 注入同一个顶层 `SELECT` 或 set operation，在保留截断检测的
+  同时保留用户 `ORDER BY ... LIMIT` 的 Top-N 语义。
+
+## 变更
+
+- Analysis capability registry 现在描述 shape、anomaly strategy、ranking、normalization 和
+  normalization baseline 的精确构造/选择路径与封闭 value contract；dynamic artifact contract
+  会保留可从当前 artifact 推导的 value，支持 recovery。
+- Evidence delta payload 会保留精确 comparison window；finding rendering 覆盖 typed variant，
+  不会查询 Session state 或伪造标签。
+- Datasource failure 现在暴露 timeout 配置和按阶段区分的 code；thread-affine SQLite connection
+  仍在 caller thread 上创建，network backend 超过 deadline 时安全失败。
+
+## 修复
+
+- Hour-precision partition scan 现在在 exact hour 上按半开区间处理 end bound，不再错误包含 end
+  bucket，也避免 pairing shortfall。
+- Trino native percentile attribution 现在在同一 batch 内复用等价的 percentile field 和
+  coalition predicate，避免 regex-derived expression traversal recursion，同时保持结果语义。
+
+## 文档
+
+- 更新 analysis workflow、evidence、semantic layer 和 API 文档，并记录 progressive semantic
+  authoring help design。
+
+## 安装
+
+国内网络建议运行：
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+也可以使用标准安装器：
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+手动安装：
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.15 要求 Python 3.10 或更高版本。
+
+## 文档链接
+
+- [安装 Marivo](/zh-cn/docs/latest/installation/)
+- [快速开始](/zh-cn/docs/latest/quick-start/)
+- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)
+- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)
+- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/zh-cn/docs/latest/concepts/evidence/)
