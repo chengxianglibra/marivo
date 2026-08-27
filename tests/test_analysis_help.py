@@ -14,7 +14,10 @@ import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
+    AnalysisArtifactFamilyContract,
     AnalysisHelpDescriptor,
+    AnalysisMethodFamily,
+    AnalysisNavigationTopic,
     ConstructorCapability,
     HelpExample,
     OperatorCapability,
@@ -192,7 +195,8 @@ def test_root_help_exposes_policy_family_topics() -> None:
     text = _text()
 
     assert 'marivo.help("analysis.alignment")' in text
-    assert 'marivo.help("analysis.sampling")' in text
+    assert "mv.SamplingPolicy(...)" in text
+    assert 'marivo.help("analysis.sampling")' not in text
 
 
 def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
@@ -246,23 +250,30 @@ def test_focused_grouping_help_lists_real_members() -> None:
 
     artifacts = _text("artifacts")
     assert 'Entrypoint: marivo.help("analysis.artifacts")' in artifacts
-    assert "frame.show()" in artifacts
-    assert "frame.contract()" in artifacts
-    assert "frame.to_pandas()" in artifacts
+    for target in (
+        "artifacts.metric_change",
+        "artifacts.event_lifecycle",
+        "artifacts.discovery_inference",
+        "artifacts.quality_projection",
+        "artifacts.reading",
+    ):
+        assert f'analysis.{target}")' in artifacts
 
 
 def test_event_and_lifecycle_grouping_help_lists_real_members() -> None:
     events = _text("events")
-    assert "session.events.match(...)" in events
-    assert "session.events.funnel(...)" in events
-    assert "session.events.time_to_event(...)" in events
+    assert 'marivo.help("analysis.events.match")' in events
+    assert 'marivo.help("analysis.events.funnel")' in events
+    assert 'marivo.help("analysis.events.time_to_event")' in events
+    assert "events.watermark" not in events
+    assert "events.occurrence_bounds" not in events
 
     lifecycle = _text("lifecycle")
     for member in ("replay", "distribution", "transitions", "dwell", "violations"):
-        assert f"session.lifecycle.{member}(...)" in lifecycle
+        assert f'marivo.help("analysis.lifecycle.{member}")' in lifecycle
 
 
-def test_alignment_help_exposes_closed_admission_matrix() -> None:
+def test_alignment_help_routes_only_to_exact_policy_contracts() -> None:
     text = _text("alignment")
     for member in (
         "window_bucket",
@@ -273,17 +284,16 @@ def test_alignment_help_exposes_closed_admission_matrix() -> None:
         "working_day_progress",
     ):
         assert f"mv.{member}" in text
-    assert "MetricFrame.compare day-grain time-series or panel" in text
-    assert "EventFrame.compare     alignment=None" in text
+    assert "Signature:" not in text
+    assert "Example:" not in text
     assert "holiday_aligned" not in text
 
 
-def test_sampling_help_exposes_sampling_policy_without_promoting_the_type() -> None:
-    text = _text("sampling")
-
-    assert 'Entrypoint: marivo.help("analysis.sampling")' in text
-    assert "mv.SamplingPolicy(...)" in text
-    assert "[SamplingPolicy]" in text
+def test_sampling_policy_is_routed_directly_without_a_singleton_topic() -> None:
+    with pytest.raises(MarivoHelpTargetError) as exc_info:
+        _text("sampling")
+    assert "analysis.SamplingPolicy" in str(exc_info.value)
+    assert "SamplingPolicy" in _text("SamplingPolicy")
 
 
 def test_working_day_progress_help_exposes_schedule_example_and_constraints() -> None:
@@ -297,48 +307,153 @@ def test_working_day_progress_help_exposes_schedule_example_and_constraints() ->
     assert "alignment_policy_shape" in text
 
 
-def test_grouping_members_use_registered_prefix_without_renderer_branches(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from types import SimpleNamespace
-
+def test_grouping_members_use_only_explicit_registry_membership() -> None:
     import marivo.analysis._capabilities.render as render_module
-    from marivo.analysis._capabilities.model import ReadCapability
-    from marivo.analysis._capabilities.registry import _make_grouping_descriptor
 
-    grouping = _make_grouping_descriptor("example", "Example namespace.")
-    member = ReadCapability(
-        id="example.inspect",
-        public_entrypoint="example.inspect()",
-        help_target="example.inspect",
-        summary="Inspect an example.",
-        callable_path="example.inspect",
-        receiver_family="Example",
+    grouping = REGISTRY.by_help_target("discover")
+    members = render_module._grouping_members(grouping)
+    assert tuple(member.help_target for member in members) == tuple(
+        target.canonical_id for target in REGISTRY.discovery_members("discover")
     )
-    monkeypatch.setattr(
-        render_module,
-        "REGISTRY",
-        SimpleNamespace(descriptors=(grouping, member)),
-    )
-
-    assert render_module._grouping_members(grouping) == [member]
 
 
 def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> None:
     root = _text()
     artifacts = _text("artifacts")
+    reading = _text("artifacts.reading")
 
     assert "Inspect bounded state, valid continuations, and terminal exits." in root
-    assert "Read artifacts progressively" in artifacts
-    assert "inspect bounded state" in artifacts
-    assert "check mechanical compatibility" in artifacts
-    assert "terminal boundary" in artifacts
-    assert "intentionally custom work" in artifacts
-
-    assert artifacts.index("frame.show()") < artifacts.index("frame.contract()")
-    assert artifacts.index("frame.contract()") < artifacts.index("frame.to_pandas()")
+    assert "static Artifact family contracts" in artifacts
+    assert "repr -> show/render -> contract -> exact Evidence or rows -> terminal exit" in reading
+    assert reading.index("BaseFrame.show") < reading.index("BaseFrame.contract")
+    assert "boundary.to_pandas" not in tuple(
+        target.canonical_id for target in REGISTRY.discovery_members("artifacts.reading")
+    )
+    for target in REGISTRY.cross_links("artifacts.reading"):
+        assert target.canonical_id in reading
     assert "compare" not in artifacts
     assert "attribute" not in artifacts
+
+
+def test_slice2_navigation_pages_are_bounded_and_do_not_expand_leaf_contracts() -> None:
+    targets = (
+        "methods",
+        "inputs",
+        "artifacts",
+        "entry.event_observations",
+        "catalog",
+        "inputs.scope",
+        "alignment",
+        "runtime_metric",
+        "inputs.events",
+        "inputs.subject_selection",
+        "inputs.operator_options",
+        "inputs.transform_options",
+        "methods.change",
+        "discover",
+        "methods.relationship_testing",
+        "events",
+        "lifecycle",
+        "transform",
+        "artifacts.metric_change",
+        "artifacts.event_lifecycle",
+        "artifacts.discovery_inference",
+        "artifacts.quality_projection",
+        "artifacts.reading",
+    )
+    for target in targets:
+        descriptor = REGISTRY.by_help_target(target)
+        assert isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily))
+        text = _text(target)
+        budget_class = (
+            descriptor.render_class
+            if isinstance(descriptor, AnalysisNavigationTopic)
+            else "navigation"
+        )
+        budget = REGISTRY.render_budget(budget_class)
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        assert "Signature:" not in text
+        assert "Example:" not in text
+
+
+def test_every_artifact_type_page_renders_complete_derived_algebra() -> None:
+    for contract in REGISTRY.artifact_contracts:
+        assert isinstance(contract, AnalysisArtifactFamilyContract)
+        text = _text(contract.canonical_id)
+        for target in REGISTRY.artifact_producers(contract.artifact_family):
+            assert target.canonical_id in text
+        for target in REGISTRY.artifact_consumers(contract.artifact_family):
+            assert target.canonical_id in text
+        for required in (
+            "BaseFrame.show",
+            "BaseFrame.contract",
+            "session.evidence.digest",
+            "session.get_frame",
+            "boundary.to_pandas",
+            "Static consumers are possibilities, not current admission",
+        ):
+            assert required in text
+        budget = REGISTRY.render_budget("public_type")
+        assert len(text.splitlines()) <= budget.max_lines
+        assert len(text) <= budget.max_codepoints
+        rendered_routes = tuple(re.findall(r'marivo\.help\("analysis\.([^"\n]+)"\)', text))
+        assert rendered_routes == tuple(
+            target.canonical_id for target in REGISTRY.cross_links(contract.canonical_id)
+        )
+        assert len(rendered_routes) <= budget.max_outgoing_routes
+        assert "Example:" not in text
+
+
+def test_artifact_type_help_renders_admission_and_nullable_edge_facts() -> None:
+    event = _text("EventFrame")
+    assert "compare [parameter=current, shapes=funnel, matching=first_per_subject]" in event
+    assert (
+        "select_subjects [parameter=artifact, shapes=journey, matching=first_per_subject]" in event
+    )
+    coverage = _text("CoverageFrame")
+    assert "MetricFrame.coverage [nullable]" in coverage
+
+
+def test_slice2_final_render_budget_rejects_import_and_route_overflow() -> None:
+    from marivo.analysis._capabilities.render import (
+        _enforce_analysis_render_budget,
+        _with_python_imports,
+    )
+
+    with pytest.raises(RuntimeError, match="surface budget"):
+        _with_python_imports(
+            "\n".join(f"line {index}" for index in range(69)),
+            render_class="public_type",
+        )
+    too_many_routes = tuple(
+        LiveHelpTarget(surface="analysis", canonical_id=f"route.{index}") for index in range(11)
+    )
+    with pytest.raises(RuntimeError, match="outgoing-route budget"):
+        _enforce_analysis_render_budget(
+            "bounded",
+            render_class="public_type",
+            outgoing_routes=too_many_routes,
+            examples_or_snippets=0,
+        )
+    with pytest.raises(RuntimeError, match="example/snippet budget"):
+        _enforce_analysis_render_budget(
+            "bounded",
+            render_class="public_type",
+            outgoing_routes=(),
+            examples_or_snippets=1,
+        )
+
+
+def test_singleton_method_and_input_contracts_have_no_family_aliases() -> None:
+    for removed_topic, direct_target in (
+        ("methods.forecast", "forecast"),
+        ("methods.quality", "assess_quality"),
+        ("inputs.sampling", "SamplingPolicy"),
+    ):
+        with pytest.raises(MarivoHelpTargetError):
+            _text(removed_topic)
+        assert _text(direct_target)
 
 
 def test_type_algebra_remains_registered_but_is_not_rendered_in_root_help() -> None:
@@ -904,8 +1019,8 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
     assert (
         "catalog.dimensions  (property -> CatalogCollection[DimensionKind]; inspect with .show())"
     ) in group
-    assert "catalog = session.catalog" in group
-    assert "catalog.show()" in group
+    assert "Signature:" not in group
+    assert "Example:" not in group
     assert "Property: catalog.dimensions" in focused
     assert "Returns: CatalogCollection[DimensionKind]" in focused
     assert "Inspect: catalog.dimensions.show()" in focused
@@ -929,9 +1044,8 @@ def test_analysis_catalog_collection_help_teaches_the_full_object_handoff() -> N
     from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 
     group = _text("catalog")
-    assert "Object families:" in group
-    assert 'marivo.help("analysis.catalog.<family>")' in group
-    assert "marivo.help(entry)" in group
+    assert "Members:" in group
+    assert "marivo.help(entry)" not in group
 
     for member in CATALOG_MEMBER_CONTRACTS:
         text = _text(f"catalog.{member.property_name}")
@@ -971,7 +1085,8 @@ def test_period_calendar_period_help_teaches_exact_scope_navigation() -> None:
     assert "Constraints" not in text
     assert "Result kind: immutable_metadata" in text
     assert "Read bound: bounded" in text
-    assert "calendar.period(level, key)" in _text("catalog")
+    assert "calendar.period(level, key)" in _text("inputs.scope")
+    assert "calendar.period(level, key)" not in _text("catalog")
 
 
 def test_compare_help_explains_cumulative_component_compatibility() -> None:
