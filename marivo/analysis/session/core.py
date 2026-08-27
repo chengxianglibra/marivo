@@ -2638,8 +2638,8 @@ class EvidenceNamespace:
 
         Example:
             page = session.evidence.findings(artifact_ref=artifact.ref, limit=50)
-            for finding in page.items:
-                print(finding.finding_type)
+            page.show()
+            page.show(language="zh")
         """
         from marivo.analysis.evidence.audit import query_findings
 
@@ -2695,7 +2695,8 @@ class EvidenceNamespace:
 
         Example:
             finding = session.evidence.finding(finding_id)
-            print(finding.value)
+            finding.show()
+            finding.show(language="zh")
         """
         from marivo.analysis.evidence.audit import get_finding
 

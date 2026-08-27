@@ -171,11 +171,23 @@ agent commits another artifact between pages, ordinary keyset behavior applies.
 The cursor is an opaque continuation token, not a durable cross-version query
 identity.
 
+`Finding.render(language="en")` returns one deterministic English evidence
+statement; `language="zh"` returns the corresponding Chinese statement. English
+is the default. The statement does not include `finding_id`; `FindingPage`
+prefixes each rendered item with its canonical id so an agent can perform an
+exact read. Both renderers are byte-bounded and read only the immutable Finding
+payload. They never query Session state or infer relative labels such as “this
+week.” Delta findings may retain exact current and baseline half-open windows
+from their comparison temporal contract; when either window is absent, the
+renderer omits the window clause.
+
 Exact reads remain available:
 
 ```python
 digest = session.evidence.digest(artifact_ref)
 finding = session.evidence.finding(finding_id)
+finding.show()
+finding.show(language="zh")
 trace = session.evidence.trace(finding_id)
 frame = session.get_frame(artifact_ref)
 ```

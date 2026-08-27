@@ -613,6 +613,8 @@ class DeltaFindingValue(_FrozenModel):
     cumulative_change: AllHistoryLevelChangeSchema | None = None
     source_revision: Literal["unverified"] | None = None
     interval_flow_equivalence: Literal["not_asserted"] | None = None
+    current_window: TimeWindow | None = None
+    baseline_window: TimeWindow | None = None
 
 
 class ContributionFindingValue(_FrozenModel):
@@ -728,6 +730,8 @@ _FINDING_EPISTEMIC_KIND: dict[FindingType, EpistemicKind] = {
 
 
 class Finding(_FrozenModel):
+    """One canonical typed evidence item with bounded bilingual rendering."""
+
     finding_id: str
     finding_type: FindingType
     epistemic_kind: EpistemicKind
@@ -752,6 +756,47 @@ class Finding(_FrozenModel):
         if self.epistemic_kind != expected:
             raise ValueError(f"{self.finding_type} findings require epistemic_kind={expected!r}")
         return self
+
+    def __repr__(self) -> str:
+        return result_repr(f"Finding id={self.finding_id} type={self.finding_type}")
+
+    def render(
+        self,
+        *,
+        language: Literal["en", "zh"] = "en",
+        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> str:
+        """Render this Finding as one bounded evidence statement.
+
+        Args:
+            language: ``"en"`` for English or ``"zh"`` for Chinese.
+            max_output_bytes: UTF-8 output bound; ``None`` returns the full line.
+
+        Returns:
+            One deterministic human-readable line without the Finding identity prefix.
+
+        Example:
+            ``finding.render(language="zh")``
+
+        Constraints:
+            Rendering reads only this immutable Finding and never queries Session state.
+        """
+        from marivo.analysis.evidence.finding_render import render_finding
+
+        return render_finding(
+            self,
+            language=language,
+            max_output_bytes=max_output_bytes,
+        )
+
+    def show(
+        self,
+        *,
+        language: Literal["en", "zh"] = "en",
+        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> None:
+        """Print this Finding's bounded English or Chinese evidence statement."""
+        print(self.render(language=language, max_output_bytes=max_output_bytes))
 
 
 class OperatorSemantics(_FrozenModel):
@@ -1308,6 +1353,55 @@ class ArtifactDigestPage(_BoundedPage[ArtifactDigest]):
 
 class FindingPage(_BoundedPage[Finding]):
     """Bounded newest-first page of canonical typed findings."""
+
+    def _card(self, *, language: Literal["en", "zh"] = "en") -> Card:
+        card = Card(
+            identity=self._repr_identity(),
+            available=(".items", ".next_cursor", ".show()"),
+        ).listing(
+            "items",
+            (
+                f"{finding.finding_id}: {finding.render(language=language, max_output_bytes=None)}"
+                for finding in self.items
+            ),
+        )
+        if self.next_cursor is not None:
+            card.field("next_cursor", self.next_cursor)
+        return card
+
+    def render(
+        self,
+        *,
+        language: Literal["en", "zh"] = "en",
+        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> str:
+        """Render this page with each Finding in English or Chinese.
+
+        Args:
+            language: ``"en"`` for English or ``"zh"`` for Chinese item prose.
+            max_output_bytes: UTF-8 page bound; ``None`` returns the full page.
+
+        Returns:
+            A bounded page whose item lines retain canonical Finding identities.
+
+        Example:
+            ``page.render(language="zh")``
+
+        Constraints:
+            Item order and cursor semantics are unchanged by the selected language.
+        """
+        if language not in {"en", "zh"}:
+            raise ValueError("language must be 'en' or 'zh'")
+        return self._card(language=language).render(max_output_bytes=max_output_bytes)
+
+    def show(
+        self,
+        *,
+        language: Literal["en", "zh"] = "en",
+        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> None:
+        """Print this page with each Finding in English or Chinese."""
+        print(self.render(language=language, max_output_bytes=max_output_bytes))
 
 
 __all__ = [

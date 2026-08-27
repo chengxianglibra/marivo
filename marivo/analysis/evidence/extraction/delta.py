@@ -19,7 +19,13 @@ from marivo.analysis._cumulative import (
 )
 from marivo.analysis.evidence.extraction._coordinates import normalize_coordinate_value
 from marivo.analysis.evidence.identity import make_finding_id, make_typed_item_key
-from marivo.analysis.evidence.types import DeltaFindingValue, DerivationRule, Finding, Subject
+from marivo.analysis.evidence.types import (
+    DeltaFindingValue,
+    DerivationRule,
+    Finding,
+    Subject,
+    TimeWindow,
+)
 
 
 def _to_float(v: Any) -> float | None:
@@ -122,6 +128,8 @@ def extract_delta_findings(
     time_column: str | None = None,
     baseline_time_column: str | None = None,
     unit: str | None = None,
+    current_window: TimeWindow | None = None,
+    baseline_window: TimeWindow | None = None,
     cumulative_pairs: AllHistoryPairAlignmentV1 | CumulativePairSummaryV1 | None = None,
     cumulative_change: AllHistoryLevelChangeV1 | None = None,
 ) -> list[Finding]:
@@ -173,6 +181,8 @@ def extract_delta_findings(
                     direction=_classify_direction(delta_val, current, baseline),
                     presence=_row_presence(row, current, baseline),
                     unit=unit,
+                    current_window=current_window,
+                    baseline_window=baseline_window,
                     current_evaluation_end=_timestamp_text(row.get(CURRENT_EVALUATION_END_COLUMN)),
                     baseline_evaluation_end=_timestamp_text(
                         row.get(BASELINE_EVALUATION_END_COLUMN)
@@ -245,6 +255,8 @@ def extract_delta_findings(
                         presence=_row_presence(row, current, baseline),
                         unit=unit,
                         dimension_keys=keys,
+                        current_window=current_window,
+                        baseline_window=baseline_window,
                         current_evaluation_end=_timestamp_text(
                             row.get(CURRENT_EVALUATION_END_COLUMN)
                         ),
@@ -344,6 +356,8 @@ def extract_delta_findings(
                         unit=unit,
                         dimension_keys=keys,
                         bucket=bucket,
+                        current_window=current_window,
+                        baseline_window=baseline_window,
                         current_evaluation_end=_timestamp_text(
                             row.get(CURRENT_EVALUATION_END_COLUMN)
                         ),

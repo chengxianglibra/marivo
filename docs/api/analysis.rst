@@ -103,7 +103,11 @@ Evidence
 --------
 
 ``Finding`` is the typed audit record. ``ArtifactDigest`` is the bounded
-operator-local read model; it never performs cross-artifact judgment.
+operator-local read model; it never performs cross-artifact judgment. A
+``Finding`` renders as one bounded evidence statement with
+``finding.render()`` (English by default) or ``finding.render(language="zh")``.
+``FindingPage.render()`` uses the same statements and retains each canonical
+``finding_id`` for exact follow-up reads.
 
 .. autosummary::
    :toctree: api/
