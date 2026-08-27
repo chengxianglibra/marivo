@@ -15,6 +15,7 @@ from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
 from marivo.analysis.errors import (
+    AnalysisRepair,
     DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
     SemanticKindMismatchError,
@@ -49,6 +50,7 @@ from marivo.analysis.intents._derived import (
     gen_ref,
     params_digest,
     require_numeric_column,
+    resolve_metric_value_column,
     resolve_session,
 )
 from marivo.analysis.intents._discover_scorers import (
@@ -67,6 +69,7 @@ from marivo.analysis.semantic_inputs import (
 )
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_can_execute
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, TimeDimensionKind
 from marivo.semantic.catalog import _SemanticInput
 
@@ -197,7 +200,10 @@ def _discover_dispatch(
             ``interesting_slices``, ``interesting_windows``, ``cross_sectional_outliers``.
         strategy: Scoring strategy. Defaults are picked per objective
             (e.g. ``zscore`` for ``point_anomalies``).
-        value: Numeric column to score. Defaults to the frame's measure column.
+        value: Numeric column to score. For a DeltaFrame, defaults to the
+            canonical ``delta`` column. For a MetricFrame, defaults to the
+            declared measure/value column. ``discover`` requires a single-metric
+            frame; project a multi-metric frame with ``frame.metric(...)`` first.
         threshold: Score cutoff whose meaning depends on the objective.
         ``point_anomalies``: absolute z-score cutoff, default 3.0.
         ``period_shifts``: absolute z-score of rolling window mean, default 2.0.
@@ -575,6 +581,79 @@ def _check_objective_compatibility(
         )
 
 
+def _discover_value_repair(df: pd.DataFrame) -> AnalysisRepair:
+    """Build a discover-specific repair pointing at the numeric value columns."""
+    numeric = [str(c) for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if numeric:
+        action = f"Pass value=<column> to select one of the numeric columns: {numeric!r}."
+    else:
+        action = "Ensure the source frame materializes a numeric value column."
+    return AnalysisRepair(
+        kind="retry",
+        action=action,
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
+        candidates=tuple(numeric),
+    )
+
+
+def _resolve_discover_value_column(
+    source: MetricFrame | DeltaFrame,
+    df: pd.DataFrame,
+    value: str | None,
+    *,
+    purpose: str = "discover",
+) -> str:
+    """Resolve the value column to score for a discover objective.
+
+    An explicit ``value`` is validated strictly (must exist and be numeric). For
+    a :class:`MetricFrame`, an explicit ``value`` may be either the public
+    measure name (``value_columns``) or its internal storage column, so it is
+    resolved to the internal column before the numeric check. For a
+    :class:`DeltaFrame`, an explicit ``value`` must already name an internal
+    column (public names equal internal names). An omitted ``value`` defaults to
+    the frame's canonical value column — ``delta`` for a :class:`DeltaFrame`,
+    the declared measure/value column for a :class:`MetricFrame` — instead of
+    dtype-sniffing for a single numeric column. This keeps a DeltaFrame's
+    current/baseline/delta/pct_change set (four numeric columns) from tripping
+    the single-column requirement and lets a MetricFrame with an extra numeric
+    axis still resolve its declared measure.
+    """
+    if value is not None:
+        if isinstance(source, MetricFrame):
+            try:
+                resolved = resolve_metric_value_column(
+                    source, df, value, parameter="value", purpose=purpose
+                )
+            except SemanticKindMismatchError as exc:
+                raise SemanticKindMismatchError(
+                    message=exc.message,
+                    context=exc._context,
+                    repair=_discover_value_repair(df),
+                ) from exc
+            return require_numeric_column(
+                df, resolved.internal_name, purpose=purpose, repair=_discover_value_repair(df)
+            )
+        return require_numeric_column(df, value, purpose=purpose, repair=_discover_value_repair(df))
+
+    if isinstance(source, DeltaFrame):
+        return require_numeric_column(df, "delta", purpose=purpose)
+
+    try:
+        resolved = resolve_metric_value_column(source, df, None, parameter="value", purpose=purpose)
+    except SemanticKindMismatchError as exc:
+        raise SemanticKindMismatchError(
+            message=(
+                "discover requires an explicit value when the frame value column cannot be resolved"
+            ),
+            context={
+                "columns": list(df.columns),
+                "value_columns": list(source.value_columns),
+            },
+            repair=_discover_value_repair(df),
+        ) from exc
+    return resolved.internal_name
+
+
 def _run_scorer(
     *,
     objective: ScoredCandidateObjective,
@@ -593,7 +672,7 @@ def _run_scorer(
             _threshold_info["default"] if threshold is None else threshold
         )
         df = source._dataframe_copy()
-        value_column = require_numeric_column(df, value, purpose="discover")
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         time_column, dim_columns = _resolve_frame_axes(source, df)
         if strategy == "seasonal_robust_zscore":
             rows = score_point_anomalies_seasonal_robust(
@@ -617,7 +696,7 @@ def _run_scorer(
                 time_column=time_column,
                 group_columns=group_columns,
             )
-        params = {"value": value, "threshold": threshold_value}
+        params = {"value": value_column, "threshold": threshold_value}
         return rows, params
 
     if objective == "period_shifts":
@@ -628,9 +707,7 @@ def _run_scorer(
         )
         df = source._dataframe_copy()
         bucket_column, group_columns = _delta_axes(cast("DeltaFrame", source))
-        value_column = require_numeric_column(
-            df.drop(columns=[bucket_column, *group_columns]), value, purpose="discover"
-        )
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         _validate_period_shift_min_buckets(
             df,
             bucket_column=bucket_column,
@@ -644,7 +721,7 @@ def _run_scorer(
             threshold=threshold_value,
             group_columns=group_columns,
         )
-        params = {"value": value, "threshold": threshold_value}
+        params = {"value": value_column, "threshold": threshold_value}
         return rows, params
 
     if objective == "driver_axes":
@@ -655,11 +732,7 @@ def _run_scorer(
             )
         df = source._dataframe_copy()
         bucket_column, dim_columns = _delta_axes(cast("DeltaFrame", source))
-        value_column = require_numeric_column(
-            df.drop(columns=[c for c in [bucket_column] if c in df.columns]),
-            value,
-            purpose="discover",
-        )
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         axes = _dimension_columns_for_ids(source, search_space)
         _require_materialized_axes(
             objective=objective,
@@ -679,7 +752,7 @@ def _run_scorer(
         )
         _attach_axis_semantic_ids(rows, semantic_id_by_column)
         driver_params: dict[str, Any] = {
-            "value": value,
+            "value": value_column,
             "search_space": search_space,
             "search_space_columns": axes,
         }
@@ -693,16 +766,10 @@ def _run_scorer(
         )
         df = source._dataframe_copy()
         if isinstance(source, DeltaFrame):
-            bucket_column, dim_columns = _delta_axes(source)
-            non_value_columns = [bucket_column, *dim_columns]
+            _, dim_columns = _delta_axes(source)
         else:
-            time_column, dim_columns = _resolve_frame_axes(source, df)
-            non_value_columns = [c for c in [time_column, *dim_columns] if c is not None]
-        value_column = require_numeric_column(
-            df.drop(columns=[c for c in non_value_columns if c in df.columns]),
-            value,
-            purpose="discover",
-        )
+            _, dim_columns = _resolve_frame_axes(source, df)
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         axes = _dimension_columns_for_ids(source, search_space or []) or dim_columns
         if search_space:
             _require_materialized_axes(
@@ -727,7 +794,7 @@ def _run_scorer(
         )
         _attach_selector_semantic_ids(rows, semantic_id_by_column)
         slice_params: dict[str, Any] = {
-            "value": value,
+            "value": value_column,
             "threshold": threshold_value,
             "search_space": search_space or [],
             "search_space_columns": axes,
@@ -756,11 +823,7 @@ def _run_scorer(
                     },
                 )
             bucket_column = time_column
-        value_column = require_numeric_column(
-            df.drop(columns=[c for c in [bucket_column, *group_columns] if c in df.columns]),
-            value,
-            purpose="discover",
-        )
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         rows = score_interesting_windows(
             df,
             source_ref=source.ref,
@@ -769,7 +832,7 @@ def _run_scorer(
             threshold=threshold_value,
             group_columns=group_columns,
         )
-        params = {"value": value, "threshold": threshold_value}
+        params = {"value": value_column, "threshold": threshold_value}
         return rows, params
 
     if objective == "cross_sectional_outliers":
@@ -780,11 +843,7 @@ def _run_scorer(
         )
         df = source._dataframe_copy()
         bucket_col, segment_columns = _resolve_frame_axes(source, df)
-        value_column = require_numeric_column(
-            df.drop(columns=[c for c in [bucket_col, *segment_columns] if c]),
-            value,
-            purpose="discover",
-        )
+        value_column = _resolve_discover_value_column(source, df, value, purpose="discover")
         peer_axes = _dimension_columns_for_ids(source, peer_scope or [])
         if peer_scope:
             # Fail closed on a peer_scope axis not materialized in the frame,
@@ -814,7 +873,7 @@ def _run_scorer(
             peer_scope=peer_axes,
         )
         outlier_params: dict[str, Any] = {
-            "value": value,
+            "value": value_column,
             "threshold": threshold_value,
             "peer_scope": peer_axes,
         }
@@ -951,6 +1010,12 @@ def _resolve_frame_axes(
     df_columns = set(df.columns)
     axes = source.meta.alignment.get("axes") if isinstance(source, DeltaFrame) else source.meta.axes
 
+    baseline_bucket_column: str | None = None
+    if isinstance(source, DeltaFrame):
+        candidate = source.meta.alignment.get("baseline_bucket_column")
+        if isinstance(candidate, str):
+            baseline_bucket_column = candidate
+
     time_column: str | None = None
     dim_columns: list[str] = []
 
@@ -975,14 +1040,19 @@ def _resolve_frame_axes(
                 break
 
     if not dim_columns:
-        time_col_set = {time_column} if time_column else set()
+        excluded = {time_column} if time_column else set()
+        if baseline_bucket_column is not None:
+            excluded.add(baseline_bucket_column)
         dim_columns = [
             col
             for col in df.columns
-            if col not in time_col_set
+            if col not in excluded
             and not is_numeric_dtype(df[col])
             and not is_datetime64_any_dtype(df[col])
         ]
+
+    if baseline_bucket_column is not None:
+        dim_columns = [col for col in dim_columns if col != baseline_bucket_column]
 
     return time_column, sorted(dim_columns)
 

@@ -252,6 +252,59 @@ def test_period_shifts_allows_panel_when_one_series_has_enough_buckets():
     assert out.meta.shape == "period_shift"
 
 
+def test_period_shifts_delta_frame_omitted_value_defaults_to_delta():
+    """A DeltaFrame's canonical current/baseline/delta/pct_change columns no
+    longer trip the single-numeric-column sniff; omitted value resolves to the
+    canonical ``delta`` column (issue #118)."""
+    session = session_attach.get_or_create(name="demo")
+    n = 30
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=n, freq="D", tz="UTC"),
+                "current": [10.0] * n,
+                "baseline": [10.0] * n,
+                "pct_change": [0.0] * n,
+                "delta": [0.0] * 10 + [5.0] * 7 + [0.0] * 13,
+            }
+        ),
+        semantic_kind="time_series",
+    )
+
+    out = session.discover.period_shifts(delta, threshold=2.0)
+
+    assert out.meta.params["value"] == "delta"
+    assert len(out.to_pandas()) >= 1
+
+
+def test_period_shifts_delta_omitted_and_explicit_value_are_identical():
+    """Omitting value must be indistinguishable from passing value=\"delta\":
+    same candidates, params, and evidence identity (issue #118)."""
+    session = session_attach.get_or_create(name="demo")
+    n = 30
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=n, freq="D", tz="UTC"),
+                "current": [10.0] * n,
+                "baseline": [10.0] * n,
+                "pct_change": [0.0] * n,
+                "delta": [0.0] * 10 + [5.0] * 7 + [0.0] * 13,
+            }
+        ),
+        semantic_kind="time_series",
+    )
+
+    omitted = session.discover.period_shifts(delta, threshold=2.0)
+    explicit = session.discover.period_shifts(delta, value="delta", threshold=2.0)
+
+    assert omitted.meta.params == explicit.meta.params
+    assert omitted.meta.params["value"] == "delta"
+    assert omitted.to_pandas().equals(explicit.to_pandas())
+
+
 def test_driver_axes_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
