@@ -119,6 +119,9 @@ Layers 1–4 and the artifact algebra are specified in
 Three layers own analysis guidance, each with one job — an agent consults the right
 one instead of a single monolithic manual:
 
+The target progressive-disclosure topology for those layers is specified in
+[`../../superpowers/specs/2026-08-27-progressive-analysis-live-help-design.md`](../../superpowers/specs/2026-08-27-progressive-analysis-live-help-design.md).
+
 - **Live surfaces — capabilities and runtime guidance.**
   `python -m marivo help` verifies the selected environment and hands off to
   Python. `marivo.help()` is a short global index; the exact surface names
