@@ -1,0 +1,84 @@
+---
+slug: docs/latest/release-notes/0.4.16
+title: Marivo 0.4.16
+description: Release notes for Marivo 0.4.16.
+---
+
+Marivo 0.4.16 makes discovery easier to configure and recover, records the
+canonical value column used by each objective, and gives evidence page limits
+structured, copyable repairs. It also documents a progressive analysis help
+topology for agent-facing workflows.
+
+## Highlights
+
+- Focused `marivo.help("analysis.<target>")` now exposes the strategy contract
+  for every `discover.*` objective: its default, legal alternatives, applicable
+  semantic kinds, threshold meaning, and when-to-use guidance. The strategy
+  facts are rendered from the runtime registry.
+- `discover` now resolves an omitted `value` according to the frame: a
+  `DeltaFrame` uses its canonical `delta` column, while a `MetricFrame` uses its
+  declared measure/value column. The resolved column is recorded in params and
+  evidence, so omitted and explicit values are equivalent.
+- `session.evidence.findings()` and `.digests()` now document bounded limits in
+  `[1, 100]` (defaults `50` and `10`), immutable page state, and
+  `has_more`/`next_cursor` continuation. Invalid limits raise
+  `EvidenceLimitError` with a copyable repair.
+
+## Changed
+
+- Explicit `discover` value selection validates existence and numeric type, and
+  failures include candidate numeric columns and a retry path. A multi-metric
+  frame should be projected with `frame.metric(...)` before discovery.
+- Discovery strategy guidance distinguishes single-point anomalies, local
+  regime changes, whole-window behavior, and sustained shifts that belong to
+  `compare`.
+
+## Fixed
+
+- An `observe` → `compare` → `discover` chain no longer treats the paired
+  baseline bucket as a dimension when resolving current-frame axes.
+- Omitted `value` no longer fails on a `DeltaFrame` merely because its
+  current, baseline, delta, and percent-change columns are all numeric; a
+  `MetricFrame` with an additional numeric axis can likewise use its declared
+  measure.
+
+## Documentation
+
+- Updated the analysis workflow and evidence documentation in English and
+  Chinese with discovery strategies, value resolution, and bounded pagination.
+- Documented the progressive analysis live-help topology and its ownership
+  boundaries in the analysis design specification.
+
+## Internal
+
+- Added regression coverage for real observe/compare/discover chains, focused
+  strategy help, evidence paging, and structured limit repairs.
+
+## Installation
+
+~~~bash
+curl -fsSL https://marivo.io/install.sh | bash
+~~~
+
+In mainland China, use:
+
+~~~bash
+curl -fsSL https://marivo.io/install-marivo-cn.sh | bash
+~~~
+
+For manual installation:
+
+~~~bash
+pip install marivo
+~~~
+
+Marivo 0.4.16 requires Python 3.10 or newer.
+
+## Documentation links
+
+- [Install Marivo](/docs/latest/installation/)
+- [Quick Start](/docs/latest/quick-start/)
+- [Semantic Layer](/docs/latest/concepts/semantic-layer/)
+- [Readiness](/docs/latest/concepts/readiness/)
+- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/)
+- [Evidence](/docs/latest/concepts/evidence/)
