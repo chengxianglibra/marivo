@@ -1312,12 +1312,23 @@ def _or_partition_predicates(
     table: Any,
     columns: Sequence[str],
     partitions: Sequence[tuple[object, ...]],
+    *,
+    partition_masks: dict[tuple[object, ...], Any] | None = None,
 ) -> Any:
     if not partitions:
         return ibis.literal(False)
-    predicate = _partition_mask(table, columns, partitions[0])
+    masks = partition_masks if partition_masks is not None else {}
+
+    def mask_for(partition: tuple[object, ...]) -> Any:
+        mask = masks.get(partition)
+        if mask is None:
+            mask = _partition_mask(table, columns, partition)
+            masks[partition] = mask
+        return mask
+
+    predicate = mask_for(partitions[0])
     for partition in partitions[1:]:
-        predicate = predicate | _partition_mask(table, columns, partition)
+        predicate = predicate | mask_for(partition)
     return predicate
 
 
@@ -1560,6 +1571,26 @@ def trino_native_percentile_coalitions_expression(
         baseline_values,
         columns=[*prefix_axes, value_column],
     )
+    period_field = samples[_NATIVE_PERCENTILE_PERIOD_COLUMN]
+    value_field = samples[value_column]
+    current_period = period_field == _NATIVE_PERCENTILE_CURRENT_PERIOD
+    baseline_period = period_field == _NATIVE_PERCENTILE_BASELINE_PERIOD
+    partition_masks: dict[tuple[object, ...], Any] = {}
+    partition_predicates: dict[tuple[tuple[object, ...], ...], Any] = {}
+
+    def predicate_for(partitions: Sequence[tuple[object, ...]]) -> Any:
+        key = tuple(partitions)
+        predicate = partition_predicates.get(key)
+        if predicate is None:
+            predicate = _or_partition_predicates(
+                samples,
+                prefix_axes,
+                key,
+                partition_masks=partition_masks,
+            )
+            partition_predicates[key] = predicate
+        return predicate
+
     aggregates = {}
     for index, selected in enumerate(coalitions):
         current_partitions, baseline_partitions = _native_percentile_partition_members(
@@ -1567,13 +1598,9 @@ def trino_native_percentile_coalitions_expression(
             selected,
             partition_members=partition_members,
         )
-        current_predicate = (
-            samples[_NATIVE_PERCENTILE_PERIOD_COLUMN] == _NATIVE_PERCENTILE_CURRENT_PERIOD
-        ) & _or_partition_predicates(samples, prefix_axes, current_partitions)
-        baseline_predicate = (
-            samples[_NATIVE_PERCENTILE_PERIOD_COLUMN] == _NATIVE_PERCENTILE_BASELINE_PERIOD
-        ) & _or_partition_predicates(samples, prefix_axes, baseline_partitions)
-        aggregates[f"coalition_{index}"] = samples[value_column].approx_quantile(
+        current_predicate = current_period & predicate_for(current_partitions)
+        baseline_predicate = baseline_period & predicate_for(baseline_partitions)
+        aggregates[f"coalition_{index}"] = value_field.approx_quantile(
             q,
             where=current_predicate | baseline_predicate,
         )

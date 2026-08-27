@@ -377,7 +377,7 @@ def test_native_percentile_top_k_expands_other_to_raw_partitions(monkeypatch) ->
     )
     predicates: list[tuple[tuple[object, ...], ...]] = []
 
-    def record_predicate(table, columns, partitions):
+    def record_predicate(table, columns, partitions, *, partition_masks=None):
         predicates.append(tuple(partitions))
         return ibis.literal(True)
 

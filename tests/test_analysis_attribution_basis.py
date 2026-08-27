@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import itertools
+import sys
+
 import ibis
+import ibis.expr.operations as ops
 import pytest
 
 import marivo.analysis as mv
@@ -178,6 +182,66 @@ def test_trino_native_percentile_adapter_compiles_batched_union_all_replay(
     assert "QDIGEST_AGG" not in sql
     assert "TDIGEST_AGG" not in sql
     assert "MERGE(" not in sql
+
+
+def test_trino_native_percentile_reuses_regex_derived_top_k_predicates() -> None:
+    query_info = ibis.table(
+        {
+            "user": "string",
+            "client_tags": "string",
+            "elapsed_time": "float64",
+            "create_time": "timestamp",
+        },
+        name="query_info",
+    )
+
+    def period_values(start: str) -> ibis.Table:
+        business_tag = ibis.cases(
+            (
+                query_info.user == "sys_oneservice",
+                query_info.client_tags.re_extract(r"api_id=([^,]+)", 1),
+            ),
+        )
+        prepared = query_info.filter(query_info.create_time >= ibis.timestamp(start)).mutate(
+            business_tag=business_tag
+        )
+        return prepared.select("business_tag", "elapsed_time")
+
+    partitions = tuple((f"api_{index}",) for index in range(4))
+    partition_members = {
+        partitions[0]: (("api_0",),),
+        partitions[1]: (("api_1",),),
+        partitions[2]: (("api_2",),),
+        partitions[3]: tuple((f"api_{index}",) for index in range(3, 28)),
+    }
+    coalitions = tuple(
+        frozenset(selected)
+        for size in range(1, len(partitions))
+        for selected in itertools.combinations(range(len(partitions)), size)
+    )
+    expression = trino_native_percentile_coalitions_expression(
+        period_values("2026-08-20"),
+        period_values("2026-08-13"),
+        coalitions=coalitions,
+        partitions=partitions,
+        partition_members=partition_members,
+        prefix_axes=("business_tag",),
+        value_column="elapsed_time",
+        q=0.90,
+    )
+
+    recursion_limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(60)
+        expression.op().find(ops.InMemoryTable)
+    finally:
+        sys.setrecursionlimit(recursion_limit)
+
+    sql = ibis.to_sql(expression, dialect="trino").upper()
+    assert sql.count("APPROX_PERCENTILE") == len(coalitions)
+    assert sql.count("FILTER(WHERE") == len(coalitions)
+    assert sql.count("UNION ALL") == 1
+    assert "REGEXP_EXTRACT" in sql
 
 
 def test_trino_native_percentile_basis_blocks_unsupported_unsigned_source_type() -> None:
