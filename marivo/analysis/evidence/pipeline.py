@@ -18,7 +18,11 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from marivo._compat import UTC
-from marivo._temporal import _trusted_time_scope_validation
+from marivo._temporal import (
+    ComparisonTemporalContractV1,
+    FrameTemporalContractV1,
+    _trusted_time_scope_validation,
+)
 from marivo.analysis._cumulative import (
     AllHistoryLevelChangeV1,
     AllHistoryPairAlignmentV1,
@@ -80,6 +84,7 @@ from marivo.analysis.evidence.types import (
     RawFallback,
     Subject,
     SubjectSetSubject,
+    TimeWindow,
 )
 from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
@@ -315,6 +320,26 @@ def _delta_time_columns(df: pd.DataFrame, meta: Any) -> tuple[str | None, str | 
             baseline = f"{current}_b"
 
     return current, baseline
+
+
+def _comparison_time_windows(meta: Any) -> tuple[TimeWindow | None, TimeWindow | None]:
+    """Project exact comparison scopes without inferring relative period labels."""
+    contract = getattr(meta, "temporal_contract", None)
+    if not isinstance(contract, ComparisonTemporalContractV1):
+        return None, None
+    field = _time_column_from_meta(meta) or "time_scope"
+
+    def project(frame_contract: FrameTemporalContractV1) -> TimeWindow | None:
+        scope = frame_contract.time_scope
+        if scope is None:
+            return None
+        return TimeWindow(
+            field=field,
+            start=scope.start.isoformat(),
+            end=scope.end.isoformat(),
+        )
+
+    return project(contract.current), project(contract.baseline)
 
 
 def _atomic_write_parquet(df: pd.DataFrame, dest: Path) -> str:
@@ -677,6 +702,7 @@ def _extract_findings(
     if extractor_family == "delta_frame":
         delta_meta = cast("_DeltaEvidenceMeta", meta)
         time_column, baseline_time_column = _delta_time_columns(df, meta)
+        current_window, baseline_window = _comparison_time_windows(meta)
         cumulative_pairs = (
             delta_meta.cumulative_alignment.pairs
             if delta_meta.cumulative_alignment is not None
@@ -695,6 +721,8 @@ def _extract_findings(
             time_column=time_column,
             baseline_time_column=baseline_time_column,
             unit=delta_meta.unit,
+            current_window=current_window,
+            baseline_window=baseline_window,
             cumulative_pairs=cumulative_pairs,
             cumulative_change=delta_meta.cumulative_change,
         )

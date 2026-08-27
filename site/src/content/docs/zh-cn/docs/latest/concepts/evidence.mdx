@@ -67,8 +67,14 @@ findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
 frame = session.get_frame(result.ref)
 
 for finding in findings.items:
-    print(finding.finding_type, finding.value)
+    finding.show(language="zh")
 ```
+
+`Finding.render()` 默认返回一行、有界的英文证据陈述；传入 `language="zh"` 返回中文。
+单条陈述不包含 canonical id，`FindingPage.render()` 会在每条陈述前保留真实
+`finding_id`，便于继续精确读取。渲染是纯展示：不会查询 Session，也不会推断“本周”等
+相对周期名称。delta finding 同时保留两个精确比较范围时，会展示半开区间
+`[start, end)`；缺少任一范围时直接省略窗口短语。
 
 可以把一个证据项追溯到声明的源字段与被保留的摘要项：
 

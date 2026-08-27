@@ -78,8 +78,16 @@ findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
 frame = session.get_frame(result.ref)
 
 for finding in findings.items:
-    print(finding.finding_type, finding.value)
+    finding.show()
 ```
+
+`Finding.render()` returns one bounded English evidence statement. Pass
+`language="zh"` for Chinese. The statement stays on one line and does not include
+the canonical id; `FindingPage.render()` prefixes every statement with its real
+`finding_id` so exact follow-up reads remain copyable. Rendering is pure: it
+does not query Session state or infer labels such as “this week.” When a delta
+finding retained both exact comparison scopes, the line shows their half-open
+`[start, end)` ranges; otherwise it omits the window clause.
 
 Trace one finding back to its declared source fields and retained digest items:
 

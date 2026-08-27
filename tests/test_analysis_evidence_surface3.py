@@ -11,6 +11,7 @@ from marivo.analysis.errors import FindingNotFoundError
 from marivo.analysis.evidence.types import (
     ArtifactDigest,
     ArtifactDigestPage,
+    DeltaFindingValue,
     Finding,
     FindingPage,
 )
@@ -105,6 +106,23 @@ def test_finding_exact_lookup_and_not_found(tmp_path: Path):
     assert session.evidence.finding(finding.finding_id) == finding
     with pytest.raises(FindingNotFoundError):
         session.evidence.finding("fnd_does_not_exist")
+
+
+def test_delta_finding_persists_exact_comparison_windows_for_rendering(tmp_path: Path):
+    session = _session(tmp_path)
+    delta = _compare(session)
+    finding = session.evidence.findings(artifact_ref=delta.ref, kind="delta").items[0]
+
+    assert isinstance(finding.value, DeltaFindingValue)
+    assert finding.value.current_window is not None
+    assert finding.value.current_window.start == "2026-05-01"
+    assert finding.value.current_window.end == "2026-05-07"
+    assert finding.value.baseline_window is not None
+    assert finding.value.baseline_window.start == "2026-04-24"
+    assert finding.value.baseline_window.end == "2026-04-30"
+    assert "current window [2026-05-01, 2026-05-07)" in finding.render()
+    assert "本期区间为 [2026-05-01, 2026-05-07)" in finding.render(language="zh")
+    assert session.evidence.finding(finding.finding_id) == finding
 
 
 def test_removed_judgment_reads_are_not_advertised(tmp_path: Path):
