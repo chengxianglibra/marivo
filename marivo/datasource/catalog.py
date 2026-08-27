@@ -9,6 +9,7 @@ from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
+    DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     DatasourceConnection,
     DatasourceDescription,
     DatasourceList,
@@ -154,11 +155,18 @@ class DatasourceCatalog(RenderableResult):
         """
         return describe(name)
 
-    def connect(self, name: str) -> DatasourceConnection:
+    def connect(
+        self,
+        name: str,
+        *,
+        timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    ) -> DatasourceConnection:
         """Connect to a datasource by name.
 
         Args:
             name: The datasource name to connect to.
+            timeout_seconds: Wall-clock deadline for the backend-connect
+                handshake. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
 
         Returns:
             A ``DatasourceConnection`` proxy for the datasource backend.
@@ -167,13 +175,21 @@ class DatasourceCatalog(RenderableResult):
             >>> with catalog.connect("wh") as con:
             ...     con.raw_sql("SELECT 1")
         """
-        return connect(name)
+        return connect(name, timeout_seconds=timeout_seconds)
 
-    def test(self, name: str) -> DatasourceTestResult:
+    def test(
+        self,
+        name: str,
+        *,
+        timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    ) -> DatasourceTestResult:
         """Test connectivity to a datasource.
 
         Args:
             name: The datasource name to test.
+            timeout_seconds: Wall-clock deadline for the backend-connect
+                handshake and the ``SELECT 1`` round-trip. Defaults to
+                ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
 
         Returns:
             A ``DatasourceTestResult`` with ok status, latency, and typed repair.
@@ -181,7 +197,7 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> result = catalog.test("wh")
         """
-        return test(name)
+        return test(name, timeout_seconds=timeout_seconds)
 
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))

@@ -1479,7 +1479,14 @@ state. It does not project semantic candidates or authorize business meaning.
 
 Use `md.test(ref).show()` as the connection-test stop point. A failed
 `DatasourceTestResult` exposes a structured `.failure` and focused `.repair`.
-Snapshot
+The connect handshake and the `SELECT 1` round-trip are bounded by a 30-second
+Marivo-side wall-clock deadline, overridable with a keyword-only
+`timeout_seconds`; exceeding it fails closed with a `connection_timeout` or
+`connection_roundtrip_timeout` failure code rather than blocking indefinitely,
+even when the backend's own query timeout is not enforceable. A thread-affine
+SQLite datasource is the exception — it opens a local file or in-memory database
+synchronously, so `md.connect` opens it inline on the caller's thread and the
+deadline does not apply. Snapshot
 connection, source-resolution, timeout, and execution failures likewise remain
 structured and state whether a query was executed; backend messages are bounded
 and sanitized.
