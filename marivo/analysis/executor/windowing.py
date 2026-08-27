@@ -227,15 +227,25 @@ def _partition_exclusive_end_datetime(
     """Partition-level exclusive end bound for hour-precision partitions.
 
     For date-only ends the exclusive bound is midnight of the stated date
-    (the date itself is excluded under [start, end)).  For non-date-only
-    ends the bound advances to the next whole hour so the hour partition
-    containing the end timestamp is included in the scan; row-level
-    filtering then applies the precise ``< end_instant`` cutoff.
+    (the date itself is excluded under [start, end)).  For hour-precision
+    ends the bound is the first whole hour that is *excluded* under the
+    half-open ``[start, end)`` interval.
+
+    The bound branches on whether the end lands exactly on an hour: an
+    exact-hour end excludes the bucket starting at ``end`` (truncate), while
+    an end inside an hour keeps the intersecting bucket by advancing to the
+    next whole hour.  This matches the half-open bucket enumeration
+    ``window_bucket`` derives from the same window metadata, which walks
+    ``bucket_start < end`` against the precise end — so a 12:30 end includes
+    the 12:00 bucket, while a 14:00 end excludes it.
     """
     parsed, is_date_bound = _parse_partition_datetime(value, fmt=fmt, tz=tz, bound_name=bound_name)
     if is_date_bound:
         return datetime.combine(parsed.date(), time.min, tzinfo=tz)
-    return parsed.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    truncated = parsed.replace(minute=0, second=0, microsecond=0)
+    if truncated == parsed:
+        return truncated
+    return truncated + timedelta(hours=1)
 
 
 def _format_hour_precision_partition_literal(value: datetime, fmt: str | None) -> str:
