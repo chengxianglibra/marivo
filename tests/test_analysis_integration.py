@@ -185,3 +185,49 @@ def test_hour_partition_observe_compare_window_bucket_pairs_non_hour_end(tmp_pat
     assert coverage["baseline_unpaired_buckets"] == 0
     assert coverage["current"]["missing_buckets"] == 0
     assert coverage["baseline"]["missing_buckets"] == 0
+
+
+def test_end_to_end_discover_period_shifts_uses_canonical_delta(tmp_path):
+    """A real observe -> compare -> discover chain: the compare DeltaFrame
+    carries current/baseline/delta/pct_change, and discover.period_shifts with
+    an omitted value defaults to the canonical ``delta`` column instead of
+    failing the single-numeric-column sniff (issue #118)."""
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, created_at DATE, amount DOUBLE)")
+    rows = []
+    oid = 1
+    for day in range(30):
+        rows.append((oid, f"DATE '2026-04-{day + 1:02d}'", 10.0))
+        oid += 1
+    for day in range(30):
+        amount = 100.0 if 10 <= day < 17 else 10.0
+        rows.append((oid, f"DATE '2026-07-{day + 1:02d}'", amount))
+        oid += 1
+    values = ", ".join(f"({a}, {b}, {c})" for a, b, c in rows)
+    con.raw_sql(f"INSERT INTO orders VALUES {values}")
+
+    s = mv.session.get_or_create(
+        name="discover-chain",
+        question="why did Q3 spike?",
+        backends={"warehouse": lambda: con},
+    )
+    q3 = s.observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-30"),
+        grain=mv.grain("day"),
+    )
+    q2 = s.observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope=mv.time_scope(start="2026-04-01", end="2026-04-30"),
+        grain=mv.grain("day"),
+    )
+    d = s.compare(q3, q2, alignment=mv.window_bucket())
+
+    delta_df = d.to_pandas()
+    assert {"current", "baseline", "delta", "pct_change"}.issubset(set(delta_df.columns))
+
+    out = s.discover.period_shifts(d, threshold=2.0)
+
+    assert out.meta.params["value"] == "delta"
+    assert len(out.to_pandas()) >= 1

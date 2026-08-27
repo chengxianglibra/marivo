@@ -19,7 +19,11 @@ from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1, AttributionMode
 from marivo.analysis.candidate_lineage import CandidateOrigin, merge_candidate_origins
-from marivo.analysis.errors import CrossSessionFrameError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AnalysisRepair,
+    CrossSessionFrameError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -85,17 +89,25 @@ def ensure_frame_in_session(frame: BaseFrame, *, session: Session, label: str) -
         )
 
 
-def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str) -> str:
+def require_numeric_column(
+    df: pd.DataFrame,
+    value: str | None,
+    *,
+    purpose: str,
+    repair: AnalysisRepair | None = None,
+) -> str:
     if value is not None:
         if value not in df.columns:
             raise SemanticKindMismatchError(
                 message=f"{purpose} value column {value!r} does not exist",
                 context={"columns": list(df.columns)},
+                repair=repair,
             )
         if not is_numeric_dtype(df[value]):
             raise SemanticKindMismatchError(
                 message=f"{purpose} value column {value!r} is not numeric",
                 context={"column": value, "dtype": str(df[value].dtype)},
+                repair=repair,
             )
         return value
 
@@ -104,6 +116,7 @@ def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str)
         raise SemanticKindMismatchError(
             message=f"{purpose} requires exactly one numeric column when value is omitted",
             context={"numeric_columns": numeric},
+            repair=repair,
         )
     return str(numeric[0])
 

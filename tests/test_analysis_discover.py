@@ -60,7 +60,7 @@ def test_discover_point_anomalies_returns_candidate_set():
         "source_ref": frame.ref,
         "objective": "point_anomalies",
         "strategy": "zscore",
-        "value": None,
+        "value": "value",
         "threshold": 1.0,
         "limit": 50,
     }
@@ -114,15 +114,56 @@ def test_discover_single_non_null_value_returns_empty_candidate_set():
     assert out.meta.row_count == 0
 
 
-def test_discover_uses_explicit_numeric_value_column():
+def test_discover_rejects_non_measure_numeric_value_column():
+    """An explicit value must name the MetricFrame's declared measure (public
+    ``revenue`` or internal ``value``); an unrelated numeric column is not a
+    discover target (issue #118 review)."""
     session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0], "count": [3, 9]})
     )
 
-    out = session.discover.point_anomalies(frame, value="count", threshold=1.0)
+    with pytest.raises(SemanticKindMismatchError) as exc:
+        session.discover.point_anomalies(frame, value="count", threshold=1.0)
 
-    assert out.meta.params["value"] == "count"
+    assert exc.value.repair is not None
+
+
+def test_discover_accepts_public_measure_name_as_explicit_value():
+    """An explicit value may name the MetricFrame's public measure column
+    (``value_columns``), not just the internal ``value`` storage column
+    (issue #118 review: public/internal column vocabularies must agree)."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0], "count": [3, 9]}),
+    )
+
+    out = session.discover.point_anomalies(frame, value="revenue", threshold=1.0)
+
+    assert out.meta.params["value"] == "value"
+
+
+def test_discover_public_measure_name_resolves_same_as_internal_name():
+    """Explicit public name ``value=\"revenue\"`` and internal name
+    ``value=\"value\"`` resolve to the identical scored result."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["a", "b", "c", "d"],
+                "value": [-100.0, 0.0, 0.0, 100.0],
+            }
+        ),
+    )
+
+    by_public = session.discover.point_anomalies(frame, value="revenue", threshold=1.0)
+    by_internal = session.discover.point_anomalies(frame, value="value", threshold=1.0)
+
+    assert by_public.meta.params["value"] == "value"
+    assert by_internal.meta.params["value"] == "value"
+    assert list(by_public.to_pandas()["item_id"]) == list(by_internal.to_pandas()["item_id"])
 
 
 @pytest.mark.parametrize("semantic_kind", ["scalar", "segmented"])
@@ -165,24 +206,54 @@ def test_discover_rejects_ambiguous_numeric_columns():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}))
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(SemanticKindMismatchError) as exc:
         session.discover.point_anomalies(frame)
+
+    assert exc.value.repair is not None
+    assert set(exc.value.repair.candidates) == {"a", "b"}
 
 
 def test_discover_rejects_missing_explicit_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(SemanticKindMismatchError) as exc:
         session.discover.point_anomalies(frame, value="missing")
+
+    assert exc.value.repair is not None
+    assert exc.value.repair.candidates == ("value",)
 
 
 def test_discover_rejects_non_numeric_explicit_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0]}))
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(SemanticKindMismatchError) as exc:
         session.discover.point_anomalies(frame, value="bucket")
+
+    assert exc.value.repair is not None
+    assert exc.value.repair.candidates == ("value",)
+
+
+def test_discover_metric_frame_omitted_value_defaults_to_measure_column():
+    """An extra numeric column no longer makes omitted value ambiguous: the
+    MetricFrame's declared measure/value column wins (issue #118)."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": ["a", "b", "c", "d"],
+                "value": [-100.0, 0.0, 0.0, 100.0],
+                "count": [10, 20, 30, 40],
+            }
+        ),
+    )
+
+    out = session.discover.point_anomalies(frame, threshold=1.0)
+
+    assert out.meta.params["value"] == "value"
+    assert list(out.to_pandas()["direction"]) == ["low", "high"]
 
 
 def test_discover_rejects_unknown_objective():
