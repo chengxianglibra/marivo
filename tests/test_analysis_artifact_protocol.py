@@ -96,6 +96,23 @@ def _attribute_affordance(frame: DeltaFrame) -> ArtifactAffordance:
     )
 
 
+def test_delta_affordances_expose_attribute_and_transform_parameter_help() -> None:
+    frame = _delta_contract_frame(additivity="additive")
+    affordances = {item.capability_id: item for item in frame.contract().affordances}
+
+    attribute = {item.parameter: item for item in affordances["attribute"].input_requirements}
+    assert attribute["mode"].help_targets == ("analysis.AttributionMode",)
+
+    rollup = {item.parameter: item for item in affordances["transform.rollup"].input_requirements}
+    assert rollup["grain"].help_targets == (
+        "analysis.grain",
+        "semantic.calendar_grain",
+    )
+    rank = {item.parameter: item for item in affordances["transform.rank"].input_requirements}
+    assert rank["method"].help_targets == ("analysis.RankMethod",)
+    assert "transform.normalize" not in affordances
+
+
 def _artifact_cases():
     yield MetricFrame(
         _df=pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]}),

@@ -94,7 +94,9 @@ under `marivo.help("analysis.alignment")` and
 `marivo.help("analysis.MetricFrame")` only when the object contract is
 insufficient or before first use of an unfamiliar capability. After a failure,
 follow the structured repair. Focused help is self-contained for one correct
-minimal invocation, but is not required before every API call.
+minimal invocation: `Prerequisites` routes family-bearing inputs, while
+`Parameter construction` routes every non-family constructed or closed value
+to its exact next `marivo.help(...)` target. It is not required before every API call.
 :::
 
 When analysis needs newly authored or changed semantics, close out the smallest
@@ -1131,6 +1133,12 @@ dropouts = session.select_subjects(
     selection=mv.dropped_before(step=payment_step),
 )
 ```
+
+When continuing from a recovered journey instead of the original script,
+select exact steps from `journeys.meta.pattern.steps`; do not reconstruct them
+or pass bare keys or numeric positions in place of typed values. Focused
+`events.time_to_event` Help exposes this retained-value route and the
+`PatternStep`/`step` contracts.
 
 `EventFrame[funnel]` keeps additive counts, censoring-aware rates, and grouped
 reconciliation evidence. `EventFrame[time_to_event]` keeps the exact source

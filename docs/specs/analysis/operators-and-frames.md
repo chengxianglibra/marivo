@@ -130,8 +130,11 @@ Every public operator, constructor, read, recovery, and boundary crossing is
 registered in a closed capability registry. Each entry carries a stable
 `capability_id`, `public_entrypoint`, `help_target`, `accepted_inputs` (a
 mapping from parameter name to the closed set of accepted input families), and
-an `ArtifactOutputContract` carrying output family plus any statically known
-semantic shapes and matching kinds. The same artifact-admission predicates
+parameter-level Help contracts for non-family inputs that require construction,
+selection from retained artifact state, or an aliased closed value vocabulary.
+Each parameter contract owns its acquisition instruction and exact next Help
+targets. An `ArtifactOutputContract` carries output family plus any statically
+known semantic shapes and matching kinds. The same artifact-admission predicates
 filter static producer/consumer edges and concrete runtime affordances. Unknown
 or input-dependent output shapes stay conditional and defer to the concrete
 artifact's `.contract()`; fixed funnel and Lifecycle reducer shapes never
@@ -144,7 +147,11 @@ Focused help obtains prerequisites from the same producer graph: artifact
 inputs point to compatible producers, semantic inputs point to the owning typed
 catalog collection, and composite Event patterns point through
 `participant_role` → `step` → `sequence`. Every accepted input family must have
-one registered acquisition path before the registry can initialize.
+one registered acquisition path before the registry can initialize. A separate
+`Parameter construction` section routes non-family inputs such as Grain,
+PatternStep, aliased policy literals, and structured selectors without adding
+them to the runtime family vocabulary. Every opaque named signature annotation
+must be covered by either `accepted_inputs` or one parameter Help contract.
 
 The runtime family gate validates submitted inputs against the registry's
 `accepted_inputs` before any backend work begins. When an input family does not
@@ -704,8 +711,10 @@ only — it never ranks, recommends, or narrates:
   `capability_id` (the stable registry id such as `compare` or
   `discover.driver_axes`), `public_entrypoint` (the public API path),
   `help_target` (the canonical `marivo.help("analysis.<target>")` target), role-preserving
-  `inputs` (`parameter`, accepted artifact families, and whether the current
-  artifact can bind that parameter), `preconditions`
+  `inputs` (`parameter`, accepted artifact families, whether the current
+  artifact can bind that parameter directly, whether a constructed value is
+  derivable from retained current-artifact state, and any parameter
+  acquisition/Help route), `preconditions`
   (`(check, pass|fail, reason)`), and `expected_output_family`.
 - `boundary_ports: ArtifactBoundaryPort[]` — typed terminal-exit ports derived
   from the capability registry. Each port carries `capability_id`

@@ -209,14 +209,33 @@ class ArtifactPrecondition(BaseModel):
 
 
 class ArtifactInputRequirement(BaseModel):
-    """One public input role preserved from the capability registry."""
+    """One public input role preserved from the capability registry.
+
+    Family-bearing inputs expose their accepted families and artifact binding.
+    Constructed, selected, or closed-value parameters instead expose one exact
+    acquisition instruction and qualified Help targets. Metadata-derived values
+    are distinguished from parameters that bind the current artifact directly.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     parameter: str
     accepted_families: tuple[str, ...]
     bindable_from_current_artifact: bool
+    derivable_from_current_artifact: bool = False
     accepted_semantic_shapes: tuple[str, ...] = ()
+    acquisition: str | None = None
+    help_targets: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_requirement_route(self) -> ArtifactInputRequirement:
+        if not self.accepted_families and not self.acquisition:
+            raise ValueError("input requirement needs accepted families or acquisition guidance")
+        if bool(self.acquisition) != bool(self.help_targets):
+            raise ValueError("acquisition and help_targets must be supplied together")
+        if self.derivable_from_current_artifact and not self.acquisition:
+            raise ValueError("artifact-derived inputs need acquisition guidance")
+        return self
 
 
 class ArtifactCallOption(BaseModel):
@@ -595,19 +614,22 @@ def _artifact_contract_card(contract: ArtifactContract) -> Card:
 
 
 def _render_affordance(affordance: ArtifactAffordance) -> str:
-    bindings = "; ".join(
-        (
-            f"{requirement.parameter}={','.join(requirement.accepted_families)} "
-            f"(current_artifact={str(requirement.bindable_from_current_artifact).lower()}"
-            + (
-                f"; semantic_shapes={','.join(requirement.accepted_semantic_shapes)}"
-                if requirement.accepted_semantic_shapes
-                else ""
+    rendered_requirements: list[str] = []
+    for requirement in affordance.input_requirements:
+        details = [f"current_artifact={str(requirement.bindable_from_current_artifact).lower()}"]
+        if requirement.derivable_from_current_artifact:
+            details.append("derived_from_current_artifact=true")
+        if requirement.accepted_semantic_shapes:
+            details.append(f"semantic_shapes={','.join(requirement.accepted_semantic_shapes)}")
+        if requirement.acquisition is not None:
+            details.append(f"acquire={requirement.acquisition}")
+            details.append(
+                "help="
+                + ",".join(f'marivo.help("{target}")' for target in requirement.help_targets)
             )
-            + ")"
-        )
-        for requirement in affordance.input_requirements
-    )
+        families = ",".join(requirement.accepted_families) or "constructed"
+        rendered_requirements.append(f"{requirement.parameter}={families} ({'; '.join(details)})")
+    bindings = "; ".join(rendered_requirements)
     base = (
         f"{affordance.public_entrypoint} -> {affordance.expected_output_family or 'none'}; "
         f"inputs={bindings or 'none'}; help={_analysis_help_call(affordance.help_target)}"
@@ -836,33 +858,51 @@ class BaseFrame(RenderableResult):
                 hidden_parameters.add("target")
             if desc.id == "compare" and family == "EventFrame" and semantic_kind == "funnel":
                 hidden_parameters.add("alignment")
-            input_requirements = tuple(
-                ArtifactInputRequirement(
-                    parameter=parameter,
-                    accepted_families=tuple(sorted(str(item) for item in families)),
-                    bindable_from_current_artifact=family in {str(item) for item in families},
-                    accepted_semantic_shapes=(
-                        tuple(
-                            sorted(
-                                desc.artifact_admission[parameter].semantic_shapes.get(
-                                    family,
-                                    (),
+            input_requirements: list[ArtifactInputRequirement] = []
+            for parameter in sorted({*desc.accepted_inputs, *desc.parameter_help}):
+                if parameter in hidden_parameters:
+                    continue
+                families = desc.accepted_inputs.get(parameter, frozenset())
+                parameter_help = desc.parameter_help.get(parameter)
+                input_requirements.append(
+                    ArtifactInputRequirement(
+                        parameter=parameter,
+                        accepted_families=tuple(sorted(str(item) for item in families)),
+                        bindable_from_current_artifact=(family in {str(item) for item in families}),
+                        derivable_from_current_artifact=(
+                            bool(parameter_help and parameter_help.derivable_from_current_artifact)
+                        ),
+                        accepted_semantic_shapes=(
+                            tuple(
+                                sorted(
+                                    desc.artifact_admission[parameter].semantic_shapes.get(
+                                        family,
+                                        (),
+                                    )
                                 )
                             )
-                        )
-                        if parameter in desc.artifact_admission
-                        else ()
-                    ),
+                            if parameter in desc.artifact_admission
+                            else ()
+                        ),
+                        acquisition=(
+                            parameter_help.acquisition if parameter_help is not None else None
+                        ),
+                        help_targets=(
+                            tuple(
+                                f"{target.surface}.{target.canonical_id}"
+                                for target in parameter_help.help_targets
+                            )
+                            if parameter_help is not None
+                            else ()
+                        ),
+                    )
                 )
-                for parameter, families in sorted(desc.accepted_inputs.items())
-                if parameter not in hidden_parameters
-            )
             output_family = _output_family_str(desc)
             affordance = ArtifactAffordance(
                 capability_id=desc.id,
                 public_entrypoint=desc.public_entrypoint,
                 help_target=desc.help_target,
-                input_requirements=input_requirements,
+                input_requirements=tuple(input_requirements),
                 expected_output_family=output_family,
             )
             if desc.id in {"MetricFrame.components", "DeltaFrame.components"}:

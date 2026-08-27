@@ -544,6 +544,27 @@ def test_event_contract_filters_first_per_subject_only_continuations(
     assert "select_subjects" not in repeated_ids
     assert {"events.time_to_event", "assess_quality"}.issubset(repeated_ids)
 
+    time_to_event = next(
+        item
+        for item in first.contract().affordances
+        if item.capability_id == "events.time_to_event"
+    )
+    requirements = {item.parameter: item for item in time_to_event.input_requirements}
+    assert {"axes", "journeys", "start_step", "end_step"} <= set(requirements)
+    for parameter in ("start_step", "end_step"):
+        requirement = requirements[parameter]
+        assert requirement.bindable_from_current_artifact is False
+        assert requirement.derivable_from_current_artifact is True
+        assert "journeys.meta.pattern.steps" in (requirement.acquisition or "")
+        assert requirement.help_targets == ("analysis.PatternStep", "analysis.step")
+    assert requirements["journeys"].bindable_from_current_artifact is True
+    assert requirements["journeys"].derivable_from_current_artifact is False
+
+    rendered_contract = first.contract().render()
+    assert "start_step=constructed (current_artifact=false" in rendered_contract
+    assert "end_step=constructed (current_artifact=false" in rendered_contract
+    assert "derived_from_current_artifact=true" in rendered_contract
+
     session._connection_runtime.begin_query_capture()
     with pytest.raises(InvalidEventMatchingPolicyError) as captured:
         session.events.funnel(repeated)

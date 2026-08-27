@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from marivo.introspection.live.model import LiveHelpTarget
+
 # ---------------------------------------------------------------------------
 # Closed vocabulary: capability kinds, visibility, groups, families
 # ---------------------------------------------------------------------------
@@ -136,6 +138,21 @@ class ArtifactAdmissionRule:
     coverage_statuses: Mapping[ArtifactFamily, frozenset[str]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ParameterHelpContract:
+    """Construction or selection guidance for one non-family parameter.
+
+    ``accepted_inputs`` remains the runtime family-admission authority. This
+    contract exists only for parameters whose value must be constructed,
+    selected from retained artifact state, or chosen from an aliased closed
+    vocabulary that reflection cannot explain by itself.
+    """
+
+    acquisition: str
+    help_targets: tuple[LiveHelpTarget, ...]
+    derivable_from_current_artifact: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Capability descriptors
 # ---------------------------------------------------------------------------
@@ -219,6 +236,7 @@ class OperatorCapability(CapabilityBase):
     authority_policy: AuthorityPolicy = field(kw_only=True)
     receiver: str = ""
     accepted_inputs: Mapping[str, frozenset[InputFamily]] = field(default_factory=dict)
+    parameter_help: Mapping[str, ParameterHelpContract] = field(default_factory=dict)
     artifact_admission: Mapping[str, ArtifactAdmissionRule] = field(default_factory=dict)
     output_contract: ArtifactOutputContract = field(
         default_factory=lambda: ArtifactOutputContract(family="MetricFrame")
