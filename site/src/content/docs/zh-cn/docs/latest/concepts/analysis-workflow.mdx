@@ -581,15 +581,26 @@ residual 与对账检查，并遵循相同的空结果 advisory 合同。
 objectives 使用确定性 score order；本体 hypothesis 不打分，按确定性语义身份排序。
 两种顺序都不是 Marivo 的推荐。
 
-| 辅助函数 | 源形状 | 必填 | 关键选项 |
-| --- | --- | --- | --- |
-| `point_anomalies` | `MetricFrame` time_series/面板 | — | `value`、`threshold=3.0` |
-| `period_shifts` | `DeltaFrame` time_series/面板 | ≥ 7 个桶 | `value`、`threshold=2.0` |
-| `driver_axes` | `DeltaFrame` | `search_space` | `value`、`limit` |
-| `interesting_slices` | `MetricFrame` 或 `DeltaFrame` | — | `search_space`、`value`、`threshold=2.0`、`limit` |
-| `interesting_windows` | time_series/面板 frame | — | `value`、`threshold=2.0` |
-| `cross_sectional_outliers` | `MetricFrame` segmented/面板 | — | `peer_scope`、`value`、`threshold=3.0` |
-| `semantic_hypotheses` | 单一目录指标的 `MetricFrame` 或同指标 `DeltaFrame` | 就绪的可选本体 | `limit=50`（`1..200`） |
+| 辅助函数 | 源形状 | 必填 | 策略（默认；备选） | 关键选项 |
+| --- | --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame` time_series/面板 | — | `zscore`；`seasonal_robust_zscore` | `value`、`threshold=3.0` |
+| `period_shifts` | `DeltaFrame` time_series/面板 | ≥ 7 个桶 | `delta_window_zscore` | `value`、`threshold=2.0` |
+| `driver_axes` | `DeltaFrame` | `search_space` | `concentration` | `value`、`limit` |
+| `interesting_slices` | `MetricFrame` 或 `DeltaFrame` | — | `slice_zscore` | `search_space`、`value`、`threshold=2.0`、`limit` |
+| `interesting_windows` | time_series/面板 frame | — | `global_zscore_runs` | `value`、`threshold=2.0` |
+| `cross_sectional_outliers` | `MetricFrame` segmented/面板 | — | `mad` | `peer_scope`、`value`、`threshold=3.0` |
+| `semantic_hypotheses` | 单一目录指标的 `MetricFrame` 或同指标 `DeltaFrame` | 就绪的可选本体 | 不打分 | `limit=50`（`1..200`） |
+
+每个有分数的 objective 各选一种策略；只有 `point_anomalies` 有公开的备选
+（`seasonal_robust_zscore`，适用于周周期明显、异常会污染全局 mean/std 的序列）。
+传入不支持的策略时，discovery 会以结构化 `SemanticKindMismatchError` 失败。
+
+三种异常形 objective 刻意区分：
+
+- `point_anomalies` 找的是序列相对自身基线的**单个点**偏离。
+- `period_shifts` 找的是单条 delta 序列内部的**局部 regime 变化**；整窗持续的同向
+  移动（任意方向）属于 `compare`，而不是 discovery。
+- `interesting_windows` 对比的是**整窗**逐值行为，而不是单点或单个 regime 边界。
 
 ```python
 series = session.observe(

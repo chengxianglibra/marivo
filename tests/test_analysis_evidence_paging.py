@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import EvidenceStoreUnavailableError
+from marivo.analysis.errors import EvidenceLimitError, EvidenceStoreUnavailableError
 from marivo.analysis.evidence.audit import query_digests, query_findings
 from marivo.analysis.evidence.store import open_evidence_store
 from marivo.analysis.evidence.types import ArtifactDigestPage, FindingPage
@@ -172,9 +172,27 @@ def test_all_public_pages_reject_out_of_range_limits(tmp_path: Path, limit: int)
         session.frame_summaries(limit=limit)
     store = open_evidence_store(tmp_path / "judgment.db")
     try:
-        with pytest.raises(ValueError):
+        with pytest.raises(EvidenceLimitError):
             query_digests(store=store, session_id="sess_1", limit=limit)
-        with pytest.raises(ValueError):
+        with pytest.raises(EvidenceLimitError):
             query_findings(store=store, session_id="sess_1", limit=limit)
+    finally:
+        store.close()
+
+
+def test_evidence_page_limit_error_carries_range_and_reusable_repair(tmp_path: Path):
+    store = open_evidence_store(tmp_path / "judgment.db")
+    try:
+        with pytest.raises(EvidenceLimitError) as captured:
+            query_findings(store=store, session_id="sess_1", limit=200)
+        error = captured.value
+        assert error.expected == "limit within [1, 100]"
+        assert error.received == "limit=200"
+        assert error.location == "session.evidence.findings(...)"
+        assert error.repair is not None
+        assert error.repair.kind == "retry"
+        assert error.repair.help_target.display == "session.evidence.findings"
+        assert "session.evidence.findings(limit=50)" in error.repair.snippet
+        assert "cursor=page.next_cursor" in error.repair.snippet
     finally:
         store.close()

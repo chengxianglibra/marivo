@@ -578,6 +578,54 @@ def test_focused_help_signature_matches_inspect() -> None:
         assert param_name in text
 
 
+@pytest.mark.parametrize(
+    ("target", "default", "alternatives"),
+    [
+        ("discover.point_anomalies", "zscore", "seasonal_robust_zscore"),
+        ("discover.period_shifts", "delta_window_zscore", None),
+        ("discover.driver_axes", "concentration", None),
+        ("discover.interesting_slices", "slice_zscore", None),
+        ("discover.interesting_windows", "global_zscore_runs", None),
+        ("discover.cross_sectional_outliers", "mad", None),
+    ],
+)
+def test_discover_focused_help_discloses_strategy_contract(
+    target: str, default: str, alternatives: str | None
+) -> None:
+    text = _text(target)
+    assert "Strategy:" in text
+    assert f"default: {default}" in text
+    if alternatives is not None:
+        assert f"alternatives: {alternatives}" in text
+    else:
+        assert "alternatives:" not in text
+    assert "applies to semantic kinds:" in text
+    assert "when to use:" in text
+
+
+def test_discover_help_distinguishes_period_shift_from_whole_window_compare() -> None:
+    # Local regime change is discover; a sustained whole-window shift is compare.
+    assert "belongs to compare" in _text("discover.period_shifts")
+
+
+def test_findings_focused_help_discloses_pagination_contract() -> None:
+    text = _text("session.evidence.findings")
+    assert "limit: int = 50" in text
+    assert "[1, 100]" in text
+    assert "has_more" in text
+    assert "next_cursor" in text
+    assert "cursor=page.next_cursor" in text
+    assert "EvidenceLimitError" in text
+
+
+def test_digests_focused_help_discloses_pagination_bound() -> None:
+    text = _text("session.evidence.digests")
+    assert "[1, 100]" in text
+    assert "has_more" in text
+    assert "next_cursor" in text
+    assert "EvidenceLimitError" in text
+
+
 def test_focused_operator_help_discloses_registered_authority_policy() -> None:
     assert "authority: semantic_current" in _text("events.match")
     assert "authority: semantic_current" in _text("attribute")

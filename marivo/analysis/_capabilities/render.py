@@ -658,6 +658,46 @@ def _has_semantic_object_handoff(desc: OperatorCapability) -> bool:
     )
 
 
+def _discover_strategy_lines(desc: OperatorCapability) -> list[str]:
+    """Render the scored-objective strategy contract for one discover operator.
+
+    Strategy facts live in :mod:`marivo.analysis.intents.discover` as the single
+    source of truth; this renderer only reads them so focused help and the
+    latest site docs cannot drift into independent copies.
+    """
+    if not desc.help_target.startswith("discover."):
+        return []
+    objective = desc.help_target.split(".", 1)[1]
+    from marivo.analysis.intents.discover import (
+        _DEFAULT_STRATEGY,
+        _OBJECTIVE_SEMANTIC_KINDS,
+        _OBJECTIVE_STRATEGY_APPLICABILITY,
+        _OBJECTIVE_THRESHOLD,
+        _STRATEGY_ALTERNATIVES,
+    )
+
+    if objective not in _DEFAULT_STRATEGY:
+        return []
+    default = _DEFAULT_STRATEGY[objective]
+    alternatives = sorted(_STRATEGY_ALTERNATIVES.get(objective, set()))
+    kinds = sorted(_OBJECTIVE_SEMANTIC_KINDS[objective])
+    threshold_info = _OBJECTIVE_THRESHOLD[objective]
+
+    strategy = f"    default: {default}"
+    if alternatives:
+        strategy += f"; alternatives: {', '.join(alternatives)}"
+    lines = ["", "  Strategy:", strategy]
+    lines.append(f"    applies to semantic kinds: {', '.join(kinds)}")
+    if threshold_info is not None:
+        lines.append(
+            f"    threshold: {threshold_info['description']}, default {threshold_info['default']}"
+        )
+    else:
+        lines.append("    threshold: not accepted")
+    lines.append(f"    when to use: {_OBJECTIVE_STRATEGY_APPLICABILITY[objective]}")
+    return lines
+
+
 def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     """Render focused help for a single capability descriptor."""
     lines: list[str] = []
@@ -766,6 +806,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
         if artifact_input:
             output += f"; authority: {desc.authority_policy}"
         lines.append(output)
+        lines.extend(_discover_strategy_lines(desc))
 
     if isinstance(desc, BoundaryCapability):
         lines.append("")

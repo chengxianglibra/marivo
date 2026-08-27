@@ -176,7 +176,10 @@ datasource/source health.
 
 ## Recover a session with bounded pages
 
-List reads are bounded and newest-first:
+List reads are bounded and newest-first. `session.evidence.findings` accepts
+`limit` in `[1, 100]` (default `50`); `session.evidence.digests` accepts the
+same range (default `10`). A `limit` outside the range raises
+`EvidenceLimitError`, which reports the expected range and a copyable repair.
 
 ```python
 frames = session.frame_summaries(limit=20)
@@ -187,6 +190,12 @@ if digests.has_more:
     digests = session.evidence.digests(
         limit=10,
         cursor=digests.next_cursor,
+    )
+
+if findings.has_more:
+    findings = session.evidence.findings(
+        limit=50,
+        cursor=findings.next_cursor,
     )
 ```
 

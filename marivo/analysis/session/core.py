@@ -2636,10 +2636,21 @@ class EvidenceNamespace:
     ) -> FindingPage:
         """Return one bounded newest-first page of canonical findings.
 
+        Guidance:
+            ``limit`` is bounded to [1, 100] and defaults to 50. The returned
+            page exposes immutable ``items``, ``limit``, ``has_more``, and
+            ``next_cursor``; when ``has_more`` is True, pass ``next_cursor`` back
+            as ``cursor`` to read the next newest-first page. An out-of-range
+            ``limit`` raises ``EvidenceLimitError`` with the expected range and a
+            copyable repair.
+
         Example:
             page = session.evidence.findings(artifact_ref=artifact.ref, limit=50)
             page.show()
             page.show(language="zh")
+            next_page = session.evidence.findings(
+                artifact_ref=artifact.ref, limit=50, cursor=page.next_cursor
+            )
         """
         from marivo.analysis.evidence.audit import query_findings
 
@@ -2662,6 +2673,13 @@ class EvidenceNamespace:
         cursor: str | None = None,
     ) -> ArtifactDigestPage:
         """Return one bounded newest-first page of persisted digest snapshots.
+
+        Guidance:
+            ``limit`` is bounded to [1, 100] and defaults to 10. The returned
+            page exposes immutable ``items``, ``limit``, ``has_more``, and
+            ``next_cursor``; pass ``next_cursor`` back as ``cursor`` to page. An
+            out-of-range ``limit`` raises ``EvidenceLimitError`` with the expected
+            range and a copyable repair.
 
         Example:
             page = session.evidence.digests(operator="compare", limit=10)

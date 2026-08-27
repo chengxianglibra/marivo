@@ -140,6 +140,28 @@ _OBJECTIVE_THRESHOLD: dict[ScoredCandidateObjective, dict[str, Any] | None] = {
     "driver_axes": None,
 }
 
+# Human-readable applicability notes rendered into focused help and mirrored in
+# the latest site docs. Keep these in one place; they are not a separate fact
+# source, only a stable reading of the strategy tables above.
+_OBJECTIVE_STRATEGY_APPLICABILITY: dict[ScoredCandidateObjective, str] = {
+    "point_anomalies": (
+        "single points deviating from the series baseline; seasonal_robust_zscore "
+        "suits strong weekly seasonality where anomalies would skew mean/std"
+    ),
+    "period_shifts": (
+        "a local regime change inside the delta series; a sustained whole-window "
+        "shift belongs to compare, not discovery"
+    ),
+    "driver_axes": (
+        "deterministic dimension concentration ranking for one delta; not causal attribution"
+    ),
+    "interesting_slices": "dimension slices whose means differ from the frame baseline",
+    "interesting_windows": "time windows with globally unusual per-value behavior",
+    "cross_sectional_outliers": (
+        "segments that are outliers relative to their peers in the same frame"
+    ),
+}
+
 
 def _is_valid_objective(objective: str) -> TypeGuard[ScoredCandidateObjective]:
     return objective in _VALID_OBJECTIVES
