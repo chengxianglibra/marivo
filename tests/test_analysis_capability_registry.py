@@ -272,12 +272,16 @@ def test_slice2_cross_links_are_explicit_immutable_and_budgeted() -> None:
         "methods.change",
         "methods.relationship_testing",
         "forecast",
-        "assess_quality",
         "discover",
+        "BaseFrame.quality_report",
         "boundary.to_pandas",
         "session.get_frame",
     )
     assert len(metric_routes) == REGISTRY.render_budget("public_type").max_outgoing_routes
+    assert tuple(target.canonical_id for target in REGISTRY.cross_links("QualityReport")) == (
+        "BaseFrame.quality_report",
+        "boundary.to_pandas",
+    )
     for targets in REGISTRY.cross_link_index.values():
         for target in targets:
             if target.surface == "analysis" and target.canonical_id is not None:
@@ -1254,7 +1258,6 @@ EXPECTED_OPERATOR_IDS = {
     "correlate",
     "hypothesis_test",
     "forecast",
-    "assess_quality",
     "discover.point_anomalies",
     "discover.period_shifts",
     "discover.driver_axes",
@@ -1612,7 +1615,6 @@ def test_every_delegating_session_operator_is_registered() -> None:
         "attribute",
         "correlate",
         "forecast",
-        "assess_quality",
         "hypothesis_test",
     ]
     for name in intent_methods:

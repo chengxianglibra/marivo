@@ -297,10 +297,10 @@ def test_unbound_session_forecast() -> None:
     assert result.descriptor.id == "forecast"
 
 
-def test_unbound_session_assess_quality() -> None:
-    result = resolve_help_target(Session.assess_quality)
+def test_unbound_frame_quality_report() -> None:
+    result = resolve_help_target(BaseFrame.quality_report)
     assert result.kind == "descriptor"
-    assert result.descriptor.id == "assess_quality"
+    assert result.descriptor.id == "BaseFrame.quality_report"
 
 
 # ---------------------------------------------------------------------------

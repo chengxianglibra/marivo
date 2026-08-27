@@ -105,7 +105,6 @@ _CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyTy
             "correlate",
             "hypothesis_test",
             "forecast",
-            "assess_quality",
             "discover",
         ),
         "family_operations": ("transform",),
@@ -123,7 +122,6 @@ _CURRENT_ROOT_SUMMARIES: Mapping[str, str] = MappingProxyType(
         "compare": "Compare compatible metric or funnel artifacts into a DeltaFrame.",
         "attribute": ("Attribute a DeltaFrame over explicit axes with reconciled contributions."),
         "forecast": "Forecast a time-series or panel MetricFrame.",
-        "assess_quality": "Run fixed quality checks over supported analysis artifacts.",
         "artifacts": "Inspect bounded state, valid continuations, and terminal exits.",
     }
 )
@@ -169,7 +167,6 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
                 _analysis_target("discover"),
                 _analysis_target("methods.relationship_testing"),
                 _analysis_target("forecast"),
-                _analysis_target("assess_quality"),
                 _analysis_target("events"),
                 _analysis_target("lifecycle"),
                 _analysis_target("select_subjects"),
@@ -214,7 +211,7 @@ def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
                 _analysis_target("evidence.exact"),
                 _analysis_target("session.evidence.compatibility"),
                 _analysis_target("session.revalidate"),
-                _analysis_target("assess_quality"),
+                _analysis_target("BaseFrame.quality_report"),
             ),
         ),
         AnalysisNavigationTopic(
@@ -712,7 +709,7 @@ def _slice2_discovery_memberships(
                 "discover",
                 "methods.relationship_testing",
                 "forecast",
-                "assess_quality",
+                "BaseFrame.quality_report",
                 "events",
                 "lifecycle",
                 "select_subjects",
@@ -2350,43 +2347,6 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
-    descriptors.append(
-        OperatorCapability(
-            id="assess_quality",
-            public_entrypoint="session.assess_quality(...)",
-            help_target="assess_quality",
-            summary=(
-                "Run fixed quality checks over supported MetricFrame, EventFrame, "
-                "LifecycleFrame, DeltaFrame, and AttributionFrame shapes."
-            ),
-            constraint_ids=("quality_target_shape",),
-            callable_path="marivo.analysis.session.core.Session.assess_quality",
-            authority_policy="materialized_only",
-            receiver="Session",
-            accepted_inputs={
-                "frame": _MF | _EF | _LF | _DF | _AF,
-            },
-            artifact_admission={
-                "frame": ArtifactAdmissionRule(
-                    semantic_shapes={
-                        "MetricFrame": frozenset({"scalar", "time_series", "segmented", "panel"}),
-                        "EventFrame": frozenset({"journey", "funnel", "time_to_event"}),
-                        "LifecycleFrame": frozenset(
-                            {"history", "distribution", "transitions", "dwell", "violations"}
-                        ),
-                        "DeltaFrame": frozenset(
-                            {"scalar", "time_series", "segmented", "panel", "funnel"}
-                        ),
-                        "AttributionFrame": frozenset(
-                            {"scalar", "time_series", "segmented", "panel", "funnel_loss_rate"}
-                        ),
-                    },
-                ),
-            },
-            output_contract=_output("QualityReport"),
-        )
-    )
-
     # -- Discover operators -----------------------------------------------
 
     _discover_specs: tuple[
@@ -2760,6 +2720,21 @@ def _build_registry() -> CapabilityRegistry:
     )
 
     # -- BaseFrame reads --------------------------------------------------
+
+    descriptors.append(
+        OperatorCapability(
+            id="BaseFrame.quality_report",
+            public_entrypoint="frame.quality_report()",
+            help_target="BaseFrame.quality_report",
+            summary="Load the construction-time quality report linked to this Artifact.",
+            constraint_ids=(),
+            callable_path="marivo.analysis.frames.base.BaseFrame.quality_report",
+            authority_policy="materialized_only",
+            receiver="BaseFrame",
+            accepted_inputs={"receiver": _MF | _EF | _LF | _DF | _AF},
+            output_contract=_output("QualityReport", nullable=True),
+        )
+    )
 
     descriptors.append(
         ReadCapability(
@@ -3893,12 +3868,13 @@ def _derive_cross_links(
             )
             if route is not None:
                 routed_algebra_values.append(route)
+        independently_recoverable = artifact_family != "QualityReport"
         add(
             artifact_family,
             (
-                _analysis_target("artifacts.reading"),
+                *((_analysis_target("artifacts.reading"),) if independently_recoverable else ()),
                 *routed_algebra_values,
-                _analysis_target("session.get_frame"),
+                *((_analysis_target("session.get_frame"),) if independently_recoverable else ()),
             ),
         )
 

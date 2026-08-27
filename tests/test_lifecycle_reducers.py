@@ -372,6 +372,39 @@ def test_lifecycle_reducers_use_committed_history_without_datasource_queries(
     assert len(session.job(grouped.meta.produced_by_job)["queries"]) == 1
 
 
+def test_lifecycle_reducer_revalidation_tracks_history_dependency(
+    semantic_project_factory,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    history = _committed_history(session)
+    reducer = session.lifecycle.transitions(history)
+
+    admissible = session.revalidate(reducer)
+    assert admissible.status == "admissible"
+    assert admissible.dependency_status == "admissible"
+
+    original_get_frame = session.get_frame
+
+    def changed_source(ref):
+        loaded = original_get_frame(ref)
+        if ref == history.ref:
+            loaded.meta = loaded.meta.model_copy(update={"content_hash": "sha256:changed"})
+        return loaded
+
+    monkeypatch.setattr(session, "get_frame", changed_source)
+    stale = session.revalidate(reducer)
+    assert stale.status == "stale"
+    assert stale.dependency_status == "stale"
+    assert any(issue.severity == "blocking" for issue in stale.issues)
+
+    session._store.delete_artifact(session.id, history.ref)
+    indeterminate = session.revalidate(reducer)
+    assert indeterminate.status == "indeterminate"
+    assert indeterminate.dependency_status == "indeterminate"
+
+
 def test_distribution_rejects_invalid_instants_before_any_axis_query(
     semantic_project_factory,
     tmp_path,

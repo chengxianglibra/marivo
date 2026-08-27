@@ -52,7 +52,7 @@ def test_session_class_exposes_execution_surface():
     assert callable(mv.Session.attribute)
     assert callable(mv.Session.correlate)
     assert callable(mv.Session.forecast)
-    assert callable(mv.Session.assess_quality)
+    assert not hasattr(mv.Session, "assess_quality")
     assert callable(mv.Session.hypothesis_test)
     assert isinstance(mv.Session.discover, property)
     assert not hasattr(mv.Session, "transform")

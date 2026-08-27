@@ -72,7 +72,6 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.lifecycle import LifecycleFrame
     from marivo.analysis.frames.metric import MetricFrame
-    from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.frames.subject import SubjectSet
     from marivo.analysis.funnel import FunnelLossRate
     from marivo.analysis.intents._attribution_mode import AttributionMode
@@ -1511,51 +1510,6 @@ class Session(RenderableResult):
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
-
-    def assess_quality(
-        self, frame: BaseFrame, *, analysis_purpose: str | None = None
-    ) -> QualityReport:
-        """Run registered quality checks over an analysis artifact and return a report.
-
-        When to use: check data quality and coverage before downstream analysis.
-
-        Metric DeltaFrame checks validate the result row contract. Comparable-period
-        cumulative deltas additionally surface matched-null, unpaired, and fallback
-        counts from their authoritative typed alignment evidence. Metric attribution
-        checks validate a non-empty registered row contract, finite contributions,
-        and typed reconciliation receipts for scalar, time-series, segmented, and
-        panel shapes, including one receipt per additive panel bucket.
-
-        Args:
-            frame: A supported MetricFrame, EventFrame, LifecycleFrame, DeltaFrame,
-                or AttributionFrame to inspect. Multi-metric MetricFrames produce one
-                joint report: frame-level checks run once, measure-level checks run once
-                per metric, and any blocking check blocks the report. Call
-                ``frame.contract()`` to read the exact admitted shapes.
-
-        Raises:
-            QualityShapeUnsupportedError: ``frame`` is not a supported frame.
-            CrossSessionFrameError: ``frame`` belongs to a different session.
-
-        Example:
-            >>> report = session.assess_quality(
-            ...     frame,
-            ...     analysis_purpose="检查收入观察结果是否可用于归因",
-            ... )
-            >>> for issue in report.contract().issues:
-            ...     print(issue)
-        """
-        from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.intents.assess_quality import assess_quality
-
-        with _track_session_operation(
-            self,
-            "marivo.analysis.assess_quality",
-            family="core",
-            intent="assess_quality",
-        ):
-            validate_capability_inputs("assess_quality", frame=frame)
-            return assess_quality(frame, analysis_purpose=analysis_purpose, session=self)
 
     def hypothesis_test(
         self,

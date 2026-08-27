@@ -11,12 +11,14 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo._compat import UTC
 from marivo.analysis.errors import (
+    ArtifactQualityError,
     AttributionMaterializationError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.frames._quality import evaluate_frame_quality
+from marivo.analysis.frames._quality_checks import run_attribution_checks
 from marivo.analysis.frames.attribution import AttributionFrame, validate_generic_attribution_rows
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.intents._quality_checks import run_attribution_checks
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
 from tests.conftest import bootstrap_sales_project
@@ -128,21 +130,15 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert loaded.meta.driver_field == "region"
     assert list(loaded.to_pandas().columns) == list(result.columns)
     contract = out.contract()
-    quality_affordance = next(
-        item for item in contract.affordances if item.capability_id == "assess_quality"
-    )
-    frame_requirement = next(
-        item for item in quality_affordance.input_requirements if item.parameter == "frame"
-    )
-    assert "segmented" in frame_requirement.accepted_semantic_shapes
+    assert any(item.capability_id == "BaseFrame.quality_report" for item in contract.affordances)
 
-    quality = session.assess_quality(out)
+    quality = out.quality_report()
+    assert quality is not None
     assert quality.meta.report_shape == "attribution"
     assert quality.meta.target_metric_id == "sales.revenue"
     assert quality.meta.target_semantic_kind == "segmented"
     assert quality.meta.overall_status == "ok"
-    assert quality.evidence_status == "complete"
-    assert quality.evidence_digest is not None
+    assert quality.evidence_digest is None
     assert quality.to_pandas()["metric_id"].isna().all()
     assert set(quality.to_pandas()["check_id"]) == {
         "attribution_row_count",
@@ -150,10 +146,10 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
         "attribution_contribution_values",
         "attribution_reconciliation",
     }
-    recovered_quality = session.get_frame(quality.ref)
+    recovered_quality = loaded.quality_report()
+    assert recovered_quality is not None
     assert recovered_quality.meta.report_shape == "attribution"
-    quality_job = session.job(quality.meta.produced_by_job)
-    assert quality_job["subject"]["kind"] == "delta_metric"
+    assert quality.meta.produced_by_job == out.meta.produced_by_job
 
 
 def test_attribute_single_axis_top_k_preserves_null_and_real_other_identity() -> None:
@@ -482,17 +478,14 @@ def test_panel_attribution_quality_validates_each_bucket_reconciliation() -> Non
     corrupted = out._dataframe_copy()
     corrupted.loc[0, "contribution"] += 1_000.0
     corrupted_frame = AttributionFrame(_df=corrupted, meta=out.meta)
-    quality = session.assess_quality(corrupted_frame)
-    corrupted_status = dict(
-        zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
-    )
-    issue_kinds = {issue.kind for issue in quality.meta.issues}
-
-    assert quality.meta.overall_status == "blocking"
-    assert corrupted_status["attribution_row_contract"] == "blocking"
-    assert corrupted_status["attribution_reconciliation"] == "blocking"
-    assert "attribution_row_contract_invalid" in issue_kinds
-    assert "attribution_reconciliation_invalid" in issue_kinds
+    with pytest.raises(ArtifactQualityError) as exc_info:
+        evaluate_frame_quality(corrupted_frame, artifact_id="prospective")
+    failed = {
+        str(row["check_id"]): str(row["severity"])
+        for row in exc_info.value._context["failed_checks"]
+    }
+    assert failed["attribution_row_contract"] == "blocking"
+    assert failed["attribution_reconciliation"] == "blocking"
 
 
 def test_empty_attribution_quality_warns_on_row_count_not_reconciliation() -> None:
@@ -511,15 +504,15 @@ def test_empty_attribution_quality_warns_on_row_count_not_reconciliation() -> No
         axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     )
 
-    quality = session.assess_quality(out)
+    quality = out.quality_report()
+    assert quality is not None
     status = dict(
         zip(quality.to_pandas()["check_id"], quality.to_pandas()["severity"], strict=True)
     )
 
     assert quality.meta.overall_status == "warning"
     assert quality.meta.blocking_issue_count == 0
-    assert quality.evidence_status == "complete"
-    assert quality.evidence_digest is not None
+    assert quality.evidence_digest is None
     assert status["attribution_row_count"] == "warning"
     assert status["attribution_row_contract"] == "ok"
     assert status["attribution_reconciliation"] == "ok"

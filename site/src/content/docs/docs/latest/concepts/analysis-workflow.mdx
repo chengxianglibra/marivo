@@ -619,47 +619,25 @@ history = session.observe(
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
-### `assess_quality` → `QualityReport`
+### Construction-time quality → `QualityReport`
 
-Run quality checks over an artifact and return a separate `QualityReport`.
-`artifact.quality_summary` is only a cheap persisted metadata projection; it is
-not the same thing as running `session.assess_quality(artifact)`.
-Read `report.overall_status`, `report.blocking_issue_count`, and
-`report.warning_count` for the authoritative verdict and counts.
-`report.state` remains `ArtifactState` materialization metadata; it is not a
-quality status.
-Only `blocking` means the artifact has a structural, identity, ordering,
-arithmetic, reconciliation, or coverage-receipt contradiction that can make the
-result wrong or ambiguous. Empty or low-volume results, high null ratios,
-missing time buckets, unknown coverage, and censoring are `warning`: analysis
-may continue, but the limitation must be disclosed. A requested window beyond
-`data_extent_end` is `info` when coverage is complete inside the extent.
-For a cumulative comparable-period `DeltaFrame`, the report reads the typed
-pairing evidence and surfaces matched-null, unpaired, and fallback counts.
-Metric `AttributionFrame` shapes (`scalar`, `time_series`, `segmented`, and
-`panel`) are also accepted, including generic-v3 and cumulative-flow rows. Their
-fixed checks cover the row contract, finite contribution values, and typed
-reconciliation, including one persisted receipt per additive panel bucket. Empty
-attribution results produce a dedicated row-count warning rather than being
-misreported as reconciliation failures. Funnel loss-rate attribution retains its
-funnel-specific checks and follows the same empty-result advisory contract.
+`MetricFrame`, `DeltaFrame`, `AttributionFrame`, `EventFrame`, and
+`LifecycleFrame` run fixed, deterministic quality checks automatically before
+publication. A blocking contradiction raises `ArtifactQualityError`; the main
+Artifact, its quality sidecar, and a successful job are not published.
 
-Inspect `artifact.contract()` before calling the operator: the
-`assess_quality` affordance lists the exact shapes admitted for that artifact
-family. `marivo.help("assess_quality")` prints the complete family-to-shape
-table. A multi-metric `MetricFrame` produces one joint report. Frame-level
-checks run once, measure-level checks run once per authoritative measure
-binding, and any blocking check blocks the report. Metric-level report rows
-carry the canonical `metric_id`; frame-level rows carry no metric id. Typed
-issues and findings preserve the exact metric identity.
-The report's `contract().issues` contains typed data-quality findings. Stop only
-for blocking correctness issues. Warning issues, including
-`time_coverage_incomplete`, remain usable evidence but must be disclosed in any
-continued analysis or conclusion.
+Published `ok` and `warning` results retain bounded counts and coverage facts in
+`frame.quality_summary`. Use `frame.quality_report()` to read the complete
+committed checks when row-level detail matters. This read-only call does not
+recompute checks or create a job, and the report has no independent evidence
+digest or lineage. Missing, modified, or shape-mismatched sidecars fail closed.
 
-| Parameter | Type | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `frame` | supported analysis artifact | Yes | — | The frame to inspect; exact admitted shapes are exposed by `frame.contract()` and focused help. |
+Empty or low-volume results, high null ratios, missing time buckets, unknown
+coverage, and censoring remain warnings that must be disclosed. Multi-metric
+frames run measure checks once per authoritative binding and retain canonical
+`metric_id` values. Lifecycle reducers validate their history dependency while
+building; use `session.revalidate(reducer)` later to distinguish an admissible,
+missing (`indeterminate`), or changed (`stale`) source history.
 
 ### `hypothesis_test` → `HypothesisTestResult`
 
@@ -769,7 +747,7 @@ accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
 - `show()`, `contract()`, and `transform.window(...)` work normally on cumulative frames.
   `contract()` and `show()` surface the anchor-specific caveat, so the allowed path is
   visible at the frame you are reading.
-- `correlate`, `discover`, `assess_quality`, and `hypothesis_test` are allowed. Trailing
+- `correlate`, `discover`, and `hypothesis_test` are allowed. Trailing
   frames are independent windowed aggregations (not running totals), so these intents
   produce meaningful results. The monotonic-trend caveat applies only to `all_history`
   and `grain_to_date` anchors — keep it in mind when interpreting results.
@@ -1309,6 +1287,6 @@ source artifact contract for the exact current admission rules.
 | `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
-| `QualityReport` | `assess_quality` |
+| `QualityReport` | `frame.quality_report()` (read-only committed sidecar) |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |

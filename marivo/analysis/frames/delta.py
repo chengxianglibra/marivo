@@ -838,7 +838,7 @@ class DeltaFrame(BaseFrame):
         if self.meta.semantic_kind == "funnel":
             # Metric-only continuations are structurally impossible on the
             # closed funnel union; do not advertise them to the agent. Keep
-            # the real affordances (attribute / assess_quality / discover.*).
+            # the real affordances (attribute / quality_report / discover.*).
             metric_only = {"DeltaFrame.components"} | {
                 f"transform.{name}"
                 for name in ("bottomk", "filter", "rank", "rollup", "slice", "topk", "window")

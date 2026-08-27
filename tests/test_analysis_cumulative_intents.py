@@ -1092,7 +1092,8 @@ def test_cumulative_delta_quality_reads_typed_pairing_caveats(tmp_path, monkeypa
     )
     delta = compare(current, baseline, session=session)
 
-    report = session.assess_quality(delta)
+    report = delta.quality_report()
+    assert report is not None
     pairing = report.to_pandas().set_index("check_kind").loc["cumulative_pairing"]
     details = json.loads(pairing["details_json"])
 
@@ -1613,7 +1614,8 @@ def test_cumulative_delta_attributes_replayed_business_axis(tmp_path, monkeypatc
     assert drivers.meta.params["delta_math_contract"] == DELTA_MATH_CONTRACT_VERSION
     assert drivers.meta.method_evidence is not None
     assert drivers.meta.method_evidence.kind == "cumulative_business_axes"
-    quality = session.assess_quality(drivers)
+    quality = drivers.quality_report()
+    assert quality is not None
     assert quality.meta.report_shape == "attribution"
     assert quality.meta.overall_status == "ok"
 
@@ -1656,7 +1658,8 @@ def test_cumulative_delta_attributes_all_history_accumulation_time(tmp_path, mon
     assert rows["flow_interval_end"].tolist() == [pd.Timestamp("2026-07-04T00:00:00Z")]
     reloaded = session.get_frame(flow.ref)
     assert reloaded.meta.row_contract_version == "cumulative-flow-attribution-rows/v1"
-    quality = session.assess_quality(flow)
+    quality = flow.quality_report()
+    assert quality is not None
     assert quality.meta.report_shape == "attribution"
     assert quality.meta.overall_status == "ok"
     assert set(quality.to_pandas()["check_id"]) == {
@@ -1762,7 +1765,8 @@ def test_cumulative_delta_attributes_comparable_period_flow(
     assert flow.meta.reconciliation is not None
     assert flow.meta.reconciliation.max_abs_residual <= 1e-9
     assert len(flow.meta.method_evidence.partitions) == len(delta.to_pandas())
-    quality = session.assess_quality(flow)
+    quality = flow.quality_report()
+    assert quality is not None
     assert quality.meta.report_shape == "attribution"
     assert quality.meta.overall_status == "ok"
 

@@ -34,7 +34,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "discover",
         "correlate",
         "forecast",
-        "assess_quality",
         "hypothesis_test",
         "evidence",
         "frame_summaries",
@@ -53,6 +52,7 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "promote_metric_frame",
         "promote_delta_frame",
         "promote_attribution_frame",
+        "assess_quality",
     ):
         assert removed not in names
     for hidden in (

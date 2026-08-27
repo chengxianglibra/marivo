@@ -34,7 +34,6 @@ class ConstraintId(StrEnum):
     TRANSFORM_FRAME_SHAPE = "transform_frame_shape"
     TRANSFORM_OPERATOR_SUPPORTED = "transform_operator_supported"
     FORECAST_INPUT_SHAPE = "forecast_input_shape"
-    QUALITY_TARGET_SHAPE = "quality_target_shape"
     EVENT_PATTERN_VALID = "event_pattern_valid"
     EVENT_WINDOW_VALID = "event_window_valid"
     EVENT_COMPLETENESS_VALID = "event_completeness_valid"
@@ -184,7 +183,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "forecast",
             "transform",
             "discover",
-            "assess_quality",
             "MetricFrame",
             "MetricArityError",
         ),
@@ -272,27 +270,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Forecast models need complete ordered history periods; semantic histories must match one exact period snapshot and cannot operate on scalar or segmented-only frames.",
         "Observe the metric with a built-in or certified semantic grain and enough complete history before calling session.forecast(...).",
         help_target="forecast",
-    ),
-    ConstraintId.QUALITY_TARGET_SHAPE: _constraint(
-        ConstraintId.QUALITY_TARGET_SHAPE,
-        "QualityShapeUnsupported",
-        "runtime",
-        (
-            "assess_quality",
-            "QualityReport",
-            "MetricFrame",
-            "EventFrame",
-            "LifecycleFrame",
-            "DeltaFrame",
-            "AttributionFrame",
-        ),
-        (
-            "Quality assessment accepts supported MetricFrame, EventFrame, LifecycleFrame, "
-            "DeltaFrame, and AttributionFrame shapes."
-        ),
-        "Each supported artifact shape has a separate fixed check set and report shape.",
-        "Call session.assess_quality(frame).",
-        help_target="assess_quality",
     ),
     ConstraintId.EVENT_PATTERN_VALID: _constraint(
         ConstraintId.EVENT_PATTERN_VALID,

@@ -74,7 +74,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "correlate",
         "hypothesis_test",
         "forecast",
-        "assess_quality",
+        "BaseFrame.quality_report",
         "MetricFrame.metric",
         "events.match",
         "events.funnel",

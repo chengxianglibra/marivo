@@ -27,8 +27,9 @@ from marivo.analysis.errors import (
     SubjectSetMismatchError,
 )
 from marivo.analysis.event import _event_repair, first_per_subject, sequence, step
+from marivo.analysis.frames._quality import evaluate_frame_quality
+from marivo.analysis.frames._quality_checks import run_event_journey_checks
 from marivo.analysis.frames.event import EventFrame, EventFrameMeta, EventInputCoverage
-from marivo.analysis.intents._quality_checks import run_event_journey_checks
 from marivo.analysis.lineage import Lineage
 from marivo.refs import RefPayloadV1
 from tests.shared_fixtures import rendered_help
@@ -195,19 +196,13 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
     )
     frame = _event_frame(session)
 
-    report = session.assess_quality(frame)
+    report = evaluate_frame_quality(frame, artifact_id="prospective")
+    assert report is not None
 
-    assert report.meta.report_shape == "event_journey"
-    assert report.meta.target_kind == "event_frame"
-    assert report.meta.target_semantic_kind == "journey"
-    assert report.meta.target_event_pattern_fingerprint == frame.meta.pattern.fingerprint
-    assert report.meta.target_coverage_basis == "unknown"
-    assert report.meta.overall_status == "warning"
-    assert report.evidence_status == "complete"
-    assert report.meta.analysis_scope is not None
-    assert report.meta.analysis_scope.kind == "event"
-    assert report.to_pandas()["metric_id"].isna().all()
-    assert set(report.to_pandas()["check_kind"]) == {
+    assert report.report_shape == "event_journey"
+    assert report.overall_status == "warning"
+    assert report.dataframe["metric_id"].isna().all()
+    assert set(report.dataframe["check_kind"]) == {
         "row_count",
         "event_row_contract",
         "event_identity",
@@ -217,11 +212,11 @@ def test_event_journey_quality_report_is_typed_and_discloses_coverage(
         "declared_completeness_used",
         "event_censoring",
     }
-    assert {issue.kind for issue in report.meta.issues} == {
+    assert {issue.kind for issue in report.issues} == {
         "event_coverage_unknown",
         "event_censoring_present",
     }
-    persisted = json.dumps(report.meta.model_dump(mode="json"), sort_keys=True)
+    persisted = json.dumps(frame.meta.model_dump(mode="json"), sort_keys=True)
     assert "user_1" not in persisted
     assert "cart_1" not in persisted
 
@@ -239,13 +234,14 @@ def test_empty_event_result_is_warning_when_contract_remains_valid(tmp_path, mon
         meta=source.meta.model_copy(update={"row_count": 0}),
     )
 
-    report = session.assess_quality(empty)
-    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+    report = evaluate_frame_quality(empty, artifact_id="prospective")
+    assert report is not None
+    row_count = report.dataframe.set_index("check_kind").loc["row_count"]
 
     assert row_count["severity"] == "warning"
-    assert report.meta.overall_status == "warning"
-    assert report.meta.blocking_issue_count == 0
-    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
+    assert report.overall_status == "warning"
+    assert report.blocking_issue_count == 0
+    assert {issue.kind for issue in report.issues} == {"sample_size_low"}
 
 
 def test_declared_completeness_is_not_a_quality_warning(tmp_path, monkeypatch) -> None:
@@ -272,8 +268,9 @@ def test_declared_completeness_is_not_a_quality_warning(tmp_path, monkeypatch) -
     details = json.loads(declared["details_json"])
     assert details["declared_input_count"] == 2
 
-    report = session.assess_quality(frame)
-    assert "declared_completeness_used" not in {issue.kind for issue in report.meta.issues}
+    report = evaluate_frame_quality(frame, artifact_id="prospective")
+    assert report is not None
+    assert "declared_completeness_used" not in {issue.kind for issue in report.issues}
 
 
 def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> None:
@@ -285,7 +282,6 @@ def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> Non
     assert frame.row_count == frame.shape[0]
     assert classify_input_family(frame.meta.pattern) == "EventPattern"
     assert classify_input_family(frame.meta.matching) == "EventMatchingPolicy"
-    validate_capability_inputs("assess_quality", frame=frame)
     validate_capability_inputs(
         "events.match",
         pattern=frame.meta.pattern,
@@ -303,7 +299,7 @@ def test_event_capability_family_gate_and_contract(tmp_path, monkeypatch) -> Non
 
     affordances = {item.capability_id for item in frame.contract().affordances}
     assert affordances == {
-        "assess_quality",
+        "BaseFrame.quality_report",
         "events.funnel",
         "events.time_to_event",
         "select_subjects",
@@ -538,11 +534,11 @@ def test_event_contract_filters_first_per_subject_only_continuations(
         "events.funnel",
         "events.time_to_event",
         "select_subjects",
-        "assess_quality",
+        "BaseFrame.quality_report",
     }.issubset(first_ids)
     assert "events.funnel" not in repeated_ids
     assert "select_subjects" not in repeated_ids
-    assert {"events.time_to_event", "assess_quality"}.issubset(repeated_ids)
+    assert {"events.time_to_event", "BaseFrame.quality_report"}.issubset(repeated_ids)
 
     time_to_event = next(
         item

@@ -50,7 +50,8 @@ def test_runtime_frame_uses_ordinary_quality_and_transform_state(runtime_session
         grain=mv.grain("month"),
     )
 
-    quality = runtime_session.assess_quality(frame)
+    quality = frame.quality_report()
+    assert quality is not None
     top = frame.transform.topk(by=frame.value_columns[0], limit=1)
 
     assert quality.meta.source_refs == [frame.ref]

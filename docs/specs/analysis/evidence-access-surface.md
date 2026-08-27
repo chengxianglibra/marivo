@@ -70,8 +70,10 @@ Digest item variants are deliberately operator-specific:
 | `forecast` | `ForecastOutput` | predicted, not observed |
 | Scored `discover.*` | `AnomalyCandidate` | candidate, not confirmed |
 | `discover.semantic_hypotheses` | empty digest | ontology candidate only; no finding is seeded |
-| `assess_quality` | `QualityCheckResult` | evaluated quality predicate |
 | `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
+
+Construction quality is stored beside the parent Artifact and read with
+`frame.quality_report()`; it is not an evidence-producing operator.
 
 Every item contains its `epistemic_kind`, source artifact, subject, scope, and
 `DerivationRule`. Unknown operator rules fail closed. Digest items can only be

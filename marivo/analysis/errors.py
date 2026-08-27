@@ -958,20 +958,8 @@ class ForecastInputQualityError(AnalysisError):
         )
 
 
-class QualityShapeUnsupportedError(AnalysisError):
-    def _derive_fields(self) -> _DerivedFields:
-        return _DerivedFields(
-            location="session.assess_quality frame",
-            repair=AnalysisRepair(
-                kind="retry",
-                action=(
-                    "assess_quality accepts registered MetricFrame, EventFrame, "
-                    "LifecycleFrame, DeltaFrame, and AttributionFrame shapes."
-                ),
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="assess_quality"),
-                snippet="report = session.assess_quality(frame)",
-            ),
-        )
+class ArtifactQualityError(AnalysisError):
+    """A produced Artifact failed fixed construction-time quality checks."""
 
 
 class MetricShapeUnsupportedError(AnalysisError):

@@ -263,6 +263,7 @@ def _commit_reducer(
                 semantic_anchors=commit_anchors,
                 subject=lifecycle_subject_for_frame(frame),
                 extractor_family="lifecycle_frame",
+                quality_source_frames=(source,),
             ),
         )
         register_frame_artifact(session, committed)

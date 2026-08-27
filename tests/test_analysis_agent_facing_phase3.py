@@ -17,7 +17,6 @@ CORE_OPERATORS = (
     "correlate",
     "hypothesis_test",
     "forecast",
-    "assess_quality",
 )
 
 

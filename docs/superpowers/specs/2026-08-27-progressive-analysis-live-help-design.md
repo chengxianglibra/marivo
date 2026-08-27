@@ -496,7 +496,7 @@ wording describes a result contract, not the user's likely next step.
 | Produce bounded candidate sets | `analysis.discover` | all registered `discover.<objective>` leaves |
 | Measure association or evaluate an explicit paired hypothesis | `analysis.methods.relationship_testing` | `correlate`, `hypothesis_test` |
 | Project future buckets from observed history | `analysis.forecast` | exact callable; no singleton family page |
-| Evaluate fixed Artifact quality predicates | `analysis.assess_quality` | exact callable; no singleton family page |
+| Read committed construction-quality predicates | `analysis.methods.quality` | read-only Frame method; no singleton family page |
 | Match and reduce governed Event journeys | `analysis.events` | `events.match`, `events.funnel`, `events.time_to_event` |
 | Replay and reduce governed StateModel history | `analysis.lifecycle` | `lifecycle.replay`, `lifecycle.distribution`, `lifecycle.transitions`, `lifecycle.dwell`, `lifecycle.violations` |
 | Materialize exact typed subject cohorts | `analysis.select_subjects` | exact callable; no singleton family page |
@@ -628,7 +628,7 @@ manual.
 | What exact Finding, digest, or derivation trace is this id? | `analysis.evidence.exact` | Exact persisted Evidence identity and derivation | Business interpretation or causality |
 | Can this exact Finding selection be mechanically synthesized? | `analysis.session.evidence.compatibility` | Pairwise selection compatibility under current semantic authority and Evidence rules | Artifact revalidation, source freshness, or business usefulness |
 | Is this recovered Artifact's identity, semantic authority, and Evidence integrity current? | `analysis.session.revalidate` | Bounded Artifact revalidation status | Datasource freshness or operation-shaped recomputation |
-| Does this supported Artifact satisfy fixed quality predicates? | `analysis.assess_quality` | Typed quality evaluation | Semantic authority, Evidence compatibility, or causal validity |
+| Does this supported Artifact satisfy its fixed construction predicates? | `analysis.methods.quality` | Read committed `frame.quality_report()` | Semantic authority, Evidence compatibility, or causal validity |
 
 The `browse` and `exact` multi-member pages route to the existing exact leaves:
 

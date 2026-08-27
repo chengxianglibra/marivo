@@ -388,12 +388,16 @@ def test_every_artifact_type_page_renders_complete_derived_algebra() -> None:
         for required in (
             "BaseFrame.show",
             "BaseFrame.contract",
-            "session.evidence.digest",
-            "session.get_frame",
             "boundary.to_pandas",
             "Static consumers are possibilities, not current admission",
         ):
             assert required in text
+        if contract.artifact_family == "QualityReport":
+            assert "session.evidence.digest" not in text
+            assert "session.get_frame" not in text
+        else:
+            assert "session.evidence.digest" in text
+            assert "session.get_frame" in text
         budget = REGISTRY.render_budget("public_type")
         assert len(text.splitlines()) <= budget.max_lines
         assert len(text) <= budget.max_codepoints
@@ -448,7 +452,7 @@ def test_slice2_final_render_budget_rejects_import_and_route_overflow() -> None:
 def test_singleton_method_and_input_contracts_have_no_family_aliases() -> None:
     for removed_topic, direct_target in (
         ("methods.forecast", "forecast"),
-        ("methods.quality", "assess_quality"),
+        ("methods.quality", "BaseFrame.quality_report"),
         ("inputs.sampling", "SamplingPolicy"),
     ):
         with pytest.raises(MarivoHelpTargetError):
@@ -1165,17 +1169,12 @@ def test_transform_help_uses_public_value_columns(target: str) -> None:
         assert "canonical MetricFrame storage" in text
 
 
-def test_assess_quality_help_declares_exact_artifact_shapes() -> None:
-    text = _text("assess_quality")
+def test_quality_report_help_declares_read_only_sidecar_contract() -> None:
+    text = _text("BaseFrame.quality_report")
 
-    assert "single_metric_input" not in text
-    assert "Accepted artifact shapes:" in text
-    assert "frame.MetricFrame: panel | scalar | segmented | time_series" in text
-    assert (
-        "frame.AttributionFrame: funnel_loss_rate | panel | scalar | segmented | time_series"
-        in text
-    )
-    assert "frame.DeltaFrame: funnel | panel | scalar | segmented | time_series" in text
+    assert "frame.quality_report()" in text
+    assert "Output family: QualityReport | None" in text
+    assert "session.assess_quality" not in text
 
 
 @pytest.mark.parametrize("target", ["discover.period_shifts", "discover.driver_axes"])
@@ -1454,6 +1453,12 @@ def test_quality_report_help_exposes_verdict_and_all_exact_shapes() -> None:
     for variant in PUBLIC_TYPE_VARIANTS["QualityReport"]:
         assert f"QualityReport[{variant}]" in text
     assert "report.state is ArtifactState materialization metadata" in text
+    assert "Typed Evidence reads:" not in text
+    assert "Recovery:" not in text
+    assert "session.get_frame" not in text
+    assert "session.evidence." not in text
+    assert 'marivo.help("analysis.BaseFrame.quality_report")' in text
+    assert 'marivo.help("analysis.boundary.to_pandas")' in text
 
 
 def test_session_type_help_teaches_acquisition_without_delete() -> None:

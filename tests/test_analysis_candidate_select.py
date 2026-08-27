@@ -12,6 +12,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo._compat import UTC
 from marivo.analysis.candidate_identity import assign_scored_frame_item_ids
+from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.frames.candidate import (
     CandidateSet,
@@ -59,6 +60,13 @@ def _metric(session, df, *, semantic_kind="time_series"):
 
 
 def _delta(session, df, *, semantic_kind="segmented"):
+    if not {"current", "baseline", "pct_change", "pct_change_status"}.issubset(df.columns):
+        df = df.copy()
+        df["current"] = df["delta"]
+        df["baseline"] = 0.0
+        computed = compute_delta_columns(df[["current", "baseline"]].copy())
+        df["pct_change"] = computed["pct_change"]
+        df["pct_change_status"] = computed["pct_change_status"]
     meta = DeltaFrameMeta(
         **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",

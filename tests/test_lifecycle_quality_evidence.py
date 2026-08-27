@@ -21,6 +21,8 @@ from marivo.analysis.evidence.types import (
     OperatorSemantics,
 )
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
+from marivo.analysis.frames._quality import evaluate_frame_quality
+from marivo.analysis.frames._quality_checks import run_lifecycle_checks
 from marivo.analysis.frames.event import EventInputCoverage
 from marivo.analysis.frames.lifecycle import (
     LIFECYCLE_HISTORY_COLUMNS,
@@ -47,7 +49,6 @@ from marivo.analysis.intents._lifecycle_transitions import (
 from marivo.analysis.intents._lifecycle_violations import (
     reduce_lifecycle_violations,
 )
-from marivo.analysis.intents._quality_checks import run_lifecycle_checks
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
 from marivo.refs import RefPayloadV1, ref
@@ -304,59 +305,27 @@ def test_lifecycle_quality_dispatches_every_shape_and_recomputes_source() -> Non
     reducers = _reducer_frames(session, history)
 
     for frame in (history, *reducers):
-        checks = run_lifecycle_checks(frame)
+        source_history = history if frame is not history else None
+        checks = run_lifecycle_checks(frame, source_history=source_history)
         assert checks
         assert {row["severity"] for row in checks} == {"ok"}
-        report = session.assess_quality(frame)
-        assert report.meta.report_shape == f"lifecycle_{frame.semantic_shape}"
-        assert report.meta.overall_status == "ok"
-        assert report.evidence_status == "complete"
-        assert report.to_pandas()["metric_id"].isna().all()
+        report = evaluate_frame_quality(
+            frame,
+            artifact_id="prospective",
+            source_history=source_history,
+        )
+        assert report is not None
+        assert report.report_shape == f"lifecycle_{frame.semantic_shape}"
+        assert report.overall_status == "ok"
+        assert report.dataframe["metric_id"].isna().all()
 
     reducers[0]._df.loc[0, "subject_count"] = 99
-    tampered = {row["check_kind"]: row["severity"] for row in run_lifecycle_checks(reducers[0])}
+    tampered = {
+        row["check_kind"]: row["severity"]
+        for row in run_lifecycle_checks(reducers[0], source_history=history)
+    }
     assert tampered["lifecycle_distribution_math"] == "blocking"
     assert tampered["lifecycle_distribution_reconciliation"] == "blocking"
-
-
-def test_lifecycle_quality_report_is_typed_and_identity_safe() -> None:
-    session = mv.session.get_or_create(
-        name="lifecycle_report",
-        backend_factory=lambda _name: None,
-        use_datasources=False,
-    )
-    history = _history_frame(session)
-    history.meta = persist_frame(session, history)
-
-    report = session.assess_quality(history)
-
-    assert report.meta.report_shape == "lifecycle_history"
-    assert report.meta.target_kind == "lifecycle_frame"
-    assert report.meta.target_semantic_kind == "history"
-    assert report.meta.target_state_model_ref == history.meta.state_model_ref
-    assert report.meta.target_state_model_fingerprint == "sha256:model"
-    assert report.meta.target_coverage_basis == "observed_watermark"
-    assert report.meta.overall_status == "ok"
-    assert report.evidence_status == "complete"
-    persisted = json.dumps(report.meta.model_dump(mode="json"), sort_keys=True)
-    assert "order_secret" not in persisted
-    assert "created_secret" not in persisted
-    assert "paid_secret" not in persisted
-    assert "violation_secret" not in persisted
-
-    report_ref = report.ref
-    expected_rows = report.to_pandas()
-    mv.session._reset_process_state()
-    reopened = mv.session.get_or_create(
-        name="lifecycle_report",
-        use_datasources=False,
-    )
-    recovered = reopened.get_frame(report_ref)
-    assert recovered.to_pandas().equals(expected_rows)
-    assert recovered.meta.model_dump(mode="json") == report.meta.model_dump(mode="json")
-    recovered_digest = reopened.evidence.digest(report_ref)
-    assert recovered_digest is not None
-    assert recovered_digest.fingerprint == report.meta.evidence_digest.fingerprint
 
 
 def test_empty_lifecycle_result_is_warning_when_receipts_remain_valid() -> None:
@@ -380,15 +349,14 @@ def test_empty_lifecycle_result_is_warning_when_receipts_remain_valid() -> None:
             "violations.parquet": source._auxiliary_frames["violations.parquet"].copy(deep=True)
         },
     )
-    empty.meta = persist_frame(session, empty)
-
-    report = session.assess_quality(empty)
-    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+    report = evaluate_frame_quality(empty, artifact_id="prospective")
+    assert report is not None
+    row_count = report.dataframe.set_index("check_kind").loc["row_count"]
 
     assert row_count["severity"] == "warning"
-    assert report.meta.overall_status == "warning"
-    assert report.meta.blocking_issue_count == 0
-    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
+    assert report.overall_status == "warning"
+    assert report.blocking_issue_count == 0
+    assert {issue.kind for issue in report.issues} == {"sample_size_low"}
 
 
 def test_lifecycle_quality_discloses_unknown_coverage_and_censoring() -> None:
@@ -420,12 +388,11 @@ def test_lifecycle_quality_discloses_unknown_coverage_and_censoring() -> None:
             "violations.parquet": base._auxiliary_frames["violations.parquet"].copy(deep=True)
         },
     )
-    censored.meta = persist_frame(session, censored)
+    report = evaluate_frame_quality(censored, artifact_id="prospective")
+    assert report is not None
 
-    report = session.assess_quality(censored)
-
-    assert report.meta.overall_status == "warning"
-    assert {issue.kind for issue in report.meta.issues} == {
+    assert report.overall_status == "warning"
+    assert {issue.kind for issue in report.issues} == {
         "lifecycle_coverage_unknown",
         "lifecycle_censoring_present",
     }
@@ -474,15 +441,14 @@ def test_lifecycle_declared_completeness_is_not_a_quality_warning() -> None:
             "violations.parquet": base._auxiliary_frames["violations.parquet"].copy(deep=True)
         },
     )
-    declared.meta = persist_frame(session, declared)
-
     rows = run_lifecycle_checks(declared)
     row = next(r for r in rows if r["check_kind"] == "declared_completeness_used")
     assert row["severity"] == "ok"
 
-    report = session.assess_quality(declared)
-    assert report.meta.overall_status == "ok"
-    assert "declared_completeness_used" not in {issue.kind for issue in report.meta.issues}
+    report = evaluate_frame_quality(declared, artifact_id="prospective")
+    assert report is not None
+    assert report.overall_status == "ok"
+    assert "declared_completeness_used" not in {issue.kind for issue in report.issues}
 
 
 def test_lifecycle_findings_and_digests_are_closed_bounded_and_identity_safe() -> None:

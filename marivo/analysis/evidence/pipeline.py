@@ -56,7 +56,6 @@ from marivo.analysis.evidence.extraction.observation import (
     extract_metric_value_findings,
     extract_observation_digest_finding,
 )
-from marivo.analysis.evidence.extraction.quality import extract_quality_check_findings
 from marivo.analysis.evidence.extraction.subject import extract_subject_set_finding
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.identity import (
@@ -106,7 +105,7 @@ from marivo.analysis.frames.base import (
     BaseFrameMeta,
     _FrameAuxiliaryReceipt,
 )
-from marivo.analysis.frames.lifecycle import LifecycleFrameMetaVariant
+from marivo.analysis.frames.lifecycle import LifecycleFrame, LifecycleFrameMetaVariant
 from marivo.analysis.session._layout import _read_parquet_frame
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import RefPayloadV1
@@ -598,16 +597,6 @@ def _extract_findings(
                 source_refs=(subject_meta.source.artifact_ref,),
             )
         ]
-    if extractor_family == "quality_report":
-        return extract_quality_check_findings(
-            df=df,
-            artifact_id=artifact_id,
-            session_id=session_id,
-            subject=subject,
-            committed_at=committed_at,
-            evaluated_scope=scope,
-            source_refs=tuple(str(ref) for ref in getattr(meta, "source_refs", ())),
-        )
     if extractor_family == "delta_frame" and semantic_kind == "funnel":
         if not isinstance(subject, EventSubject):
             raise TypeError("DeltaFrame[funnel] evidence requires EventSubject")
@@ -896,7 +885,6 @@ def _operator_for(step_type: str, extractor_family: str) -> str:
         "association_result": "correlate",
         "hypothesis_test_result": "hypothesis_test",
         "forecast_frame": "forecast",
-        "quality_report": "assess_quality",
         "subject_set": "select_subjects",
     }.get(extractor_family, step_type)
 
@@ -1441,6 +1429,7 @@ def commit_result(
     comparison_basis: str | None = None,
     seeding_context: dict[str, Any] | None = None,
     emit_evidence: bool = True,
+    quality_source_frames: tuple[BaseFrame, ...] = (),
 ) -> BaseFrame:
     """Persist one artifact and its typed findings/digest without judgment stages."""
     del comparison_window, comparison_basis, seeding_context
@@ -1466,6 +1455,18 @@ def commit_result(
         if session is not None and session._store.get_artifact(session.id, artifact_id) is None:
             return session.get_frame(artifact_id)
         return reused
+    source_history = next(
+        (
+            source
+            for source in quality_source_frames
+            if isinstance(source, LifecycleFrame) and source.meta.semantic_kind == "history"
+        ),
+        None,
+    )
+    quality_evaluation = frame._evaluate_construction_quality(
+        artifact_id=artifact_id,
+        source_history=source_history,
+    )
     previous_projection_exists = False
     previous_meta_bytes: bytes | None = None
     if store is not None:
@@ -1484,6 +1485,13 @@ def commit_result(
             previous_meta_bytes = meta_path.read_bytes()
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
+    quality_manifest = None
+    if quality_evaluation is not None:
+        quality_path = artifact_dir / "quality.parquet"
+        quality_sha = _atomic_write_parquet(quality_evaluation.dataframe, quality_path)
+        quality_manifest = quality_evaluation.build_manifest(
+            content_hash=f"sha256:{quality_sha}",
+        )
     auxiliary_receipts: list[_FrameAuxiliaryReceipt] = []
     auxiliary_filenames: set[str] = set()
     for table in frame._auxiliary_tables():
@@ -1520,10 +1528,16 @@ def commit_result(
             scope=scope,
             semantic_anchors=semantic_anchors,
         )
-    quality = compute_quality_summary(frame)
+    quality = (
+        quality_evaluation.summary
+        if quality_evaluation is not None
+        else compute_quality_summary(frame)
+    )
     findings: list[Finding] = []
     digest: ArtifactDigest | None = None
     issues: list[ArtifactIssue] = list(frame.meta.issues)
+    if quality_evaluation is not None:
+        issues.extend(quality_evaluation.issues)
     status = "unavailable" if not emit_evidence or store is None else "complete"
 
     if emit_evidence and store is not None:
@@ -1595,6 +1609,8 @@ def commit_result(
             "evidence_status": status,
             "analysis_scope": scope,
             "quality_summary": quality,
+            "quality_ref": (f"{artifact_id}#quality" if quality_manifest is not None else None),
+            "quality_report": quality_manifest,
             "evidence_digest": digest,
             "issues": tuple(issues),
         }
@@ -1604,7 +1620,6 @@ def commit_result(
                     "expression_graph_ref": f"{artifact_id}#expression-graph",
                     "presentation_ref": f"{artifact_id}#presentation",
                     "replay_graph_ref": f"{artifact_id}#replay-graph",
-                    "quality_ref": f"{artifact_id}#quality",
                 }
             )
         if getattr(frame.meta, "comparable_value_semantics", None) is not None:
@@ -1619,6 +1634,11 @@ def commit_result(
             update={
                 "byte_size": parquet_path.stat().st_size
                 + sum(item.byte_size for item in auxiliary_receipts)
+                + (
+                    (artifact_dir / quality_manifest.filename).stat().st_size
+                    if quality_manifest is not None
+                    else 0
+                )
             }
         )
         return result.model_copy(

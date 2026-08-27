@@ -4,7 +4,7 @@
 
 ## 范围与结论
 
-本 inventory 只盘点当前 `analysis-artifact/v10` contract，不增加公共 API，也不实现
+本 inventory 只盘点当时的 `analysis-artifact/v10` contract，不增加公共 API，也不实现
 `ArtifactAuthorityContext`、compatibility、revalidation 或 operator admission。
 
 结论：当前 13 个 Artifact family、23 个可恢复 FrameMeta variant 都已经具备以下两种路径

@@ -242,18 +242,6 @@ def test_gate_forecast_rejects_delta_frame():
     assert exc.value.location == "forecast.history"
 
 
-def test_gate_assess_quality_accepts_metric_frame():
-    session = session_attach.get_or_create(name="mtx")
-    mf = _metric_frame(session)
-    validate_capability_inputs("assess_quality", frame=mf)
-
-
-def test_gate_assess_quality_accepts_delta_frame():
-    session = session_attach.get_or_create(name="mtx")
-    df = _delta_frame(session)
-    validate_capability_inputs("assess_quality", frame=df)
-
-
 def test_gate_correlate_rejects_delta_frame():
     session = session_attach.get_or_create(name="mtx")
     mf = _metric_frame(session)
@@ -374,13 +362,6 @@ def test_session_forecast_rejects_delta_at_gate():
     with pytest.raises(AnalysisError) as exc:
         session.forecast(df, horizon=3)  # type: ignore[arg-type]
     assert exc.value.location == "forecast.history"
-
-
-def test_session_assess_quality_accepts_metric_delta():
-    session = session_attach.get_or_create(name="int")
-    df = _delta_frame(session)
-    report = session.assess_quality(df)
-    assert report.meta.report_shape == "delta"
 
 
 def test_session_correlate_rejects_delta_at_gate():

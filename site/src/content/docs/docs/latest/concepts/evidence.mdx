@@ -64,8 +64,11 @@ The main item types match operator semantics:
 | `hypothesis_test` | `TestDecision` | decision under the declared statistical test |
 | `forecast` | `ForecastOutput` | prediction, not observed actual |
 | `discover.*` | `AnomalyCandidate` | candidate requiring review |
-| `assess_quality` | `QualityCheckResult` | evaluated quality predicate |
 | `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
+
+Construction-time quality is not an evidence-producing operator. Read its
+parent-owned checks with `frame.quality_report()`; the returned report has no
+independent digest or job.
 
 ## Inspect limits and exact evidence
 

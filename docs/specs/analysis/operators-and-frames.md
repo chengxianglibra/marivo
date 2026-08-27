@@ -28,7 +28,7 @@ inventing family names. The public families and their producers are:
 | `AssociationResult` | `session.correlate(...)` | Statistical association between frames |
 | `HypothesisTestResult` | `session.hypothesis_test(...)` | Result of an explicit statistical test |
 | `ForecastFrame` | `session.forecast(...)` | Model projection of future buckets |
-| `QualityReport` | `session.assess_quality(...)` | Explicit quality/coverage/precondition assessment |
+| `QualityReport` | `frame.quality_report()` | Read-only construction-quality sidecar owned by a supported Frame |
 
 Two projection frames are produced by frame accessors rather than operators, and
 are therefore not part of the default `mv.__all__` surface:
@@ -108,7 +108,6 @@ This is the single analysis API an agent learns on the main path. Each entry is 
 | `session.correlate(a, b, ...)` | `AssociationResult` | Statistical association; not causality. |
 | `session.hypothesis_test(...)` | `HypothesisTestResult` | Test over prepared frames/delta/sample. |
 | `session.forecast(history, ...)` | `ForecastFrame` | Project an observed history frame forward. |
-| `session.assess_quality(artifact)` | `QualityReport` | Explicit quality/coverage/comparability assessment. |
 
 `compare` normalizes both numeric operands to `float64` before subtraction so
 nullable or backend-native unsigned integers cannot wrap when the result is
@@ -121,8 +120,8 @@ judgment, fixes an output family, names a computation task (not a primitive
 alias), fails more instructively than the primitive, or is itself an
 irreducible primitive. This is why there is no `measure` (use `observe`), no
 `compare_frames`/`correlate_frames`/`forecast_frame` alias, no `explain` (use
-`attribute`), no `scan(objective=...)` (use `discover.<objective>`), no `test`
-(use `hypothesis_test`), and no bare `assess` (use `assess_quality`).
+`attribute`), no `scan(objective=...)` (use `discover.<objective>`), and no `test`
+(use `hypothesis_test`). Fixed quality checks belong to Frame construction.
 
 ### Capability registry and runtime family gate
 
@@ -527,9 +526,9 @@ frames. The optional `semantic_hypotheses` objective follows at most one authore
 semantic catalog, and returns deterministic, unscored Metric hypotheses. It is
 available only when the Session has a ready ontology binding; it does not assert
 causality, score candidates, or execute them. Whether scored candidate generation
-was reliable is decided by
-`assess_quality(candidate_set)`; whether a candidate is a real driver/anomaly is
-decided by downstream `hypothesis_test` or agent judgment. Thresholds are
+was reliable is disclosed by producer metadata and evidence; whether a candidate
+is a real driver/anomaly is decided by downstream `hypothesis_test` or agent
+judgment. Thresholds are
 absolute z-score cutoffs with per-objective defaults (see each method's
 docstring). Scored objectives accept `analysis_purpose` to label the step;
 `semantic_hypotheses` intentionally accepts only `source` and the resource bound
@@ -567,41 +566,24 @@ certified keys and `[start, end)` bounds from that same snapshot. `naive` and
 future coverage gaps fail before the artifact is written. Forecast-vs-actual
 evaluation is not a public Session step.
 
-### `assess_quality`
+### Construction-time quality
 
-`assess_quality(artifact)` returns a `QualityReport` scoped to the artifact
-family. It evaluates mechanical quality — data quality, coverage, comparability,
-attributability — never business good/bad. It is distinct from the cheap
-`artifact.quality_summary` metadata projection: the summary reads lightweight
-facts already on the artifact; `assess_quality` runs explicit checks and produces
-a terminal report. A source artifact records at most a
-`latest_quality_report_ref`, never a copied full report.
+Supported Metric, Delta, Attribution, Event, and Lifecycle Frames run fixed
+mechanical checks at the unified commit boundary, after the final Artifact id is
+known and before any file is written. A blocking contradiction raises
+`ArtifactQualityError` and publishes no main Artifact, quality sidecar, store
+registration, or successful job. `ok` and `warning` results publish normally;
+bounded counts live in `frame.quality_summary`, warning `DataQualityIssue`s are
+merged into the Frame, and complete rows live in the parent-owned
+`quality.parquet` sidecar.
 
-For a metric `DeltaFrame`, assessment validates the delta row contract. When the
-delta carries `CumulativeAlignmentV1`, the report reads that typed field directly
-and surfaces matched-null, unpaired, and fallback counts as explicit caveats.
-For a metric `AttributionFrame` (`scalar`, `time_series`, `segmented`, or
-`panel`), assessment validates the registered generic-v3 or cumulative-flow row
-contract, requires a non-empty result, validates finite contribution values, and
-checks every additive panel bucket against its persisted typed reconciliation
-receipt.
-`AttributionFrame[funnel_loss_rate]` keeps its funnel-specific component, pool,
-residual, and reconciliation checks.
-
-Admission is discoverable before execution. `artifact.contract()` records the
-exact accepted semantic shapes for every artifact input on the `assess_quality`
-affordance, while `marivo.help("assess_quality")` prints the complete
-family-to-shape table. A multi-metric `MetricFrame` produces one joint report:
-frame-level checks run once, measure-level checks run once per authoritative
-measure binding, and any blocking check blocks the report. Metric-level rows
-carry their canonical `metric_id`; frame-level rows carry no metric id. Typed
-issues and findings retain the exact metric identity for metric-level failures.
-
-`QualityReport.overall_status`, `.blocking_issue_count`, and `.warning_count`
-are read-only projections of the authoritative report metadata for programmatic
-gating. They do not recompute quality. `QualityReport.state` retains the common
-`ArtifactState` contract and therefore describes materialization and content
-identity, not the quality verdict.
+`frame.quality_report()` verifies and reads that sidecar without recomputing or
+creating a job. The returned `QualityReport` inherits the parent's scope,
+lineage, purpose, and producer job, and has no independent evidence digest.
+Missing, modified, or row-count-mismatched sidecars fail closed. Multi-metric
+measure checks retain canonical `metric_id` identity. Lifecycle source history
+is a build dependency, not a quality predicate; `session.revalidate(reducer)`
+later reports it as admissible, `indeterminate`, or `stale`.
 
 Severity is correctness-based. `blocking` is reserved for structural, identity,
 ordering, arithmetic, reconciliation, or coverage-receipt contradictions that
@@ -616,9 +598,8 @@ to `blocking_issue_count`.
 The bounded Quality card reports total, ok, info, warning, and blocking counts. It
 lists only blocking and warning checks, ordered by blocking first, warning
 second, then original check order; metric-level rows retain `metric_id`. A clean
-report says `attention: none`. This exception view does not repeat the same
-quality checks from the evidence digest. `render(max_output_bytes=None)` still
-renders every check row.
+report says `attention: none`. `render(max_output_bytes=None)` renders every
+committed check row.
 
 ## Result contract and read protocol
 
@@ -807,9 +788,9 @@ re-querying semantic data and projecting the existing artifact, so they remain
 typed terminal selectors until a shape-specific downstream operator explicitly
 accepts them.
 
-Evaluation results (`HypothesisTestResult`, `AssociationResult`,
-`QualityReport`) are not directly re-fed into `compare`/`attribute`/`discover`.
-They retain source refs, `AnalysisScope`, typed issues, and a bounded digest.
+Evaluation results (`HypothesisTestResult`, `AssociationResult`) are not directly
+re-fed into `compare`/`attribute`/`discover`. A `QualityReport` is a read-only
+view of its parent Frame sidecar and has no independent digest or continuation.
 
 ## Shape-aware DAG
 
@@ -819,14 +800,14 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 
 | Source | Legal downstream |
 | --- | --- |
-| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `forecast`, `assess_quality` |
-| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `assess_quality` |
+| `MetricFrame[time_series]` | `transform.<op>`, `compare` (same shape), `correlate` (same shape), `discover.point_anomalies`, `discover.interesting_windows`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `forecast`, `quality_report()` |
+| `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, conditional `discover.semantic_hypotheses`, `hypothesis_test`, `quality_report()` |
 | `MetricFrame[panel]` | union of the time_series and segmented rows above |
-| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
-| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses`, `assess_quality` |
-| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `assess_quality` |
-| `AttributionFrame[scalar \| time_series \| segmented \| panel \| funnel_loss_rate]` | `transform`, `select`, `assess_quality` |
-| Scored `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
+| `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `quality_report()` |
+| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, conditional `discover.semantic_hypotheses`, `quality_report()` |
+| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, conditional `discover.semantic_hypotheses`, `quality_report()` |
+| `AttributionFrame[scalar \| time_series \| segmented \| panel \| funnel_loss_rate]` | `transform`, `select`, `quality_report()` |
+| Scored `CandidateSet[*]` | `CandidateSet.select` |
 | `CandidateSet[semantic_hypothesis]` | `CandidateSet.select` → `OntologyMetricCandidate` → exact-scope `session.observe` |
 | `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |
 
@@ -876,10 +857,9 @@ canonical `MetricFrame` producer.
 
 ## Cross-cutting metadata
 
-- **`quality_summary` vs `assess_quality`.** `frame.quality_summary` is a cheap,
-  bounded, persisted metadata projection; `assess_quality()` is the only quality
-  assessment action and produces a terminal `QualityReport`. They are layered, not
-  duplicated.
+- **Construction quality reads.** `frame.quality_summary` is the bounded
+  persisted projection; `frame.quality_report()` verifies and reads the complete
+  parent-owned sidecar without a new analysis action.
 - **Metric-definition compatibility.** Cross-frame operators compute a
   compatibility verdict and write it to result metadata: `exact` (same id +
   version) runs; catalog-declared backward-compatible changes run with a warning;

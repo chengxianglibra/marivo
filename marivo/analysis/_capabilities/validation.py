@@ -33,7 +33,6 @@ from marivo.analysis.errors import (
     InvalidSubjectAxisError,
     ModelStateMismatchError,
     PatternStepMismatchError,
-    QualityShapeUnsupportedError,
     SubjectSetMismatchError,
 )
 from marivo.introspection.live.model import LiveHelpTarget
@@ -811,21 +810,6 @@ def validate_capability_inputs(
                             canonical_id="events.funnel",
                         ),
                         candidates=("first_per_subject",),
-                    ),
-                )
-            if capability_id == "assess_quality" and predicate == "semantic_shape":
-                raise QualityShapeUnsupportedError(
-                    message="assess_quality does not support this artifact shape.",
-                    expected=admission.expected,
-                    received=admission.received,
-                    location="assess_quality.frame",
-                    repair=AnalysisRepair(
-                        kind="inspect",
-                        action="Inspect the artifact contract for supported quality shapes.",
-                        help_target=LiveHelpTarget(
-                            surface="analysis",
-                            canonical_id="assess_quality",
-                        ),
                     ),
                 )
             if predicate == "semantic_shape" and capability_id in {

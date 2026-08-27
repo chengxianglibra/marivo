@@ -527,40 +527,22 @@ history = session.observe(
 projection = session.forecast(history, horizon=30, measure_column=history.value_columns[0])
 ```
 
-### `assess_quality` → `QualityReport`
+### 构建期质量自检 → `QualityReport`
 
-对一个产物运行质量检查，返回一个独立的 `QualityReport`。
-`artifact.quality_summary` 只是 cheap、已持久化的元数据投影；它不等同于执行
-`session.assess_quality(artifact)`。
-使用 `report.overall_status`、`report.blocking_issue_count` 和
-`report.warning_count` 读取权威质量判定与计数。`report.state` 仍是描述
-物化的 `ArtifactState` 元数据，不是质量状态。
-只有会让结果错误或产生歧义的结构、身份、顺序、算术、对账或 coverage receipt
-矛盾才是 `blocking`。空结果、低样本量、高空值率、时间 bucket 缺失、coverage
-未知及 censoring 都是 `warning`：可以继续分析，但必须披露这些限制。请求窗口
-超过 `data_extent_end`、且 extent 内覆盖完整时，该检查为 `info`。
-对于累计 comparable-周期 `DeltaFrame`，报告直接读取类型化 pairing
-证据，并呈现 matched-null、unpaired 和回退计数。
-指标归因的 `scalar`、`time_series`、`segmented` 与 `panel` 形状也可直接
-检查，包括 generic-v3 和 cumulative-flow 行契约。固定检查覆盖行契约、结果
-是否为空、贡献值是否为有限数，以及类型化 reconciliation receipt；additive
-panel 会为每个 bucket 持久化并校验独立 receipt。空归因由专门的行数检查给出
-warning，不会被误报为对账失败；漏斗损失率归因仍使用其专属组件、符号池、
-residual 与对账检查，并遵循相同的空结果 advisory 合同。
+`MetricFrame`、`DeltaFrame`、`AttributionFrame`、`EventFrame` 与
+`LifecycleFrame` 会在发布前自动运行固定且确定性的质量检查。阻断级矛盾会抛出
+`ArtifactQualityError`；主 Artifact、质量 sidecar 与成功 job 都不会发布。
 
-调用前先查看 `artifact.contract()`：其中 `assess_quality` affordance 会列出
-当前产物家族允许的精确形状；`marivo.help("assess_quality")` 则给出完整的
-家族到形状映射。多指标 `MetricFrame` 会生成一份联合报告：Frame 级检查只执行
-一次，measure 级检查按权威 measure binding 逐指标执行；任一检查为 blocking，
-整份报告即为 blocking。指标级报告行携带规范 `metric_id`，Frame 级报告行不携带
-指标 ID；类型化 issue 和 finding 保留精确的指标身份。
-报告的 `contract().issues` 包含类型化数据质量发现。只有 blocking correctness
-问题要求停止；包括 `time_coverage_incomplete` 在内的 warning 仍可作为证据继续
-使用，但必须在后续分析与结论中披露。
+已发布的 `ok` 与 `warning` 结果会把精简计数和覆盖事实写入
+`frame.quality_summary`。需要逐检查明细时调用 `frame.quality_report()` 读取已提交
+sidecar；该只读调用不会重新计算，也不会创建 job，报告没有独立 evidence digest
+或 lineage。sidecar 缺失、被修改或行数不符时会 fail closed。
 
-| 参数 | 类型 | 必填 | 默认 | 含义 |
-| --- | --- | --- | --- | --- |
-| `frame` | 支持的分析产物 | 是 | — | 要检查的 frame；`frame.contract()` 与 focused help 会给出允许的精确形状。 |
+空结果、低样本量、高空值率、时间 bucket 缺失、coverage 未知与 censoring 仍是
+必须披露的 warning。多指标 Frame 按权威 measure binding 逐指标检查，并保留规范
+`metric_id`。Lifecycle reducer 在构建时验证 history 依赖；后续用
+`session.revalidate(reducer)` 区分依赖可用、缺失（`indeterminate`）或已变化
+（`stale`）。
 
 ### `hypothesis_test` → `HypothesisTestResult`
 
@@ -660,7 +642,7 @@ driver = session.observe(candidate, analysis_purpose="test a reviewed hypothesis
 
 - `show()`、`contract()` 和 `transform.window(...)` 在累计 frame 上正常工作。`contract()` 和
   `show()` 会呈现锚点特定的注意事项，因此在你正在阅读的 frame 上即可看到允许的路径。
-- `correlate`、`discover`、`assess_quality` 和 `hypothesis_test` 允许使用。尾随 frame 是独立的
+- `correlate`、`discover` 和 `hypothesis_test` 允许使用。尾随 frame 是独立的
   窗口聚合（不是累计值），因此这些意图会产生有意义的结果。单调趋势注意事项仅适用于
   `all_history` 和 `grain_to_date` 锚点——解读结果时需留意。
 - `compare` 按锚点分派：
@@ -1147,6 +1129,6 @@ paid_at_end = session.select_subjects(
 | `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
-| `QualityReport` | `assess_quality` |
+| `QualityReport` | `frame.quality_report()`（只读的已提交 sidecar） |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |
