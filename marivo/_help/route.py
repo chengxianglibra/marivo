@@ -21,7 +21,7 @@ from marivo.introspection.live.resolve import (
 )
 
 _SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
-_GLOBAL_TOPICS = ("authoring", "load", "targets")
+_GLOBAL_TOPICS = ("authoring",)
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
@@ -94,19 +94,6 @@ def _qualified_string(target: str) -> tuple[HelpSurface, str] | None:
     if not separator or prefix not in _SURFACES:
         return None
     return prefix, remainder
-
-
-def canonical_string_target_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Project the canonical discovery index from the live help surfaces."""
-    groups: list[tuple[str, tuple[str, ...]]] = [("Global", _GLOBAL_TOPICS)]
-    for owner in _SURFACES:
-        surface = _native_surface(owner)
-        qualified_targets = (
-            owner,
-            *(f"{owner}.{target}" for target in surface.registry.discovery_ids()),
-        )
-        groups.append((owner.title(), qualified_targets))
-    return tuple(groups)
 
 
 def _exact_cross_surface_candidates(

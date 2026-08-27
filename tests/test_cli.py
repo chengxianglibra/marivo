@@ -229,7 +229,7 @@ def test_cli_help_is_bootstrap_only(
     assert "import marivo.analysis as mv" in output
     assert "marivo.help()" in output
     assert 'marivo.help("authoring")' in output
-    assert 'marivo.help("analysis.observe")' in output
+    assert 'marivo.help("analysis")' in output
     assert "Do not append a surface or target" in output
 
 

@@ -245,7 +245,9 @@ def _unknown_descriptor(surface: Surface, symbol: str) -> Descriptor:
         surface=surface.name,
         kind="unknown",
         symbol=symbol,
-        summary=f"Unknown help target {symbol!r}. Call help() to list entries.",
+        summary=(
+            f"Unknown help target {symbol!r}. Call marivo.help() to choose authoring or analysis."
+        ),
         did_you_mean=suggestions,
     )
 

@@ -1,8 +1,8 @@
-"""Closed capability kernel models for ``marivo.analysis``.
+"""Closed capability and help-topology models for ``marivo.analysis``.
 
-This module defines the descriptor union, closed family/group vocabulary,
-and the single ``SURFACE_LIMITS`` value consumed by all later tasks
-(registry, resolver, renderer, family gate, and evaluation).
+This module defines the exact capability union, native help descriptor
+variants, and analysis-owned static help budgets consumed by later registry
+and rendering slices.
 
 All names are private to ``marivo.analysis``.  Nothing is added to
 ``marivo/analysis/__init__.py``.
@@ -12,19 +12,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal
 
 from marivo.introspection.live.model import LiveHelpTarget
 
 # ---------------------------------------------------------------------------
-# Closed vocabulary: capability kinds, visibility, groups, families
+# Closed vocabulary: capability kinds, legacy root groups, and families
 # ---------------------------------------------------------------------------
 
 CapabilityKind = Literal["operator", "constructor", "read", "recovery", "boundary"]
 
 AuthorityPolicy = Literal["semantic_current", "materialized_only"]
-
-RootVisibility = Literal["direct", "grouped"]
 
 RootGroup = Literal[
     "semantic_inputs",
@@ -181,14 +180,6 @@ class CapabilityBase:
         Canonical target accepted by ``marivo.help("analysis.<target>")``.
     summary:
         One bounded factual sentence describing the capability.
-    root_group:
-        Exactly one teaching-order group from :data:`ROOT_GROUP_ORDER`.
-    root_visibility:
-        ``"direct"`` for standalone root entries, ``"grouped"`` for entries
-        rendered under a grouping topic.
-    root_summary:
-        Optional shorter orientation text used only by root help. Focused help
-        always renders ``summary``.
     constraint_ids:
         Links into the live constraint catalog.
     callable_path:
@@ -199,9 +190,6 @@ class CapabilityBase:
     public_entrypoint: str
     help_target: str
     summary: str
-    root_group: RootGroup
-    root_visibility: RootVisibility
-    root_summary: str | None = None
     constraint_ids: tuple[str, ...] = ()
     callable_path: str | None = None
     additional_examples: tuple[HelpExample, ...] = ()
@@ -356,6 +344,109 @@ CapabilityDescriptor = (
     | RecoveryCapability
     | BoundaryCapability
 )
+
+
+# ---------------------------------------------------------------------------
+# Native static-help descriptors
+# ---------------------------------------------------------------------------
+
+EpistemicKind = Literal[
+    "observed",
+    "algebraic",
+    "candidate",
+    "association",
+    "statistical_decision",
+    "projection",
+    "quality_evaluation",
+    "selection",
+]
+
+AnalysisHelpRenderClass = Literal[
+    "root",
+    "decision_hub",
+    "navigation",
+    "exact_callable",
+    "public_type",
+    "current_briefing",
+]
+
+
+@dataclass(frozen=True)
+class AnalysisHelpRenderBudget:
+    """Closed structural budget for one static analysis Help page class."""
+
+    max_lines: int
+    max_codepoints: int
+    max_outgoing_routes: int
+    max_examples_or_snippets: int
+
+
+ANALYSIS_HELP_RENDER_BUDGETS: Mapping[
+    AnalysisHelpRenderClass,
+    AnalysisHelpRenderBudget,
+] = MappingProxyType(
+    {
+        "root": AnalysisHelpRenderBudget(32, 3_000, 8, 0),
+        "decision_hub": AnalysisHelpRenderBudget(44, 4_500, 10, 0),
+        "navigation": AnalysisHelpRenderBudget(64, 6_500, 16, 0),
+        "exact_callable": AnalysisHelpRenderBudget(104, 9_000, 10, 1),
+        "public_type": AnalysisHelpRenderBudget(72, 7_000, 10, 0),
+        "current_briefing": AnalysisHelpRenderBudget(72, 7_000, 6, 1),
+    }
+)
+
+
+@dataclass(frozen=True)
+class AnalysisNavigationTopic:
+    """One non-invokable static decision or navigation page."""
+
+    canonical_id: str
+    summary: str
+    render_class: Literal["decision_hub", "navigation"]
+    members: tuple[LiveHelpTarget, ...]
+    public_entrypoint: None = field(default=None, init=False)
+    callable_path: None = field(default=None, init=False)
+
+    @property
+    def id(self) -> str:
+        """Return the native registry identity used by analysis internals."""
+
+        return self.canonical_id
+
+    @property
+    def help_target(self) -> str:
+        """Return the canonical target accepted by ``marivo.help``."""
+
+        return self.canonical_id
+
+
+@dataclass(frozen=True)
+class AnalysisMethodFamily:
+    """One non-invokable family of deterministic analysis computations."""
+
+    canonical_id: str
+    summary: str
+    epistemic_kinds: tuple[EpistemicKind, ...]
+    members: tuple[LiveHelpTarget, ...]
+    input_routes: tuple[LiveHelpTarget, ...]
+    output_routes: tuple[LiveHelpTarget, ...]
+    public_entrypoint: None = field(default=None, init=False)
+    callable_path: None = field(default=None, init=False)
+
+    @property
+    def id(self) -> str:
+        """Return the native registry identity used by analysis internals."""
+
+        return self.canonical_id
+
+    @property
+    def help_target(self) -> str:
+        """Return the canonical target accepted by ``marivo.help``."""
+
+        return self.canonical_id
+
+
+AnalysisHelpDescriptor = CapabilityDescriptor | AnalysisNavigationTopic | AnalysisMethodFamily
 
 
 # ---------------------------------------------------------------------------

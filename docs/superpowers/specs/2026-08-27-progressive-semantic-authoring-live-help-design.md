@@ -62,6 +62,8 @@ marivo.help("authoring")
       -> marivo.help("semantic.ref")
         -> marivo.help("semantic.ref.<kind>")
     -> marivo.help("semantic.checks")
+      -> marivo.help("semantic.source_check")
+        -> marivo.help("semantic.source_check.<method>")
       -> marivo.help("semantic.<check>")
 ```
 
@@ -79,7 +81,7 @@ questions is **not yet complete**:
 | Requirement | Current state | Conclusion |
 |---|---|---|
 | Exact help for top-level public semantic callables | The semantic capability registry covers the current top-level constructors, builders, load, probes, readiness, and diagnostics | Broadly complete at the leaf level |
-| Exact help for every public construction method | `semantic.ref` documents the shared factory convention, but `ms.ref.<kind>` methods are not independently resolvable callable leaves | Incomplete |
+| Exact help for every public construction method | `semantic.ref` and `semantic.source_check` document their shared factory conventions, but neither `ms.ref.<kind>` nor `ms.source_check.<method>` methods are independently resolvable callable leaves | Incomplete |
 | Discover every semantic object kind and its meaning | The root groups constructors by broad family; there is no registry-owned object-kind index or object relationship graph | Incomplete |
 | Discover all legal construction modes for one object kind | The relevant callable leaves exist, but the agent must already know names such as `aggregate`, `ratio`, or `dimension_column` and assemble the alternatives itself | Incomplete |
 | Discover supporting builders by parameter problem | Builders are mixed into the large authoring family; exact leaves exist but need-directed grouping is absent | Incomplete |
@@ -246,6 +248,13 @@ The initial hard ceilings are:
 | Exact contract | Callable and public-type leaves | 72 | 7,000 | 8 | 1 |
 | Current briefing | Concrete object, result, and error help | 64 | 6,000 | 6 | 1 |
 
+Budget ownership follows page ownership. The global help coordinator owns the
+`root` budget for `marivo.help()` and the `decision_hub` budget for
+`marivo.help("authoring")`. The semantic registry owns the five semantic page
+classes and their budgets for `semantic.*` targets and semantic runtime
+briefings. Both owners pass their selected hard limits to the same neutral
+enforcement primitive; neither imports the other's vocabulary or membership.
+
 Lines and codepoints are deterministic model-neutral proxies for token use;
 Marivo does not depend on one model tokenizer. Route and example limits prevent
 a short but semantically dense page from consuming context through large inline
@@ -257,14 +266,10 @@ chosen from the previous maximums: the current semantic root is 71 lines and
 leaf is 44 lines and fewer than 2,000 codepoints. Budget increases require new
 observed evidence and a design review; adding content is not sufficient reason.
 
-The global `marivo.help("targets")` inventory is a deliberate explicit opt-in
-exception, not a step in the semantic authoring route. It has its own ceiling
-of 160 lines and 6,000 codepoints and contains canonical strings only: no
-summaries, signatures, examples, or nested contracts. It is advertised only by
-global diagnostics and unknown-target recovery, never by semantic roots,
-decision hubs, or object/builder/check pages. If the inventory outgrows that
-ceiling, it must be split into bounded per-surface inventory targets rather
-than raising the budget or silently truncating members.
+The global `marivo.help()` page advertises only the authoring and analysis
+secondary roots. There is no flat cross-surface target inventory; semantic
+targets are discovered through bounded authoring routes, while exact secondary
+leaves remain resolvable when already known or obtained from live state.
 
 Content follows these rules:
 
@@ -290,8 +295,9 @@ fail validation until the owning descriptor is corrected.
 
 ### Level 0: Global routing
 
-`marivo.help()` remains the bounded global index. It points to
-`marivo.help("authoring")` without listing semantic constructors.
+`marivo.help()` remains the bounded global concept page. It points only to
+`marivo.help("authoring")` and `marivo.help("analysis")`, without listing
+semantic constructors or analysis capabilities.
 
 `marivo.help("authoring")` answers only which surface owns the current need:
 
@@ -401,22 +407,27 @@ The graph expresses semantic ownership and dependency, not a mandatory build
 sequence. An authoring checkpoint is one dependency-coherent slice and may
 contain several related objects.
 
-The initial construction-mode inventory is:
+The initial construction and supporting-builder inventory is:
 
-| Object kind | Default construction | Alternatives and escape hatches |
-|---|---|---|
-| Domain | `semantic.domain` | none |
-| Entity | `semantic.entity` | history values from `semantic.snapshot` or `semantic.validity` |
-| Dimension | `semantic.dimension_column` | `semantic.dimension` expression decorator |
-| TimeDimension | `semantic.time_dimension_column` | `semantic.time_dimension` expression decorator plus an applicable temporal parse builder |
-| Measure | `semantic.measure_column` | `semantic.measure` expression decorator; `semantic.semi_additive` where required |
-| Metric | `semantic.aggregate` or `semantic.count` according to intent | `semantic.ratio`, `semantic.weighted_mean`, `semantic.linear`, `semantic.cumulative`; `semantic.metric` expression decorator as escape hatch |
-| Relationship | `semantic.relationship` | join keys from `semantic.join_on` |
-| Event | `semantic.event` | predicates use `semantic.all_rows` or a restricted expression; participants use `semantic.participant` |
-| StateModel | `semantic.state_model` | local values from `semantic.lifecycle_state`, `semantic.inception`, and `semantic.transition` |
-| PeriodCalendar | `semantic.period_calendar` | correspondences from `semantic.period_correspondence` |
-| TemporalSet | `semantic.temporal_set` | none |
-| WorkSchedule | `semantic.work_schedule` | none |
+| Object kind | Ref-producing default | Ref-producing alternatives and escape hatches | Supporting parameter or local-value builders |
+|---|---|---|---|
+| Domain | `semantic.domain` | none | `semantic.ai_context` |
+| Entity | `semantic.entity` | none | `semantic.snapshot`, `semantic.validity`, `semantic.ai_context` |
+| Dimension | `semantic.dimension_column` | `semantic.dimension` expression decorator | `semantic.ai_context`, `semantic.bind` |
+| TimeDimension | `semantic.time_dimension_column` | `semantic.time_dimension` expression decorator | `semantic.datetime`, `semantic.timestamp`, `semantic.strptime`, `semantic.hour_prefix`, `semantic.ai_context`, `semantic.bind` |
+| Measure | `semantic.measure_column` | `semantic.measure` expression decorator | `semantic.semi_additive`, `semantic.ai_context`, `semantic.bind` |
+| Metric | `semantic.aggregate` or `semantic.count` according to intent | `semantic.ratio`, `semantic.weighted_mean`, `semantic.linear`, `semantic.cumulative`; `semantic.metric` expression decorator as escape hatch | `semantic.where`, `semantic.from_sql`, `semantic.grain_to_date`, `semantic.trailing`, `semantic.ai_context`, `semantic.bind` |
+| Relationship | `semantic.relationship` | none | `semantic.join_on`, `semantic.ai_context` |
+| Event | `semantic.event` | none | `semantic.all_rows`, `semantic.participant`, `semantic.ai_context` |
+| StateModel | `semantic.state_model` | none | `semantic.lifecycle_state`, `semantic.inception`, `semantic.transition`, `semantic.model_state`, `semantic.participant_role`, `semantic.ai_context` |
+| PeriodCalendar | `semantic.period_calendar` | none | `semantic.period_correspondence`, `semantic.ai_context` |
+| TemporalSet | `semantic.temporal_set` | none | `semantic.ai_context` |
+| WorkSchedule | `semantic.work_schedule` | none | `semantic.ai_context` |
+
+A `ConstructionMode` target must itself produce the object kind's exact
+`Ref[kind]`. A builder that supplies `versioning=`, `parse=`, `additivity=`,
+`keys=`, participants, local lifecycle values, provenance, anchors, or context
+is a `supporting_target`, never an alternative construction mode.
 
 ### Level 2B: One semantic object-kind page
 
@@ -511,8 +522,8 @@ index routes to bounded family pages instead of listing every helper at once.
 | Attach bounded agent context | `semantic.ai_context` |
 | Describe Entity history | `semantic.builders.entity_history` |
 | Parse physical time values | `semantic.builders.temporal_parsing` |
-| Support Metric construction and expressions | `semantic.builders.metric_support` |
-| Build Relationship and Event parameter values | `semantic.builders.relationship_event` |
+| Support Field and Metric parameters and expressions | `semantic.builders.field_metric_support` |
+| Build Relationship/Event values and typed participant handles | `semantic.builders.relationship_event` |
 | Build StateModel local values and handles | `semantic.builders.state_model` |
 | Build governed temporal parameter values | `semantic.builders.governed_temporal` |
 
@@ -523,7 +534,7 @@ and routes to these exact leaves:
 |---|---|
 | `semantic.builders.entity_history` | `semantic.snapshot`, `semantic.validity` |
 | `semantic.builders.temporal_parsing` | `semantic.datetime`, `semantic.timestamp`, `semantic.strptime`, `semantic.hour_prefix` |
-| `semantic.builders.metric_support` | `semantic.where`, `semantic.semi_additive`, `semantic.bind`, `semantic.from_sql`, `semantic.grain_to_date`, `semantic.trailing` |
+| `semantic.builders.field_metric_support` | `semantic.where`, `semantic.semi_additive`, `semantic.bind`, `semantic.from_sql`, `semantic.grain_to_date`, `semantic.trailing` |
 | `semantic.builders.relationship_event` | `semantic.join_on`, `semantic.participant`, `semantic.participant_role`, `semantic.all_rows` |
 | `semantic.builders.state_model` | `semantic.lifecycle_state`, `semantic.inception`, `semantic.transition`, `semantic.model_state` |
 | `semantic.builders.governed_temporal` | `semantic.period_correspondence`, `semantic.calendar_grain` |
@@ -560,6 +571,11 @@ factory page because the public `ms.ref` namespace also creates Datasource
 refs. It does not make Datasource a semantic object kind: physical datasource
 construction and inspection remain owned by `datasource.authoring`.
 
+The canonical `semantic.ref` string and the concrete public `ms.ref` namespace
+object resolve to this same static factory contract. Its closed method
+membership is registry-owned rather than reconstructed from `dir(...)` or
+renderer-local names.
+
 An exact target has one discovery owner. Object-kind pages may cross-link a
 builder, but that cross-link does not create a second builder-group membership.
 
@@ -575,9 +591,35 @@ establish:
 | Do project sources execute, resolve refs, and compile as one project? | `semantic.load` | Static project assembly and structural validation | Current external health or operation-shaped executability |
 | Is this exact requested dependency closure statically ready for analysis? | `semantic.readiness` | Governed semantic closure and `analysis_ready_inputs` | Successful execution of every future analysis shape |
 | What does this entry produce under one explicit authoring scope? | `semantic.preview`, `semantic.preview_many` | Bounded current runtime observation for the exact requested scope | Persistent certification or readiness mutation |
-| Does the current source still satisfy explicit schema or data expectations? | `semantic.source_health`, `semantic.source_check` | Ephemeral current source evidence for declared checks | Business approval or readiness mutation |
+| How do I declare an exact null, enum, uniqueness, freshness, relationship, or cardinality expectation? | `semantic.source_check` | The expectation is explicit, typed, and closed | That the current source satisfies it |
+| Does the current source still satisfy explicit schema or data expectations? | `semantic.source_health` | Ephemeral current source evidence for declared checks | Business approval or readiness mutation |
 | Does a Metric agree with its governed SQL provenance? | `semantic.parity_check` | Exact parity result for the declared comparison | General correctness outside that comparison |
 | Is the semantic project rich enough for current demand? | `semantic.richness` | Demand-ranked advisory gaps | A readiness blocker or execution failure |
+
+`semantic.source_check` is a bounded factory page, parallel to `semantic.ref`.
+It routes each public constructor to one exact callable leaf:
+
+```text
+semantic.source_check
+
+  Not null:                marivo.help("semantic.source_check.not_null")
+  Allowed values:          marivo.help("semantic.source_check.allowed_values")
+  Unique fields:           marivo.help("semantic.source_check.unique")
+  Freshness:               marivo.help("semantic.source_check.freshness")
+  Relationship matches:    marivo.help("semantic.source_check.relationship_matches")
+  Relationship cardinality: marivo.help("semantic.source_check.relationship_cardinality")
+```
+
+Each `semantic.source_check.<method>` leaf reflects the corresponding
+`ms.source_check.<method>(...)` signature, constraints, and exact `SourceCheck`
+variant. Constructing a check establishes only an explicit expectation;
+`catalog.source_health(..., checks=[...], scope=...)` owns the current evidence
+that evaluates it.
+
+The canonical `semantic.source_check` string and concrete public
+`ms.source_check` namespace object resolve to the same static factory contract.
+Its six method routes are registry-owned and render no signatures until one
+exact method leaf is selected.
 
 The page states the non-equivalence directly:
 
@@ -593,8 +635,9 @@ There is no `semantic.verify` target and no per-object verification checkpoint.
 
 ### Level 3: Exact callable leaf
 
-`marivo.help("semantic.<constructor-or-operation>")` remains the only static
-contract for one public callable.
+`marivo.help("semantic.<callable-target>")`, including qualified receiver and
+factory-method targets, remains the only static contract for one public
+callable.
 
 A callable leaf owns:
 
@@ -637,8 +680,10 @@ A type leaf owns:
 - stable construction or serialization guidance when applicable.
 
 Examples include `SemanticCatalog`, `CatalogEntry`, `CatalogCollection`, `Ref`,
-`JoinKey`, result types, and error classes. Type-object and canonical-string
-targets render the same static contract.
+the public `ref` and `source_check` factory namespaces, `JoinKey`, result types,
+and error classes. A factory-namespace contract owns its closed method routes
+without inlining their signatures. Type-object, namespace-object, and
+canonical-string targets render the same static contract where applicable.
 
 ### Level 5: Current object and error briefing
 
@@ -832,7 +877,7 @@ additional group memberships.
 ### Render-class budget ownership
 
 The semantic capability model replaces its current two-way `root` versus
-`focused` selection with five page classes:
+`focused` selection with five semantic page classes:
 
 ```python
 SemanticHelpRenderClass = Literal[
@@ -852,13 +897,15 @@ class SemanticHelpRenderBudget:
     max_examples_or_snippets: int
 ```
 
-The semantic registry owns one immutable budget per class. The semantic
-renderer selects the class from the resolved descriptor and rendering context;
-it does not place numeric limits on individual target ids. It counts structural
-routes and examples, then passes the rendered text and the selected line and
-codepoint ceilings to the existing neutral `enforce_budget(...)` primitive.
-The neutral layer remains unaware of semantic page classes, object kinds, and
-authoring workflow.
+The semantic registry owns one immutable budget per semantic class and assigns
+a class to each static descriptor. The semantic renderer selects
+`current_briefing` only from the resolved runtime context. Separately, the
+global help coordinator owns the matching `root` and `decision_hub` budget
+records for its two pages. Each renderer counts structural routes and examples,
+then passes the rendered text and selected limits to the existing neutral
+`enforce_budget(...)` primitive. No renderer places numeric limits on
+individual target ids. The neutral layer remains unaware of page-class names,
+semantic object kinds, navigation membership, and authoring workflow.
 
 ### Implementation-to-help consistency
 
@@ -873,6 +920,9 @@ split explicitly:
 | Intent, effects, cross-parameter constraints, placement, repairs | Exact semantic capability descriptor | Rendered from the descriptor |
 | Object meaning, construction modes, relationships, catalog collection | `SemanticObjectContract` | Rendered from the object-kind descriptor |
 | Root membership, teaching order, builder groups, and check routes | Semantic registry | Renderer only iterates registry views |
+| Semantic render classes, assignments, and budget values | Semantic registry | Semantic renderer selects and enforces the descriptor or briefing class |
+| Global root and authoring-hub budget values | Global help coordinator | Global renderer selects and enforces its owning page class |
+| Hard line, codepoint, route, and example enforcement | Neutral live-help primitive | Receives explicit selected limits without learning page semantics |
 | Current catalog or error facts | The concrete runtime value | Added only to the corresponding static contract |
 | Final text layout | Renderer | Owns presentation only; it creates no API or topology facts |
 
@@ -955,9 +1005,9 @@ Current catalog:
 Call marivo.help("semantic.<target>") for one exact contract.
 ```
 
-Exact callable leaves remain canonical and appear in `help("targets")`. They
-are discoverable through one navigation family instead of all being repeated at
-the root.
+Exact callable leaves remain canonical. They are discoverable through one
+navigation family instead of all being repeated at the root or in a flat global
+inventory.
 
 ## Public Target Rules
 
@@ -965,10 +1015,14 @@ the root.
 - `semantic.builders.<family>` is a canonical non-callable navigation target.
 - `semantic.<canonical-id>` remains the canonical exact callable target.
 - Receiver and factory methods use qualified canonical ids such as
-  `semantic.SemanticCatalog.items` and `semantic.ref.entity`; the public
-  entrypoints remain `ms.SemanticCatalog.items` and `ms.ref.entity`.
+  `semantic.SemanticCatalog.items`, `semantic.ref.entity`, and
+  `semantic.source_check.not_null`; the public entrypoints remain
+  `ms.SemanticCatalog.items`, `ms.ref.entity`, and
+  `ms.source_check.not_null`.
 - A callable object and its canonical string resolve to the same capability
   descriptor.
+- The public `ms.ref` and `ms.source_check` namespace objects resolve to the
+  same factory pages as `semantic.ref` and `semantic.source_check`.
 - There is no `semantic.lifecycle` alias. Lifecycle authoring is discovered as
   `semantic.objects.state_model`; analysis lifecycle operations remain owned by
   `analysis.lifecycle`.
@@ -976,9 +1030,9 @@ the root.
   independent canonical `ontology.authoring` target.
 - Supporting types and errors remain focused leaves and do not enter root
   discovery merely because they are public.
-- `help("targets")` remains the deterministic exhaustive string inventory while
-  it fits its explicit inventory budget; it is not part of normal authoring
-  discovery. Overflow requires bounded per-surface inventory targets.
+- There is no global flat target inventory. Bounded authoring routes own
+  discovery, while exact secondary leaves remain resolvable when already known
+  or obtained from live state.
 - Unknown or ambiguous targets fail with bounded canonical suggestions; they
   never resolve by surface order or alias fallback.
 
@@ -1029,9 +1083,15 @@ signatures, builder inventories, check matrices, or error catalogs.
 - Every public semantic routine resolves to exactly one callable descriptor.
 - Every public `ms.ref.<kind>` factory resolves through one exact
   `semantic.ref.<kind>` callable leaf.
+- Every public `ms.source_check.<method>` factory resolves through one exact
+  `semantic.source_check.<method>` callable leaf.
+- The concrete `ms.ref` and `ms.source_check` namespace objects resolve to the
+  same registry-owned factory contracts as their canonical strings.
 - Every public semantic type resolves to exactly one type contract.
 - Every source-authored ref constructor belongs to exactly one semantic object
   kind and one construction mode.
+- Every construction-mode target produces the owning object's exact ref kind;
+  nested parameter and local-value builders appear only as supporting targets.
 - Every semantic object kind has exactly one `semantic.objects.<kind>` target.
 - Every builder and check target has exactly one discovery owner.
 - Navigation groups contain only registered canonical targets.
@@ -1055,6 +1115,8 @@ Starting from `authoring`:
 - every semantic object kind is reachable;
 - every public semantic constructor is reachable;
 - every supporting builder is reachable;
+- every public `ms.source_check.<method>` factory is reachable through
+  `semantic.source_check`;
 - every semantic check is reachable;
 - `ontology.authoring` and `datasource.authoring` are reachable;
 - no required leaf is more than four edges from the global authoring topic.
@@ -1064,7 +1126,8 @@ assert that rendered reachability matches registry reachability.
 
 ### Render invariants
 
-- Every rendered page selects exactly one generic render class.
+- The global root and authoring hub select their global-owned class; every
+  semantic page in this design selects exactly one semantic-owned class.
 - Each render class enforces independent line, codepoint, outgoing-route, and
   example/snippet limits.
 - Root and navigation pages contain no expanded signatures or parameter tables.
@@ -1101,6 +1164,9 @@ assert that rendered reachability matches registry reachability.
 ### Example validation
 
 - Every callable example binds against the live signature.
+- Every `ms.source_check.<method>` example constructs its exact closed
+  `SourceCheck` variant; evaluating that value remains a separate
+  `catalog.source_health(...)` behavior test.
 - Source-authored declaration examples execute only inside a controlled loader
   fixture.
 - Examples use declaration-returned refs or `ms.ref.<kind>(path)`, never bare
@@ -1127,14 +1193,20 @@ assert that rendered reachability matches registry reachability.
 - Add `SemanticNavigationTopic`, `ConstructionMode`, and
   `SemanticObjectContract` to the semantic-owned capability model.
 - Adapt the semantic registry to a closed native descriptor union.
-- Add five semantic render classes and explicit semantic-owned budget records;
-  reuse neutral hard line/codepoint enforcement.
+- Add five semantic render classes and one semantic-owned budget record per
+  class; assign every semantic descriptor to the appropriate class.
+- Add global-coordinator-owned `root` and `decision_hub` budget records for
+  `marivo.help()` and `marivo.help("authoring")`; reuse neutral enforcement.
 - Keep the neutral resolver generic and unchanged in semantic meaning.
 - Add registry validation before changing rendered output.
 
 ### Slice 2: Object graph and constructor relationships
 
 - Register every object-kind page and construction mode.
+- Require every construction mode to return the owning object's exact ref kind;
+  keep nested parameter and local-value builders in supporting-target edges.
+- Register exact callable descriptors for every `ms.ref.<kind>` and
+  `ms.source_check.<method>` factory method.
 - Split constructor dependencies from source placement.
 - Add exact supporting-builder edges.
 - Add export, callable-identity, signature/dependency, output-family, and
@@ -1143,6 +1215,8 @@ assert that rendered reachability matches registry reachability.
 ### Slice 3: Progressive rendering and reachability
 
 - Replace renderer-local authoring route tuples with registry-owned navigation.
+- Render the global `authoring` topic as a decision hub under the shared budget
+  while keeping its surface routes global-coordinator-owned.
 - Compact the semantic root to `authoring`, `objects`, `builders`, `checks`,
   load, and current-catalog routes.
 - Render object-kind, builder, and check pages.
@@ -1152,7 +1226,8 @@ assert that rendered reachability matches registry reachability.
 ### Slice 4: Dynamic repair and documentation alignment
 
 - Route structured repairs to the narrowest object-kind or callable target.
-- Verify object, ref, type, result, and error help matrices.
+- Verify object, ref-factory, source-check-factory, type, result, and error help
+  matrices.
 - Update the packaged semantic skill and current English/Chinese site routes.
 - Run focused help/registry tests, the full repository gates, examples, and
   site verification/build.
@@ -1167,7 +1242,12 @@ assert that rendered reachability matches registry reachability.
   exact constructor leaf without already knowing its function name.
 - For objects with multiple construction modes, help distinguishes the default,
   alternatives, and escape hatch without duplicating signatures.
+- Nested parameter and local-value builders are never presented as alternative
+  ways to construct the owning semantic ref.
 - Supporting builders are discoverable by the parameter problem they solve.
+- Every `ms.source_check.<method>` factory has an exact callable leaf reachable
+  through `semantic.source_check`, and help does not present construction of a
+  check value as evidence that the source satisfies it.
 - Inspection and check help states what each operation proves and what it does
   not prove.
 - Every exact callable leaf remains self-contained and mechanically aligned

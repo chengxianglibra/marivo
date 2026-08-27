@@ -1145,7 +1145,7 @@ class HelpTargetError(AnalysisError):
                 canonical_id=target_name,
             )
         else:
-            action = "Use marivo.help() to browse registered targets."
+            action = "Use marivo.help() to choose authoring or analysis."
             help_target = LiveHelpTarget(surface="analysis")
         if suggestions and owning_surface is None:
             # Surface fuzzy candidates on the first line. See issue #35.

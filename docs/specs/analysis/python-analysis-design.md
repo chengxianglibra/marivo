@@ -124,10 +124,10 @@ The target progressive-disclosure topology for those layers is specified in
 
 - **Live surfaces — capabilities and runtime guidance.**
   `python -m marivo help` verifies the selected environment and hands off to
-  Python. `marivo.help()` is a short global index; the exact surface names
-  `marivo.help("datasource")`, `marivo.help("semantic")`,
-  `marivo.help("analysis")`, and optional `marivo.help("ontology")` open their
-  native bounded indexes. The analysis root includes one guarded first-observation
+  Python. `marivo.help()` is a short concept page that routes only to
+  `marivo.help("authoring")` and `marivo.help("analysis")`; authoring routes to
+  the datasource, semantic, and optional ontology trees. The analysis root
+  includes one guarded first-observation
   path: acquire the session, select and inspect a current metric entry with
   `marivo.help(entry)`, inspect scoped readiness, then call `session.observe(...)`
   and read the resulting frame. It does not render the registry's complete type

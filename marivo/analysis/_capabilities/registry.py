@@ -21,14 +21,21 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel
 
 from marivo.analysis._capabilities.model import (
+    ANALYSIS_HELP_RENDER_BUDGETS,
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
+    AnalysisHelpDescriptor,
+    AnalysisHelpRenderBudget,
+    AnalysisHelpRenderClass,
+    AnalysisMethodFamily,
+    AnalysisNavigationTopic,
     ArtifactAdmissionRule,
     ArtifactOutputContract,
     AuthorityPolicy,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
+    EpistemicKind,
     HelpExample,
     InputFamily,
     OperatorCapability,
@@ -59,8 +66,205 @@ _EXPLICIT_GROUPING_MEMBER_TARGETS: Mapping[str, frozenset[str]] = MappingProxyTy
             }
         ),
         "sampling": frozenset({"SamplingPolicy"}),
+        "recovery": frozenset(
+            {
+                "session.current",
+                "session.delete",
+                "session.evidence.compatibility",
+                "session.evidence.digest",
+                "session.evidence.digests",
+                "session.evidence.finding",
+                "session.evidence.findings",
+                "session.evidence.trace",
+                "session.frame_summaries",
+                "session.get_frame",
+                "session.get_or_create",
+                "session.inspect",
+                "session.job",
+                "session.jobs",
+                "session.recent",
+                "session.recent_jobs",
+                "session.resume",
+                "session.revalidate",
+            }
+        ),
     }
 )
+
+
+def _analysis_target(canonical_id: str) -> LiveHelpTarget:
+    return LiveHelpTarget(surface="analysis", canonical_id=canonical_id)
+
+
+def _semantic_target(canonical_id: str) -> LiveHelpTarget:
+    return LiveHelpTarget(surface="semantic", canonical_id=canonical_id)
+
+
+_CURRENT_DISCOVERY_TARGETS: Mapping[RootGroup, tuple[str, ...]] = MappingProxyType(
+    {
+        "semantic_inputs": ("catalog",),
+        "policies_builders": (
+            "grain",
+            "funnel_loss_rate",
+            "step",
+            "sequence",
+            "first_per_subject",
+            "every_start",
+            "declared_complete_through",
+            "window_bucket",
+            "time_scope",
+            "alignment",
+            "sampling",
+            "runtime_metric",
+        ),
+        "artifact_production": ("observe", "events.match", "lifecycle.replay"),
+        "typed_analysis": (
+            "events.funnel",
+            "lifecycle.distribution",
+            "lifecycle.transitions",
+            "lifecycle.dwell",
+            "lifecycle.violations",
+            "events.time_to_event",
+            "select_subjects",
+            "compare",
+            "attribute",
+            "correlate",
+            "hypothesis_test",
+            "forecast",
+            "assess_quality",
+            "discover",
+        ),
+        "family_operations": ("transform",),
+        "artifact_inspection": ("artifacts",),
+        "recovery": ("session.get_or_create", "recovery"),
+        "boundaries": ("boundary.to_pandas",),
+    }
+)
+
+_CURRENT_ROOT_SUMMARIES: Mapping[str, str] = MappingProxyType(
+    {
+        "time_scope": "Construct a half-open [start, end) analysis window.",
+        "observe": "Materialize governed metric inputs into a typed MetricFrame.",
+        "events.time_to_event": "Project persisted journeys into elapsed-time rows.",
+        "compare": "Compare compatible metric or funnel artifacts into a DeltaFrame.",
+        "attribute": ("Attribute a DeltaFrame over explicit axes with reconciled contributions."),
+        "forecast": "Forecast a time-series or panel MetricFrame.",
+        "assess_quality": "Run fixed quality checks over supported analysis artifacts.",
+        "artifacts": "Inspect bounded state, valid continuations, and terminal exits.",
+    }
+)
+
+_CURRENT_FOCUSED_NAVIGATION_SUMMARIES: Mapping[str, str] = MappingProxyType(
+    {
+        "artifacts": (
+            "Read artifacts progressively: inspect bounded state, check mechanical "
+            "compatibility, then cross a terminal boundary only for intentionally "
+            "custom work."
+        ),
+    }
+)
+
+_ROOT_HELP_MEMBERS: tuple[LiveHelpTarget, ...] = (
+    _analysis_target("entry"),
+    _analysis_target("methods"),
+    _analysis_target("inputs"),
+    _analysis_target("artifacts"),
+    _analysis_target("evidence"),
+    _analysis_target("runtime"),
+    _analysis_target("boundary.to_pandas"),
+)
+
+
+def _root_navigation_topics() -> tuple[AnalysisNavigationTopic, ...]:
+    """Build the inactive Slice 1 topology used by later rendering slices."""
+
+    return (
+        AnalysisNavigationTopic(
+            canonical_id="entry",
+            summary="Route governed semantic inputs into their typed entry producers.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("observe"),
+                _analysis_target("events.match"),
+                _analysis_target("lifecycle.replay"),
+                _analysis_target("catalog"),
+                _analysis_target("catalog.readiness"),
+                _semantic_target("authoring"),
+                _analysis_target("entry.event_observations"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="methods",
+            summary="Route by the deterministic computation performed.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("observe"),
+                _analysis_target("methods.change"),
+                _analysis_target("discover"),
+                _analysis_target("methods.relationship_testing"),
+                _analysis_target("forecast"),
+                _analysis_target("assess_quality"),
+                _analysis_target("events"),
+                _analysis_target("lifecycle"),
+                _analysis_target("select_subjects"),
+                _analysis_target("transform"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="inputs",
+            summary="Route by the policy, scope, selection, or option value required.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("catalog"),
+                _analysis_target("inputs.scope"),
+                _analysis_target("alignment"),
+                _analysis_target("SamplingPolicy"),
+                _analysis_target("runtime_metric"),
+                _analysis_target("inputs.events"),
+                _analysis_target("inputs.subject_selection"),
+                _analysis_target("inputs.operator_options"),
+                _analysis_target("inputs.transform_options"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="artifacts",
+            summary="Route to static Artifact family contracts and the common read protocol.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("artifacts.metric_change"),
+                _analysis_target("artifacts.event_lifecycle"),
+                _analysis_target("artifacts.discovery_inference"),
+                _analysis_target("artifacts.quality_projection"),
+                _analysis_target("artifacts.reading"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="evidence",
+            summary="Route by the Evidence identity or proof boundary being checked.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("BaseFrame.show"),
+                _analysis_target("evidence.browse"),
+                _analysis_target("evidence.exact"),
+                _analysis_target("session.evidence.compatibility"),
+                _analysis_target("session.revalidate"),
+                _analysis_target("assess_quality"),
+            ),
+        ),
+        AnalysisNavigationTopic(
+            canonical_id="runtime",
+            summary="Route to persisted Session, Artifact, job, and Evidence reads.",
+            render_class="decision_hub",
+            members=(
+                _analysis_target("runtime.sessions"),
+                _analysis_target("runtime.artifacts"),
+                _analysis_target("runtime.jobs"),
+                _analysis_target("Session"),
+                _analysis_target("evidence"),
+            ),
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Public type/member contracts
@@ -359,9 +563,6 @@ class TypeAlgebraRow:
 def _make_grouping_descriptor(
     topic: str,
     summary: str,
-    root_group: RootGroup,
-    *,
-    root_summary: str | None = None,
 ) -> ConstructorCapability:
     """Create a non-invokable grouping descriptor for a collapsed topic."""
     return ConstructorCapability(
@@ -369,9 +570,6 @@ def _make_grouping_descriptor(
         public_entrypoint=f'marivo.help("analysis.{topic}")',
         help_target=topic,
         summary=summary,
-        root_group=root_group,
-        root_visibility="grouped",
-        root_summary=root_summary,
         callable_path=None,
         output_type="",
     )
@@ -390,10 +588,17 @@ class CapabilityRegistry:
     reverse-edge indexes and generated type-algebra rows.
     """
 
+    _help_descriptors: tuple[AnalysisHelpDescriptor, ...]
     _descriptors: tuple[CapabilityDescriptor, ...]
-    _by_id: Mapping[str, CapabilityDescriptor] = field(default_factory=dict)
-    _by_help_target: Mapping[str, CapabilityDescriptor] = field(default_factory=dict)
+    _by_id: Mapping[str, AnalysisHelpDescriptor] = field(default_factory=dict)
+    _by_help_target: Mapping[str, AnalysisHelpDescriptor] = field(default_factory=dict)
     _by_callable: Mapping[str, CapabilityDescriptor] = field(default_factory=dict)
+    _navigation_topics: Mapping[str, AnalysisNavigationTopic] = field(default_factory=dict)
+    _method_families: Mapping[str, AnalysisMethodFamily] = field(default_factory=dict)
+    _root_members: tuple[LiveHelpTarget, ...] = field(default_factory=tuple)
+    _render_budgets: Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget] = field(
+        default_factory=dict
+    )
     _constructor_consumers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     _algebra_rows: tuple[TypeAlgebraRow, ...] = field(default_factory=tuple)
 
@@ -406,7 +611,15 @@ class CapabilityRegistry:
 
     @property
     def descriptors(self) -> tuple[CapabilityDescriptor, ...]:
+        """Return exact runtime capabilities only."""
+
         return self._descriptors
+
+    @property
+    def help_descriptors(self) -> tuple[AnalysisHelpDescriptor, ...]:
+        """Return the currently resolvable static Help descriptors."""
+
+        return self._help_descriptors
 
     @property
     def capability_ids(self) -> tuple[str, ...]:
@@ -414,64 +627,87 @@ class CapabilityRegistry:
 
     @property
     def help_targets(self) -> tuple[str, ...]:
-        return tuple(d.help_target for d in self._descriptors)
+        return tuple(d.help_target for d in self._help_descriptors)
+
+    @property
+    def navigation_topics(self) -> tuple[AnalysisNavigationTopic, ...]:
+        """Return the immutable native navigation topology in registration order."""
+
+        return tuple(self._navigation_topics.values())
+
+    @property
+    def method_families(self) -> tuple[AnalysisMethodFamily, ...]:
+        """Return registered native method families in registration order."""
+
+        return tuple(self._method_families.values())
+
+    @property
+    def root_members(self) -> tuple[LiveHelpTarget, ...]:
+        """Return the final progressive analysis-root edges."""
+
+        return self._root_members
+
+    @property
+    def render_budgets(
+        self,
+    ) -> Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget]:
+        """Return analysis-owned immutable static Help budgets."""
+
+        return self._render_budgets
+
+    def render_budget(
+        self,
+        render_class: AnalysisHelpRenderClass,
+    ) -> AnalysisHelpRenderBudget:
+        """Return the registered budget for one static Help render class."""
+
+        return self._render_budgets[render_class]
+
+    def navigation_topic(self, canonical_id: str) -> AnalysisNavigationTopic:
+        """Return one native navigation topic, including inactive Slice 1 hubs."""
+
+        return self._navigation_topics[canonical_id]
 
     def grouping_topic_for(self, descriptor: CapabilityDescriptor) -> str | None:
-        """Return the registered drill-down topic for one grouped descriptor."""
-        if descriptor.root_visibility != "grouped":
-            return None
-        if descriptor.id.startswith("session.") and descriptor.root_group == "recovery":
-            try:
-                self.by_help_target("recovery")
-                return "recovery"
-            except KeyError:
-                return None
+        """Preserve current grouping lookup until Slice 2 replaces it."""
+
         for topic, member_targets in _EXPLICIT_GROUPING_MEMBER_TARGETS.items():
             if descriptor.help_target in member_targets:
                 return topic
-        parts = descriptor.id.split(".")
-        for end in range(len(parts) - 1, 0, -1):
-            topic = ".".join(parts[:end])
-            try:
-                grouping = self.by_help_target(topic)
-            except KeyError:
-                continue
-            if grouping.callable_path is None and grouping.root_group == descriptor.root_group:
+        if descriptor.id.startswith("session.") and descriptor.id != "session.get_or_create":
+            return "recovery"
+        for topic in ("catalog", "runtime_metric", "discover", "transform"):
+            if descriptor.id.startswith(f"{topic}."):
                 return topic
         if descriptor.id.startswith("BaseFrame."):
-            try:
-                self.by_help_target("artifacts")
-                return "artifacts"
-            except KeyError:
-                return None
+            return "artifacts"
         return None
 
     def discovery_groups(
         self,
-    ) -> tuple[tuple[RootGroup, tuple[CapabilityDescriptor, ...]], ...]:
-        """Return root-ordered capability groups for progressive discovery."""
-        groups: list[tuple[RootGroup, tuple[CapabilityDescriptor, ...]]] = []
-        seen_targets: set[str] = set()
-        for group in ROOT_GROUP_ORDER:
-            descriptors = tuple(
-                descriptor for descriptor in self._descriptors if descriptor.root_group == group
+    ) -> tuple[tuple[RootGroup, tuple[AnalysisHelpDescriptor, ...]], ...]:
+        """Return the current public root projection from registry-owned facts."""
+
+        return tuple(
+            (
+                group,
+                tuple(self.by_help_target(target) for target in _CURRENT_DISCOVERY_TARGETS[group]),
             )
-            visible: list[CapabilityDescriptor] = []
-            for descriptor in (
-                descriptor for descriptor in descriptors if descriptor.root_visibility == "direct"
-            ):
-                if descriptor.help_target not in seen_targets:
-                    seen_targets.add(descriptor.help_target)
-                    visible.append(descriptor)
-            for descriptor in descriptors:
-                topic = self.grouping_topic_for(descriptor)
-                if topic is None or topic in seen_targets:
-                    continue
-                seen_targets.add(topic)
-                visible.append(self.by_help_target(topic))
-            if visible:
-                groups.append((group, tuple(visible)))
-        return tuple(groups)
+            for group in ROOT_GROUP_ORDER
+        )
+
+    def discovery_summary(self, descriptor: AnalysisHelpDescriptor) -> str:
+        """Return current root-only summary text without storing it on capabilities."""
+
+        return _CURRENT_ROOT_SUMMARIES.get(descriptor.canonical_id, descriptor.summary)
+
+    def focused_summary(self, descriptor: AnalysisHelpDescriptor) -> str:
+        """Return current focused text while the public cutover remains inactive."""
+
+        return _CURRENT_FOCUSED_NAVIGATION_SUMMARIES.get(
+            descriptor.canonical_id,
+            descriptor.summary,
+        )
 
     def discovery_ids(self) -> tuple[str, ...]:
         """Return direct capabilities and one drill-down topic per grouped family."""
@@ -624,20 +860,23 @@ class CapabilityRegistry:
 
     def by_id(self, capability_id: str) -> CapabilityDescriptor:
         """Return the descriptor with the given canonical id."""
-        return self._by_id[capability_id]
+        descriptor = self._by_id[capability_id]
+        if isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily)):
+            raise KeyError(capability_id)
+        return descriptor
 
     def canonical_ids(self) -> tuple[str, ...]:
         """Return canonical help targets in native registry order."""
         return self.help_targets
 
-    def by_canonical_id(self, canonical_id: str) -> CapabilityDescriptor:
+    def by_canonical_id(self, canonical_id: str) -> AnalysisHelpDescriptor:
         """Resolve canonical help grammar, then the native capability id."""
         try:
             return self.by_help_target(canonical_id)
         except KeyError:
             return self.by_id(canonical_id)
 
-    def by_help_target(self, help_target: str) -> CapabilityDescriptor:
+    def by_help_target(self, help_target: str) -> AnalysisHelpDescriptor:
         """Return the descriptor with the given help target."""
         return self._by_help_target[help_target]
 
@@ -796,7 +1035,9 @@ def _build_registry() -> CapabilityRegistry:
 
     all_artifact_families: frozenset[InputFamily] = frozenset(ARTIFACT_FAMILIES)
 
-    descriptors: list[CapabilityDescriptor] = []
+    descriptors: list[AnalysisHelpDescriptor] = []
+    root_navigation_topics = _root_navigation_topics()
+    root_navigation_by_id = {topic.canonical_id: topic for topic in root_navigation_topics}
 
     # -- Session operators ------------------------------------------------
 
@@ -811,9 +1052,6 @@ def _build_registry() -> CapabilityRegistry:
                 "grain accepts builtin mv.grain(...) values or certified semantic "
                 "ms.calendar_grain(...) values."
             ),
-            root_group="artifact_production",
-            root_visibility="direct",
-            root_summary="Materialize governed metric inputs into a typed MetricFrame.",
             constraint_ids=(
                 "metric_expression_resolvable",
                 "metric_readiness_verified",
@@ -886,8 +1124,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Match a typed EventPattern into dense subject journeys with "
                 "explicit follow-up completeness."
             ),
-            root_group="artifact_production",
-            root_visibility="direct",
             constraint_ids=(
                 "event_pattern_valid",
                 "event_window_valid",
@@ -976,8 +1212,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Reduce first-per-subject journeys into censoring-aware funnel "
                 "counts with optional governed subject axes."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
             constraint_ids=("event_reducer_source_valid", "event_subject_axis_valid"),
             callable_path="marivo.analysis.session.core.SessionEvents.funnel",
             authority_policy="semantic_current",
@@ -1009,8 +1243,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Replay one exact StateModel from its explicit inception seed into "
                 "canonical clipped state history."
             ),
-            root_group="artifact_production",
-            root_visibility="direct",
             constraint_ids=(
                 "lifecycle_model_valid",
                 "lifecycle_window_valid",
@@ -1099,8 +1331,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=f"session.{capability_id}(...)",
                 help_target=capability_id,
                 summary=summary,
-                root_group="typed_analysis",
-                root_visibility="direct",
                 constraint_ids=("lifecycle_reducer_source_valid",),
                 callable_path=callable_path,
                 authority_policy=authority_policy,
@@ -1152,9 +1382,6 @@ def _build_registry() -> CapabilityRegistry:
                 "without querying or rematching Events, with optional governed "
                 "subject axes to group elapsed durations."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
-            root_summary="Project persisted journeys into elapsed-time rows.",
             constraint_ids=(
                 "event_reducer_source_valid",
                 "event_step_pair_valid",
@@ -1199,8 +1426,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Materialize a closed typed SubjectSet from resolved Event loss "
                 "or replayed Lifecycle state."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
             constraint_ids=("event_reducer_source_valid", "subject_selection_valid"),
             callable_path="marivo.analysis.session.core.Session.select_subjects",
             authority_policy="semantic_current",
@@ -1234,9 +1459,6 @@ def _build_registry() -> CapabilityRegistry:
                 'multi-metric frame is projected with frame.metric("<metric_id>") '
                 "before comparing."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
-            root_summary="Compare compatible metric or funnel artifacts into a DeltaFrame.",
             constraint_ids=(
                 "frame_kind_compatible",
                 "single_metric_input",
@@ -1338,11 +1560,6 @@ def _build_registry() -> CapabilityRegistry:
                 "and unsupported cumulative route combinations remain blocked by the delta "
                 "contract."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
-            root_summary=(
-                "Attribute a DeltaFrame over explicit axes with reconciled contributions."
-            ),
             constraint_ids=(
                 "frame_kind_compatible",
                 "attribution_additivity_compatible",
@@ -1417,8 +1634,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="session.correlate(...)",
             help_target="correlate",
             summary="Measure the association between two MetricFrames.",
-            root_group="typed_analysis",
-            root_visibility="direct",
             constraint_ids=(
                 "frame_kind_compatible",
                 "alignment_policy_shape",
@@ -1458,8 +1673,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="session.hypothesis_test(...)",
             help_target="hypothesis_test",
             summary="Run a paired hypothesis test over two MetricFrames.",
-            root_group="typed_analysis",
-            root_visibility="direct",
             constraint_ids=(
                 "frame_kind_compatible",
                 "alignment_policy_shape",
@@ -1487,9 +1700,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Project a time_series or panel MetricFrame forward; certified semantic "
                 "periods use their exact ordinal binding and future coverage."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
-            root_summary="Forecast a time-series or panel MetricFrame.",
             constraint_ids=("forecast_input_shape", "single_metric_input"),
             callable_path="marivo.analysis.session.core.Session.forecast",
             authority_policy="materialized_only",
@@ -1510,9 +1720,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Run fixed quality checks over supported MetricFrame, EventFrame, "
                 "LifecycleFrame, DeltaFrame, and AttributionFrame shapes."
             ),
-            root_group="typed_analysis",
-            root_visibility="direct",
-            root_summary="Run fixed quality checks over supported analysis artifacts.",
             constraint_ids=("quality_target_shape",),
             callable_path="marivo.analysis.session.core.Session.assess_quality",
             authority_policy="materialized_only",
@@ -1585,8 +1792,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=f"session.discover.{objective}(...)",
                 help_target=obj_id,
                 summary=summary,
-                root_group="typed_analysis",
-                root_visibility="grouped",
                 constraint_ids=discover_constraints,
                 callable_path=f"marivo.analysis.session.core.SessionDiscoverNamespace.{objective}",
                 authority_policy="materialized_only",
@@ -1618,8 +1823,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Resolve bounded unscored Metric hypotheses through one explicit "
                 "ontology edge while preserving the exact source scope."
             ),
-            root_group="typed_analysis",
-            root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
             callable_path=(
                 "marivo.analysis.session.core.SessionDiscoverNamespace.semantic_hypotheses"
@@ -1693,8 +1896,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=f"frame.transform.{op_name}(...)",
                 help_target=cap_id,
                 summary=summary,
-                root_group="family_operations",
-                root_visibility="grouped",
                 constraint_ids=(
                     "transform_arguments",
                     "transform_frame_shape",
@@ -1737,8 +1938,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.transform.normalize(...)",
             help_target="transform.normalize",
             summary="Normalize MetricFrame values.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=(
                 "transform_arguments",
                 "transform_frame_shape",
@@ -1773,8 +1972,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.metric(...)",
             help_target="MetricFrame.metric",
             summary="Project one metric out of a multi-metric frame.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
             callable_path="marivo.analysis.frames.metric.MetricFrame.metric",
             authority_policy="materialized_only",
@@ -1790,8 +1987,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.components()",
             help_target="MetricFrame.components",
             summary="Load the recursive component graph persisted for a MetricFrame.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=("component_frame_available",),
             callable_path="marivo.analysis.frames.metric.MetricFrame.components",
             authority_policy="materialized_only",
@@ -1807,8 +2002,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.coverage()",
             help_target="MetricFrame.coverage",
             summary="Load the linked CoverageFrame for this metric frame.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.frames.metric.MetricFrame.coverage",
             authority_policy="materialized_only",
@@ -1831,8 +2024,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.components()",
             help_target="DeltaFrame.components",
             summary="Load the linked ComponentFrame for component-aware deltas.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=("component_frame_available",),
             callable_path="marivo.analysis.frames.delta.DeltaFrame.components",
             authority_policy="materialized_only",
@@ -1848,8 +2039,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="candidates.select(item_id=...)",
             help_target="CandidateSet.select",
             summary="Return one closed shape-specific selection by its stable item_id.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
             callable_path="marivo.analysis.frames.candidate.CandidateSet.select",
             receiver_family="CandidateSet",
@@ -1864,8 +2053,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.at_resolution(axes=[...])",
             help_target="AttributionFrame.at_resolution",
             summary="Select one exact ordered semantic-ref resolution without a query.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
             callable_path=("marivo.analysis.frames.attribution.AttributionFrame.at_resolution"),
             receiver_family="AttributionFrame",
@@ -1909,8 +2096,6 @@ def _build_registry() -> CapabilityRegistry:
                     public_entrypoint=f"frame.{method_name}()",
                     help_target=f"{class_name}.{method_name}",
                     summary=f"Narrow {class_name} to its declared shape.",
-                    root_group="family_operations",
-                    root_visibility="grouped",
                     constraint_ids=("frame_kind_compatible",),
                     callable_path=_module_path_for(getattr(cls_obj, method_name)),
                     receiver_family=family,
@@ -1926,8 +2111,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="delta.predicted_attribution_shape()",
             help_target="DeltaFrame.predicted_attribution_shape",
             summary="Predict the AttributionFrame shape decompose will produce.",
-            root_group="family_operations",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.frames.delta.DeltaFrame.predicted_attribution_shape",
             receiver_family="DeltaFrame",
@@ -1944,8 +2127,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.show()",
             help_target="BaseFrame.show",
             summary="Bounded inspection of the artifact.",
-            root_group="artifact_inspection",
-            root_visibility="grouped",
             constraint_ids=("frame_read_bounds",),
             callable_path="marivo.analysis.frames.base.BaseFrame.show",
             receiver_family="BaseFrame",
@@ -1964,8 +2145,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=f"session.{method_name}()",
                 help_target=f"Session.{method_name}",
                 summary=summary,
-                root_group="artifact_inspection",
-                root_visibility="grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.core.Session.{method_name}",
                 receiver_family="Session",
@@ -1980,8 +2159,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="session.events.watermark(...)",
             help_target="events.watermark",
             summary="Return the authoritative observed completeness watermark for one Event, or None.",
-            root_group="artifact_inspection",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.session.core.SessionEvents.watermark",
             receiver_family="SessionEvents",
@@ -1999,8 +2176,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Return EventOccurrenceBounds for one exact Event or "
                 "StateModel's observed occurrences."
             ),
-            root_group="artifact_inspection",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path=("marivo.analysis.session.core.SessionEvents.occurrence_bounds"),
             receiver_family="SessionEvents",
@@ -2015,8 +2190,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.contract()",
             help_target="BaseFrame.contract",
             summary="Return the mechanical consumption contract for the artifact.",
-            root_group="artifact_inspection",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.frames.base.BaseFrame.contract",
             receiver_family="BaseFrame",
@@ -2033,8 +2206,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="frame.to_pandas()",
             help_target="boundary.to_pandas",
             summary="Terminal exit: return a defensive pandas DataFrame copy.",
-            root_group="boundaries",
-            root_visibility="direct",
             constraint_ids=("frame_immutable",),
             callable_path="marivo.analysis.frames.base.BaseFrame.to_pandas",
             direction="terminal_exit",
@@ -2243,29 +2414,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group="policies_builders",
-                root_visibility=(
-                    "grouped"
-                    if cap_id
-                    in {
-                        "dropped_before",
-                        "from_inception",
-                        "in_state",
-                        "day_of_week",
-                        "period_progress",
-                        "period_correspondence",
-                        "occurrence_progress",
-                        "working_day_progress",
-                        "AbsoluteWindow",
-                        "SamplingPolicy",
-                    }
-                    else "direct"
-                ),
-                root_summary=(
-                    "Construct a half-open [start, end) analysis window."
-                    if cap_id == "time_scope"
-                    else None
-                ),
                 constraint_ids=(
                     ("window_absolute_parseable",)
                     if cap_id in {"time_scope", "AbsoluteWindow"}
@@ -2288,8 +2436,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Bind declared non-secret JSON request parameters to one Session runtime "
                 "for a nested analysis execution scope."
             ),
-            root_group="policies_builders",
-            root_visibility="grouped",
             constraint_ids=("source_bindings_exact",),
             callable_path="marivo.analysis.session.core.Session.source_bindings",
             output_type="AbstractContextManager[None]",
@@ -2336,8 +2482,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint.rstrip(),
                 help_target=cap_id,
                 summary="Build one frozen node in the closed runtime metric expression algebra.",
-                root_group="policies_builders",
-                root_visibility="grouped",
                 constraint_ids=(
                     "runtime_metric_closed_algebra",
                     *(
@@ -2376,8 +2520,6 @@ def _build_registry() -> CapabilityRegistry:
                 "distinct from attribution method. DeltaFrame.contract().attribute_admission "
                 "lists the exact legal pair and multiple-axes default."
             ),
-            root_group="policies_builders",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path=None,
             output_type='Literal["joint", "hierarchy"]',
@@ -2439,8 +2581,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group="policies_builders",
-                root_visibility="grouped",
                 callable_path=None,
                 output_type=output_type,
                 produced_input_family=None,
@@ -2506,15 +2646,13 @@ def _build_registry() -> CapabilityRegistry:
         ),
     )
 
-    for cap_id, entrypoint, target, summary, group, restored, identity in recovery_specs:
+    for cap_id, entrypoint, target, summary, _group, restored, identity in recovery_specs:
         descriptors.append(
             RecoveryCapability(
                 id=cap_id,
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group=group,  # type: ignore[arg-type]  # group is a str from a tuple; validated at runtime
-                root_visibility="direct" if cap_id == "session.get_or_create" else "grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.{cap_id.split('.', 1)[1]}",
                 identity_input=identity,
@@ -2571,8 +2709,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group="recovery",
-                root_visibility="grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.core.Session.{method_name}",
                 identity_input="session_id_or_frame_ref",
@@ -2590,8 +2726,6 @@ def _build_registry() -> CapabilityRegistry:
                 "Revalidate one committed Artifact against current semantic authority "
                 "and persisted evidence integrity."
             ),
-            root_group="recovery",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.analysis.session.core.Session.revalidate",
             receiver_family="Session",
@@ -2650,8 +2784,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group="recovery",
-                root_visibility="grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.analysis.session.core.EvidenceNamespace.{method_name}",
                 receiver_family="EvidenceNamespace",
@@ -2696,8 +2828,6 @@ def _build_registry() -> CapabilityRegistry:
                 public_entrypoint=entrypoint,
                 help_target=target,
                 summary=summary,
-                root_group="semantic_inputs",
-                root_visibility="grouped",
                 constraint_ids=(),
                 callable_path=f"marivo.semantic.catalog.SemanticCatalog.{cap_id.split('.', 1)[1]}",
                 receiver_family="SemanticCatalog",
@@ -2712,8 +2842,6 @@ def _build_registry() -> CapabilityRegistry:
             public_entrypoint="calendar.period(level, key)",
             help_target="calendar.period",
             summary="Return one exact certified TimeScope for a named calendar period.",
-            root_group="semantic_inputs",
-            root_visibility="grouped",
             constraint_ids=(),
             callable_path="marivo.semantic.catalog.PeriodCalendarEntry.period",
             receiver_family="PeriodCalendarEntry",
@@ -2729,7 +2857,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "session",
             "Analysis session lifecycle and persistence helpers.",
-            "recovery",
         )
     )
 
@@ -2737,7 +2864,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "catalog",
             "Browse the typed semantic catalog and all registered object collections.",
-            "semantic_inputs",
         )
     )
 
@@ -2745,7 +2871,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "runtime_metric",
             "Closed recursive runtime metric expression constructors.",
-            "policies_builders",
         )
     )
 
@@ -2753,7 +2878,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "alignment",
             "Closed temporal alignment policy family and its operator admission matrix.",
-            "policies_builders",
         )
     )
 
@@ -2761,7 +2885,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "sampling",
             "Closed hypothesis-test sampling policy family.",
-            "policies_builders",
         )
     )
 
@@ -2769,7 +2892,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "discover",
             "Objective helpers for deterministic candidate discovery.",
-            "typed_analysis",
         )
     )
 
@@ -2777,7 +2899,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "transform",
             "Family-preserving reshape of a MetricFrame or DeltaFrame.",
-            "family_operations",
         )
     )
 
@@ -2785,7 +2906,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "events",
             "Match and reduce typed Event journeys.",
-            "typed_analysis",
         )
     )
 
@@ -2793,7 +2913,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "lifecycle",
             "Replay and reduce typed StateModel history.",
-            "typed_analysis",
         )
     )
 
@@ -2801,7 +2920,6 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "recovery",
             "Cross-script session, frame, and job recovery helpers.",
-            "recovery",
         )
     )
 
@@ -2809,26 +2927,18 @@ def _build_registry() -> CapabilityRegistry:
         _make_grouping_descriptor(
             "boundary",
             "Typed-flow boundary crossings.",
-            "boundaries",
         )
     )
 
-    descriptors.append(
-        _make_grouping_descriptor(
-            "artifacts",
-            (
-                "Read artifacts progressively: inspect bounded state, check mechanical "
-                "compatibility, then cross a terminal boundary only for intentionally "
-                "custom work."
-            ),
-            "artifact_inspection",
-            root_summary="Inspect bounded state, valid continuations, and terminal exits.",
-        )
-    )
+    descriptors.append(root_navigation_by_id["artifacts"])
 
     # -- Finalize: build indexes ------------------------------------------
 
-    return _finalize_registry(tuple(descriptors))
+    return _finalize_registry(
+        tuple(descriptors),
+        navigation_topics=root_navigation_topics,
+        root_members=_ROOT_HELP_MEMBERS,
+    )
 
 
 def _module_path_for(obj: object) -> str:
@@ -2850,24 +2960,48 @@ def _module_path_for(obj: object) -> str:
 
 
 def _finalize_registry(
-    descriptors: tuple[CapabilityDescriptor, ...],
+    help_descriptors: tuple[AnalysisHelpDescriptor, ...],
+    *,
+    navigation_topics: tuple[AnalysisNavigationTopic, ...] = (),
+    method_families: tuple[AnalysisMethodFamily, ...] = (),
+    root_members: tuple[LiveHelpTarget, ...] = (),
+    render_budgets: Mapping[
+        AnalysisHelpRenderClass,
+        AnalysisHelpRenderBudget,
+    ] = ANALYSIS_HELP_RENDER_BUDGETS,
 ) -> CapabilityRegistry:
     """Build indexes, validate uniqueness, and generate type algebra rows."""
 
+    descriptors = tuple(
+        descriptor
+        for descriptor in help_descriptors
+        if not isinstance(descriptor, (AnalysisNavigationTopic, AnalysisMethodFamily))
+    )
+
     _validate_public_type_variants()
     _validate_authority_policies(descriptors)
+    _validate_help_topology(
+        descriptors=descriptors,
+        navigation_topics=navigation_topics,
+        method_families=method_families,
+        root_members=root_members,
+        render_budgets=render_budgets,
+    )
 
     # Validate no duplicate ids
-    by_id: dict[str, CapabilityDescriptor] = {}
-    for desc in descriptors:
+    by_id: dict[str, AnalysisHelpDescriptor] = {}
+    for desc in help_descriptors:
         if desc.id in by_id:
             raise ValueError(f"duplicate capability id: {desc.id}")
-        _validate_additional_examples(desc)
+        if isinstance(desc, (AnalysisNavigationTopic, AnalysisMethodFamily)):
+            pass
+        else:
+            _validate_additional_examples(desc)
         by_id[desc.id] = desc
 
     # Validate no duplicate help_targets
-    by_help_target: dict[str, CapabilityDescriptor] = {}
-    for desc in descriptors:
+    by_help_target: dict[str, AnalysisHelpDescriptor] = {}
+    for desc in help_descriptors:
         if desc.help_target in by_help_target:
             raise ValueError(f"duplicate help_target: {desc.help_target}")
         by_help_target[desc.help_target] = desc
@@ -2901,18 +3035,125 @@ def _finalize_registry(
     }
 
     # Generate type algebra rows
-    algebra_rows = _generate_algebra_rows(descriptors, by_id)
+    capability_by_id = {descriptor.id: descriptor for descriptor in descriptors}
+    algebra_rows = _generate_algebra_rows(descriptors, capability_by_id)
 
     registry = CapabilityRegistry(
+        _help_descriptors=help_descriptors,
         _descriptors=descriptors,
         _by_id=MappingProxyType(by_id),
         _by_help_target=MappingProxyType(by_help_target),
         _by_callable=MappingProxyType(by_callable),
+        _navigation_topics=MappingProxyType(
+            {topic.canonical_id: topic for topic in navigation_topics}
+        ),
+        _method_families=MappingProxyType(
+            {family.canonical_id: family for family in method_families}
+        ),
+        _root_members=root_members,
+        _render_budgets=MappingProxyType(dict(render_budgets)),
         _constructor_consumers=MappingProxyType(constructor_consumers_frozen),
         _algebra_rows=algebra_rows,
     )
     _validate_input_producers(registry)
     return registry
+
+
+def _target_key(target: LiveHelpTarget) -> tuple[str, str | None]:
+    return target.surface, target.canonical_id
+
+
+def _validate_help_topology(
+    *,
+    descriptors: tuple[CapabilityDescriptor, ...],
+    navigation_topics: tuple[AnalysisNavigationTopic, ...],
+    method_families: tuple[AnalysisMethodFamily, ...],
+    root_members: tuple[LiveHelpTarget, ...],
+    render_budgets: Mapping[AnalysisHelpRenderClass, AnalysisHelpRenderBudget],
+) -> None:
+    """Fail eagerly when the inactive progressive topology is malformed."""
+
+    expected_render_classes = set(get_args(AnalysisHelpRenderClass))
+    if set(render_budgets) != expected_render_classes:
+        raise ValueError("analysis help render budgets must cover every render class exactly")
+    for render_class, budget in render_budgets.items():
+        if (
+            budget.max_lines <= 0
+            or budget.max_codepoints <= 0
+            or budget.max_outgoing_routes <= 0
+            or budget.max_examples_or_snippets < 0
+        ):
+            raise ValueError(f"invalid analysis help render budget: {render_class}")
+
+    descriptor_ids = {
+        identity
+        for descriptor in descriptors
+        for identity in (descriptor.canonical_id, descriptor.help_target)
+    }
+    topology_ids: set[str] = set()
+    navigation_by_id: dict[str, AnalysisNavigationTopic] = {}
+
+    for topic in navigation_topics:
+        if topic.canonical_id in topology_ids or topic.canonical_id in descriptor_ids:
+            raise ValueError(f"duplicate analysis help canonical id: {topic.canonical_id}")
+        topology_ids.add(topic.canonical_id)
+        navigation_by_id[topic.canonical_id] = topic
+        if topic.public_entrypoint is not None or topic.callable_path is not None:
+            raise ValueError(f"navigation topic must not be invokable: {topic.canonical_id}")
+        if topic.render_class not in {"decision_hub", "navigation"}:
+            raise ValueError(f"unknown analysis navigation render class: {topic.render_class}")
+        _validate_topology_members(topic.canonical_id, topic.members)
+        budget = render_budgets[topic.render_class]
+        if len(topic.members) > budget.max_outgoing_routes:
+            raise ValueError(f"navigation topic exceeds route budget: {topic.canonical_id}")
+
+    allowed_epistemic_kinds = set(get_args(EpistemicKind))
+    for family in method_families:
+        if family.canonical_id in topology_ids or family.canonical_id in descriptor_ids:
+            raise ValueError(f"duplicate analysis help canonical id: {family.canonical_id}")
+        topology_ids.add(family.canonical_id)
+        if family.public_entrypoint is not None or family.callable_path is not None:
+            raise ValueError(f"method family must not be invokable: {family.canonical_id}")
+        if not family.epistemic_kinds:
+            raise ValueError(f"method family requires an epistemic kind: {family.canonical_id}")
+        if (
+            len(set(family.epistemic_kinds)) != len(family.epistemic_kinds)
+            or not set(family.epistemic_kinds) <= allowed_epistemic_kinds
+        ):
+            raise ValueError(f"invalid method-family epistemic kinds: {family.canonical_id}")
+        _validate_topology_members(family.canonical_id, family.members)
+        if len(family.members) > render_budgets["navigation"].max_outgoing_routes:
+            raise ValueError(f"method family exceeds route budget: {family.canonical_id}")
+
+    if root_members:
+        if root_members != _ROOT_HELP_MEMBERS:
+            raise ValueError("analysis root edges must match the registered Slice 1 topology")
+        if len({_target_key(target) for target in root_members}) != len(root_members):
+            raise ValueError("analysis root edges must be distinct")
+        if len(root_members) > render_budgets["root"].max_outgoing_routes:
+            raise ValueError("analysis root exceeds its route budget")
+        for target in root_members[:-1]:
+            if target.surface != "analysis" or target.canonical_id not in navigation_by_id:
+                raise ValueError(f"analysis root has an invalid hub edge: {target.display}")
+        terminal = root_members[-1]
+        if (
+            terminal != _analysis_target("boundary.to_pandas")
+            or "boundary.to_pandas" not in descriptor_ids
+        ):
+            raise ValueError("analysis root terminal edge must resolve to boundary.to_pandas")
+
+
+def _validate_topology_members(
+    canonical_id: str,
+    members: tuple[LiveHelpTarget, ...],
+) -> None:
+    if len(members) < 2:
+        raise ValueError(f"analysis navigation requires at least two members: {canonical_id}")
+    keys = tuple(_target_key(target) for target in members)
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"analysis navigation has duplicate members: {canonical_id}")
+    if any(target.canonical_id is None for target in members):
+        raise ValueError(f"analysis navigation member lacks a canonical id: {canonical_id}")
 
 
 def _validate_input_producers(registry: CapabilityRegistry) -> None:

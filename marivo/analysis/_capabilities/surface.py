@@ -6,7 +6,7 @@ import inspect
 from types import MappingProxyType
 from typing import Literal, NoReturn, cast
 
-from marivo.analysis._capabilities.model import CapabilityDescriptor
+from marivo.analysis._capabilities.model import AnalysisHelpDescriptor
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisError, HelpTargetError
 from marivo.introspection.live.resolve import (
@@ -202,7 +202,7 @@ def _cross_surface_owner(
     return None
 
 
-def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:
+def _enrich(target: object) -> ResolvedLiveTarget[AnalysisHelpDescriptor] | None:
     """Resolve analysis-owned runtime briefings before generic dispatch."""
     from marivo.analysis.evidence import ArtifactIssue
     from marivo.analysis.frames.candidate import CandidateSelection
@@ -258,7 +258,7 @@ def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:
     return None
 
 
-ANALYSIS_LIVE_SURFACE: LiveSurface[CapabilityDescriptor] = LiveSurface(
+ANALYSIS_LIVE_SURFACE: LiveSurface[AnalysisHelpDescriptor] = LiveSurface(
     registry=REGISTRY,
     type_index=TYPE_REGISTRY,
     error_types=ERROR_TYPES,

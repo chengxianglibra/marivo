@@ -120,8 +120,6 @@ Measured in the current checkout:
 - the error resolver contains 101 structured error types;
 - `marivo.help("analysis")` is 75 lines, 4,976 codepoints, and advertises 35
   outgoing routes;
-- the global bounded `marivo.help("targets")` page is 132 lines and 2,742
-  codepoints;
 - the longest rendered analysis callable leaves are `events.match` at 120
   lines, `observe` at 118 lines, and `compare` at 118 lines;
 - the current analysis discovery projection exposes 35 of the 140 exact or
@@ -367,13 +365,10 @@ use the semantic design's independent budget. Analysis contributes only the
 registry-owned handoff edge for a qualifying current entry; it neither renders
 nor rebudgets semantic object identity.
 
-The global `marivo.help("targets")` page remains a bounded canonical navigation
-index, not an exhaustive resolver namespace. Its separate ceiling is 160 lines
-and 6,000 codepoints. It contains canonical ids only: no summaries,
-signatures, examples, public type inventories, member inventories, or error
-inventories. Exact secondary targets remain resolvable without being advertised
-there. If the bounded navigation projection grows past the ceiling, it must
-split by surface; the limit must not be raised merely to preserve a flat list.
+The global `marivo.help()` page is a concept and routing boundary. It advertises
+only `marivo.help("authoring")` and `marivo.help("analysis")`; it does not flatten
+native discovery projections. Exact secondary targets remain resolvable and are
+discovered from the bounded route that owns them.
 
 Dynamic reads keep their independent contracts:
 
@@ -1088,8 +1083,9 @@ Artifact-algebra, or recovery inventories.
   or type leaves remain. `analysis.boundaries` is not introduced.
 - Supporting types and errors remain exact resolvable leaves. They enter
   discovery only when an intentional family page advertises them.
-- `marivo.help("targets")` renders the bounded discovery projection, not every
-  resolvable type, error, member, or exact secondary leaf.
+- There is no global flat target inventory. Each bounded native route advertises
+  the targets needed for its decision, while exact secondary leaves remain
+  resolvable when already known or obtained from live state.
 - Callable/type objects and canonical strings resolve to the same static
   contract where applicable.
 - Unknown or ambiguous strings fail with bounded canonical lexical
@@ -1228,8 +1224,8 @@ links may add reachable edges but cannot hide an owned member.
 - Error briefings preserve every available structured diagnostic and complete
   repair within budget.
 - Overflow fails explicitly and never truncates required content.
-- The target inventory contains only the bounded canonical discovery
-  projection.
+- Every navigation page advertises only its bounded canonical discovery
+  projection; there is no global flat inventory.
 
 ### Static/dynamic continuity invariants
 
@@ -1414,8 +1410,8 @@ there is no supported mixed topology.
 - Public export, signature, default, input/output family, admission shape,
   Artifact member, navigation edge, Evidence route, or repair-target drift
   cannot remain green.
-- `marivo.help("targets")` stays a bounded navigation projection rather than an
-  exhaustive type/error/member namespace.
+- No global flat target inventory is restored; bounded native routes own
+  discovery while exact secondary leaves remain resolvable.
 - `analysis.recovery`, `analysis.session`, `analysis.sampling`,
   `analysis.boundary`, and the unintroduced `analysis.boundaries` are absent as
   compatibility aliases after cutover; exact public leaves remain canonical.

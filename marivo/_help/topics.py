@@ -1,9 +1,7 @@
-"""Global help topics and the canonical discovery index."""
+"""Global help topics."""
 
 from __future__ import annotations
 
-import marivo
-from marivo._help.route import canonical_string_target_groups
 from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.introspection.live.render import enforce_budget
 
@@ -26,51 +24,28 @@ def render_root() -> str:
     return _bounded(
         "\n".join(
             (
-                "marivo.help",
-                "  The one public coordinator for registered Marivo help.",
-                "  It routes only; static contract content remains owned by:",
-                "    datasource.* -> marivo.datasource capability registry",
-                "    semantic.*   -> marivo.semantic capability registry",
-                "    analysis.*   -> marivo.analysis capability registry",
-                "    ontology.*   -> marivo.ontology capability registry",
+                "Marivo",
+                "  A pure Python library for governed, auditable analysis.",
+                "  It separates reusable definitions from analytical work:",
+                "    Datasource -> physical connections and source evidence",
+                "    Semantic   -> governed business objects and stable refs",
+                "    Analysis   -> typed artifacts, findings, evidence, and lineage",
+                "  Marivo does not infer business meaning or choose conclusions;",
+                "  the agent owns interpretation and judgment.",
                 "",
-                "  Start:",
+                "  Choose one secondary root:",
                 '    marivo.help("authoring")',
-                '    marivo.help("load")',
-                '    marivo.help("targets")',
-                "",
-                "  Datasource evidence:",
-                '    marivo.help("datasource.inspect")',
-                '    marivo.help("datasource.DiscoverySnapshot")',
-                "",
-                "  Semantic authoring:",
-                '    marivo.help("semantic.metric")',
-                '    marivo.help("semantic.readiness")',
-                "",
-                "  Analysis:",
+                "      Connect data, inspect sources, define and validate semantics.",
                 '    marivo.help("analysis")',
+                "      Use governed semantic inputs to create typed analysis artifacts.",
                 "",
-                "  Optional ontology guidance:",
-                '    marivo.help("ontology.authoring")',
-                "",
-                "  Unique unqualified targets route automatically; qualify shared names.",
+                "  Help is static and side-effect-free. Current results expose show()",
+                "  and, when applicable, contract(); structured errors own repairs.",
                 "  Domain modules expose no public .help alias; use marivo.help(...).",
             )
         ),
         root=True,
     )
-
-
-def render_targets() -> str:
-    """Render the finite discovery index without focused-help truncation."""
-    lines = ["Marivo help targets", f"Version: {marivo.__version__}", ""]
-    groups = canonical_string_target_groups()
-    for index, (heading, targets) in enumerate(groups):
-        lines.append(heading)
-        lines.extend(f"- {target}" for target in targets)
-        if index != len(groups) - 1:
-            lines.append("")
-    return "\n".join(lines)
 
 
 def render_authoring() -> str:
@@ -101,34 +76,6 @@ def render_authoring() -> str:
                 '    marivo.help("datasource")',
                 '    marivo.help("semantic")',
                 '    marivo.help("ontology")',
-            )
-        )
-    )
-
-
-def render_load() -> str:
-    return _bounded(
-        "\n".join(
-            (
-                "load",
-                "  Typed loading operations have separate owners:",
-                "",
-                "  Datasource:",
-                "    import marivo.datasource as md",
-                "    datasource_catalog = md.load()",
-                '    marivo.help("datasource.load")',
-                "",
-                "  Semantic:",
-                "    import marivo.semantic as ms",
-                "    semantic_catalog = ms.load()",
-                '    marivo.help("semantic.load")',
-                "",
-                "  Optional ontology:",
-                "    import marivo.ontology as mo",
-                "    ontology = mo.load(semantic=semantic_catalog)",
-                '    marivo.help("ontology.authoring")',
-                "",
-                "  There is no marivo.load(kind=...) dispatcher.",
             )
         )
     )

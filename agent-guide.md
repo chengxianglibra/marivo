@@ -107,9 +107,11 @@ These rules govern every public surface change:
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
   types stay out of the top-level help index.
-- Discovery is progressive and bounded: `marivo.help()` is a short global
-  index grouped by family; a qualified focused target includes a minimal
-  runnable example for the owning symbol.
+- Discovery is progressive and bounded: `marivo.help()` introduces the core
+  concepts and routes only to `marivo.help("authoring")` or
+  `marivo.help("analysis")`; qualified focused targets are discovered beneath
+  those secondary roots and include a minimal runnable example for the owning
+  symbol.
 - Prefer one entry shape with closed, kind-dispatched variants over
   optional-field mega-classes: precise types fail loudly, optional-field
   unions fail silently.
