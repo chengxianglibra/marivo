@@ -19,16 +19,17 @@ from marivo.analysis.errors import (
     FunnelComparisonMismatchError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.frames._quality import evaluate_frame_quality
+from marivo.analysis.frames._quality_checks import (
+    run_funnel_attribution_checks,
+    run_funnel_delta_checks,
+)
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.event import EventFrame
 from marivo.analysis.intents._event_funnel import (
     FUNNEL_ADDITIVE_COLUMNS,
     funnel_reconciliation_hash,
-)
-from marivo.analysis.intents._quality_checks import (
-    run_funnel_attribution_checks,
-    run_funnel_delta_checks,
 )
 from marivo.analysis.intents.funnel_compare import _COMPATIBILITY_FACETS
 from marivo.refs import RefPayloadV1
@@ -91,7 +92,7 @@ def test_compare_produces_an_aligned_funnel_delta(funnel_session: Any) -> None:
     assert delta.evidence_status == "complete", delta.meta.issues
     contract = delta.contract().render()
     assert "session.attribute(...)" in contract
-    assert "session.assess_quality(...)" in contract
+    assert "frame.quality_report()" in contract
     assert "session.correlate" not in contract
 
 
@@ -448,15 +449,17 @@ def test_quality_reports_cover_both_new_shapes(
         axes=[acquisition_channel_entry],
         target=mv.funnel_loss_rate(step=payment_step),
     )
-    delta_report = funnel_session.assess_quality(delta)
-    attribution_report = funnel_session.assess_quality(drivers)
+    delta_report = delta.quality_report()
+    attribution_report = drivers.quality_report()
+    assert delta_report is not None
+    assert attribution_report is not None
     assert delta_report.meta.report_shape == "funnel_delta"
     assert delta_report.meta.overall_status == "ok"
     assert attribution_report.meta.report_shape == "funnel_attribution"
-    assert delta_report.evidence_status == "complete"
-    assert delta_report.evidence_digest is not None
-    assert attribution_report.evidence_status == "complete"
-    assert attribution_report.evidence_digest is not None
+    assert delta_report.evidence_status == "unavailable"
+    assert delta_report.evidence_digest is None
+    assert attribution_report.evidence_status == "unavailable"
+    assert attribution_report.evidence_digest is None
     assert {
         "funnel_delta_alignment",
         "funnel_delta_components",
@@ -521,14 +524,20 @@ def test_empty_event_funnel_is_warning_when_reconciliation_remains_valid(
         ),
     )
 
-    report = funnel_session.assess_quality(empty)
-    checks = dict(zip(report.to_pandas()["check_id"], report.to_pandas()["severity"], strict=True))
+    evaluation = evaluate_frame_quality(empty, artifact_id=empty.ref)
+    assert evaluation is not None
+    checks = dict(
+        zip(
+            evaluation.dataframe["check_id"],
+            evaluation.dataframe["severity"],
+            strict=True,
+        )
+    )
 
     assert checks["row_count"] == "warning"
     assert checks["event_funnel_row_contract"] == "ok"
-    assert report.meta.overall_status == "warning"
-    assert report.meta.blocking_issue_count == 0
-    assert report.evidence_status == "complete"
+    assert evaluation.overall_status == "warning"
+    assert evaluation.blocking_issue_count == 0
 
 
 def test_empty_funnel_attribution_is_warning_with_undefined_zero_receipt(
@@ -564,13 +573,12 @@ def test_empty_funnel_attribution_is_warning_with_undefined_zero_receipt(
         ),
     )
 
-    report = funnel_session.assess_quality(empty)
+    evaluation = evaluate_frame_quality(empty, artifact_id=empty.ref)
+    assert evaluation is not None
 
-    assert report.meta.overall_status == "warning"
-    assert report.meta.blocking_issue_count == 0
-    assert {issue.kind for issue in report.meta.issues} == {"sample_size_low"}
-    assert report.evidence_status == "complete"
-    assert report.evidence_digest is not None
+    assert evaluation.overall_status == "warning"
+    assert evaluation.blocking_issue_count == 0
+    assert {issue.kind for issue in evaluation.issues} == {"sample_size_low"}
 
 
 def test_funnel_delta_unknown_coverage_is_warning(funnel_session: Any) -> None:
@@ -713,7 +721,7 @@ def test_funnel_delta_contract_hides_metric_only_affordances(
     advertised = {affordance.capability_id for affordance in delta.contract().affordances}
     assert advertised == {
         "attribute",
-        "assess_quality",
+        "BaseFrame.quality_report",
         "discover.driver_axes",
         "discover.interesting_slices",
         "discover.interesting_windows",

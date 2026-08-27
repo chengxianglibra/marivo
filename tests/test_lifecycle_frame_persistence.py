@@ -83,7 +83,7 @@ def _history_frame(session, *, trace_rows=()):
                 "model_state": "created",
                 "valid_from": pd.Timestamp("2026-07-01T00:00:00Z"),
                 "valid_to": pd.Timestamp("2026-08-01T00:00:00Z"),
-                "entered_by_event_ref": event_ref.path,
+                "entered_by_event_ref": f"{event_ref.kind.value}:{event_ref.path}",
                 "entered_by_event_identity": ("e1",),
                 "exited_by_event_ref": None,
                 "exited_by_event_identity": None,

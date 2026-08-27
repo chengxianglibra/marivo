@@ -743,7 +743,7 @@ def test_lifecycle_capabilities_are_discoverable_with_help_parity(
         assert "session.lifecycle.match" not in history_contract
 
         reduced = session.lifecycle.transitions(history)
-        assert "session.assess_quality(...)" in reduced.contract().render()
+        assert "frame.quality_report()" in reduced.contract().render()
     finally:
         session.close()
         session_attach._reset_process_state()
@@ -824,7 +824,9 @@ def test_reducers_and_evidence_consume_committed_history_without_event_rereads(
             session.lifecycle.dwell(history),
             session.lifecycle.violations(history),
         )
-        reports = tuple(session.assess_quality(frame) for frame in (history, *reducers))
+        reports = tuple(frame.quality_report() for frame in (history, *reducers))
+        assert all(report is not None for report in reports)
+        reports = tuple(report for report in reports if report is not None)
         history_checks = {
             row.check_kind: row.status for row in reports[0].to_pandas().itertuples(index=False)
         }

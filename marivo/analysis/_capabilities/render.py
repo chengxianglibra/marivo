@@ -836,9 +836,7 @@ def _render_descriptor_help(desc: AnalysisHelpDescriptor) -> str:
         lines.append("")
         lines.append("  Accepted inputs:")
         lines.extend(_format_input_families(desc))
-        shape_admission = (
-            _format_artifact_shape_admission(desc) if desc.id == "assess_quality" else []
-        )
+        shape_admission = _format_artifact_shape_admission(desc) if desc.artifact_admission else []
         if shape_admission:
             lines.append("  Accepted artifact shapes:")
             lines.extend(shape_admission)
@@ -1148,7 +1146,12 @@ def _render_artifact_type_help(contract: AnalysisArtifactFamilyContract) -> str:
             )
         )
 
-    reading_links = REGISTRY.cross_links("artifacts.reading")
+    artifact_links = REGISTRY.cross_links(contract.canonical_id)
+    reading_links = (
+        REGISTRY.cross_links("artifacts.reading")
+        if any(target.canonical_id == "artifacts.reading" for target in artifact_links)
+        else ()
+    )
     evidence_targets_values: list[LiveHelpTarget] = []
     for target in reading_links:
         if target.canonical_id is None:
@@ -1160,7 +1163,6 @@ def _render_artifact_type_help(contract: AnalysisArtifactFamilyContract) -> str:
         ):
             evidence_targets_values.append(target)
     evidence_targets = tuple(evidence_targets_values)
-    artifact_links = REGISTRY.cross_links(contract.canonical_id)
     recovery_targets = tuple(
         target
         for target in artifact_links
@@ -1173,16 +1175,18 @@ def _render_artifact_type_help(contract: AnalysisArtifactFamilyContract) -> str:
         if target.canonical_id is not None
         and isinstance(REGISTRY.by_help_target(target.canonical_id), BoundaryCapability)
     )
-    lines.extend(
-        (
-            "",
-            "  Typed Evidence reads:",
-            "    " + ", ".join(target.display for target in evidence_targets),
+    if evidence_targets:
+        lines.extend(
+            (
+                "",
+                "  Typed Evidence reads:",
+                "    " + ", ".join(target.display for target in evidence_targets),
+            )
         )
-    )
-    lines.extend(
-        ("", "  Recovery:", "    " + ", ".join(target.display for target in recovery_targets))
-    )
+    if recovery_targets:
+        lines.extend(
+            ("", "  Recovery:", "    " + ", ".join(target.display for target in recovery_targets))
+        )
     lines.extend(("", "  Terminal boundary:"))
     lines.extend(
         f"    {REGISTRY.by_help_target(target.canonical_id).public_entrypoint} -> {target.display}"

@@ -73,7 +73,6 @@ from marivo.analysis.frames.lifecycle import (
     LifecycleViolationsFrameMeta,
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta, _clamp_reaggregatable
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSet, SubjectSetMeta
 from marivo.analysis.intents._candidate_columns import (
     CANDIDATE_COLUMNS,
@@ -106,7 +105,6 @@ _FRAME_CLASSES = {
     "event_frame": (EventFrame, EventFrameMeta),
     "lifecycle_frame": (LifecycleFrame, LifecycleHistoryFrameMeta),
     "subject_set": (SubjectSet, SubjectSetMeta),
-    "quality_report": (QualityReport, QualityReportMeta),
     "component_frame": (ComponentFrame, ComponentFrameMeta),
     "coverage_frame": (CoverageFrame, CoverageFrameMeta),
 }

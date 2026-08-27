@@ -296,9 +296,9 @@ def test_affordance_and_contract_models_are_closed_and_immutable():
         bindable_from_current_artifact=True,
     )
     affordance = ArtifactAffordance(
-        capability_id="assess_quality",
-        public_entrypoint="session.assess_quality(...) ",
-        help_target="assess_quality",
+        capability_id="BaseFrame.quality_report",
+        public_entrypoint="frame.quality_report()",
+        help_target="BaseFrame.quality_report",
         input_requirements=(requirement,),
         expected_output_family="QualityReport",
     )

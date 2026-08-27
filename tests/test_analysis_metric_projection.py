@@ -206,16 +206,15 @@ def test_require_single_metric_error_carries_structured_repair_fields():
     assert "Help: marivo.help('analysis.MetricFrame.metric')" in str(err)
 
 
-def test_assess_quality_rejects_multi_metric_frame_without_typed_bindings() -> None:
+def test_construction_quality_rejects_multi_metric_frame_without_typed_bindings() -> None:
     from marivo.analysis.errors import FrameMetaInvalidError
-    from marivo.analysis.intents.assess_quality import assess_quality
+    from marivo.analysis.frames._quality import evaluate_frame_quality
 
-    session = mv.session.get_or_create(name="demo")
     with pytest.raises(FrameMetaInvalidError) as excinfo:
-        assess_quality(make_multi_frame(), session=session)
+        evaluate_frame_quality(make_multi_frame(), artifact_id="prospective")
 
     err = excinfo.value
-    assert err.location == "session.assess_quality frame.meta.measure_bindings"
+    assert err.location == "MetricFrame construction quality bindings"
     assert err.repair is not None
     assert err.repair.snippet == "frame = session.observe(metrics=[metric_a, metric_b], ...)"
 
@@ -228,15 +227,14 @@ def test_assess_quality_rejects_multi_metric_frame_without_typed_bindings() -> N
         (("revenue", "revenue"), "duplicate_value_columns=['revenue']"),
     ],
 )
-def test_assess_quality_rejects_malformed_multi_metric_bindings(
+def test_construction_quality_rejects_malformed_multi_metric_bindings(
     binding_columns: tuple[str, ...],
     expected_received: str,
 ) -> None:
     from marivo.analysis._semantic_persistence import MeasureBindingV1
     from marivo.analysis.errors import FrameMetaInvalidError
-    from marivo.analysis.intents.assess_quality import assess_quality
+    from marivo.analysis.frames._quality import evaluate_frame_quality
 
-    session = mv.session.get_or_create(name="demo")
     frame = make_multi_frame()
     bindings = tuple(
         MeasureBindingV1(identity=identity, value_column=column)
@@ -252,11 +250,11 @@ def test_assess_quality_rejects_malformed_multi_metric_bindings(
     )
 
     with pytest.raises(FrameMetaInvalidError) as excinfo:
-        assess_quality(malformed, session=session)
+        evaluate_frame_quality(malformed, artifact_id="prospective")
 
     err = excinfo.value
     assert expected_received in err.received
-    assert err.location == "session.assess_quality frame.meta.measure_bindings"
+    assert err.location == "MetricFrame construction quality bindings"
     assert err._context["metric_ids"] == ["sales.revenue", "sales.order_count"]
 
 
@@ -443,7 +441,10 @@ def test_projection_emits_no_value_findings(sales_session):
     findings = sales_session.evidence.findings(artifact_ref=projected.meta.artifact_id)
     assert findings.items == ()
     assert projected.meta.evidence_status == "complete"
-    assert projected.meta.issues == ()
+    assert [issue.kind for issue in projected.meta.issues] == ["sample_size_low"]
+    issue = projected.meta.issues[0]
+    assert issue.observed_value == 2
+    assert issue.expectation == "row_count >= 5"
 
 
 def test_projected_frame_flows_into_compare(sales_session):
@@ -633,20 +634,10 @@ def test_multi_frame_contract_keeps_quality_while_gating_single_metric_intents()
         'frame.metric("sales.order_count")',
     )
 
-    quality = next(item for item in contract.affordances if item.capability_id == "assess_quality")
+    quality = next(
+        item for item in contract.affordances if item.capability_id == "BaseFrame.quality_report"
+    )
     assert "single_metric" not in {precondition.check for precondition in quality.preconditions}
-
-    quality_requirement = next(
-        requirement
-        for requirement in quality.input_requirements
-        if requirement.parameter == "frame"
-    )
-    assert quality_requirement.accepted_semantic_shapes == (
-        "panel",
-        "scalar",
-        "segmented",
-        "time_series",
-    )
 
 
 @pytest.mark.parametrize(

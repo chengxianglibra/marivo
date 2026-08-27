@@ -43,7 +43,6 @@ from marivo.analysis.frames.lifecycle import (
     LifecycleViolationsFrameMeta,
 )
 from marivo.analysis.frames.metric import MetricFrameMeta
-from marivo.analysis.frames.quality import QualityReportMeta
 from marivo.analysis.frames.subject import SubjectSetMeta
 
 AuthorityExtractionMode = Literal[
@@ -308,16 +307,6 @@ ARTIFACT_AUTHORITY_INVENTORY: tuple[ArtifactAuthorityInventoryEntry, ...] = (
         variant="forecast",
         meta_type=ForecastFrameMeta,
         extraction_mode="source_lineage",
-        source_identity_fields=("source_refs",),
-    ),
-    ArtifactAuthorityInventoryEntry(
-        artifact_family="QualityReport",
-        frame_kind="quality_report",
-        variant="quality",
-        meta_type=QualityReportMeta,
-        extraction_mode="source_lineage",
-        scoped_identity_fields=("target_state_model_fingerprint",),
-        semantic_ref_fields=("target_state_model_ref",),
         source_identity_fields=("source_refs",),
     ),
     ArtifactAuthorityInventoryEntry(

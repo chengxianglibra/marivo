@@ -291,7 +291,6 @@ class MetricFrameMeta(BaseFrameMeta):
     artifact_identity: MetricArtifactIdentityV1 | None = None
     key_schema: MetricKeySchemaV1 | None = None
     source_compatibility_domain: DatasourceCompatibilityDomainV1 | None = None
-    quality_ref: str | None = None
     replay_graph_ref: str | None = None
     comparable_value_semantics_ref: str | None = None
     comparable_value_semantics: ComparableValueSemanticsV1 | None = None
@@ -649,7 +648,6 @@ class MetricFrame(BaseFrame):
         "discover",
         "correlate",
         "transform",
-        "assess_quality",
         "hypothesis_test",
         "forecast",
     )
@@ -881,8 +879,8 @@ class MetricFrame(BaseFrame):
                 )
         return tuple(bindings)
 
-    # assess_quality is arity-aware; these capability-id prefixes identify the
-    # remaining analytical continuations that require one projected metric.
+    # These capability-id prefixes identify analytical continuations that
+    # require one projected metric.
     _GATED_CAPABILITY_PREFIXES: tuple[str, ...] = (
         "compare",
         "discover",
@@ -925,8 +923,8 @@ class MetricFrame(BaseFrame):
         At arity > 1, gated affordances (compare, correlate, transform,
         hypothesis_test, forecast, discover) carry a
         ``single_metric`` precondition teaching the agent to project to one
-        metric first. ``assess_quality`` remains available and evaluates the
-        full multi-metric frame. Cumulative pair-dependent checks are evaluated
+        metric first. Construction quality evaluates the full multi-metric
+        frame automatically. Cumulative pair-dependent checks are evaluated
         only by ``session.compare(...)`` once both frames and the selected
         alignment are available. Other statistical continuations retain their
         local running-total caveat. Derived wrappers surface either their common
@@ -1071,8 +1069,8 @@ class MetricFrame(BaseFrame):
             The linked :class:`CoverageFrame`, or ``None`` when the parent
             frame has no ``coverage_ref`` (e.g. all_history and grain_to_date
             cumulatives, or any observe result that did not emit a coverage
-            sidecar). ``None`` is the ordinary "no coverage" state — use
-            :meth:`assess_quality` for independent coverage-ratio checks. A set
+            sidecar). ``None`` is the ordinary "no coverage" state; construction
+            quality coverage checks are available through ``quality_report()``. A set
             ``coverage_ref`` whose sidecar is missing or corrupt on disk still
             raises a fail-closed ``FrameReadError``.
         """

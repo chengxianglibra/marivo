@@ -445,6 +445,7 @@ def render_artifact_revalidation(
         "checks",
         (
             f"semantic={result.semantic_status} evidence={result.evidence_status} "
+            f"dependency={result.dependency_status} "
             f"schema={result.artifact_schema_version}"
         ),
     )

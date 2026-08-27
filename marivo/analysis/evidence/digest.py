@@ -281,20 +281,6 @@ _RULES: dict[str, _RuleEntry] = {
         ),
         sort_key=_default_sort_key,
     ),
-    "assess_quality": _RuleEntry(
-        rule_id="digest.quality_check",
-        rule_version="v1",
-        accepted_finding_kinds=("quality_check",),
-        produced_item_kinds=("quality_check",),
-        source_fields=(
-            "value.check_id",
-            "value.measured_value",
-            "value.expectation_predicate",
-            "value.expectation_parameters",
-            "value.expectation_condition_passed",
-        ),
-        sort_key=_default_sort_key,
-    ),
     "transform": _RuleEntry(
         rule_id="digest.transform",
         rule_version="v1",
@@ -596,14 +582,6 @@ def inference_boundaries_for_operator(
                 kind="candidate_not_reviewed",
                 reason="requires_independent_evidence",
                 required_evidence=("independent_review",),
-            )
-        )
-    elif operator == "assess_quality":
-        result.append(
-            InferenceBoundary(
-                kind="quality_dimensions_not_tested",
-                reason="outside_library_contract",
-                required_evidence=("additional_quality_check",),
             )
         )
     distinct: dict[str, InferenceBoundary] = {}

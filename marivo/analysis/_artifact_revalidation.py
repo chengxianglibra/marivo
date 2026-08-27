@@ -21,6 +21,7 @@ from marivo.analysis.evidence.types import (
     ComparabilityIssue,
     EvidenceAvailabilityIssue,
     EvidenceRuleIssue,
+    EvidenceScope,
 )
 from marivo.analysis.frames.base import BaseFrame
 from marivo.introspection.live.model import LiveHelpTarget
@@ -54,6 +55,82 @@ def _evidence_satisfies_contract(
     )
 
 
+def _lifecycle_dependency_status(
+    *,
+    session: Session,
+    frame: BaseFrame,
+    scope: EvidenceScope,
+) -> tuple[
+    Literal["admissible", "stale", "indeterminate"],
+    tuple[ComparabilityIssue | EvidenceRuleIssue, ...],
+]:
+    meta = frame.meta
+    if (
+        getattr(meta, "kind", None) != "lifecycle_frame"
+        or getattr(meta, "semantic_kind", None) == "history"
+    ):
+        return "admissible", ()
+    source_ref = getattr(meta, "source_history_ref", None)
+    expected_hash = getattr(meta, "source_history_fingerprint", None)
+    if not isinstance(source_ref, str) or not isinstance(expected_hash, str):
+        return "admissible", ()
+    row = session._store.get_artifact(session.id, source_ref)
+    source: BaseFrame | None = None
+    if row is not None:
+        try:
+            source = session.get_frame(source_ref)
+        except Exception:
+            source = None
+    if source is None:
+        missing_issue = EvidenceRuleIssue(
+            issue_id=make_issue_id(
+                artifact_id=frame.meta.artifact_id or frame.ref,
+                kind="lifecycle_source_unavailable",
+                source_refs=(source_ref,),
+            ),
+            kind="unknown_scope_rule",
+            severity="warning",
+            expected="the exact committed LifecycleFrame[history] dependency",
+            received=f"source_history_ref={source_ref!r} is unavailable",
+            repair=_repair(
+                "Restore or replay the source Lifecycle history, then regenerate this reducer."
+            ),
+        )
+        return "indeterminate", (missing_issue,)
+    source_meta = source.meta
+    valid = (
+        getattr(source_meta, "kind", None) == "lifecycle_frame"
+        and getattr(source_meta, "semantic_kind", None) == "history"
+        and source_meta.content_hash == expected_hash
+        and getattr(source_meta, "state_model_ref", None) == getattr(meta, "state_model_ref", None)
+        and getattr(source_meta, "state_model_fingerprint", None)
+        == getattr(meta, "state_model_fingerprint", None)
+    )
+    if valid:
+        return "admissible", ()
+    stale_issue = ComparabilityIssue(
+        issue_id=make_issue_id(
+            artifact_id=frame.meta.artifact_id or frame.ref,
+            kind="lifecycle_source_changed",
+            source_refs=(source_ref,),
+        ),
+        kind="comparability_incompatible",
+        severity="blocking",
+        source_refs=(source_ref, frame.meta.artifact_id or frame.ref),
+        left_scope=scope,
+        right_scope=scope,
+        incompatible_fields=(
+            "source_history_fingerprint",
+            "state_model_ref",
+            "state_model_fingerprint",
+        ),
+        repair=_repair(
+            "Replay the current StateModel history and regenerate this Lifecycle reducer."
+        ),
+    )
+    return "stale", (stale_issue,)
+
+
 def evaluate_artifact_revalidation(
     *,
     session: Session,
@@ -67,9 +144,23 @@ def evaluate_artifact_revalidation(
         store=store,
         frame=frame,
     )
-    context = authority_context(canonical.frame, session=session)
+    is_lifecycle_reducer = (
+        getattr(canonical.frame.meta, "kind", None) == "lifecycle_frame"
+        and getattr(canonical.frame.meta, "semantic_kind", None) != "history"
+    )
+    context = authority_context(
+        canonical.frame,
+        session=session,
+        strict_source_identity=not is_lifecycle_reducer,
+    )
     semantic = evaluate_semantic_authority(context, session=session)
     issues: list[ArtifactIssue | EvidenceRuleIssue] = list(canonical.issues)
+    dependency_status, dependency_issues = _lifecycle_dependency_status(
+        session=session,
+        frame=canonical.frame,
+        scope=canonical.scope,
+    )
+    issues.extend(dependency_issues)
 
     if semantic.status == "stale":
         refs = (context.artifact_ref,)
@@ -122,9 +213,13 @@ def evaluate_artifact_revalidation(
         issues=canonical.issues,
     )
     status: Literal["admissible", "stale", "indeterminate"]
-    if semantic.status == "stale":
+    if semantic.status == "stale" or dependency_status == "stale":
         status = "stale"
-    elif semantic.status == "indeterminate" or not evidence_admissible:
+    elif (
+        semantic.status == "indeterminate"
+        or dependency_status == "indeterminate"
+        or not evidence_admissible
+    ):
         status = "indeterminate"
     else:
         status = "admissible"
@@ -146,6 +241,7 @@ def evaluate_artifact_revalidation(
         "current_catalog_fingerprint": semantic.current_catalog_fingerprint,
         "semantic_status": semantic.status,
         "evidence_status": canonical.evidence_status,
+        "dependency_status": dependency_status,
         "status": status,
         "issues": normalized_issues,
         "authority_fingerprint": semantic.authority_fingerprint,

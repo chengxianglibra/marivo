@@ -539,21 +539,6 @@ def test_not_ready_quality_is_selection_blocking(
     assert result.quality_status == "not_ready"
 
 
-def test_mixed_observed_and_tested_findings_can_remain_compatible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session, start="2026-07-01", end="2026-09-30")
-    report = session.assess_quality(frame)
-    observed = _first_finding(session, frame.ref)
-    tested = _first_finding(session, report.ref)
-
-    result = session.evidence.compatibility([observed.finding_id, tested.finding_id])
-
-    assert result.status == "compatible"
-    assert result.epistemic_kinds == ("observed", "tested")
-
-
 def test_twenty_findings_cover_all_190_pairs_and_bound_issues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -574,8 +559,11 @@ def test_twenty_findings_cover_all_190_pairs_and_bound_issues(
     assert result.evaluated_pair_count == 190
     assert len(result.finding_ids) == 20
     assert len(result.issues) == 20
-    assert result.omitted_issue_count == 170
-    assert result.omitted_issue_kinds == ("comparability_incompatible",)
+    assert result.omitted_issue_count == 190
+    assert result.omitted_issue_kinds == (
+        "comparability_incompatible",
+        "null_rate_high",
+    )
     assert result.status == "incompatible"
 
     finding_only = result.model_copy(update={"issues": (), "omitted_issue_count": 0})

@@ -623,6 +623,7 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
                 "baseline": [8.0, 18.0, 28.0],
                 "delta": [2.0, 2.0, 2.0],
                 "pct_change": [0.25, 1.0 / 9.0, 1.0 / 14.0],
+                "pct_change_status": ["computed", "computed", "computed"],
             }
         ),
         meta=DeltaFrameMeta(
@@ -1255,11 +1256,16 @@ def test_transform_rank_rejects_null_by_values():
 def test_transform_rank_dense_method_uses_dense_tie_ranks():
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
-        pd.DataFrame({"revenue": [20.0, 20.0, 10.0]}),
+        pd.DataFrame(
+            {
+                "region": ["north", "south", "west"],
+                "revenue": [20.0, 20.0, 10.0],
+            }
+        ),
         metric_id="sales.revenue",
-        axes={},
+        axes={"region": {"role": "dimension", "column": "region"}},
         measure={"column": "revenue"},
-        semantic_kind="scalar",
+        semantic_kind="segmented",
         semantic_model="sales",
         session=session,
     )

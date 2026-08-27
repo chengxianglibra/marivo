@@ -283,5 +283,5 @@ class QualityReport(BaseFrame):
             bounded_label="attention",
             show_omission_counts=True,
             bounded_row_limit=_DEFAULT_FRAME_PREVIEW_ROWS,
-            recovery=f"session.get_frame('{self.meta.ref}').to_pandas()",
+            recovery="frame.quality_report().to_pandas()",
         )

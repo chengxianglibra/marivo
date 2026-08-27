@@ -1220,6 +1220,7 @@ class ArtifactRevalidation(_FrozenModel):
     current_catalog_fingerprint: str
     semantic_status: ArtifactSemanticStatus
     evidence_status: EvidenceStatus
+    dependency_status: ArtifactRevalidationStatus = "admissible"
     status: ArtifactRevalidationStatus
     issues: tuple[ArtifactRevalidationIssue, ...] = ()
     checked_at: datetime
@@ -1240,6 +1241,10 @@ class ArtifactRevalidation(_FrozenModel):
             raise ValueError("revalidation fingerprints must be non-empty")
         if self.semantic_status == "stale" and self.status != "stale":
             raise ValueError("stale semantic authority must produce stale overall status")
+        if self.dependency_status == "stale" and self.status != "stale":
+            raise ValueError("stale Artifact dependency must produce stale overall status")
+        if self.dependency_status == "indeterminate" and self.status == "admissible":
+            raise ValueError("indeterminate Artifact dependency cannot be admissible")
         if self.status == "admissible" and self.semantic_status != "current":
             raise ValueError("admissible revalidation requires current semantic authority")
         return self

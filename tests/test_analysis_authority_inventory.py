@@ -87,7 +87,8 @@ def test_authority_context_inventory_covers_every_artifact_family_and_loader_kin
     inventory_kinds = {item.frame_kind for item in ARTIFACT_AUTHORITY_INVENTORY}
     loader_families = {frame_type.__name__ for frame_type, _ in _FRAME_CLASSES.values()}
 
-    assert inventory_families == set(ARTIFACT_FAMILIES) == loader_families
+    independently_loadable = set(ARTIFACT_FAMILIES) - {"QualityReport"}
+    assert inventory_families == independently_loadable == loader_families
     assert inventory_kinds == set(_FRAME_CLASSES)
     for item in ARTIFACT_AUTHORITY_INVENTORY:
         frame_type, _ = _FRAME_CLASSES[item.frame_kind]
@@ -100,10 +101,13 @@ def test_authority_context_inventory_covers_every_concrete_frame_meta_variant() 
         LifecycleFrameMetaBase,
         LifecycleReducerFrameMetaBase,
     }
-    concrete_meta_types = _recursive_subclasses(BaseFrameMeta) - abstract_meta_types
+    concrete_meta_types = _recursive_subclasses(BaseFrameMeta) - {
+        *abstract_meta_types,
+        QualityReportMeta,
+    }
     inventoried_meta_types = {item.meta_type for item in ARTIFACT_AUTHORITY_INVENTORY}
 
-    assert len(ARTIFACT_AUTHORITY_INVENTORY) == 23
+    assert len(ARTIFACT_AUTHORITY_INVENTORY) == 22
     assert len(inventoried_meta_types) == len(ARTIFACT_AUTHORITY_INVENTORY)
     assert inventoried_meta_types == concrete_meta_types
 
@@ -131,7 +135,6 @@ def test_authority_context_inventory_covers_every_concrete_frame_meta_variant() 
             "FunnelAttributionFrameMeta",
         ),
         ("ForecastFrame", "forecast", "ForecastFrameMeta"),
-        ("QualityReport", "quality", "QualityReportMeta"),
         ("CandidateSet", "scored", "ScoredCandidateSetMeta"),
         (
             "CandidateSet",
@@ -177,7 +180,7 @@ def test_authority_inventory_fields_exist_and_require_normalization_only() -> No
         assert item.schema_action == "normalization_only"
 
 
-def test_authority_inventory_normalizes_artifact_ref_and_conditional_quality_authority() -> None:
+def test_authority_inventory_normalizes_artifact_ref_and_excludes_quality_sidecar() -> None:
     local_meta = BaseFrameMeta.model_construct(ref="frame:local", artifact_id=None)
     persisted_meta = BaseFrameMeta.model_construct(
         ref="frame:local",
@@ -187,12 +190,7 @@ def test_authority_inventory_normalizes_artifact_ref_and_conditional_quality_aut
     assert artifact_authority_ref(local_meta) == "frame:local"
     assert artifact_authority_ref(persisted_meta) == "artifact:persisted"
 
-    quality_entry = next(
-        item for item in ARTIFACT_AUTHORITY_INVENTORY if item.meta_type is QualityReportMeta
-    )
-    assert quality_entry.extraction_mode == "source_lineage"
-    assert quality_entry.source_identity_fields == ("source_refs",)
-    assert quality_entry.scoped_identity_fields == ("target_state_model_fingerprint",)
+    assert all(item.meta_type is not QualityReportMeta for item in ARTIFACT_AUTHORITY_INVENTORY)
 
 
 def test_authority_inventory_remains_analysis_internal() -> None:

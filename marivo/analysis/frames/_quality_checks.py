@@ -1,4 +1,4 @@
-"""Pure pandas quality checks for analysis frames."""
+"""Pure pandas quality checks owned by analysis frames."""
 
 from __future__ import annotations
 
@@ -6,22 +6,16 @@ from __future__ import annotations
 import json
 import math
 from numbers import Real
-from pathlib import Path
 from typing import Any, Literal, cast
 
 import pandas as pd
 
-from marivo._temporal import _trusted_time_scope_validation
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.frames._attribution_columns import (
     ATTRIBUTION_AXIS_COLUMN,
     ATTRIBUTION_DRIVER_COLUMN,
     ATTRIBUTION_LEVEL_COLUMN,
     ATTRIBUTION_PATH_COLUMN,
-)
-from marivo.analysis.frames._content_hash import (
-    compute_file_content_hash,
-    compute_frame_content_hash,
 )
 from marivo.analysis.frames._meta_defaults import (
     GRAIN_FREQ,
@@ -65,6 +59,7 @@ from marivo.analysis.intents._event_funnel import (
     funnel_reconciliation_hash,
 )
 from marivo.analysis.intents._event_occurrences import stable_digest
+from marivo.analysis.intents._lifecycle_distribution import lifecycle_state_membership
 from marivo.analysis.intents._lifecycle_dwell import reduce_lifecycle_dwell
 from marivo.analysis.intents._lifecycle_transitions import (
     reduce_lifecycle_transitions,
@@ -76,7 +71,6 @@ from marivo.analysis.intents._metric_axes import (
     metric_dimension_columns,
     metric_time_axis,
 )
-from marivo.analysis.session._layout import _read_parquet_frame
 
 _FREQ = GRAIN_FREQ
 
@@ -658,7 +652,7 @@ def run_attribution_checks(frame: AttributionFrame) -> list[dict[str, str]]:
     try:
         validate_generic_attribution_rows(meta, df)
         validate_cumulative_flow_attribution_rows(meta, df)
-    except (TypeError, ValueError) as exc:
+    except (AssertionError, TypeError, ValueError) as exc:
         contract_error = str(exc)
     contract_invalid = int(contract_error is not None)
 
@@ -803,7 +797,11 @@ def run_lifecycle_history_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
     ]
 
 
-def run_lifecycle_distribution_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+def run_lifecycle_distribution_checks(
+    frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None = None,
+) -> list[dict[str, str]]:
     """Return deterministic checks for Lifecycle state distribution."""
     if not isinstance(frame.meta, LifecycleDistributionFrameMeta):
         raise ValueError("Lifecycle distribution quality requires LifecycleFrame[distribution]")
@@ -812,12 +810,19 @@ def run_lifecycle_distribution_checks(frame: LifecycleFrame) -> list[dict[str, s
         _empty_result_check(df),
         _lifecycle_distribution_row_contract_check(df, frame),
         _lifecycle_distribution_math_check(df, frame),
-        _lifecycle_distribution_reconciliation_check(df, frame),
-        _lifecycle_source_history_check(frame),
+        _lifecycle_distribution_reconciliation_check(
+            df,
+            frame,
+            source_history=source_history,
+        ),
     ]
 
 
-def run_lifecycle_transitions_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+def run_lifecycle_transitions_checks(
+    frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None = None,
+) -> list[dict[str, str]]:
     """Return deterministic checks for Lifecycle transition reduction."""
     if not isinstance(frame.meta, LifecycleTransitionsFrameMeta):
         raise ValueError("Lifecycle transitions quality requires LifecycleFrame[transitions]")
@@ -825,12 +830,15 @@ def run_lifecycle_transitions_checks(frame: LifecycleFrame) -> list[dict[str, st
     return [
         _empty_result_check(df),
         _lifecycle_transitions_row_contract_check(df, frame),
-        _lifecycle_transitions_math_check(df, frame),
-        _lifecycle_source_history_check(frame),
+        _lifecycle_transitions_math_check(df, frame, source_history=source_history),
     ]
 
 
-def run_lifecycle_dwell_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+def run_lifecycle_dwell_checks(
+    frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None = None,
+) -> list[dict[str, str]]:
     """Return deterministic checks for Lifecycle dwell reduction."""
     if not isinstance(frame.meta, LifecycleDwellFrameMeta):
         raise ValueError("Lifecycle dwell quality requires LifecycleFrame[dwell]")
@@ -838,12 +846,15 @@ def run_lifecycle_dwell_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
     return [
         _empty_result_check(df),
         _lifecycle_dwell_row_contract_check(df, frame),
-        _lifecycle_dwell_math_check(df, frame),
-        _lifecycle_source_history_check(frame),
+        _lifecycle_dwell_math_check(df, frame, source_history=source_history),
     ]
 
 
-def run_lifecycle_violations_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+def run_lifecycle_violations_checks(
+    frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None = None,
+) -> list[dict[str, str]]:
     """Return deterministic checks for exposed Lifecycle replay violations."""
     if not isinstance(frame.meta, LifecycleViolationsFrameMeta):
         raise ValueError("Lifecycle violations quality requires LifecycleFrame[violations]")
@@ -851,23 +862,26 @@ def run_lifecycle_violations_checks(frame: LifecycleFrame) -> list[dict[str, str
     return [
         _empty_result_check(df),
         _lifecycle_violations_row_contract_check(df, frame),
-        _lifecycle_violations_math_check(df, frame),
-        _lifecycle_source_history_check(frame),
+        _lifecycle_violations_math_check(df, frame, source_history=source_history),
     ]
 
 
-def run_lifecycle_checks(frame: LifecycleFrame) -> list[dict[str, str]]:
+def run_lifecycle_checks(
+    frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None = None,
+) -> list[dict[str, str]]:
     """Dispatch Lifecycle quality by its closed Phase 3 artifact shape."""
     if frame.meta.semantic_kind == "history":
         return run_lifecycle_history_checks(frame)
     if frame.meta.semantic_kind == "distribution":
-        return run_lifecycle_distribution_checks(frame)
+        return run_lifecycle_distribution_checks(frame, source_history=source_history)
     if frame.meta.semantic_kind == "transitions":
-        return run_lifecycle_transitions_checks(frame)
+        return run_lifecycle_transitions_checks(frame, source_history=source_history)
     if frame.meta.semantic_kind == "dwell":
-        return run_lifecycle_dwell_checks(frame)
+        return run_lifecycle_dwell_checks(frame, source_history=source_history)
     if frame.meta.semantic_kind == "violations":
-        return run_lifecycle_violations_checks(frame)
+        return run_lifecycle_violations_checks(frame, source_history=source_history)
     raise ValueError(f"unsupported LifecycleFrame shape {frame.meta.semantic_kind!r}")
 
 
@@ -1151,24 +1165,10 @@ def _lifecycle_history_count_check(
     )
 
 
-def _lifecycle_frame_dir(
-    frame: LifecycleFrame,
-    *,
-    artifact_ref: str,
-) -> Path:
-    return (
-        Path(frame.meta.project_root)
-        / ".marivo"
-        / "analysis"
-        / "sessions"
-        / frame.meta.session_id
-        / "frames"
-        / artifact_ref
-    )
-
-
 def _load_lifecycle_source_history(
     frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None,
 ) -> tuple[pd.DataFrame, LifecycleHistoryFrameMeta] | None:
     meta = frame.meta
     if not isinstance(
@@ -1181,70 +1181,23 @@ def _load_lifecycle_source_history(
         ),
     ):
         return None
-    frame_dir = _lifecycle_frame_dir(frame, artifact_ref=meta.source_history_ref)
-    data_path = frame_dir / "data.parquet"
-    meta_path = frame_dir / "meta.json"
-    if not data_path.is_file() or not meta_path.is_file():
-        return None
-    try:
-        with _trusted_time_scope_validation():
-            source_meta = LifecycleHistoryFrameMeta.model_validate_json(
-                meta_path.read_text(encoding="utf-8")
-            )
-        source_df = _read_parquet_frame(data_path)
-        trace_path = frame_dir / source_meta.violation_trace.filename
-        if (
-            source_meta.violation_trace.content_hash is None
-            or not trace_path.is_file()
-            or compute_file_content_hash(trace_path) != source_meta.violation_trace.content_hash
-            or len(_read_parquet_frame(trace_path)) != source_meta.violation_trace.row_count
-        ):
-            return None
-    except (OSError, TypeError, ValueError):
-        return None
-    for column in (
-        "subject_identity",
-        "entered_by_event_identity",
-        "exited_by_event_identity",
+    if (
+        source_history is None
+        or not isinstance(source_history.meta, LifecycleHistoryFrameMeta)
+        or source_history.meta.semantic_kind != "history"
     ):
-        if column in source_df:
-            source_df[column] = source_df[column].map(
-                lambda value: (
-                    tuple(value)
-                    if isinstance(value, list)
-                    else tuple(value.tolist())
-                    if callable(getattr(value, "tolist", None)) and isinstance(value.tolist(), list)
-                    else value
-                )
-            )
+        return None
+    source_meta = source_history.meta
+    source_df = source_history._dataframe_copy()
     if (
         source_meta.ref != meta.source_history_ref
         or source_meta.content_hash is None
         or source_meta.content_hash != meta.source_history_fingerprint
-        or compute_frame_content_hash(meta=source_meta, data_path=data_path)
-        != source_meta.content_hash
         or source_meta.state_model_ref != meta.state_model_ref
         or source_meta.state_model_fingerprint != meta.state_model_fingerprint
     ):
         return None
     return source_df, source_meta
-
-
-def _lifecycle_source_history_check(frame: LifecycleFrame) -> dict[str, str]:
-    loaded = _load_lifecycle_source_history(frame)
-    valid = loaded is not None
-    return _result(
-        "lifecycle_source_history",
-        "lifecycle_source_history",
-        "ok" if valid else "blocking",
-        "ok" if valid else "blocking",
-        (
-            "Lifecycle reducer source history and content fingerprint are current"
-            if valid
-            else "Lifecycle reducer source history is missing, corrupt, or stale"
-        ),
-        {"invalid_count": int(not valid)},
-    )
 
 
 def _lifecycle_trace_check(frame: LifecycleFrame) -> dict[str, str]:
@@ -1277,15 +1230,6 @@ def _lifecycle_trace_check(frame: LifecycleFrame) -> dict[str, str]:
                 )
                 for row in trace.to_dict("records")
             )
-    if meta.violation_trace.content_hash is not None:
-        artifact_ref = meta.artifact_id or meta.ref
-        trace_path = (
-            _lifecycle_frame_dir(frame, artifact_ref=artifact_ref) / meta.violation_trace.filename
-        )
-        invalid_count += int(
-            not trace_path.is_file()
-            or compute_file_content_hash(trace_path) != meta.violation_trace.content_hash
-        )
     severity = "blocking" if invalid_count else "ok"
     return _result(
         "lifecycle_trace",
@@ -1547,13 +1491,11 @@ def _source_state_counts(
     instants: tuple[str, ...],
     states: tuple[str, ...],
 ) -> dict[tuple[str, str], int]:
+    canonical_instants = tuple((instant, pd.Timestamp(instant)) for instant in instants)
+    membership = lifecycle_state_membership(source, instants=canonical_instants)
     return {
         (instant, state): int(
-            (
-                (pd.to_datetime(source["valid_from"], utc=True) <= pd.Timestamp(instant))
-                & (pd.to_datetime(source["valid_to"], utc=True) > pd.Timestamp(instant))
-                & (source["model_state"] == state)
-            ).sum()
+            ((membership["as_of"] == instant) & (membership["model_state"] == state)).sum()
         )
         for instant in instants
         for state in states
@@ -1563,9 +1505,11 @@ def _source_state_counts(
 def _lifecycle_distribution_reconciliation_check(
     df: pd.DataFrame,
     frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None,
 ) -> dict[str, str]:
     meta = cast("LifecycleDistributionFrameMeta", frame.meta)
-    loaded = _load_lifecycle_source_history(frame)
+    loaded = _load_lifecycle_source_history(frame, source_history=source_history)
     invalid_count = 0
     hash_matches = False
     if loaded is None:
@@ -1671,9 +1615,11 @@ def _dataframes_match(
 def _lifecycle_transitions_math_check(
     df: pd.DataFrame,
     frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None,
 ) -> dict[str, str]:
     meta = cast("LifecycleTransitionsFrameMeta", frame.meta)
-    loaded = _load_lifecycle_source_history(frame)
+    loaded = _load_lifecycle_source_history(frame, source_history=source_history)
     invalid_count = 0
     if loaded is None:
         invalid_count = 1
@@ -1725,9 +1671,11 @@ def _lifecycle_dwell_row_contract_check(
 def _lifecycle_dwell_math_check(
     df: pd.DataFrame,
     frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None,
 ) -> dict[str, str]:
     meta = cast("LifecycleDwellFrameMeta", frame.meta)
-    loaded = _load_lifecycle_source_history(frame)
+    loaded = _load_lifecycle_source_history(frame, source_history=source_history)
     invalid_count = 0
     if loaded is None:
         invalid_count = 1
@@ -1791,28 +1739,29 @@ def _lifecycle_violations_row_contract_check(
 def _lifecycle_violations_math_check(
     df: pd.DataFrame,
     frame: LifecycleFrame,
+    *,
+    source_history: LifecycleFrame | None,
 ) -> dict[str, str]:
     meta = cast("LifecycleViolationsFrameMeta", frame.meta)
-    loaded = _load_lifecycle_source_history(frame)
+    loaded = _load_lifecycle_source_history(frame, source_history=source_history)
     invalid_count = 0
     if loaded is None:
         invalid_count = 1
     else:
         _source, source_meta = loaded
-        source_dir = _lifecycle_frame_dir(
-            frame,
-            artifact_ref=meta.source_history_ref,
+        trace = (
+            source_history._auxiliary_frames.get(source_meta.violation_trace.filename)
+            if source_history is not None
+            else None
         )
-        trace_path = source_dir / source_meta.violation_trace.filename
         if (
-            not trace_path.is_file()
+            trace is None
             or source_meta.violation_trace.content_hash is None
-            or compute_file_content_hash(trace_path) != source_meta.violation_trace.content_hash
             or source_meta.violation_trace.content_hash != meta.source_trace_content_hash
         ):
             invalid_count += 1
         else:
-            trace = _read_parquet_frame(trace_path)
+            trace = trace.copy()
             for column in ("subject_identity", "trigger_event_identity"):
                 trace[column] = trace[column].map(
                     lambda value: (
@@ -1865,8 +1814,8 @@ def _result(
         "severity": severity,
         "message": message,
         "details_json": json.dumps(details, sort_keys=True, default=str),
-        # Empty string is an internal row-builder sentinel. assess_quality()
-        # normalizes it to a persisted null before constructing QualityReport.
+        # Empty string is an internal row-builder sentinel. Construction-time
+        # evaluation normalizes it before persisting QualityReport rows.
         "metric_id": metric_id or "",
     }
 
@@ -1912,7 +1861,7 @@ def _measure_targets(frame: MetricFrame) -> list[tuple[str, str | None]]:
     bindings = frame.meta.measure_bindings
     targets: list[tuple[str, str | None]] = [
         (binding.value_column, metric_id)
-        for binding, metric_id in zip(bindings, frame.metrics, strict=True)
+        for binding, metric_id in zip(bindings, frame.metrics, strict=False)
     ]
     if bindings and frame.arity > 1:
         return targets
@@ -2055,7 +2004,13 @@ def _value_density_checks(df: pd.DataFrame, frame: MetricFrame) -> list[dict[str
 
 
 def _time_axis(frame: MetricFrame) -> tuple[str, str]:
-    return metric_time_axis(frame)
+    column, grain = metric_time_axis(frame)
+    if column == "time" and "bucket_start" in frame._df.columns:
+        # Semantic-period grains retain their physical bucket boundary but do
+        # not have a governed TimeDimension axis binding.  The persisted
+        # temporal contract still makes bucket_start authoritative.
+        return "bucket_start", grain
+    return column, grain
 
 
 def _time_coverage_check(

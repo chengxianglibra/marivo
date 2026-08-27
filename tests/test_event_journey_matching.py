@@ -25,9 +25,9 @@ from marivo.analysis.errors import (
     SubjectSetMismatchError,
 )
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope
+from marivo.analysis.frames._quality_checks import run_event_funnel_checks
 from marivo.analysis.intents import _subject_cohort as subject_cohort_intent
 from marivo.analysis.intents import events as events_intent
-from marivo.analysis.intents._quality_checks import run_event_funnel_checks
 from marivo.analysis.intents.events import (
     _coverage,
     _identity_sort_key,
@@ -1282,14 +1282,14 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
         "events.funnel",
         "events.time_to_event",
         "select_subjects",
-        "assess_quality",
+        "BaseFrame.quality_report",
     }.issubset(journey_affordances)
     assert {item.capability_id for item in funnel.contract().affordances} == {
-        "assess_quality",
+        "BaseFrame.quality_report",
         "compare",
     }
     assert {item.capability_id for item in time_to_payment.contract().affordances} == {
-        "assess_quality"
+        "BaseFrame.quality_report"
     }
 
     for artifact in (funnel, grouped_funnel, time_to_payment, grouped_time_to_payment):
@@ -1302,10 +1302,14 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
             check_dtype=False,
         )
 
-    funnel_quality = session.assess_quality(funnel)
-    grouped_funnel_quality = session.assess_quality(grouped_funnel)
-    duration_quality = session.assess_quality(time_to_payment)
-    grouped_duration_quality = session.assess_quality(grouped_time_to_payment)
+    funnel_quality = funnel.quality_report()
+    grouped_funnel_quality = grouped_funnel.quality_report()
+    duration_quality = time_to_payment.quality_report()
+    grouped_duration_quality = grouped_time_to_payment.quality_report()
+    assert funnel_quality is not None
+    assert grouped_funnel_quality is not None
+    assert duration_quality is not None
+    assert grouped_duration_quality is not None
     assert funnel_quality.meta.report_shape == "event_funnel"
     assert grouped_funnel_quality.meta.report_shape == "event_funnel"
     assert duration_quality.meta.report_shape == "event_time_to_event"
@@ -1314,10 +1318,10 @@ def test_phase2_public_reducers_persist_recover_and_preserve_source_assignment(
     assert grouped_funnel_quality.meta.blocking_issue_count == 0
     assert duration_quality.meta.blocking_issue_count == 0
     assert grouped_duration_quality.meta.blocking_issue_count == 0
-    assert funnel_quality.evidence_status == "complete"
-    assert grouped_funnel_quality.evidence_status == "complete"
-    assert duration_quality.evidence_status == "complete"
-    assert grouped_duration_quality.evidence_status == "complete"
+    assert funnel_quality.evidence_status == "unavailable"
+    assert grouped_funnel_quality.evidence_status == "unavailable"
+    assert duration_quality.evidence_status == "unavailable"
+    assert grouped_duration_quality.evidence_status == "unavailable"
 
 
 def test_time_to_event_rejects_axis_colliding_with_emitted_row_columns(

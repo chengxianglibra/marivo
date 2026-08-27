@@ -17,7 +17,7 @@ import marivo.analysis.evidence.pipeline as pipeline_module
 from marivo._compat import UTC
 from marivo.analysis._semantic_persistence import MeasureBindingV1
 from marivo.analysis.attribution_contract import AttributionAxisBindingV1
-from marivo.analysis.errors import SessionLockedByAnotherProcessError
+from marivo.analysis.errors import ArtifactQualityError, SessionLockedByAnotherProcessError
 from marivo.analysis.evidence.audit import query_findings
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -78,6 +78,9 @@ def _attribution_frame(tmp_path: Path) -> AttributionFrame:
             "region": ["US", "CA"],
             "contribution": [2.0, 1.0],
             "share_of_total_delta": [2.0 / 3.0, 1.0 / 3.0],
+            "share_of_positive_pool": [2.0 / 3.0, 1.0 / 3.0],
+            "share_of_negative_pool": [None, None],
+            "rank": [1, 2],
         }
     )
     meta = AttributionFrameMeta(
@@ -109,7 +112,7 @@ def _attribution_frame(tmp_path: Path) -> AttributionFrame:
             ),
         ),
         reconciliation=AttributionReconciliation(
-            partition_count=2,
+            partition_count=1,
             total_delta=3.0,
             contribution_sum=3.0,
             residual=0.0,
@@ -863,11 +866,10 @@ def test_attribution_extract_failure_non_blocking_with_typed_repair(
         store.close()
 
 
-def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
+def test_attribution_unreconciled_is_rejected_before_evidence_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Issue #68: without verified reconciliation the evidence_partial stays
-    blocking, but still carries a typed repair and real error category."""
+    """Blocking construction quality prevents any Artifact publication."""
 
     def fail_extract(**kwargs):
         raise ValidationError.from_exception_data(
@@ -886,29 +888,22 @@ def test_attribution_extract_failure_unreconciled_stays_blocking_with_repair(
     frame.meta = frame.meta.model_copy(update={"reconciliation": None})
     evidence_store = open_evidence_store(tmp_path / "judgment.db")
     try:
-        result = commit_result(
-            session=None,
-            store=evidence_store,
-            frames_dir=tmp_path / "frames",
-            frame=frame,
-            step_type="attribute",
-            inputs=CommitInputs(input_refs=["frame_delta"]),
-            params=CommitParams(values={"axes": ["region"], "metric": "sales.revenue"}),
-            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
-            subject=Subject(analysis_axis="decomposition"),
-            extractor_family="attribution_frame",
-        )
-        assert result.evidence_status == "partial"
-        issue = next(
-            item
-            for item in result.meta.issues
-            if isinstance(item, EvidenceAvailabilityIssue) and item.kind == "evidence_partial"
-        )
-        assert issue.severity == "blocking"
-        assert issue.stable_error_category == "ValidationError"
-        assert issue.repair is not None
-        assert issue.repair.kind == "inspect"
-        assert issue.repair.help_target.canonical_id == "attribute"
+        with pytest.raises(ArtifactQualityError) as excinfo:
+            commit_result(
+                session=None,
+                store=evidence_store,
+                frames_dir=tmp_path / "frames",
+                frame=frame,
+                step_type="attribute",
+                inputs=CommitInputs(input_refs=["frame_delta"]),
+                params=CommitParams(values={"axes": ["region"], "metric": "sales.revenue"}),
+                semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+                subject=Subject(analysis_axis="decomposition"),
+                extractor_family="attribution_frame",
+            )
+        assert excinfo.value._context["failed_checks"]
+        assert evidence_store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+        assert not (tmp_path / "frames").exists()
     finally:
         evidence_store.close()
 

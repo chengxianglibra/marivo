@@ -2805,6 +2805,8 @@ def _persist_transform_frame(
         meta_payload["comparable_value_semantics_ref"] = None
         meta_payload["component_ref"] = None
         meta_payload["quality_ref"] = None
+        meta_payload["quality_report"] = None
+        meta_payload["issues"] = ()
         meta_payload["coverage_ref"] = None
         meta_payload["coverage_summary"] = None
         comparable = parent.meta.comparable_value_semantics
@@ -2852,7 +2854,12 @@ def _persist_transform_frame(
                 fingerprint=fingerprint(comparable_payload),
             )
         metric_meta = MetricFrameMeta(**meta_payload)
-        frame: MetricFrame | DeltaFrame = MetricFrame(_df=df.copy(), meta=metric_meta)
+        persisted_df = df.copy()
+        if parent.arity == 1 and "value" not in persisted_df.columns:
+            public_value_column = parent.value_columns[0]
+            if public_value_column in persisted_df.columns:
+                persisted_df = persisted_df.rename(columns={public_value_column: "value"})
+        frame: MetricFrame | DeltaFrame = MetricFrame(_df=persisted_df, meta=metric_meta)
         grain = None
         time_axis = metric_meta.axes.get("time")
         if isinstance(time_axis, dict):

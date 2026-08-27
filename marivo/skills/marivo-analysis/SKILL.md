@@ -40,7 +40,7 @@ It is a conceptual route, not an exhaustive API inventory.
 | Are two observed metrics associated? | `session.correlate(...)` | Measures statistical association without making a causal claim. |
 | Does an explicit paired hypothesis hold? | `session.hypothesis_test(...)` | Tests prepared compatible metric artifacts under a typed sampling contract. |
 | What may happen in future buckets? | `session.forecast(...)` | Projects a time-series or panel `MetricFrame`. |
-| Is an artifact trustworthy enough to use? | `session.assess_quality(...)` | Checks supported artifact quality, coverage, and preconditions. |
+| Is a published artifact trustworthy enough to use? | `frame.quality_report()` | Reads the fixed construction-time checks already committed with the artifact. |
 | What happened across an Event journey? | `session.events.match/funnel/time_to_event(...)` | Matches typed journeys, reduces funnels, or measures elapsed time. |
 | What happened in a governed StateModel? | `session.lifecycle.replay/distribution/transitions/dwell/violations(...)` | Replays canonical state history and applies lifecycle reducers. |
 | Which exact subjects should continue into another typed branch? | `session.select_subjects(...)` | Materializes a closed `SubjectSet` from Event loss or Lifecycle state. |
@@ -123,10 +123,13 @@ For every material result, check the facts that can change its interpretation:
 - whether the result is an observation, association, projection, or hypothesis
   test rather than causal evidence.
 
-Use the focused `assess_quality` flow for material supported artifacts. Preserve
-warnings and partial coverage; do not turn absence into zero, association into
-causation, a point forecast into certainty, or a segment result into a
-population claim.
+Supported Frame families run fixed quality checks automatically before
+publication. A blocking `ArtifactQualityError` means no usable Artifact was
+published. For a material published result, inspect `frame.quality_summary` and
+read `frame.quality_report()` when check-level detail matters; this is a
+read-only sidecar lookup and does not create a job. Preserve warnings and
+partial coverage; do not turn absence into zero, association into causation, a
+point forecast into certainty, or a segment result into a population claim.
 
 ### 5. Synthesize, hand off, or stop
 

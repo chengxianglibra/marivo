@@ -130,37 +130,6 @@ def test_load_frame_round_trips_forecast_frame():
     assert loaded.to_pandas().iloc[0]["forecast"] == 12.0
 
 
-def test_load_frame_round_trips_quality_report():
-    from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
-    from marivo.analysis.session._runtime import persist_frame
-
-    session = session_attach.get_or_create(name="demo")
-    frame = QualityReport(
-        _df=pd.DataFrame({"check": ["missing_values"], "status": ["ok"]}),
-        meta=QualityReportMeta(
-            **_base_meta(session, kind="quality_report", ref="frame_quality"),
-            source_refs=["frame_metric"],
-            report_shape="metric",
-            target_kind="metric_frame",
-            target_metric_id="sales.revenue",
-            target_semantic_model="sales",
-            target_semantic_kind="time_series",
-            checks_run=["missing_values"],
-            overall_status="ok",
-            blocking_issue_count=0,
-            warning_count=0,
-        ),
-    )
-    frame.meta = persist_frame(session, frame)
-
-    loaded = session.get_frame("frame_quality")
-
-    assert isinstance(loaded, QualityReport)
-    assert loaded.meta.kind == "quality_report"
-    assert loaded.meta.overall_status == "ok"
-    assert loaded.to_pandas().iloc[0]["check"] == "missing_values"
-
-
 def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
     from tests.shared_fixtures import seeded_time_series_metric_frame
 
@@ -172,13 +141,11 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
     outputs = [
         session.hypothesis_test(frame, frame),
         session.forecast(frame, horizon=2, model="naive"),
-        session.assess_quality(frame),
     ]
 
     assert [session.get_frame(output.ref).meta.kind for output in outputs] == [
         "hypothesis_test_result",
         "forecast_frame",
-        "quality_report",
     ]
 
 
@@ -347,8 +314,8 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
     # got/expected must be visible through public fields (not only private
     # context) so an agent can see what was read vs what is required.
     assert exc_info.value.received == (schema_version or "<missing>")
-    assert exc_info.value.expected == "analysis-artifact/v10"
-    assert "analysis-artifact/v10" in str(exc_info.value)
+    assert exc_info.value.expected == "analysis-artifact/v11"
+    assert "analysis-artifact/v11" in str(exc_info.value)
     # A cutover is expected: the repair must tell the agent to re-run analysis.
     assert exc_info.value.repair is not None
     assert "recreate" in exc_info.value.message
@@ -357,10 +324,10 @@ def test_registered_frame_rejects_every_non_current_artifact_schema(schema_versi
 
 
 def test_current_artifact_schema_version_is_v10():
-    """Producers write analysis-artifact/v10 and the loader accepts only v10."""
+    """Producers write analysis-artifact/v11 and the loader accepts only v11."""
     from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 
-    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v10"
+    assert CURRENT_ARTIFACT_SCHEMA_VERSION == "analysis-artifact/v11"
 
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
@@ -372,7 +339,7 @@ def test_current_artifact_schema_version_is_v10():
         semantic_model="custom",
         session=session,
     )
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v10"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v11"
 
 
 def test_cross_session_frame_raises_cross_session_frame_error():

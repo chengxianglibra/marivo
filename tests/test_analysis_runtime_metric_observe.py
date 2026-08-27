@@ -175,14 +175,13 @@ def test_observe_uses_runtime_expression_labels_as_output_columns(
 
 
 def test_multi_metric_quality_preserves_runtime_expression_identity(runtime_session) -> None:
-    from marivo.analysis.evidence.types import QualityCheckResult
-
     amount = _measure_ref(runtime_session)
     runtime_total = mv.runtime_metric.aggregate(amount, agg="sum", label="runtime_total")
     catalog_metric = runtime_session.catalog.require(ms.ref.metric("sales.measure_revenue")).ref
     frame = runtime_session.observe([runtime_total, catalog_metric])
 
-    report = runtime_session.assess_quality(frame)
+    report = frame.quality_report()
+    assert report is not None
     rows = report.to_pandas()
     runtime_id = frame.metrics[0]
 
@@ -195,14 +194,9 @@ def test_multi_metric_quality_preserves_runtime_expression_identity(runtime_sess
     ]
     assert rows["metric_id"].tolist() == [None, None, runtime_id, "sales.measure_revenue"]
     assert report.meta.target_metric_id is None
-    assert report.evidence_digest is not None
-    runtime_check = next(
-        item
-        for item in report.evidence_digest.items
-        if isinstance(item, QualityCheckResult) and item.check_id == "null_ratio:runtime_total"
-    )
-    assert runtime_check.subject.metric == runtime_id
-    assert runtime_check.scope.metric_ids == (runtime_id,)
+    assert report.evidence_digest is None
+    assert report.meta.analysis_scope is not None
+    assert report.meta.analysis_scope.metric_ids == (runtime_id, "sales.measure_revenue")
 
 
 def test_observe_runtime_aggregate_materializes_typed_artifact(runtime_session) -> None:
@@ -1049,11 +1043,11 @@ def test_current_metric_frame_rejects_omitted_graph_identity_state(runtime_sessi
     meta_path.write_text(json.dumps(payload))
 
     with pytest.raises(
-        FrameMetaInvalidError, match="is missing required analysis-artifact/v10 fields"
+        FrameMetaInvalidError, match="is missing required analysis-artifact/v11 fields"
     ) as exc_info:
         runtime_session.get_frame(frame.ref)
     assert removed <= set(exc_info.value._context["missing_fields"])
-    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v10"
+    assert exc_info.value._context["artifact_schema_version"] == "analysis-artifact/v11"
 
 
 def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_session) -> None:
@@ -1081,9 +1075,9 @@ def test_legacy_v6_metric_frame_is_rejected_as_unsupported_schema(runtime_sessio
     assert "analysis-artifact/v6" in message
     # got/expected must be reachable through public fields and str(e).
     assert exc_info.value.received == "analysis-artifact/v6"
-    assert exc_info.value.expected == "analysis-artifact/v10"
+    assert exc_info.value.expected == "analysis-artifact/v11"
     assert "analysis-artifact/v6" in str(exc_info.value)
-    assert "analysis-artifact/v10" in str(exc_info.value)
+    assert "analysis-artifact/v11" in str(exc_info.value)
     # The failure is a schema cutover, not a v6 missing field.
     assert "missing_fields" not in exc_info.value._context
     # The agent must get an executable repair telling it to regenerate the frame.

@@ -484,26 +484,6 @@ def test_failed_session_question_update_reports_not_applied(
     assert mv.session.inspect("demo").summary.question == "Original question"
 
 
-def test_analysis_purpose_and_repair_survive_pre_persistence_failure(
-    telemetry_project: Path,
-) -> None:
-    session = mv.session.get_or_create(
-        name="demo", backend_factory=lambda _name: None, use_datasources=False
-    )
-
-    with pytest.raises(mv.errors.AnalysisError):
-        session.assess_quality(object(), analysis_purpose="check whether evidence is usable")
-
-    path = _event_path(telemetry_project)
-    completed = _attrs(_capability_records(path, "assess_quality")[-1])
-    assert completed["marivo.operation.status"] == "error"
-    assert completed["marivo.analysis.purpose"] == "check whether evidence is usable"
-    assert completed["marivo.error.domain"] == "analysis"
-    assert completed["marivo.error.class"] == "AnalysisError"
-    assert completed["marivo.repair.kind"] == "retry"
-    assert "marivo.phase.validate.duration_ms" in completed
-
-
 def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
     telemetry_project: Path,
 ) -> None:

@@ -66,6 +66,7 @@ from marivo.analysis.frames._meta_defaults import (
     compute_analysis_scope,
     observed_data_extent_end,
 )
+from marivo.analysis.frames._quality import evaluate_frame_quality
 from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION
 from marivo.analysis.frames.metric import MetricExecutionStatsV1, MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.subject import SubjectSet
@@ -1792,6 +1793,7 @@ def observe(
         frame.meta = frame.meta.model_copy(
             update={"issues": _unit_capability_issues(frame, root_execution)}
         )
+        evaluate_frame_quality(frame, artifact_id=frame.ref)
         grain_token = (
             resolved_window.grain.to_token()
             if resolved_window is not None and resolved_window.grain is not None
@@ -2724,6 +2726,7 @@ def _observe_metric_forest(
         rollup_fold=("last" if cumulative_has_evaluation_contract(cumulative_meta) else None),
     )
     frame = MetricFrame(_df=merged, meta=meta)
+    evaluate_frame_quality(frame, artifact_id=frame.ref)
     frame.meta = frame.meta.model_copy(
         update={
             "issues": tuple(
